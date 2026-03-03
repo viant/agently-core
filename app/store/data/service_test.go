@@ -1068,6 +1068,68 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 			t.Fatalf("expected at most 1 tool message row with selector limit, got %d", len(got.Transcript[0].Message[0].ToolMessage))
 		}
 	})
+
+	t.Run("message rows selector data-driven", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			limit   int
+			offset  int
+			orderBy string
+			wantIDs []string
+		}{
+			{
+				name:    "first latest row",
+				limit:   1,
+				offset:  0,
+				orderBy: "created_at DESC,id DESC",
+				wantIDs: []string{"m-main-tool-2"},
+			},
+			{
+				name:    "second latest row",
+				limit:   1,
+				offset:  1,
+				orderBy: "created_at DESC,id DESC",
+				wantIDs: []string{"m-main-tool-1"},
+			},
+			{
+				name:    "window with offset",
+				limit:   2,
+				offset:  1,
+				orderBy: "created_at DESC,id DESC",
+				wantIDs: []string{"m-main-tool-1", "m-main"},
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				page, err := svc.GetMessagesPage(
+					ctx,
+					&agmessagelist.MessageRowsInput{
+						ConversationId: "c-main",
+						Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
+					},
+					&PageInput{Limit: 10, Direction: DirectionLatest},
+					WithQuerySelector(&hstate.NamedQuerySelector{
+						Name: "message_rows",
+						QuerySelector: hstate.QuerySelector{
+							Limit:   tc.limit,
+							Offset:  tc.offset,
+							OrderBy: tc.orderBy,
+						},
+					}),
+				)
+				if err != nil {
+					t.Fatalf("GetMessagesPage() error: %v", err)
+				}
+
+				gotIDs := make([]string, 0, len(page.Rows))
+				for _, row := range page.Rows {
+					gotIDs = append(gotIDs, row.Id)
+				}
+				assertIDs(t, gotIDs, tc.wantIDs)
+			})
+		}
+	})
 }
 
 func TestDataService_PagedReads_DataDriven(t *testing.T) {
@@ -2175,7 +2237,7 @@ func TestDataService_ConversationPermissions(t *testing.T) {
 	if err != nil || shareable == nil {
 		t.Fatalf("shareable conversation should be accessible by id, err=%v value=%#v", err, shareable)
 	}
-	if shareable.Shareable == nil || *shareable.Shareable != 1 {
+	if shareable.Shareable != 1 {
 		t.Fatalf("expected shareable flag to be set, got %#v", shareable.Shareable)
 	}
 

@@ -89,7 +89,17 @@ export class AgentlyClient {
         if (input?.agentId) q.set('agentId', input.agentId);
         if (input?.status) q.set('status', input.status);
         this.applyPage(q, input?.page);
-        return this.get('/conversations', q);
+        const out = await this.get('/conversations', q);
+        if (Array.isArray(out?.Rows)) {
+            return {
+                data: out.Rows,
+                page: {
+                    cursor: out.NextCursor,
+                    hasMore: out.HasMore,
+                },
+            };
+        }
+        return out;
     }
 
     /** Get a single conversation by ID. */
@@ -114,7 +124,17 @@ export class AgentlyClient {
         if (input.roles?.length) q.set('roles', input.roles.join(','));
         if (input.types?.length) q.set('types', input.types.join(','));
         this.applyPage(q, input.page);
-        return this.get('/messages', q);
+        const out = await this.get('/messages', q);
+        if (Array.isArray(out?.Rows)) {
+            return {
+                data: out.Rows,
+                page: {
+                    cursor: out.NextCursor,
+                    hasMore: out.HasMore,
+                },
+            };
+        }
+        return out;
     }
 
     // ── Transcript ───────────────────────────────────────────────────────────
@@ -257,7 +277,10 @@ export class AgentlyClient {
     /** List pending elicitation prompts for a conversation. */
     async listPendingElicitations(conversationId: string): Promise<PendingElicitation[]> {
         const q = new URLSearchParams({ conversationId });
-        return this.get('/elicitations', q);
+        const out = await this.get('/elicitations', q);
+        if (Array.isArray(out?.rows)) return out.rows;
+        if (Array.isArray(out)) return out;
+        return [];
     }
 
     /** Resolve a pending elicitation with user response. */
@@ -282,7 +305,10 @@ export class AgentlyClient {
         if (input?.userId) q.set('userId', input.userId);
         if (input?.conversationId) q.set('conversationId', input.conversationId);
         if (input?.status) q.set('status', input.status);
-        return this.get('/tool-approvals/pending', q);
+        const out = await this.get('/tool-approvals/pending', q);
+        if (Array.isArray(out?.rows)) return out.rows;
+        if (Array.isArray(out)) return out;
+        return [];
     }
 
     /** Approve or reject a queued tool execution. */
@@ -402,8 +428,11 @@ export class AgentlyClient {
     /** List agent IDs that have A2A serving enabled. */
     async listA2AAgents(agentIds?: string[]): Promise<string[]> {
         const q = new URLSearchParams();
-        if (agentIds?.length) q.set('agentIds', agentIds.join(','));
-        return this.get('/api/a2a/agents', q);
+        if (agentIds?.length) q.set('ids', agentIds.join(','));
+        const out = await this.get('/api/a2a/agents', q);
+        if (Array.isArray(out?.agents)) return out.agents;
+        if (Array.isArray(out)) return out;
+        return [];
     }
 
     // ── Internal HTTP ────────────────────────────────────────────────────────
@@ -502,9 +531,9 @@ export class AgentlyClient {
 
     private applyPage(q: URLSearchParams, page?: { limit?: number; cursor?: string; direction?: string }) {
         if (!page) return;
-        if (page.limit) q.set('page.limit', String(page.limit));
-        if (page.cursor) q.set('page.cursor', page.cursor);
-        if (page.direction) q.set('page.direction', page.direction);
+        if (page.limit) q.set('limit', String(page.limit));
+        if (page.cursor) q.set('cursor', page.cursor);
+        if (page.direction) q.set('direction', page.direction);
     }
 }
 

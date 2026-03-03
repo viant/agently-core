@@ -34,7 +34,7 @@ type RunRowsInput struct {
 	WorkerId         string           `parameter:",kind=query,in=workerId" predicate:"equal,group=0,t,worker_id"`
 	RunStatus        string           `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
 	ExcludeStatuses  []string         `parameter:",kind=query,in=excludeStatuses" predicate:"not_in,group=0,t,status"`
-	DefaultPredicate string           `parameter:",kind=const,in=value" predicate:"handler,group=0,*run.Filter" value:"0"`
+	DefaultPredicate string           `parameter:",kind=const,in=value" predicate:"handler,group=0,*runfilter.Filter" value:"0"`
 	Has              *RunRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 

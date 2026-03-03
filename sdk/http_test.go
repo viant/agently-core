@@ -161,3 +161,68 @@ func TestHandler_Healthz(t *testing.T) {
 		t.Fatalf("unexpected health response: %#v", body)
 	}
 }
+
+type spyMessagesClient struct {
+	*HTTPClient
+	gotInput *GetMessagesInput
+}
+
+func (s *spyMessagesClient) GetMessages(_ context.Context, input *GetMessagesInput) (*MessagePage, error) {
+	s.gotInput = input
+	return &MessagePage{}, nil
+}
+
+func TestHandler_GetMessages_ParsesPageParams(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyMessagesClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/messages?conversationId=c1&turnId=t1&roles=user,assistant&types=text,tool&limit=3&cursor=m42&direction=before", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotInput == nil {
+		t.Fatalf("expected GetMessages to be called")
+	}
+	if spy.gotInput.ConversationID != "c1" || spy.gotInput.TurnID != "t1" {
+		t.Fatalf("unexpected base filters: %#v", spy.gotInput)
+	}
+	if len(spy.gotInput.Roles) != 2 || spy.gotInput.Roles[0] != "user" || spy.gotInput.Roles[1] != "assistant" {
+		t.Fatalf("unexpected roles: %#v", spy.gotInput.Roles)
+	}
+	if len(spy.gotInput.Types) != 2 || spy.gotInput.Types[0] != "text" || spy.gotInput.Types[1] != "tool" {
+		t.Fatalf("unexpected types: %#v", spy.gotInput.Types)
+	}
+	if spy.gotInput.Page == nil {
+		t.Fatalf("expected page input to be parsed")
+	}
+	if spy.gotInput.Page.Limit != 3 || spy.gotInput.Page.Cursor != "m42" || spy.gotInput.Page.Direction != DirectionBefore {
+		t.Fatalf("unexpected page input: %#v", spy.gotInput.Page)
+	}
+}
+
+func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyMessagesClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/messages?conversationId=c1&limit=abc", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotInput != nil {
+		t.Fatalf("GetMessages should not be called on invalid limit")
+	}
+}

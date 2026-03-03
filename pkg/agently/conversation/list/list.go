@@ -32,13 +32,13 @@ type ConversationRowsInput struct {
 	ParentTurnId     string                    `parameter:",kind=query,in=parentTurnId" predicate:"equal,group=0,c,conversation_parent_turn_id"`
 	ScheduleId       string                    `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,c,schedule_id"`
 	ScheduleRunId    string                    `parameter:",kind=query,in=scheduleRunId" predicate:"equal,group=0,c,schedule_run_id"`
-	Query            string                    `parameter:",kind=query,in=q" predicate:"expr,group=0,LOWER(c.id || ' ' || CASE WHEN c.title IS NULL THEN '' ELSE c.title END || ' ' || CASE WHEN c.summary IS NULL THEN '' ELSE c.summary END) LIKE '%' || LOWER(?) || '%'"`
+	Query            string                    `parameter:",kind=query,in=q" predicate:"expr,group=0,LOWER(c.id || ' ' || (CASE WHEN c.title IS NULL THEN '' ELSE c.title END) || ' ' || (CASE WHEN c.summary IS NULL THEN '' ELSE c.summary END)) LIKE '%' || LOWER(?) || '%'"`
 	StatusFilter     string                    `parameter:",kind=query,in=status" predicate:"equal,group=0,c,status"`
 	CreatedSince     time.Time                 `parameter:",kind=query,in=createdSince" predicate:"greater_or_equal,group=0,c,created_at"`
 	CreatedBefore    time.Time                 `parameter:",kind=query,in=createdBefore" predicate:"less_or_equal,group=0,c,created_at"`
 	CursorBefore     string                    `parameter:",kind=query,in=cursorBefore" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id)))"`
 	CursorAfter      string                    `parameter:",kind=query,in=cursorAfter" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id)))"`
-	DefaultPredicate string                    `parameter:",kind=const,in=value" predicate:"handler,group=0,*conversation.Filter" value:"0"`
+	DefaultPredicate string                    `parameter:",kind=const,in=value" predicate:"handler,group=0,*conversationlist.Filter" value:"0"`
 	Has              *ConversationRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -84,7 +84,7 @@ type ConversationRowsView struct {
 	ConversationParentTurnId *string    `sqlx:"conversation_parent_turn_id"`
 	Metadata                 *string    `sqlx:"metadata"`
 	Visibility               string     `sqlx:"visibility"`
-	Shareable                *int       `sqlx:"shareable"`
+	Shareable                int        `sqlx:"shareable"`
 	Status                   *string    `sqlx:"status"`
 	Scheduled                *int       `sqlx:"scheduled"`
 	ScheduleId               *string    `sqlx:"schedule_id"`
