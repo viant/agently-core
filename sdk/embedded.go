@@ -21,6 +21,12 @@ import (
 	agrun "github.com/viant/agently-core/pkg/agently/run"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
+	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	agturnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
+	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
+	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -37,6 +43,14 @@ type toolApprovalQueueLister interface {
 
 type toolApprovalQueuePatcher interface {
 	PatchToolApprovalQueue(ctx context.Context, queue *queueWrite.ToolApprovalQueue) error
+}
+
+type turnQueueLister interface {
+	ListTurnQueueRows(ctx context.Context, in *turnqueueread.QueueRowsInput) ([]*turnqueueread.QueueRowView, error)
+}
+
+type turnQueuePatcher interface {
+	PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error
 }
 
 type EmbeddedClient struct {
@@ -289,11 +303,23 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 	}
 	var page *PageInput
 	agentID := ""
+	query := ""
+	status := ""
 	if input != nil {
 		if strings.TrimSpace(input.AgentID) != "" {
 			agentID = strings.TrimSpace(input.AgentID)
 			in.AgentId = agentID
 			in.Has.AgentId = true
+		}
+		if strings.TrimSpace(input.Query) != "" {
+			query = strings.TrimSpace(input.Query)
+			in.Query = query
+			in.Has.Query = true
+		}
+		if strings.TrimSpace(input.Status) != "" {
+			status = strings.TrimSpace(input.Status)
+			in.StatusFilter = status
+			in.Has.StatusFilter = true
 		}
 		page = input.Page
 	}
@@ -321,6 +347,17 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 		}
 		if agentID != "" && strings.TrimSpace(valueOrEmpty(item.AgentId)) != agentID {
 			continue
+		}
+		if status != "" && !strings.EqualFold(strings.TrimSpace(valueOrEmpty(item.Status)), status) {
+			continue
+		}
+		if query != "" {
+			text := strings.ToLower(strings.TrimSpace(
+				valueOrEmpty(item.Title) + " " + valueOrEmpty(item.Summary) + " " + item.Id,
+			))
+			if !strings.Contains(text, strings.ToLower(query)) {
+				continue
+			}
 		}
 		rows = append(rows, &agconvlist.ConversationRowsView{
 			Id:                   item.Id,
@@ -354,6 +391,328 @@ func (c *EmbeddedClient) CancelTurn(ctx context.Context, turnID string) (bool, e
 		return false, errors.New("cancel registry not configured")
 	}
 	return c.cancelRegistry.CancelTurn(turnID), nil
+}
+
+func (c *EmbeddedClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*SteerTurnOutput, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	if c.data == nil || c.conv == nil {
+		return nil, errors.New("data service not configured")
+	}
+	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+		ID:             strings.TrimSpace(input.TurnID),
+		ConversationID: strings.TrimSpace(input.ConversationID),
+		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+	})
+	if err != nil {
+		if isTurnLookupUnavailable(err) {
+			return nil, newConflictError("turn not found")
+		}
+		return nil, err
+	}
+	if turn == nil {
+		return nil, newConflictError("turn not found")
+	}
+	status := strings.ToLower(strings.TrimSpace(turn.Status))
+	if status != "running" && status != "waiting_for_user" {
+		return nil, newConflictError(fmt.Sprintf("turn is not currently running: %s", turn.Status))
+	}
+	content := strings.TrimSpace(input.Content)
+	if content == "" {
+		return nil, errors.New("content is required")
+	}
+	role := strings.TrimSpace(input.Role)
+	if role == "" {
+		role = "user"
+	}
+	msg := conversation.NewMessage()
+	msg.SetId(uuid.NewString())
+	msg.SetConversationID(strings.TrimSpace(input.ConversationID))
+	msg.SetTurnID(strings.TrimSpace(input.TurnID))
+	msg.SetRole(role)
+	msg.SetType("task")
+	msg.SetContent(content)
+	msg.SetCreatedAt(time.Now())
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		msg.SetCreatedByUserID(userID)
+	}
+	if err := c.conv.PatchMessage(ctx, msg); err != nil {
+		return nil, err
+	}
+	return &SteerTurnOutput{MessageID: msg.Id, TurnID: input.TurnID, Status: "accepted"}, nil
+}
+
+func (c *EmbeddedClient) CancelQueuedTurn(ctx context.Context, conversationID, turnID string) error {
+	if c.data == nil || c.conv == nil {
+		return errors.New("data service not configured")
+	}
+	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+		ID:             strings.TrimSpace(turnID),
+		ConversationID: strings.TrimSpace(conversationID),
+		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+	})
+	if err != nil {
+		if isTurnLookupUnavailable(err) {
+			return newConflictError("queued turn not found")
+		}
+		return err
+	}
+	if turn == nil {
+		return newConflictError("queued turn not found")
+	}
+	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
+		return newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
+	}
+	upd := &agturnwrite.MutableTurnView{Has: &agturnwrite.TurnHas{}}
+	upd.SetId(strings.TrimSpace(turnID))
+	upd.SetStatus("canceled")
+	if _, err := c.data.PatchTurns(ctx, []*agturnwrite.MutableTurnView{upd}); err != nil {
+		return err
+	}
+	if patcher, ok := c.data.(turnQueuePatcher); ok {
+		q := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		q.SetId(strings.TrimSpace(turnID))
+		q.SetStatus("canceled")
+		q.SetUpdatedAt(time.Now())
+		if err := patcher.PatchTurnQueue(ctx, q); err != nil {
+			return err
+		}
+	}
+	starterID := strings.TrimSpace(valueOrEmpty(turn.StartedByMessageId))
+	if starterID == "" {
+		starterID = strings.TrimSpace(turnID)
+	}
+	msg := conversation.NewMessage()
+	msg.SetId(starterID)
+	msg.SetStatus("cancel")
+	_ = c.conv.PatchMessage(ctx, msg)
+	return nil
+}
+
+func (c *EmbeddedClient) MoveQueuedTurn(ctx context.Context, input *MoveQueuedTurnInput) error {
+	if input == nil {
+		return errors.New("input is required")
+	}
+	if c.data == nil {
+		return errors.New("data service not configured")
+	}
+	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+		ID:             strings.TrimSpace(input.TurnID),
+		ConversationID: strings.TrimSpace(input.ConversationID),
+		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+	})
+	if err != nil {
+		if isTurnLookupUnavailable(err) {
+			return newConflictError("queued turn not found")
+		}
+		return err
+	}
+	if turn == nil {
+		return newConflictError("queued turn not found")
+	}
+	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
+		return newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
+	}
+	type queueRow struct {
+		ID       string
+		QueueSeq int64
+	}
+	rows := make([]queueRow, 0)
+	if lister, ok := c.data.(turnQueueLister); ok {
+		qRows, err := lister.ListTurnQueueRows(ctx, &turnqueueread.QueueRowsInput{
+			ConversationId: strings.TrimSpace(input.ConversationID),
+			QueueStatus:    "queued",
+			Has:            &turnqueueread.QueueRowsInputHas{ConversationId: true, QueueStatus: true},
+		})
+		if err != nil {
+			return err
+		}
+		for _, row := range qRows {
+			if row == nil {
+				continue
+			}
+			rows = append(rows, queueRow{ID: strings.TrimSpace(row.Id), QueueSeq: row.QueueSeq})
+		}
+	} else {
+		fallbackRows, err := c.data.ListQueuedTurns(ctx, &agturnlist.QueuedTurnsInput{
+			ConversationID: strings.TrimSpace(input.ConversationID),
+			Has:            &agturnlist.QueuedTurnsInputHas{ConversationID: true},
+		})
+		if err != nil {
+			return err
+		}
+		for _, row := range fallbackRows {
+			if row == nil {
+				continue
+			}
+			seq := int64(time.Now().UnixNano())
+			if row.QueueSeq != nil {
+				seq = int64(*row.QueueSeq)
+			}
+			rows = append(rows, queueRow{ID: strings.TrimSpace(row.Id), QueueSeq: seq})
+		}
+	}
+	if len(rows) < 2 {
+		return nil
+	}
+	idx := -1
+	for i, row := range rows {
+		if strings.TrimSpace(row.ID) == strings.TrimSpace(input.TurnID) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return newConflictError("queued turn not found in queue list")
+	}
+	target := idx
+	switch strings.ToLower(strings.TrimSpace(input.Direction)) {
+	case "up":
+		target = idx - 1
+	case "down":
+		target = idx + 1
+	default:
+		return errors.New("direction must be up or down")
+	}
+	if target < 0 || target >= len(rows) {
+		return newConflictError("turn cannot be moved in requested direction")
+	}
+	a := rows[idx]
+	b := rows[target]
+	aSeq := a.QueueSeq
+	bSeq := b.QueueSeq
+	updA := &agturnwrite.MutableTurnView{Has: &agturnwrite.TurnHas{}}
+	updA.SetId(strings.TrimSpace(a.ID))
+	updA.SetQueueSeq(bSeq)
+	updB := &agturnwrite.MutableTurnView{Has: &agturnwrite.TurnHas{}}
+	updB.SetId(strings.TrimSpace(b.ID))
+	updB.SetQueueSeq(aSeq)
+	if _, err := c.data.PatchTurns(ctx, []*agturnwrite.MutableTurnView{updA, updB}); err != nil {
+		return err
+	}
+	if patcher, ok := c.data.(turnQueuePatcher); ok {
+		qa := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		qa.SetId(strings.TrimSpace(a.ID))
+		qa.SetQueueSeq(bSeq)
+		qa.SetUpdatedAt(time.Now())
+		if err := patcher.PatchTurnQueue(ctx, qa); err != nil {
+			return err
+		}
+		qb := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		qb.SetId(strings.TrimSpace(b.ID))
+		qb.SetQueueSeq(aSeq)
+		qb.SetUpdatedAt(time.Now())
+		if err := patcher.PatchTurnQueue(ctx, qb); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *EmbeddedClient) EditQueuedTurn(ctx context.Context, input *EditQueuedTurnInput) error {
+	if input == nil {
+		return errors.New("input is required")
+	}
+	if c.data == nil || c.conv == nil {
+		return errors.New("data service not configured")
+	}
+	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+		ID:             strings.TrimSpace(input.TurnID),
+		ConversationID: strings.TrimSpace(input.ConversationID),
+		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+	})
+	if err != nil {
+		if isTurnLookupUnavailable(err) {
+			return newConflictError("queued turn not found")
+		}
+		return err
+	}
+	if turn == nil {
+		return newConflictError("queued turn not found")
+	}
+	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
+		return newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
+	}
+	starterID := strings.TrimSpace(valueOrEmpty(turn.StartedByMessageId))
+	if starterID == "" {
+		starterID = strings.TrimSpace(input.TurnID)
+	}
+	content := strings.TrimSpace(input.Content)
+	if content == "" {
+		return errors.New("content is required")
+	}
+	msg := conversation.NewMessage()
+	msg.SetId(starterID)
+	msg.SetContent(content)
+	msg.SetRawContent(content)
+	msg.SetUpdatedAt(time.Now())
+	return c.conv.PatchMessage(ctx, msg)
+}
+
+func (c *EmbeddedClient) ForceSteerQueuedTurn(ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error) {
+	if c.data == nil {
+		return nil, errors.New("data service not configured")
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	turnID = strings.TrimSpace(turnID)
+	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+		ID:             turnID,
+		ConversationID: conversationID,
+		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+	})
+	if err != nil {
+		if isTurnLookupUnavailable(err) {
+			return nil, newConflictError("queued turn not found")
+		}
+		return nil, err
+	}
+	if turn == nil {
+		return nil, newConflictError("queued turn not found")
+	}
+	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
+		return nil, newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
+	}
+	active, err := c.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+		ConversationID: conversationID,
+		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if active == nil || strings.TrimSpace(active.Id) == "" {
+		return nil, newConflictError("no running turn to steer into")
+	}
+	starterID := strings.TrimSpace(valueOrEmpty(turn.StartedByMessageId))
+	if starterID == "" {
+		starterID = turnID
+	}
+	msg, err := c.conv.GetMessage(ctx, starterID)
+	if err != nil {
+		return nil, err
+	}
+	content := strings.TrimSpace(valueOrEmpty(msg.Content))
+	if content == "" {
+		return nil, newConflictError("queued turn starter message is empty")
+	}
+	if err := c.CancelQueuedTurn(ctx, conversationID, turnID); err != nil {
+		return nil, err
+	}
+	out, err := c.SteerTurn(ctx, &SteerTurnInput{
+		ConversationID: conversationID,
+		TurnID:         strings.TrimSpace(active.Id),
+		Content:        content,
+		Role:           "user",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = &SteerTurnOutput{}
+	}
+	out.CanceledTurnID = turnID
+	out.Status = "accepted"
+	return out, nil
 }
 
 func (c *EmbeddedClient) ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error {
@@ -590,6 +949,9 @@ func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideTo
 	now := time.Now().UTC()
 	upd := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
 	upd.SetId(row.Id)
+	upd.SetUserId(row.UserId)
+	upd.SetToolName(row.ToolName)
+	upd.SetArguments(row.Arguments)
 	upd.SetUpdatedAt(now)
 	switch action {
 	case "approve", "accepted":
@@ -599,7 +961,7 @@ func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideTo
 			upd.SetApprovedByUserId(strings.TrimSpace(input.UserID))
 		}
 		upd.SetApprovedAt(now)
-		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil {
+		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
 		var args map[string]interface{}
@@ -627,6 +989,9 @@ func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideTo
 		_, execErr := c.ExecuteTool(execCtx, row.ToolName, args)
 		done := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
 		done.SetId(row.Id)
+		done.SetUserId(row.UserId)
+		done.SetToolName(row.ToolName)
+		done.SetArguments(row.Arguments)
 		done.SetUpdatedAt(time.Now().UTC())
 		if execErr != nil {
 			done.SetStatus("failed")
@@ -635,7 +1000,7 @@ func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideTo
 			done.SetStatus("executed")
 			done.SetExecutedAt(time.Now().UTC())
 		}
-		if err := patcher.PatchToolApprovalQueue(ctx, done); err != nil {
+		if err := patcher.PatchToolApprovalQueue(ctx, done); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
 	case "reject", "rejected":
@@ -648,7 +1013,7 @@ func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideTo
 			upd.SetApprovedByUserId(strings.TrimSpace(input.UserID))
 		}
 		upd.SetApprovedAt(now)
-		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil {
+		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
 	default:
@@ -668,6 +1033,16 @@ func (c *EmbeddedClient) ExecuteTool(ctx context.Context, name string, args map[
 		return "", err
 	}
 	return c.registry.Execute(ctx, name, args)
+}
+
+func isToolApprovalQueueDuplicateErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate key") &&
+		strings.Contains(msg, "tool_approval_queue") &&
+		strings.Contains(msg, "id")
 }
 
 func (c *EmbeddedClient) UploadFile(_ context.Context, _ *UploadFileInput) (*UploadFileOutput, error) {
@@ -871,6 +1246,14 @@ func (c *EmbeddedClient) ListA2AAgents(ctx context.Context, agentIDs []string) (
 		return nil, errors.New("A2A service not configured")
 	}
 	return c.a2aSvc.ListA2AAgents(ctx, agentIDs)
+}
+
+func isTurnLookupUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "couldn't match uri") && strings.Contains(msg, "/v1/api/agently/turn/byid/byid")
 }
 
 func valueOrEmpty(v *string) string {

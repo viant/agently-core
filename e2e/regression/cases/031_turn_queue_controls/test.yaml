@@ -1,0 +1,72 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "turn queue controls - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: simple
+          Title: turn-queue-controls-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  steerMissingTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "turn queue controls - steer missing turn returns conflict"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn/steer
+        JSONBody:
+          content: hello
+          role: user
+        Expect:
+          Code: 409
+
+  moveMissingTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "turn queue controls - move missing turn returns conflict"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn/move
+        JSONBody:
+          direction: down
+        Expect:
+          Code: 409
+
+  editMissingTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "turn queue controls - edit missing turn returns conflict"
+    requests:
+      - Method: PATCH
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn
+        JSONBody:
+          content: edited content
+        Expect:
+          Code: 409
+
+  deleteMissingTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "turn queue controls - delete missing turn returns conflict"
+    requests:
+      - Method: DELETE
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn
+        Expect:
+          Code: 409
+
+  forceSteerMissingTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "turn queue controls - force-steer missing turn returns conflict"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn/force-steer
+        Expect:
+          Code: 409

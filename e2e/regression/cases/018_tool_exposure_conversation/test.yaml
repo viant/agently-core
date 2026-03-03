@@ -6,6 +6,8 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
           AgentID: tool_forcer
           UserId: e2e-test
@@ -34,6 +36,8 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
           AgentID: tool_exposure_probe
           ConversationID: ${setupTurn1.Responses[0].JSONBody.conversationId}

@@ -1,0 +1,67 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "queue+steer runtime - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: tool_forcer_exec_sleep
+          Title: queue-steer-runtime-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startSleepTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    Async: true
+    description: "queue+steer runtime - start active sleep turn asynchronously"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: tool_forcer_exec_sleep
+          MessageID: e2e-queue-running-turn
+          UserId: e2e-test
+          Query: run sleep tool
+
+  waitForTurnActivation:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 500
+
+  enqueueSecondTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "queue+steer runtime - second query should enqueue"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: simple
+          MessageID: e2e-queue-queued-turn
+          UserId: e2e-test
+          Query: This turn should be queued while previous turn is active.
+        Expect:
+          Code: 200
+          JSONBody:
+            conversationId: ${createConversation.Responses[0].JSONBody.Id}
+
+  cancelLongTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "queue+steer runtime - cancel running turn to avoid bleed into following tests"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/turns/e2e-queue-running-turn/cancel
+        Expect:
+          Code: 200

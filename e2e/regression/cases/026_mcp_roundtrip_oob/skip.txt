@@ -1,0 +1,2 @@
+Blocked by Endly async overlap limitation for blocking MCP elicitation round-trip over HTTP runner.
+Tracked for re-enable once non-blocking trigger path is available without process-start wrappers.

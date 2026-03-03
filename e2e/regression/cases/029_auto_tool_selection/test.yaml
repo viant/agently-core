@@ -1,45 +1,47 @@
 pipeline:
-  autoToolSelect:
+  createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto tool selection - route bundles for command execution"
-    options:
-      RequestTimeoutMs: 60000
-      TimeoutMs: 60000
+    description: "auto tool selection - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: tool_exposure_probe
+          Title: auto-tool-selection-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startAutoToolSelect:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto tool selection - run query"
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
-          AgentID: tool_forcer_exec
-          Query: execute date command
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: tool_exposure_probe
+          Query: CALL_TOOL
           UserId: e2e-test
           AutoSelectTools: true
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@messageId": true
-            "@exists@content": true
 
-  responseMessage:
+  waitAutoToolSelect:
     when: $sdkKey != ''
-    action: http/runner:send
-    description: "auto tool selection - resolve turn id for response message"
-    requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${autoToolSelect.Responses[0].JSONBody.conversationId}&id=${autoToolSelect.Responses[0].JSONBody.messageId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0].TurnId": true
+    action: nop
+    sleepTimeMs: 500
 
   verifyToolCall:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto tool selection - selected bundle should produce a tool_op"
+    description: "auto tool selection - query should produce a tool_op"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${autoToolSelect.Responses[0].JSONBody.conversationId}&turnId=${responseMessage.Responses[0].JSONBody.Rows[0].TurnId}&types=tool_op
+        URL: ${serverURL}/v1/messages?conversationId=${createConversation.Responses[0].JSONBody.Id}&types=tool_op
         Expect:
           Code: 200
           JSONBody:

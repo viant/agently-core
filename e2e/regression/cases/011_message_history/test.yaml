@@ -6,6 +6,8 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
           AgentID: simple
           Query: Hi there, say hello back.

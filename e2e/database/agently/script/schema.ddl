@@ -339,8 +339,6 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP    NULL     DEFAULT NULL,
 
-    CONSTRAINT fk_taq_user
-        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT fk_taq_conversation
         FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
     CONSTRAINT fk_taq_turn

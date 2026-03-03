@@ -28,6 +28,9 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 
 	// Anchor derived from binding History.LastResponse
 	anchorID := strings.TrimSpace(anchor.ID)
+	if anchorID == "" {
+		return nil
+	}
 
 	// Collect tool-call messages mapped to this anchor. User messages
 	// are already part of the anchored context and do not participate

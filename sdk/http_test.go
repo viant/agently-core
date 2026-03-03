@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/viant/agently-core/app/store/conversation"
@@ -101,6 +102,44 @@ func TestHTTPClient_UpdateConversationVisibility(t *testing.T) {
 	}
 	if out == nil || out.Id != "c1" {
 		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(&ConversationPage{Rows: nil})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	_, err = c.ListConversations(context.Background(), &ListConversationsInput{
+		AgentID: "agent-1",
+		Query:   "favorite color",
+		Status:  "active",
+		Page: &PageInput{
+			Limit:     5,
+			Cursor:    "c-2",
+			Direction: DirectionAfter,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ListConversations: %v", err)
+	}
+	if gotPath != "/v1/conversations" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotQuery.Get("agentId") != "agent-1" || gotQuery.Get("q") != "favorite color" || gotQuery.Get("status") != "active" {
+		t.Fatalf("unexpected query values: %#v", gotQuery)
+	}
+	if gotQuery.Get("limit") != "5" || gotQuery.Get("cursor") != "c-2" || gotQuery.Get("direction") != "after" {
+		t.Fatalf("unexpected page query values: %#v", gotQuery)
 	}
 }
 

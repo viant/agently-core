@@ -298,6 +298,17 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		in := InputItem{Type: "message", Role: role, Content: items}
 		out.Input = append(out.Input, in)
 	}
+	// The Responses API requires at least one of input/previous_response_id.
+	// Some tool-only turns can collapse to zero mappable input items.
+	if len(out.Input) == 0 && strings.TrimSpace(out.PreviousResponseID) == "" {
+		out.Input = append(out.Input, InputItem{
+			Type: "message",
+			Role: "user",
+			Content: []ResponsesContentItem{
+				{Type: "input_text", Text: "continue"},
+			},
+		})
+	}
 	return out
 }
 

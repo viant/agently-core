@@ -1,0 +1,2 @@
+Blocked by Endly async overlap limitation for queue-steer runtime scenario requiring concurrent active and queued turns.
+Re-enable once non-blocking trigger path is available without process-start wrappers.

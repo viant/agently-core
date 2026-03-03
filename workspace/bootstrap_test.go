@@ -2,13 +2,40 @@ package workspace
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/afs"
 )
+
+func TestEnsureDefaultAt_UsesHooks(t *testing.T) {
+	ctx := context.Background()
+	afsSvc := afs.New()
+
+	t.Run("hook runs from EnsureDefaultAt", func(t *testing.T) {
+		SetBootstrapHook(func(store *BootstrapStore) error {
+			src := fstest.MapFS{
+				"defaults/agents/custom.yaml": &fstest.MapFile{Data: []byte("name: custom\n")},
+			}
+			return store.SeedFromFS(ctx, src, "defaults")
+		})
+		t.Cleanup(func() { SetBootstrapHook(nil) })
+
+		root := filepath.Join(t.TempDir(), "workspace")
+		EnsureDefaultAt(ctx, afsSvc, root)
+
+		data, err := os.ReadFile(filepath.Join(root, "agents", "custom.yaml"))
+		require.NoError(t, err)
+		require.Equal(t, "name: custom\n", string(data))
+
+		_, err = os.Stat(filepath.Join(root, "config.yaml"))
+		require.ErrorIs(t, err, fs.ErrNotExist)
+	})
+}
 
 func TestIsEmptyWorkspaceAt(t *testing.T) {
 	ctx := context.Background()
@@ -49,5 +76,52 @@ func TestIsEmptyWorkspaceAt(t *testing.T) {
 		empty, err := IsEmptyWorkspaceAt(ctx, fs, root)
 		require.NoError(t, err)
 		require.False(t, empty)
+	})
+}
+
+func TestSeedFromFS(t *testing.T) {
+	ctx := context.Background()
+	afsSvc := afs.New()
+
+	t.Run("seeds nested files", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "workspace")
+		src := fstest.MapFS{
+			"defaults/config.yaml":       &fstest.MapFile{Data: []byte("models: []\n")},
+			"defaults/agents/demo.yaml":  &fstest.MapFile{Data: []byte("name: demo\n")},
+			"defaults/workflows/.keep":   &fstest.MapFile{Data: []byte{}},
+			"defaults/tools/sample.json": &fstest.MapFile{Data: []byte("{\"name\":\"sample\"}\n")},
+		}
+		require.NoError(t, SeedFromFS(ctx, afsSvc, root, src, "defaults"))
+
+		data, err := os.ReadFile(filepath.Join(root, "config.yaml"))
+		require.NoError(t, err)
+		require.Equal(t, "models: []\n", string(data))
+
+		data, err = os.ReadFile(filepath.Join(root, "agents", "demo.yaml"))
+		require.NoError(t, err)
+		require.Equal(t, "name: demo\n", string(data))
+	})
+
+	t.Run("does not overwrite existing", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "workspace")
+		require.NoError(t, os.MkdirAll(root, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("models: [existing]\n"), 0o644))
+		src := fstest.MapFS{
+			"defaults/config.yaml": &fstest.MapFile{Data: []byte("models: []\n")},
+		}
+		require.NoError(t, SeedFromFS(ctx, afsSvc, root, src, "defaults"))
+		data, err := os.ReadFile(filepath.Join(root, "config.yaml"))
+		require.NoError(t, err)
+		require.Equal(t, "models: [existing]\n", string(data))
+	})
+
+	t.Run("missing prefix no-op", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "workspace")
+		src := fstest.MapFS{
+			"defaults/config.yaml": &fstest.MapFile{Data: []byte("models: []\n")},
+		}
+		require.NoError(t, SeedFromFS(ctx, afsSvc, root, src, "missing"))
+		_, err := os.Stat(filepath.Join(root, "config.yaml"))
+		require.ErrorIs(t, err, fs.ErrNotExist)
 	})
 }

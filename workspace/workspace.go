@@ -259,15 +259,10 @@ func ensureDefaults(root string) {
 		defaultsMu.Unlock()
 		return
 	}
-	hook := bootstrapHook
 	defaultsByRoot[root] = true
 	defaultsMu.Unlock()
 
 	afsSvc := afs.New()
-	if hook != nil {
-		hook(context.Background(), afsSvc, root)
-		return
-	}
 	EnsureDefaultAt(context.Background(), afsSvc, root)
 }
 

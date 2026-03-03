@@ -34,6 +34,8 @@ import (
 	turncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	turnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
 	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
+	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	oauthread "github.com/viant/agently-core/pkg/agently/user/oauth"
 	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
 	"github.com/viant/datly"
@@ -176,6 +178,9 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 	if err := turncount.DefineQueuedTotalComponent(ctx, svc); err != nil {
 		return err
 	}
+	if err := turnqueueread.DefineQueueRowsComponent(ctx, svc); err != nil {
+		return err
+	}
 	if err := run.DefineRunRowsComponent(ctx, svc); err != nil {
 		return err
 	}
@@ -204,6 +209,9 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 		return err
 	}
 	if _, err := turnwrite.DefineComponent(ctx, svc); err != nil {
+		return err
+	}
+	if _, err := turnqueuewrite.DefineComponent(ctx, svc); err != nil {
 		return err
 	}
 	if _, err := modelcallwrite.DefineComponent(ctx, svc); err != nil {

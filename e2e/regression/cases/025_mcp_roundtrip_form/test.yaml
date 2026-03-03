@@ -16,21 +16,20 @@ pipeline:
 
   startToolCall:
     when: $sdkKey != ''
-    action: process:start
+    action: http/runner:send
+    Async: true
     description: "mcp form round-trip - start async tool execute"
-    checkError: true
-    immuneToHangups: true
-    sleepTimeMs: 9000
-    command: curl
-    arguments:
-      - -sS
-      - -X
-      - POST
-      - ${serverURL}/v1/tools/execute?conversationId=${createConversation.Responses[0].JSONBody.Id}
-      - -H
-      - Content-Type:application/json
-      - --data-binary
-      - "@/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads/mcpform_ask_form.json"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute?conversationId=${createConversation.Responses[0].JSONBody.Id}
+        JSONBody:
+          name: mcpform/ask_form
+          args: {}
+
+  waitToolCall:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 1200
 
   pendingElicitation:
     when: $sdkKey != ''

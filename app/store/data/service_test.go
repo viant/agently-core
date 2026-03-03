@@ -1114,6 +1114,24 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 				page:    &PageInput{Limit: 10, Direction: DirectionAfter, Cursor: "c-page-1"},
 				wantIDs: []string{"c-page-2"},
 			},
+			{
+				name: "filter by status",
+				input: &agconvlist.ConversationRowsInput{
+					StatusFilter: "active",
+					Has:          &agconvlist.ConversationRowsInputHas{StatusFilter: true},
+				},
+				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
+				wantIDs: []string{"c-page-2", "c-page-1"},
+			},
+			{
+				name: "filter by query",
+				input: &agconvlist.ConversationRowsInput{
+					Query: "c-page-1",
+					Has:   &agconvlist.ConversationRowsInputHas{Query: true},
+				},
+				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
+				wantIDs: []string{"c-page-1"},
+			},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

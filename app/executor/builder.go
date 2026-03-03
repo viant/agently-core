@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/viant/agently-core/app/executor/config"
@@ -176,7 +177,15 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	needsDAO := b.conversation == nil || b.data == nil
 	if out.DAO == nil && needsDAO {
-		dao, err := convsvc.NewDatly(ctx)
+		var (
+			dao *datly.Service
+			err error
+		)
+		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" {
+			dao, err = data.NewDatlyInMemory(ctx)
+		} else {
+			dao, err = data.NewDatly(ctx)
+		}
 		if err != nil {
 			return nil, err
 		}

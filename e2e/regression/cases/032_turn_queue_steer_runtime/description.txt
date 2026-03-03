@@ -1,0 +1,15 @@
+Case: 032_turn_queue_steer_runtime
+
+Purpose:
+Validate real queue + force-steer behavior while a live long-running turn is active.
+
+What this test verifies:
+- First long-running query starts asynchronously with a known running turn ID.
+- Second query against same conversation is queued (status=queued) with known queued turn ID.
+- `POST /v1/conversations/{id}/turns/{turnId}/force-steer` accepts queued turn and returns 202.
+- Queued turn transitions to canceled after force-steer.
+- Steer-injected user message is persisted on the running turn.
+
+Why it matters:
+- Exercises actual runtime queue orchestration instead of only missing-turn conflict checks.
+- Provides deterministic assertions for queue + steer contracts needed by SDK/UI.

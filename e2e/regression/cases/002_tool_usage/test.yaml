@@ -2,16 +2,16 @@ pipeline:
   toolUsage:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "agent tool usage - os env variables"
+    description: "tool usage - execute system/os:getEnv directly"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/agent/query
+        URL: ${serverURL}/v1/tools/execute
         JSONBody:
-          AgentID: tool_user
-          Query: What is the value of the OPENAI_API_KEY environment variable? Just tell me if it exists or not and the first 10 characters.
-          UserId: e2e-test
+          name: system/os:getEnv
+          args:
+            names:
+              - OPENAI_API_KEY
         Expect:
           Code: 200
           JSONBody:
-            "@exists@conversationId": true
-            "@exists@content": true
+            "@exists@result": true

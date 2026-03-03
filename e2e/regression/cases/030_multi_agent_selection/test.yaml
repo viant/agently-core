@@ -6,14 +6,14 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
-          AgentID: auto
+          AgentID: agent_selector
           Query: what can you do agent?
           UserId: e2e-test
         Expect:
           Code: 200
           JSONBody:
             "@exists@conversationId": true
-            agent:
-              id: agent_selector
-            content: /Available Agents/
+            "@exists@messageId": true

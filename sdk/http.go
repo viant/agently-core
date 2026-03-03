@@ -238,6 +238,12 @@ func (c *HTTPClient) ListConversations(ctx context.Context, input *ListConversat
 		if strings.TrimSpace(input.AgentID) != "" {
 			q.Set("agentId", input.AgentID)
 		}
+		if strings.TrimSpace(input.Query) != "" {
+			q.Set("q", input.Query)
+		}
+		if strings.TrimSpace(input.Status) != "" {
+			q.Set("status", input.Status)
+		}
 		if input.Page != nil {
 			if input.Page.Limit > 0 {
 				q.Set("limit", fmt.Sprintf("%d", input.Page.Limit))
@@ -279,6 +285,73 @@ func (c *HTTPClient) CancelTurn(ctx context.Context, turnID string) (bool, error
 		return false, err
 	}
 	return out.Cancelled, nil
+}
+
+func (c *HTTPClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*SteerTurnOutput, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	turnID := strings.TrimSpace(input.TurnID)
+	if conversationID == "" || turnID == "" {
+		return nil, errors.New("conversation ID and turn ID are required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/turns/" + url.PathEscape(turnID) + "/steer"
+	var out SteerTurnOutput
+	if err := c.doJSON(ctx, http.MethodPost, path, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) CancelQueuedTurn(ctx context.Context, conversationID, turnID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	turnID = strings.TrimSpace(turnID)
+	if conversationID == "" || turnID == "" {
+		return errors.New("conversation ID and turn ID are required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/turns/" + url.PathEscape(turnID)
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
+}
+
+func (c *HTTPClient) MoveQueuedTurn(ctx context.Context, input *MoveQueuedTurnInput) error {
+	if input == nil {
+		return errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	turnID := strings.TrimSpace(input.TurnID)
+	if conversationID == "" || turnID == "" {
+		return errors.New("conversation ID and turn ID are required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/turns/" + url.PathEscape(turnID) + "/move"
+	return c.doJSON(ctx, http.MethodPost, path, input, nil)
+}
+
+func (c *HTTPClient) EditQueuedTurn(ctx context.Context, input *EditQueuedTurnInput) error {
+	if input == nil {
+		return errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	turnID := strings.TrimSpace(input.TurnID)
+	if conversationID == "" || turnID == "" {
+		return errors.New("conversation ID and turn ID are required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/turns/" + url.PathEscape(turnID)
+	return c.doJSON(ctx, http.MethodPatch, path, input, nil)
+}
+
+func (c *HTTPClient) ForceSteerQueuedTurn(ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	turnID = strings.TrimSpace(turnID)
+	if conversationID == "" || turnID == "" {
+		return nil, errors.New("conversation ID and turn ID are required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/turns/" + url.PathEscape(turnID) + "/force-steer"
+	var out SteerTurnOutput
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *HTTPClient) ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error {

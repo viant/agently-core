@@ -30,6 +30,8 @@ import (
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	agturnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
 	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
+	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 	hstate "github.com/viant/xdatly/handler/state"
@@ -463,6 +465,36 @@ func (s *datlyService) CountQueuedTurns(ctx context.Context, in *agturncount.Que
 		return 0, nil
 	}
 	return out.Data[0].QueuedCount, nil
+}
+
+func (s *datlyService) ListTurnQueueRows(ctx context.Context, in *turnqueueread.QueueRowsInput, opts ...Option) ([]*turnqueueread.QueueRowView, error) {
+	if in == nil {
+		in = &turnqueueread.QueueRowsInput{}
+	}
+	out := &turnqueueread.QueueRowsOutput{}
+	operateOpts := append([]datly.OperateOption{
+		datly.WithURI(turnqueueread.QueueRowsPathURI),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	}, toOperateOptions(opts)...)
+	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func (s *datlyService) PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error {
+	if in == nil {
+		return errors.New("turn queue input is required")
+	}
+	input := &turnqueuewrite.Input{Queues: []*turnqueuewrite.TurnQueue{in}}
+	out := &turnqueuewrite.Output{}
+	_, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath("PATCH", turnqueuewrite.PathURI)),
+		datly.WithInput(input),
+		datly.WithOutput(out),
+	)
+	return err
 }
 
 func (s *datlyService) GetToolCallByOp(ctx context.Context, opID string, in *agtoolcall.ToolCallRowsInput, opts ...Option) ([]*agtoolcall.ToolCallRowsView, error) {

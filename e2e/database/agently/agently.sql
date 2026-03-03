@@ -498,7 +498,6 @@ CREATE TABLE `tool_approval_queue` (
   CONSTRAINT `fk_taq_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_taq_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_taq_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_taq_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `tool_approval_queue_chk_1` CHECK ((`status` in (_utf8mb4'pending',_utf8mb4'approved',_utf8mb4'rejected',_utf8mb4'canceled',_utf8mb4'executed',_utf8mb4'failed')))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -550,6 +549,42 @@ CREATE TABLE `turn` (
 LOCK TABLES `turn` WRITE;
 /*!40000 ALTER TABLE `turn` DISABLE KEYS */;
 /*!40000 ALTER TABLE `turn` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `turn_queue`
+--
+
+DROP TABLE IF EXISTS `turn_queue`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `turn_queue` (
+  `id` varchar(255) NOT NULL,
+  `conversation_id` varchar(255) NOT NULL,
+  `turn_id` varchar(255) NOT NULL,
+  `message_id` varchar(255) NOT NULL,
+  `queue_seq` bigint NOT NULL,
+  `status` varchar(32) NOT NULL DEFAULT 'queued',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ux_turn_queue_turn_id` (`turn_id`),
+  UNIQUE KEY `ux_turn_queue_message_id` (`message_id`),
+  KEY `idx_turn_queue_conv_status_seq` (`conversation_id`,`status`,`queue_seq`,`created_at`),
+  CONSTRAINT `fk_turn_queue_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_turn_queue_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_turn_queue_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `turn_queue_chk_1` CHECK ((`status` in (_utf8mb4'queued',_utf8mb4'dispatched',_utf8mb4'canceled',_utf8mb4'completed',_utf8mb4'failed')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `turn_queue`
+--
+
+LOCK TABLES `turn_queue` WRITE;
+/*!40000 ALTER TABLE `turn_queue` DISABLE KEYS */;
+/*!40000 ALTER TABLE `turn_queue` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --

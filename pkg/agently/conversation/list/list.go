@@ -32,6 +32,7 @@ type ConversationRowsInput struct {
 	ParentTurnId     string                    `parameter:",kind=query,in=parentTurnId" predicate:"equal,group=0,c,conversation_parent_turn_id"`
 	ScheduleId       string                    `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,c,schedule_id"`
 	ScheduleRunId    string                    `parameter:",kind=query,in=scheduleRunId" predicate:"equal,group=0,c,schedule_run_id"`
+	Query            string                    `parameter:",kind=query,in=q" predicate:"expr,group=0,LOWER(c.id || ' ' || CASE WHEN c.title IS NULL THEN '' ELSE c.title END || ' ' || CASE WHEN c.summary IS NULL THEN '' ELSE c.summary END) LIKE '%' || LOWER(?) || '%'"`
 	StatusFilter     string                    `parameter:",kind=query,in=status" predicate:"equal,group=0,c,status"`
 	CreatedSince     time.Time                 `parameter:",kind=query,in=createdSince" predicate:"greater_or_equal,group=0,c,created_at"`
 	CreatedBefore    time.Time                 `parameter:",kind=query,in=createdBefore" predicate:"less_or_equal,group=0,c,created_at"`
@@ -47,6 +48,7 @@ type ConversationRowsInputHas struct {
 	ParentTurnId     bool
 	ScheduleId       bool
 	ScheduleRunId    bool
+	Query            bool
 	StatusFilter     bool
 	CreatedSince     bool
 	CreatedBefore    bool

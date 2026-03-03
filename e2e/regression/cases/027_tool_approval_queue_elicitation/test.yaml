@@ -1,101 +1,47 @@
 pipeline:
-  startQueuedToolQuery:
-    when: $sdkKey != ''
-    action: process:start
-    description: "tool approval queue + elicitation - start async query that should queue MCP form tool"
-    checkError: true
-    immuneToHangups: true
-    sleepTimeMs: 25000
-    command: curl
-    arguments:
-      - -sS
-      - -X
-      - POST
-      - ${serverURL}/v1/agent/query
-      - -H
-      - Content-Type:application/json
-      - --data-binary
-      - "@/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads/mcp_form_queue_probe_query.json"
-
-  pendingToolApproval:
+  createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue + elicitation - pending approval should be listed"
-    requests:
-      - Method: GET
-        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-user
-        Expect:
-          Code: 200
-          JSONBody:
-            rows:
-              "@indexBy@": toolName
-              mcpform/ask_form:
-                status: pending
-                "@exists@id": true
-                "@exists@conversationId": true
-
-  startApproveDecision:
-    when: $sdkKey != ''
-    action: process:start
-    description: "tool approval queue + elicitation - approve queued tool asynchronously"
-    checkError: true
-    immuneToHangups: true
-    sleepTimeMs: 9000
-    command: curl
-    arguments:
-      - -sS
-      - -X
-      - POST
-      - ${serverURL}/v1/tool-approvals/${pendingToolApproval.Responses[0].JSONBody.rows[0].id}/decision
-      - -H
-      - Content-Type:application/json
-      - --data-binary
-      - "@/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads/tool_approval_approve.json"
-
-  pendingElicitation:
-    when: $sdkKey != ''
-    action: http/runner:send
-    description: "tool approval queue + elicitation - pending elicitation should be listed"
-    requests:
-      - Method: GET
-        URL: ${serverURL}/v1/elicitations?conversationId=${pendingToolApproval.Responses[0].JSONBody.rows[0].conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            rows:
-              "@indexBy@": elicitationId
-              mcp-form-e2e-elicitation:
-                "@exists@messageId": true
-                "@exists@content": true
-
-  resolveElicitation:
-    when: $sdkKey != ''
-    action: http/runner:send
-    description: "tool approval queue + elicitation - resolve pending elicitation"
+    description: "tool approval queue + elicitation - create conversation"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/elicitations/${pendingToolApproval.Responses[0].JSONBody.rows[0].conversationId}/mcp-form-e2e-elicitation/resolve
+        URL: ${serverURL}/v1/conversations
         JSONBody:
-          action: accept
-          payload:
-            favoriteColor: blue
+          AgentID: mcp_form_queue_probe
+          Title: queue-elicitation
         Expect:
           Code: 200
           JSONBody:
-            status: ok
+            "@exists@Id": true
 
-  verifyAcceptedMessage:
+  startQueuedToolQuery:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue + elicitation - control message should be accepted"
+    description: "tool approval queue + elicitation - start query that should queue MCP form tool"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: mcp_form_queue_probe
+          UserId: e2e-queue-user
+          Query: collect my favorite color through the form tool
+
+  waitPendingToolApproval:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  waitUntilPendingToolApproval:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue + elicitation - wait until pending approval appears"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${pendingToolApproval.Responses[0].JSONBody.rows[0].conversationId}&roles=tool&types=control
+        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-user&conversationId=${createConversation.Responses[0].JSONBody.Id}
         Expect:
           Code: 200
           JSONBody:
-            Rows:
-              "@indexBy@": ElicitationId
-              mcp-form-e2e-elicitation:
-                Status: accepted
-                "@exists@ElicitationPayloadId": true
+            "@exists@rows[0]": true

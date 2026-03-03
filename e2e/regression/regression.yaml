@@ -6,13 +6,35 @@ init:
   sdkKey: ${env.OPENAI_API_KEY}
 
 pipeline:
+  enforceNo8080:
+    action: exec:run
+    description: ensure e2e run does not use port 8080
+    checkError: true
+    commands:
+      - |
+        pids=$(lsof -tiTCP:8080 -sTCP:LISTEN || true)
+        if [ -n "$pids" ]; then
+          echo "stopping listeners on port 8080: $pids"
+          kill $pids || true
+          sleep 1
+        fi
+        if lsof -nP -iTCP:8080 -sTCP:LISTEN | grep -q LISTEN; then
+          echo "port 8080 is still in use"
+          lsof -nP -iTCP:8080 -sTCP:LISTEN
+          exit 1
+        fi
+
   mcpResources:
     start:
       when: $debugger!=on
       action: exec:run
       checkError: true
       commands:
-        - pkill -f '${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources' || true
+        - |
+          pids=$(lsof -tiTCP:18091 -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
         - nohup ${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources >/tmp/agently-core-mcp-resources.log 2>&1 &
         - sleep 1
         - lsof -nP -iTCP:18091 -sTCP:LISTEN | grep LISTEN
@@ -23,7 +45,11 @@ pipeline:
       action: exec:run
       checkError: true
       commands:
-        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form' || true
+        - |
+          pids=$(lsof -tiTCP:18092 -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
         - nohup ${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form >/tmp/agently-core-mcp-form.log 2>&1 &
         - sleep 1
         - lsof -nP -iTCP:18092 -sTCP:LISTEN | grep LISTEN
@@ -34,25 +60,52 @@ pipeline:
       action: exec:run
       checkError: true
       commands:
-        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob' || true
+        - |
+          pids=$(lsof -tiTCP:18093 -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
         - nohup ${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob >/tmp/agently-core-mcp-oob.log 2>&1 &
         - sleep 1
         - lsof -nP -iTCP:18093 -sTCP:LISTEN | grep LISTEN
 
   app:
-    stop:
-      when: $debugger!=on
-      action: process:stop
-      input: e2e-server
-
     start:
       when: $debugger!=on
-      action: process:start
-      directory: ${repoPath}
+      action: exec:run
       checkError: true
-      immuneToHangups: true
-      sleepTimeMs: 3000
-      command: ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath}
+      commands:
+        - |
+          if [ -f /tmp/agently-core-e2e-supervisor.pid ]; then
+            old_pid=$(cat /tmp/agently-core-e2e-supervisor.pid || true)
+            if [ -n "$old_pid" ]; then
+              kill "$old_pid" || true
+            fi
+            rm -f /tmp/agently-core-e2e-supervisor.pid
+          fi
+        - |
+          pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
+        - |
+          for i in $(seq 1 20); do
+            if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
+              break
+            fi
+            sleep 0.5
+          done
+        - nohup ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath} >/tmp/agently-core-e2e-server.log 2>&1 &
+        - |
+          for i in $(seq 1 40); do
+            if curl -fsS ${serverURL}/healthz | grep -q '"status":"ok"'; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "e2e-server failed to start on ${serverURL}/healthz"
+          tail -n 80 /tmp/agently-core-e2e-server.log || true
+          exit 1
 
   health:
     action: http/runner:send
@@ -69,6 +122,16 @@ pipeline:
     tag: $pathMatch
     subPath: 'cases/${index}_*'
     template:
+      ensureServer:
+        action: http/runner:send
+        description: ensure e2e server health before each case
+        requests:
+          - Method: GET
+            URL: ${serverURL}/healthz
+            Expect:
+              Code: 200
+              JSONBody:
+                status: ok
       checkSkip:
         action: nop
         skip: $HasResource(${path}/skip.txt)
@@ -81,27 +144,3 @@ pipeline:
           sdkKey: $sdkKey
           tag: $tag
         request: '@test'
-
-  cleanup:
-    stop:
-      when: $debugger!=on
-      action: process:stop
-      input: e2e-server
-    stopMCPResources:
-      when: $debugger!=on
-      action: exec:run
-      checkError: true
-      commands:
-        - pkill -f '${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources' || true
-    stopMCPElicitationForm:
-      when: $debugger!=on
-      action: exec:run
-      checkError: true
-      commands:
-        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form' || true
-    stopMCPElicitationOOB:
-      when: $debugger!=on
-      action: exec:run
-      checkError: true
-      commands:
-        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob' || true

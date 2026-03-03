@@ -4,3 +4,4 @@ server
 bin/
 repo/
 logs/
+node_modules/
