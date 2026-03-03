@@ -885,6 +885,9 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	if src.Has.Visibility && src.Visibility != nil {
 		dst.Visibility = *src.Visibility
 	} // view has non-pointer Visibility
+	if src.Has.Shareable {
+		dst.Shareable = &src.Shareable
+	}
 	if src.Has.CreatedAt && src.CreatedAt != nil {
 		dst.CreatedAt = *src.CreatedAt
 	}

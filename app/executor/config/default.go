@@ -266,6 +266,9 @@ type AgentAutoSelectionDefaults struct {
 	// OutputKey controls the JSON field name the classifier should output.
 	// Examples: "agentId" (default), "agent_id".
 	OutputKey string `yaml:"outputKey,omitempty" json:"outputKey,omitempty"`
+	// TimeoutSec caps how long agent auto-selection classification may run.
+	// When zero, runtime applies a conservative default.
+	TimeoutSec int `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
 }
 
 // ToolAutoSelectionDefaults controls the optional tool bundle selector.
@@ -283,4 +286,7 @@ type ToolAutoSelectionDefaults struct {
 	// MaxBundles caps the number of bundles the router may select.
 	// When zero, a small default is applied.
 	MaxBundles int `yaml:"maxBundles,omitempty" json:"maxBundles,omitempty"`
+	// TimeoutSec caps how long tool auto-selection classification may run.
+	// When zero, runtime applies a conservative default.
+	TimeoutSec int `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
 }

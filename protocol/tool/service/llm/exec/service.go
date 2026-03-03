@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"strings"
 
-	agentsvc "github.com/viant/agently-core/service/agent"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	agentsvc "github.com/viant/agently-core/service/agent"
 	"time"
 )
 

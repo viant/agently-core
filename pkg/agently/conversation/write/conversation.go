@@ -25,6 +25,7 @@ type MutableConversationView struct {
 	ConversationParentTurnId *string          `sqlx:"conversation_parent_turn_id" json:",omitempty"`
 	Metadata                 *string          `sqlx:"metadata" json:",omitempty"`
 	Visibility               *string          `sqlx:"visibility" json:",omitempty"`
+	Shareable                int              `sqlx:"shareable" json:",omitempty"`
 	Status                   *string          `sqlx:"status" json:",omitempty"`
 	Scheduled                *int             `sqlx:"scheduled" json:",omitempty"`
 	ScheduleId               *string          `sqlx:"schedule_id" json:",omitempty"`
@@ -55,6 +56,7 @@ type ConversationHas struct {
 	ConversationParentTurnId bool
 	Metadata                 bool
 	Visibility               bool
+	Shareable                bool
 	Status                   bool
 	Scheduled                bool
 	ScheduleId               bool
@@ -160,6 +162,11 @@ func (c *MutableConversationView) SetVisibility(value string) {
 	c.Visibility = &value
 	c.ensureHas()
 	c.Has.Visibility = true
+}
+func (c *MutableConversationView) SetShareable(value int) {
+	c.Shareable = value
+	c.ensureHas()
+	c.Has.Shareable = true
 }
 func (c *MutableConversationView) SetStatus(value string) {
 	c.Status = &value

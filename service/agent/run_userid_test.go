@@ -20,4 +20,3 @@ func TestBindEffectiveUserFromInput(t *testing.T) {
 		require.Equal(t, "ctx-user", authctx.EffectiveUserID(ctx))
 	})
 }
-

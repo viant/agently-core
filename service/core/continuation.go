@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 // BuildContinuationRequest constructs a continuation request by selecting the latest

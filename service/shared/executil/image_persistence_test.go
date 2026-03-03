@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
-	"github.com/viant/agently-core/runtime/memory"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 func TestPersistToolImageAttachmentIfNeeded_DataDriven(t *testing.T) {

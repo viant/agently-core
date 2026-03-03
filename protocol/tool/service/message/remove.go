@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/internal/textutil"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 type RemoveTuple struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/internal/textutil"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 func firstToolCallForCandidate(m *agconv.MessageView) *agconv.ToolCallView {

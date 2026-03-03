@@ -10,8 +10,8 @@ import (
 	"github.com/viant/agently-core/internal/agent/systemdoc"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
-	aug "github.com/viant/agently-core/service/augmenter"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	aug "github.com/viant/agently-core/service/augmenter"
 	embopt "github.com/viant/embedius/matching/option"
 	embSchema "github.com/viant/embedius/schema"
 )

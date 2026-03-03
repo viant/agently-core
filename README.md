@@ -26,7 +26,7 @@ own Go services or exposed as a standalone HTTP API.
 go get github.com/viant/agently-core
 ```
 
-Requires Go 1.24+.
+Requires Go 1.25.5+.
 
 ## Quick Start (Embedded Runtime)
 
@@ -130,9 +130,14 @@ Core endpoints mounted by `sdk.NewHandler`:
 | POST | `/v1/conversations/{id}/compact` | Compact conversation |
 | POST | `/v1/conversations/{id}/prune` | Prune conversation |
 | GET | `/v1/messages` | Get messages |
+| GET | `/v1/elicitations` | List pending elicitations |
+| POST | `/v1/elicitations/{conversationId}/{elicitationId}/resolve` | Resolve elicitation |
 | GET | `/v1/stream` | SSE event stream |
 | POST | `/v1/turns/{id}/cancel` | Cancel turn |
 | POST | `/v1/tools/{name}/execute` | Execute tool |
+| POST | `/v1/tools/execute` | Execute tool (name in JSON body) |
+| GET | `/v1/tool-approvals/pending` | List pending tool approvals |
+| POST | `/v1/tool-approvals/{id}/decision` | Approve/reject queued tool |
 | GET | `/v1/workspace/resources` | List resources |
 | GET | `/v1/workspace/resources/{kind}/{name}` | Get resource |
 | PUT | `/v1/workspace/resources/{kind}/{name}` | Save resource |
@@ -150,6 +155,31 @@ Optional handlers add auth, scheduler, speech, workflow, metadata, file browser,
 | HTTP | `sdk.NewHTTP(baseURL, opts...)` | Remote client for deployed services |
 
 Both implement `sdk.Client`.
+
+## SDK Conversation Architecture
+
+Execution model used by SDK and HTTP API:
+
+```text
+conversation
+  -> turn (user request lifecycle)
+    <-> run (LLM/tool execution cycle, retries, usage, status)
+      -> messages
+        -> tool calls
+        -> elicitations (pending/resolved)
+        -> attachments
+        -> downloads/files
+        -> linked conversations
+```
+
+How to query this model via API:
+
+- Conversation shell: `GET /v1/conversations/{id}`
+- Turn+message timeline: `GET /v1/conversations/{id}/transcript`
+- Include tool/model activity in transcript: `?includeToolCalls=true&includeModelCalls=true`
+- Pending elicitation state: `GET /v1/elicitations?conversationId={id}`
+- Resolve elicitation: `POST /v1/elicitations/{conversationId}/{elicitationId}/resolve`
+- Tool approval queue (if enabled): `GET /v1/tool-approvals/pending`
 
 ## Workspace
 
@@ -174,7 +204,7 @@ messages, turns, runs, tool calls, payloads, and generated files.
 | `AGENTLY_DB_DRIVER` | `sqlite` | Database driver |
 | `AGENTLY_DB_DSN` | (auto) | Database connection string |
 
-Falls back to `$AGENTLY_RUNTIME_ROOT/db/agently.db` when DSN is unset.
+Falls back to `$AGENTLY_WORKSPACE/db/agently.db` when DSN/driver are unset.
 
 ## Scheduler
 
@@ -244,6 +274,12 @@ endly -t=test
 # Targeted E2E case
 endly -t=test -i=test_<case_folder>
 ```
+
+Async E2E cases (notably MCP round-trip and tool-approval queue flows) use `process:start`
+with `curl --data-binary @<payload-file>` to avoid shell JSON quoting/expansion issues.
+Request payload files are stored under:
+
+- `/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads`
 
 ## Related Projects
 

@@ -34,13 +34,16 @@ import (
 
 // Query executes a query against an agent.
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) error {
+	queryStarted := time.Now()
 	// Bridge auth/user identity first so conversation bootstrap can persist owner.
 	ctx = s.bindAuthFromInputContext(ctx, input)
 	ctx = bindEffectiveUserFromInput(ctx, input)
 
+	envStarted := time.Now()
 	if err := s.ensureEnvironment(ctx, input); err != nil {
 		return err
 	}
+	infof("agent.Query stage ensureEnvironment convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(envStarted))
 	if input == nil || input.Agent == nil {
 		return fmt.Errorf("invalid input: agent is required")
 	}
@@ -87,14 +90,18 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	// Optional tool auto-selection (bundle-first). Executed before run-plan loop
 	// so the selected tool set stays stable for the whole turn.
+	toolRouterStarted := time.Now()
 	s.maybeAutoSelectToolBundles(ctx, input)
+	infof("agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
 
 	// Conversation already ensured above (fills AgentID/Model/Tool when missing)
 	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
+	contextStarted := time.Now()
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err
 	}
+	infof("agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
 	infof("agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
 
 	ctx, agg := usage.WithAggregator(ctx)
@@ -186,16 +193,15 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		d := time.Duration(s.defaults.ToolCallTimeoutSec) * time.Second
 		ctx = executil.WithToolTimeout(ctx, d)
 	}
+	runPlanStarted := time.Now()
 	status, err := s.runPlanAndStatus(ctx, input, output)
+	infof("agent.Query stage runPlanAndStatus convo=%q turn_id=%q status=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), time.Since(runPlanStarted))
 	if err != nil {
 		errorf("agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
 	} else {
 		infof("agent.Query runPlan ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	}
 
-	if err != nil && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("execution of query function failed (context canceled): %w", err)
-	}
 	if err != nil {
 		return fmt.Errorf("execution of query function failed: %w", err)
 	}
@@ -207,10 +213,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Persist/refresh conversation default model with the actually used model this turn
 	_ = s.updateDefaultModel(ctx, turn, output)
 
+	fetchStarted := time.Now()
 	conv, err := s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
 	if err != nil {
 		return fmt.Errorf("cannot get conversation: %w", err)
 	}
+	infof("agent.Query stage fetchConversation convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(fetchStarted))
 	if conv == nil {
 		return fmt.Errorf("cannot get conversation: not found: %s", strings.TrimSpace(input.ConversationID))
 	}
@@ -224,12 +232,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	if conv.HasConversationParent() || conv.ScheduleId != nil {
+		infof("agent.Query done convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(queryStarted))
 		return nil
 	}
 	err = s.summarizeIfNeeded(ctx, input, conv)
 	if err != nil {
 		return fmt.Errorf("failed summarizing: %w", err)
 	}
+	infof("agent.Query done convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(queryStarted))
 	return nil
 }
 

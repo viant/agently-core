@@ -107,6 +107,6 @@ func DefineActiveRunsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *ActiveRunsInput) EmbedFS() *embed.FS {
-		return &ActiveRunsFS
-	}
+func (i *ActiveRunsInput) EmbedFS() *embed.FS {
+	return &ActiveRunsFS
+}

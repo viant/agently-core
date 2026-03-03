@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -22,6 +23,7 @@ type agentSelection struct {
 }
 
 func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query string, candidates []*agentmdl.Agent) (string, error) {
+	started := time.Now()
 	query = strings.TrimSpace(query)
 	candidates = filterAutoSelectableAgents(candidates)
 	if query == "" || len(candidates) == 0 || s == nil || s.llm == nil || s.llm.ModelFinder() == nil {
@@ -120,6 +122,14 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 		convID = conv.Id
 	}
 	runCtx := s.ensureRunTrackedLLMContext(ctx, convID, "agent_selector", "")
+	timeoutSec := 20
+	if s.defaults != nil && s.defaults.AgentAutoSelection.TimeoutSec > 0 {
+		timeoutSec = s.defaults.AgentAutoSelection.TimeoutSec
+	}
+	var cancel func()
+	runCtx, cancel = context.WithTimeout(runCtx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+	infof("agent.selector start convo=%q model=%q timeout_sec=%d candidates=%d query_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), timeoutSec, len(candidateLines), len(query))
 	in := &core.GenerateInput{
 		UserID: "system",
 		ModelSelection: llm.ModelSelection{
@@ -142,12 +152,15 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	out := &core.GenerateOutput{}
 	err = s.llm.Generate(runCtx, in, out)
 	if err != nil {
+		warnf("agent.selector error convo=%q model=%q elapsed=%s err=%v", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started), err)
 		return "", err
 	}
 	selected := parseSelectedAgentID(responseForContent(out.Response, out.Content), outputKey)
 	if selected == "" {
+		debugf("agent.selector done convo=%q model=%q selected=\"\" elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started))
 		return "", nil
 	}
+	infof("agent.selector done convo=%q model=%q selected=%q elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), strings.TrimSpace(selected), time.Since(started))
 	if strings.EqualFold(strings.TrimSpace(selected), "agent_selector") {
 		return "agent_selector", nil
 	}

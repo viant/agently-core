@@ -11,13 +11,13 @@ import (
 
 // Session represents an authenticated user session.
 type Session struct {
-	ID        string        `json:"id"`
-	Username  string        `json:"username"`
-	Email     string        `json:"email,omitempty"`
-	Subject   string        `json:"subject,omitempty"`
+	ID        string         `json:"id"`
+	Username  string         `json:"username"`
+	Email     string         `json:"email,omitempty"`
+	Subject   string         `json:"subject,omitempty"`
 	Tokens    *scyauth.Token `json:"-"`
-	CreatedAt time.Time     `json:"createdAt"`
-	ExpiresAt time.Time     `json:"expiresAt"`
+	CreatedAt time.Time      `json:"createdAt"`
+	ExpiresAt time.Time      `json:"expiresAt"`
 }
 
 // IsExpired returns true when the session has passed its expiry time.

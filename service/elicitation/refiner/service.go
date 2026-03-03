@@ -1,4 +1,3 @@
-
 package refiner
 
 import mcpschema "github.com/viant/mcp-protocol/schema"

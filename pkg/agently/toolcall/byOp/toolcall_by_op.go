@@ -69,6 +69,6 @@ func DefineToolCallRowsComponent(ctx context.Context, srv *datly.Service) error 
 	return nil
 }
 
-	func (i *ToolCallRowsInput) EmbedFS() *embed.FS {
-		return &ToolCallRowsFS
-	}
+func (i *ToolCallRowsInput) EmbedFS() *embed.FS {
+	return &ToolCallRowsFS
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -45,9 +46,11 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	if query == "" {
 		return
 	}
+	started := time.Now()
 	conv, _ := s.fetchConversationForRouting(ctx, strings.TrimSpace(input.ConversationID))
 	_, modelName := s.resolveToolRouterModel(ctx, conv)
 	if strings.TrimSpace(modelName) == "" {
+		debugf("agent.toolRouter skip convo=%q message_id=%q reason=no_model elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(started))
 		return
 	}
 
@@ -90,6 +93,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		}
 	}
 	if len(lines) == 0 {
+		debugf("agent.toolRouter skip convo=%q message_id=%q reason=no_candidates elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(started))
 		return
 	}
 
@@ -105,6 +109,14 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	}, "\n")
 
 	runCtx := s.ensureRunTrackedLLMContext(ctx, input.ConversationID, "tool_router", input.MessageID)
+	timeoutSec := 20
+	if s.defaults != nil && s.defaults.ToolAutoSelection.TimeoutSec > 0 {
+		timeoutSec = s.defaults.ToolAutoSelection.TimeoutSec
+	}
+	var cancel func()
+	runCtx, cancel = context.WithTimeout(runCtx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+	infof("agent.toolRouter start convo=%q message_id=%q model=%q timeout_sec=%d candidates=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), timeoutSec, len(lines))
 	in := &core.GenerateInput{
 		UserID: strings.TrimSpace(input.UserId),
 		ModelSelection: llm.ModelSelection{
@@ -129,6 +141,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	outGen := &core.GenerateOutput{}
 	err := s.llm.Generate(runCtx, in, outGen)
 	if err != nil {
+		warnf("agent.toolRouter error convo=%q message_id=%q model=%q elapsed=%s err=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), time.Since(started), err)
 		return
 	}
 	selected := parseSelectedToolBundles(responseForContent(outGen.Response, outGen.Content), outputKey)
@@ -156,9 +169,11 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		}
 	}
 	if len(out) == 0 {
+		debugf("agent.toolRouter done convo=%q message_id=%q model=%q selected=0 elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), time.Since(started))
 		return
 	}
 	input.ToolBundles = out
+	infof("agent.toolRouter done convo=%q message_id=%q model=%q selected=%d bundles=%q elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), len(out), strings.Join(out, ","), time.Since(started))
 }
 
 func (s *Service) fetchConversationForRouting(ctx context.Context, conversationID string) (*apiconv.Conversation, error) {

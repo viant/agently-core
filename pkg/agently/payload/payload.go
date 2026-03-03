@@ -93,6 +93,6 @@ func DefinePayloadRowsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *PayloadRowsInput) EmbedFS() *embed.FS {
-		return &PayloadRowsFS
-	}
+func (i *PayloadRowsInput) EmbedFS() *embed.FS {
+	return &PayloadRowsFS
+}

@@ -63,6 +63,6 @@ func DefineQueuedTotalComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *QueuedTotalInput) EmbedFS() *embed.FS {
-		return &QueuedTotalFS
-	}
+func (i *QueuedTotalInput) EmbedFS() *embed.FS {
+	return &QueuedTotalFS
+}

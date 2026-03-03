@@ -1,4 +1,3 @@
-
 package agent
 
 import (
@@ -6,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/genai/llm"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 )
 

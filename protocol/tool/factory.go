@@ -1,10 +1,10 @@
 package tool
 
 import (
-	"github.com/viant/agently-core/protocol/agent"
-	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/protocol/mcp/manager"
 	internal "github.com/viant/agently-core/internal/tool/registry"
+	"github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/mcp/manager"
+	svc "github.com/viant/agently-core/protocol/tool/service"
 )
 
 // NewDefaultRegistry constructs the default MCP-backed tool registry with built-ins.

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
 	mcpnames "github.com/viant/agently-core/pkg/mcpname"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 // scopedRegistry is a lightweight wrapper that binds a tool.Registry to a

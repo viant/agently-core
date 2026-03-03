@@ -218,6 +218,7 @@ func (s *Service) GetConversations(ctx context.Context, input *convcli.Input) ([
 			ConversationParentTurnId: row.ConversationParentTurnId,
 			Metadata:                 row.Metadata,
 			Visibility:               row.Visibility,
+			Shareable:                row.Shareable,
 			Status:                   row.Status,
 			Scheduled:                row.Scheduled,
 			ScheduleId:               row.ScheduleId,

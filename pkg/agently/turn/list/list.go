@@ -89,6 +89,6 @@ func DefineTurnRowsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *TurnRowsInput) EmbedFS() *embed.FS {
-		return &TurnRowsFS
-	}
+func (i *TurnRowsInput) EmbedFS() *embed.FS {
+	return &TurnRowsFS
+}

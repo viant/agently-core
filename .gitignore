@@ -3,3 +3,4 @@ datly
 server
 bin/
 repo/
+logs/

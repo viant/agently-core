@@ -32,6 +32,10 @@ func WithConversationVisibility(v string) MutableConversationViewOption {
 	return func(c *MutableConversationView) { c.SetVisibility(v) }
 }
 
+func WithConversationShareable(v int) MutableConversationViewOption {
+	return func(c *MutableConversationView) { c.SetShareable(v) }
+}
+
 func NewConversationStatus(id, status string) *MutableConversationView {
 	return NewMutableConversationView(
 		WithConversationID(id),

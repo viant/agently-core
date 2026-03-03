@@ -10,10 +10,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	convmem "github.com/viant/agently-core/app/store/data/memory"
-	"github.com/viant/agently-core/runtime/memory"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	convmem "github.com/viant/agently-core/app/store/data/memory"
 	agmodel "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 func tempDirURL(t *testing.T) string {

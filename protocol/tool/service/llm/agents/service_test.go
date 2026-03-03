@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/genai/llm"
-	agentsvc "github.com/viant/agently-core/service/agent"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolpol "github.com/viant/agently-core/protocol/tool"
+	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
 func TestService_List_DataDriven(t *testing.T) {

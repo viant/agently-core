@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 // TestFinishModelCallSetsCost_DataDriven verifies cost calculation is stored

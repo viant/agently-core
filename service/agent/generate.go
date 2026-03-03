@@ -1,14 +1,13 @@
-
 package agent
 
 import (
 	"context"
 	"strings"
 
-	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/service/core"
 )
 
 func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *agent.Agent) {

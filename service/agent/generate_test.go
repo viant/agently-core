@@ -1,12 +1,11 @@
-
 package agent
 
 import (
 	"context"
 	"testing"
 
-	ag "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/genai/llm"
+	ag "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/service/core"
 )
 

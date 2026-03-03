@@ -27,24 +27,26 @@ func init() {
 var RunRowsFS embed.FS
 
 type RunRowsInput struct {
-	Id              string           `parameter:",kind=path,in=id" predicate:"equal,group=0,t,id"`
-	TurnId          string           `parameter:",kind=query,in=turnId" predicate:"equal,group=0,t,turn_id"`
-	ConversationId  string           `parameter:",kind=query,in=conversationId" predicate:"equal,group=0,t,conversation_id"`
-	ScheduleId      string           `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,t,schedule_id"`
-	WorkerId        string           `parameter:",kind=query,in=workerId" predicate:"equal,group=0,t,worker_id"`
-	RunStatus       string           `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
-	ExcludeStatuses []string         `parameter:",kind=query,in=excludeStatuses" predicate:"not_in,group=0,t,status"`
-	Has             *RunRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id               string           `parameter:",kind=path,in=id" predicate:"equal,group=0,t,id"`
+	TurnId           string           `parameter:",kind=query,in=turnId" predicate:"equal,group=0,t,turn_id"`
+	ConversationId   string           `parameter:",kind=query,in=conversationId" predicate:"equal,group=0,t,conversation_id"`
+	ScheduleId       string           `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,t,schedule_id"`
+	WorkerId         string           `parameter:",kind=query,in=workerId" predicate:"equal,group=0,t,worker_id"`
+	RunStatus        string           `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
+	ExcludeStatuses  []string         `parameter:",kind=query,in=excludeStatuses" predicate:"not_in,group=0,t,status"`
+	DefaultPredicate string           `parameter:",kind=const,in=value" predicate:"handler,group=0,*run.Filter" value:"0"`
+	Has              *RunRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type RunRowsInputHas struct {
-	Id              bool
-	TurnId          bool
-	ConversationId  bool
-	ScheduleId      bool
-	WorkerId        bool
-	RunStatus       bool
-	ExcludeStatuses bool
+	Id               bool
+	TurnId           bool
+	ConversationId   bool
+	ScheduleId       bool
+	WorkerId         bool
+	RunStatus        bool
+	ExcludeStatuses  bool
+	DefaultPredicate bool
 }
 
 type RunRowsOutput struct {
@@ -117,6 +119,6 @@ func DefineRunRowsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *RunRowsInput) EmbedFS() *embed.FS {
-		return &RunRowsFS
-	}
+func (i *RunRowsInput) EmbedFS() *embed.FS {
+	return &RunRowsFS
+}

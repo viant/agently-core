@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	svc "github.com/viant/agently-core/protocol/tool/service"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agmodel "github.com/viant/agently-core/protocol/agent"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	svc "github.com/viant/agently-core/protocol/tool/service"
 	aug "github.com/viant/agently-core/service/augmenter"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
-	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 )
 
 // Name identifies the resources tool service namespace

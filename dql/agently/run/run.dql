@@ -11,6 +11,7 @@
 #define($_ = $WorkerId<string>(query/workerId).WithPredicate(0, 'equal','t', 'worker_id'))
 #define($_ = $RunStatus<string>(query/status).WithPredicate(0, 'equal','t', 'status'))
 #define($_ = $ExcludeStatuses<[]string>(query/excludeStatuses).WithPredicate(0, 'not_in', 't', 'status'))
+#define($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0, 'handler', '*run.Filter'))
 
 SELECT run_rows.*
 FROM (

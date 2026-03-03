@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 	"github.com/viant/agently-core/genai/llm/provider"
+	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 	"gopkg.in/yaml.v3"
 )
 

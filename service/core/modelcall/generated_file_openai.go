@@ -17,8 +17,8 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 const (

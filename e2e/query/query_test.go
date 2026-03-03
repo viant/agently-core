@@ -11,20 +11,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/afs"
-	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
-	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/app/executor/config"
-	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	"github.com/viant/agently-core/genai/llm/provider"
+	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
+	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
-	"github.com/viant/agently-core/protocol/tool"
-	modelloader "github.com/viant/agently-core/workspace/loader/model"
 	wsfs "github.com/viant/agently-core/workspace/loader/fs"
+	modelloader "github.com/viant/agently-core/workspace/loader/model"
 	meta "github.com/viant/agently-core/workspace/service/meta"
 )
 
@@ -84,7 +84,7 @@ func setupSDK(t *testing.T) sdk.Client {
 		WithMCPManager(mcpMgr).
 		WithElicitationRouter(elicrouter.New()).
 		WithDefaults(&config.Defaults{
-			Model:                "openai_gpt4o_mini",
+			Model:                 "openai_gpt4o_mini",
 			ElicitationTimeoutSec: 1,
 		}).
 		Build(ctx)

@@ -11,9 +11,9 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
-	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
 )
 
 type ListInput struct {

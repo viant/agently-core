@@ -8,8 +8,8 @@ import (
 	_ "embed"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/embedder"
-	core "github.com/viant/agently-core/service/core"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	core "github.com/viant/agently-core/service/core"
 )
 
 const Name = "internal/message"

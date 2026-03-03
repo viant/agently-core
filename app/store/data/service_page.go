@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	authctx "github.com/viant/agently-core/internal/auth"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
@@ -116,6 +117,14 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 			input.Has.CursorBefore = true
 		}
 	}
+	callOpts := collectOptions(opts)
+	if callOpts.principal != "" {
+		ctx = authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: callOpts.principal})
+	} else if input.Has != nil {
+		// Preserve prior unscoped list behavior for callers that don't set a principal.
+		input.DefaultPredicate = "1"
+		input.Has.DefaultPredicate = true
+	}
 
 	out := &agconvlist.ConversationRowsOutput{}
 	selectorOpts := append([]Option{buildPageSelector("ConversationRows", limit)}, opts...)
@@ -127,7 +136,6 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
 		return nil, err
 	}
-	callOpts := collectOptions(opts)
 	rows := out.Data
 	if callOpts.principal != "" && !callOpts.isAdmin {
 		filtered := make([]*agconvlist.ConversationRowsView, 0, len(rows))

@@ -1,4 +1,3 @@
-
 package prompts
 
 import (

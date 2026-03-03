@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	aug "github.com/viant/agently-core/service/augmenter"
 	"github.com/viant/agently-core/internal/textutil"
+	aug "github.com/viant/agently-core/service/augmenter"
 )
 
 // This test suite targets the resource read selection paths that delegate to

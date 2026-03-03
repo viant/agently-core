@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	aug "github.com/viant/agently-core/service/augmenter"
 	"github.com/viant/agently-core/internal/textutil"
+	aug "github.com/viant/agently-core/service/augmenter"
 )
 
 func TestService_Read_LineRange_LineCount(t *testing.T) {
