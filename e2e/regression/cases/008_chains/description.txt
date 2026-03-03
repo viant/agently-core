@@ -1,0 +1,9 @@
+Case: 008_chains
+
+Test:
+- chains - parent query triggers child
+- chains - verify child response in messages
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

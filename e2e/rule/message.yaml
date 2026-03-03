@@ -1,0 +1,10 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/message      -s='dql/agently/message/message.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/message/list      -s='dql/agently/message/list.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/message/elicitation      -s='dql/agently/message/message_by_elicitation.dql' $datlyOptions

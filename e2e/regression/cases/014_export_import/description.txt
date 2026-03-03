@@ -1,0 +1,11 @@
+Case: 014_export_import
+
+Test:
+- export/import - save resource
+- export/import - export
+- export/import - import with no replace skips existing
+- export/import - cleanup
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

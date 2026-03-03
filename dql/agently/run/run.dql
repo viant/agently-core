@@ -1,0 +1,21 @@
+/* {"URI":"/{id}"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $Id<string>(path/id).WithPredicate(0, 'equal','t', 'id'))
+#define($_ = $TurnId<string>(query/turnId).WithPredicate(0, 'equal','t', 'turn_id'))
+#define($_ = $ConversationId<string>(query/conversationId).WithPredicate(0, 'equal','t', 'conversation_id'))
+#define($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'equal','t', 'schedule_id'))
+#define($_ = $WorkerId<string>(query/workerId).WithPredicate(0, 'equal','t', 'worker_id'))
+#define($_ = $RunStatus<string>(query/status).WithPredicate(0, 'equal','t', 'status'))
+#define($_ = $ExcludeStatuses<[]string>(query/excludeStatuses).WithPredicate(0, 'not_in', 't', 'status'))
+
+SELECT run_rows.*
+FROM (
+    SELECT t.*
+    FROM run t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ORDER BY created_at DESC
+) run_rows

@@ -1,0 +1,15 @@
+pipeline:
+  executeFormTool:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp form tool - direct MCP tool execution should succeed"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute
+        JSONBody:
+          name: mcpform/ask_form
+          args: {}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@result": true

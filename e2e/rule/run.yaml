@@ -1,0 +1,12 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/run      -s='dql/agently/run/run.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/run/active      -s='dql/agently/run/run_active.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/run/stale      -s='dql/agently/run/run_stale.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/run/steps      -s='dql/agently/run/steps.dql' $datlyOptions
+      - cd $repoPath && go test ./pkg/agently/run/write

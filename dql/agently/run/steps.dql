@@ -1,0 +1,58 @@
+/* {"URI":"/steps","Method":"GET"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $RunID<string>(query/runId).WithPredicate(0, 'equal','m', 'run_id').WithPredicate(1, 'equal','t', 'run_id'))
+#define($_ = $Iteration<int>(query/iteration).WithPredicate(0, 'equal','m', 'iteration').WithPredicate(1, 'equal','t', 'iteration'))
+#define($_ = $StepTypes<[]string>(query/stepTypes).WithPredicate(0, 'literal_in','model_call').WithPredicate(1, 'literal_in','tool_call'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).WithPredicate(0, 'expr','m.message_id < ?').WithPredicate(1, 'expr','t.message_id < ?'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).WithPredicate(0, 'expr','m.message_id > ?').WithPredicate(1, 'expr','t.message_id > ?'))
+
+SELECT
+    run_steps.step_type,
+    run_steps.run_id,
+    run_steps.conversation_id,
+    run_steps.iteration,
+    run_steps.message_id,
+    run_steps.name,
+    run_steps.status,
+    run_steps.started_at,
+    run_steps.completed_at,
+    run_steps.latency_ms,
+    run_steps.error_message
+FROM (
+    SELECT
+        'model_call' AS step_type,
+        m.run_id AS run_id,
+        r.conversation_id AS conversation_id,
+        m.iteration AS iteration,
+        m.message_id AS message_id,
+        m.model AS name,
+        m.status AS status,
+        m.started_at AS started_at,
+        m.completed_at AS completed_at,
+        m.latency_ms AS latency_ms,
+        m.error_message AS error_message
+    FROM model_call m
+    JOIN run r ON r.id = m.run_id
+    WHERE m.run_id IS NOT NULL ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    UNION ALL
+    SELECT
+        'tool_call' AS step_type,
+        t.run_id AS run_id,
+        r.conversation_id AS conversation_id,
+        t.iteration AS iteration,
+        t.message_id AS message_id,
+        t.tool_name AS name,
+        t.status AS status,
+        t.started_at AS started_at,
+        t.completed_at AS completed_at,
+        t.latency_ms AS latency_ms,
+        t.error_message AS error_message
+    FROM tool_call t
+    JOIN run r ON r.id = t.run_id
+    WHERE t.run_id IS NOT NULL ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("AND")}
+) run_steps
+ORDER BY run_steps.iteration DESC, run_steps.step_type DESC, run_steps.message_id DESC

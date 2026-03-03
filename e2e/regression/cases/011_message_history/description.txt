@@ -1,0 +1,9 @@
+Case: 011_message_history
+
+Test:
+- message history - send query
+- message history - verify messages
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

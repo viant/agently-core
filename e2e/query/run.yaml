@@ -1,0 +1,37 @@
+init:
+  repoPath: $WorkingDirectory(../..)
+
+pipeline:
+  query:
+    simple:
+      action: exec:run
+      description: "Test 1: Simple hi query with gpt-4o-mini"
+      checkError: true
+      TimeoutMs: 120000
+      commands:
+        - cd $repoPath
+        - go test -v -run TestQuerySimple -timeout 60s ./e2e/query/...
+    knowledge_local:
+      action: exec:run
+      description: "Test 2: Query with local knowledge"
+      checkError: true
+      TimeoutMs: 120000
+      commands:
+        - cd $repoPath
+        - go test -v -run TestQueryWithLocalKnowledge -timeout 60s ./e2e/query/...
+    knowledge_system:
+      action: exec:run
+      description: "Test 3: Query with system knowledge"
+      checkError: true
+      TimeoutMs: 120000
+      commands:
+        - cd $repoPath
+        - go test -v -run TestQueryWithSystemKnowledge -timeout 60s ./e2e/query/...
+    tool_usage:
+      action: exec:run
+      description: "Test 4: Query with tool usage (env variables)"
+      checkError: true
+      TimeoutMs: 120000
+      commands:
+        - cd $repoPath
+        - go test -v -run TestQueryWithToolUsage -timeout 60s ./e2e/query/...

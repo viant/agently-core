@@ -1,0 +1,91 @@
+init:
+  mysqlCred: mysql-e2e.json
+  mysqlSecrets: ${secrets.$mysqlCred}
+  repoPath: $WorkingDirectory(./..)
+  testdataPath: ${repoPath}/e2e/query/testdata
+  serverPort: 8090
+  serverURL: http://127.0.0.1:${serverPort}
+  debugger: off
+  sdkKey: ${env.OPENAI_API_KEY}
+  dbIP:
+    mysql: localhost
+    user: ${mysqlSecrets.Username}
+    password: ${mysqlSecrets.Password}
+  dbPort:
+    mysql: 3308
+  connections: -c='agently|mysql|${dbIP.user}:${dbIP.password}@tcp(${dbIP.mysql}:${dbPort.mysql})/agently?parseTime=true'
+  datlyOptions: $connections
+
+pipeline:
+
+  init:
+    system:
+      action: run
+      description: init system
+      request: '@system'
+
+    database:
+      action: run
+      description: init database
+      request: '@database/database'
+
+  build:
+    datly:
+      action: exec:run
+      description: build datly binary
+      TimeoutMs: 120000
+      checkError: true
+      commands:
+        - cd $repoPath
+        - export PATH=/usr/local/go/bin:$PATH
+        - export GOPATH=${env.GOPATH}
+        - mkdir -p $repoPath/e2e/bin
+        - cd ${repoPath}/e2e/cli/datly
+        - go mod tidy
+        - go build -o datly
+        - mv datly $repoPath/e2e/bin/datly
+
+    server:
+      action: exec:run
+      description: build e2e server
+      TimeoutMs: 120000
+      checkError: true
+      commands:
+        - cd $repoPath
+        - go build -o ${repoPath}/e2e/bin/e2e-server ./e2e/cli/server
+
+  rule:
+    cleanup:
+      action: exec:run
+      TimeoutMs: 120000
+      checkError: true
+      commands:
+        - cd $repoPath
+        - rm -rf repo/
+
+    conversation:
+      action: run
+      request: '@rule/conversation'
+    message:
+      action: run
+      request: '@rule/message'
+    turn:
+      action: run
+      request: '@rule/turn'
+    run:
+      action: run
+      request: '@rule/run'
+    toolcall:
+      action: run
+      request: '@rule/toolcall'
+    payload:
+      action: run
+      request: '@rule/payload'
+    toolApprovalQueue:
+      action: run
+      request: '@rule/tool_approval_queue'
+
+  test:
+    action: run
+    description: run e2e regression tests
+    request: '@regression/regression'

@@ -1,0 +1,17 @@
+/* {"URI":"/stale"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $HeartbeatBefore<time.Time>(query/heartbeatBefore).WithPredicate(0, 'expr', '(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)'))
+#define($_ = $WorkerHost<string>(query/workerHost).WithPredicate(0, 'equal','t', 'worker_host'))
+
+SELECT stale_runs.*
+FROM (
+    SELECT t.*
+    FROM run t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+      AND t.status = 'running'
+    ORDER BY t.last_heartbeat_at ASC
+) stale_runs

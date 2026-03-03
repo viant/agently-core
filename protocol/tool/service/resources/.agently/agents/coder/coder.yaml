@@ -1,0 +1,45 @@
+description: Coder agent
+id: coder
+modelRef: openai_gpt-5.2
+name: Coder
+temperature: 1
+persona:
+  role: assistant
+  actor: Coder
+
+profile:
+  publish: true
+  name: Coder
+  description: Code generation and refactoring agent
+  tags: ["code", "refactor"]
+  rank: 90
+
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+
+
+tool:
+  callExposure: conversation
+  bundles:
+    - orchestration
+    - resources
+    - system/patch
+    - system/exec
+    - system/os
+
+
+systemKnowledge:
+  - url: system_knowledge/
+
+
+
+resources:
+  # Expose the local filesystem under a canonical root so tools like
+  # resources-list/read can operate against the workspace. The "root"
+  # id matches the rootId used by dev_coder calls.
+  - id: local
+    uri: file://localhost/~/
+    description: Local workspace
+    allowGrep: true

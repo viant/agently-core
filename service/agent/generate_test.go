@@ -1,0 +1,46 @@
+
+package agent
+
+import (
+	"context"
+	"testing"
+
+	ag "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/service/core"
+)
+
+func TestEnsureGenerateOptions_AppliesAgentTemperature(t *testing.T) {
+	in := &core.GenerateInput{}
+	a := &ag.Agent{
+		Temperature: 0.7,
+	}
+
+	EnsureGenerateOptions(context.Background(), in, a)
+
+	if in.Options == nil {
+		t.Fatalf("expected options to be initialized")
+	}
+	if got := in.Options.Temperature; got != 0.7 {
+		t.Fatalf("unexpected temperature: %v", got)
+	}
+}
+
+func TestEnsureGenerateOptions_DoesNotOverrideRequestTemperature(t *testing.T) {
+	in := &core.GenerateInput{
+		ModelSelection: llm.ModelSelection{
+			Options: &llm.Options{
+				Temperature: 0.2,
+			},
+		},
+	}
+	a := &ag.Agent{
+		Temperature: 0.8,
+	}
+
+	EnsureGenerateOptions(context.Background(), in, a)
+
+	if got := in.Options.Temperature; got != 0.2 {
+		t.Fatalf("expected existing request temperature to win, got: %v", got)
+	}
+}

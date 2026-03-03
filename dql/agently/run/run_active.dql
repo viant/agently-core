@@ -1,0 +1,18 @@
+/* {"URI":"/active"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $TurnId<string>(query/turnId).WithPredicate(0, 'equal','t', 'turn_id'))
+#define($_ = $ConversationId<string>(query/conversationId).WithPredicate(0, 'equal','t', 'conversation_id'))
+
+SELECT active_runs.*
+FROM (
+    SELECT t.*
+    FROM run t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+      AND t.status IN ('running', 'queued', 'pending')
+    ORDER BY t.created_at DESC
+    LIMIT 1
+) active_runs

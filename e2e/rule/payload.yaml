@@ -1,0 +1,8 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/payload      -s='dql/agently/payload/payload.dql' $datlyOptions

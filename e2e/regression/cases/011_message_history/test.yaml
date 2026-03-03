@@ -1,0 +1,28 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "message history - send query"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: simple
+          Query: Hi there, say hello back.
+          UserId: e2e-test
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+
+  getMessages:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "message history - verify messages"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows": true

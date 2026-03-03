@@ -1,0 +1,13 @@
+id: chain_child
+name: Chain Child
+description: Simple agent targeted by chain parent
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ChildBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

@@ -1,0 +1,4 @@
+name: mcpform
+transport:
+  type: streamable
+  url: http://127.0.0.1:18092/mcp

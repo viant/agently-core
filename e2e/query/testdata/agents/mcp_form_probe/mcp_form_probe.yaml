@@ -1,0 +1,16 @@
+id: mcp_form_probe
+name: MCP Form Elicitation Probe
+description: Agent that must call MCP form elicitation tool.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: MCPFormProbe
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  items:
+    - pattern: "mcpform"
+      type: function

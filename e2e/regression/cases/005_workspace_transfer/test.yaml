@@ -1,0 +1,50 @@
+pipeline:
+  save:
+    action: http/runner:send
+    description: "workspace transfer - save resource"
+    requests:
+      - Method: PUT
+        URL: ${serverURL}/v1/workspace/resources/agents/transfer_test
+        Body: "id: transfer_test\nname: Transfer Test"
+        Expect:
+          Code: 204
+
+  export:
+    action: http/runner:send
+    description: "workspace transfer - export"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/workspace/resources/export
+        JSONBody:
+          Kinds:
+            - agents
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Resources": true
+
+  import:
+    action: http/runner:send
+    description: "workspace transfer - import with replace"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/workspace/resources/import
+        JSONBody:
+          Resources:
+            - Kind: agents
+              Name: transfer_test
+              Data: aWQ6IHRyYW5zZmVyX3Rlc3QKbmFtZTogVHJhbnNmZXIgVGVzdA==
+          Replace: true
+        Expect:
+          Code: 200
+          JSONBody:
+            imported: 1
+
+  cleanup:
+    action: http/runner:send
+    description: "workspace transfer - cleanup"
+    requests:
+      - Method: DELETE
+        URL: ${serverURL}/v1/workspace/resources/agents/transfer_test
+        Expect:
+          Code: 204

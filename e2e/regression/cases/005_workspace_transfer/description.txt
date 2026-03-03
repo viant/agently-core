@@ -1,0 +1,11 @@
+Case: 005_workspace_transfer
+
+Test:
+- workspace transfer - save resource
+- workspace transfer - export
+- workspace transfer - import with replace
+- workspace transfer - cleanup
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

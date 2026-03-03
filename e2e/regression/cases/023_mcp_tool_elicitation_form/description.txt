@@ -1,0 +1,8 @@
+Case: 023_mcp_tool_elicitation_form
+
+Test:
+- mcp form tool - direct MCP tool execution should succeed
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

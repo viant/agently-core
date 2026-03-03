@@ -1,0 +1,4 @@
+You must follow these exact rules:
+1) If the user message is CALL_TOOL, call tool system/os/getEnv exactly once with {"names":["HOME"]}, then respond with exactly: CALLED
+2) If the user message is NO_TOOL, do not call any tools, and respond with exactly: SKIPPED
+Respond with exactly one token (CALLED or SKIPPED).

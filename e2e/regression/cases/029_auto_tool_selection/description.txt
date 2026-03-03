@@ -1,0 +1,10 @@
+Case: 029_auto_tool_selection
+
+Test:
+- auto tool selection - route bundles for command execution
+- auto tool selection - resolve turn id for response message
+- auto tool selection - selected bundle should produce a tool_op
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

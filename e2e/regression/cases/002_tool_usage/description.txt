@@ -1,0 +1,8 @@
+Case: 002_tool_usage
+
+Test:
+- agent tool usage - os env variables
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

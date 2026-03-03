@@ -1,0 +1,42 @@
+pipeline:
+  save:
+    action: http/runner:send
+    description: "resource CRUD - save"
+    requests:
+      - Method: PUT
+        URL: ${serverURL}/v1/workspace/resources/agents/test_crud
+        Body: "id: test_crud\nname: Test CRUD Agent"
+        Expect:
+          Code: 204
+
+  list:
+    action: http/runner:send
+    description: "resource CRUD - list"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/workspace/resources?kind=agents
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@names": true
+
+  get:
+    action: http/runner:send
+    description: "resource CRUD - get"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/workspace/resources/agents/test_crud
+        Expect:
+          Code: 200
+          JSONBody:
+            kind: agents
+            name: test_crud
+
+  delete:
+    action: http/runner:send
+    description: "resource CRUD - delete"
+    requests:
+      - Method: DELETE
+        URL: ${serverURL}/v1/workspace/resources/agents/test_crud
+        Expect:
+          Code: 204

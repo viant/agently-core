@@ -1,0 +1,18 @@
+id: mcp_form_queue_probe
+name: MCP Form Queue Probe
+description: Agent that routes MCP form tool call through user approval queue before elicitation.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: MCPFormQueueProbe
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  items:
+    - pattern: "mcpform"
+      type: function
+      approvalQueue:
+        enabled: true

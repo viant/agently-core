@@ -1,0 +1,5 @@
+{{$hasToolCall := false}}
+{{range .History.LLMMessages}}
+  {{if gt (len .ToolCalls) 0}}{{$hasToolCall = true}}{{end}}
+{{end}}
+{{if $hasToolCall}}NO_TOOL{{else}}CALL_TOOL{{end}}

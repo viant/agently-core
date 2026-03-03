@@ -1,0 +1,71 @@
+pipeline:
+  setupTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool exposure conversation - create prior turn with real tool call"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: tool_forcer
+          UserId: e2e-test
+          Query: Initialize by calling USER environment variable tool.
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+
+  verifyToolTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool exposure conversation - verify prior turn emitted tool_op"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0]": true
+
+  probeTurn2:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool exposure conversation - prior turn tools should stay visible"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: tool_exposure_probe
+          ConversationID: ${setupTurn1.Responses[0].JSONBody.conversationId}
+          UserId: e2e-test
+          Query: probe
+          ToolCallExposure: conversation
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@messageId": true
+
+  turn2Message:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool exposure conversation - resolve turn2 id from response message id"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&id=${probeTurn2.Responses[0].JSONBody.messageId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].TurnId": true
+
+  verifyTurn2ToolOp:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool exposure conversation - turn2 should not execute tool call"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&turnId=${turn2Message.Responses[0].JSONBody.Rows[0].TurnId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            HasMore: false
+            "@exists@Rows[0]": false

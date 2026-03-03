@@ -1,0 +1,11 @@
+pipeline:
+  cancelNonExistent:
+    action: http/runner:send
+    description: "cancel turn - non-existent returns false"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/turns/non-existent-turn-id/cancel
+        Expect:
+          Code: 200
+          JSONBody:
+            cancelled: false

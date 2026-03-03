@@ -1,0 +1,107 @@
+init:
+  repoPath: $WorkingDirectory(../..)
+  testdataPath: ${repoPath}/e2e/query/testdata
+  serverPort: 8090
+  serverURL: http://127.0.0.1:${serverPort}
+  sdkKey: ${env.OPENAI_API_KEY}
+
+pipeline:
+  mcpResources:
+    start:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - pkill -f '${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources' || true
+        - nohup ${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources >/tmp/agently-core-mcp-resources.log 2>&1 &
+        - sleep 1
+        - lsof -nP -iTCP:18091 -sTCP:LISTEN | grep LISTEN
+
+  mcpElicitationForm:
+    start:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form' || true
+        - nohup ${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form >/tmp/agently-core-mcp-form.log 2>&1 &
+        - sleep 1
+        - lsof -nP -iTCP:18092 -sTCP:LISTEN | grep LISTEN
+
+  mcpElicitationOOB:
+    start:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob' || true
+        - nohup ${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob >/tmp/agently-core-mcp-oob.log 2>&1 &
+        - sleep 1
+        - lsof -nP -iTCP:18093 -sTCP:LISTEN | grep LISTEN
+
+  app:
+    stop:
+      when: $debugger!=on
+      action: process:stop
+      input: e2e-server
+
+    start:
+      when: $debugger!=on
+      action: process:start
+      directory: ${repoPath}
+      checkError: true
+      immuneToHangups: true
+      sleepTimeMs: 3000
+      command: ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath}
+
+  health:
+    action: http/runner:send
+    description: verify target server health endpoint
+    requests:
+      - Method: GET
+        URL: ${serverURL}/healthz
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  testCases:
+    tag: $pathMatch
+    subPath: 'cases/${index}_*'
+    template:
+      checkSkip:
+        action: nop
+        skip: $HasResource(${path}/skip.txt)
+      runTest:
+        action: run
+        init:
+          parentPath: $path
+          repoPath: $repoPath
+          serverURL: $serverURL
+          sdkKey: $sdkKey
+          tag: $tag
+        request: '@test'
+
+  cleanup:
+    stop:
+      when: $debugger!=on
+      action: process:stop
+      input: e2e-server
+    stopMCPResources:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - pkill -f '${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources' || true
+    stopMCPElicitationForm:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form' || true
+    stopMCPElicitationOOB:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - pkill -f '${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob' || true

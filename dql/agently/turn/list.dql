@@ -1,0 +1,35 @@
+/* {"URI":"/list"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $ConversationID<string>(query/conversationId).WithPredicate(0, 'equal', 't', 'conversation_id'))
+#define($_ = $TurnId<string>(query/id).WithPredicate(0, 'equal', 't', 'id'))
+#define($_ = $Statuses<[]string>(query/statuses).WithPredicate(0, 'in', 't', 'status'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).WithPredicate(0, 'greater_or_equal', 't', 'created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).WithPredicate(0, 'less_or_equal', 't', 'created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).WithPredicate(0, 'expr', 'EXISTS (SELECT 1 FROM turn x WHERE x.id = ? AND (t.created_at < x.created_at OR (t.created_at = x.created_at AND t.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).WithPredicate(0, 'expr', 'EXISTS (SELECT 1 FROM turn x WHERE x.id = ? AND (t.created_at > x.created_at OR (t.created_at = x.created_at AND t.id > x.id)))'))
+
+SELECT turn_rows.*
+FROM (
+    SELECT
+        t.id,
+        t.conversation_id,
+        t.created_at,
+        t.queue_seq,
+        t.status,
+        t.error_message,
+        t.started_by_message_id,
+        t.retry_of,
+        t.agent_id_used,
+        t.agent_config_used_id,
+        t.model_override_provider,
+        t.model_override,
+        t.model_params_override,
+        t.run_id
+    FROM turn t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ORDER BY t.created_at DESC, t.id DESC
+) turn_rows

@@ -1,0 +1,35 @@
+pipeline:
+  safeToolAllowed:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "approval policy best-path - safe tool should execute"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute
+        JSONBody:
+          name: system/os:getEnv
+          args:
+            names:
+              - USER
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@result": true
+
+  riskyToolBlocked:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "approval policy best-path - risky tool should be blocked"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute
+        JSONBody:
+          name: system/exec:execute
+          args:
+            commands:
+              - date
+            workdir: /tmp
+        Expect:
+          Code: 409
+          JSONBody:
+            error: tool "system/exec:execute" blocked by best_path approval policy

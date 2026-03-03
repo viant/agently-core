@@ -1,0 +1,161 @@
+package auth
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	scyauth "github.com/viant/scy/auth"
+	"golang.org/x/oauth2"
+)
+
+// Session represents an authenticated user session.
+type Session struct {
+	ID        string        `json:"id"`
+	Username  string        `json:"username"`
+	Email     string        `json:"email,omitempty"`
+	Subject   string        `json:"subject,omitempty"`
+	Tokens    *scyauth.Token `json:"-"`
+	CreatedAt time.Time     `json:"createdAt"`
+	ExpiresAt time.Time     `json:"expiresAt"`
+}
+
+// IsExpired returns true when the session has passed its expiry time.
+func (s *Session) IsExpired() bool {
+	return time.Now().After(s.ExpiresAt)
+}
+
+// SessionRecord is the persistent form of a session for external stores.
+type SessionRecord struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	Email        string    `json:"email,omitempty"`
+	Subject      string    `json:"subject,omitempty"`
+	AccessToken  string    `json:"accessToken,omitempty"`
+	IDToken      string    `json:"idToken,omitempty"`
+	RefreshToken string    `json:"refreshToken,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+}
+
+// SessionStore is a pluggable backend for persistent session storage.
+type SessionStore interface {
+	Get(ctx context.Context, id string) (*SessionRecord, error)
+	Upsert(ctx context.Context, rec *SessionRecord) error
+	Delete(ctx context.Context, id string) error
+}
+
+// Manager manages user sessions with an in-memory cache and optional persistent store.
+type Manager struct {
+	mu    sync.RWMutex
+	mem   map[string]*Session
+	ttl   time.Duration
+	store SessionStore // optional persistent backing store
+}
+
+// NewManager creates a session manager with the given TTL.
+// If store is nil, sessions are stored only in memory.
+func NewManager(ttl time.Duration, store SessionStore) *Manager {
+	if ttl <= 0 {
+		ttl = 168 * time.Hour // 7 days default
+	}
+	return &Manager{
+		mem:   make(map[string]*Session),
+		ttl:   ttl,
+		store: store,
+	}
+}
+
+// Get retrieves a session by ID. Returns nil if not found or expired.
+func (m *Manager) Get(ctx context.Context, id string) *Session {
+	m.mu.RLock()
+	s, ok := m.mem[id]
+	m.mu.RUnlock()
+	if ok {
+		if s.IsExpired() {
+			m.Delete(ctx, id)
+			return nil
+		}
+		return s
+	}
+	if m.store == nil {
+		return nil
+	}
+	rec, err := m.store.Get(ctx, id)
+	if err != nil || rec == nil {
+		return nil
+	}
+	sess := recordToSession(rec)
+	if sess.IsExpired() {
+		_ = m.store.Delete(ctx, id)
+		return nil
+	}
+	m.mu.Lock()
+	m.mem[id] = sess
+	m.mu.Unlock()
+	return sess
+}
+
+// Put stores a session.
+func (m *Manager) Put(ctx context.Context, s *Session) {
+	if s == nil {
+		return
+	}
+	if s.ExpiresAt.IsZero() {
+		s.ExpiresAt = time.Now().Add(m.ttl)
+	}
+	m.mu.Lock()
+	m.mem[s.ID] = s
+	m.mu.Unlock()
+	if m.store != nil {
+		_ = m.store.Upsert(ctx, sessionToRecord(s))
+	}
+}
+
+// Delete removes a session.
+func (m *Manager) Delete(ctx context.Context, id string) {
+	m.mu.Lock()
+	delete(m.mem, id)
+	m.mu.Unlock()
+	if m.store != nil {
+		_ = m.store.Delete(ctx, id)
+	}
+}
+
+func recordToSession(r *SessionRecord) *Session {
+	s := &Session{
+		ID:        r.ID,
+		Username:  r.Username,
+		Email:     r.Email,
+		Subject:   r.Subject,
+		CreatedAt: r.CreatedAt,
+		ExpiresAt: r.ExpiresAt,
+	}
+	if r.AccessToken != "" || r.IDToken != "" || r.RefreshToken != "" {
+		s.Tokens = &scyauth.Token{
+			Token: oauth2.Token{
+				AccessToken:  r.AccessToken,
+				RefreshToken: r.RefreshToken,
+			},
+			IDToken: r.IDToken,
+		}
+	}
+	return s
+}
+
+func sessionToRecord(s *Session) *SessionRecord {
+	r := &SessionRecord{
+		ID:        s.ID,
+		Username:  s.Username,
+		Email:     s.Email,
+		Subject:   s.Subject,
+		CreatedAt: s.CreatedAt,
+		ExpiresAt: s.ExpiresAt,
+	}
+	if s.Tokens != nil {
+		r.AccessToken = s.Tokens.AccessToken
+		r.IDToken = s.Tokens.IDToken
+		r.RefreshToken = s.Tokens.RefreshToken
+	}
+	return r
+}

@@ -1,0 +1,24 @@
+id: chain_parent
+name: Chain Parent
+description: Agent with chain that invokes child agent on success
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ParentBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}
+chains:
+  - on: succeeded
+    target:
+      agentId: chain_child
+    conversation: reuse
+    query:
+      text: "Summarize this in one sentence: {{ .Output.Content }}"
+    publish:
+      role: assistant
+    limits:
+      maxDepth: 1
