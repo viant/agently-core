@@ -4,6 +4,11 @@
 #define($_ = $Data<?>(output/view))
 #define($_ = $Metrics<?>(output/metrics))
 
+#set($_ = $OrderBy<[]string>(query/sort).QuerySelector(message_rows))
+#set($_ = $Page<int>(query/page).QuerySelector(message_rows))
+#set($_ = $Limit<int>(query/limit).QuerySelector(message_rows))
+#set($_ = $Offset<int>(query/offset).QuerySelector(message_rows))
+
 #define($_ = $ConversationId<string>(query/conversationId).WithPredicate(4, 'equal', 'm', 'conversation_id'))
 #define($_ = $TurnId<string>(query/turnId).WithPredicate(4, 'equal', 'm', 'turn_id'))
 #define($_ = $Id<string>(query/id).WithPredicate(4, 'equal', 'm', 'id'))
@@ -24,5 +29,4 @@ FROM (
     SELECT m.*
     FROM message m
     ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
-    ORDER BY m.created_at DESC, m.id DESC
 ) message_rows

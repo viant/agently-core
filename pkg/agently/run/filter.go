@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	core.RegisterType("run", "Filter", reflect.TypeOf(Filter{}), checksum.GeneratedTime)
+	core.RegisterType("runfilter", "Filter", reflect.TypeOf(Filter{}), checksum.GeneratedTime)
 }
 
 type Filter struct{}

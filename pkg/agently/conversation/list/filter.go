@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	core.RegisterType("conversation", "Filter", reflect.TypeOf(Filter{}), checksum.GeneratedTime)
+	core.RegisterType("conversationlist", "Filter", reflect.TypeOf(Filter{}), checksum.GeneratedTime)
 }
 
 type Filter struct{}

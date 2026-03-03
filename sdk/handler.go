@@ -379,6 +379,29 @@ func handleGetMessages(client Client) http.HandlerFunc {
 		if types := q.Get("types"); types != "" {
 			input.Types = strings.Split(types, ",")
 		}
+		if limitRaw := strings.TrimSpace(q.Get("limit")); limitRaw != "" {
+			limit, err := strconv.Atoi(limitRaw)
+			if err != nil || limit <= 0 {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit"))
+				return
+			}
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Limit = limit
+		}
+		if cursor := strings.TrimSpace(q.Get("cursor")); cursor != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Cursor = cursor
+		}
+		if direction := strings.TrimSpace(q.Get("direction")); direction != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Direction = Direction(direction)
+		}
 		out, err := client.GetMessages(r.Context(), input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)

@@ -37,6 +37,16 @@ func buildPageSelector(viewName string, limit int) Option {
 	})
 }
 
+func buildMessagePageSelector(limit int) Option {
+	return WithQuerySelector(&hstate.NamedQuerySelector{
+		Name: "message_rows",
+		QuerySelector: hstate.QuerySelector{
+			Limit:   limit + 1, // read one extra row to calculate hasMore
+			OrderBy: "created_at DESC,id DESC",
+		},
+	})
+}
+
 func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int) *ConversationPage {
 	page := &ConversationPage{Rows: rows}
 	if len(rows) > limit {
@@ -87,6 +97,24 @@ func buildRunStepPage(rows []*agrunsteps.RunStepsView, limit int) *RunStepPage {
 		page.NextCursor = page.Rows[len(page.Rows)-1].MessageId
 	}
 	return page
+}
+
+func hasNamedSelector(opts []Option, names ...string) bool {
+	callOpts := collectOptions(opts)
+	if len(callOpts.selectors) == 0 {
+		return false
+	}
+	for _, selector := range callOpts.selectors {
+		if selector == nil {
+			continue
+		}
+		for _, name := range names {
+			if selector.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error) {
@@ -186,7 +214,10 @@ func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.Me
 	}
 
 	out := &agmessagelist.MessageRowsOutput{}
-	selectorOpts := append([]Option{buildPageSelector("MessageRows", limit)}, opts...)
+	selectorOpts := opts
+	if !hasNamedSelector(opts, "message_rows", "MessageRows") {
+		selectorOpts = append([]Option{buildMessagePageSelector(limit)}, opts...)
+	}
 	operateOpts := append([]datly.OperateOption{
 		datly.WithURI(agmessagelist.MessageRowsPathURI),
 		datly.WithInput(&input),

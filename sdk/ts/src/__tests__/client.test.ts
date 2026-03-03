@@ -58,15 +58,17 @@ describe('Conversations', () => {
     });
 
     it('listConversations with search query', async () => {
-        const f = mockFetch(200, { data: [{ id: 'c1' }], page: { hasMore: false } });
+        const f = mockFetch(200, { Rows: [{ id: 'c1' }], HasMore: false, NextCursor: 'c1' });
         const c = client(f);
         const res = await c.listConversations({ query: 'sales', page: { limit: 10 } });
 
         expect(res.data).toHaveLength(1);
+        expect(res.page?.hasMore).toBe(false);
+        expect(res.page?.cursor).toBe('c1');
         const call = lastCall(f);
         expect(call.method).toBe('GET');
         expect(call.url).toContain('q=sales');
-        expect(call.url).toContain('page.limit=10');
+        expect(call.url).toContain('limit=10');
     });
 
     it('listConversations without params', async () => {
@@ -102,7 +104,7 @@ describe('Conversations', () => {
 
 describe('Messages', () => {
     it('getMessages with filters', async () => {
-        const f = mockFetch(200, { data: [], page: {} });
+        const f = mockFetch(200, { Rows: [], HasMore: false, NextCursor: '' });
         const c = client(f);
         await c.getMessages({
             conversationId: 'conv_1',
@@ -115,8 +117,8 @@ describe('Messages', () => {
         expect(call.url).toContain('conversationId=conv_1');
         expect(call.url).toContain('turnId=turn_1');
         expect(call.url).toContain('roles=assistant%2Ctool');
-        expect(call.url).toContain('page.limit=50');
-        expect(call.url).toContain('page.direction=latest');
+        expect(call.url).toContain('limit=50');
+        expect(call.url).toContain('direction=latest');
     });
 });
 
@@ -261,7 +263,7 @@ describe('Turns', () => {
 
 describe('Tool Approvals', () => {
     it('listPendingToolApprovals with status filter', async () => {
-        const f = mockFetch(200, [{ id: 'ta_1', toolName: 'exec', status: 'pending' }]);
+        const f = mockFetch(200, { rows: [{ id: 'ta_1', toolName: 'exec', status: 'pending' }] });
         const c = client(f);
         const res = await c.listPendingToolApprovals({ status: 'pending' });
 
@@ -295,7 +297,7 @@ describe('Tool Approvals', () => {
 
 describe('Elicitations', () => {
     it('listPendingElicitations filters by conversationId', async () => {
-        const f = mockFetch(200, []);
+        const f = mockFetch(200, { rows: [] });
         const c = client(f);
         await c.listPendingElicitations('conv_1');
 
@@ -550,13 +552,14 @@ describe('A2A', () => {
         expect(call.url).toContain('/api/a2a/agents/research/message');
     });
 
-    it('listA2AAgents sends GET with agentIds', async () => {
-        const f = mockFetch(200, ['agent1', 'agent2']);
+    it('listA2AAgents sends GET with ids and unwraps response', async () => {
+        const f = mockFetch(200, { agents: ['agent1', 'agent2'] });
         const c = client(f);
-        await c.listA2AAgents(['agent1', 'agent2']);
+        const out = await c.listA2AAgents(['agent1', 'agent2']);
 
+        expect(out).toEqual(['agent1', 'agent2']);
         const call = lastCall(f);
         expect(call.url).toContain('/api/a2a/agents');
-        expect(call.url).toContain('agentIds=agent1%2Cagent2');
+        expect(call.url).toContain('ids=agent1%2Cagent2');
     });
 });
