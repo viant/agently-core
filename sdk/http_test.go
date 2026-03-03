@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,6 +47,57 @@ func TestHTTPClient_GetConversation(t *testing.T) {
 	out, err := c.GetConversation(context.Background(), "c1")
 	if err != nil {
 		t.Fatalf("get conversation: %v", err)
+	}
+	if out == nil || out.Id != "c1" {
+		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestHTTPClient_UpdateConversationVisibility(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotBody struct {
+		Visibility string `json:"visibility"`
+		Shareable  *bool  `json:"shareable"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err = json.Unmarshal(data, &gotBody); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(&conversation.Conversation{Id: "c1"})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	shareable := true
+	out, err := c.UpdateConversationVisibility(context.Background(), &UpdateConversationVisibilityInput{
+		ConversationID: "c1",
+		Visibility:     "public",
+		Shareable:      &shareable,
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationVisibility: %v", err)
+	}
+	if gotMethod != http.MethodPatch {
+		t.Fatalf("unexpected method: %s", gotMethod)
+	}
+	if gotPath != "/v1/conversations/c1/visibility" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotBody.Visibility != "public" {
+		t.Fatalf("unexpected visibility: %q", gotBody.Visibility)
+	}
+	if gotBody.Shareable == nil || *gotBody.Shareable != true {
+		t.Fatalf("unexpected shareable: %#v", gotBody.Shareable)
 	}
 	if out == nil || out.Id != "c1" {
 		t.Fatalf("unexpected output: %#v", out)

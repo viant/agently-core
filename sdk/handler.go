@@ -141,6 +141,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 
 	mux.HandleFunc("POST /v1/conversations", handleCreateConversation(client))
 	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client))
+	mux.HandleFunc("PATCH /v1/conversations/{id}/visibility", handleUpdateConversationVisibility(client))
 	mux.HandleFunc("GET /v1/conversations", handleListConversations(client))
 
 	mux.HandleFunc("GET /v1/messages", handleGetMessages(client))
@@ -261,6 +262,35 @@ func handleGetConversation(client Client) http.HandlerFunc {
 		out, err := client.GetConversation(r.Context(), id)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleUpdateConversationVisibility(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
+			return
+		}
+		var body struct {
+			Visibility string `json:"visibility"`
+			Shareable  *bool  `json:"shareable"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		input := &UpdateConversationVisibilityInput{
+			ConversationID: id,
+			Visibility:     strings.TrimSpace(body.Visibility),
+			Shareable:      body.Shareable,
+		}
+		out, err := client.UpdateConversationVisibility(r.Context(), input)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
