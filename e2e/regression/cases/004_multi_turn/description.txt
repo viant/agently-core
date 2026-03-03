@@ -1,0 +1,9 @@
+Case: 004_multi_turn
+
+Test:
+- multi-turn - turn 1: introduce name
+- multi-turn - turn 2: recall name
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

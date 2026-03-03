@@ -1,0 +1,9 @@
+Case: 007_auto_summarize
+
+Test:
+- auto-summarize - query
+- auto-summarize - verify title set
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

@@ -1,0 +1,15 @@
+pipeline:
+  executeOOBTool:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp oob tool - direct MCP tool execution should succeed"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute
+        JSONBody:
+          name: mcpoob/ask_oob
+          args: {}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@result": true

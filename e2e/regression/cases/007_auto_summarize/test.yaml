@@ -1,0 +1,30 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto-summarize - query"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: auto_summarize
+          Query: Tell me about the benefits of regular exercise.
+          UserId: e2e-test
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@content": true
+
+  getConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto-summarize - verify title set"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+            "@exists@Title": true

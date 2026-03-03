@@ -1,0 +1,15 @@
+id: agent_selector
+name: Agent Selector
+description: Capability responder that summarizes non-internal workspace agents.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: AgentSelector
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  items:
+    - pattern: "llm/agents:list"

@@ -1,0 +1,14 @@
+Viant Product Information
+========================
+
+Viant is a technology company headquartered in Irvine, California.
+Founded in 2005, Viant specializes in building enterprise software solutions.
+
+Key Products:
+- Datly: A high-performance data access layer for Go applications
+- Endly: An end-to-end testing and automation framework
+- Agently: An AI agent orchestration platform
+
+Office Hours: Monday through Friday, 9:00 AM to 6:00 PM Pacific Time
+Address: 2722 Michelson Dr #100, Irvine, CA 92612
+Support Email: support@viant.io

@@ -1,0 +1,17 @@
+/* {"URI":"/{id}"} */
+
+
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $Id<string>(path/id).WithPredicate(4, 'equal', 'm', 'id'))
+#define($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
+#define($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
+
+SELECT message.*
+FROM (
+    SELECT m.* FROM `message` m
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
+) message

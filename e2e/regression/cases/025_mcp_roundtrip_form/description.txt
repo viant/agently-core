@@ -1,0 +1,12 @@
+Case: 025_mcp_roundtrip_form
+
+Test:
+- mcp form round-trip - create conversation
+- mcp form round-trip - start async tool execute
+- mcp form round-trip - pending elicitation should be listed
+- mcp form round-trip - resolve pending elicitation
+- mcp form round-trip - control message should be accepted
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

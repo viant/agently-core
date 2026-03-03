@@ -1,0 +1,14 @@
+id: auto_summarize
+name: Auto Summarize
+description: Agent with auto-summarize for e2e testing
+modelRef: openai_gpt4o_mini
+temperature: 0
+autoSummarize: true
+persona:
+  role: assistant
+  actor: SummaryBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

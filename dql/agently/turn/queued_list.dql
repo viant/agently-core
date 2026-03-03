@@ -1,0 +1,18 @@
+/* {"URI":"/queuedList"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $ConversationID<string>(query/conversationId).WithPredicate(0, 'equal', 't', 'conversation_id'))
+
+SELECT queued_turns.*
+FROM (
+    SELECT
+        t.id,
+        t.queue_seq
+    FROM turn t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+      AND t.status = 'queued'
+    ORDER BY COALESCE(t.queue_seq, -1) ASC, t.created_at ASC, t.id ASC
+) queued_turns

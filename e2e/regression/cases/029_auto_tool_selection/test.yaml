@@ -1,0 +1,43 @@
+pipeline:
+  autoToolSelect:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto tool selection - route bundles for command execution"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: tool_forcer_exec
+          Query: execute date command
+          UserId: e2e-test
+          AutoSelectTools: true
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@messageId": true
+            "@exists@content": true
+
+  responseMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto tool selection - resolve turn id for response message"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${autoToolSelect.Responses[0].JSONBody.conversationId}&id=${autoToolSelect.Responses[0].JSONBody.messageId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].TurnId": true
+
+  verifyToolCall:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto tool selection - selected bundle should produce a tool_op"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${autoToolSelect.Responses[0].JSONBody.conversationId}&turnId=${responseMessage.Responses[0].JSONBody.Rows[0].TurnId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0]": true

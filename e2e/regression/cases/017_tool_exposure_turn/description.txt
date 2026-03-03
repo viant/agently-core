@@ -1,0 +1,12 @@
+Case: 017_tool_exposure_turn
+
+Test:
+- tool exposure turn - create prior turn with real tool call
+- tool exposure turn - verify prior turn emitted tool_op
+- tool exposure turn - prior turn tools should be hidden
+- tool exposure turn - resolve turn2 id from response message id
+- tool exposure turn - turn2 should execute a tool call
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

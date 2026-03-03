@@ -1,0 +1,65 @@
+pipeline:
+  queryForAccept:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation accept - query should create elicitation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: elicitation_favorite_color
+          UserId: e2e-test
+          Query: describe my favourite color in 3 sentences
+          ElicitationMode: deferred
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@plan.elicitation.elicitationId": true
+
+  resolveAccept:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation accept - resolve with favoriteColor payload"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/elicitations/${queryForAccept.Responses[0].JSONBody.conversationId}/${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}/resolve
+        JSONBody:
+          action: accept
+          payload:
+            favoriteColor: blue
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  verifyAcceptedMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation accept - persisted assistant elicitation message should be accepted"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${queryForAccept.Responses[0].JSONBody.conversationId}&roles=assistant&types=text
+        Expect:
+          Code: 200
+          JSONBody:
+            Rows:
+              "@indexBy@": ElicitationId
+              "${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}":
+                Status: accepted
+                "@exists@ElicitationPayloadId": true
+
+  verifyUserElicitationResponse:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation accept - user elicitation response message should be persisted"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${queryForAccept.Responses[0].JSONBody.conversationId}&roles=user&types=elicitation_response
+        Expect:
+          Code: 200
+          JSONBody:
+            Rows:
+              "@indexBy@": ElicitationId
+              "${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}":
+                "@exists@Content": true

@@ -1,0 +1,9 @@
+Case: 019_elicitation_reject
+
+Test:
+- elicitation reject - query should create elicitation and auto-reject on timeout
+- elicitation reject - persisted assistant elicitation message should be rejected
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

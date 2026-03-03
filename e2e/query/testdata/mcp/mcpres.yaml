@@ -1,0 +1,4 @@
+name: mcpres
+transport:
+  type: streamable
+  url: http://127.0.0.1:18091/mcp

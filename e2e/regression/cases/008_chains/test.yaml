@@ -1,0 +1,29 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "chains - parent query triggers child"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: chain_parent
+          Query: What are the three primary colors?
+          UserId: e2e-test
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@content": true
+
+  getMessages:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "chains - verify child response in messages"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows": true

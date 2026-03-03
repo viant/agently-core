@@ -1,0 +1,50 @@
+pipeline:
+  saveResource:
+    action: http/runner:send
+    description: "export/import - save resource"
+    requests:
+      - Method: PUT
+        URL: ${serverURL}/v1/workspace/resources/agents/exp_test
+        Body: "id: exp_test\nname: Export Test"
+        Expect:
+          Code: 204
+
+  export:
+    action: http/runner:send
+    description: "export/import - export"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/workspace/resources/export
+        JSONBody:
+          kinds:
+            - agents
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@resources": true
+
+  importNoReplace:
+    action: http/runner:send
+    description: "export/import - import with no replace skips existing"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/workspace/resources/import
+        JSONBody:
+          resources:
+            - kind: agents
+              name: exp_test
+              data: aWQ6IGV4cF90ZXN0Cm5hbWU6IEV4cG9ydCBUZXN0
+          replace: false
+        Expect:
+          Code: 200
+          JSONBody:
+            skipped: 1
+
+  cleanup:
+    action: http/runner:send
+    description: "export/import - cleanup"
+    requests:
+      - Method: DELETE
+        URL: ${serverURL}/v1/workspace/resources/agents/exp_test
+        Expect:
+          Code: 204

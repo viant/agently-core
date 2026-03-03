@@ -1,0 +1,24 @@
+
+
+pipeline:
+
+  build:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - export PATH=/usr/local/go/bin:$PATH
+      - export GOPATH=${env.GOPATH}
+      - mkdir -p $repoPath/e2e/bin
+      - cd ${repoPath}/e2e/cli/server
+      - go build -o e2e-server
+      - mv e2e-server $repoPath/e2e/bin/e2e-server
+      - cd ${repoPath}/e2e/cli/mcpserver
+      - go build -o mcpserver
+      - cp mcpserver $repoPath/e2e/bin/mcp-resources
+      - cp mcpserver $repoPath/e2e/bin/mcp-elicitation-form
+      - mv mcpserver $repoPath/e2e/bin/mcp-elicitation-oob
+      - cd ${repoPath}/e2e/cli/datly
+      - go build -o datly
+      - mv datly $repoPath/e2e/bin/datly

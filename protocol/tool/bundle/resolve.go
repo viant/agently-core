@@ -1,0 +1,85 @@
+package bundle
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/viant/agently-core/genai/llm"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
+)
+
+type ResolveResult struct {
+	Definitions       []llm.ToolDefinition
+	ApprovalQueueByID map[string]*llm.ApprovalQueue
+}
+
+// ResolveDefinitions expands bundle match rules into concrete tool definitions using matchFn.
+// It applies rule-level excludes and de-duplicates by canonical tool name.
+func ResolveDefinitions(b *Bundle, matchFn func(pattern string) []*llm.ToolDefinition) []llm.ToolDefinition {
+	res := ResolveDefinitionsWithOptions(b, matchFn)
+	return res.Definitions
+}
+
+// ResolveDefinitionsWithOptions expands bundle match rules and returns both
+// definitions and per-tool approval-queue flags.
+func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*llm.ToolDefinition) ResolveResult {
+	if b == nil || matchFn == nil {
+		return ResolveResult{}
+	}
+	selected := map[string]llm.ToolDefinition{}
+	queueByKey := map[string]*llm.ApprovalQueue{}
+	for _, r := range b.Match {
+		namePattern := strings.TrimSpace(r.Name)
+		if namePattern == "" {
+			continue
+		}
+		excluded := map[string]struct{}{}
+		for _, ex := range r.Exclude {
+			ex = strings.TrimSpace(ex)
+			if ex == "" {
+				continue
+			}
+			for _, d := range matchFn(ex) {
+				if d == nil {
+					continue
+				}
+				excluded[canonicalKey(d.Name)] = struct{}{}
+			}
+		}
+		for _, d := range matchFn(namePattern) {
+			if d == nil {
+				continue
+			}
+			key := canonicalKey(d.Name)
+			if _, ok := excluded[key]; ok {
+				continue
+			}
+			if _, ok := selected[key]; ok {
+				if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
+					queueByKey[key] = r.ApprovalQueue
+				}
+				continue
+			}
+			selected[key] = *d
+			if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
+				queueByKey[key] = r.ApprovalQueue
+			}
+		}
+	}
+	if len(selected) == 0 {
+		return ResolveResult{}
+	}
+	out := make([]llm.ToolDefinition, 0, len(selected))
+	for _, d := range selected {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return ResolveResult{
+		Definitions:       out,
+		ApprovalQueueByID: queueByKey,
+	}
+}
+
+func canonicalKey(name string) string {
+	return mcpname.Canonical(strings.TrimSpace(name))
+}

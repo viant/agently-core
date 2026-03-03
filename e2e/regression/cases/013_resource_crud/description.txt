@@ -1,0 +1,11 @@
+Case: 013_resource_crud
+
+Test:
+- resource CRUD - save
+- resource CRUD - list
+- resource CRUD - get
+- resource CRUD - delete
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

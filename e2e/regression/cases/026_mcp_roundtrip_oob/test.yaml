@@ -1,0 +1,78 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp oob round-trip - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: simple
+          Title: mcp-oob-roundtrip
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startToolCall:
+    when: $sdkKey != ''
+    action: process:start
+    description: "mcp oob round-trip - start async tool execute"
+    checkError: true
+    immuneToHangups: true
+    sleepTimeMs: 9000
+    command: curl
+    arguments:
+      - -sS
+      - -X
+      - POST
+      - ${serverURL}/v1/tools/execute?conversationId=${createConversation.Responses[0].JSONBody.Id}
+      - -H
+      - Content-Type:application/json
+      - --data-binary
+      - "@/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads/mcpoob_ask_oob.json"
+
+  pendingElicitation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp oob round-trip - pending elicitation should be listed"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            rows:
+              "@indexBy@": elicitationId
+              mcp-oob-e2e-elicitation:
+                "@exists@messageId": true
+                "@exists@content": true
+
+  resolveElicitation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp oob round-trip - resolve pending elicitation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/elicitations/${createConversation.Responses[0].JSONBody.Id}/mcp-oob-e2e-elicitation/resolve
+        JSONBody:
+          action: accept
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  verifyAcceptedMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp oob round-trip - control message should be accepted"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${createConversation.Responses[0].JSONBody.Id}&roles=tool&types=control
+        Expect:
+          Code: 200
+          JSONBody:
+            Rows:
+              "@indexBy@": ElicitationId
+              mcp-oob-e2e-elicitation:
+                Status: accepted

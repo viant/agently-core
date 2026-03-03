@@ -1,0 +1,13 @@
+Case: 027_tool_approval_queue_elicitation
+
+Test:
+- tool approval queue + elicitation - start async query that should queue MCP form tool
+- tool approval queue + elicitation - pending approval should be listed
+- tool approval queue + elicitation - approve queued tool asynchronously
+- tool approval queue + elicitation - pending elicitation should be listed
+- tool approval queue + elicitation - resolve pending elicitation
+- tool approval queue + elicitation - control message should be accepted
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

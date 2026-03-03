@@ -1,0 +1,8 @@
+Case: 009_model_override
+
+Test:
+- model override - verify model field
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

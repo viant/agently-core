@@ -1,0 +1,15 @@
+/* {"URI":"/queuedCount"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $ConversationID<string>(query/conversationId).WithPredicate(0, 'equal', 't', 'conversation_id'))
+
+SELECT queued_total.*
+FROM (
+    SELECT COUNT(*) AS queued_count
+    FROM turn t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+      AND t.status = 'queued'
+) queued_total

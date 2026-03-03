@@ -1,0 +1,28 @@
+/* {"URI":"/list"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $ConversationId<string>(query/conversationId).WithPredicate(4, 'equal', 'm', 'conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).WithPredicate(4, 'equal', 'm', 'turn_id'))
+#define($_ = $Id<string>(query/id).WithPredicate(4, 'equal', 'm', 'id'))
+#define($_ = $Roles<[]string>(query/roles).WithPredicate(4, 'in', 'm', 'role'))
+#define($_ = $Types<[]string>(query/types).WithPredicate(4, 'in', 'm', 'type'))
+#define($_ = $Interim<int>(query/interim).WithPredicate(4, 'equal', 'm', 'interim'))
+#define($_ = $Phase<string>(query/phase).WithPredicate(4, 'equal', 'm', 'phase'))
+#define($_ = $Iteration<int>(query/iteration).WithPredicate(4, 'equal', 'm', 'iteration'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).WithPredicate(4, 'greater_or_equal', 'm', 'created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).WithPredicate(4, 'less_or_equal', 'm', 'created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).WithPredicate(4, 'expr', 'EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at < x.created_at OR (m.created_at = x.created_at AND m.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).WithPredicate(4, 'expr', 'EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at > x.created_at OR (m.created_at = x.created_at AND m.id > x.id)))'))
+#define($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
+#define($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
+
+SELECT message_rows.*
+FROM (
+    SELECT m.*
+    FROM message m
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
+    ORDER BY m.created_at DESC, m.id DESC
+) message_rows

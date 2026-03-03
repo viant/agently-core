@@ -1,0 +1,34 @@
+pipeline:
+  turn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "multi-turn - turn 1: introduce name"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: simple
+          Query: My name is Alice. Please remember that.
+          UserId: e2e-test
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@content": true
+
+  turn2:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "multi-turn - turn 2: recall name"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: simple
+          ConversationID: ${turn1.Responses[0].JSONBody.conversationId}
+          Query: What is my name?
+          UserId: e2e-test
+        Expect:
+          Code: 200
+          JSONBody:
+            content: /Alice/

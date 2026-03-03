@@ -1,0 +1,8 @@
+Case: 024_mcp_tool_elicitation_oob
+
+Test:
+- mcp oob tool - direct MCP tool execution should succeed
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

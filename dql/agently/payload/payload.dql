@@ -1,0 +1,37 @@
+/* {"URI":"/"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $TenantID<string>(path/tenantId).WithPredicate(0, 'in', 'p', 'tenant_id'))
+#define($_ = $Id<string>(query/id).WithPredicate(0, 'in', 'p', 'id'))
+#define($_ = $Ids<[]string>(query/ids).WithPredicate(0, 'in', 'p', 'id'))
+#define($_ = $Kind<string>(query/kind).WithPredicate(0, 'in', 'p', 'kind'))
+#define($_ = $Digest<string>(query/digest).WithPredicate(0, 'in', 'p', 'digest'))
+#define($_ = $Storage<string>(query/storage).WithPredicate(0, 'in', 'p', 'storage'))
+#define($_ = $MimeType<string>(query/mime_type).WithPredicate(0, 'in', 'p', 'mime_type'))
+#define($_ = $Since<time.Time>(query/since).WithPredicate(0, 'greater_or_equal', 'p', 'created_at'))
+
+SELECT payload_rows.*
+FROM (
+  SELECT
+    p.id,
+    p.tenant_id,
+    p.kind,
+    p.subtype,
+    p.mime_type,
+    p.size_bytes,
+    p.digest,
+    p.storage,
+    p.inline_body,
+    p.uri,
+    p.compression,
+    p.encryption_kms_key_id,
+    p.redaction_policy_version,
+    p.redacted,
+    p.created_at,
+    p.schema_ref
+  FROM call_payload p
+  ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) payload_rows

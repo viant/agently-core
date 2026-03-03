@@ -1,0 +1,12 @@
+Case: 018_tool_exposure_conversation
+
+Test:
+- tool exposure conversation - create prior turn with real tool call
+- tool exposure conversation - verify prior turn emitted tool_op
+- tool exposure conversation - prior turn tools should stay visible
+- tool exposure conversation - resolve turn2 id from response message id
+- tool exposure conversation - turn2 should not execute tool call
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

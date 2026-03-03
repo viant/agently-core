@@ -1,0 +1,19 @@
+pipeline:
+  capabilitySummaryAuto:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "multi agent selection - capability query auto-routes to selector"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: auto
+          Query: what can you do agent?
+          UserId: e2e-test
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            agent:
+              id: agent_selector
+            content: /Available Agents/

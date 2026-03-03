@@ -1,0 +1,32 @@
+pipeline:
+  queryReject:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation reject - query should create elicitation and auto-reject on timeout"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: elicitation_favorite_color
+          UserId: e2e-test
+          Query: describe my favourite color in 3 sentences
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@plan.elicitation.elicitationId": true
+
+  verifyRejectedMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation reject - persisted assistant elicitation message should be rejected"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${queryReject.Responses[0].JSONBody.conversationId}&roles=assistant&types=text
+        Expect:
+          Code: 200
+          JSONBody:
+            Rows:
+              "@indexBy@": ElicitationId
+              "${queryReject.Responses[0].JSONBody.plan.elicitation.elicitationId}":
+                Status: rejected

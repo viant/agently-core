@@ -1,0 +1,27 @@
+/* {"URI":"/list"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $AgentId<string>(query/agentId).WithPredicate(0, 'equal', 'c', 'agent_id'))
+#define($_ = $ParentId<string>(query/parentId).WithPredicate(0, 'equal', 'c', 'conversation_parent_id'))
+#define($_ = $ParentTurnId<string>(query/parentTurnId).WithPredicate(0, 'equal', 'c', 'conversation_parent_turn_id'))
+#define($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'equal', 'c', 'schedule_id'))
+#define($_ = $ScheduleRunId<string>(query/scheduleRunId).WithPredicate(0, 'equal', 'c', 'schedule_run_id'))
+#define($_ = $StatusFilter<string>(query/status).WithPredicate(0, 'equal', 'c', 'status'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).WithPredicate(0, 'greater_or_equal', 'c', 'created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).WithPredicate(0, 'less_or_equal', 'c', 'created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).WithPredicate(0, 'expr', 'EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).WithPredicate(0, 'expr', 'EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id)))'))
+
+SELECT conversation_rows.*
+FROM (
+    SELECT
+        c.*,
+        (SELECT id FROM turn t WHERE t.conversation_id = c.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS last_turn_id,
+        '' AS stage
+    FROM conversation c
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ORDER BY c.created_at DESC, c.id DESC
+) conversation_rows

@@ -1,0 +1,11 @@
+Case: 020_elicitation_accept
+
+Test:
+- elicitation accept - query should create elicitation
+- elicitation accept - resolve with favoriteColor payload
+- elicitation accept - persisted assistant elicitation message should be accepted
+- elicitation accept - user elicitation response message should be persisted
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

@@ -1,0 +1,9 @@
+Case: 028_auto_agent_selection
+
+Test:
+- auto agent selection - seed conversation with explicit agent
+- auto agent selection - continue with AgentID auto
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

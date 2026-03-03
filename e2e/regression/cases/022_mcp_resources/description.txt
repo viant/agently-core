@@ -1,0 +1,8 @@
+Case: 022_mcp_resources
+
+Test:
+- mcp resource - direct MCP tool execution should succeed
+
+Why:
+- Protects this user-visible behavior from regression.
+- Keeps API/flow expectations explicit for triage.

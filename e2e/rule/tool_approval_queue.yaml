@@ -1,0 +1,8 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/toolapprovalqueue/pending      -s='dql/agently/toolapprovalqueue/pending.dql' $datlyOptions

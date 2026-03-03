@@ -1,0 +1,15 @@
+id: tool_exposure_probe
+name: Tool Exposure Probe
+description: Agent that conditionally performs a tool call based on prior tool-call visibility in prompt history
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ExposureProbe
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  bundles:
+    - system/os

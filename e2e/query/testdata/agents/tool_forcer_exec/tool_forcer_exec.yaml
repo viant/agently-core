@@ -1,0 +1,16 @@
+id: tool_forcer_exec
+name: Tool Forcer Exec
+description: Agent instructed to execute a command tool call before answering
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ToolExecForcer
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/exec

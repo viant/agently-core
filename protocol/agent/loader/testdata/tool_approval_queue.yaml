@@ -1,0 +1,15 @@
+id: tool_approval_queue
+name: Tool Approval Queue
+modelRef: openai_gpt4o_mini
+prompt:
+  text: "{{.Task.Prompt}}"
+tool:
+  items:
+    - pattern: mcpform
+      type: function
+      approvalQueue:
+        enabled: true
+        titleSelector: task
+        dataSourceSelector: ds
+        uiURI: /ui/approval
+

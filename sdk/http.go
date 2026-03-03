@@ -1,0 +1,607 @@
+package sdk
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/viant/agently-core/app/store/conversation"
+	agrun "github.com/viant/agently-core/pkg/agently/run"
+	"github.com/viant/agently-core/runtime/streaming"
+	"github.com/viant/agently-core/service/a2a"
+	agentsvc "github.com/viant/agently-core/service/agent"
+)
+
+type HTTPOption func(*HTTPClient)
+
+func WithHTTPClient(client *http.Client) HTTPOption {
+	return func(c *HTTPClient) {
+		if client != nil {
+			c.client = client
+		}
+	}
+}
+
+func WithQueryPath(path string) HTTPOption {
+	return func(c *HTTPClient) {
+		if strings.TrimSpace(path) != "" {
+			c.queryPath = path
+		}
+	}
+}
+
+func WithConversationsPath(path string) HTTPOption {
+	return func(c *HTTPClient) {
+		if strings.TrimSpace(path) != "" {
+			c.conversationsPath = path
+		}
+	}
+}
+
+// WithAuthToken sets a static Bearer token that is sent with every request.
+func WithAuthToken(token string) HTTPOption {
+	return func(c *HTTPClient) {
+		c.authToken = strings.TrimSpace(token)
+	}
+}
+
+// TokenProvider is a function that returns a current auth token.
+// It is called before each request, allowing dynamic token refresh.
+type TokenProvider func(ctx context.Context) (string, error)
+
+// WithTokenProvider sets a dynamic token provider called before each request.
+func WithTokenProvider(p TokenProvider) HTTPOption {
+	return func(c *HTTPClient) {
+		c.tokenProvider = p
+	}
+}
+
+type HTTPClient struct {
+	baseURL           string
+	client            *http.Client
+	authToken         string
+	tokenProvider     TokenProvider
+	queryPath         string
+	conversationsPath string
+	messagesPath      string
+	runsPath          string
+	turnsPath         string
+	elicitationsPath  string
+	toolsPath         string
+	streamPath        string
+	filesPath         string
+	resourcesPath     string
+	toolApprovalsPath string
+}
+
+func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return nil, fmt.Errorf("base URL is required")
+	}
+	c := &HTTPClient{
+		baseURL:           strings.TrimRight(baseURL, "/"),
+		client:            http.DefaultClient,
+		queryPath:         "/v1/agent/query",
+		conversationsPath: "/v1/conversations",
+		messagesPath:      "/v1/messages",
+		runsPath:          "/v1/runs",
+		turnsPath:         "/v1/turns",
+		elicitationsPath:  "/v1/elicitations",
+		toolsPath:         "/v1/tools",
+		streamPath:        "/v1/stream",
+		filesPath:         "/v1/files",
+		resourcesPath:     "/v1/workspace/resources",
+		toolApprovalsPath: "/v1/tool-approvals",
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(c)
+		}
+	}
+	return c, nil
+}
+
+func (c *HTTPClient) Mode() Mode { return ModeHTTP }
+
+func (c *HTTPClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+	var out agentsvc.QueryOutput
+	if err := c.doJSON(ctx, http.MethodPost, c.queryPath, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
+	var out conversation.Conversation
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(strings.TrimSpace(id))
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	q := url.Values{}
+	q.Set("conversationId", input.ConversationID)
+	if input.TurnID != "" {
+		q.Set("turnId", input.TurnID)
+	}
+	if len(input.Roles) > 0 {
+		q.Set("roles", strings.Join(input.Roles, ","))
+	}
+	if len(input.Types) > 0 {
+		q.Set("types", strings.Join(input.Types, ","))
+	}
+	if input.Page != nil {
+		if input.Page.Limit > 0 {
+			q.Set("limit", fmt.Sprintf("%d", input.Page.Limit))
+		}
+		if input.Page.Cursor != "" {
+			q.Set("cursor", input.Page.Cursor)
+		}
+		if input.Page.Direction != "" {
+			q.Set("direction", string(input.Page.Direction))
+		}
+	}
+	var out MessagePage
+	path := c.messagesPath + "?" + q.Encode()
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
+	q := url.Values{}
+	if input != nil && strings.TrimSpace(input.ConversationID) != "" {
+		q.Set("conversationId", input.ConversationID)
+	}
+	sseURL := c.baseURL + c.streamPath
+	if len(q) > 0 {
+		sseURL += "?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sseURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.applyAuth(ctx, req); err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("stream request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return newSSESubscription(ctx, resp.Body, input), nil
+}
+
+func (c *HTTPClient) CreateConversation(ctx context.Context, input *CreateConversationInput) (*conversation.Conversation, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	var out conversation.Conversation
+	if err := c.doJSON(ctx, http.MethodPost, c.conversationsPath, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ListConversations(ctx context.Context, input *ListConversationsInput) (*ConversationPage, error) {
+	q := url.Values{}
+	if input != nil {
+		if strings.TrimSpace(input.AgentID) != "" {
+			q.Set("agentId", input.AgentID)
+		}
+		if input.Page != nil {
+			if input.Page.Limit > 0 {
+				q.Set("limit", fmt.Sprintf("%d", input.Page.Limit))
+			}
+			if input.Page.Cursor != "" {
+				q.Set("cursor", input.Page.Cursor)
+			}
+			if input.Page.Direction != "" {
+				q.Set("direction", string(input.Page.Direction))
+			}
+		}
+	}
+	var out ConversationPage
+	path := c.conversationsPath
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error) {
+	var out agrun.RunRowsView
+	path := strings.TrimRight(c.runsPath, "/") + "/" + url.PathEscape(strings.TrimSpace(id))
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) CancelTurn(ctx context.Context, turnID string) (bool, error) {
+	path := strings.TrimRight(c.turnsPath, "/") + "/" + url.PathEscape(strings.TrimSpace(turnID)) + "/cancel"
+	var out struct {
+		Cancelled bool `json:"cancelled"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return false, err
+	}
+	return out.Cancelled, nil
+}
+
+func (c *HTTPClient) ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error {
+	if input == nil {
+		return errors.New("input is required")
+	}
+	path := strings.TrimRight(c.elicitationsPath, "/") + "/" +
+		url.PathEscape(input.ConversationID) + "/" +
+		url.PathEscape(input.ElicitationID) + "/resolve"
+	body := map[string]interface{}{
+		"action":  input.Action,
+		"payload": input.Payload,
+	}
+	return c.doJSON(ctx, http.MethodPost, path, body, nil)
+}
+
+func (c *HTTPClient) ListPendingElicitations(ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	q := url.Values{}
+	q.Set("conversationId", strings.TrimSpace(input.ConversationID))
+	path := c.elicitationsPath + "?" + q.Encode()
+	var out struct {
+		Rows []*PendingElicitation `json:"rows"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Rows == nil {
+		return []*PendingElicitation{}, nil
+	}
+	return out.Rows, nil
+}
+
+func (c *HTTPClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) ([]*PendingToolApproval, error) {
+	q := url.Values{}
+	if input != nil {
+		if strings.TrimSpace(input.UserID) != "" {
+			q.Set("userId", strings.TrimSpace(input.UserID))
+		}
+		if strings.TrimSpace(input.ConversationID) != "" {
+			q.Set("conversationId", strings.TrimSpace(input.ConversationID))
+		}
+		if strings.TrimSpace(input.Status) != "" {
+			q.Set("status", strings.TrimSpace(input.Status))
+		}
+	}
+	path := strings.TrimRight(c.toolApprovalsPath, "/") + "/pending"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Rows []*PendingToolApproval `json:"rows"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Rows == nil {
+		return []*PendingToolApproval{}, nil
+	}
+	return out.Rows, nil
+}
+
+func (c *HTTPClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
+	if input == nil || strings.TrimSpace(input.ID) == "" {
+		return nil, errors.New("approval id is required")
+	}
+	path := strings.TrimRight(c.toolApprovalsPath, "/") + "/" + url.PathEscape(strings.TrimSpace(input.ID)) + "/decision"
+	var out DecideToolApprovalOutput
+	if err := c.doJSON(ctx, http.MethodPost, path, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	path := strings.TrimRight(c.toolsPath, "/") + "/" + url.PathEscape(name) + "/execute"
+	var out struct {
+		Result string `json:"result"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+		return "", err
+	}
+	return out.Result, nil
+}
+
+func (c *HTTPClient) UploadFile(_ context.Context, _ *UploadFileInput) (*UploadFileOutput, error) {
+	return nil, errors.New("file operations not yet implemented")
+}
+
+func (c *HTTPClient) DownloadFile(_ context.Context, _ *DownloadFileInput) (*DownloadFileOutput, error) {
+	return nil, errors.New("file operations not yet implemented")
+}
+
+func (c *HTTPClient) ListFiles(_ context.Context, _ *ListFilesInput) (*ListFilesOutput, error) {
+	return nil, errors.New("file operations not yet implemented")
+}
+
+func (c *HTTPClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
+	if input == nil || strings.TrimSpace(input.Kind) == "" {
+		return nil, errors.New("resource kind is required")
+	}
+	q := url.Values{}
+	q.Set("kind", input.Kind)
+	var out ListResourcesOutput
+	path := c.resourcesPath + "?" + q.Encode()
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) GetResource(ctx context.Context, input *ResourceRef) (*GetResourceOutput, error) {
+	if input == nil || strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Name) == "" {
+		return nil, errors.New("resource kind and name are required")
+	}
+	var out GetResourceOutput
+	path := strings.TrimRight(c.resourcesPath, "/") + "/" +
+		url.PathEscape(input.Kind) + "/" + url.PathEscape(input.Name)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) SaveResource(ctx context.Context, input *SaveResourceInput) error {
+	if input == nil || strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Name) == "" {
+		return errors.New("resource kind and name are required")
+	}
+	path := strings.TrimRight(c.resourcesPath, "/") + "/" +
+		url.PathEscape(input.Kind) + "/" + url.PathEscape(input.Name)
+	return c.doJSON(ctx, http.MethodPut, path, input, nil)
+}
+
+func (c *HTTPClient) DeleteResource(ctx context.Context, input *ResourceRef) error {
+	if input == nil || strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Name) == "" {
+		return errors.New("resource kind and name are required")
+	}
+	path := strings.TrimRight(c.resourcesPath, "/") + "/" +
+		url.PathEscape(input.Kind) + "/" + url.PathEscape(input.Name)
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
+}
+
+func (c *HTTPClient) ExportResources(ctx context.Context, input *ExportResourcesInput) (*ExportResourcesOutput, error) {
+	var out ExportResourcesOutput
+	path := strings.TrimRight(c.resourcesPath, "/") + "/export"
+	if err := c.doJSON(ctx, http.MethodPost, path, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ImportResources(ctx context.Context, input *ImportResourcesInput) (*ImportResourcesOutput, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	var out ImportResourcesOutput
+	path := strings.TrimRight(c.resourcesPath, "/") + "/import"
+	if err := c.doJSON(ctx, http.MethodPost, path, input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput) (*TranscriptOutput, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	q := url.Values{}
+	if input.Since != "" {
+		q.Set("since", input.Since)
+	}
+	if input.IncludeModelCalls {
+		q.Set("includeModelCalls", "true")
+	}
+	if input.IncludeToolCalls {
+		q.Set("includeToolCalls", "true")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(input.ConversationID) + "/transcript"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out TranscriptOutput
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) TerminateConversation(ctx context.Context, conversationID string) error {
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/terminate"
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
+}
+
+func (c *HTTPClient) CompactConversation(ctx context.Context, conversationID string) error {
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/compact"
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
+}
+
+func (c *HTTPClient) PruneConversation(ctx context.Context, conversationID string) error {
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/prune"
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
+}
+
+func (c *HTTPClient) GetA2AAgentCard(ctx context.Context, agentID string) (*a2a.AgentCard, error) {
+	var out a2a.AgentCard
+	path := "/v1/api/a2a/agents/" + url.PathEscape(agentID) + "/card"
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) SendA2AMessage(ctx context.Context, agentID string, req *a2a.SendMessageRequest) (*a2a.SendMessageResponse, error) {
+	var out a2a.SendMessageResponse
+	path := "/v1/api/a2a/agents/" + url.PathEscape(agentID) + "/message"
+	if err := c.doJSON(ctx, http.MethodPost, path, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ListA2AAgents(ctx context.Context, agentIDs []string) ([]string, error) {
+	path := "/v1/api/a2a/agents?ids=" + url.QueryEscape(strings.Join(agentIDs, ","))
+	var out struct {
+		Agents []string `json:"agents"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Agents, nil
+}
+
+// sseSubscription implements streaming.Subscription over an HTTP SSE connection.
+type sseSubscription struct {
+	id     string
+	ch     chan *streaming.Event
+	done   chan struct{}
+	once   sync.Once
+	cancel context.CancelFunc
+}
+
+func newSSESubscription(ctx context.Context, body io.ReadCloser, input *StreamEventsInput) *sseSubscription {
+	ctx, cancel := context.WithCancel(ctx)
+	sub := &sseSubscription{
+		id:     uuid.New().String(),
+		ch:     make(chan *streaming.Event, 64),
+		done:   make(chan struct{}),
+		cancel: cancel,
+	}
+	go sub.readLoop(ctx, body, input)
+	return sub
+}
+
+func (s *sseSubscription) ID() string                 { return s.id }
+func (s *sseSubscription) C() <-chan *streaming.Event { return s.ch }
+func (s *sseSubscription) Close() error {
+	s.once.Do(func() {
+		s.cancel()
+		close(s.done)
+	})
+	return nil
+}
+
+func (s *sseSubscription) readLoop(ctx context.Context, body io.ReadCloser, input *StreamEventsInput) {
+	defer body.Close()
+	defer close(s.ch)
+	scanner := bufio.NewScanner(body)
+	var dataLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimPrefix(line, "data:"))
+			continue
+		}
+		if line == "" && len(dataLines) > 0 {
+			raw := strings.Join(dataLines, "\n")
+			dataLines = dataLines[:0]
+			var ev streaming.Event
+			if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &ev); err != nil {
+				continue
+			}
+			if ev.CreatedAt.IsZero() {
+				ev.CreatedAt = time.Now()
+			}
+			if input != nil && input.Filter != nil && !input.Filter(&ev) {
+				continue
+			}
+			select {
+			case s.ch <- &ev:
+			case <-ctx.Done():
+				return
+			case <-s.done:
+				return
+			}
+		}
+	}
+}
+
+func (c *HTTPClient) resolveToken(ctx context.Context) (string, error) {
+	if c.tokenProvider != nil {
+		return c.tokenProvider(ctx)
+	}
+	return c.authToken, nil
+}
+
+func (c *HTTPClient) applyAuth(ctx context.Context, req *http.Request) error {
+	token, err := c.resolveToken(ctx)
+	if err != nil {
+		return fmt.Errorf("auth token: %w", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return nil
+}
+
+func (c *HTTPClient) doJSON(ctx context.Context, method, path string, in interface{}, out interface{}) error {
+	var body io.Reader
+	if in != nil {
+		payload, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return err
+	}
+	if err := c.applyAuth(ctx, req); err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("request failed: %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}

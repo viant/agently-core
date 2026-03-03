@@ -1,0 +1,13 @@
+pipeline:
+  translate:
+    action: exec:run
+    TimeoutMs: 120000
+    checkError: true
+    commands:
+      - cd $repoPath
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/turn/active      -s='dql/agently/turn/active.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/turn/byId      -s='dql/agently/turn/by_id.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/turn/list      -s='dql/agently/turn/list.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/turn/nextQueued      -s='dql/agently/turn/next_queued.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/turn/queuedList      -s='dql/agently/turn/queued_list.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/turn/queuedCount      -s='dql/agently/turn/queued_count.dql' $datlyOptions

@@ -1,0 +1,20 @@
+/* {"URI":"/pending"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $UserId<string>(query/userId).WithPredicate(0, 'equal', 'q', 'user_id'))
+#define($_ = $ConversationId<string>(query/conversationId).WithPredicate(0, 'equal', 'q', 'conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).WithPredicate(0, 'equal', 'q', 'turn_id'))
+#define($_ = $MessageId<string>(query/messageId).WithPredicate(0, 'equal', 'q', 'message_id'))
+#define($_ = $ToolName<string>(query/toolName).WithPredicate(0, 'equal', 'q', 'tool_name'))
+#define($_ = $QueueStatus<string>(query/status).Value('pending').WithPredicate(0, 'equal', 'q', 'status'))
+
+SELECT queue_rows.*
+FROM (
+    SELECT q.*
+    FROM tool_approval_queue q
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ORDER BY q.created_at ASC, q.id ASC
+) queue_rows
