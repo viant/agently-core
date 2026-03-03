@@ -42,6 +42,9 @@ type Client interface {
 
 	// GetConversation retrieves a single conversation by ID.
 	GetConversation(ctx context.Context, id string) (*conversation.Conversation, error)
+	// UpdateConversationVisibility updates conversation visibility (private|public)
+	// and shareability for a specific conversation.
+	UpdateConversationVisibility(ctx context.Context, input *UpdateConversationVisibilityInput) (*conversation.Conversation, error)
 
 	// GetRun returns the current state of a run.
 	GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error)

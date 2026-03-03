@@ -125,6 +125,7 @@ Core endpoints mounted by `sdk.NewHandler`:
 | POST | `/v1/conversations` | Create conversation |
 | GET | `/v1/conversations` | List conversations |
 | GET | `/v1/conversations/{id}` | Get conversation |
+| PATCH | `/v1/conversations/{id}/visibility` | Update conversation visibility/shareable |
 | GET | `/v1/conversations/{id}/transcript` | Get transcript |
 | POST | `/v1/conversations/{id}/terminate` | Terminate conversation |
 | POST | `/v1/conversations/{id}/compact` | Compact conversation |

@@ -103,6 +103,44 @@ func (c *EmbeddedClient) GetConversation(ctx context.Context, id string) (*conve
 	return c.conv.GetConversation(ctx, id)
 }
 
+func (c *EmbeddedClient) UpdateConversationVisibility(ctx context.Context, input *UpdateConversationVisibilityInput) (*conversation.Conversation, error) {
+	if c.conv == nil {
+		return nil, errors.New("conversation client not configured")
+	}
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	visibility := strings.ToLower(strings.TrimSpace(input.Visibility))
+	hasVisibility := visibility != ""
+	hasShareable := input.Shareable != nil
+	if !hasVisibility && !hasShareable {
+		return nil, errors.New("at least one of visibility or shareable is required")
+	}
+	if hasVisibility && visibility != agconvwrite.VisibilityPrivate && visibility != agconvwrite.VisibilityPublic {
+		return nil, fmt.Errorf("unsupported visibility: %q", input.Visibility)
+	}
+	row := agconvwrite.NewMutableConversationView()
+	row.SetId(conversationID)
+	if hasVisibility {
+		row.SetVisibility(visibility)
+	}
+	if hasShareable {
+		if *input.Shareable {
+			row.SetShareable(1)
+		} else {
+			row.SetShareable(0)
+		}
+	}
+	if err := c.conv.PatchConversations(ctx, (*conversation.MutableConversation)(row)); err != nil {
+		return nil, err
+	}
+	return c.conv.GetConversation(ctx, conversationID)
+}
+
 func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")

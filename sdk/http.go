@@ -131,6 +131,33 @@ func (c *HTTPClient) GetConversation(ctx context.Context, id string) (*conversat
 	return &out, nil
 }
 
+func (c *HTTPClient) UpdateConversationVisibility(ctx context.Context, input *UpdateConversationVisibilityInput) (*conversation.Conversation, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	visibility := strings.TrimSpace(input.Visibility)
+	if visibility == "" && input.Shareable == nil {
+		return nil, errors.New("at least one of visibility or shareable is required")
+	}
+	body := struct {
+		Visibility string `json:"visibility,omitempty"`
+		Shareable  *bool  `json:"shareable,omitempty"`
+	}{
+		Visibility: visibility,
+		Shareable:  input.Shareable,
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/visibility"
+	var out conversation.Conversation
+	if err := c.doJSON(ctx, http.MethodPatch, path, &body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *HTTPClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")

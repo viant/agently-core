@@ -47,6 +47,14 @@ type CreateConversationInput struct {
 	Metadata map[string]interface{}
 }
 
+// UpdateConversationVisibilityInput updates conversation visibility and shareability.
+// At least one of Visibility or Shareable must be provided.
+type UpdateConversationVisibilityInput struct {
+	ConversationID string `json:"-"`
+	Visibility     string `json:"visibility,omitempty"` // private|public
+	Shareable      *bool  `json:"shareable,omitempty"`
+}
+
 // StreamEventsInput controls which streaming events to subscribe to.
 type StreamEventsInput struct {
 	ConversationID string
