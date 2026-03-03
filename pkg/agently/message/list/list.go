@@ -118,6 +118,6 @@ func DefineMessageRowsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *MessageRowsInput) EmbedFS() *embed.FS {
-		return &MessageRowsFS
-	}
+func (i *MessageRowsInput) EmbedFS() *embed.FS {
+	return &MessageRowsFS
+}

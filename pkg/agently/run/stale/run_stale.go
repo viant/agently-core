@@ -107,6 +107,6 @@ func DefineStaleRunsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *StaleRunsInput) EmbedFS() *embed.FS {
-		return &StaleRunsFS
-	}
+func (i *StaleRunsInput) EmbedFS() *embed.FS {
+	return &StaleRunsFS
+}

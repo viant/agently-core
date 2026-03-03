@@ -79,6 +79,6 @@ func DefineTurnLookupComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *TurnLookupInput) EmbedFS() *embed.FS {
-		return &TurnLookupFS
-	}
+func (i *TurnLookupInput) EmbedFS() *embed.FS {
+	return &TurnLookupFS
+}

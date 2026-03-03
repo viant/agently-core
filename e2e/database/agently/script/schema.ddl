@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS conversation
     conversation_parent_turn_id VARCHAR(255),
     metadata                    TEXT,
     visibility                  VARCHAR(255) NOT NULL DEFAULT 'private',
+    shareable                   TINYINT      NOT NULL DEFAULT 0 CHECK (shareable IN (0, 1)),
     status                      VARCHAR(255),
 
     -- scheduling annotations

@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
-	"github.com/viant/agently-core/protocol/prompt"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {

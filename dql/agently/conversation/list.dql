@@ -14,6 +14,7 @@
 #define($_ = $CreatedBefore<time.Time>(query/createdBefore).WithPredicate(0, 'less_or_equal', 'c', 'created_at'))
 #define($_ = $CursorBefore<string>(query/cursorBefore).WithPredicate(0, 'expr', 'EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id)))'))
 #define($_ = $CursorAfter<string>(query/cursorAfter).WithPredicate(0, 'expr', 'EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id)))'))
+#define($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0, 'handler', '*conversation.Filter'))
 
 SELECT conversation_rows.*
 FROM (

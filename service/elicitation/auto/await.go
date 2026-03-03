@@ -1,4 +1,3 @@
-
 package auto
 
 // Auto-elicitation Awaiter that uses a helper LLM-agent to craft JSON payload

@@ -31,6 +31,8 @@ var (
 	// defaultsMu guards defaultsByRoot so default bootstrapping runs once per root.
 	defaultsMu     sync.Mutex
 	defaultsByRoot = map[string]bool{}
+	// bootstrapHook, when set, overrides default workspace bootstrapping.
+	bootstrapHook BootstrapHook
 )
 
 // Predefined kinds.  Callers may still supply arbitrary sub-folder names when
@@ -257,10 +259,15 @@ func ensureDefaults(root string) {
 		defaultsMu.Unlock()
 		return
 	}
+	hook := bootstrapHook
 	defaultsByRoot[root] = true
 	defaultsMu.Unlock()
 
 	afsSvc := afs.New()
+	if hook != nil {
+		hook(context.Background(), afsSvc, root)
+		return
+	}
 	EnsureDefaultAt(context.Background(), afsSvc, root)
 }
 

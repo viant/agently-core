@@ -7,6 +7,8 @@ type Schedule struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
 	AgentRef        string     `json:"agentRef"`
+	CreatedByUserID *string    `json:"createdByUserId,omitempty"`
+	Visibility      string     `json:"visibility,omitempty"` // public|private
 	Enabled         bool       `json:"enabled"`
 	ScheduleType    string     `json:"scheduleType"` // cron, adhoc, interval
 	CronExpr        *string    `json:"cronExpr,omitempty"`

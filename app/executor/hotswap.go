@@ -3,9 +3,9 @@ package executor
 import (
 	"context"
 
-	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	embedderfinder "github.com/viant/agently-core/internal/finder/embedder"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/hotswap"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"

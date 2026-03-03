@@ -706,6 +706,9 @@ func authorizeConversation(item *agconv.ConversationView, opts *options) error {
 	if strings.EqualFold(item.Visibility, "public") {
 		return nil
 	}
+	if item.Shareable != nil && *item.Shareable == 1 {
+		return nil
+	}
 	if item.CreatedByUserId != nil && *item.CreatedByUserId == opts.principal {
 		return nil
 	}

@@ -71,12 +71,12 @@ type refreshInFlight struct {
 // It layers an in-memory cache over an optional persistent TokenStore
 // and uses an optional Broker for refresh/exchange.
 type Manager struct {
-	mu         sync.RWMutex
-	cache      map[Key]*entry
-	store      TokenStore // optional persistent backing
-	broker     Broker     // optional refresh/exchange (nil = cache-only)
-	minTTL     time.Duration
-	sf         map[Key]*refreshInFlight
+	mu                 sync.RWMutex
+	cache              map[Key]*entry
+	store              TokenStore // optional persistent backing
+	broker             Broker     // optional refresh/exchange (nil = cache-only)
+	minTTL             time.Duration
+	sf                 map[Key]*refreshInFlight
 	instanceID         InstanceID    // when set, enables distributed refresh coordination
 	instanceIDExplicit bool          // true when WithInstanceID was called (even with "")
 	leaseTTL           time.Duration // distributed lease duration (default 30s)

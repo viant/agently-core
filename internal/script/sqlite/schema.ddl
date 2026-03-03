@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS conversation (
     conversation_parent_turn_id TEXT,
     metadata TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
+    shareable INTEGER NOT NULL DEFAULT 0 CHECK (shareable IN (0,1)),
     status TEXT,
     scheduled INTEGER,
     schedule_id TEXT,

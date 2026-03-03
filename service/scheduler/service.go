@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	agentsvc "github.com/viant/agently-core/service/agent"
-	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy"
+	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
 
@@ -55,13 +56,33 @@ func WithScyService(sv *scy.Service) Option {
 }
 
 // Get returns a schedule by ID.
-func (s *Service) Get(id string) (*Schedule, error) {
-	return s.store.Get(id)
+func (s *Service) Get(ctx context.Context, id string) (*Schedule, error) {
+	schedule, err := s.store.Get(id)
+	if err != nil || schedule == nil {
+		return schedule, err
+	}
+	if !isScheduleVisible(ctx, schedule) {
+		return nil, nil
+	}
+	return schedule, nil
 }
 
 // List returns all schedules.
-func (s *Service) List() ([]*Schedule, error) {
-	return s.store.List()
+func (s *Service) List(ctx context.Context) ([]*Schedule, error) {
+	list, err := s.store.List()
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]*Schedule, 0, len(list))
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		if isScheduleVisible(ctx, item) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 // Upsert creates or updates a schedule.
@@ -186,4 +207,19 @@ func (s *Service) processDue(ctx context.Context) {
 			log.Printf("scheduler: execute %s: %v", sched.ID, err)
 		}
 	}
+}
+
+func isScheduleVisible(ctx context.Context, schedule *Schedule) bool {
+	if schedule == nil {
+		return false
+	}
+	userID := strings.TrimSpace(iauth.EffectiveUserID(ctx))
+	visibility := strings.TrimSpace(schedule.Visibility)
+	if !strings.EqualFold(visibility, "private") {
+		return true
+	}
+	if userID == "" || schedule.CreatedByUserID == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(*schedule.CreatedByUserID), userID)
 }

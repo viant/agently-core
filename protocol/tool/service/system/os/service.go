@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	mem "github.com/viant/agently-core/runtime/memory"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	mem "github.com/viant/agently-core/runtime/memory"
 )
 
 // Name identifies this service for MCP routing.

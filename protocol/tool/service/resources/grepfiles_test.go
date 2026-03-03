@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	convmem "github.com/viant/agently-core/app/store/data/memory"
-	"github.com/viant/agently-core/runtime/memory"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agmodel "github.com/viant/agently-core/protocol/agent"
+	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/internal/textutil"
+	agmodel "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 func writeFileFS(t *testing.T, rootFS, rel string, content []byte) {

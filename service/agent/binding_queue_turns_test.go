@@ -1,4 +1,3 @@
-
 package agent
 
 import (
@@ -10,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
-	"github.com/viant/agently-core/protocol/prompt"
-	core "github.com/viant/agently-core/service/core"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/runtime/memory"
+	core "github.com/viant/agently-core/service/core"
 )
 
 func TestBuildHistory_SkipsQueuedTurns(t *testing.T) {

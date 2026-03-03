@@ -1,4 +1,3 @@
-
 package agent
 
 import (
@@ -7,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/protocol/prompt"
 	executil "github.com/viant/agently-core/service/shared/executil"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
 func TestTranscriptSystemDocuments(t *testing.T) {

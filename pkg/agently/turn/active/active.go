@@ -77,6 +77,6 @@ func DefineActiveTurnsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *ActiveTurnsInput) EmbedFS() *embed.FS {
-		return &ActiveTurnsFS
-	}
+func (i *ActiveTurnsInput) EmbedFS() *embed.FS {
+	return &ActiveTurnsFS
+}

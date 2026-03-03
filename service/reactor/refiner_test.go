@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	plan "github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/genai/llm"
+	plan "github.com/viant/agently-core/protocol/agent/plan"
 )
 
 func TestRefinePlan(t *testing.T) {

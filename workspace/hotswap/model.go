@@ -4,8 +4,8 @@ import (
 	"context"
 	"path/filepath"
 
-	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	modelprovider "github.com/viant/agently-core/genai/llm/provider"
+	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	"github.com/viant/agently-core/workspace"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
 )

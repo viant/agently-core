@@ -27,30 +27,32 @@ func init() {
 var ConversationRowsFS embed.FS
 
 type ConversationRowsInput struct {
-	AgentId       string                    `parameter:",kind=query,in=agentId" predicate:"equal,group=0,c,agent_id"`
-	ParentId      string                    `parameter:",kind=query,in=parentId" predicate:"equal,group=0,c,conversation_parent_id"`
-	ParentTurnId  string                    `parameter:",kind=query,in=parentTurnId" predicate:"equal,group=0,c,conversation_parent_turn_id"`
-	ScheduleId    string                    `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,c,schedule_id"`
-	ScheduleRunId string                    `parameter:",kind=query,in=scheduleRunId" predicate:"equal,group=0,c,schedule_run_id"`
-	StatusFilter  string                    `parameter:",kind=query,in=status" predicate:"equal,group=0,c,status"`
-	CreatedSince  time.Time                 `parameter:",kind=query,in=createdSince" predicate:"greater_or_equal,group=0,c,created_at"`
-	CreatedBefore time.Time                 `parameter:",kind=query,in=createdBefore" predicate:"less_or_equal,group=0,c,created_at"`
-	CursorBefore  string                    `parameter:",kind=query,in=cursorBefore" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id)))"`
-	CursorAfter   string                    `parameter:",kind=query,in=cursorAfter" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id)))"`
-	Has           *ConversationRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	AgentId          string                    `parameter:",kind=query,in=agentId" predicate:"equal,group=0,c,agent_id"`
+	ParentId         string                    `parameter:",kind=query,in=parentId" predicate:"equal,group=0,c,conversation_parent_id"`
+	ParentTurnId     string                    `parameter:",kind=query,in=parentTurnId" predicate:"equal,group=0,c,conversation_parent_turn_id"`
+	ScheduleId       string                    `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,c,schedule_id"`
+	ScheduleRunId    string                    `parameter:",kind=query,in=scheduleRunId" predicate:"equal,group=0,c,schedule_run_id"`
+	StatusFilter     string                    `parameter:",kind=query,in=status" predicate:"equal,group=0,c,status"`
+	CreatedSince     time.Time                 `parameter:",kind=query,in=createdSince" predicate:"greater_or_equal,group=0,c,created_at"`
+	CreatedBefore    time.Time                 `parameter:",kind=query,in=createdBefore" predicate:"less_or_equal,group=0,c,created_at"`
+	CursorBefore     string                    `parameter:",kind=query,in=cursorBefore" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id)))"`
+	CursorAfter      string                    `parameter:",kind=query,in=cursorAfter" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id)))"`
+	DefaultPredicate string                    `parameter:",kind=const,in=value" predicate:"handler,group=0,*conversation.Filter" value:"0"`
+	Has              *ConversationRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type ConversationRowsInputHas struct {
-	AgentId       bool
-	ParentId      bool
-	ParentTurnId  bool
-	ScheduleId    bool
-	ScheduleRunId bool
-	StatusFilter  bool
-	CreatedSince  bool
-	CreatedBefore bool
-	CursorBefore  bool
-	CursorAfter   bool
+	AgentId          bool
+	ParentId         bool
+	ParentTurnId     bool
+	ScheduleId       bool
+	ScheduleRunId    bool
+	StatusFilter     bool
+	CreatedSince     bool
+	CreatedBefore    bool
+	CursorBefore     bool
+	CursorAfter      bool
+	DefaultPredicate bool
 }
 
 type ConversationRowsOutput struct {
@@ -80,6 +82,7 @@ type ConversationRowsView struct {
 	ConversationParentTurnId *string    `sqlx:"conversation_parent_turn_id"`
 	Metadata                 *string    `sqlx:"metadata"`
 	Visibility               string     `sqlx:"visibility"`
+	Shareable                *int       `sqlx:"shareable"`
 	Status                   *string    `sqlx:"status"`
 	Scheduled                *int       `sqlx:"scheduled"`
 	ScheduleId               *string    `sqlx:"schedule_id"`
@@ -109,6 +112,6 @@ func DefineConversationRowsComponent(ctx context.Context, srv *datly.Service) er
 	return nil
 }
 
-	func (i *ConversationRowsInput) EmbedFS() *embed.FS {
-		return &ConversationRowsFS
-	}
+func (i *ConversationRowsInput) EmbedFS() *embed.FS {
+	return &ConversationRowsFS
+}

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	coreagent "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/genai/llm"
+	coreagent "github.com/viant/agently-core/protocol/agent"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
 

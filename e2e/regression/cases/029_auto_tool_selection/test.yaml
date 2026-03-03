@@ -3,6 +3,9 @@ pipeline:
     when: $sdkKey != ''
     action: http/runner:send
     description: "auto tool selection - route bundles for command execution"
+    options:
+      RequestTimeoutMs: 60000
+      TimeoutMs: 60000
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query

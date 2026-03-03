@@ -2153,6 +2153,14 @@ func TestDataService_ConversationPermissions(t *testing.T) {
 		t.Fatalf("expected ErrPermissionDenied, got %v", err)
 	}
 
+	shareable, err := svc.GetConversation(ctx, "c-share-u2", nil, WithPrincipal("u1"))
+	if err != nil || shareable == nil {
+		t.Fatalf("shareable conversation should be accessible by id, err=%v value=%#v", err, shareable)
+	}
+	if shareable.Shareable == nil || *shareable.Shareable != 1 {
+		t.Fatalf("expected shareable flag to be set, got %#v", shareable.Shareable)
+	}
+
 	allowed, err := svc.GetConversation(ctx, "c-private-u2", nil, WithAdminPrincipal("admin"))
 	if err != nil || allowed == nil {
 		t.Fatalf("admin should access conversation, err=%v value=%#v", err, allowed)
@@ -2456,6 +2464,7 @@ func seedForConversationPermissions(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-private-u1", "2026-01-01T09:00:00Z", "active", "private", "u1"}},
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-private-u2", "2026-01-01T09:01:00Z", "active", "private", "u2"}},
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-public-u2", "2026-01-01T09:02:00Z", "active", "public", "u2"}},
+		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, shareable, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-share-u2", "2026-01-01T09:03:00Z", "active", "private", 1, "u2"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }

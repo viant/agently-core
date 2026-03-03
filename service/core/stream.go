@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	stream "github.com/viant/agently-core/service/core/stream"
-	svc "github.com/viant/agently-core/protocol/tool/service"
 )
 
 type StreamInput struct {

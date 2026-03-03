@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 type matchDocumentsOutput struct {

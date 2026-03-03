@@ -1,4 +1,3 @@
-
 package agent
 
 import (
@@ -8,10 +7,10 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/service/agent/prompts"
 	"github.com/viant/agently-core/service/core"
-	"github.com/viant/agently-core/pkg/agently/conversation"
 )
 
 func (s *Service) summarizeIfNeeded(ctx context.Context, input *QueryInput, conv *apiconv.Conversation) error {

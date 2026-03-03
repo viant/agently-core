@@ -94,6 +94,6 @@ func DefineMessageComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *MessageInput) EmbedFS() *embed.FS {
-		return &MessageFS
-	}
+func (i *MessageInput) EmbedFS() *embed.FS {
+	return &MessageFS
+}

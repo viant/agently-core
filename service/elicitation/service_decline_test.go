@@ -1,4 +1,3 @@
-
 package elicitation
 
 import (
@@ -9,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/service/elicitation/router"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/service/elicitation/router"
 )
 
 // fakeConv is a lightweight in-memory conversation client for tests.

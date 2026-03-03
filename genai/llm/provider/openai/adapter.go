@@ -14,8 +14,8 @@ import (
 	"github.com/viant/agently-core/internal/shared"
 
 	openai "github.com/openai/openai-go/v3"
-	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/genai/llm"
+	authctx "github.com/viant/agently-core/internal/auth"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 )
 

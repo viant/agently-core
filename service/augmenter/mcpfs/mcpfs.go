@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/viant/afs/storage"
-	"github.com/viant/agently-core/runtime/memory"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
+	"github.com/viant/agently-core/runtime/memory"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/runtime/memory"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/memory"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"

@@ -85,6 +85,7 @@ CREATE TABLE `conversation` (
   `conversation_parent_turn_id` varchar(255) DEFAULT NULL,
   `metadata` text,
   `visibility` varchar(255) NOT NULL DEFAULT 'private',
+  `shareable` tinyint NOT NULL DEFAULT '0',
   `status` varchar(255) DEFAULT NULL,
   `scheduled` tinyint DEFAULT NULL,
   `schedule_id` varchar(255) DEFAULT NULL,
@@ -94,7 +95,8 @@ CREATE TABLE `conversation` (
   `schedule_cron_expr` varchar(255) DEFAULT NULL,
   `external_task_ref` text,
   PRIMARY KEY (`id`),
-  CONSTRAINT `conversation_chk_1` CHECK ((`scheduled` in (0,1)))
+  CONSTRAINT `conversation_chk_1` CHECK ((`shareable` in (0,1))),
+  CONSTRAINT `conversation_chk_2` CHECK ((`scheduled` in (0,1)))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

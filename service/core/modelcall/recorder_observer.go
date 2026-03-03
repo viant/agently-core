@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	"github.com/viant/agently-core/runtime/memory"
 )
 
 // recorderObserver writes model-call data directly using conversation client.

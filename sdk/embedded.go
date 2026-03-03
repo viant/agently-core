@@ -260,7 +260,11 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 		page = input.Page
 	}
 	if c.data != nil {
-		out, err := c.data.ListConversations(ctx, in, page)
+		options := make([]data.Option, 0, 1)
+		if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+			options = append(options, data.WithPrincipal(userID))
+		}
+		out, err := c.data.ListConversations(ctx, in, page, options...)
 		if err == nil {
 			return out, nil
 		}

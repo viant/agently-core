@@ -64,6 +64,6 @@ func DefineQueuedTurnsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *QueuedTurnsInput) EmbedFS() *embed.FS {
-		return &QueuedTurnsFS
-	}
+func (i *QueuedTurnsInput) EmbedFS() *embed.FS {
+	return &QueuedTurnsFS
+}

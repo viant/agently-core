@@ -9,11 +9,11 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
-	"github.com/viant/agently-core/runtime/memory"
-	svc "github.com/viant/agently-core/protocol/tool/service"
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
+	svc "github.com/viant/agently-core/protocol/tool/service"
+	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	embopt "github.com/viant/embedius/matching/option"

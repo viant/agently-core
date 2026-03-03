@@ -82,6 +82,6 @@ func DefineRunStepsComponent(ctx context.Context, srv *datly.Service) error {
 	return nil
 }
 
-	func (i *RunStepsInput) EmbedFS() *embed.FS {
-		return &RunStepsFS
-	}
+func (i *RunStepsInput) EmbedFS() *embed.FS {
+	return &RunStepsFS
+}

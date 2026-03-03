@@ -38,7 +38,7 @@ func (h *Handler) handleGetSchedule() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("schedule ID is required"))
 			return
 		}
-		sched, err := h.svc.Get(id)
+		sched, err := h.svc.Get(r.Context(), id)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -53,7 +53,7 @@ func (h *Handler) handleGetSchedule() http.HandlerFunc {
 
 func (h *Handler) handleListSchedules() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		list, err := h.svc.List()
+		list, err := h.svc.List(r.Context())
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return

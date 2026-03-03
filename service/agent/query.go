@@ -1,4 +1,3 @@
-
 package agent
 
 import (
@@ -7,9 +6,9 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/prompt"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/usage"
