@@ -37,7 +37,35 @@ type GetMessagesInput struct {
 // ListConversationsInput controls the conversation listing query.
 type ListConversationsInput struct {
 	AgentID string
+	Query   string
+	Status  string
 	Page    *PageInput
+}
+
+type SteerTurnInput struct {
+	ConversationID string `json:"conversationId"`
+	TurnID         string `json:"turnId"`
+	Content        string `json:"content"`
+	Role           string `json:"role,omitempty"` // default "user"
+}
+
+type SteerTurnOutput struct {
+	MessageID      string `json:"messageId"`
+	TurnID         string `json:"turnId,omitempty"`
+	Status         string `json:"status,omitempty"`
+	CanceledTurnID string `json:"canceledTurnId,omitempty"`
+}
+
+type MoveQueuedTurnInput struct {
+	ConversationID string `json:"conversationId"`
+	TurnID         string `json:"turnId"`
+	Direction      string `json:"direction"` // up|down
+}
+
+type EditQueuedTurnInput struct {
+	ConversationID string `json:"conversationId"`
+	TurnID         string `json:"turnId"`
+	Content        string `json:"content"`
 }
 
 // CreateConversationInput holds fields needed to create a new conversation.

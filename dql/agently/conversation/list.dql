@@ -9,6 +9,7 @@
 #define($_ = $ParentTurnId<string>(query/parentTurnId).WithPredicate(0, 'equal', 'c', 'conversation_parent_turn_id'))
 #define($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'equal', 'c', 'schedule_id'))
 #define($_ = $ScheduleRunId<string>(query/scheduleRunId).WithPredicate(0, 'equal', 'c', 'schedule_run_id'))
+#define($_ = $Query<string>(query/q).WithPredicate(0, 'expr', 'LOWER(c.id || '' '' || CASE WHEN c.title IS NULL THEN '''' ELSE c.title END || '' '' || CASE WHEN c.summary IS NULL THEN '''' ELSE c.summary END) LIKE ''%'' || LOWER(?) || ''%'''))
 #define($_ = $StatusFilter<string>(query/status).WithPredicate(0, 'equal', 'c', 'status'))
 #define($_ = $CreatedSince<time.Time>(query/createdSince).WithPredicate(0, 'greater_or_equal', 'c', 'created_at'))
 #define($_ = $CreatedBefore<time.Time>(query/createdBefore).WithPredicate(0, 'less_or_equal', 'c', 'created_at'))

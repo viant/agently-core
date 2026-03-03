@@ -9,6 +9,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,11 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
+	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
+	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
+	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
@@ -28,6 +35,32 @@ import (
 	"github.com/viant/agently-core/service/reactor"
 	executil "github.com/viant/agently-core/service/shared/executil"
 )
+
+var queueDrainGuards = &convGuardMap{m: make(map[string]*int32)}
+
+type convGuardMap struct {
+	mu sync.Mutex
+	m  map[string]*int32
+}
+
+func (g *convGuardMap) acquire(convID string) bool {
+	g.mu.Lock()
+	v, ok := g.m[convID]
+	if !ok {
+		v = new(int32)
+		g.m[convID] = v
+	}
+	g.mu.Unlock()
+	return atomic.CompareAndSwapInt32(v, 0, 1)
+}
+
+func (g *convGuardMap) release(convID string) {
+	g.mu.Lock()
+	if v, ok := g.m[convID]; ok {
+		atomic.StoreInt32(v, 0)
+	}
+	g.mu.Unlock()
+}
 
 // executeChains filters, evaluates and dispatches supervised follow-up chains
 // declared on the parent agent.
@@ -49,6 +82,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	if input.MessageID == "" {
 		input.MessageID = uuid.New().String()
+	}
+	output.ConversationID = input.ConversationID
+	if queued, err := s.tryQueueTurn(ctx, input); err != nil {
+		return err
+	} else if queued {
+		output.MessageID = input.MessageID
+		output.Content = ""
+		return nil
 	}
 	// Seed provisional turn metadata early so pre-plan LLM calls (auto-routing)
 	// can participate in the same run tracking context.
@@ -95,7 +136,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	infof("agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
 
 	// Conversation already ensured above (fills AgentID/Model/Tool when missing)
-	output.ConversationID = input.ConversationID
 	s.tryMergePromptIntoContext(input)
 	contextStarted := time.Now()
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
@@ -168,10 +208,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			}
 		}
 	}
-	if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
-		return err
+	if input.SkipInitialUserMessage {
+		infof("agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	} else {
+		if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
+			return err
+		}
+		infof("agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
-	infof("agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 
 	// Persist attachments if any. Once persisted into history, avoid also
 	// sending them as task-scoped attachments to prevent duplicate media in
@@ -658,6 +702,82 @@ func bindEffectiveUserFromInput(ctx context.Context, input *QueryInput) context.
 	return authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: userID})
 }
 
+func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, error) {
+	if s == nil || s.dataService == nil || s.conversation == nil || input == nil {
+		return false, nil
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	turnID := strings.TrimSpace(input.MessageID)
+	if conversationID == "" || turnID == "" {
+		return false, nil
+	}
+	active, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+		ConversationID: conversationID,
+		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check active turn: %w", err)
+	}
+	if active == nil || strings.TrimSpace(active.Id) == "" || strings.TrimSpace(active.Id) == turnID {
+		return false, nil
+	}
+	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+		ConversationID: conversationID,
+		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to count queued turns: %w", err)
+	}
+	if queuedCount >= 20 {
+		return false, fmt.Errorf("turn queue limit reached for conversation %s", conversationID)
+	}
+	queueSeq := time.Now().UnixNano()
+	now := time.Now()
+	rec := apiconv.NewTurn()
+	rec.SetId(turnID)
+	rec.SetConversationID(conversationID)
+	rec.SetStatus("queued")
+	rec.SetQueueSeq(queueSeq)
+	rec.SetCreatedAt(now)
+	rec.SetStartedByMessageID(turnID)
+	if err := s.conversation.PatchTurn(ctx, rec); err != nil {
+		return false, fmt.Errorf("failed to queue turn: %w", err)
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(turnID)
+	msg.SetConversationID(conversationID)
+	msg.SetTurnID(turnID)
+	msg.SetRole("user")
+	msg.SetType("task")
+	msg.SetContent(strings.TrimSpace(input.Query))
+	msg.SetRawContent(strings.TrimSpace(input.Query))
+	msg.SetCreatedAt(now)
+	if userID := strings.TrimSpace(input.UserId); userID != "" {
+		msg.SetCreatedByUserID(userID)
+	}
+	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+		return false, fmt.Errorf("failed to persist queued message: %w", err)
+	}
+	if patcher, ok := s.dataService.(interface {
+		PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error
+	}); ok {
+		q := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		q.SetId(turnID)
+		q.SetConversationId(conversationID)
+		q.SetTurnId(turnID)
+		q.SetMessageId(turnID)
+		q.SetQueueSeq(queueSeq)
+		q.SetStatus("queued")
+		q.SetCreatedAt(now)
+		q.SetUpdatedAt(now)
+		if err := patcher.PatchTurnQueue(ctx, q); err != nil {
+			return false, fmt.Errorf("failed to persist turn queue: %w", err)
+		}
+	}
+	infof("agent.Query queued convo=%q turn_id=%q active_turn=%q queue_seq=%d", conversationID, turnID, strings.TrimSpace(active.Id), queueSeq)
+	return true, nil
+}
+
 // registerTurnCancel returns a derived context and a deferred cancel wrapper that patches status=canceled.
 func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -790,7 +910,102 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	} else {
 		infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	}
+	s.triggerQueueDrain(turn.ConversationID)
 	return nil
+}
+
+func (s *Service) triggerQueueDrain(conversationID string) {
+	if s == nil || s.dataService == nil || s.conversation == nil {
+		return
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return
+	}
+	if !queueDrainGuards.acquire(conversationID) {
+		return
+	}
+	go func(convID string) {
+		defer queueDrainGuards.release(convID)
+		if err := s.drainQueuedTurns(convID); err != nil {
+			warnf("agent.queueDrain error convo=%q err=%v", convID, err)
+		}
+	}(conversationID)
+}
+
+func (s *Service) drainQueuedTurns(conversationID string) error {
+	for {
+		next, err := s.dataService.GetNextQueuedTurn(context.Background(), &agturnnext.QueuedTurnInput{
+			ConversationID: conversationID,
+			Has:            &agturnnext.QueuedTurnInputHas{ConversationID: true},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to load next queued turn: %w", err)
+		}
+		if next == nil || strings.TrimSpace(next.Id) == "" {
+			return nil
+		}
+
+		turnID := strings.TrimSpace(next.Id)
+		starterID := strings.TrimSpace(valueOrEmpty(next.StartedByMessageId))
+		if starterID == "" {
+			starterID = turnID
+		}
+		starter, err := s.conversation.GetMessage(context.Background(), starterID)
+		if err != nil || starter == nil {
+			upd := apiconv.NewTurn()
+			upd.SetId(turnID)
+			upd.SetStatus("failed")
+			upd.SetErrorMessage("queued starter message not found")
+			_ = s.conversation.PatchTurn(context.Background(), upd)
+			warnf("agent.queueDrain failed to load starter message convo=%q turn_id=%q starter_id=%q err=%v", conversationID, turnID, starterID, err)
+			continue
+		}
+
+		queryText := strings.TrimSpace(valueOrEmpty(starter.RawContent))
+		if queryText == "" {
+			queryText = strings.TrimSpace(valueOrEmpty(starter.Content))
+		}
+		if queryText == "" {
+			upd := apiconv.NewTurn()
+			upd.SetId(turnID)
+			upd.SetStatus("failed")
+			upd.SetErrorMessage("queued starter message is empty")
+			_ = s.conversation.PatchTurn(context.Background(), upd)
+			warnf("agent.queueDrain empty starter message convo=%q turn_id=%q starter_id=%q", conversationID, turnID, starterID)
+			continue
+		}
+
+		input := &QueryInput{
+			RequestTime:            time.Now(),
+			ConversationID:         conversationID,
+			MessageID:              turnID,
+			AgentID:                strings.TrimSpace(valueOrEmpty(next.AgentIdUsed)),
+			UserId:                 strings.TrimSpace(valueOrEmpty(starter.CreatedByUserId)),
+			Query:                  queryText,
+			ModelOverride:          strings.TrimSpace(valueOrEmpty(next.ModelOverride)),
+			SkipInitialUserMessage: true,
+			IsNewConversation:      false,
+			ParentConversationID:   "",
+		}
+		out := &QueryOutput{}
+		err = s.Query(context.Background(), input, out)
+		if err != nil {
+			warnf("agent.queueDrain query failed convo=%q turn_id=%q err=%v", conversationID, turnID, err)
+		}
+
+		// Another turn may have become active concurrently. If this turn is still
+		// queued after attempted drain, stop and let the active turn completion
+		// re-trigger queue draining.
+		refreshed, rErr := s.dataService.GetTurnByID(context.Background(), &agturnbyid.TurnLookupInput{
+			ID:             turnID,
+			ConversationID: conversationID,
+			Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+		})
+		if rErr == nil && refreshed != nil && strings.EqualFold(strings.TrimSpace(refreshed.Status), "queued") {
+			return nil
+		}
+	}
 }
 
 func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, output *QueryOutput) error {
@@ -835,4 +1050,11 @@ func (s *Service) captureSecurityContext(ctx context.Context, input *QueryInput)
 		run.SetEffectiveUserID(userID)
 	}
 	_, _ = s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
+}
+
+func valueOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

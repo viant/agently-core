@@ -6,6 +6,8 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
           AgentID: simple
           Query: My name is Alice. Please remember that.
@@ -23,6 +25,8 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
           AgentID: simple
           ConversationID: ${turn1.Responses[0].JSONBody.conversationId}

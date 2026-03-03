@@ -12,5 +12,6 @@ systemPrompt:
   uri: prompt/system.tmpl
 tool:
   callExposure: conversation
-  bundles:
-    - system/os
+  items:
+    - pattern: "system/os:getEnv"
+      type: function

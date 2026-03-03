@@ -1,4 +1,19 @@
 pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "auto-summarize - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: auto_summarize
+          Title: auto-summarize-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
   query:
     when: $sdkKey != ''
     action: http/runner:send
@@ -6,14 +21,15 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
-          AgentID: auto_summarize
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
           Query: Tell me about the benefits of regular exercise.
           UserId: e2e-test
         Expect:
           Code: 200
           JSONBody:
-            "@exists@conversationId": true
             "@exists@content": true
 
   getConversation:
@@ -22,7 +38,7 @@ pipeline:
     description: "auto-summarize - verify title set"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
         Expect:
           Code: 200
           JSONBody:

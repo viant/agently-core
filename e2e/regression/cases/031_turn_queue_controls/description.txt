@@ -1,0 +1,15 @@
+Case: 031_turn_queue_controls
+
+Purpose:
+Validate queue-control endpoint availability and deterministic conflict semantics when target turn does not exist.
+
+What this test verifies:
+- `POST /v1/conversations/{id}/turns/{turnId}/steer` returns 409 for missing turn.
+- `POST /v1/conversations/{id}/turns/{turnId}/move` returns 409 for missing turn.
+- `PATCH /v1/conversations/{id}/turns/{turnId}` returns 409 for missing turn.
+- `DELETE /v1/conversations/{id}/turns/{turnId}` returns 409 for missing turn.
+- `POST /v1/conversations/{id}/turns/{turnId}/force-steer` returns 409 for missing turn.
+
+Why it matters:
+- Ensures new queue-control API surface is wired and returns stable conflict semantics.
+- Provides a deterministic e2e safety net independent of LLM timing/state.

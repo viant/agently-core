@@ -3,6 +3,8 @@ package workspace
 import (
 	"bytes"
 	"context"
+	"fmt"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,9 +18,31 @@ import (
 const defaultConfigYAML = "models: []\nagents: []\n"
 
 // BootstrapHook customizes workspace bootstrap behavior.
-// When configured via SetBootstrapHook, it receives the resolved workspace root
-// and can decide what (if anything) to populate.
-type BootstrapHook func(ctx context.Context, fs afs.Service, root string)
+// It receives a store helper bound to the resolved workspace root.
+type BootstrapHook func(store *BootstrapStore) error
+
+// BootstrapStore provides hook helpers expected by bootstrap callers.
+// It intentionally exposes only operations needed during bootstrap.
+type BootstrapStore struct {
+	root string
+	fs   afs.Service
+}
+
+// Root returns the workspace root path used by this bootstrap store.
+func (s *BootstrapStore) Root() string {
+	if s == nil {
+		return ""
+	}
+	return s.root
+}
+
+// SeedFromFS copies files from srcFS/prefix into workspace root when missing.
+func (s *BootstrapStore) SeedFromFS(ctx context.Context, srcFS iofs.FS, prefix string) error {
+	if s == nil {
+		return nil
+	}
+	return SeedFromFS(ctx, s.fs, s.root, srcFS, prefix)
+}
 
 // SetBootstrapHook sets a process-wide workspace bootstrap hook.
 // When set, default bootstrapping is skipped and the hook is responsible for
@@ -26,6 +50,7 @@ type BootstrapHook func(ctx context.Context, fs afs.Service, root string)
 func SetBootstrapHook(hook BootstrapHook) {
 	defaultsMu.Lock()
 	bootstrapHook = hook
+	defaultsByRoot = map[string]bool{}
 	defaultsMu.Unlock()
 }
 
@@ -41,6 +66,9 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 		return
 	}
 	root = abs(root)
+	if runBootstrapHook(fs, root) {
+		return
+	}
 	baseURL := url.Normalize(root, file.Scheme)
 
 	// Ensure key workspace directories exist.
@@ -67,6 +95,71 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 	if ok, _ := fs.Exists(ctx, configURL); !ok {
 		_ = fs.Upload(ctx, configURL, file.DefaultFileOsMode, bytes.NewReader([]byte(defaultConfigYAML)))
 	}
+}
+
+func runBootstrapHook(fs afs.Service, root string) bool {
+	defaultsMu.Lock()
+	hook := bootstrapHook
+	defaultsMu.Unlock()
+
+	if hook != nil {
+		if err := hook(&BootstrapStore{root: root, fs: fs}); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "workspace bootstrap hook error: %v\n", err)
+		}
+		return true
+	}
+	return false
+}
+
+// SeedFromFS copies files from srcFS/prefix into workspace root when the target
+// file does not already exist. Existing files are never overwritten.
+func SeedFromFS(ctx context.Context, afsSvc afs.Service, root string, srcFS iofs.FS, prefix string) error {
+	if afsSvc == nil || srcFS == nil || strings.TrimSpace(root) == "" {
+		return nil
+	}
+	root = abs(root)
+	start := strings.Trim(strings.TrimSpace(prefix), "/")
+	if start == "" {
+		start = "."
+	}
+	if _, err := iofs.Stat(srcFS, start); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("seed source %q: %w", start, err)
+	}
+
+	return iofs.WalkDir(srcFS, start, func(path string, d iofs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(path, start)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			return nil
+		}
+		target := filepath.Join(root, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if exists, err := afsSvc.Exists(ctx, target); err != nil {
+			return fmt.Errorf("check target %q: %w", target, err)
+		} else if exists {
+			return nil
+		}
+		data, err := iofs.ReadFile(srcFS, path)
+		if err != nil {
+			return fmt.Errorf("read source %q: %w", path, err)
+		}
+		if err = os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return fmt.Errorf("create dir for %q: %w", target, err)
+		}
+		targetURL := url.Normalize(target, file.Scheme)
+		if err = afsSvc.Upload(ctx, targetURL, file.DefaultFileOsMode, bytes.NewReader(data)); err != nil {
+			return fmt.Errorf("write target %q: %w", target, err)
+		}
+		return nil
+	})
 }
 
 // IsEmptyWorkspace reports whether the active workspace contains no meaningful files.

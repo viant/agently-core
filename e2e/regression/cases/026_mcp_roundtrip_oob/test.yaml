@@ -16,21 +16,20 @@ pipeline:
 
   startToolCall:
     when: $sdkKey != ''
-    action: process:start
+    action: http/runner:send
+    Async: true
     description: "mcp oob round-trip - start async tool execute"
-    checkError: true
-    immuneToHangups: true
-    sleepTimeMs: 9000
-    command: curl
-    arguments:
-      - -sS
-      - -X
-      - POST
-      - ${serverURL}/v1/tools/execute?conversationId=${createConversation.Responses[0].JSONBody.Id}
-      - -H
-      - Content-Type:application/json
-      - --data-binary
-      - "@/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads/mcpoob_ask_oob.json"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute?conversationId=${createConversation.Responses[0].JSONBody.Id}
+        JSONBody:
+          name: mcpoob/ask_oob
+          args: {}
+
+  waitToolCall:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 1200
 
   pendingElicitation:
     when: $sdkKey != ''

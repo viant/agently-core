@@ -1,0 +1,16 @@
+id: tool_forcer_exec_sleep
+name: Tool Forcer Exec Sleep
+description: Agent instructed to run a sleep command via system exec before answering
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ToolExecSleepForcer
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/exec

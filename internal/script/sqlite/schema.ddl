@@ -52,6 +52,24 @@ CREATE INDEX IF NOT EXISTS idx_turn_conversation ON turn(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_turn_conv_status_created ON turn(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_turn_conv_queue_seq ON turn(conversation_id, queue_seq);
 
+CREATE TABLE IF NOT EXISTS turn_queue (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    queue_seq INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
+    FOREIGN KEY (turn_id) REFERENCES turn(id) ON DELETE CASCADE,
+    FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_turn_queue_turn_id ON turn_queue(turn_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_turn_queue_message_id ON turn_queue(message_id);
+CREATE INDEX IF NOT EXISTS idx_turn_queue_conv_status_seq ON turn_queue(conversation_id, status, queue_seq, created_at);
+
 CREATE TABLE IF NOT EXISTS call_payload (
     id TEXT PRIMARY KEY,
     tenant_id TEXT,
@@ -232,7 +250,6 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     error_message TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
     FOREIGN KEY (turn_id) REFERENCES turn(id) ON DELETE SET NULL,
     FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE SET NULL

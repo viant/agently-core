@@ -51,6 +51,16 @@ type Client interface {
 
 	// CancelTurn aborts the active turn. Returns true if a running turn was found.
 	CancelTurn(ctx context.Context, turnID string) (bool, error)
+	// SteerTurn injects a user message into a currently running turn.
+	SteerTurn(ctx context.Context, input *SteerTurnInput) (*SteerTurnOutput, error)
+	// CancelQueuedTurn cancels a queued turn.
+	CancelQueuedTurn(ctx context.Context, conversationID, turnID string) error
+	// MoveQueuedTurn reorders a queued turn up/down in queue order.
+	MoveQueuedTurn(ctx context.Context, input *MoveQueuedTurnInput) error
+	// EditQueuedTurn updates queued turn starter message content.
+	EditQueuedTurn(ctx context.Context, input *EditQueuedTurnInput) error
+	// ForceSteerQueuedTurn cancels queued turn and injects its message into active turn.
+	ForceSteerQueuedTurn(ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error)
 
 	// ResolveElicitation delivers the user response for an elicitation prompt.
 	ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error

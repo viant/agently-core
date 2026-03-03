@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -151,6 +152,11 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", handleCancelTurn(client))
 	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client))
+	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/steer", handleSteerTurn(client))
+	mux.HandleFunc("DELETE /v1/conversations/{id}/turns/{turnId}", handleDeleteQueuedTurn(client))
+	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/move", handleMoveQueuedTurn(client))
+	mux.HandleFunc("PATCH /v1/conversations/{id}/turns/{turnId}", handleEditQueuedTurn(client))
+	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/force-steer", handleForceSteerQueuedTurn(client))
 
 	mux.HandleFunc("POST /v1/tools/{name}/execute", handleExecuteTool(client))
 	mux.HandleFunc("POST /v1/tools/execute", handleExecuteToolByName(client))
@@ -322,8 +328,34 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 
 func handleListConversations(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
 		input := &ListConversationsInput{
-			AgentID: r.URL.Query().Get("agentId"),
+			AgentID: strings.TrimSpace(q.Get("agentId")),
+			Query:   strings.TrimSpace(q.Get("q")),
+			Status:  strings.TrimSpace(q.Get("status")),
+		}
+		if limitRaw := strings.TrimSpace(q.Get("limit")); limitRaw != "" {
+			limit, err := strconv.Atoi(limitRaw)
+			if err != nil || limit <= 0 {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit"))
+				return
+			}
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Limit = limit
+		}
+		if cursor := strings.TrimSpace(q.Get("cursor")); cursor != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Cursor = cursor
+		}
+		if direction := strings.TrimSpace(q.Get("direction")); direction != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Direction = Direction(direction)
 		}
 		out, err := client.ListConversations(r.Context(), input)
 		if err != nil {
@@ -423,6 +455,135 @@ func handleCancelTurn(client Client) http.HandlerFunc {
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]bool{"cancelled": cancelled})
+	}
+}
+
+func handleSteerTurn(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conversationID := strings.TrimSpace(r.PathValue("id"))
+		turnID := strings.TrimSpace(r.PathValue("turnId"))
+		if conversationID == "" || turnID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+			return
+		}
+		var input SteerTurnInput
+		if err := decodeJSON(r, &input); err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		input.ConversationID = conversationID
+		input.TurnID = turnID
+		out, err := client.SteerTurn(r.Context(), &input)
+		if err != nil {
+			if isConflictError(err) {
+				httpError(w, http.StatusConflict, err)
+				return
+			}
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if out == nil {
+			out = &SteerTurnOutput{TurnID: turnID, Status: "accepted"}
+		}
+		httpJSON(w, http.StatusAccepted, out)
+	}
+}
+
+func handleDeleteQueuedTurn(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conversationID := strings.TrimSpace(r.PathValue("id"))
+		turnID := strings.TrimSpace(r.PathValue("turnId"))
+		if conversationID == "" || turnID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+			return
+		}
+		if err := client.CancelQueuedTurn(r.Context(), conversationID, turnID); err != nil {
+			if isConflictError(err) {
+				httpError(w, http.StatusConflict, err)
+				return
+			}
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func handleMoveQueuedTurn(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conversationID := strings.TrimSpace(r.PathValue("id"))
+		turnID := strings.TrimSpace(r.PathValue("turnId"))
+		if conversationID == "" || turnID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+			return
+		}
+		var input MoveQueuedTurnInput
+		if err := decodeJSON(r, &input); err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		input.ConversationID = conversationID
+		input.TurnID = turnID
+		if err := client.MoveQueuedTurn(r.Context(), &input); err != nil {
+			if isConflictError(err) {
+				httpError(w, http.StatusConflict, err)
+				return
+			}
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func handleEditQueuedTurn(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conversationID := strings.TrimSpace(r.PathValue("id"))
+		turnID := strings.TrimSpace(r.PathValue("turnId"))
+		if conversationID == "" || turnID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+			return
+		}
+		var input EditQueuedTurnInput
+		if err := decodeJSON(r, &input); err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		input.ConversationID = conversationID
+		input.TurnID = turnID
+		if err := client.EditQueuedTurn(r.Context(), &input); err != nil {
+			if isConflictError(err) {
+				httpError(w, http.StatusConflict, err)
+				return
+			}
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func handleForceSteerQueuedTurn(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conversationID := strings.TrimSpace(r.PathValue("id"))
+		turnID := strings.TrimSpace(r.PathValue("turnId"))
+		if conversationID == "" || turnID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+			return
+		}
+		out, err := client.ForceSteerQueuedTurn(r.Context(), conversationID, turnID)
+		if err != nil {
+			if isConflictError(err) {
+				httpError(w, http.StatusConflict, err)
+				return
+			}
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if out == nil {
+			out = &SteerTurnOutput{TurnID: turnID, Status: "accepted"}
+		}
+		httpJSON(w, http.StatusAccepted, out)
 	}
 }
 

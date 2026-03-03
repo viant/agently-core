@@ -1,19 +1,18 @@
 pipeline:
-  setupKnownAgent:
+  createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto agent selection - seed conversation with explicit agent"
+    description: "auto agent selection - create conversation with explicit agent"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/agent/query
+        URL: ${serverURL}/v1/conversations
         JSONBody:
           AgentID: knowledge_system
-          Query: What are the Go error handling best practices?
-          UserId: e2e-test
+          Title: auto-agent-selection-e2e
         Expect:
           Code: 200
           JSONBody:
-            "@exists@conversationId": true
+            "@exists@Id": true
 
   autoAgentSelect:
     when: $sdkKey != ''
@@ -22,11 +21,13 @@ pipeline:
     requests:
       - Method: POST
         URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
         JSONBody:
-          ConversationID: ${setupKnownAgent.Responses[0].JSONBody.conversationId}
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
           AgentID: auto
           Query: summarize the previous guidance in one sentence
-          UserId: e2e-test
+          UserId: e2e-auto-agent-selection
         Expect:
           Code: 200
           JSONBody:
