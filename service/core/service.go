@@ -55,7 +55,7 @@ func (s *Service) ToolDefinitions() []llm.ToolDefinition {
 	if s == nil || s.registry == nil {
 		return nil
 	}
-	return s.registry.Definitions()
+	return s.EnrichedToolDefinitions()
 }
 
 // Name returns the service Name
