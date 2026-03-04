@@ -388,7 +388,8 @@ func (c *EmbeddedClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsV
 
 func (c *EmbeddedClient) CancelTurn(ctx context.Context, turnID string) (bool, error) {
 	if c.cancelRegistry == nil {
-		return false, errors.New("cancel registry not configured")
+		// Keep API behavior graceful for runtimes that don't wire cancellation.
+		return false, nil
 	}
 	return c.cancelRegistry.CancelTurn(turnID), nil
 }

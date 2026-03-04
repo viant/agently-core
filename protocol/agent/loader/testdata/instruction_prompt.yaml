@@ -1,0 +1,7 @@
+id: instruction-demo
+name: Instruction Demo
+model: gpt-4o
+instruction:
+  text: "Legacy instruction alias"
+instructionPrompt:
+  text: "Preferred instruction prompt"

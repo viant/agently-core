@@ -655,6 +655,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
 			ctx = memory.WithConversationID(ctx, convID)
 		}
+		ctx = ensureDirectToolPolicy(ctx)
 		result, err := client.ExecuteTool(ctx, name, args)
 		if err != nil {
 			httpError(w, statusForToolExecuteError(err), err)
@@ -683,6 +684,7 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
 			ctx = memory.WithConversationID(ctx, convID)
 		}
+		ctx = ensureDirectToolPolicy(ctx)
 		result, err := client.ExecuteTool(ctx, name, req.Args)
 		if err != nil {
 			httpError(w, statusForToolExecuteError(err), err)
@@ -735,6 +737,14 @@ func statusForToolExecuteError(err error) int {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
+}
+
+func ensureDirectToolPolicy(ctx context.Context) context.Context {
+	if toolpolicy.FromContext(ctx) != nil {
+		return ctx
+	}
+	// Direct tool execution endpoints should default to best_path safety mode.
+	return toolpolicy.WithPolicy(ctx, &toolpolicy.Policy{Mode: toolpolicy.ModeBestPath})
 }
 
 func handleListResources(client Client) http.HandlerFunc {

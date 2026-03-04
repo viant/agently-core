@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/viant/agently-core/app/store/conversation"
+	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
@@ -224,5 +226,52 @@ func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
 	}
 	if spy.gotInput != nil {
 		t.Fatalf("GetMessages should not be called on invalid limit")
+	}
+}
+
+type spyExecuteClient struct {
+	*HTTPClient
+}
+
+func (s *spyExecuteClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	if err := toolpolicy.ValidateExecution(ctx, toolpolicy.FromContext(ctx), name, args); err != nil {
+		return "", err
+	}
+	return "ok", nil
+}
+
+func TestHandler_ExecuteToolByName_DefaultBestPathBlocksRisky(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyExecuteClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	body := []byte(`{"name":"system/exec:execute","args":{"commands":["date"],"workdir":"/tmp"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyExecuteClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	body := []byte(`{"name":"system/os:getEnv","args":{"names":["USER"]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
 	}
 }

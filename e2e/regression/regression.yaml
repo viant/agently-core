@@ -1,8 +1,9 @@
 init:
   repoPath: $WorkingDirectory(../..)
   testdataPath: ${repoPath}/e2e/query/testdata
-  serverPort: 8090
+  serverPort: 8585
   serverURL: http://127.0.0.1:${serverPort}
+  workspacePath: /tmp/agently-core-e2e-workspace/.agently
   sdkKey: ${env.OPENAI_API_KEY}
 
 pipeline:
@@ -23,6 +24,27 @@ pipeline:
           lsof -nP -iTCP:8080 -sTCP:LISTEN
           exit 1
         fi
+
+  ensureBinaries:
+    action: exec:run
+    description: build local app + MCP helper binaries used by regression
+    checkError: true
+    commands:
+      - mkdir -p ${repoPath}/e2e/bin
+      - cd ${repoPath}
+      - go build -o ${repoPath}/e2e/bin/agently-app ./cmd/agently-app
+      - cd ${repoPath}/e2e/cli/mcpserver
+      - go build -o mcpserver
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-resources
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-form
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-oob
+
+  prepareWorkspace:
+    action: exec:run
+    description: reset e2e workspace fixtures from testdata
+    checkError: true
+    commands:
+      - ${repoPath}/e2e/scripts/prepare_workspace.sh ${repoPath} ${workspacePath} ${testdataPath}
 
   mcpResources:
     start:
@@ -84,18 +106,31 @@ pipeline:
             rm -f /tmp/agently-core-e2e-supervisor.pid
           fi
         - |
-          pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
-          if [ -n "$pids" ]; then
-            kill $pids || true
-          fi
-        - |
-          for i in $(seq 1 20); do
-            if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
-              break
+          if [ -x "${repoPath}/e2e/bin/agently-app" ]; then
+            pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
+            if [ -n "$pids" ]; then
+              kill $pids || true
             fi
-            sleep 0.5
-          done
-        - nohup ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath} >/tmp/agently-core-e2e-server.log 2>&1 &
+            for i in $(seq 1 20); do
+              if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
+                break
+              fi
+              sleep 0.5
+            done
+            nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &
+          else
+            pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
+            if [ -n "$pids" ]; then
+              kill $pids || true
+            fi
+            for i in $(seq 1 20); do
+              if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
+                break
+              fi
+              sleep 0.5
+            done
+            nohup ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath} >/tmp/agently-core-e2e-server.log 2>&1 &
+          fi
         - |
           for i in $(seq 1 40); do
             if curl -fsS ${serverURL}/healthz | grep -q '"status":"ok"'; then
@@ -103,7 +138,8 @@ pipeline:
             fi
             sleep 0.5
           done
-          echo "e2e-server failed to start on ${serverURL}/healthz"
+          echo "target server failed to start on ${serverURL}/healthz"
+          tail -n 80 /tmp/agently-core-app.log || true
           tail -n 80 /tmp/agently-core-e2e-server.log || true
           exit 1
 

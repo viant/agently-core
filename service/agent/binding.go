@@ -188,7 +188,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Avoid mutating input.Context directly by working on a copy.
 	b.Context = cloneContextMap(b.Context)
 	mergeElicitationPayloadIntoContext(b.History, &b.Context)
-	applyToolContext(b.Context, b.Tools.Signatures)
 	s.applyDelegationContext(input, b)
 
 	debugf("agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))

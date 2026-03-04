@@ -2,7 +2,9 @@ init:
   mysqlCred: mysql-e2e.json
   mysqlSecrets: ${secrets.$mysqlCred}
   repoPath: $WorkingDirectory(./..)
+  appURL: http://127.0.0.1:8585
   testdataPath: ${repoPath}/e2e/query/testdata
+  workspacePath: /tmp/agently-core-e2e-workspace/.agently
   serverPort: 8090
   serverURL: http://127.0.0.1:${serverPort}
   debugger: off
@@ -30,29 +32,32 @@ pipeline:
       request: '@database/database'
 
   build:
-    datly:
-      action: exec:run
-      description: build datly binary
-      TimeoutMs: 120000
-      checkError: true
-      commands:
-        - cd $repoPath
-        - export PATH=/usr/local/go/bin:$PATH
-        - export GOPATH=${env.GOPATH}
-        - mkdir -p $repoPath/e2e/bin
-        - cd ${repoPath}/e2e/cli/datly
-        - go mod tidy
-        - go build -o datly
-        - mv datly $repoPath/e2e/bin/datly
+    helpers:
+      action: run
+      description: build e2e helper binaries
+      request: '@build/build'
 
-    server:
-      action: exec:run
-      description: build e2e server
-      TimeoutMs: 120000
-      checkError: true
-      commands:
-        - cd $repoPath
-        - go build -o ${repoPath}/e2e/bin/e2e-server ./e2e/cli/server
+  buildApp:
+    ui:
+      action: run
+      description: build agently-app UI assets for embedding
+      request: '@build/buildUI'
+    binary:
+      action: run
+      description: build agently-app binary
+      request: '@build/buildApp'
+
+  prepareWorkspace:
+    action: exec:run
+    description: reset e2e workspace fixtures before app start
+    checkError: true
+    commands:
+      - ${repoPath}/e2e/scripts/prepare_workspace.sh ${repoPath} ${workspacePath} ${testdataPath}
+
+  app:
+    action: run
+    description: run agently-app host
+    request: '@app/app'
 
   rule:
     cleanup:

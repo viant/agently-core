@@ -2,6 +2,7 @@ pipeline:
   setupTurn1:
     when: $sdkKey != ''
     action: http/runner:send
+    TimeoutMs: 120000
     description: "tool exposure turn - create prior turn with real tool call"
     requests:
       - Method: POST
@@ -32,6 +33,7 @@ pipeline:
   probeTurn2:
     when: $sdkKey != ''
     action: http/runner:send
+    TimeoutMs: 120000
     description: "tool exposure turn - prior turn tools should be hidden"
     requests:
       - Method: POST

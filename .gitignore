@@ -5,3 +5,4 @@ bin/
 repo/
 logs/
 node_modules/
+agently-app
