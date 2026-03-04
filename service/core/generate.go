@@ -23,10 +23,13 @@ import (
 type GenerateInput struct {
 	llm.ModelSelection
 	SystemPrompt *prompt.Prompt
+	Instruction  *prompt.Prompt
 
 	Prompt  *prompt.Prompt
 	Binding *prompt.Binding
 	Message []llm.Message
+	// Instructions holds expanded top-level model instructions, when provided.
+	Instructions string
 	// ExpandedUserPrompt holds the fully expanded user task text
 	// produced from the user template and binding. Callers that
 	// wish to persist the expanded task as the canonical user
@@ -120,6 +123,16 @@ func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
 }
 
 func (i *GenerateInput) Init(ctx context.Context) error {
+	if i.Instruction != nil {
+		if err := i.Instruction.Init(ctx); err != nil {
+			return err
+		}
+		expanded, err := i.Instruction.Generate(ctx, i.Binding)
+		if err != nil {
+			return fmt.Errorf("failed to expand instruction prompt: %w", err)
+		}
+		i.Instructions = strings.TrimSpace(expanded)
+	}
 
 	if i.SystemPrompt != nil {
 		if err := i.SystemPrompt.Init(ctx); err != nil {
@@ -654,8 +667,9 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 	}
 
 	request := &llm.GenerateRequest{
-		Messages: input.Message,
-		Options:  input.Options,
+		Messages:     input.Message,
+		Options:      input.Options,
+		Instructions: input.Instructions,
 	}
 	if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
 		request.PromptCacheKey = convID
@@ -670,24 +684,6 @@ func applyInstructionsDefaults(request *llm.GenerateRequest, model llm.Model) {
 		return
 	}
 	supportsInstructions := model != nil && model.Implements(base.SupportsInstructions)
-
-	// Derive instructions from the first system message when unset.
-	if strings.TrimSpace(request.Instructions) == "" {
-		for i, msg := range request.Messages {
-			if msg.Role != llm.RoleSystem {
-				continue
-			}
-			text := llm.MessageText(msg)
-			if strings.TrimSpace(text) == "" {
-				break
-			}
-			request.Instructions = text
-			if supportsInstructions {
-				request.Messages = append(request.Messages[:i], request.Messages[i+1:]...)
-			}
-			break
-		}
-	}
 
 	// For providers that do not support top-level instructions, ensure the
 	// guidance is present as the first system message.

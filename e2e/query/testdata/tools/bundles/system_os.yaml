@@ -1,0 +1,7 @@
+id: system/os
+title: System OS
+description: OS helpers (environment variables and host info)
+iconRef: builtin:system-os
+priority: 60
+match:
+  - name: "system/os:*"

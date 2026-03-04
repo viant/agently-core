@@ -140,8 +140,7 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoveryTimeout:   15 * time.Second,
 		discoveryStrictTTL: 30 * time.Second,
 	}
-	// Register in-memory MCP clients for built-in services using Service.Name().
-	r.addInternalMcp()
+	// Internal MCP services are app-owned plugins; registries start empty.
 	// Register orchestrator synthetic tool.
 	r.injectOrchestratorVirtualTool()
 	return r, nil

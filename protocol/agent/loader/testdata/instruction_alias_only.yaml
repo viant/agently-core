@@ -1,0 +1,5 @@
+id: instruction-alias-only
+name: Instruction Alias Only
+model: gpt-4o
+instruction:
+  text: "Use only alias"

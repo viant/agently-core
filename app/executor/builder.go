@@ -233,9 +233,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Core == nil {
 		out.Core = core.New(b.modelFinder, out.Registry, out.Conversation)
 	}
-	if b.streamPub != nil {
-		out.Core.SetStreamPublisher(b.streamPub)
-	}
 
 	aug := b.augmenter
 	if aug == nil {
@@ -250,6 +247,13 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	out.Streaming = b.streamBus
 	if out.Streaming == nil {
 		out.Streaming = streaming.NewMemoryBus(0)
+	}
+	streamPub := b.streamPub
+	if streamPub == nil {
+		streamPub = newStreamPublisherAdapter(out.Streaming)
+	}
+	if streamPub != nil {
+		out.Core.SetStreamPublisher(streamPub)
 	}
 
 	out.Agent = b.agentSvc

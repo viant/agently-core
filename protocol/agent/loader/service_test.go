@@ -193,6 +193,39 @@ func TestService_Load_ToolBundles(t *testing.T) {
 	}
 }
 
+func TestService_Load_InstructionPrompt(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "instruction_prompt.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	if assert.NotNil(t, got.InstructionPrompt) {
+		assert.Equal(t, "Preferred instruction prompt", got.InstructionPrompt.Text)
+	}
+	if assert.NotNil(t, got.Instruction) {
+		assert.Equal(t, "Legacy instruction alias", got.Instruction.Text)
+	}
+	if assert.NotNil(t, got.EffectiveInstructionPrompt()) {
+		assert.Equal(t, "Preferred instruction prompt", got.EffectiveInstructionPrompt().Text)
+	}
+}
+
+func TestService_Load_InstructionAliasFallback(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "instruction_alias_only.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.NotNil(t, got.Instruction)
+	require.NotNil(t, got.InstructionPrompt)
+	assert.Equal(t, "Use only alias", got.Instruction.Text)
+	assert.Equal(t, "Use only alias", got.InstructionPrompt.Text)
+	assert.Equal(t, "Use only alias", got.EffectiveInstructionPrompt().Text)
+}
+
 func TestService_Load_ToolApprovalQueue(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))

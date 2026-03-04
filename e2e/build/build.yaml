@@ -1,6 +1,22 @@
-
-
 pipeline:
+
+  buildUI:
+    action: exec:run
+    TimeoutMs: 180000
+    commands:
+      - cd $repoPath/../agently-app/ui
+      - rm -rf dist
+      - npm run build
+      - rsync -a --delete dist/ $repoPath/../agently-app/deployment/ui/
+
+  buildApp:
+    action: exec:run
+    TimeoutMs: 180000
+    checkError: true
+    commands:
+      - cd $repoPath/../agently-app
+      - mkdir -p $repoPath/e2e/bin
+      - go build -o $repoPath/e2e/bin/agently-app ./cmd/agently-app
 
   build:
     action: exec:run
@@ -11,14 +27,8 @@ pipeline:
       - export PATH=/usr/local/go/bin:$PATH
       - export GOPATH=${env.GOPATH}
       - mkdir -p $repoPath/e2e/bin
-      - cd ${repoPath}/e2e/cli/server
-      - go build -o e2e-server
-      - mv e2e-server $repoPath/e2e/bin/e2e-server
       - cd ${repoPath}/e2e/cli/mcpserver
       - go build -o mcpserver
       - cp mcpserver $repoPath/e2e/bin/mcp-resources
       - cp mcpserver $repoPath/e2e/bin/mcp-elicitation-form
-      - mv mcpserver $repoPath/e2e/bin/mcp-elicitation-oob
-      - cd ${repoPath}/e2e/cli/datly
-      - go build -o datly
-      - mv datly $repoPath/e2e/bin/datly
+      - cp mcpserver $repoPath/e2e/bin/mcp-elicitation-oob

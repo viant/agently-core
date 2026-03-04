@@ -55,3 +55,33 @@ func TestToChatGPTBackendResponsesPayload_Contract(t *testing.T) {
 		t.Fatalf("backend payload must force store=false")
 	}
 }
+
+func TestToChatGPTBackendResponsesPayload_PreservesExplicitInstructions(t *testing.T) {
+	req := &Request{
+		Model:        "gpt-5.2",
+		Instructions: "Explicit instruction",
+		Messages: []Message{
+			{Role: "system", Content: "System guidance"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+
+	payload := ToChatGPTBackendResponsesPayload(req)
+	if payload.Instructions != "Explicit instruction" {
+		t.Fatalf("expected explicit instructions to be preserved, got %q", payload.Instructions)
+	}
+
+	foundDeveloperSystem := false
+	for _, item := range payload.Input {
+		if strings.EqualFold(item.Type, "message") &&
+			strings.EqualFold(item.Role, "developer") &&
+			len(item.Content) > 0 &&
+			strings.Contains(item.Content[0].Text, "System guidance") {
+			foundDeveloperSystem = true
+			break
+		}
+	}
+	if !foundDeveloperSystem {
+		t.Fatalf("expected transformed developer message with system guidance in input")
+	}
+}

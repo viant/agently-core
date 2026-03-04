@@ -193,7 +193,7 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 	return anAgent, nil
 }
 
-// resolvePromptURIs updates agent Prompt/SystemPrompt URI when relative by
+// resolvePromptURIs updates agent Prompt/SystemPrompt/Instruction URI when relative by
 // resolving them against the agent source URL directory.
 func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 	if a == nil || a.Source == nil || strings.TrimSpace(a.Source.URL) == "" {
@@ -214,6 +214,8 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 	}
 	resolvePath(a.Prompt)
 	resolvePath(a.SystemPrompt)
+	resolvePath(a.InstructionPrompt)
+	resolvePath(a.Instruction)
 	for _, chain := range a.Chains {
 		if query := chain.Query; query != nil && query.URI != "" {
 			resolvePath(query)
@@ -240,6 +242,11 @@ func normalizeAgent(a *agentmdl.Agent) {
 	}
 	trim(a.Prompt)
 	trim(a.SystemPrompt)
+	trim(a.InstructionPrompt)
+	trim(a.Instruction)
+	if a.InstructionPrompt == nil && a.Instruction != nil {
+		a.InstructionPrompt = a.Instruction
+	}
 	for _, c := range a.Chains {
 		if c == nil {
 			continue
@@ -483,6 +490,14 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 
 		case "systemprompt":
 			if agent.SystemPrompt, err = s.getPrompt(valueNode); err != nil {
+				return err
+			}
+		case "instructionprompt":
+			if agent.InstructionPrompt, err = s.getPrompt(valueNode); err != nil {
+				return err
+			}
+		case "instruction":
+			if agent.Instruction, err = s.getPrompt(valueNode); err != nil {
 				return err
 			}
 

@@ -102,9 +102,15 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	infof("agent.Query start convo=%q agent_id=%q user_id=%q query_len=%d query_head=%q query_tail=%q tools_allowed=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), strings.TrimSpace(input.UserId), len(input.Query), headString(input.Query, 512), tailString(input.Query, 512), len(input.ToolsAllowed))
 	sysPromptEngine := ""
 	sysPromptURI := ""
+	instructionEngine := ""
+	instructionURI := ""
 	if input.Agent.SystemPrompt != nil {
 		sysPromptEngine = strings.TrimSpace(input.Agent.SystemPrompt.Engine)
 		sysPromptURI = strings.TrimSpace(input.Agent.SystemPrompt.URI)
+	}
+	if ip := input.Agent.EffectiveInstructionPrompt(); ip != nil {
+		instructionEngine = strings.TrimSpace(ip.Engine)
+		instructionURI = strings.TrimSpace(ip.URI)
 	}
 	delegEnabled := false
 	delegDepth := 0
@@ -112,7 +118,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		delegEnabled = input.Agent.Delegation.Enabled
 		delegDepth = input.Agent.Delegation.MaxDepth
 	}
-	infof("agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI)
+	infof("agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q instruction.engine=%q instruction.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI, instructionEngine, instructionURI)
 
 	// Ensure fresh tokens via token provider.
 	if s.tokenProvider != nil {
@@ -446,6 +452,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		genInput := &core.GenerateInput{
 			Prompt:         input.Agent.Prompt,
 			SystemPrompt:   input.Agent.SystemPrompt,
+			Instruction:    input.Agent.EffectiveInstructionPrompt(),
 			Binding:        binding,
 			ModelSelection: modelSelection,
 		}
@@ -551,7 +558,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				}
 				// Attribute assistant message to the agent ID for history and UI display
 				actor := input.Actor()
-				if _, err := s.addMessage(ctx, &turn, "assistant", actor, genOutput.Content, nil, "plan", msgID); err != nil {
+				if shouldSkipFinalAssistantPersist(ctx, s.conversation, &turn, genOutput.Content) {
+					debugf("agent.runPlan skip duplicate final assistant convo=%q turn_id=%q content_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(genOutput.Content))
+				} else if _, err := s.addMessage(ctx, &turn, "assistant", actor, genOutput.Content, nil, "plan", msgID); err != nil {
 					return err
 				}
 			}
@@ -685,6 +694,56 @@ func extractBearer(authHeader string) string {
 		return strings.TrimSpace(authHeader[len(prefix):])
 	}
 	return authHeader
+}
+
+func shouldSkipFinalAssistantPersist(ctx context.Context, client apiconv.Client, turn *memory.TurnMeta, content string) bool {
+	if client == nil || turn == nil {
+		return false
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	finalContent := strings.TrimSpace(content)
+	if conversationID == "" || turnID == "" || finalContent == "" {
+		return false
+	}
+	conv, err := client.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return false
+	}
+	transcript := conv.GetTranscript()
+	for i := len(transcript) - 1; i >= 0; i-- {
+		t := transcript[i]
+		if t == nil || len(t.Message) == 0 {
+			continue
+		}
+		for j := len(t.Message) - 1; j >= 0; j-- {
+			msg := t.Message[j]
+			if msg == nil {
+				continue
+			}
+			if strings.TrimSpace(stringOrEmpty(msg.TurnId)) != turnID {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if msg.Interim != 0 {
+				continue
+			}
+			if strings.TrimSpace(stringOrEmpty(msg.Content)) == finalContent {
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func bindEffectiveUserFromInput(ctx context.Context, input *QueryInput) context.Context {
