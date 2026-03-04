@@ -105,6 +105,20 @@ func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
 
 func (c *EmbeddedClient) Mode() Mode { return ModeEmbedded }
 
+// GetPayload returns a payload body/metadata by payload id.
+// This is intentionally not part of the public sdk.Client interface; it is
+// used by the HTTP handler when running in embedded mode.
+func (c *EmbeddedClient) GetPayload(ctx context.Context, id string) (*conversation.Payload, error) {
+	if c.conv == nil {
+		return nil, errors.New("conversation client not configured")
+	}
+	payloadID := strings.TrimSpace(id)
+	if payloadID == "" {
+		return nil, errors.New("payload ID is required")
+	}
+	return c.conv.GetPayload(ctx, payloadID)
+}
+
 func (c *EmbeddedClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
 	out := &agentsvc.QueryOutput{}
 	if err := c.agent.Query(ctx, input, out); err != nil {

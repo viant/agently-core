@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	convstore "github.com/viant/agently-core/app/store/conversation"
 	iauth "github.com/viant/agently-core/internal/auth"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
@@ -147,6 +150,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 
 	mux.HandleFunc("GET /v1/messages", handleGetMessages(client))
 	mux.HandleFunc("GET /v1/elicitations", handleListPendingElicitations(client))
+	mux.HandleFunc("GET /v1/api/payload/{id}", handleGetPayload(client))
 
 	mux.HandleFunc("GET /v1/stream", handleStreamEvents(client))
 
@@ -218,6 +222,107 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 		handler = svcauth.Protect(cfg.authCfg, cfg.authSessions)(mux)
 	}
 	return handler, nil
+}
+
+type payloadReader interface {
+	GetPayload(ctx context.Context, id string) (*convstore.Payload, error)
+}
+
+func handleGetPayload(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("payload ID is required"))
+			return
+		}
+		reader, ok := client.(payloadReader)
+		if !ok {
+			httpError(w, http.StatusNotImplemented, fmt.Errorf("payload endpoint is unavailable for this client mode"))
+			return
+		}
+		payload, err := reader.GetPayload(r.Context(), id)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if payload == nil {
+			httpError(w, http.StatusNotFound, fmt.Errorf("payload not found"))
+			return
+		}
+
+		rawMode := queryBool(r, "raw", false)
+		metaMode := queryBool(r, "meta", false)
+		inlineMode := queryBool(r, "inline", true)
+
+		body := payloadBytes(payload)
+		compression := strings.TrimSpace(payload.Compression)
+		if strings.EqualFold(compression, "gzip") && len(body) > 0 {
+			if inflated, ok := inflateGZIP(body); ok {
+				body = inflated
+				compression = ""
+			}
+		}
+
+		if rawMode {
+			if len(body) == 0 {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			contentType := strings.TrimSpace(payload.MimeType)
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+			w.Header().Set("Content-Type", contentType)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
+			return
+		}
+
+		out := *payload
+		out.Compression = compression
+		if metaMode || !inlineMode {
+			out.InlineBody = nil
+		} else {
+			copied := append([]byte(nil), body...)
+			out.InlineBody = &copied
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func payloadBytes(p *convstore.Payload) []byte {
+	if p == nil || p.InlineBody == nil {
+		return nil
+	}
+	return append([]byte(nil), (*p.InlineBody)...)
+}
+
+func inflateGZIP(data []byte) ([]byte, bool) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
+	}
+	defer reader.Close()
+	var out bytes.Buffer
+	if _, err = io.Copy(&out, reader); err != nil {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
+func queryBool(r *http.Request, key string, fallback bool) bool {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return fallback
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func handleHealth() http.HandlerFunc {
