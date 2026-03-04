@@ -703,11 +703,25 @@ func handleListPendingToolApprovals(client Client) http.HandlerFunc {
 			Status:         strings.TrimSpace(q.Get("status")),
 		})
 		if err != nil {
+			if isToolApprovalQueueNotConfiguredErr(err) {
+				// Queue support is optional; keep UI poll healthy when queue is not configured.
+				httpJSON(w, http.StatusOK, map[string]interface{}{
+					"rows": []interface{}{},
+				})
+				return
+			}
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		httpJSON(w, http.StatusOK, map[string]interface{}{"rows": rows})
+		httpJSON(w, http.StatusOK, map[string]interface{}{
+			"rows": rows,
+		})
 	}
+}
+
+func isToolApprovalQueueNotConfiguredErr(err error) bool {
+	msg := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
+	return strings.Contains(msg, "tool approval queue not configured")
 }
 
 func handleDecideToolApproval(client Client) http.HandlerFunc {
