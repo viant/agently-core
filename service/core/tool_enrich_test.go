@@ -1,6 +1,7 @@
 package core
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -8,6 +9,8 @@ import (
 )
 
 func TestEnrichToolDefinition_NormalizesSchemaNodes(t *testing.T) {
+	t.Setenv("AGENTLY_WORKSPACE", filepath.Join(t.TempDir(), ".agently"))
+
 	svc := &Service{}
 	def := &llm.ToolDefinition{
 		Name: "test/tool:run",
