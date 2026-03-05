@@ -1,22 +1,28 @@
-pipeline:
+init:
+  repoPath: $WorkingDirectory(../..)
 
-  buildUI:
+pipeline:
+  buildDatly:
     action: exec:run
     TimeoutMs: 180000
+    checkError: true
     commands:
-      - cd $repoPath/../agently-app/ui
-      - rm -rf dist
-      - npm run build
-      - rsync -a --delete dist/ $repoPath/../agently-app/deployment/ui/
+      - cd $repoPath
+      - export PATH=/usr/local/go/bin:$PATH
+      - export GOPATH=${env.GOPATH}
+      - mkdir -p $repoPath/e2e/bin
+      - go build -o $repoPath/e2e/bin/datly ./e2e/cli/datlycmd
 
   buildApp:
     action: exec:run
     TimeoutMs: 180000
     checkError: true
     commands:
-      - cd $repoPath/../agently-app
+      - cd $repoPath
+      - export PATH=/usr/local/go/bin:$PATH
+      - export GOPATH=${env.GOPATH}
       - mkdir -p $repoPath/e2e/bin
-      - go build -o $repoPath/e2e/bin/agently-app ./cmd/agently-app
+      - go build -o $repoPath/e2e/bin/agently-app ./e2e/cli/agently-app
 
   build:
     action: exec:run

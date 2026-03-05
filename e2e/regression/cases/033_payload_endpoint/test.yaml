@@ -1,0 +1,96 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: simple
+          Title: payload-endpoint-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - generate model call payloads"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: simple
+          UserId: e2e-payload
+          Query: Say hello in one short sentence.
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+
+  transcript:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - fetch transcript with model call ids"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/transcript?includeModelCalls=true
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@turns": true
+            "@exists@turns[0].Message[1].ModelCall.ResponsePayloadId": true
+
+  rawResponsePayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - raw response payload returns JSON body"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${transcript.Responses[0].JSONBody.turns[0].Message[1].ModelCall.ResponsePayloadId}?raw=1
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@choices": true
+            "@exists@model": true
+
+  metaResponsePayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - meta mode returns payload envelope"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${transcript.Responses[0].JSONBody.turns[0].Message[1].ModelCall.ResponsePayloadId}?meta=1
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${transcript.Responses[0].JSONBody.turns[0].Message[1].ModelCall.ResponsePayloadId}
+            "@exists@Compression": true
+
+  inlineResponsePayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - inline mode includes InlineBody"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${transcript.Responses[0].JSONBody.turns[0].Message[1].ModelCall.ResponsePayloadId}?inline=1
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${transcript.Responses[0].JSONBody.turns[0].Message[1].ModelCall.ResponsePayloadId}
+            "@exists@InlineBody": true
+
+  missingPayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "payload endpoint - missing payload id returns 404"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/does-not-exist?raw=1
+        Expect:
+          Code: 404

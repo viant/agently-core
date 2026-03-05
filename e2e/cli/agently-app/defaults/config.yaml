@@ -1,0 +1,3 @@
+default:
+  agent: simple
+  model: openai_gpt4o_mini

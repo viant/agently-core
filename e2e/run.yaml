@@ -32,16 +32,16 @@ pipeline:
       request: '@database/database'
 
   build:
+    datly:
+      action: run
+      description: build datly e2e binary
+      request: '@build/buildDatly'
     helpers:
       action: run
       description: build e2e helper binaries
       request: '@build/build'
 
   buildApp:
-    ui:
-      action: run
-      description: build agently-app UI assets for embedding
-      request: '@build/buildUI'
     binary:
       action: run
       description: build agently-app binary
