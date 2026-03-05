@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,10 +11,12 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/viant/afs"
@@ -80,8 +83,12 @@ type Registry struct {
 	discoveryShared    map[string]discoveryIdentity
 	discoveryWarnAt    map[string]time.Time
 	discoveryWarnEvery time.Duration
+	discoveryWaitEvery time.Duration
 	discoveryTimeout   time.Duration
 	discoveryStrictTTL time.Duration
+
+	// jsonRPCRequestSeq provides unique JSON-RPC request ids for local MCP calls.
+	jsonRPCRequestSeq uint64
 }
 
 type toolCacheEntry struct {
@@ -137,6 +144,7 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoveryWarnAt: map[string]time.Time{},
 		// Cap duplicate warning noise while preserving first signal quickly.
 		discoveryWarnEvery: 30 * time.Second,
+		discoveryWaitEvery: 30 * time.Second,
 		discoveryTimeout:   15 * time.Second,
 		discoveryStrictTTL: 30 * time.Second,
 	}
@@ -694,6 +702,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=none\n", strings.TrimSpace(server), useID)
 		}
 	}
+	options = append(options, mcpclient.WithJsonRpcRequestId(r.nextJSONRPCRequestID()))
 	// Acquire appropriate client: internal or per-conversation via manager.
 	var cli mcpclient.Interface
 	var err error
@@ -809,6 +818,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return out, nil
 	}
 	return "", nil
+}
+
+func (r *Registry) nextJSONRPCRequestID() int {
+	if r == nil {
+		return int(time.Now().UnixNano())
+	}
+	return int(atomic.AddUint64(&r.jsonRPCRequestSeq, 1))
 }
 
 func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context.Context) {
@@ -994,7 +1010,7 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	if s == nil {
 		return fmt.Errorf("nil service")
 	}
-	cli, err := localmcp.NewServiceClient(context.TODO(), s)
+	cli, err := localmcp.NewServiceClient(context.Background(), s)
 	if err != nil {
 		return err
 	}
@@ -1031,7 +1047,7 @@ func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
 	}
 	// MCP client config timeout
 	if r.mgr != nil {
-		if opts, err := r.mgr.Options(context.TODO(), server); err == nil && opts != nil {
+		if opts, err := r.mgr.Options(context.Background(), server); err == nil && opts != nil {
 			if opts.ToolTimeoutSec > 0 {
 				return time.Duration(opts.ToolTimeoutSec) * time.Second, true
 			}
@@ -1266,7 +1282,16 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
 			opts = append(opts, mcpclient.WithAuthToken(tok))
 		}
-		return px.ListAllTools(ctx, opts...)
+		var tools []mcpschema.Tool
+		err := r.waitDiscoveryStage(ctx, server, "list_tools_internal", func(callCtx context.Context) error {
+			var listErr error
+			tools, listErr = px.ListAllTools(callCtx, opts...)
+			return listErr
+		})
+		if err != nil {
+			return nil, err
+		}
+		return tools, nil
 	}
 	if r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
@@ -1277,7 +1302,12 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	r.observeSharedDiscoveryIdentity(server, userID, token, useID)
 
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
-	cli, err := r.mgr.Get(ctx, "", server)
+	var cli mcpclient.Interface
+	err := r.waitDiscoveryStage(ctx, server, "manager_get", func(callCtx context.Context) error {
+		var getErr error
+		cli, getErr = r.mgr.Get(callCtx, "", server)
+		return getErr
+	})
 	if err != nil {
 		r.warnDiscoveryListIssue(server, "manager_get", err, userID, useID, tokenFingerprint(token))
 		return nil, err
@@ -1287,7 +1317,12 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if tok := strings.TrimSpace(token); tok != "" {
 		opts = append(opts, mcpclient.WithAuthToken(tok))
 	}
-	tools, err := px.ListAllTools(ctx, opts...)
+	var tools []mcpschema.Tool
+	err = r.waitDiscoveryStage(ctx, server, "list_tools", func(callCtx context.Context) error {
+		var listErr error
+		tools, listErr = px.ListAllTools(callCtx, opts...)
+		return listErr
+	})
 	if err != nil {
 		if isReconnectableError(err) {
 			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, server, opts); retryErr == nil {
@@ -1309,17 +1344,31 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, server str
 	if _, err := r.mgr.Reconnect(ctx, "", server); err != nil {
 		return nil, err
 	}
-	cli, err := r.mgr.Get(ctx, "", server)
+	var cli mcpclient.Interface
+	err := r.waitDiscoveryStage(ctx, server, "manager_get_retry", func(callCtx context.Context) error {
+		var getErr error
+		cli, getErr = r.mgr.Get(callCtx, "", server)
+		return getErr
+	})
 	if err != nil {
 		return nil, err
 	}
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
-	return px.ListAllTools(ctx, opts...)
+	var tools []mcpschema.Tool
+	err = r.waitDiscoveryStage(ctx, server, "list_tools_retry", func(callCtx context.Context) error {
+		var listErr error
+		tools, listErr = px.ListAllTools(callCtx, opts...)
+		return listErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tools, nil
 }
 
 func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
-		ctx = context.TODO()
+		ctx = context.Background()
 	}
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, nil
@@ -1334,6 +1383,236 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 		}
 	}
 	return context.WithTimeout(ctx, timeout)
+}
+
+func (r *Registry) waitDiscoveryStage(ctx context.Context, server, stage string, fn func(context.Context) error) error {
+	if fn == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Legacy mode (default): execute stage directly with no wait-wrapper diagnostics.
+	// Diagnostic wait logging/dumps are enabled only when AGENTLY_SCHEDULER_DEBUG=1.
+	if strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG")) != "1" {
+		return fn(ctx)
+	}
+	waitEvery := 30 * time.Second
+	if r != nil && r.discoveryWaitEvery > 0 {
+		waitEvery = r.discoveryWaitEvery
+	}
+	started := time.Now()
+	done := make(chan struct{})
+	var err error
+	go func() {
+		defer close(done)
+		err = fn(ctx)
+	}()
+
+	ticker := time.NewTicker(waitEvery)
+	defer ticker.Stop()
+	logEvery := 5 * time.Minute
+	dumpEvery := 15 * time.Minute
+	lastLogged := time.Time{}
+	nextDumpAt := started.Add(dumpEvery)
+
+	for {
+		select {
+		case <-done:
+			return err
+		case <-ticker.C:
+			now := time.Now()
+			shouldLog := lastLogged.IsZero() || now.Sub(lastLogged) >= logEvery
+			shouldDump := !now.Before(nextDumpAt)
+			if !shouldLog && !shouldDump {
+				continue
+			}
+			waited := time.Since(started).Round(time.Second)
+			diag := r.discoveryWaitDiagnostics(ctx, server)
+			if shouldLog {
+				lastLogged = now
+				logDiscoveryWait("heartbeat", server, stage, waited, diag)
+			}
+			if shouldDump {
+				for !now.Before(nextDumpAt) {
+					nextDumpAt = nextDumpAt.Add(dumpEvery)
+				}
+				logDiscoveryWait("wait_dump_15m", server, stage, waited, diag)
+				logDiscoveryGoroutineDump(server, stage, waited)
+			}
+		}
+	}
+}
+
+func logDiscoveryWait(event, server, stage string, waited time.Duration, diag discoveryWaitDiag) {
+	log.Printf(
+		"[warn][mcp-discovery] shared discovery still waiting event=%s server=%q conv_id=%q conv_present=%v stage=%s wait=%s mode_guess=%s mode_basis=%s user=%q user_present=%v scheduler=%v strict=%v discovery_mode_present=%v schedule_id=%q schedule_id_present=%v schedule_run_id=%q schedule_run_id_present=%v has_deadline=%v deadline_in=%s token_selected=%s token_access=%s token_id=%s token_bearer=%s token_id_legacy=%s",
+		strings.TrimSpace(event),
+		strings.TrimSpace(server),
+		diag.convID,
+		diag.hasConvID,
+		strings.TrimSpace(stage),
+		waited,
+		diag.modeGuess,
+		diag.modeBasis,
+		diag.userID,
+		diag.hasUserID,
+		diag.scheduler,
+		diag.strict,
+		diag.modePresent,
+		diag.scheduleID,
+		diag.hasScheduleID,
+		diag.scheduleRunID,
+		diag.hasScheduleRunID,
+		diag.hasDeadline,
+		diag.deadlineIn,
+		diag.selectedTokenFP,
+		diag.accessTokenFP,
+		diag.idTokenFP,
+		diag.bearerFP,
+		diag.legacyIDTokenFP,
+	)
+}
+
+func logDiscoveryGoroutineDump(server, stage string, waited time.Duration) {
+	var buf bytes.Buffer
+	if p := pprof.Lookup("goroutine"); p != nil {
+		if err := p.WriteTo(&buf, 2); err != nil {
+			log.Printf("[warn][mcp-discovery] goroutine dump failed server=%q stage=%s wait=%s err=%v", strings.TrimSpace(server), strings.TrimSpace(stage), waited, err)
+			return
+		}
+	} else {
+		log.Printf("[warn][mcp-discovery] goroutine dump unavailable server=%q stage=%s wait=%s", strings.TrimSpace(server), strings.TrimSpace(stage), waited)
+		return
+	}
+	log.Printf("[warn][mcp-discovery] goroutine dump begin server=%q stage=%s wait=%s", strings.TrimSpace(server), strings.TrimSpace(stage), waited)
+	log.Printf("%s", buf.String())
+	log.Printf("[warn][mcp-discovery] goroutine dump end server=%q stage=%s wait=%s", strings.TrimSpace(server), strings.TrimSpace(stage), waited)
+}
+
+type discoveryWaitDiag struct {
+	convID           string
+	hasConvID        bool
+	userID           string
+	hasUserID        bool
+	scheduler        bool
+	strict           bool
+	modePresent      bool
+	scheduleID       string
+	hasScheduleID    bool
+	scheduleRunID    string
+	hasScheduleRunID bool
+	hasDeadline      bool
+	deadlineIn       string
+	selectedTokenFP  string
+	accessTokenFP    string
+	idTokenFP        string
+	bearerFP         string
+	legacyIDTokenFP  string
+	modeGuess        string
+	modeBasis        string
+}
+
+const (
+	discoveryCtxMissing = "<ctx-missing>"
+	discoveryCtxEmpty   = "<ctx-empty>"
+)
+
+func (r *Registry) discoveryWaitDiagnostics(ctx context.Context, server string) discoveryWaitDiag {
+	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	hasConvID := convID != ""
+	if !hasConvID {
+		convID = discoveryCtxMissing
+	}
+
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	hasUserID := userID != ""
+	if !hasUserID {
+		// EffectiveUserID accessor cannot distinguish absent key vs empty payload.
+		userID = discoveryCtxMissing
+	}
+
+	diag := discoveryWaitDiag{
+		convID:          convID,
+		hasConvID:       hasConvID,
+		userID:          userID,
+		hasUserID:       hasUserID,
+		deadlineIn:      "none",
+		selectedTokenFP: "none",
+		accessTokenFP:   "none",
+		idTokenFP:       "none",
+		bearerFP:        "none",
+		legacyIDTokenFP: "none",
+		modeGuess:       "unknown",
+		modeBasis:       "insufficient_signal",
+	}
+
+	if mode, ok := memory.DiscoveryModeFromContext(ctx); ok {
+		diag.modePresent = true
+		diag.scheduler = mode.Scheduler
+		diag.strict = mode.Strict
+		diag.scheduleID = strings.TrimSpace(mode.ScheduleID)
+		diag.hasScheduleID = diag.scheduleID != ""
+		if !diag.hasScheduleID {
+			diag.scheduleID = discoveryCtxEmpty
+		}
+		diag.scheduleRunID = strings.TrimSpace(mode.ScheduleRunID)
+		diag.hasScheduleRunID = diag.scheduleRunID != ""
+		if !diag.hasScheduleRunID {
+			diag.scheduleRunID = discoveryCtxEmpty
+		}
+	} else {
+		diag.scheduleID = discoveryCtxMissing
+		diag.scheduleRunID = discoveryCtxMissing
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		diag.hasDeadline = true
+		remaining := time.Until(deadline).Round(time.Second)
+		diag.deadlineIn = remaining.String()
+	}
+
+	if tb := authctx.TokensFromContext(ctx); tb != nil {
+		diag.accessTokenFP = tokenFingerprint(tb.AccessToken)
+		diag.idTokenFP = tokenFingerprint(tb.IDToken)
+	}
+	diag.bearerFP = tokenFingerprint(authctx.Bearer(ctx))
+	diag.legacyIDTokenFP = tokenFingerprint(authctx.IDToken(ctx))
+
+	useID := false
+	if r != nil && r.mgr != nil {
+		useID = r.mgr.UseIDToken(ctx, strings.TrimSpace(server))
+	}
+	diag.selectedTokenFP = tokenFingerprint(authctx.MCPAuthToken(ctx, useID))
+
+	diag.modeGuess, diag.modeBasis = guessDiscoveryMode(diag)
+	return diag
+}
+
+func guessDiscoveryMode(diag discoveryWaitDiag) (string, string) {
+	hasToken := diag.selectedTokenFP != "none" ||
+		diag.accessTokenFP != "none" ||
+		diag.idTokenFP != "none" ||
+		diag.bearerFP != "none" ||
+		diag.legacyIDTokenFP != "none"
+
+	if diag.scheduler {
+		if hasToken {
+			return "manual_or_schedule_cred", "scheduler_ctx_with_token"
+		}
+		if diag.hasUserID {
+			return "auto_like", "scheduler_ctx_user_without_token"
+		}
+		return "auto_like", "scheduler_ctx_without_user_or_token"
+	}
+
+	if hasToken {
+		return "manual_like", "non_scheduler_ctx_with_token"
+	}
+	if diag.hasUserID {
+		return "unknown", "non_scheduler_ctx_user_without_token"
+	}
+	return "unknown", "non_scheduler_ctx_without_user_or_token"
 }
 
 func (r *Registry) observeSharedDiscoveryIdentity(server, userID, token string, useID bool) {
@@ -1633,7 +1912,7 @@ func (r *Registry) addInternalMcp() {
 	// system/exec
 	{
 		svc := toolExec.New()
-		if cli, err := localmcp.NewServiceClient(context.TODO(), svc); err == nil && cli != nil {
+		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
@@ -1642,7 +1921,7 @@ func (r *Registry) addInternalMcp() {
 	// system/patch
 	{
 		svc := toolPatch.New()
-		if cli, err := localmcp.NewServiceClient(context.TODO(), svc); err == nil && cli != nil {
+		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
@@ -1651,7 +1930,7 @@ func (r *Registry) addInternalMcp() {
 	// system/os
 	{
 		svc := toolOS.New()
-		if cli, err := localmcp.NewServiceClient(context.TODO(), svc); err == nil && cli != nil {
+		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
@@ -1660,7 +1939,7 @@ func (r *Registry) addInternalMcp() {
 	// system/image
 	{
 		svc := toolImage.New()
-		if cli, err := localmcp.NewServiceClient(context.TODO(), svc); err == nil && cli != nil {
+		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
 			r.internal[svc.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
@@ -1669,7 +1948,7 @@ func (r *Registry) addInternalMcp() {
 	// orchestration/plan
 	{
 		s := orchplan.New()
-		if cli, err := localmcp.NewServiceClient(context.TODO(), s); err == nil && cli != nil {
+		if cli, err := localmcp.NewServiceClient(context.Background(), s); err == nil && cli != nil {
 			r.internal[s.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", s.Name(), err)
