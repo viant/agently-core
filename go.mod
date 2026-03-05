@@ -110,6 +110,7 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
+	github.com/jessevdk/go-flags v1.5.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -184,6 +185,7 @@ require (
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
+	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/api v0.201.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/appengine/v2 v2.0.2 // indirect

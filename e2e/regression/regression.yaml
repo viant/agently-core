@@ -25,19 +25,24 @@ pipeline:
           exit 1
         fi
 
-  ensureBinaries:
+  requireBinaries:
     action: exec:run
-    description: build local app + MCP helper binaries used by regression
+    description: verify required e2e binaries are prebuilt
     checkError: true
     commands:
-      - mkdir -p ${repoPath}/e2e/bin
-      - cd ${repoPath}
-      - go build -o ${repoPath}/e2e/bin/agently-app ./cmd/agently-app
-      - cd ${repoPath}/e2e/cli/mcpserver
-      - go build -o mcpserver
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-resources
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-form
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-oob
+      - |
+        missing=""
+        for bin in datly agently-app mcp-resources mcp-elicitation-form mcp-elicitation-oob; do
+          path="${repoPath}/e2e/bin/${bin}"
+          if [ ! -x "$path" ]; then
+            missing="${missing} ${path}"
+          fi
+        done
+        if [ -n "$missing" ]; then
+          echo "missing required binaries:${missing}"
+          echo "build them with: cd ${repoPath}/e2e/build && endly -r build.yaml"
+          exit 1
+        fi
 
   prepareWorkspace:
     action: exec:run

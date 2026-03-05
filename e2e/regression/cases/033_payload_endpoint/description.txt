@@ -1,0 +1,2 @@
+Validate payload endpoint contract for request/response artifacts.
+Covers GET /v1/api/payload/{id} with raw/meta/inline modes.
