@@ -2,6 +2,8 @@ package resources
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -39,6 +41,15 @@ func TestNormalizeUserRoot(t *testing.T) {
 			expURI:  "mcp:server:/docs",
 			expKind: "mcp",
 		},
+	}
+
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cases = append(cases, tc{
+			name:    "file url expands home",
+			loc:     "file://localhost/~/repo",
+			expURI:  "file://localhost" + filepath.ToSlash(filepath.Join("/", home, "repo")),
+			expKind: "file",
+		})
 	}
 
 	for _, c := range cases {

@@ -1,7 +1,10 @@
 package conversation
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -41,7 +44,7 @@ func (m *Message) GetContent() string {
 		return ""
 	}
 	if tc := m.firstToolCall(); tc != nil && tc.ResponsePayload != nil && tc.ResponsePayload.InlineBody != nil {
-		return *tc.ResponsePayload.InlineBody
+		return decodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
 	}
 	if m.RawContent != nil && strings.TrimSpace(*m.RawContent) != "" {
 		return *m.RawContent
@@ -57,7 +60,7 @@ func (m *Message) GetContentPreferContent() string {
 		return ""
 	}
 	if tc := m.firstToolCall(); tc != nil && tc.ResponsePayload != nil && tc.ResponsePayload.InlineBody != nil {
-		return *tc.ResponsePayload.InlineBody
+		return decodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
 	}
 	if m.Content != nil && strings.TrimSpace(*m.Content) != "" {
 		return *m.Content
@@ -145,6 +148,28 @@ func (m Messages) SortByCreatedAt(asc bool) {
 		}
 		return m[i].CreatedAt.After(m[j].CreatedAt)
 	})
+}
+
+func decodeInlineBody(inline string, compression string) string {
+	if inline == "" {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(compression), "gzip") {
+		return inline
+	}
+	reader, err := gzip.NewReader(bytes.NewReader([]byte(inline)))
+	if err != nil {
+		return inline
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return inline
+	}
+	if len(data) == 0 {
+		return inline
+	}
+	return string(data)
 }
 
 // SortedByCreatedAt returns a new slice with messages ordered by CreatedAt.

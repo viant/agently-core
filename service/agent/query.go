@@ -86,6 +86,8 @@ type QueryOutput struct {
 	Model          string            `json:"model,omitempty"`
 	MessageID      string            `json:"messageId,omitempty"`
 	Warnings       []string          `json:"warnings,omitempty"`
+
+	lastTaskCheckpoint turnTaskCheckpoint
 }
 
 func (s *Service) query(ctx context.Context, input interface{}, output interface{}) error {

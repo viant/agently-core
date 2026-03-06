@@ -811,7 +811,7 @@ func handleListPendingToolApprovals(client Client) http.HandlerFunc {
 			if isToolApprovalQueueNotConfiguredErr(err) {
 				// Queue support is optional; keep UI poll healthy when queue is not configured.
 				httpJSON(w, http.StatusOK, map[string]interface{}{
-					"rows": []interface{}{},
+					"data": []interface{}{},
 				})
 				return
 			}
@@ -819,7 +819,7 @@ func handleListPendingToolApprovals(client Client) http.HandlerFunc {
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]interface{}{
-			"rows": rows,
+			"data": rows,
 		})
 	}
 }

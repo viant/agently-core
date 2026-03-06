@@ -38,6 +38,7 @@ func normalizeWorkspaceKey(value string) string {
 	if mcpuri.Is(v) {
 		v = mcpuri.NormalizeForCompare(v)
 	} else {
+		v = toWorkspaceURI(v)
 		v = strings.TrimRight(v, "/")
 	}
 	return strings.ToLower(strings.TrimSpace(v))
@@ -216,7 +217,18 @@ func (s *Service) mcpSnapshotManifestResolver(ctx context.Context) mcpfs.Snapsho
 
 // currentAgent returns the active agent from conversation context, if available.
 func (s *Service) currentAgent(ctx context.Context) *agmodel.Agent {
-	if s.conv == nil || s.aFinder == nil {
+	if s.aFinder == nil {
+		return nil
+	}
+	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if agentID := strings.TrimSpace(tm.Assistant); agentID != "" {
+			ag, err := s.aFinder.Find(ctx, agentID)
+			if err == nil && ag != nil {
+				return ag
+			}
+		}
+	}
+	if s.conv == nil {
 		return nil
 	}
 	convID := memory.ConversationIDFromContext(ctx)

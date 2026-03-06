@@ -1,0 +1,4 @@
+Case: llm/agents:run linked conversation emission
+- Delegator agent must call llm/agents:run
+- Parent conversation should contain tool_op row with linkedConversationId
+- Linked child conversation should be retrievable

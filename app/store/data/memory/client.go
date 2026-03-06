@@ -946,6 +946,9 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	if src.Has.ContextSummary {
 		dst.ContextSummary = src.ContextSummary
 	}
+	if src.Has.Preamble {
+		dst.Preamble = src.Preamble
+	}
 	if src.Has.Tags {
 		dst.Tags = src.Tags
 	}
@@ -959,6 +962,9 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	}
 	if src.Has.ParentMessageID {
 		dst.ParentMessageId = src.ParentMessageID
+	}
+	if src.Has.LinkedConversationID {
+		dst.LinkedConversationId = src.LinkedConversationID
 	}
 	if src.Has.SupersededBy {
 		dst.SupersededBy = src.SupersededBy

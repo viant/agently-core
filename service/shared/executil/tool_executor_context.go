@@ -29,6 +29,7 @@ type ctxKey int
 const (
 	keyToolTimeout ctxKey = iota + 1
 	keyChainMode
+	keyWorkdir
 )
 
 // WithToolTimeout attaches a per-tool execution timeout to the context.
@@ -59,4 +60,26 @@ func IsChainMode(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// WithWorkdir attaches a resolved default workdir to the execution context.
+func WithWorkdir(ctx context.Context, workdir string) context.Context {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, keyWorkdir, workdir)
+}
+
+// WorkdirFromContext returns the resolved default workdir from context.
+func WorkdirFromContext(ctx context.Context) (string, bool) {
+	if v := ctx.Value(keyWorkdir); v != nil {
+		if s, ok := v.(string); ok {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				return s, true
+			}
+		}
+	}
+	return "", false
 }

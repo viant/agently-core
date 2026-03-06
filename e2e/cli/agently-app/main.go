@@ -17,7 +17,9 @@ import (
 	"github.com/viant/agently-core/adapter/http/ui"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	embedprovider "github.com/viant/agently-core/genai/embedder/provider"
 	provider "github.com/viant/agently-core/genai/llm/provider"
+	embedderfinder "github.com/viant/agently-core/internal/finder/embedder"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
@@ -29,6 +31,7 @@ import (
 	toolPatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
 	"github.com/viant/agently-core/sdk"
 	"github.com/viant/agently-core/workspace"
+	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	wsfs "github.com/viant/agently-core/workspace/loader/fs"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
 	"github.com/viant/agently-core/workspace/service/meta"
@@ -86,11 +89,14 @@ func newRuntime(ctx context.Context) (*executor.Runtime, sdk.Client, error) {
 	agentFndr := agentfinder.New(agentfinder.WithLoader(agentLdr))
 	modelLdr := modelloader.New(wsfs.WithMetaService[provider.Config](wsMeta))
 	modelFndr := modelfinder.New(modelfinder.WithConfigLoader(modelLdr))
+	embedderLdr := embedderloader.New(wsfs.WithMetaService[embedprovider.Config](wsMeta))
+	embedderFndr := embedderfinder.New(embedderfinder.WithConfigLoader(embedderLdr))
 
 	rt, err := executor.NewBuilder().
 		WithAgentFinder(agentFndr).
 		WithModelFinder(modelFndr).
-		WithDefaults(&execconfig.Defaults{Model: "openai_gpt4o_mini", Agent: "simple"}).
+		WithEmbedderFinder(embedderFndr).
+		WithDefaults(&execconfig.Defaults{Model: "openai_gpt4o_mini", Embedder: "openai_text", Agent: "simple"}).
 		Build(ctx)
 	if err != nil {
 		return nil, nil, err

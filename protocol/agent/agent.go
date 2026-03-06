@@ -70,6 +70,9 @@ type (
 		// Instruction is a backward-compatible alias of InstructionPrompt.
 		Instruction     *prompt.Prompt `yaml:"instruction,omitempty" json:"instruction,omitempty"`
 		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
+		// DefaultWorkdir provides a default absolute working directory for
+		// filesystem-bound tools when the model omits workdir explicitly.
+		DefaultWorkdir string `yaml:"defaultWorkdir,omitempty" json:"defaultWorkdir,omitempty"`
 		// Tool defines the serialized tool configuration block using the new
 		// contract: tool: { items: [], callExposure }.
 		// This preserves backward compatibility while enabling richer config.
