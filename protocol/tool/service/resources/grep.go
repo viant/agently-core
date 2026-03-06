@@ -21,6 +21,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
+	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
 type GrepInput struct {
@@ -129,9 +130,17 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("pattern must not be empty")
 	}
 	rootURI := strings.TrimSpace(input.RootURI)
-	if rootURI == "" && strings.TrimSpace(input.RootID) != "" {
+	rootID := strings.TrimSpace(input.RootID)
+	allowed := s.agentAllowed(ctx)
+	if (rootURI == "" && rootID == "") || rootID == "workspace://localhost" || rootID == "workspace://localhost/" {
+		if inferred := inferAllowedRootFromPath(input.Path, allowed); inferred != "" {
+			rootURI = inferred
+			rootID = ""
+		}
+	}
+	if rootURI == "" && rootID != "" {
 		var err error
-		rootURI, err = s.resolveRootID(ctx, input.RootID)
+		rootURI, err = s.resolveRootID(ctx, rootID)
 		if err != nil {
 			return err
 		}
@@ -141,7 +150,6 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	}
 	searchHash := grepSearchHash(input, rootURI)
 	curAgent := s.currentAgent(ctx)
-	allowed := s.agentAllowed(ctx)
 	if mcpuri.Is(rootURI) {
 		if wsRoot, _, err := s.normalizeUserRoot(ctx, rootURI); err == nil && strings.TrimSpace(wsRoot) != "" {
 			if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
@@ -165,8 +173,14 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	}
 	rootBase := rootCtx.Base()
 	base := rootBase
-	if trimmed := strings.TrimSpace(input.Path); trimmed != "" {
-		base, err = rootCtx.ResolvePath(trimmed)
+	pathValue := strings.TrimSpace(input.Path)
+	if pathValue == "" {
+		if workdir, ok := executil.WorkdirFromContext(ctx); ok {
+			pathValue = strings.TrimSpace(workdir)
+		}
+	}
+	if pathValue != "" {
+		base, err = rootCtx.ResolvePath(pathValue)
 		if err != nil {
 			return err
 		}

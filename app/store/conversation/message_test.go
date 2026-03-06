@@ -1,6 +1,8 @@
 package conversation
 
 import (
+	"bytes"
+	"compress/gzip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +21,18 @@ func TestMessage_GetContent(t *testing.T) {
 		{
 			name:     "tool response preferred",
 			message:  &Message{ToolMessage: []*agconv.ToolMessageView{{ToolCall: &agconv.ToolCallView{ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: ptr("tool response")}}}}},
+			expected: toolBody,
+		},
+		{
+			name: "gzip tool response preferred",
+			message: &Message{ToolMessage: []*agconv.ToolMessageView{{
+				ToolCall: &agconv.ToolCallView{
+					ResponsePayload: &agconv.ModelCallStreamPayloadView{
+						InlineBody:  ptr(gzipString(t, toolBody)),
+						Compression: "gzip",
+					},
+				},
+			}}},
 			expected: toolBody,
 		},
 		{
@@ -46,3 +60,17 @@ func TestMessage_GetContent(t *testing.T) {
 }
 
 func ptr(v string) *string { return &v }
+
+func gzipString(t *testing.T, value string) string {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	_, err := writer.Write([]byte(value))
+	if err != nil {
+		t.Fatalf("gzip write failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("gzip close failed: %v", err)
+	}
+	return buffer.String()
+}

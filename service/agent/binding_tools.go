@@ -113,6 +113,24 @@ func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[strin
 	return present, services
 }
 
+func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *prompt.Documents) []*llm.ToolDefinition {
+	if len(defs) == 0 || docs == nil || !hasDocumentURI(docs.Items, "internal://llm/agents/list") {
+		return defs
+	}
+	filtered := make([]*llm.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		name := mcpname.Canonical(strings.TrimSpace(def.Name))
+		if name == "llm_agents-list" {
+			continue
+		}
+		filtered = append(filtered, def)
+	}
+	return filtered
+}
+
 func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
 	if ctx == nil {
 		return map[string]interface{}{}
@@ -353,7 +371,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			args := m.ToolCallArguments()
 			// Prepare result content for LLM: derive preview from message content with per-turn limit
 			result := ""
-			if body := strings.TrimSpace(m.GetContent()); body != "" && limit > 0 {
+			if body := s.messageToolResultBody(ctx, m); body != "" && limit > 0 {
 				preview, overflow := buildOverflowPreview(body, limit, m.Id, allowContinuation)
 				if overflow {
 					overflowFound = true
@@ -410,5 +428,17 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, err
 	}
 	out := padapter.ToToolDefinitions(tools)
+	if DebugEnabled() {
+		names := make([]string, 0, len(out))
+		for _, item := range out {
+			if item == nil {
+				continue
+			}
+			if name := strings.TrimSpace(item.Name); name != "" {
+				names = append(names, name)
+			}
+		}
+		debugf("agent.buildToolSignatures agent_id=%q tool_names=%q", strings.TrimSpace(input.Agent.ID), strings.Join(names, ","))
+	}
 	return out, nil
 }

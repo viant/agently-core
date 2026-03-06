@@ -5,11 +5,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolpol "github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/memory"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
 func TestService_List_DataDriven(t *testing.T) {
@@ -22,12 +27,12 @@ func TestService_List_DataDriven(t *testing.T) {
 		{
 			name:     "empty list",
 			items:    nil,
-			expected: &ListOutput{Items: nil},
+			expected: expectedListOutput(nil),
 		},
 		{
 			name:     "single item",
 			items:    []ListItem{{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}}},
-			expected: &ListOutput{Items: []ListItem{{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}}}},
+			expected: expectedListOutput([]ListItem{{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}}}),
 		},
 		{
 			name: "multiple items",
@@ -35,10 +40,10 @@ func TestService_List_DataDriven(t *testing.T) {
 				{ID: "researcher", Name: "Researcher", Description: "Finds info", Priority: 5, Tags: []string{"research"}},
 				{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}},
 			},
-			expected: &ListOutput{Items: []ListItem{
+			expected: expectedListOutput([]ListItem{
 				{ID: "researcher", Name: "Researcher", Description: "Finds info", Priority: 5, Tags: []string{"research"}},
 				{ID: "coder", Name: "Coder", Description: "Writes code", Priority: 10, Tags: []string{"code"}},
-			}},
+			}),
 		},
 	}
 
@@ -56,6 +61,15 @@ func TestService_List_DataDriven(t *testing.T) {
 			assert.NoError(t, err)
 			assert.EqualValues(t, tc.expected, &out)
 		})
+	}
+}
+
+func expectedListOutput(items []ListItem) *ListOutput {
+	return &ListOutput{
+		Items:      items,
+		ReuseNote:  "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed.",
+		RunUsage:   "To delegate next, call llm/agents:run with {agentId, objective} and include context.workdir when repo scope matters.",
+		NextAction: "If you already know the target agent from items or the injected agent directory document, skip llm/agents:list and call llm/agents:run directly.",
 	}
 }
 
@@ -140,7 +154,11 @@ func TestService_Run_Internal_ThreadsModelPrefsAndReasoning(t *testing.T) {
 		Context:          map[string]interface{}{"foo": "bar"},
 	}
 
-	fake := &fakeAgentRuntime{}
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"dev_reviewer": {Identity: agentmdl.Identity{ID: "dev_reviewer"}, ModelSelection: llm.ModelSelection{Model: "openai_gpt4o_mini"}},
+		}},
+	}
 	s := &Service{agent: fake}
 	var out RunOutput
 	err := s.run(ctx, in, &out)
@@ -149,8 +167,36 @@ func TestService_Run_Internal_ThreadsModelPrefsAndReasoning(t *testing.T) {
 		assert.Equal(t, in.AgentID, fake.lastInput.AgentID)
 		assert.Equal(t, in.Objective, fake.lastInput.Query)
 		assert.Equal(t, in.Context, fake.lastInput.Context)
-		assert.Equal(t, prefs, fake.lastInput.ModelPreferences)
+		assert.Nil(t, fake.lastInput.ModelPreferences)
 		assert.Equal(t, &reasoning, fake.lastInput.ReasoningEffort)
+		if assert.NotNil(t, fake.lastInput.Agent) {
+			assert.Equal(t, "dev_reviewer", fake.lastInput.Agent.ID)
+			assert.Equal(t, "openai_gpt4o_mini", fake.lastInput.Agent.Model)
+		}
+	}
+}
+
+func TestService_Run_Internal_InheritsParentWorkdir(t *testing.T) {
+	ctx := executil.WithWorkdir(context.Background(), "/tmp/poly")
+	streaming := false
+	in := &RunInput{
+		AgentID:   "dev_reviewer",
+		Objective: "review repo",
+		Streaming: &streaming,
+	}
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"dev_reviewer": {Identity: agentmdl.Identity{ID: "dev_reviewer"}, ModelSelection: llm.ModelSelection{Model: "openai_gpt4o_mini"}},
+		}},
+	}
+	s := &Service{agent: fake}
+	var out RunOutput
+	err := s.run(ctx, in, &out)
+	assert.NoError(t, err)
+	if assert.NotNil(t, fake.lastInput) && assert.NotNil(t, fake.lastInput.Context) {
+		assert.Equal(t, "/tmp/poly", fake.lastInput.Context["workdir"])
+		assert.Equal(t, "/tmp/poly", fake.lastInput.Context["resolvedWorkdir"])
 	}
 }
 
@@ -299,4 +345,50 @@ func TestService_Run_Strict_AllowsInternalNotListedInDirectory(t *testing.T) {
 			assert.EqualValues(t, "ok", out.Answer)
 		})
 	}
+}
+
+func TestAttachLinkedConversation_AttachesToStatusAndToolMessage(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	statusMsg := convcli.NewMessage()
+	statusMsg.SetId("status-msg")
+	statusMsg.SetConversationID("parent-conv")
+	statusMsg.SetTurnID("turn-1")
+	statusMsg.SetRole("assistant")
+	statusMsg.SetType("status")
+	require.NoError(t, conv.PatchMessage(ctx, statusMsg))
+
+	toolMsg := convcli.NewMessage()
+	toolMsg.SetId("tool-msg")
+	toolMsg.SetConversationID("parent-conv")
+	toolMsg.SetTurnID("turn-1")
+	toolMsg.SetRole("tool")
+	toolMsg.SetType("tool_op")
+	require.NoError(t, conv.PatchMessage(ctx, toolMsg))
+
+	ctx = memory.WithToolMessageID(ctx, "tool-msg")
+	parent := memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"}
+	attachLinkedConversation(ctx, conv, parent, "status-msg", "child-conv")
+
+	gotStatus, err := conv.GetMessage(ctx, "status-msg")
+	require.NoError(t, err)
+	require.NotNil(t, gotStatus)
+	require.NotNil(t, gotStatus.LinkedConversationId)
+	assert.Equal(t, "child-conv", *gotStatus.LinkedConversationId)
+
+	gotTool, err := conv.GetMessage(ctx, "tool-msg")
+	require.NoError(t, err)
+	require.NotNil(t, gotTool)
+	require.NotNil(t, gotTool.LinkedConversationId)
+	assert.Equal(t, "child-conv", *gotTool.LinkedConversationId)
 }

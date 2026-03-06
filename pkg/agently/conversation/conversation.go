@@ -160,7 +160,7 @@ type ToolMessageView struct {
 	Content         *string       `sqlx:"content"`
 	ToolName        *string       `sqlx:"tool_name"`
 	Iteration       *int          `sqlx:"iteration"`
-	ToolCall        *ToolCallView `view:",table=tool_call" on:"Id:m.id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+	ToolCall        *ToolCallView `view:",table=tool_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
 }
 
 type ToolCallView struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -28,11 +29,23 @@ import (
 	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turnread "github.com/viant/agently-core/pkg/agently/turn/read"
 	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )
 
-type Service struct{ dao *datly.Service }
+type Service struct {
+	dao       *datly.Service
+	streamPub streaming.Publisher
+}
+
+func (s *Service) SetStreamPublisher(p streaming.Publisher) {
+	if s == nil {
+		return
+	}
+	s.streamPub = p
+}
 
 // New constructs a conversation Service using the provided datly service
 // and registers the rich conversation components.
@@ -523,8 +536,60 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 			out.Violations[0].Message,
 		)
 	}
+	s.publishMessagePatchEvent(ctx, message)
 	debugf("PatchMessage ok id=%q convo=%q", message.Id, message.ConversationID)
 	return nil
+}
+
+func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) {
+	if s == nil || s.streamPub == nil || message == nil {
+		return
+	}
+	patch := messagePatchPayload(message)
+	if len(patch) == 0 {
+		return
+	}
+	conversationID := strings.TrimSpace(message.ConversationID)
+	if conversationID == "" {
+		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	}
+	if conversationID == "" {
+		return
+	}
+	event := &streaming.Event{
+		ID:        strings.TrimSpace(message.Id),
+		StreamID:  conversationID,
+		Type:      streaming.EventTypeControl,
+		Op:        "message_patch",
+		Patch:     patch,
+		CreatedAt: time.Now(),
+	}
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		warnf("PatchMessage publish event error id=%q convo=%q err=%v", strings.TrimSpace(message.Id), conversationID, err)
+	}
+}
+
+func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{} {
+	if message == nil || message.Has == nil {
+		return nil
+	}
+	out := map[string]interface{}{}
+	if message.Has.LinkedConversationID && message.LinkedConversationID != nil {
+		out["linkedConversationId"] = strings.TrimSpace(*message.LinkedConversationID)
+	}
+	if message.Has.Status && message.Status != nil {
+		out["status"] = strings.TrimSpace(*message.Status)
+	}
+	if message.Has.ToolName && message.ToolName != nil {
+		out["toolName"] = strings.TrimSpace(*message.ToolName)
+	}
+	if message.Has.Interim && message.Interim != nil {
+		out["interim"] = *message.Interim
+	}
+	if message.Has.Preamble && message.Preamble != nil {
+		out["preamble"] = strings.TrimSpace(*message.Preamble)
+	}
+	return out
 }
 
 // valueOrEmpty renders pointer values without exposing nil dereference in logs.

@@ -20,7 +20,10 @@ type ListItem struct {
 
 // ListOutput defines the response payload for agents:list.
 type ListOutput struct {
-	Items []ListItem `json:"items"`
+	Items      []ListItem `json:"items"`
+	ReuseNote  string     `json:"reuseNote,omitempty"`
+	RunUsage   string     `json:"runUsage,omitempty"`
+	NextAction string     `json:"nextAction,omitempty"`
 }
 
 // RunInput defines the request payload for agents:run.

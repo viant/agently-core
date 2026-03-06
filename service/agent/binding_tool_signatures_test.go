@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/prompt"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 )
 
@@ -64,4 +65,26 @@ func TestService_BuildToolSignatures_WithBundles(t *testing.T) {
 			assert.EqualValues(t, tc.expectNames, got)
 		})
 	}
+}
+
+func TestFilterDelegationDiscoveryTools_RemovesAgentsListWhenDirectoryDocPresent(t *testing.T) {
+	defs := []*llm.ToolDefinition{
+		{Name: "llm/agents:list"},
+		{Name: "llm/agents:run"},
+		{Name: "system/exec:execute"},
+	}
+	docs := &prompt.Documents{
+		Items: []*prompt.Document{
+			{SourceURI: "internal://llm/agents/list"},
+		},
+	}
+	filtered := filterDelegationDiscoveryTools(defs, docs)
+	var got []string
+	for _, def := range filtered {
+		if def == nil {
+			continue
+		}
+		got = append(got, def.Name)
+	}
+	assert.EqualValues(t, []string{"llm/agents:run", "system/exec:execute"}, got)
 }

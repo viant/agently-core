@@ -448,6 +448,7 @@ func (c *EmbeddedClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (
 	msg.SetRole(role)
 	msg.SetType("task")
 	msg.SetContent(content)
+	msg.SetRawContent(content)
 	msg.SetCreatedAt(time.Now())
 	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
 		msg.SetCreatedByUserID(userID)
