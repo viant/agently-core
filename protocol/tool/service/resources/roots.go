@@ -414,9 +414,11 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 		// root. When the URI happens to be under the current workspace root,
 		// other helpers may still map it to workspace:// for internal use, but
 		// we no longer reject file:// URIs that live outside the workspace.
+		u = workspace.ResolvePathTemplate(u)
 		return u, "file", nil
 	}
 	if filepath.IsAbs(u) || isWindowsAbsPath(u) {
+		u = workspace.ResolvePathTemplate(u)
 		return "file://localhost" + url.Path(u), "file", nil
 	}
 	// known workspace kinds

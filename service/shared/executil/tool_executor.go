@@ -65,6 +65,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if err != nil {
 		return plan.ToolCall{}, span, err
 	}
+	ctx = memory.WithToolMessageID(ctx, toolMsgID)
 
 	// 2) Initialize tool call (running) with LLM op id
 	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, span.StartedAt, step.ResponseID); err != nil {
@@ -188,6 +189,7 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	if err != nil {
 		return err
 	}
+	ctx = memory.WithToolMessageID(ctx, toolMsgID)
 	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, startedAt, step.ResponseID); err != nil {
 		return err
 	}
@@ -217,6 +219,7 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 
 // executeTool runs the tool and returns the normalized ToolCall, raw result and error.
 func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (plan.ToolCall, string, error) {
+	applyContextWorkdir(step.Name, step.Args, ctx)
 	if err := tool.ValidateExecution(ctx, tool.FromContext(ctx), step.Name, step.Args); err != nil {
 		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
 		return out, "", err
@@ -236,6 +239,39 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 		out.Error = err.Error()
 	}
 	return out, toolResult, err
+}
+
+func applyContextWorkdir(toolName string, args map[string]interface{}, ctx context.Context) {
+	if len(args) == 0 {
+		return
+	}
+	if hasExplicitWorkdir(args) {
+		return
+	}
+	workdir, ok := WorkdirFromContext(ctx)
+	if !ok {
+		return
+	}
+	switch strings.TrimSpace(toolName) {
+	case "system_exec-execute", "system/exec:execute", "system_patch-apply", "system/patch:apply":
+		args["workdir"] = workdir
+	}
+}
+
+func hasExplicitWorkdir(args map[string]interface{}) bool {
+	if len(args) == 0 {
+		return false
+	}
+	raw, ok := args["workdir"]
+	if !ok || raw == nil {
+		return false
+	}
+	switch actual := raw.(type) {
+	case string:
+		return strings.TrimSpace(actual) != ""
+	default:
+		return true
+	}
 }
 
 // resolveToolStatus determines the terminal status for a tool call based on execution error and parent context.

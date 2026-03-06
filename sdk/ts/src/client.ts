@@ -306,6 +306,7 @@ export class AgentlyClient {
         if (input?.conversationId) q.set('conversationId', input.conversationId);
         if (input?.status) q.set('status', input.status);
         const out = await this.get('/tool-approvals/pending', q);
+        if (Array.isArray(out?.data)) return out.data;
         if (Array.isArray(out?.rows)) return out.rows;
         if (Array.isArray(out)) return out;
         return [];

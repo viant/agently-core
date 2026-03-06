@@ -7,9 +7,13 @@ import (
 )
 
 // DebugEnabled reports whether conversation debug logging is enabled.
-// Enable with AGENTLY_SCHEDULER_DEBUG=1 (or true/yes/on).
+// Enable with AGENTLY_DEBUG=1 (or true/yes/on). Also accepts AGENTLY_SCHEDULER_DEBUG.
 // Legacy env (deprecated): AGENTLY_CONVERSATION_DEBUG.
 func DebugEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_DEBUG"))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG"))) {
 	case "1", "true", "yes", "y", "on":
 		return true

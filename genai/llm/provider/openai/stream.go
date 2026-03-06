@@ -117,6 +117,40 @@ func (p *streamProcessor) removeAlreadyEmittedToolCalls(lr *llm.GenerateResponse
 	return lr
 }
 
+func cloneGenerateResponse(lr *llm.GenerateResponse) *llm.GenerateResponse {
+	if lr == nil {
+		return nil
+	}
+	cp := *lr
+	if lr.Usage != nil {
+		usage := *lr.Usage
+		cp.Usage = &usage
+	}
+	if len(lr.Choices) > 0 {
+		cp.Choices = make([]llm.Choice, len(lr.Choices))
+		for i, ch := range lr.Choices {
+			cp.Choices[i] = ch
+			if len(ch.Message.ToolCalls) > 0 {
+				cp.Choices[i].Message.ToolCalls = make([]llm.ToolCall, len(ch.Message.ToolCalls))
+				copy(cp.Choices[i].Message.ToolCalls, ch.Message.ToolCalls)
+			}
+			if len(ch.Message.Items) > 0 {
+				cp.Choices[i].Message.Items = make([]llm.ContentItem, len(ch.Message.Items))
+				copy(cp.Choices[i].Message.Items, ch.Message.Items)
+			}
+			if len(ch.Message.ContentItems) > 0 {
+				cp.Choices[i].Message.ContentItems = make([]llm.ContentItem, len(ch.Message.ContentItems))
+				copy(cp.Choices[i].Message.ContentItems, ch.Message.ContentItems)
+			}
+			if ch.Message.FunctionCall != nil {
+				fn := *ch.Message.FunctionCall
+				cp.Choices[i].Message.FunctionCall = &fn
+			}
+		}
+	}
+	return &cp
+}
+
 func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 	if eventName == "error" {
 		msg, code := parseOpenAIError([]byte(data))
@@ -299,6 +333,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			}
 			if err := json.Unmarshal([]byte(data), &wrap); err == nil && wrap.Response != nil {
 				lr := ToLLMSFromResponses(wrap.Response)
+				observerLR := cloneGenerateResponse(lr)
 				lr = p.removeAlreadyEmittedToolCalls(lr)
 				if p.state.lastModel == "" {
 					p.state.lastModel = lr.Model
@@ -307,7 +342,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					p.state.lastUsage = lr.Usage
 				}
 				p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
-				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
+				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, observerLR, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
 					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 				}
 				emitResponse(p.events, lr)
@@ -318,6 +353,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			var r2 ResponsesResponse
 			if err := json.Unmarshal([]byte(data), &r2); err == nil && (r2.ID != "" || len(r2.Output) > 0) {
 				lr := ToLLMSFromResponses(&r2)
+				observerLR := cloneGenerateResponse(lr)
 				lr = p.removeAlreadyEmittedToolCalls(lr)
 				if p.state.lastModel == "" {
 					p.state.lastModel = lr.Model
@@ -326,7 +362,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					p.state.lastUsage = lr.Usage
 				}
 				p.client.publishUsageOnce(p.state.lastModel, p.state.lastUsage, &p.state.publishedUsage)
-				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
+				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, observerLR, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
 					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 				}
 				emitResponse(p.events, lr)

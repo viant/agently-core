@@ -886,7 +886,7 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 		dst.Visibility = *src.Visibility
 	} // view has non-pointer Visibility
 	if src.Has.Shareable {
-		dst.Shareable = &src.Shareable
+		dst.Shareable = src.Shareable
 	}
 	if src.Has.CreatedAt && src.CreatedAt != nil {
 		dst.CreatedAt = *src.CreatedAt
@@ -983,6 +983,9 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	}
 	if src.Has.SupersededBy {
 		dst.SupersededBy = src.SupersededBy
+	}
+	if src.Has.LinkedConversationID {
+		dst.LinkedConversationId = src.LinkedConversationID
 	}
 	if src.Has.ToolName {
 		dst.ToolName = src.ToolName

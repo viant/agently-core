@@ -213,12 +213,14 @@ export interface GetMessagesInput {
 
 // ─── Streaming ─────────────────────────────────────────────────────────────────
 
-export type SSEEventType = 'chunk' | 'tool' | 'done' | 'error';
+export type SSEEventType = 'chunk' | 'tool' | 'done' | 'error' | 'control';
 
 export interface SSEEvent {
     id?: string;
     streamId?: string;
     type: SSEEventType;
+    op?: string;
+    patch?: Record<string, any>;
     content?: string;
     toolName?: string;
     arguments?: Record<string, any>;

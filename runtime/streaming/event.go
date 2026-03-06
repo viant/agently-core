@@ -11,10 +11,11 @@ import (
 type EventType string
 
 const (
-	EventTypeChunk EventType = "chunk"
-	EventTypeTool  EventType = "tool"
-	EventTypeDone  EventType = "done"
-	EventTypeError EventType = "error"
+	EventTypeChunk   EventType = "chunk"
+	EventTypeTool    EventType = "tool"
+	EventTypeDone    EventType = "done"
+	EventTypeError   EventType = "error"
+	EventTypeControl EventType = "control"
 )
 
 // Event is a transport-neutral streaming event.
@@ -22,6 +23,8 @@ type Event struct {
 	ID        string                 `json:"id,omitempty"`
 	StreamID  string                 `json:"streamId,omitempty"`
 	Type      EventType              `json:"type"`
+	Op        string                 `json:"op,omitempty"`
+	Patch     map[string]interface{} `json:"patch,omitempty"`
 	Content   string                 `json:"content,omitempty"`
 	ToolName  string                 `json:"toolName,omitempty"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`

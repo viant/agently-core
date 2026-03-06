@@ -3,12 +3,10 @@ package agent
 import (
 	"context"
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/viant/afs"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/runtime/memory"
@@ -109,7 +107,7 @@ func (s *Service) buildChronologicalHistory(
 	// Determine whether continuation preview format is enabled for the selected model.
 	allowContinuation := s.allowContinuationPreview(ctx, input)
 
-	normalized, elicitation := s.collectNormalizedMessages(transcript, applyPreview, currentTurnID, currentElicitation, lastElicitationMessage)
+	normalized, elicitation := s.collectNormalizedMessages(ctx, transcript, applyPreview, currentTurnID, currentElicitation, lastElicitationMessage)
 
 	// Dedupe current-turn user task messages that are effectively the
 	// same instruction expressed twice (e.g., raw input and a later
@@ -289,6 +287,7 @@ func (s *Service) buildChronologicalHistory(
 			if tc.TraceId != nil {
 				pmsg.ToolTraceID = strings.TrimSpace(*tc.TraceId)
 			}
+			debugf("agent.buildHistory tool_result msg=%q tool=%q len=%d gzip=%t", strings.TrimSpace(msg.Id), strings.TrimSpace(tc.ToolName), len(pmsg.Content), strings.HasPrefix(pmsg.Content, "\x1f\x8b"))
 		} else {
 			// Classify chat and elicitation messages. For past elicitation
 			// flows, ElicitationId will be set on assistant/user messages;
@@ -376,6 +375,7 @@ func (s *Service) buildChronologicalHistory(
 }
 
 func (s *Service) collectNormalizedMessages(
+	ctx context.Context,
 	transcript apiconv.Transcript,
 	applyPreview bool,
 	currentTurnID string,
@@ -400,196 +400,76 @@ func (s *Service) collectNormalizedMessages(
 			if m == nil {
 				continue
 			}
-			if m.Mode != nil && strings.EqualFold(strings.TrimSpace(*m.Mode), "chain") {
+			toolMsgs := s.syntheticToolMessages(ctx, m)
+			baseMsg := cloneMessageWithoutToolMessages(m)
+			if baseMsg == nil {
+				baseMsg = m
+			}
+			if baseMsg.Mode != nil && strings.EqualFold(strings.TrimSpace(*baseMsg.Mode), "chain") {
 				continue
 			}
-			if applyPreview && m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "error") {
-				if m.IsArchived() {
+			if applyPreview && baseMsg.Status != nil && strings.EqualFold(strings.TrimSpace(*baseMsg.Status), "error") {
+				if baseMsg.IsArchived() {
 					continue
 				}
-				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
+				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
 				continue
 			}
-			if m.IsArchived() || m.IsInterim() {
+			if baseMsg.IsArchived() || baseMsg.IsInterim() {
 				continue
 			}
-			if m.Status != nil {
-				ms := strings.ToLower(strings.TrimSpace(*m.Status))
+			if baseMsg.Status != nil {
+				ms := strings.ToLower(strings.TrimSpace(*baseMsg.Status))
 				if ms == "cancel" || ms == "canceled" {
 					continue
 				}
 			}
-			if messageToolCall(m) != nil {
-				if body := strings.TrimSpace(m.GetContent()); body != "" {
-					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
+			if isAttachmentCarrier(baseMsg) {
+				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+				for _, toolMsg := range toolMsgs {
+					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
 				}
-				continue
-			}
-			if isAttachmentCarrier(m) {
-				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
 				continue
 			}
 
-			if m.Content == nil || *m.Content == "" {
-				continue
-			}
-			mtype := strings.ToLower(strings.TrimSpace(m.Type))
-			isElicitationType := mtype == "elicitation_request" || mtype == "elicitation_response"
-			if mtype != "text" && !isElicitationType {
-				continue
-			}
-			role := strings.ToLower(strings.TrimSpace(m.Role))
-			if currentElicitation && lastElicitationMessage != nil && (role == "user" || role == "assistant") {
-				if m.Id == lastElicitationMessage.Id && m.Content != nil {
-					kind := prompt.MessageKindElicitAnswer
-					if role == "assistant" {
-						kind = prompt.MessageKindElicitPrompt
+			if baseMsg.Content != nil && *baseMsg.Content != "" {
+				mtype := strings.ToLower(strings.TrimSpace(baseMsg.Type))
+				isElicitationType := mtype == "elicitation_request" || mtype == "elicitation_response"
+				// Steer/follow-up inputs are persisted as user task messages on the
+				// active turn. They must enter prompt history for the next iteration,
+				// otherwise the loop can detect late steer but the model never sees it.
+				if mtype == "text" || mtype == "task" || isElicitationType {
+					role := strings.ToLower(strings.TrimSpace(baseMsg.Role))
+					if currentElicitation && lastElicitationMessage != nil && (role == "user" || role == "assistant") {
+						if baseMsg.Id == lastElicitationMessage.Id && baseMsg.Content != nil {
+							kind := prompt.MessageKindElicitAnswer
+							if role == "assistant" {
+								kind = prompt.MessageKindElicitPrompt
+							}
+							elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
+						} else if lastElicitationMessage.CreatedAt.Before(baseMsg.CreatedAt) && baseMsg.Content != nil {
+							kind := prompt.MessageKindElicitAnswer
+							if role == "assistant" {
+								kind = prompt.MessageKindElicitPrompt
+							}
+							elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
+						} else if role == "user" || role == "assistant" {
+							normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+						}
+					} else if role == "user" || role == "assistant" {
+						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
 					}
-					elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: m.Role, Content: *m.Content, CreatedAt: m.CreatedAt})
-					continue
 				}
+			}
 
-				if lastElicitationMessage.CreatedAt.Before(m.CreatedAt) && m.Content != nil {
-					kind := prompt.MessageKindElicitAnswer
-					if role == "assistant" {
-						kind = prompt.MessageKindElicitPrompt
-					}
-					elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: m.Role, Content: *m.Content, CreatedAt: m.CreatedAt})
-					continue
+			for _, toolMsg := range toolMsgs {
+				if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
+					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
 				}
-			}
-			if role == "user" || role == "assistant" {
-				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: m})
 			}
 		}
 	}
 	return normalized, elicitation
-}
-
-func isAttachmentCarrier(msg *apiconv.Message) bool {
-	if msg == nil {
-		return false
-	}
-	if !strings.EqualFold(strings.TrimSpace(msg.Type), "control") {
-		return false
-	}
-	// Real tool op/result messages carry ToolCall; attachment carriers do not.
-	if messageToolCall(msg) != nil {
-		return false
-	}
-	if msg.AttachmentPayloadId != nil && strings.TrimSpace(*msg.AttachmentPayloadId) != "" {
-		return true
-	}
-	return len(msg.Attachment) > 0
-}
-
-func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Message, cache map[string]*prompt.Attachment) ([]*prompt.Attachment, error) {
-	if msg == nil {
-		return nil, nil
-	}
-	attachments := attachmentsFromMessageView(msg)
-
-	if msg.AttachmentPayloadId == nil || strings.TrimSpace(*msg.AttachmentPayloadId) == "" {
-		return attachments, nil
-	}
-	if s.conversation == nil {
-		return nil, fmt.Errorf("conversation API not configured")
-	}
-	payloadID := strings.TrimSpace(*msg.AttachmentPayloadId)
-
-	if cache != nil {
-		if cached, ok := cache[payloadID]; ok && cached != nil {
-			return append(attachments, cached), nil
-		}
-	}
-
-	payload, err := s.conversation.GetPayload(ctx, payloadID)
-	if err != nil {
-		return nil, fmt.Errorf("get attachment payload %q: %w", payloadID, err)
-	}
-	if payload == nil {
-		return nil, fmt.Errorf("get attachment payload %q: not found", payloadID)
-	}
-	var data []byte
-	if payload.InlineBody != nil && len(*payload.InlineBody) > 0 {
-		data = make([]byte, len(*payload.InlineBody))
-		copy(data, *payload.InlineBody)
-	} else if payload.URI != nil && strings.TrimSpace(*payload.URI) != "" {
-		downloaded, err := afs.New().DownloadWithURL(ctx, strings.TrimSpace(*payload.URI))
-		if err != nil {
-			return nil, fmt.Errorf("download attachment payload uri %q: %w", strings.TrimSpace(*payload.URI), err)
-		}
-		data = downloaded
-	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("attachment payload %q has no data", payloadID)
-	}
-
-	name := ""
-	if msg.Content != nil {
-		name = strings.TrimSpace(*msg.Content)
-	}
-	if name == "" {
-		name = "(attachment)"
-	}
-	uri := ""
-	if payload.URI != nil {
-		uri = strings.TrimSpace(*payload.URI)
-	}
-	mimeType := strings.TrimSpace(payload.MimeType)
-	att := &prompt.Attachment{
-		Name: name,
-		URI:  uri,
-		Mime: mimeType,
-		Data: data,
-	}
-	debugAttachmentf("loaded attachment payload=%s bytes=%d mime=%s name=%s", payloadID, len(data), mimeType, name)
-	if cache != nil {
-		cache[payloadID] = att
-	}
-	attachments = append(attachments, att)
-	return attachments, nil
-}
-
-func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
-	if msg == nil || msg.Attachment == nil || len(msg.Attachment) == 0 {
-		return nil
-	}
-	defaultName := ""
-	if msg.Content != nil {
-		defaultName = strings.TrimSpace(*msg.Content)
-	}
-	var attachments []*prompt.Attachment
-	for _, av := range msg.Attachment {
-		if av == nil {
-			continue
-		}
-		var data []byte
-		if av.InlineBody != nil && len(*av.InlineBody) > 0 {
-			data = append([]byte(nil), (*av.InlineBody)...)
-		} else {
-			// Skip attachment views that don't carry bytes. For prompt construction
-			// we rely on attachment carrier messages (AttachmentPayloadId) to fetch
-			// the binary payload, avoiding large blobs in transcript payloads.
-			continue
-		}
-		uri := ""
-		if av.Uri != nil {
-			uri = strings.TrimSpace(*av.Uri)
-		}
-		name := defaultName
-		if name == "" && uri != "" {
-			name = path.Base(uri)
-		}
-		mimeType := strings.TrimSpace(av.MimeType)
-		attachments = append(attachments, &prompt.Attachment{
-			Name: name,
-			URI:  uri,
-			Mime: mimeType,
-			Data: data,
-		})
-	}
-	return attachments
 }
 
 // appendCurrentMessages appends messages to History.Current ensuring

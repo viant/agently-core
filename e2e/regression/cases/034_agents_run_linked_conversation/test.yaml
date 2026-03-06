@@ -1,0 +1,43 @@
+pipeline:
+  runDelegation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    TimeoutMs: 240000
+    description: "agents-run link - execute delegated run"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: tool_forcer_agents_run
+          UserId: e2e-test
+          Query: Delegate once using llm/agents:run.
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+
+  verifyLinkedToolMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "agents-run link - parent transcript includes linked conversation id"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${runDelegation.Responses[0].JSONBody.conversationId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].LinkedConversationId": true
+
+  verifyChildConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "agents-run link - linked child conversation exists"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${verifyLinkedToolMessage.Responses[0].JSONBody.Rows[0].LinkedConversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true

@@ -49,6 +49,50 @@ func TestDuplicateGuard_ShouldBlock(t *testing.T) {
 	}
 }
 
+func TestDuplicateGuard_CanonicalizesToolNames(t *testing.T) {
+	guard := NewDuplicateGuard([]plan.ToolCall{{
+		Name:      "system/os:getEnv",
+		Arguments: map[string]interface{}{"names": []interface{}{"USER"}},
+		Result:    "{\"USER\":\"devuser\"}",
+	}})
+
+	blocked, prev := guard.ShouldBlock("system_os-getEnv", map[string]interface{}{"names": []interface{}{"USER"}})
+	if !blocked {
+		t.Fatalf("expected canonical duplicate to be blocked")
+	}
+	if prev.Result == "" {
+		t.Fatalf("expected prior result to be reused")
+	}
+}
+
+func TestDuplicateGuard_IgnoresEphemeralCallID(t *testing.T) {
+	guard := NewDuplicateGuard([]plan.ToolCall{{
+		Name: "orchestration-updatePlan",
+		Arguments: map[string]interface{}{
+			"call_id": "first",
+			"plan": []interface{}{
+				map[string]interface{}{"step": "Scan repo", "status": "in_progress"},
+				map[string]interface{}{"step": "Summarize findings", "status": "pending"},
+			},
+		},
+		Result: "{\"ok\":true}",
+	}})
+
+	blocked, prev := guard.ShouldBlock("orchestration-updatePlan", map[string]interface{}{
+		"call_id": "second",
+		"plan": []interface{}{
+			map[string]interface{}{"step": "Scan repo", "status": "in_progress"},
+			map[string]interface{}{"step": "Summarize findings", "status": "pending"},
+		},
+	})
+	if !blocked {
+		t.Fatalf("expected duplicate updatePlan call with different call_id to be blocked")
+	}
+	if prev.Result == "" {
+		t.Fatalf("expected cached result to be available for blocked duplicate")
+	}
+}
+
 func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 	type call struct {
 		Name      string

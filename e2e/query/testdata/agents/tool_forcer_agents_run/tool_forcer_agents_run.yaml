@@ -1,0 +1,15 @@
+id: tool_forcer_agents_run
+name: Tool Forcer Agents Run
+description: Agent that must delegate via llm/agents:run before replying
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ToolForcerAgentsRun
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  items:
+    - pattern: "llm/agents:run"

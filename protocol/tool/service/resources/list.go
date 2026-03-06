@@ -14,6 +14,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
+	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
 type ListInput struct {
@@ -183,14 +184,23 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	rootCtx, err := s.newRootContext(ctx, input.RootURI, input.RootID, s.agentAllowed(ctx))
+	allowed := s.agentAllowed(ctx)
+	rootURI := strings.TrimSpace(input.RootURI)
+	rootID := strings.TrimSpace(input.RootID)
+	if (rootURI == "" && rootID == "") || rootID == "workspace://localhost" || rootID == "workspace://localhost/" {
+		if inferred := inferAllowedRootFromPath(input.Path, allowed); inferred != "" {
+			rootURI = inferred
+			rootID = ""
+		}
+	}
+	rootCtx, err := s.newRootContext(ctx, rootURI, rootID, allowed)
 	if err != nil {
 		fmt.Printf("resources: list resolve error rootId=%q root=%q err=%v\n", input.RootID, input.RootURI, err)
 		return err
 	}
 	rootBase := rootCtx.Base()
 	base := rootBase
-	if trimmed := strings.TrimSpace(input.Path); trimmed != "" {
+	if trimmed := defaultResourcePath(ctx, input.Path); trimmed != "" {
 		base, err = rootCtx.ResolvePath(trimmed)
 		if err != nil {
 			return err
@@ -333,4 +343,14 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	output.Items = items
 	output.Total = len(items)
 	return nil
+}
+
+func defaultResourcePath(ctx context.Context, current string) string {
+	if trimmed := strings.TrimSpace(current); trimmed != "" {
+		return trimmed
+	}
+	if workdir, ok := executil.WorkdirFromContext(ctx); ok {
+		return strings.TrimSpace(workdir)
+	}
+	return ""
 }

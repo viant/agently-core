@@ -18,6 +18,35 @@ func ModelMessageIDFromContext(ctx context.Context) string {
 	return value.(string)
 }
 
+// ToolMessageIDKey carries the message id to which the current tool call should attach.
+type toolMessageIDKey string
+
+var ToolMessageIDKey = toolMessageIDKey("toolMessageID")
+
+func WithToolMessageID(ctx context.Context, messageID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if messageID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ToolMessageIDKey, messageID)
+}
+
+func ToolMessageIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value := ctx.Value(ToolMessageIDKey)
+	if value == nil {
+		return ""
+	}
+	if id, ok := value.(string); ok {
+		return id
+	}
+	return ""
+}
+
 // TurnMeta captures minimal per-turn context for downstream persistence.
 // Prefer passing a single TurnMeta instead of scattering separate keys.
 type TurnMeta struct {

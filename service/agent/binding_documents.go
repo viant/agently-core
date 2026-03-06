@@ -21,8 +21,8 @@ import (
 )
 
 func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput, docs *prompt.Documents) {
-	if s == nil || s.registry == nil || input == nil || input.Agent == nil || docs == nil {
-		debugf("delegation.directory skip missing service/registry/input/agent/docs")
+	if s == nil || input == nil || input.Agent == nil || docs == nil {
+		debugf("delegation.directory skip missing service/input/agent/docs")
 		return
 	}
 	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
@@ -35,45 +35,28 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 		debugf("delegation.directory skip already_present agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
-	raw, err := s.registry.Execute(ctx, "llm/agents:list", map[string]interface{}{})
+	items, err := s.listPublishedAgents(ctx)
 	if err != nil {
 		debugf("delegation.directory list_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
 		return
 	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if len(items) == 0 {
 		debugf("delegation.directory list_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
-		return
-	}
-	var lo struct {
-		Items []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name,omitempty"`
-			Description string `json:"description,omitempty"`
-			Summary     string `json:"summary,omitempty"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal([]byte(raw), &lo); err != nil || len(lo.Items) == 0 {
-		if err != nil {
-			debugf("delegation.directory list_unmarshal_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
-		} else {
-			debugf("delegation.directory list_unmarshal_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
-		}
 		return
 	}
 	var bld strings.Builder
 	bld.WriteString("# Available Agents\n\n")
-	for _, it := range lo.Items {
+	for _, it := range items {
 		name := strings.TrimSpace(it.Name)
 		if name == "" {
-			name = strings.TrimSpace(it.ID)
+			name = strings.TrimSpace(it.Identity.Name)
 		}
 		if name == "" {
 			continue
 		}
 		desc := strings.TrimSpace(it.Description)
 		if desc == "" {
-			desc = strings.TrimSpace(it.Summary)
+			desc = strings.TrimSpace(it.Profile.Description)
 		}
 		bld.WriteString("- ")
 		bld.WriteString(name)
@@ -96,7 +79,77 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 		Metadata:    map[string]string{"kind": "agents_directory"},
 	}
 	docs.Items = append(docs.Items, doc)
-	debugf("delegation.directory injected agent_id=%q count=%d", strings.TrimSpace(input.Agent.ID), len(lo.Items))
+	debugf("delegation.directory injected agent_id=%q count=%d", strings.TrimSpace(input.Agent.ID), len(items))
+}
+
+func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, error) {
+	type allFinder interface {
+		All() []*agent.Agent
+	}
+	if s != nil && s.agentFinder != nil {
+		if finder, ok := s.agentFinder.(allFinder); ok {
+			items := finder.All()
+			if len(items) == 0 {
+				return nil, nil
+			}
+			filtered := make([]*agent.Agent, 0, len(items))
+			for _, item := range items {
+				if item == nil || item.Profile == nil || !item.Profile.Publish || item.Internal {
+					continue
+				}
+				filtered = append(filtered, item)
+			}
+			return filtered, nil
+		}
+	}
+	if s == nil || s.registry == nil {
+		return nil, nil
+	}
+	raw, err := s.registry.Execute(ctx, "llm/agents:list", map[string]interface{}{})
+	if err != nil {
+		return nil, err
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var lo struct {
+		Items []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name,omitempty"`
+			Description string `json:"description,omitempty"`
+			Summary     string `json:"summary,omitempty"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(raw), &lo); err != nil {
+		return nil, err
+	}
+	if len(lo.Items) == 0 {
+		return nil, nil
+	}
+	result := make([]*agent.Agent, 0, len(lo.Items))
+	for _, item := range lo.Items {
+		a := &agent.Agent{
+			Identity: agent.Identity{
+				ID:   strings.TrimSpace(item.ID),
+				Name: strings.TrimSpace(item.Name),
+			},
+			Description: strings.TrimSpace(item.Description),
+			Profile: &agent.Profile{
+				Publish:     true,
+				Name:        strings.TrimSpace(item.Name),
+				Description: strings.TrimSpace(item.Description),
+			},
+		}
+		if a.Description == "" {
+			a.Description = strings.TrimSpace(item.Summary)
+		}
+		if a.Profile.Description == "" {
+			a.Profile.Description = strings.TrimSpace(item.Summary)
+		}
+		result = append(result, a)
+	}
+	return result, nil
 }
 
 func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {

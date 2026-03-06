@@ -11,7 +11,25 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
+
+type recordingObserver struct {
+	last mcbuf.Info
+}
+
+func (r *recordingObserver) OnCallStart(ctx context.Context, info mcbuf.Info) (context.Context, error) {
+	return ctx, nil
+}
+
+func (r *recordingObserver) OnCallEnd(_ context.Context, info mcbuf.Info) error {
+	r.last = info
+	return nil
+}
+
+func (r *recordingObserver) OnStreamDelta(_ context.Context, _ []byte) error {
+	return nil
+}
 
 // Data-driven test: verifies stream aggregation with Responses API events.
 func TestStream_ToolCalls_Aggregation(t *testing.T) {
@@ -117,6 +135,51 @@ func TestStream_ToolCalls_Aggregation(t *testing.T) {
 			}
 			assert.EqualValues(t, tc.expected, actual)
 		})
+	}
+}
+
+func TestStream_ResponseCompleted_PreservesToolCallsForObserver(t *testing.T) {
+	lines := []string{
+		"event: response.output_item.added",
+		`data: {"item":{"id":"item_1","type":"function_call","name":"resources-roots","call_id":"call_1"}}`,
+		"event: response.function_call_arguments.delta",
+		`data: {"item_id":"item_1","delta":"{\"maxRoots\":10}"}`,
+		"event: response.output_item.done",
+		`data: {"item":{"id":"item_1","type":"function_call","name":"resources-roots","call_id":"call_1","arguments":"{\"maxRoots\":10}"}}`,
+		"event: response.completed",
+		`data: {"response":{"id":"resp_1","status":"completed","model":"gpt-5.2","output":[{"type":"function_call","id":"item_1","call_id":"call_1","name":"resources-roots","arguments":"{\"maxRoots\":10}"}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	observer := &recordingObserver{}
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-5.2"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ctx = mcbuf.WithObserver(ctx, observer)
+	ch, err := c.Stream(ctx, &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("discover roots")}})
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	for range ch {
+	}
+	if assert.NotNil(t, observer.last.LLMResponse) {
+		if assert.Len(t, observer.last.LLMResponse.Choices, 1) {
+			assert.Len(t, observer.last.LLMResponse.Choices[0].Message.ToolCalls, 1)
+			assert.Equal(t, "resources-roots", observer.last.LLMResponse.Choices[0].Message.ToolCalls[0].Name)
+		}
 	}
 }
 
