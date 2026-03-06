@@ -214,8 +214,12 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 			resp = &decoded
 		}
 	}
-	content, hasToolCalls := assistantContentFromGenerateResponse(resp)
+	content, hasToolCalls := AssistantContentFromResponse(resp)
 	content = strings.TrimSpace(content)
+	preamble := strings.TrimSpace(AssistantPreambleFromResponse(resp, content))
+	if content == "" && preamble != "" {
+		content = preamble
+	}
 	if content == "" {
 		return false, nil
 	}
@@ -231,6 +235,10 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	// transcripts can distinguish tool-driven interim content from normal replies.
 	msg.SetContent(content)
 	if hasToolCalls {
+		if preamble == "" {
+			preamble = content
+		}
+		msg.SetPreamble(preamble)
 		msg.SetRawContent(content)
 		msg.SetInterim(1)
 	} else {
@@ -240,29 +248,6 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 		return false, err
 	}
 	return true, nil
-}
-
-func assistantContentFromGenerateResponse(resp *llm.GenerateResponse) (string, bool) {
-	if resp == nil || len(resp.Choices) == 0 {
-		return "", false
-	}
-	parts := make([]string, 0, len(resp.Choices))
-	hasToolCalls := false
-	// "finish_reason": "tool_calls"
-
-	for _, c := range resp.Choices {
-		if len(c.Message.ToolCalls) > 0 || c.Message.FunctionCall != nil {
-			hasToolCalls = true
-		}
-		if strings.Contains(strings.ToLower(c.FinishReason), "tool") {
-			hasToolCalls = true
-		}
-		s := strings.TrimSpace(messageText(c.Message))
-		if s != "" {
-			parts = append(parts, s)
-		}
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n")), hasToolCalls
 }
 
 func messageText(msg llm.Message) string {

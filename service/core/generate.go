@@ -77,7 +77,7 @@ type ExpandUserPromptOutput struct {
 }
 
 func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
-	if i.Model != "" || i.Preferences == nil {
+	if i.Model != "" || i.Preferences == nil || matcher == nil {
 		return
 	}
 	// When gatekeeper filters are set on selection, reduce candidates first if supported.

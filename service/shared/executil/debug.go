@@ -19,6 +19,10 @@ func debugf(ctx context.Context, format string, args ...interface{}) {
 }
 
 func debugConvEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_DEBUG"))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG"))) {
 	case "1", "true", "yes", "y", "on":
 		return true
