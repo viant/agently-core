@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/viant/agently/genai/llm"
-	"github.com/viant/agently/genai/prompt"
-	stream "github.com/viant/agently/genai/service/core/stream"
+	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/protocol/prompt"
+	stream "github.com/viant/agently-core/service/core/stream"
 )
 
 func TestService_Stream_RetriesOnTransientStreamEventError(t *testing.T) {

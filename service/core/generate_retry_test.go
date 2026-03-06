@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
-	"github.com/viant/agently-core/genai/prompt"
+	"github.com/viant/agently-core/protocol/prompt"
 )
 
 func TestService_Generate_RetriesOnTransientErrorAndSucceeds(t *testing.T) {
