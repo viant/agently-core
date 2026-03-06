@@ -39,9 +39,18 @@ func ObserverFromContext(ctx context.Context) Observer {
 	return nil
 }
 
+type bufferKeyT struct{}
+
+var bufferKey = bufferKeyT{}
+
 type observerKeyT struct{}
 
 var observerKey = observerKeyT{}
+
+type Buffer struct {
+	items     []Info
+	lastStart *Info
+}
 
 // Observer exposes OnCallStart/OnCallEnd used by providers.
 type Observer interface {
@@ -53,7 +62,25 @@ type Observer interface {
 	OnStreamDelta(ctx context.Context, data []byte) error
 }
 
+type closeIfOpenObserver interface {
+	CloseIfOpen(ctx context.Context, info Info) error
+}
+
 // WithObserver stores a concrete Observer in context so providers can call it directly.
 func WithObserver(ctx context.Context, ob Observer) context.Context {
 	return context.WithValue(ctx, observerKey, ob)
+}
+
+// CloseIfOpen force-closes an active model call when the underlying observer
+// supports it. This is a best-effort fallback used by upper layers on error exits.
+func CloseIfOpen(ctx context.Context, info Info) error {
+	ob := ObserverFromContext(ctx)
+	if ob == nil {
+		return nil
+	}
+	closer, ok := ob.(closeIfOpenObserver)
+	if !ok {
+		return nil
+	}
+	return closer.CloseIfOpen(ctx, info)
 }

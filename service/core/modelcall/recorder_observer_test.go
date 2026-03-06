@@ -3,9 +3,13 @@ package modelcall
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
@@ -59,10 +63,7 @@ func TestFinishModelCallSetsCost_DataDriven(t *testing.T) {
 			// Price provider returns per-1k prices
 			provider := staticPriceProvider{model: c.model, inP: c.inP, outP: c.outP, cacheP: c.cacheP}
 			// Ensure conversation exists in the client store
-			seed := &convw.Conversation{Has: &convw.ConversationHas{}}
-			seed.SetId("conv-1")
-			seed.SetStatus("")
-			if err := client.PatchConversations(base, seed); err != nil {
+			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
 				t.Fatalf("failed to seed conversation: %v", err)
 			}
 
@@ -155,10 +156,7 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := convmem.New()
 			base := memory.WithConversationID(context.Background(), "conv-1")
-			seed := &convw.Conversation{Has: &convw.ConversationHas{}}
-			seed.SetId("conv-1")
-			seed.SetStatus("")
-			if err := client.PatchConversations(base, seed); err != nil {
+			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
 				t.Fatalf("failed to seed conversation: %v", err)
 			}
 
@@ -201,4 +199,118 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			assert.EqualValues(t, tc.expectInterim, msg.Interim)
 		})
 	}
+}
+
+func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {
+	cases := []struct {
+		name           string
+		cancelContext  bool
+		expectedStatus string
+	}{
+		{name: "failed fallback", cancelContext: false, expectedStatus: "failed"},
+		{name: "canceled fallback", cancelContext: true, expectedStatus: "canceled"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := convmem.New()
+			base := memory.WithConversationID(context.Background(), "conv-1")
+			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+				t.Fatalf("failed to seed conversation: %v", err)
+			}
+
+			runCtx := base
+			var cancel func()
+			if tc.cancelContext {
+				runCtx, cancel = context.WithCancel(base)
+			}
+			if cancel != nil {
+				defer cancel()
+			}
+
+			ctx := WithRecorderObserver(runCtx, client)
+			ob := ObserverFromContext(ctx)
+			if ob == nil {
+				t.Fatalf("observer not injected")
+			}
+			ctx2, err := ob.OnCallStart(ctx, Info{Provider: "test", Model: "test-model", LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}}})
+			if err != nil {
+				t.Fatalf("OnCallStart error: %v", err)
+			}
+			if tc.cancelContext && cancel != nil {
+				cancel()
+			}
+
+			if err := CloseIfOpen(ctx2, Info{Err: "forced close", CompletedAt: time.Now()}); err != nil {
+				t.Fatalf("CloseIfOpen error: %v", err)
+			}
+
+			msgID := memory.ModelMessageIDFromContext(ctx2)
+			if msgID == "" {
+				t.Fatalf("message id not set in context")
+			}
+			msg, err := client.GetMessage(context.Background(), msgID)
+			if err != nil || msg == nil || msg.ModelCall == nil {
+				t.Fatalf("missing model call after CloseIfOpen: %v", err)
+			}
+			assert.EqualValues(t, tc.expectedStatus, msg.ModelCall.Status)
+		})
+	}
+}
+
+func TestOnCallEnd_DoesNotPatchConversationWhenFinishModelCallFails(t *testing.T) {
+	baseClient := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	if err := baseClient.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+		t.Fatalf("failed to seed conversation: %v", err)
+	}
+
+	client := &failingPayloadClient{
+		Client:      baseClient,
+		failAtCount: 2, // first payload in OnCallStart, second in OnCallEnd
+	}
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	if ob == nil {
+		t.Fatalf("observer not injected")
+	}
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	if err != nil {
+		t.Fatalf("OnCallStart error: %v", err)
+	}
+
+	endErr := ob.OnCallEnd(ctx2, Info{
+		Model:        "test-model",
+		LLMResponse:  &llm.GenerateResponse{},
+		ResponseJSON: []byte(`{"response":{"id":"r1"}}`),
+	})
+	if endErr == nil {
+		t.Fatalf("expected OnCallEnd error")
+	}
+	assert.Contains(t, strings.ToLower(endErr.Error()), "finish model call")
+	assert.EqualValues(t, 0, client.patchConversationCount)
+}
+
+type failingPayloadClient struct {
+	apiconv.Client
+	failAtCount            int
+	callCount              int
+	patchConversationCount int
+}
+
+func (f *failingPayloadClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
+	f.callCount++
+	if f.failAtCount > 0 && f.callCount == f.failAtCount {
+		return fmt.Errorf("simulated payload patch failure")
+	}
+	return f.Client.PatchPayload(ctx, payload)
+}
+
+func (f *failingPayloadClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
+	f.patchConversationCount++
+	return f.Client.PatchConversations(ctx, conversations)
 }

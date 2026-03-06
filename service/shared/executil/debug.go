@@ -36,6 +36,13 @@ func infoConvf(format string, args ...interface{}) {
 	log.Printf("[debug][conversation][INFO] "+format, args...)
 }
 
+func warnConvf(format string, args ...interface{}) {
+	if !debugConvEnabled() {
+		return
+	}
+	log.Printf("[debug][conversation][WARN] "+format, args...)
+}
+
 func errorConvf(format string, args ...interface{}) {
 	if !debugConvEnabled() {
 		return
