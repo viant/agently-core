@@ -2,7 +2,7 @@ package reactor
 
 import (
 	plan "github.com/viant/agently-core/genai/llm"
-	mcpnam
+	"github.com/viant/agently-core/pkg/mcpname"
 	"sync"
 )
 
