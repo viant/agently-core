@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -180,6 +181,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		return nil, err
 	}
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
+	b.Tools.Signatures = filterDelegationDiscoveryTools(b.Tools.Signatures, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	b.Context = input.Context
@@ -188,6 +190,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Avoid mutating input.Context directly by working on a copy.
 	b.Context = cloneContextMap(b.Context)
 	mergeElicitationPayloadIntoContext(b.History, &b.Context)
+	s.applyWorkdirContext(input, b)
 	s.applyDelegationContext(input, b)
 
 	debugf("agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))
@@ -230,5 +233,83 @@ func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {
 	if _, ok := b.Context["DelegationDepths"]; !ok {
 		b.Context["DelegationDepths"] = map[string]interface{}{}
 	}
+	currentDepth := delegationDepthFromContextMap(b.Context, strings.TrimSpace(input.Agent.ID))
+	b.Context["DelegationCurrentDepth"] = currentDepth
+	b.Context["DelegationIsDelegated"] = currentDepth > 0
+	remainingDepth := maxDepth - currentDepth
+	if remainingDepth < 0 {
+		remainingDepth = 0
+	}
+	b.Context["DelegationRemainingDepth"] = remainingDepth
 	debugf("delegation.context enabled agent_id=%q maxDepth=%d", strings.TrimSpace(input.Agent.ID), maxDepth)
+}
+
+func (s *Service) applyWorkdirContext(input *QueryInput, b *prompt.Binding) {
+	if input == nil || b == nil || b.Context == nil {
+		return
+	}
+	if input.Agent != nil {
+		if value := strings.TrimSpace(input.Agent.DefaultWorkdir); value != "" {
+			b.Context["AgentDefaultWorkdir"] = value
+		}
+	}
+	if value := normalizeWorkdirValue(b.Context["workdir"]); value != "" {
+		b.Context["workdir"] = value
+		b.Context["ResolvedWorkdir"] = value
+		return
+	}
+	if value := normalizeWorkdirValue(b.Context["resolvedWorkdir"]); value != "" {
+		b.Context["resolvedWorkdir"] = value
+		b.Context["ResolvedWorkdir"] = value
+	}
+}
+
+func delegationDepthFromContextMap(ctx map[string]interface{}, agentID string) int {
+	if len(ctx) == 0 || strings.TrimSpace(agentID) == "" {
+		return 0
+	}
+	raw, ok := ctx["DelegationDepths"]
+	if !ok || raw == nil {
+		return 0
+	}
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return 0
+	}
+	value, ok := m[agentID]
+	if !ok || value == nil {
+		return 0
+	}
+	switch actual := value.(type) {
+	case int:
+		if actual < 0 {
+			return 0
+		}
+		return actual
+	case int32:
+		if actual < 0 {
+			return 0
+		}
+		return int(actual)
+	case int64:
+		if actual < 0 {
+			return 0
+		}
+		return int(actual)
+	case float32:
+		if actual < 0 {
+			return 0
+		}
+		return int(actual)
+	case float64:
+		if actual < 0 {
+			return 0
+		}
+		return int(actual)
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(actual)); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 0
 }

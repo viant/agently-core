@@ -248,6 +248,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Streaming == nil {
 		out.Streaming = streaming.NewMemoryBus(0)
 	}
+	if publisherSetter, ok := out.Conversation.(interface{ SetStreamPublisher(streaming.Publisher) }); ok {
+		publisherSetter.SetStreamPublisher(out.Streaming)
+	}
 	streamPub := b.streamPub
 	if streamPub == nil {
 		streamPub = newStreamPublisherAdapter(out.Streaming)

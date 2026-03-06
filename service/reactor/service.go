@@ -22,6 +22,7 @@ import (
 	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
+	modelcall "github.com/viant/agently-core/service/core/modelcall"
 	"github.com/viant/agently-core/service/core/stream"
 	executil "github.com/viant/agently-core/service/shared/executil"
 )
@@ -49,6 +50,7 @@ const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 // protection is disabled in this mode so internal/message tools can iterate
 // freely when trimming history.
 const ctxKeyContinuationMode ctxKeyPresentedType = 2
+const ctxKeyDuplicateGuard ctxKeyPresentedType = 3
 
 const (
 	pruneMinRemove        = 20
@@ -62,6 +64,23 @@ func inContinuationMode(ctx context.Context) bool {
 		return v
 	}
 	return false
+}
+
+func WithDuplicateGuard(ctx context.Context, guard *DuplicateGuard) context.Context {
+	if ctx == nil || guard == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxKeyDuplicateGuard, guard)
+}
+
+func duplicateGuardFromContext(ctx context.Context) *DuplicateGuard {
+	if ctx == nil {
+		return nil
+	}
+	if guard, ok := ctx.Value(ctxKeyDuplicateGuard).(*DuplicateGuard); ok && guard != nil {
+		return guard
+	}
+	return nil
 }
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
@@ -451,7 +470,10 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	// tools without being short-circuited.
 	var guard *DuplicateGuard
 	if !inContinuationMode(ctx) {
-		guard = NewDuplicateGuard(nil)
+		guard = duplicateGuardFromContext(ctx)
+		if guard == nil {
+			guard = NewDuplicateGuard(nil)
+		}
 	}
 	// Execute steps in order; do not de-duplicate by tool/args.
 	// Duplicated tool steps will each execute independently.
@@ -477,6 +499,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			}
 		}
 
+		s.patchStreamingToolPreamble(runCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
 
 		for *nextStepIdx < len(aPlan.Steps) {
@@ -548,6 +571,11 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 	if len(choice.Message.ToolCalls) == 0 {
 		return
 	}
+	reason := strings.TrimSpace(choice.Message.Content)
+	if reason == "" {
+		resp := &llm.GenerateResponse{Choices: []llm.Choice{*choice}}
+		reason = strings.TrimSpace(modelcall.AssistantPreambleFromResponse(resp, ""))
+	}
 	steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
 	for _, tc := range choice.Message.ToolCalls {
 		name := tc.Name
@@ -564,7 +592,7 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 		if prev := aPlan.Steps.Find(tc.ID); prev != nil {
 			prev.Name = name
 			prev.Args = args
-			prev.Reason = choice.Message.Content
+			prev.Reason = reason
 			continue
 		}
 
@@ -578,11 +606,56 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 			Type:       "tool",
 			Name:       name,
 			Args:       args,
-			Reason:     choice.Message.Content,
+			Reason:     reason,
 			ResponseID: strings.TrimSpace(responseID),
 		})
 	}
 	aPlan.Steps = append(aPlan.Steps, steps...)
+}
+
+func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Choice) {
+	if s == nil || s.convClient == nil {
+		return
+	}
+	if len(choice.Message.ToolCalls) == 0 && choice.Message.FunctionCall == nil {
+		return
+	}
+	msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	if msgID == "" {
+		return
+	}
+	turn, _ := memory.TurnMetaFromContext(ctx)
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	if conversationID == "" {
+		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	}
+	if conversationID == "" {
+		return
+	}
+	resp := &llm.GenerateResponse{Choices: []llm.Choice{choice}}
+	content, hasToolCalls := modelcall.AssistantContentFromResponse(resp)
+	if !hasToolCalls {
+		return
+	}
+	content = strings.TrimSpace(content)
+	preamble := strings.TrimSpace(modelcall.AssistantPreambleFromResponse(resp, content))
+	if preamble == "" {
+		return
+	}
+	if content == "" {
+		content = preamble
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(msgID)
+	msg.SetConversationID(conversationID)
+	if strings.TrimSpace(turn.TurnID) != "" {
+		msg.SetTurnID(turn.TurnID)
+	}
+	msg.SetContent(content)
+	msg.SetPreamble(preamble)
+	msg.SetRawContent(content)
+	msg.SetInterim(1)
+	_ = s.convClient.PatchMessage(ctx, msg)
 }
 
 func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) error {

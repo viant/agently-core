@@ -116,6 +116,9 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 	key += ":db=" + storeKey
 	augmenter, ok := s.DocsAugmenters.Get(key)
 	if !ok {
+		if s.finder == nil {
+			return nil, fmt.Errorf("embedder finder not configured")
+		}
 		model, err := s.finder.Find(ctx, input.Model)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get embeddingModel: %v, %w", input.Model, err)

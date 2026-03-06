@@ -2,6 +2,7 @@ package reactor
 
 import (
 	plan "github.com/viant/agently-core/genai/llm"
+	mcpnam
 	"sync"
 )
 
@@ -43,7 +44,7 @@ func NewDuplicateGuard(prior []plan.ToolCall) *DuplicateGuard {
 }
 
 func (g *DuplicateGuard) key(name string, args map[string]interface{}) toolKey {
-	return toolKey{Name: name, Args: CanonicalArgs(args)}
+	return toolKey{Name: mcpname.Canonical(name), Args: CanonicalArgs(args)}
 }
 
 // ShouldBlock reports whether the proposed call should be blocked and, if so,

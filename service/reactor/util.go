@@ -4,7 +4,13 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 )
+
+var ephemeralArgKeys = map[string]struct{}{
+	"call_id": {},
+	"callid":  {},
+}
 
 // MapEqual reports whether two maps contain the same keys and the corresponding
 // values are deeply equal.  Nil and empty maps are treated as equivalent.
@@ -66,7 +72,13 @@ func canonicalize(v interface{}) interface{} {
 		}
 		keys := make([]string, 0, len(tv))
 		for k := range tv {
+			if _, skip := ephemeralArgKeys[strings.ToLower(strings.ReplaceAll(strings.TrimSpace(k), "-", "_"))]; skip {
+				continue
+			}
 			keys = append(keys, k)
+		}
+		if len(keys) == 0 {
+			return map[string]interface{}{}
 		}
 		sort.Strings(keys)
 		out := make(map[string]interface{}, len(tv))
@@ -81,6 +93,40 @@ func canonicalize(v interface{}) interface{} {
 		}
 		return arr
 	default:
+		rv := reflect.ValueOf(v)
+		if !rv.IsValid() {
+			return nil
+		}
+		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+			arr := make([]interface{}, rv.Len())
+			for i := 0; i < rv.Len(); i++ {
+				arr[i] = canonicalize(rv.Index(i).Interface())
+			}
+			return arr
+		}
+		if rv.Kind() == reflect.Map && rv.Type().Key().Kind() == reflect.String {
+			keys := rv.MapKeys()
+			if len(keys) == 0 {
+				return map[string]interface{}{}
+			}
+			names := make([]string, 0, len(keys))
+			for _, key := range keys {
+				name := key.String()
+				if _, skip := ephemeralArgKeys[strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "-", "_"))]; skip {
+					continue
+				}
+				names = append(names, name)
+			}
+			if len(names) == 0 {
+				return map[string]interface{}{}
+			}
+			sort.Strings(names)
+			out := make(map[string]interface{}, len(names))
+			for _, key := range names {
+				out[key] = canonicalize(rv.MapIndex(reflect.ValueOf(key)).Interface())
+			}
+			return out
+		}
 		return tv
 	}
 }

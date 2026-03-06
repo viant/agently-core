@@ -201,6 +201,19 @@ func TestGrepFiles_RootID_ResolutionAndPermissions(t *testing.T) {
 		assert.True(t, pathsSet(out.Files)["fields.go"])
 	})
 
+	t.Run("root alias in root field resolves", func(t *testing.T) {
+		out := &GrepOutput{}
+		err := svc.grepFiles(ctx, &GrepInput{
+			Pattern:   "import",
+			RootURI:   "local",
+			Path:      "",
+			Recursive: true,
+			Include:   []string{"fields.go"},
+		}, out)
+		require.NoError(t, err)
+		assert.True(t, pathsSet(out.Files)["fields.go"])
+	})
+
 	t.Run("workspace-relative resource uri resolves", func(t *testing.T) {
 		out := &GrepOutput{}
 		err := svc.grepFiles(ctx, &GrepInput{

@@ -22,6 +22,7 @@ type rootContext struct {
 
 func (s *Service) newRootContext(ctx context.Context, rootURI, rootID string, allowed []string) (*rootContext, error) {
 	root := strings.TrimSpace(rootURI)
+	aliasID := strings.TrimSpace(rootID)
 	if root == "" && strings.TrimSpace(rootID) != "" {
 		var err error
 		root, err = s.resolveRootID(ctx, rootID)
@@ -30,16 +31,33 @@ func (s *Service) newRootContext(ctx context.Context, rootURI, rootID string, al
 		}
 	}
 	if root == "" {
+		root = implicitAllowedRoot(allowed)
+	}
+	if root == "" {
 		return nil, fmt.Errorf("root or rootId is required")
+	}
+	if aliasID == "" && looksLikeRootAlias(root) {
+		if resolved, err := s.resolveRootID(ctx, root); err == nil && strings.TrimSpace(resolved) != "" {
+			aliasID = root
+			root = resolved
+		}
 	}
 	wsRoot, _, err := s.normalizeUserRoot(ctx, root)
 	if err != nil {
 		return nil, err
 	}
 	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
+		if fallback := implicitAllowedRoot(allowed); fallback != "" {
+			if normalizedFallback, _, ferr := s.normalizeUserRoot(ctx, fallback); ferr == nil && isAllowedWorkspace(normalizedFallback, allowed) {
+				wsRoot = normalizedFallback
+				root = fallback
+			}
+		}
+	}
+	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
 		return nil, fmt.Errorf("root not allowed: %s", root)
 	}
-	id := strings.TrimSpace(rootID)
+	id := aliasID
 	if id == "" {
 		id = wsRoot
 	}
@@ -53,6 +71,49 @@ func (s *Service) newRootContext(ctx context.Context, rootURI, rootID string, al
 		wsRoot: wsRoot,
 		base:   base,
 	}, nil
+}
+
+func looksLikeRootAlias(value string) bool {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return false
+	}
+	if strings.Contains(v, "://") || mcpuri.Is(v) {
+		return false
+	}
+	if filepath.IsAbs(v) || isWindowsAbsPath(v) {
+		return false
+	}
+	trimmed := strings.Trim(v, "/")
+	if trimmed == "" {
+		return false
+	}
+	// Treat a single segment as an alias (for example: "local", "repo", "knowledge").
+	return !strings.Contains(trimmed, "/")
+}
+
+func implicitAllowedRoot(allowed []string) string {
+	if len(allowed) != 1 {
+		return ""
+	}
+	value := strings.TrimSpace(allowed[0])
+	if value == "" || mcpuri.Is(value) {
+		return ""
+	}
+	return value
+}
+
+func inferAllowedRootFromPath(path string, allowed []string) string {
+	wsPath := toWorkspaceURI(strings.TrimSpace(path))
+	if wsPath == "" {
+		return ""
+	}
+	for _, candidate := range allowed {
+		if isAllowedWorkspace(wsPath, []string{candidate}) {
+			return strings.TrimSpace(candidate)
+		}
+	}
+	return ""
 }
 
 func (rc *rootContext) ResolvePath(p string) (string, error) {
@@ -185,6 +246,15 @@ func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
 			return workspaceToFile(p), nil
 		}
 		return p, nil
+	}
+	if !mcpuri.Is(wsRoot) {
+		rootBase := base
+		if strings.HasPrefix(rootBase, "file://") {
+			rootBase = fileURLToPath(rootBase)
+		}
+		if candidate := "/" + strings.TrimLeft(p, "/"); isUnderRootPath(candidate, rootBase) {
+			return candidate, nil
+		}
 	}
 	return url.Join(base, strings.TrimPrefix(p, "/")), nil
 }

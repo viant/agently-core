@@ -8,15 +8,13 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	toolpol "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	linksvc "github.com/viant/agently-core/service/linking"
+	executil "github.com/viant/agently-core/service/shared/executil"
 	statussvc "github.com/viant/agently-core/service/toolstatus"
 )
 
@@ -138,6 +136,9 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	lo.ReuseNote = "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed."
+	lo.RunUsage = "To delegate next, call llm/agents:run with {agentId, objective} and include context.workdir when repo scope matters."
+	lo.NextAction = "If you already know the target agent from items or the injected agent directory document, skip llm/agents:list and call llm/agents:run directly."
 	if s.dirProvider != nil {
 		lo.Items = s.dirProvider()
 		return nil
@@ -222,228 +223,46 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	internalKnown := s.isInternalAgent(ctx, strings.TrimSpace(ri.AgentID))
 	debugf("agents.run route check agent_id=%q internal_known=%v external_enabled=%v", strings.TrimSpace(ri.AgentID), internalKnown, s.runExternal != nil)
 	if s.runExternal != nil && (intended == "external" || (intended == "" && !internalKnown)) {
-		var parent memory.TurnMeta
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-			parent = tm
+		handled, err := s.tryExternalRun(ctx, ri, ro, intended)
+		if handled || err != nil {
+			return err
 		}
-		debugf("agents.run external path parent_convo=%q parent_turn=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
-		childConvID := ""
-		statusMsgID := ""
+		// If we reach here: route was unknown and external execution failed; fall back to internal.
+	}
+	return s.runInternal(ctx, ri, ro, convID, depth)
+}
 
-		// Reuse existing child conversation based on agent profile scope; otherwise create & link
-		if s.linker != nil && strings.TrimSpace(parent.ConversationID) != "" {
-			if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
-				scope := "new"
-				if s.agent != nil && s.agent.Finder() != nil {
-					if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(ri.AgentID)); err == nil && ag != nil && ag.Profile != nil {
-						v := strings.ToLower(strings.TrimSpace(ag.Profile.ConversationScope))
-						if v == "parent" || v == "parentturn" || v == "new" {
-							scope = v
-						}
-					}
-				}
-				debugf("agents.run external scope agent_id=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
-				if scope != "new" {
-					in := &agconv.ConversationInput{
-						AgentId:  ri.AgentID,
-						ParentId: parent.ConversationID,
-						Has:      &agconv.ConversationInputHas{AgentId: true, ParentId: true},
-					}
-					if scope == "parentturn" {
-						in.ParentTurnId = parent.TurnID
-						in.Has.ParentTurnId = true
-					}
-					debugf("agents.run external reuse lookup agent_id=%q parent_convo=%q parent_turn=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(scope))
-				}
-			}
-			if strings.TrimSpace(childConvID) == "" {
-				if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
-					childConvID = cid
-					debugf("agents.run external created child_convo=%q parent_convo=%q", strings.TrimSpace(childConvID), strings.TrimSpace(parent.ConversationID))
-					// Set agent id on newly created conversation
-					if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
-						upd := convw.Conversation{Has: &convw.ConversationHas{}}
-						upd.SetId(childConvID)
-						upd.SetAgentId(strings.TrimSpace(ri.AgentID))
-						if perr := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); perr != nil {
-							errorf("agents.run external set agent error child_convo=%q agent_id=%q err=%v", strings.TrimSpace(childConvID), strings.TrimSpace(ri.AgentID), perr)
-						}
-					}
-					// Include a compact objective preview in the link message for traceability.
-					preview := textutil.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
-					if lerr := s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview); lerr != nil {
-						errorf("agents.run external link message error child_convo=%q err=%v", strings.TrimSpace(childConvID), lerr)
-					}
-				} else {
-					errorf("agents.run external create child error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
-				}
-			}
-			// Always record a status for this parent step
-			if s.status != nil {
-				if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
-					statusMsgID = mid
-					debugf("agents.run external status start parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(statusMsgID))
-				} else if err != nil {
-					errorf("agents.run external status start error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
-				}
-			}
-		}
-
-		// Prefer child conversation id as A2A contextId when present
-		extCtx := ctx
-		if strings.TrimSpace(childConvID) != "" {
-			extCtx = memory.WithConversationID(ctx, childConvID)
-			ro.ConversationID = childConvID
-		}
-		debugf("agents.run external invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID))
-		ans, st, taskID, ctxID, streamSupp, warns, err := s.runExternal(extCtx, ri.AgentID, ri.Objective, ri.Context)
-		if err != nil {
-			errorf("agents.run external error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), err)
-			if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-				_ = s.status.Finalize(ctx, parent, statusMsgID, "failed", "")
-			}
-			if intended == "external" {
-				return err
-			}
-			// If route was unknown, fall through to internal path on error
-		} else if taskID != "" || st != "" {
-			debugf("agents.run external ok agent_id=%q child_convo=%q status=%q task_id=%q context_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), strings.TrimSpace(st), strings.TrimSpace(taskID), strings.TrimSpace(ctxID))
-			ro.Answer = ans
-			ro.Status = st
-			ro.TaskID = taskID
-			if ro.ConversationID == "" {
-				ro.ConversationID = strings.TrimSpace(memory.ConversationIDFromContext(extCtx))
-			}
-			if strings.TrimSpace(ctxID) != "" {
-				ro.ContextID = ctxID
-			} else {
-				ro.ContextID = childConvID
-			}
-			ro.StreamSupported = streamSupp
-			ro.Warnings = append(ro.Warnings, warns...)
-			if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-				// Do not mirror delegated child answer content into the parent chat stream.
-				// Keep only terminal status so parent remains an orchestrator-level narrative.
-				_ = s.status.Finalize(ctx, parent, statusMsgID, strings.TrimSpace(st), "")
-			}
+func (s *Service) waitForConversation(ctx context.Context, conversationID string) error {
+	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	var lastErr error
+	for attempt := 0; attempt < 8; attempt++ {
+		conv, err := s.conv.GetConversation(ctx, strings.TrimSpace(conversationID))
+		if err == nil && conv != nil {
 			return nil
 		}
-		// If we reach here: either external not declared (intended=="") and failed; try internal fallback.
-	}
-	if s.agent == nil {
-		errorf("agents.run internal error: agent runtime not configured")
-		return svc.NewMethodNotFoundError("agent runtime not configured")
-	}
-	// Internal path via agent.Query. Conversation and user are derived from context by the service.
-	// Attempt to create linked child conversation and status under the parent turn when available.
-	var parent memory.TurnMeta
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
-		parent = tm
-	}
-	childConvID := ""
-	statusMsgID := ""
-	if s.linker != nil && strings.TrimSpace(parent.ConversationID) != "" {
-		// Determine conversation scope from agent profile (default: new)
-		scope := "new"
-		if s.agent != nil && s.agent.Finder() != nil && strings.TrimSpace(ri.AgentID) != "" {
-			if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(ri.AgentID)); err == nil && ag != nil && ag.Profile != nil {
-				v := strings.ToLower(strings.TrimSpace(ag.Profile.ConversationScope))
-				if v == "parent" || v == "parentturn" || v == "new" {
-					scope = v
-				}
-			}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = svc.NewMethodNotFoundError("conversation not found: " + strings.TrimSpace(conversationID))
 		}
-		debugf("agents.run internal scope agent_id=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
-		// Reuse based on scope unless "new"
-		if scope != "new" && s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
-			input := &agconv.ConversationInput{
-				AgentId:  ri.AgentID,
-				ParentId: parent.ConversationID,
-				Has:      &agconv.ConversationInputHas{AgentId: true, ParentId: true},
-			}
-			if scope == "parentturn" {
-				input.ParentTurnId = parent.TurnID
-				input.Has.ParentTurnId = true
-			}
-			debugf("agents.run internal reuse lookup agent_id=%q parent_convo=%q parent_turn=%q scope=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(scope))
+		if ctx.Err() != nil {
+			break
 		}
-		if strings.TrimSpace(childConvID) == "" {
-			if cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil); err == nil {
-				childConvID = cid
-				debugf("agents.run internal created child_convo=%q parent_convo=%q", strings.TrimSpace(childConvID), strings.TrimSpace(parent.ConversationID))
-				// Populate agent id on the new conversation when available
-				if s.conv != nil && strings.TrimSpace(ri.AgentID) != "" {
-					upd := convw.Conversation{Has: &convw.ConversationHas{}}
-					upd.SetId(childConvID)
-					upd.SetAgentId(strings.TrimSpace(ri.AgentID))
-					if perr := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); perr != nil {
-						errorf("agents.run internal set agent error child_convo=%q agent_id=%q err=%v", strings.TrimSpace(childConvID), strings.TrimSpace(ri.AgentID), perr)
-					}
-				}
-				// Add parent-side link message with objective preview
-				preview := textutil.RuneTruncate(strings.TrimSpace(ri.Objective), 512)
-				if lerr := s.linker.AddLinkMessage(ctx, parent, childConvID, "assistant", "tool", "exec", preview); lerr != nil {
-					errorf("agents.run internal link message error child_convo=%q err=%v", strings.TrimSpace(childConvID), lerr)
-				}
-			} else {
-				errorf("agents.run internal create child error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
-			}
+		delay := 100 * time.Millisecond << attempt
+		if delay > time.Second {
+			delay = time.Second
 		}
-		// Start status message
-		if s.status != nil {
-			if mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec"); err == nil {
-				statusMsgID = mid
-				debugf("agents.run internal status start parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(statusMsgID))
-			} else if err != nil {
-				errorf("agents.run internal status start error parent_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), err)
-			}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
-	qi := &agentsvc.QueryInput{AgentID: ri.AgentID, Query: ri.Objective, Context: ri.Context}
-	// Increment delegation depth for child context.
-	if strings.TrimSpace(ri.AgentID) != "" {
-		ri.Context = setDelegationDepth(ri.Context, strings.TrimSpace(ri.AgentID), depth+1)
-		qi.Context = ri.Context
+	if lastErr != nil {
+		return lastErr
 	}
-	// llm/agents:run should honor the delegated agent's configured tools (patterns/bundles)
-	qi.ToolsAllowed = []string{}
-	if ri.ModelPreferences != nil {
-		qi.ModelPreferences = ri.ModelPreferences
-	}
-	// Thread through optional reasoning effort override when provided.
-	if ri.ReasoningEffort != nil {
-		qi.ReasoningEffort = ri.ReasoningEffort
-	}
-	if strings.TrimSpace(childConvID) != "" {
-		qi.ConversationID = childConvID
-		ro.ConversationID = childConvID
-	}
-	qo := &agentsvc.QueryOutput{}
-	// Clear any parent tool policy from context to avoid restricting delegated runs.
-	childCtx := toolpol.WithPolicy(ctx, nil)
-	debugf("agents.run internal invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID))
-	if err := s.agent.Query(childCtx, qi, qo); err != nil {
-		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), err)
-		if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-			_ = s.status.Finalize(ctx, parent, statusMsgID, "failed", "")
-		}
-		return err
-	}
-	debugf("agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(childConvID), strings.TrimSpace(qo.MessageID))
-	ro.Answer = qo.Content
-	ro.Status = "succeeded"
-	if strings.TrimSpace(qo.ConversationID) != "" {
-		ro.ConversationID = qo.ConversationID
-	}
-	if ro.ConversationID == "" {
-		ro.ConversationID = convID
-	}
-	ro.MessageID = qo.MessageID
-	if s.status != nil && strings.TrimSpace(statusMsgID) != "" && strings.TrimSpace(parent.ConversationID) != "" {
-		// Keep llm/agents:run parent status rows textless to avoid child-output bubbles.
-		_ = s.status.Finalize(ctx, parent, statusMsgID, "succeeded", "")
-	}
-	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
 	return nil
 }
 
@@ -519,6 +338,23 @@ func setDelegationDepth(ctx map[string]interface{}, agentID string, depth int) m
 	return ctx
 }
 
+func inheritDelegatedContext(ctx context.Context, child map[string]interface{}) map[string]interface{} {
+	if child == nil {
+		child = map[string]interface{}{}
+	}
+	if _, ok := child["workdir"]; !ok {
+		if workdir, ok := executil.WorkdirFromContext(ctx); ok && strings.TrimSpace(workdir) != "" {
+			child["workdir"] = strings.TrimSpace(workdir)
+		}
+	}
+	if _, ok := child["resolvedWorkdir"]; !ok {
+		if workdir, ok := child["workdir"].(string); ok && strings.TrimSpace(workdir) != "" {
+			child["resolvedWorkdir"] = strings.TrimSpace(workdir)
+		}
+	}
+	return child
+}
+
 func asInt(v interface{}) int {
 	switch t := v.(type) {
 	case int:
@@ -550,4 +386,62 @@ func (s *Service) isInternalAgent(ctx context.Context, agentID string) bool {
 	}
 	ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(agentID))
 	return err == nil && ag != nil
+}
+
+func attachLinkedConversation(ctx context.Context, conv apiconv.Client, parent memory.TurnMeta, statusMessageID, linkedConversationID string) {
+	if conv == nil || strings.TrimSpace(linkedConversationID) == "" {
+		return
+	}
+	messageIDs := []string{strings.TrimSpace(statusMessageID)}
+	if toolMsgID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx)); toolMsgID != "" && toolMsgID != strings.TrimSpace(statusMessageID) {
+		messageIDs = append(messageIDs, toolMsgID)
+	}
+	for _, messageID := range messageIDs {
+		if messageID == "" {
+			continue
+		}
+		patch := apiconv.NewMessage()
+		patch.SetId(messageID)
+		patch.SetConversationID(strings.TrimSpace(parent.ConversationID))
+		patch.SetTurnID(strings.TrimSpace(parent.TurnID))
+		patch.SetLinkedConversationID(strings.TrimSpace(linkedConversationID))
+		if err := conv.PatchMessage(ctx, patch); err != nil {
+			errorf("agents.run attach linked conversation error message_id=%q linked_convo=%q err=%v", messageID, strings.TrimSpace(linkedConversationID), err)
+		}
+	}
+}
+
+func (s *Service) lookupReusableChildConversation(ctx context.Context, in *agconv.ConversationInput) string {
+	if s == nil || s.conv == nil || in == nil {
+		return ""
+	}
+	items, err := s.conv.GetConversations(ctx, (*apiconv.Input)(in))
+	if err != nil || len(items) == 0 {
+		return ""
+	}
+	var picked *apiconv.Conversation
+	for _, item := range items {
+		if item == nil || strings.TrimSpace(item.Id) == "" {
+			continue
+		}
+		if picked == nil {
+			picked = item
+			continue
+		}
+		pickedTime := picked.CreatedAt
+		if picked.UpdatedAt != nil && !picked.UpdatedAt.IsZero() {
+			pickedTime = *picked.UpdatedAt
+		}
+		itemTime := item.CreatedAt
+		if item.UpdatedAt != nil && !item.UpdatedAt.IsZero() {
+			itemTime = *item.UpdatedAt
+		}
+		if itemTime.After(pickedTime) {
+			picked = item
+		}
+	}
+	if picked == nil {
+		return ""
+	}
+	return strings.TrimSpace(picked.Id)
 }

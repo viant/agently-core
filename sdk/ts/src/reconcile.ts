@@ -59,6 +59,40 @@ export function applyEvent(
             return null;
         }
 
+        case 'control': {
+            // Non-token patch events (e.g., linkedConversationId/status updates)
+            // should update the optimistic message row immediately.
+            if (event.op !== 'message_patch') return null;
+            const existing = buf.byId.get(key) || {
+                id: key,
+                role: 'assistant',
+                content: '',
+                interim: 1,
+                createdAt: event.createdAt || new Date().toISOString(),
+            } as Partial<Message>;
+            const patch = (event.patch || {}) as Record<string, any>;
+            if (patch.linkedConversationId != null) {
+                (existing as any).linkedConversationId = String(patch.linkedConversationId);
+            }
+            if (patch.status != null) {
+                (existing as any).status = String(patch.status);
+            }
+            if (patch.toolName != null) {
+                (existing as any).toolName = String(patch.toolName);
+            }
+            if (patch.preamble != null) {
+                (existing as any).preamble = String(patch.preamble);
+            }
+            if (patch.interim != null) {
+                const n = Number(patch.interim);
+                if (Number.isFinite(n)) {
+                    (existing as any).interim = n;
+                }
+            }
+            buf.byId.set(key, existing);
+            return null;
+        }
+
         case 'done': {
             const existing = buf.byId.get(key);
             if (existing) {
