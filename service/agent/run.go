@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
@@ -143,6 +146,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	// Conversation already ensured above (fills AgentID/Model/Tool when missing)
 	s.tryMergePromptIntoContext(input)
+	workdir := ensureResolvedWorkdir(input)
+	ctx = executil.WithWorkdir(ctx, workdir)
 	contextStarted := time.Now()
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err
@@ -270,15 +275,43 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		d := time.Duration(s.defaults.ToolCallTimeoutSec) * time.Second
 		ctx = executil.WithToolTimeout(ctx, d)
 	}
-	runPlanStarted := time.Now()
-	status, err := s.runPlanAndStatus(ctx, input, output)
-	turnStatus = status
-	turnRunErr = err
-	infof("agent.Query stage runPlanAndStatus convo=%q turn_id=%q status=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), time.Since(runPlanStarted))
-	if err != nil {
-		errorf("agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
-	} else {
+
+	//turnStatus = status
+	//turnRunErr = err
+	var (
+		status string
+		err    error
+	)
+	for {
+		runPlanStarted := time.Now()
+		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
+		if ckErr != nil {
+			warnf("agent.Query steer checkpoint error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), ckErr)
+		}
+		status, err = s.runPlanAndStatus(ctx, input, output)
+
+		turnStatus = status
+		turnRunErr = err
+
+		infof("agent.Query stage runPlanAndStatus convo=%q turn_id=%q status=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), time.Since(runPlanStarted))
+		if err != nil {
+			errorf("agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
+			break
+		}
 		infof("agent.Query runPlan ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
+		if !strings.EqualFold(strings.TrimSpace(status), "succeeded") {
+			break
+		}
+		followUpCheckpoint := effectiveFollowUpCheckpoint(checkpoint, output)
+		pending, pErr := s.hasNewTurnTaskSince(ctx, turn, followUpCheckpoint)
+		if pErr != nil {
+			warnf("agent.Query steer follow-up check error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), pErr)
+			break
+		}
+		if !pending {
+			break
+		}
+		infof("agent.Query steer follow-up detected convo=%q turn_id=%q rerunning plan loop", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 
 	if err != nil {
@@ -391,6 +424,7 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	iter := 0
+	duplicateGuard := reactor.NewDuplicateGuard(nil)
 	// resolvedModel tracks the first model selected (either via explicit
 	// override or matcher-based preferences) for this Query turn. Once set,
 	// subsequent iterations within the same turn stick to this model instead
@@ -414,6 +448,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	for {
 		iter++
 		iterStart := time.Now()
+		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
+		if ckErr != nil {
+			warnf("agent.runPlan checkpoint error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, ckErr)
+		}
+		if queryOutput != nil {
+			queryOutput.lastTaskCheckpoint = checkpoint
+		}
 		debugf("agent.runPlan iter start convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
@@ -511,7 +552,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		genOutput := &core.GenerateOutput{}
 		planStart := time.Now()
-		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
+		runCtx := reactor.WithDuplicateGuard(ctx, duplicateGuard)
+		aPlan, pErr := s.orchestrator.Run(runCtx, genInput, genOutput)
 		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(planStart))
 		if pErr != nil {
 			return pErr
@@ -597,6 +639,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					return err
 				}
 			}
+			pending, pErr := s.hasNewTurnTaskSince(ctx, turn, checkpoint)
+			if pErr != nil {
+				warnf("agent.runPlan follow-up check error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, pErr)
+			} else if pending {
+				debugf("agent.runPlan steer follow-up convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
+				queryOutput.Content = ""
+				continue
+			}
 			debugf("agent.runPlan completed convo=%q turn_id=%q iter=%d content_len=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(genOutput.Content), time.Since(iterStart))
 			queryOutput.Content = genOutput.Content
 			return nil
@@ -679,6 +729,92 @@ func (s *Service) tryMergePromptIntoContext(input *QueryInput) {
 			}
 		}
 	}
+}
+
+func ensureResolvedWorkdir(input *QueryInput) string {
+	if input == nil {
+		return ""
+	}
+	if input.Context == nil {
+		input.Context = map[string]interface{}{}
+	}
+	if existing := normalizeWorkdirValue(input.Context["workdir"]); existing != "" {
+		input.Context["workdir"] = existing
+		input.Context["resolvedWorkdir"] = existing
+		return existing
+	}
+	candidates := []string{}
+	if input.Agent != nil && strings.TrimSpace(input.Agent.DefaultWorkdir) != "" {
+		candidates = append(candidates, strings.TrimSpace(input.Agent.DefaultWorkdir))
+	}
+	candidates = append(candidates, extractPathCandidates(input.Query)...)
+	for _, candidate := range candidates {
+		if resolved := resolveExistingWorkdir(candidate); resolved != "" {
+			input.Context["workdir"] = resolved
+			input.Context["resolvedWorkdir"] = resolved
+			return resolved
+		}
+	}
+	return ""
+}
+
+func normalizeWorkdirValue(raw interface{}) string {
+	switch actual := raw.(type) {
+	case string:
+		return resolveExistingWorkdir(actual)
+	default:
+		return ""
+	}
+}
+
+func extractPathCandidates(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	trimRunes := "\"'`,.;:()[]{}<>"
+	seen := map[string]struct{}{}
+	var result []string
+	for _, token := range strings.Fields(text) {
+		candidate := strings.Trim(strings.TrimSpace(token), trimRunes)
+		if candidate == "" {
+			continue
+		}
+		if !strings.HasPrefix(candidate, "/") && !strings.HasPrefix(candidate, "~/") {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func resolveExistingWorkdir(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return ""
+		}
+		raw = filepath.Join(home, strings.TrimPrefix(raw, "~/"))
+	}
+	if !filepath.IsAbs(raw) {
+		return ""
+	}
+	info, err := os.Stat(raw)
+	if err != nil {
+		return ""
+	}
+	if info.IsDir() {
+		return filepath.Clean(raw)
+	}
+	return filepath.Dir(filepath.Clean(raw))
 }
 
 // ensureEnvironment ensures conversation and agent are initialized and sets defaults.
@@ -792,6 +928,122 @@ func bindEffectiveUserFromInput(ctx context.Context, input *QueryInput) context.
 		return ctx
 	}
 	return authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: userID})
+}
+
+type turnTaskCheckpoint struct {
+	MessageID string
+	CreatedAt time.Time
+	Found     bool
+}
+
+func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn memory.TurnMeta) (turnTaskCheckpoint, error) {
+	checkpoint := turnTaskCheckpoint{}
+	if s == nil {
+		return checkpoint, nil
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if conversationID == "" || turnID == "" {
+		return checkpoint, nil
+	}
+	if s.dataService != nil {
+		page, err := s.dataService.GetMessagesPage(ctx, &agmessagelist.MessageRowsInput{
+			ConversationId: conversationID,
+			TurnId:         turnID,
+			Roles:          []string{"user"},
+			Types:          []string{"task"},
+			Has: &agmessagelist.MessageRowsInputHas{
+				ConversationId: true,
+				TurnId:         true,
+				Roles:          true,
+				Types:          true,
+			},
+		}, nil)
+		if err != nil {
+			return checkpoint, err
+		}
+		for _, row := range page.Rows {
+			if row == nil {
+				continue
+			}
+			candidate := turnTaskCheckpoint{
+				MessageID: strings.TrimSpace(row.Id),
+				CreatedAt: row.CreatedAt,
+				Found:     strings.TrimSpace(row.Id) != "",
+			}
+			if compareTurnTaskCheckpoint(candidate, checkpoint) > 0 {
+				checkpoint = candidate
+			}
+		}
+		if checkpoint.Found {
+			return checkpoint, nil
+		}
+	}
+	if s.conversation == nil {
+		return checkpoint, nil
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return checkpoint, err
+	}
+	for _, transcriptTurn := range conv.Transcript {
+		if transcriptTurn == nil || strings.TrimSpace(transcriptTurn.Id) != turnID {
+			continue
+		}
+		for _, msg := range transcriptTurn.Message {
+			if msg == nil || msg.Interim != 0 {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "user") || !strings.EqualFold(strings.TrimSpace(msg.Type), "task") {
+				continue
+			}
+			candidate := turnTaskCheckpoint{MessageID: strings.TrimSpace(msg.Id), CreatedAt: msg.CreatedAt, Found: true}
+			if compareTurnTaskCheckpoint(candidate, checkpoint) > 0 {
+				checkpoint = candidate
+			}
+		}
+	}
+	return checkpoint, nil
+}
+
+func (s *Service) hasNewTurnTaskSince(ctx context.Context, turn memory.TurnMeta, checkpoint turnTaskCheckpoint) (bool, error) {
+	latest, err := s.latestTurnTaskCheckpoint(ctx, turn)
+	if err != nil {
+		return false, err
+	}
+	if !latest.Found {
+		return false, nil
+	}
+	if !checkpoint.Found {
+		return true, nil
+	}
+	return compareTurnTaskCheckpoint(latest, checkpoint) > 0, nil
+}
+
+func effectiveFollowUpCheckpoint(initial turnTaskCheckpoint, output *QueryOutput) turnTaskCheckpoint {
+	if output != nil && output.lastTaskCheckpoint.Found {
+		return output.lastTaskCheckpoint
+	}
+	return initial
+}
+
+func compareTurnTaskCheckpoint(a, b turnTaskCheckpoint) int {
+	if !a.Found && !b.Found {
+		return 0
+	}
+	if a.Found && !b.Found {
+		return 1
+	}
+	if !a.Found && b.Found {
+		return -1
+	}
+	if a.CreatedAt.Before(b.CreatedAt) {
+		return -1
+	}
+	if a.CreatedAt.After(b.CreatedAt) {
+		return 1
+	}
+	return strings.Compare(a.MessageID, b.MessageID)
 }
 
 func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, error) {

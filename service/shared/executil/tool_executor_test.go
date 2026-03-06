@@ -403,9 +403,11 @@ type scriptedResult struct {
 }
 
 type scriptedRegistry struct {
-	mu     sync.Mutex
-	script []scriptedResult
-	calls  int
+	mu       sync.Mutex
+	script   []scriptedResult
+	calls    int
+	lastArgs map[string]interface{}
+	lastName string
 }
 
 func newStubRegistry(documents map[string]string) *stubRegistry {
@@ -442,9 +444,17 @@ func (s *stubRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { retur
 func (s *stubRegistry) SetDebugLogger(io.Writer)                         {}
 func (s *stubRegistry) Initialize(context.Context)                       {}
 
-func (s *scriptedRegistry) Execute(context.Context, string, map[string]interface{}) (string, error) {
+func (s *scriptedRegistry) Execute(_ context.Context, name string, args map[string]interface{}) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastName = name
+	if args != nil {
+		cloned := make(map[string]interface{}, len(args))
+		for k, v := range args {
+			cloned[k] = v
+		}
+		s.lastArgs = cloned
+	}
 	if len(s.script) == 0 {
 		s.calls++
 		return "", nil
@@ -468,3 +478,22 @@ func (s *scriptedRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { r
 func (s *scriptedRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
 func (s *scriptedRegistry) SetDebugLogger(io.Writer)                         {}
 func (s *scriptedRegistry) Initialize(context.Context)                       {}
+
+func TestExecuteToolStep_InheritsContextWorkdir(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-workdir", TurnID: "t-workdir", ParentMessageID: "p-workdir"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	ctx = WithWorkdir(ctx, "/tmp/workdir")
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok"}`}}}
+	conv := &stubConv{}
+	step := StepInfo{
+		ID:         "call-workdir",
+		Name:       "system_exec-execute",
+		Args:       map[string]interface{}{"commands": []string{"pwd"}},
+		ResponseID: "resp-workdir",
+	}
+
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+	require.NotNil(t, reg.lastArgs)
+	assert.EqualValues(t, "/tmp/workdir", reg.lastArgs["workdir"])
+}

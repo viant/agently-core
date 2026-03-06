@@ -143,6 +143,13 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			expectInterim: 1,
 		},
 		{
+			name:          "tool calls synthesize visible preamble when content missing",
+			resp:          &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "resources-roots"}}}}}},
+			expected:      "Using resources-roots.",
+			expectRaw:     true,
+			expectInterim: 1,
+		},
+		{
 			name: "response json fallback",
 			responseJSON: func() []byte {
 				raw, _ := json.Marshal(&llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "from json"}}}})
@@ -190,11 +197,17 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			if msg.RawContent != nil {
 				actualRaw = *msg.RawContent
 			}
+			actualPreamble := ""
+			if msg.Preamble != nil {
+				actualPreamble = *msg.Preamble
+			}
 			assert.EqualValues(t, tc.expected, actualContent)
 			if tc.expectRaw {
 				assert.EqualValues(t, tc.expected, actualRaw)
+				assert.EqualValues(t, tc.expected, actualPreamble)
 			} else {
 				assert.EqualValues(t, "", actualRaw)
+				assert.EqualValues(t, "", actualPreamble)
 			}
 			assert.EqualValues(t, tc.expectInterim, msg.Interim)
 		})
