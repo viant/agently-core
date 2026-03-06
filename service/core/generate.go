@@ -393,7 +393,7 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 	return nil
 }
 
-func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) error {
+func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
 
 	// Inject recorder observer with price resolver (if available) so per-call cost is computed.
 	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
@@ -405,6 +405,22 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	} else {
 		ctx = modelcallctx.WithRecorderObserver(ctx, s.convClient)
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = modelcallctx.CloseIfOpen(ctx, modelcallctx.Info{
+				CompletedAt: time.Now(),
+				Err:         fmt.Sprintf("panic: %v", r),
+			})
+			panic(r)
+		}
+		if retErr == nil {
+			return
+		}
+		_ = modelcallctx.CloseIfOpen(ctx, modelcallctx.Info{
+			CompletedAt: time.Now(),
+			Err:         strings.TrimSpace(retErr.Error()),
+		})
+	}()
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err
@@ -628,8 +644,11 @@ func isTransientNetworkError(err error) bool {
 		strings.Contains(msg, "temporary network error"),
 		strings.Contains(msg, "server closed idle connection"):
 		return true
-	// Treat common HTTP 5xx gateway/availability errors as transient
-	case strings.Contains(msg, "status 502"),
+	// Treat common HTTP 5xx provider availability errors as transient
+	case strings.Contains(msg, "status 500"),
+		strings.Contains(msg, "internal server error"),
+		strings.Contains(msg, "type=server_error"),
+		strings.Contains(msg, "status 502"),
 		strings.Contains(msg, "502 bad gateway"),
 		strings.Contains(msg, "bad gateway"),
 		strings.Contains(msg, "status 503"),

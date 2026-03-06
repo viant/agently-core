@@ -3,32 +3,40 @@ package agent
 import (
 	"context"
 	"errors"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"testing"
 )
 
 // stubConv implements apiconv.Client for testing retry behavior.
 type stubConv struct {
-	seq    []error
-	idx    int
-	result *apiconv.Conversation
+	seq     []error
+	idx     int
+	result  *apiconv.Conversation
+	results []*apiconv.Conversation
 }
 
 func (s *stubConv) nextErr() error {
 	if s.idx >= len(s.seq) {
 		return nil
 	}
-	e := s.seq[s.idx]
-	s.idx++
-	return e
+	return s.seq[s.idx]
 }
 
 func (s *stubConv) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
-	if err := s.nextErr(); err != nil {
+	err := s.nextErr()
+	var res *apiconv.Conversation
+	if s.idx < len(s.results) {
+		res = s.results[s.idx]
+	} else {
+		res = s.result
+	}
+	s.idx++
+	if err != nil {
 		return nil, err
 	}
-	return s.result, nil
+	return res, nil
 }
 
 // Unused interface members for this test
@@ -38,9 +46,13 @@ func (s *stubConv) GetConversations(context.Context, *apiconv.Input) ([]*apiconv
 func (s *stubConv) PatchConversations(context.Context, *apiconv.MutableConversation) error {
 	return nil
 }
-func (s *stubConv) GetPayload(context.Context, string) (*apiconv.Payload, error) { return nil, nil }
-func (s *stubConv) PatchPayload(context.Context, *apiconv.MutablePayload) error  { return nil }
-func (s *stubConv) PatchMessage(context.Context, *apiconv.MutableMessage) error  { return nil }
+func (s *stubConv) GetPayload(context.Context, string) (*apiconv.Payload, error) {
+	return nil, nil
+}
+func (s *stubConv) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+	return nil
+}
+func (s *stubConv) PatchMessage(context.Context, *apiconv.MutableMessage) error { return nil }
 func (s *stubConv) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
 	return nil, nil
 }
@@ -61,23 +73,40 @@ func TestFetchConversationWithRetry(t *testing.T) {
 		name    string
 		seq     []error
 		result  *apiconv.Conversation
+		results []*apiconv.Conversation
 		wantErr bool
 	}{
 		{name: "success-first", seq: nil, result: &apiconv.Conversation{Id: "A"}},
 		{name: "retry-then-success", seq: []error{transient, transient}, result: &apiconv.Conversation{Id: "B"}},
 		{name: "fatal-no-retry", seq: []error{fatal}, result: nil, wantErr: true},
 		{name: "nil-conversation", seq: nil, result: nil, wantErr: true},
+		{name: "nil-then-success", seq: nil, results: []*apiconv.Conversation{nil, &apiconv.Conversation{Id: "C"}}},
 	}
 
 	for _, tc := range cases {
 		svc := &Service{}
-		svc.conversation = &stubConv{seq: tc.seq, result: tc.result}
+		svc.conversation = &stubConv{seq: tc.seq, result: tc.result, results: tc.results}
 		got, err := svc.fetchConversationWithRetry(context.Background(), "X")
 		if tc.wantErr {
 			assert.NotNil(t, err, tc.name)
 			continue
 		}
 		assert.Nil(t, err, tc.name)
+		if len(tc.results) > 0 {
+			assert.EqualValues(t, tc.results[len(tc.results)-1], got, tc.name)
+			continue
+		}
 		assert.EqualValues(t, tc.result, got, tc.name)
 	}
+}
+
+func TestFetchConversationWithRetry_CanceledContext(t *testing.T) {
+	svc := &Service{}
+	svc.conversation = &stubConv{result: nil}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.fetchConversationWithRetry(ctx, "X")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "conversation fetch canceled")
 }

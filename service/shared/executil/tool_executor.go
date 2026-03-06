@@ -12,7 +12,6 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	plan "github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
@@ -21,9 +20,10 @@ import (
 )
 
 const (
-	SystemDocumentTag   = "system_doc"
-	SystemDocumentMode  = "system_document"
-	ResourceDocumentTag = "resource_doc"
+	SystemDocumentTag    = "system_doc"
+	SystemDocumentMode   = "system_document"
+	ResourceDocumentTag  = "resource_doc"
+	finalizeWriteTimeout = 15 * time.Second
 )
 
 var errToolQueued = errors.New("tool execution queued for approval")
@@ -39,8 +39,8 @@ type StepInfo struct {
 
 // ExecuteToolStep runs a tool via the registry, records transcript, and updates traces.
 // Returns normalized plan.ToolCall, span and any combined error.
-func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (plan.ToolCall, plan.CallSpan, error) {
-	span := plan.CallSpan{StartedAt: time.Now()}
+func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (out plan.ToolCall, span plan.CallSpan, retErr error) {
+	span = plan.CallSpan{StartedAt: time.Now()}
 	errs := make([]error, 0, 6)
 	if strings.TrimSpace(step.ID) == "" {
 		step.ID = "tool-" + uuid.NewString()
@@ -48,7 +48,8 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	turn, ok := memory.TurnMetaFromContext(ctx)
 	if !ok {
-		return plan.ToolCall{}, span, fmt.Errorf("turn meta not found")
+		retErr = fmt.Errorf("turn meta not found")
+		return
 	}
 	argsJSON := ""
 	if debugConvEnabled() && len(step.Args) > 0 {
@@ -59,17 +60,55 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 	}
 	debugConvf("tool execute start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512))
+	toolMsgID := ""
+	toolCallStarted := false
+	toolCallClosed := false
+	forcedStatus := ""
+	// Ensure started tool calls never remain non-terminal on abort/early exits.
+	// Conversation terminal status is owned by turn finalization.
+	defer func() {
+		if !toolCallStarted || strings.TrimSpace(toolMsgID) == "" {
+			return
+		}
+		status := strings.TrimSpace(forcedStatus)
+		if status == "" {
+			if errors.Is(retErr, context.Canceled) || errors.Is(retErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				status = "canceled"
+			} else {
+				status = "failed"
+			}
+		}
+		errMsg := ""
+		if status == "failed" {
+			if retErr != nil {
+				errMsg = retErr.Error()
+			} else if cerr := ctx.Err(); cerr != nil {
+				errMsg = cerr.Error()
+			} else {
+				errMsg = "forced close on abort"
+			}
+		}
+		finCtx, cancelFin := detachedFinalizeCtx(ctx)
+		defer cancelFin()
+		warnConvf("tool force close convo=%q turn=%q op_id=%q tool=%q status=%q ret_err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), strings.TrimSpace(errMsg), strings.TrimSpace(formatContextErr(ctx)))
+		if !toolCallClosed {
+			_ = completeToolCall(finCtx, conv, toolMsgID, step.ID, status, time.Now(), "", errMsg)
+		}
+	}()
 
 	// 1) Create tool message
 	toolMsgID, err := createToolMessage(ctx, conv, turn, span.StartedAt)
 	if err != nil {
-		return plan.ToolCall{}, span, err
+		retErr = err
+		return
 	}
 
 	// 2) Initialize tool call (running) with LLM op id
 	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, span.StartedAt, step.ResponseID); err != nil {
-		return plan.ToolCall{}, span, err
+		retErr = err
+		return
 	}
+	toolCallStarted = true
 
 	// 3) Persist request payload
 	if len(step.Args) > 0 {
@@ -80,12 +119,26 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 4) Execute tool with a bounded context so one stuck call won't hang the run
 	// Apply per-tool timeout when available (scoped registry exposes TimeoutResolver directly).
+	registryTimeout := time.Duration(0)
 	if tr, ok := reg.(tool.TimeoutResolver); ok {
 		if d, ok2 := tr.ToolTimeout(step.Name); ok2 && d > 0 {
+			registryTimeout = d
 			ctx = WithToolTimeout(ctx, d)
 		}
 	}
-	out, toolResult, execErr := executeToolWithRetry(ctx, reg, step, conv)
+	wrapperTimeout, wrapperTimeoutOK := toolTimeoutFromContext(ctx)
+	argsTimeoutMs, hasArgsTimeout := timeoutMsFromArgs(step.Args)
+	ctxDeadline, ctxRemaining := formatContextDeadline(ctx)
+	if hasArgsTimeout {
+		debugConvf("tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=%q args_timeout_ms=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String(), wrapperTimeout.String(), argsTimeoutMs)
+	} else if wrapperTimeoutOK {
+		debugConvf("tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=%q args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String(), wrapperTimeout.String())
+	} else {
+		debugConvf("tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=default args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String())
+	}
+	var toolResult string
+	var execErr error
+	out, toolResult, execErr = executeToolWithRetry(ctx, reg, step, conv)
 	// Optionally wrap overflow with YAML helper when native continuation is not supported.
 	if wrapped := maybeWrapOverflow(ctx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
 		toolResult = wrapped
@@ -98,24 +151,17 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	if execErr != nil {
 		errs = append(errs, fmt.Errorf("execute tool: %w", execErr))
+		cause := classifyTimeoutCause(ctx, nil, execErr)
+		warnConvf("tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
 	}
 	span.SetEnd(time.Now())
 
-	// 5) Persist side effects + response payload (use background when canceled to avoid DB write cancellation)
-	persistCtx := ctx
-	if ctx.Err() == context.Canceled {
-		persistCtx = context.Background()
-	}
-
+	// 5) Persist side effects + response payload.
 	if strings.TrimSpace(toolResult) != "" {
-		docCtx := ctx
-		if ctx.Err() != nil {
-			docCtx = context.Background()
-		}
-		if err := persistDocumentsIfNeeded(docCtx, reg, conv, turn, step.Name, toolResult); err != nil {
+		if err := persistDocumentsIfNeeded(ctx, reg, conv, turn, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("emit system content: %w", err))
 		}
-		if err := persistToolImageAttachmentIfNeeded(docCtx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
+		if err := persistToolImageAttachmentIfNeeded(ctx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("persist tool attachments: %w", err))
 		}
 		if redacted, ok := redactToolResultIfNeeded(step.Name, toolResult); ok {
@@ -124,7 +170,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 	}
 
-	respID, respErr := persistResponsePayload(persistCtx, conv, toolResult)
+	respID, respErr := persistResponsePayload(ctx, conv, toolResult)
 	if respErr != nil {
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
 	}
@@ -134,22 +180,18 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	//	errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
 	//}
 
-	// 7) Finish tool call (record error message when present)
+	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx)
-	// Use background for final write when terminated to avoid canceled ctx
-	finCtx := ctx
-	if status == "canceled" {
-		finCtx = context.Background()
-	}
+	forcedStatus = status
+	// Use detached + bounded context for terminal writes.
+	finCtx, cancelFin := detachedFinalizeCtx(ctx)
+	defer cancelFin()
 	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, status, span.EndedAt, respID, errMsg); cErr != nil {
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
-	}
-	patchErr := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
-	if patchErr != nil {
-		errs = append(errs, fmt.Errorf("patch conversations call: %w", patchErr))
+	} else {
+		toolCallClosed = true
 	}
 
-	var retErr error
 	if len(errs) > 0 {
 		retErr = errors.Join(errs...)
 	}
@@ -160,7 +202,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	}
 
-	return out, span, retErr
+	return
 }
 
 // SynthesizeToolStep persists a tool call using a precomputed result without
@@ -207,10 +249,11 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	// Complete tool call
 	status := "completed"
 	completedAt := time.Now()
-	if cErr := completeToolCall(ctx, conv, toolMsgID, step.ID, status, completedAt, respID, ""); cErr != nil {
+	finCtx, cancelFin := detachedFinalizeCtx(ctx)
+	defer cancelFin()
+	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, status, completedAt, respID, ""); cErr != nil {
 		return fmt.Errorf("complete tool call: %w", cErr)
 	}
-	_ = conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, status))
 	debugConvf("tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	return nil
 }
@@ -258,6 +301,13 @@ func resolveToolStatus(execErr error, parentCtx context.Context) (string, string
 		status = "canceled"
 	}
 	return status, errMsg
+}
+
+func detachedFinalizeCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.WithTimeout(context.Background(), finalizeWriteTimeout)
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), finalizeWriteTimeout)
 }
 
 type toolApprovalQueueWriter interface {
