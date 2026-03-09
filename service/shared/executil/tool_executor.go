@@ -97,7 +97,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}()
 
 	// 1) Create tool message
-	toolMsgID, err := createToolMessage(ctx, conv, turn, span.StartedAt)
+	toolMsgID, err := createToolMessage(ctx, conv, turn, span.StartedAt, step.Name)
 	if err != nil {
 		retErr = err
 		return
@@ -227,7 +227,7 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	}
 	debugConvf("tool synth start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512), len(toolResult))
 	startedAt := time.Now()
-	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt)
+	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt, step.Name)
 	if err != nil {
 		return err
 	}

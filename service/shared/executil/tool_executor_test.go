@@ -67,22 +67,22 @@ func TestMaybePersistSystemDocuments(t *testing.T) {
 	msg := conv.insertedMessages[0]
 	assert.Equal(t, "system", msg.Role)
 	assert.Equal(t, "c1", msg.ConversationID)
-	assert.Contains(t, msg.Content, "System Playbook")
+	assert.Contains(t, derefString(msg.Content), "System Playbook")
 	msgUser := conv.insertedMessages[1]
 	assert.Equal(t, "user", msgUser.Role)
-	assert.Contains(t, msgUser.Content, "user notes")
+	assert.Contains(t, derefString(msgUser.Content), "user notes")
 
 	// metadata patch for system doc
 	var meta *apiconv.MutableMessage
 	for _, patched := range conv.patchedMessages {
-		if patched != nil && strings.EqualFold(*patched.Mode, SystemDocumentMode) {
+		if patched != nil && strings.EqualFold(derefString(patched.Mode), SystemDocumentMode) {
 			meta = patched
 			break
 		}
 	}
 	require.NotNil(t, meta)
-	assert.Equal(t, SystemDocumentMode, meta.Mode)
-	assert.Equal(t, SystemDocumentTag, derefString(meta.Tags))
+	assert.Equal(t, SystemDocumentMode, derefString(meta.Mode))
+	assert.Contains(t, strings.Split(derefString(meta.Tags), ","), SystemDocumentTag)
 	assert.Equal(t, "workspace://localhost/sys/doc.md", derefString(meta.ContextSummary))
 
 	conv2 := &stubConv{}
@@ -279,7 +279,7 @@ func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 		if p == nil || p.Has == nil || !p.Has.Kind {
 			continue
 		}
-		if p.Kind == "attachment" && strings.EqualFold(p.MimeType, "image/png") {
+		if p.Kind == "model_request" && strings.EqualFold(p.MimeType, "image/png") {
 			sawAttachmentPayload = true
 			if p.InlineBody != nil {
 				assert.EqualValues(t, []byte{1, 2, 3}, []byte(*p.InlineBody))
@@ -297,6 +297,47 @@ func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 		break
 	}
 	assert.EqualValues(t, true, sawLink)
+}
+
+func TestExecuteToolStep_PersistsToolMessageNameAndStatus(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-tool", TurnID: "t-tool", ParentMessageID: "p-tool"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"value":"adrianwitas"}`}}}
+	conv := &stubConv{}
+
+	step := StepInfo{
+		ID:         "call-tool",
+		Name:       "system_os-getEnv",
+		Args:       map[string]interface{}{"names": []string{"USER"}},
+		ResponseID: "resp-tool",
+	}
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+	require.NotEmpty(t, conv.patchedMessages)
+
+	var sawRunningInsert bool
+	var sawCompletedPatch bool
+	var toolMsgID string
+	for _, msg := range conv.patchedMessages {
+		if msg == nil {
+			continue
+		}
+		if derefString(msg.ToolName) != "system_os-getEnv" {
+			if toolMsgID == "" || msg.Id != toolMsgID {
+				continue
+			}
+		}
+		if derefString(msg.Status) == "running" {
+			sawRunningInsert = true
+			toolMsgID = msg.Id
+		}
+		if toolMsgID != "" && msg.Id == toolMsgID && derefString(msg.Status) == "completed" {
+			sawCompletedPatch = true
+		}
+	}
+
+	assert.True(t, sawRunningInsert, "expected tool_op insert with running status and tool name")
+	assert.True(t, sawCompletedPatch, "expected tool_op patch with terminal completed status")
 }
 
 type stubConv struct {
@@ -343,7 +384,7 @@ func (s *stubConv) PatchPayload(_ context.Context, payload *apiconv.MutablePaylo
 
 func (s *stubConv) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
 	s.patchedMessages = append(s.patchedMessages, message)
-	if message != nil && strings.TrimSpace(*message.Content) != "" {
+	if message != nil && strings.TrimSpace(derefString(message.Content)) != "" {
 		s.insertedMessages = append(s.insertedMessages, message)
 	}
 	return nil

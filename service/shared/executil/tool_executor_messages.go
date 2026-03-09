@@ -13,13 +13,17 @@ import (
 )
 
 // createToolMessage persists a new tool message and returns its ID.
-func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time) (string, error) {
+func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time, toolName string) (string, error) {
 	toolMsgID := uuid.New().String()
 	opts := []apiconv.MessageOption{
 		apiconv.WithId(toolMsgID),
 		apiconv.WithRole("tool"),
 		apiconv.WithType("tool_op"),
+		apiconv.WithStatus("running"),
 		apiconv.WithCreatedAt(startedAt),
+	}
+	if name := strings.TrimSpace(toolName); name != "" {
+		opts = append(opts, apiconv.WithToolName(name))
 	}
 	if IsChainMode(ctx) {
 		opts = append(opts, apiconv.WithMode("chain"))
@@ -29,6 +33,16 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 		return "", fmt.Errorf("persist tool message: %w", err)
 	}
 	return msg.Id, nil
+}
+
+func updateToolMessageStatus(ctx context.Context, conv apiconv.Client, toolMsgID, status string) error {
+	if conv == nil || strings.TrimSpace(toolMsgID) == "" || strings.TrimSpace(status) == "" {
+		return nil
+	}
+	upd := apiconv.NewMessage()
+	upd.SetId(toolMsgID)
+	upd.SetStatus(status)
+	return conv.PatchMessage(ctx, upd)
 }
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
@@ -85,6 +99,8 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 		updTC.ErrorMessage = &errMsg
 		updTC.Has.ErrorMessage = true
 	}
-
-	return conv.PatchToolCall(ctx, updTC)
+	if err := conv.PatchToolCall(ctx, updTC); err != nil {
+		return err
+	}
+	return updateToolMessageStatus(ctx, conv, toolMsgID, status)
 }

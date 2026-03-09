@@ -86,6 +86,45 @@ func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 	assert.EqualValues(t, "Using resources-roots.", aPlan.Steps[0].Reason)
 }
 
+func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreamingDeltas(t *testing.T) {
+	service := &Service{}
+	aPlan := plan.New()
+	choice1 := &llm.Choice{
+		Message: llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{{
+				Name: "system_patch-apply",
+				Function: llm.FunctionCall{
+					Name:      "system_patch-apply",
+					Arguments: "{\"patch\":\"*** Begin Patch",
+				},
+			}},
+		},
+		FinishReason: "tool_calls",
+	}
+	choice2 := &llm.Choice{
+		Message: llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{{
+				Name: "system_patch-apply",
+				Function: llm.FunctionCall{
+					Name:      "system_patch-apply",
+					Arguments: "{\"patch\":\"*** Begin Patch\\n*** Add File: add_test.go\\n+package main\\n\",\"workdir\":\"/tmp/change-repo2\"}",
+				},
+			}},
+		},
+		FinishReason: "tool_calls",
+	}
+
+	service.extendPlanWithToolCalls("resp-stream", choice1, aPlan)
+	service.extendPlanWithToolCalls("resp-stream", choice2, aPlan)
+
+	require.Len(t, aPlan.Steps, 1)
+	assert.Equal(t, "resp-stream:0:system_patch-apply", aPlan.Steps[0].ID)
+	require.NotNil(t, aPlan.Steps[0].Args)
+	assert.Equal(t, "/tmp/change-repo2", aPlan.Steps[0].Args["workdir"])
+}
+
 func TestService_patchStreamingToolPreamble_PatchesAssistantMessage(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
