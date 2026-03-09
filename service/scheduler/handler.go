@@ -47,7 +47,10 @@ func (h *Handler) handleGetSchedule() http.HandlerFunc {
 			httpError(w, http.StatusNotFound, fmt.Errorf("schedule %s not found", id))
 			return
 		}
-		httpJSON(w, http.StatusOK, sched)
+		httpJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "ok",
+			"data":   sched,
+		})
 	}
 }
 
@@ -58,7 +61,12 @@ func (h *Handler) handleListSchedules() http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		httpJSON(w, http.StatusOK, map[string]interface{}{"schedules": list})
+		httpJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "ok",
+			"data": map[string]interface{}{
+				"schedules": list,
+			},
+		})
 	}
 }
 
@@ -105,5 +113,8 @@ func httpJSON(w http.ResponseWriter, code int, v interface{}) {
 func httpError(w http.ResponseWriter, code int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "error",
+		"error":  err.Error(),
+	})
 }

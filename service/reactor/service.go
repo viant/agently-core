@@ -577,7 +577,7 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 		reason = strings.TrimSpace(modelcall.AssistantPreambleFromResponse(resp, ""))
 	}
 	steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
-	for _, tc := range choice.Message.ToolCalls {
+	for idx, tc := range choice.Message.ToolCalls {
 		name := tc.Name
 		args := tc.Arguments
 		if name == "" && tc.Function.Name != "" {
@@ -589,20 +589,20 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 				args = parsed
 			}
 		}
-		if prev := aPlan.Steps.Find(tc.ID); prev != nil {
+		stepID := strings.TrimSpace(tc.ID)
+		if stepID == "" {
+			stepID = fallbackToolStepID(responseID, idx, name)
+		}
+
+		if prev := aPlan.Steps.Find(stepID); prev != nil {
 			prev.Name = name
 			prev.Args = args
 			prev.Reason = reason
 			continue
 		}
 
-		// for gemini compatibility
-		if tc.ID == "" {
-			tc.ID = "call_" + uuid.New().String()
-		}
-
 		steps = append(steps, plan.Step{
-			ID:         tc.ID,
+			ID:         stepID,
 			Type:       "tool",
 			Name:       name,
 			Args:       args,
@@ -611,6 +611,18 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 		})
 	}
 	aPlan.Steps = append(aPlan.Steps, steps...)
+}
+
+func fallbackToolStepID(responseID string, idx int, name string) string {
+	base := strings.TrimSpace(responseID)
+	if base == "" {
+		base = "stream"
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "tool"
+	}
+	return fmt.Sprintf("%s:%d:%s", base, idx, name)
 }
 
 func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Choice) {
