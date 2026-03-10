@@ -236,6 +236,12 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		if len(got.Transcript) == 0 {
 			t.Fatalf("expected transcript when includeTranscript=true")
 		}
+		if got.Stage == "" {
+			t.Fatalf("expected computed conversation stage")
+		}
+		if got.Transcript[0].Stage == "" {
+			t.Fatalf("expected computed transcript stage")
+		}
 	})
 
 	t.Run("include model call false", func(t *testing.T) {

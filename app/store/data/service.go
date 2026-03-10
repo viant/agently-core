@@ -212,6 +212,7 @@ func (s *datlyService) GetConversation(ctx context.Context, id string, in *agcon
 	if len(out.Data) == 0 {
 		return nil, nil
 	}
+	out.Data[0].OnRelation(ctx)
 	if err := authorizeConversation(out.Data[0], callOpts); err != nil {
 		return nil, err
 	}
