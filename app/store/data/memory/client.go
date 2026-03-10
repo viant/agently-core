@@ -176,6 +176,7 @@ func (c *Client) GetConversation(ctx context.Context, id string, options ...conv
 	cp.Usage = c.aggregateUsage(id)
 	applySinceFilter(cp, &in)
 	applyIncludeFlags(cp, &in)
+	cp.OnRelation(ctx)
 
 	return toClientConversation(cp), nil
 }
