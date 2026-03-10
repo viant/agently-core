@@ -32,12 +32,32 @@ pipeline:
 
   verifyChildConversation:
     when: $sdkKey != ''
-    action: http/runner:send
+    action: exec:run
     description: "agents-run link - linked child conversation exists"
-    requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${verifyLinkedToolMessage.Responses[0].JSONBody.Rows[0].LinkedConversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
+    checkError: true
+    commands:
+      - |
+        python3 - <<'PY'
+        import json
+        import sys
+        import urllib.request
+
+        server_url = "${serverURL}"
+        parent_conversation_id = "${runDelegation.Responses[0].JSONBody.conversationId}"
+        tool_messages_url = f"{server_url}/v1/messages?conversationId={parent_conversation_id}&types=tool_op"
+        with urllib.request.urlopen(tool_messages_url) as response:
+            payload = json.load(response)
+        rows = payload.get("Rows") or []
+        if not rows:
+            raise SystemExit("no tool_op rows returned")
+        linked_conversation_id = str(rows[0].get("LinkedConversationId") or "").strip()
+        if not linked_conversation_id:
+            raise SystemExit("linked conversation id missing")
+
+        child_url = f"{server_url}/v1/conversations/{linked_conversation_id}"
+        with urllib.request.urlopen(child_url) as response:
+            child_payload = json.load(response)
+        if not isinstance(child_payload, dict) or not str(child_payload.get("Id") or "").strip():
+            raise SystemExit("child conversation payload missing Id")
+        print(linked_conversation_id)
+        PY
