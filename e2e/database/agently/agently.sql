@@ -200,9 +200,9 @@ CREATE TABLE `message` (
   CONSTRAINT `fk_message_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_message_elicitation_payload` FOREIGN KEY (`elicitation_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_message_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `message_chk_1` CHECK (((`status` is null) or (`status` in (_utf8mb4'',_utf8mb4'pending',_utf8mb4'accepted',_utf8mb4'rejected',_utf8mb4'cancel',_utf8mb4'open',_utf8mb4'summary',_utf8mb4'summarized',_utf8mb4'completed',_utf8mb4'error')))),
+  CONSTRAINT `message_chk_1` CHECK (((`status` is null) or (`status` in (_utf8mb4'',_utf8mb4'pending',_utf8mb4'accepted',_utf8mb4'rejected',_utf8mb4'cancel',_utf8mb4'open',_utf8mb4'summary',_utf8mb4'summarized',_utf8mb4'completed',_utf8mb4'error',_utf8mb4'running',_utf8mb4'failed',_utf8mb4'canceled')))),
   CONSTRAINT `message_chk_2` CHECK ((`role` in (_utf8mb4'system',_utf8mb4'user',_utf8mb4'assistant',_utf8mb4'tool',_utf8mb4'chain'))),
-  CONSTRAINT `message_chk_3` CHECK ((`type` in (_utf8mb4'text',_utf8mb4'tool_op',_utf8mb4'control'))),
+  CONSTRAINT `message_chk_3` CHECK ((`type` in (_utf8mb4'text',_utf8mb4'tool_op',_utf8mb4'control',_utf8mb4'task',_utf8mb4'elicitation_response'))),
   CONSTRAINT `message_chk_4` CHECK ((`interim` in (0,1)))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
