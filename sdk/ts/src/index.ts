@@ -19,7 +19,7 @@ export type {
     Direction, PageInput, PageOutput,
     // Conversation
     Conversation, ConversationPage, CreateConversationInput,
-    ListConversationsInput, UpdateConversationVisibilityInput,
+    ListConversationsInput, UpdateConversationInput,
     // Turn / Transcript
     Turn, TranscriptOutput, GetTranscriptInput,
     // Message
@@ -43,6 +43,8 @@ export type {
     Resource, ResourceRef,
     // Run
     RunView,
+    // Scheduler
+    Schedule, ScheduleListOutput,
 } from './types';
 
 // Streaming reconciliation

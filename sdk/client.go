@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	"github.com/viant/agently-core/service/scheduler"
 )
 
 var (
@@ -42,9 +43,8 @@ type Client interface {
 
 	// GetConversation retrieves a single conversation by ID.
 	GetConversation(ctx context.Context, id string) (*conversation.Conversation, error)
-	// UpdateConversationVisibility updates conversation visibility (private|public)
-	// and shareability for a specific conversation.
-	UpdateConversationVisibility(ctx context.Context, input *UpdateConversationVisibilityInput) (*conversation.Conversation, error)
+	// UpdateConversation updates mutable conversation fields such as visibility and shareability.
+	UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error)
 
 	// GetRun returns the current state of a run.
 	GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error)
@@ -121,4 +121,16 @@ type Client interface {
 
 	// ListA2AAgents returns agent IDs that have A2A serving enabled.
 	ListA2AAgents(ctx context.Context, agentIDs []string) ([]string, error)
+
+	// GetSchedule returns a schedule by ID.
+	GetSchedule(ctx context.Context, id string) (*scheduler.Schedule, error)
+
+	// ListSchedules returns all schedules visible to the caller.
+	ListSchedules(ctx context.Context) ([]*scheduler.Schedule, error)
+
+	// UpsertSchedules creates or updates schedules in batch.
+	UpsertSchedules(ctx context.Context, schedules []*scheduler.Schedule) error
+
+	// RunScheduleNow triggers immediate execution of a schedule.
+	RunScheduleNow(ctx context.Context, id string) error
 }

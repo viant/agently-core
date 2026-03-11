@@ -52,7 +52,7 @@ export interface CreateConversationInput {
     metadata?: Record<string, any>;
 }
 
-export interface UpdateConversationVisibilityInput {
+export interface UpdateConversationInput {
     visibility?: string;
     shareable?: boolean;
 }
@@ -391,4 +391,30 @@ export interface RunView {
     provider?: string;
     status?: string;
     createdAt?: string;
+}
+
+// ─── Scheduler ──────────────────────────────────────────────────────────────────
+
+export interface Schedule {
+    id: string;
+    name: string;
+    agentRef: string;
+    createdByUserId?: string;
+    visibility?: string;
+    enabled: boolean;
+    scheduleType: string;
+    cronExpr?: string;
+    intervalSeconds?: number;
+    timezone?: string;
+    taskPrompt?: string;
+    taskPromptUri?: string;
+    userCredUrl?: string;
+    nextRunAt?: string;
+    lastRunAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ScheduleListOutput {
+    schedules: Schedule[];
 }

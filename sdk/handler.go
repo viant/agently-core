@@ -145,7 +145,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 
 	mux.HandleFunc("POST /v1/conversations", handleCreateConversation(client))
 	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client))
-	mux.HandleFunc("PATCH /v1/conversations/{id}/visibility", handleUpdateConversationVisibility(client))
+	mux.HandleFunc("PATCH /v1/conversations/{id}", handleUpdateConversation(client))
 	mux.HandleFunc("GET /v1/conversations", handleListConversations(client))
 
 	mux.HandleFunc("GET /v1/messages", handleGetMessages(client))
@@ -379,7 +379,7 @@ func handleGetConversation(client Client) http.HandlerFunc {
 	}
 }
 
-func handleUpdateConversationVisibility(client Client) http.HandlerFunc {
+func handleUpdateConversation(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
@@ -394,12 +394,12 @@ func handleUpdateConversationVisibility(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		input := &UpdateConversationVisibilityInput{
+		input := &UpdateConversationInput{
 			ConversationID: id,
 			Visibility:     strings.TrimSpace(body.Visibility),
 			Shareable:      body.Shareable,
 		}
-		out, err := client.UpdateConversationVisibility(r.Context(), input)
+		out, err := client.UpdateConversation(r.Context(), input)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return

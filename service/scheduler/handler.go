@@ -80,7 +80,7 @@ func (h *Handler) handleBatchUpdate() http.HandlerFunc {
 			return
 		}
 		for _, s := range body.Schedules {
-			if err := h.svc.Upsert(s); err != nil {
+			if err := h.svc.Upsert(r.Context(), s); err != nil {
 				httpError(w, http.StatusInternalServerError, err)
 				return
 			}
