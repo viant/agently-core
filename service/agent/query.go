@@ -68,6 +68,10 @@ type QueryInput struct {
 	// Valid values (OpenAI o-series): low | medium | high.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 
+	// ScheduleId links this query to the schedule that triggered it.
+	// When set, the created conversation will have schedule_id populated.
+	ScheduleId string `json:"scheduleId,omitempty"`
+
 	// IsNewConversation indicates if this is a new conversation without prior history.
 	IsNewConversation bool `json:"-"`
 	// SkipInitialUserMessage tells Query to reuse an already persisted starter

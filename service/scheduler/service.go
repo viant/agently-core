@@ -135,9 +135,24 @@ func (s *Service) execute(ctx context.Context, sched *Schedule) error {
 		return fmt.Errorf("schedule %s has no task prompt", sched.ID)
 	}
 
+	// Determine the effective user ID: prefer context, fall back to schedule creator,
+	// then fall back to "system" so unauthenticated / cron-triggered runs still work.
+	userID := strings.TrimSpace(iauth.EffectiveUserID(ctx))
+	if userID == "" && sched.CreatedByUserID != nil {
+		userID = strings.TrimSpace(*sched.CreatedByUserID)
+	}
+	if userID == "" {
+		userID = "system"
+	}
+	if strings.TrimSpace(iauth.EffectiveUserID(ctx)) == "" {
+		ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: userID})
+	}
+
 	input := &agentsvc.QueryInput{
-		AgentID: sched.AgentRef,
-		Query:   prompt,
+		AgentID:    sched.AgentRef,
+		Query:      prompt,
+		UserId:     userID,
+		ScheduleId: sched.ID,
 	}
 	out := &agentsvc.QueryOutput{}
 	if err := s.agent.Query(ctx, input, out); err != nil {
