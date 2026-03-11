@@ -187,6 +187,9 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		if owner != "" {
 			patch.SetCreatedByUserID(owner)
 		}
+		if schedID := strings.TrimSpace(input.ScheduleId); schedID != "" {
+			patch.SetScheduleId(schedID)
+		}
 		needsPatch = true
 	}
 	if strings.TrimSpace(input.ModelOverride) != "" {
