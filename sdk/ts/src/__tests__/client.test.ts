@@ -89,10 +89,10 @@ describe('Conversations', () => {
         expect(call.url).toBe('http://localhost:8585/v1/conversations/conv_1');
     });
 
-    it('updateConversationVisibility sends PATCH', async () => {
+    it('updateConversation sends PATCH', async () => {
         const f = mockFetch(200, { id: 'conv_1', visibility: 'public' });
         const c = client(f);
-        await c.updateConversationVisibility('conv_1', { visibility: 'public', shareable: true });
+        await c.updateConversation('conv_1', { visibility: 'public', shareable: true });
 
         const call = lastCall(f);
         expect(call.method).toBe('PATCH');
@@ -527,6 +527,65 @@ describe('URL Encoding', () => {
 
         const call = lastCall(f);
         expect(call.url).toContain('conv%2Fwith%2Fslashes');
+    });
+});
+
+// ─── Scheduler ─────────────────────────────────────────────────────────────
+
+describe('Scheduler', () => {
+    it('getSchedule sends GET with ID', async () => {
+        const f = mockFetch(200, { id: 'sched_1', name: 'Daily Sync', enabled: true });
+        const c = client(f);
+        const res = await c.getSchedule('sched_1');
+
+        expect(res.id).toBe('sched_1');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/api/agently/scheduler/schedule/sched_1');
+    });
+
+    it('listSchedules sends GET', async () => {
+        const f = mockFetch(200, { schedules: [{ id: 's1', name: 'Nightly' }] });
+        const c = client(f);
+        const res = await c.listSchedules();
+
+        expect(res.schedules).toHaveLength(1);
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/api/agently/scheduler/');
+    });
+
+    it('upsertSchedules sends PATCH with schedules body', async () => {
+        const f = mockFetch(204, '');
+        const c = client(f);
+        await c.upsertSchedules([
+            { id: 's1', name: 'Daily', agentRef: 'coder', enabled: true, scheduleType: 'cron', cronExpr: '0 9 * * *', createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z' },
+        ]);
+
+        const call = lastCall(f);
+        expect(call.method).toBe('PATCH');
+        expect(call.url).toBe('http://localhost:8585/v1/api/agently/scheduler/');
+        expect(call.body.schedules).toHaveLength(1);
+        expect(call.body.schedules[0].name).toBe('Daily');
+    });
+
+    it('runScheduleNow sends POST with ID', async () => {
+        const f = mockFetch(204, '');
+        const c = client(f);
+        await c.runScheduleNow('sched_1');
+
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/api/agently/scheduler/run-now/sched_1');
+    });
+
+    it('getSchedule encodes special characters in ID', async () => {
+        const f = mockFetch(200, { id: 'sched/1' });
+        const c = client(f);
+        await c.getSchedule('sched/1');
+
+        const call = lastCall(f);
+        expect(call.url).toContain('sched%2F1');
     });
 });
 

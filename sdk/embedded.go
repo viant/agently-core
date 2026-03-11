@@ -33,6 +33,7 @@ import (
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
 )
@@ -64,6 +65,7 @@ type EmbeddedClient struct {
 	streaming      streaming.Bus
 	store          workspace.Store
 	a2aSvc         *a2a.Service
+	schedulerSvc   *scheduler.Service
 }
 
 func NewEmbedded(agent *agentsvc.Service, conv conversation.Client) (*EmbeddedClient, error) {
@@ -131,7 +133,7 @@ func (c *EmbeddedClient) GetConversation(ctx context.Context, id string) (*conve
 	return c.conv.GetConversation(ctx, id)
 }
 
-func (c *EmbeddedClient) UpdateConversationVisibility(ctx context.Context, input *UpdateConversationVisibilityInput) (*conversation.Conversation, error) {
+func (c *EmbeddedClient) UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error) {
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
 	}
@@ -1262,6 +1264,44 @@ func (c *EmbeddedClient) ListA2AAgents(ctx context.Context, agentIDs []string) (
 		return nil, errors.New("A2A service not configured")
 	}
 	return c.a2aSvc.ListA2AAgents(ctx, agentIDs)
+}
+
+// SetScheduler sets the scheduler service on the embedded client.
+func (c *EmbeddedClient) SetScheduler(svc *scheduler.Service) {
+	c.schedulerSvc = svc
+}
+
+func (c *EmbeddedClient) GetSchedule(ctx context.Context, id string) (*scheduler.Schedule, error) {
+	if c.schedulerSvc == nil {
+		return nil, errors.New("scheduler service not configured")
+	}
+	return c.schedulerSvc.Get(ctx, id)
+}
+
+func (c *EmbeddedClient) ListSchedules(ctx context.Context) ([]*scheduler.Schedule, error) {
+	if c.schedulerSvc == nil {
+		return nil, errors.New("scheduler service not configured")
+	}
+	return c.schedulerSvc.List(ctx)
+}
+
+func (c *EmbeddedClient) UpsertSchedules(ctx context.Context, schedules []*scheduler.Schedule) error {
+	if c.schedulerSvc == nil {
+		return errors.New("scheduler service not configured")
+	}
+	for _, s := range schedules {
+		if err := c.schedulerSvc.Upsert(ctx, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *EmbeddedClient) RunScheduleNow(ctx context.Context, id string) error {
+	if c.schedulerSvc == nil {
+		return errors.New("scheduler service not configured")
+	}
+	return c.schedulerSvc.RunNow(ctx, id)
 }
 
 func isTurnLookupUnavailable(err error) bool {

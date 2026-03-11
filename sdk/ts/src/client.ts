@@ -12,7 +12,7 @@
 
 import type {
     Conversation, ConversationPage, CreateConversationInput, ListConversationsInput,
-    UpdateConversationVisibilityInput,
+    UpdateConversationInput,
     Message, MessagePage, GetMessagesInput,
     Turn, TranscriptOutput, GetTranscriptInput,
     QueryInput, QueryOutput,
@@ -22,6 +22,7 @@ import type {
     PendingToolApproval, DecideToolApprovalInput, DecideToolApprovalOutput,
     FileEntry, UploadFileOutput,
     Resource, ResourceRef, RunView,
+    Schedule, ScheduleListOutput,
 } from './types';
 import { HttpError } from './errors';
 
@@ -107,11 +108,11 @@ export class AgentlyClient {
         return this.get(`/conversations/${enc(id)}`);
     }
 
-    /** Update conversation visibility (private|public) and shareability. */
-    async updateConversationVisibility(
-        id: string, input: UpdateConversationVisibilityInput,
+    /** Update mutable conversation fields such as visibility and shareability. */
+    async updateConversation(
+        id: string, input: UpdateConversationInput,
     ): Promise<Conversation> {
-        return this.patch(`/conversations/${enc(id)}/visibility`, input);
+        return this.patch(`/conversations/${enc(id)}`, input);
     }
 
     // ── Messages ─────────────────────────────────────────────────────────────
@@ -434,6 +435,28 @@ export class AgentlyClient {
         if (Array.isArray(out?.agents)) return out.agents;
         if (Array.isArray(out)) return out;
         return [];
+    }
+
+    // ── Scheduler ─────────────────────────────────────────────────────────────
+
+    /** Get a single schedule by ID. */
+    async getSchedule(id: string): Promise<Schedule> {
+        return this.get(`/api/agently/scheduler/schedule/${enc(id)}`);
+    }
+
+    /** List all schedules. */
+    async listSchedules(): Promise<ScheduleListOutput> {
+        return this.get('/api/agently/scheduler/');
+    }
+
+    /** Batch create or update schedules. */
+    async upsertSchedules(schedules: Schedule[]): Promise<void> {
+        await this.patch('/api/agently/scheduler/', { schedules });
+    }
+
+    /** Trigger an immediate run of a schedule. */
+    async runScheduleNow(id: string): Promise<void> {
+        await this.post(`/api/agently/scheduler/run-now/${enc(id)}`, {});
     }
 
     // ── Internal HTTP ────────────────────────────────────────────────────────

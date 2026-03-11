@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	"github.com/viant/agently-core/service/scheduler"
 )
 
 func TestHTTPClient_Query(t *testing.T) {
@@ -56,7 +57,7 @@ func TestHTTPClient_GetConversation(t *testing.T) {
 	}
 }
 
-func TestHTTPClient_UpdateConversationVisibility(t *testing.T) {
+func TestHTTPClient_UpdateConversation(t *testing.T) {
 	var gotMethod string
 	var gotPath string
 	var gotBody struct {
@@ -82,18 +83,18 @@ func TestHTTPClient_UpdateConversationVisibility(t *testing.T) {
 		t.Fatalf("NewHTTP: %v", err)
 	}
 	shareable := true
-	out, err := c.UpdateConversationVisibility(context.Background(), &UpdateConversationVisibilityInput{
+	out, err := c.UpdateConversation(context.Background(), &UpdateConversationInput{
 		ConversationID: "c1",
 		Visibility:     "public",
 		Shareable:      &shareable,
 	})
 	if err != nil {
-		t.Fatalf("UpdateConversationVisibility: %v", err)
+		t.Fatalf("UpdateConversation: %v", err)
 	}
 	if gotMethod != http.MethodPatch {
 		t.Fatalf("unexpected method: %s", gotMethod)
 	}
-	if gotPath != "/v1/conversations/c1/visibility" {
+	if gotPath != "/v1/conversations/c1" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
 	if gotBody.Visibility != "public" {
@@ -273,5 +274,133 @@ func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHTTPClient_GetSchedule(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/v1/api/agently/scheduler/schedule/sched-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"data":   &scheduler.Schedule{ID: "sched-1", Name: "daily-report"},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	out, err := c.GetSchedule(context.Background(), "sched-1")
+	if err != nil {
+		t.Fatalf("GetSchedule: %v", err)
+	}
+	if out == nil || out.ID != "sched-1" || out.Name != "daily-report" {
+		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestHTTPClient_ListSchedules(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/v1/api/agently/scheduler/" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"data": map[string]interface{}{
+				"schedules": []*scheduler.Schedule{
+					{ID: "s1", Name: "first"},
+					{ID: "s2", Name: "second"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	out, err := c.ListSchedules(context.Background())
+	if err != nil {
+		t.Fatalf("ListSchedules: %v", err)
+	}
+	if len(out) != 2 || out[0].ID != "s1" || out[1].ID != "s2" {
+		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestHTTPClient_UpsertSchedules(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotBody struct {
+		Schedules []*scheduler.Schedule `json:"schedules"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err = json.Unmarshal(data, &gotBody); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	err = c.UpsertSchedules(context.Background(), []*scheduler.Schedule{
+		{ID: "s1", Name: "first", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedules: %v", err)
+	}
+	if gotMethod != http.MethodPatch {
+		t.Fatalf("unexpected method: %s", gotMethod)
+	}
+	if gotPath != "/v1/api/agently/scheduler/" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if len(gotBody.Schedules) != 1 || gotBody.Schedules[0].ID != "s1" {
+		t.Fatalf("unexpected body: %#v", gotBody)
+	}
+}
+
+func TestHTTPClient_RunScheduleNow(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	err = c.RunScheduleNow(context.Background(), "sched-1")
+	if err != nil {
+		t.Fatalf("RunScheduleNow: %v", err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("unexpected method: %s", gotMethod)
+	}
+	if gotPath != "/v1/api/agently/scheduler/run-now/sched-1" {
+		t.Fatalf("unexpected path: %s", gotPath)
 	}
 }

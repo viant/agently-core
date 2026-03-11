@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	"github.com/viant/agently-core/service/scheduler"
 )
 
 type HTTPOption func(*HTTPClient)
@@ -44,6 +45,14 @@ func WithConversationsPath(path string) HTTPOption {
 	return func(c *HTTPClient) {
 		if strings.TrimSpace(path) != "" {
 			c.conversationsPath = path
+		}
+	}
+}
+
+func WithSchedulerPath(path string) HTTPOption {
+	return func(c *HTTPClient) {
+		if strings.TrimSpace(path) != "" {
+			c.schedulerPath = path
 		}
 	}
 }
@@ -82,6 +91,7 @@ type HTTPClient struct {
 	filesPath         string
 	resourcesPath     string
 	toolApprovalsPath string
+	schedulerPath     string
 }
 
 func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
@@ -103,6 +113,7 @@ func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
 		filesPath:         "/v1/files",
 		resourcesPath:     "/v1/workspace/resources",
 		toolApprovalsPath: "/v1/tool-approvals",
+		schedulerPath:     "/v1/api/agently/scheduler",
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -131,7 +142,7 @@ func (c *HTTPClient) GetConversation(ctx context.Context, id string) (*conversat
 	return &out, nil
 }
 
-func (c *HTTPClient) UpdateConversationVisibility(ctx context.Context, input *UpdateConversationVisibilityInput) (*conversation.Conversation, error) {
+func (c *HTTPClient) UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error) {
 	if input == nil {
 		return nil, errors.New("input is required")
 	}
@@ -150,7 +161,7 @@ func (c *HTTPClient) UpdateConversationVisibility(ctx context.Context, input *Up
 		Visibility: visibility,
 		Shareable:  input.Shareable,
 	}
-	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/visibility"
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID)
 	var out conversation.Conversation
 	if err := c.doJSON(ctx, http.MethodPatch, path, &body, &out); err != nil {
 		return nil, err
@@ -584,6 +595,45 @@ func (c *HTTPClient) ListA2AAgents(ctx context.Context, agentIDs []string) ([]st
 		return nil, err
 	}
 	return out.Agents, nil
+}
+
+func (c *HTTPClient) GetSchedule(ctx context.Context, id string) (*scheduler.Schedule, error) {
+	path := strings.TrimRight(c.schedulerPath, "/") + "/schedule/" + url.PathEscape(strings.TrimSpace(id))
+	var out struct {
+		Status string              `json:"status"`
+		Data   *scheduler.Schedule `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func (c *HTTPClient) ListSchedules(ctx context.Context) ([]*scheduler.Schedule, error) {
+	path := strings.TrimRight(c.schedulerPath, "/") + "/"
+	var out struct {
+		Status string `json:"status"`
+		Data   struct {
+			Schedules []*scheduler.Schedule `json:"schedules"`
+		} `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Data.Schedules, nil
+}
+
+func (c *HTTPClient) UpsertSchedules(ctx context.Context, schedules []*scheduler.Schedule) error {
+	path := strings.TrimRight(c.schedulerPath, "/") + "/"
+	body := struct {
+		Schedules []*scheduler.Schedule `json:"schedules"`
+	}{Schedules: schedules}
+	return c.doJSON(ctx, http.MethodPatch, path, &body, nil)
+}
+
+func (c *HTTPClient) RunScheduleNow(ctx context.Context, id string) error {
+	path := strings.TrimRight(c.schedulerPath, "/") + "/run-now/" + url.PathEscape(strings.TrimSpace(id))
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
 }
 
 // sseSubscription implements streaming.Subscription over an HTTP SSE connection.

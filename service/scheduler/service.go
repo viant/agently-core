@@ -86,12 +86,17 @@ func (s *Service) List(ctx context.Context) ([]*Schedule, error) {
 }
 
 // Upsert creates or updates a schedule.
-func (s *Service) Upsert(schedule *Schedule) error {
+func (s *Service) Upsert(ctx context.Context, schedule *Schedule) error {
 	now := time.Now()
 	if schedule.CreatedAt.IsZero() {
 		schedule.CreatedAt = now
 	}
 	schedule.UpdatedAt = now
+	if schedule.CreatedByUserID == nil {
+		if userID := strings.TrimSpace(iauth.EffectiveUserID(ctx)); userID != "" {
+			schedule.CreatedByUserID = &userID
+		}
+	}
 	return s.store.Upsert(schedule)
 }
 

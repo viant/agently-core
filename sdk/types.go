@@ -75,9 +75,9 @@ type CreateConversationInput struct {
 	Metadata map[string]interface{}
 }
 
-// UpdateConversationVisibilityInput updates conversation visibility and shareability.
+// UpdateConversationInput updates mutable conversation fields.
 // At least one of Visibility or Shareable must be provided.
-type UpdateConversationVisibilityInput struct {
+type UpdateConversationInput struct {
 	ConversationID string `json:"-"`
 	Visibility     string `json:"visibility,omitempty"` // private|public
 	Shareable      *bool  `json:"shareable,omitempty"`

@@ -10,7 +10,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/file"
@@ -30,6 +32,7 @@ import (
 	toolOS "github.com/viant/agently-core/protocol/tool/service/system/os"
 	toolPatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
 	"github.com/viant/agently-core/sdk"
+	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	wsfs "github.com/viant/agently-core/workspace/loader/fs"
@@ -59,13 +62,22 @@ func serve(args []string) {
 	setBootstrapHook()
 	workspace.EnsureDefault(afs.New())
 
-	_, client, err := newRuntime(ctx)
+	rt, client, err := newRuntime(ctx)
 	if err != nil {
 		log.Fatalf("failed to initialize runtime: %v", err)
 	}
 	defer workspace.SetBootstrapHook(nil)
 
-	sdkHandler := sdk.NewHandler(client)
+	schedStore := newMemoryScheduleStore()
+	schedSvc := scheduler.New(schedStore, rt.Agent)
+	schedHandler := scheduler.NewHandler(schedSvc)
+
+	sdkHandler := sdk.NewHandler(client,
+		sdk.WithScheduler(schedSvc, schedHandler, &sdk.SchedulerOptions{
+			EnableAPI:    true,
+			EnableRunNow: true,
+		}),
+	)
 	metaRoot := "embed://localhost/"
 	metaHandler := ui.NewEmbeddedHandler(metaRoot, nil)
 
@@ -170,4 +182,60 @@ func defaultWorkspace() string {
 		return ".agently"
 	}
 	return filepath.Join(home, ".agently")
+}
+
+// memoryScheduleStore is a simple in-memory implementation of scheduler.ScheduleStore for e2e testing.
+type memoryScheduleStore struct {
+	mu   sync.RWMutex
+	data map[string]*scheduler.Schedule
+}
+
+func newMemoryScheduleStore() *memoryScheduleStore {
+	return &memoryScheduleStore{data: make(map[string]*scheduler.Schedule)}
+}
+
+func (m *memoryScheduleStore) Get(id string) (*scheduler.Schedule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s, ok := m.data[id]
+	if !ok {
+		return nil, nil
+	}
+	return s, nil
+}
+
+func (m *memoryScheduleStore) List() ([]*scheduler.Schedule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]*scheduler.Schedule, 0, len(m.data))
+	for _, s := range m.data {
+		result = append(result, s)
+	}
+	return result, nil
+}
+
+func (m *memoryScheduleStore) Upsert(s *scheduler.Schedule) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data[s.ID] = s
+	return nil
+}
+
+func (m *memoryScheduleStore) Delete(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.data, id)
+	return nil
+}
+
+func (m *memoryScheduleStore) ListDue(now time.Time) ([]*scheduler.Schedule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*scheduler.Schedule
+	for _, s := range m.data {
+		if s.Enabled && s.NextRunAt != nil && !s.NextRunAt.After(now) {
+			result = append(result, s)
+		}
+	}
+	return result, nil
 }
