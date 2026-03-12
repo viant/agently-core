@@ -2,6 +2,7 @@ package reactor
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -123,6 +124,76 @@ func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreaming
 	assert.Equal(t, "resp-stream:0:system_patch-apply", aPlan.Steps[0].ID)
 	require.NotNil(t, aPlan.Steps[0].Args)
 	assert.Equal(t, "/tmp/change-repo2", aPlan.Steps[0].Args["workdir"])
+}
+
+// patchCountingClient wraps a conversation client and counts PatchMessage calls.
+type patchCountingClient struct {
+	apiconv.Client
+	patchCount int32
+}
+
+func (c *patchCountingClient) PatchMessage(ctx context.Context, msg *apiconv.MutableMessage) error {
+	atomic.AddInt32(&c.patchCount, 1)
+	return c.Client.PatchMessage(ctx, msg)
+}
+
+func (c *patchCountingClient) PatchCount() int32 {
+	return atomic.LoadInt32(&c.patchCount)
+}
+
+// TestService_patchStreamingToolPreamble_SkipsDuplicatePatch verifies that
+// calling patchStreamingToolPreamble with the same preamble text multiple times
+// only issues one PatchMessage call (deduplication).
+func TestService_patchStreamingToolPreamble_SkipsDuplicatePatch(t *testing.T) {
+	inner := convmem.New()
+	client := &patchCountingClient{Client: inner}
+
+	base := memory.WithConversationID(context.Background(), "conv-dedup")
+	seed := &convw.Conversation{Has: &convw.ConversationHas{}}
+	seed.SetId("conv-dedup")
+	seed.SetStatus("")
+	require.NoError(t, inner.PatchConversations(base, seed))
+
+	ctx := memory.WithTurnMeta(base, memory.TurnMeta{ConversationID: "conv-dedup", TurnID: "turn-1"})
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "msg-dedup")
+
+	seedMsg := apiconv.NewMessage()
+	seedMsg.SetId("msg-dedup")
+	seedMsg.SetConversationID("conv-dedup")
+	seedMsg.SetTurnID("turn-1")
+	seedMsg.SetInterim(1)
+	require.NoError(t, inner.PatchMessage(ctx, seedMsg))
+
+	service := &Service{convClient: client}
+	choice := llm.Choice{
+		Message: llm.Message{
+			Role:      llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "system/os:getEnv"}},
+		},
+		FinishReason: "tool_calls",
+	}
+
+	// First call should patch
+	service.patchStreamingToolPreamble(ctx, choice)
+	assert.EqualValues(t, 1, client.PatchCount(), "first preamble patch should go through")
+
+	// Second call with same preamble should be skipped
+	service.patchStreamingToolPreamble(ctx, choice)
+	assert.EqualValues(t, 1, client.PatchCount(), "duplicate preamble should be skipped")
+
+	// Third call with different preamble should patch
+	choice2 := llm.Choice{
+		Message: llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{
+				{ID: "call_1", Name: "system/os:getEnv"},
+				{ID: "call_2", Name: "system/exec:execute"},
+			},
+		},
+		FinishReason: "tool_calls",
+	}
+	service.patchStreamingToolPreamble(ctx, choice2)
+	assert.EqualValues(t, 2, client.PatchCount(), "different preamble should patch")
 }
 
 func TestService_patchStreamingToolPreamble_PatchesAssistantMessage(t *testing.T) {

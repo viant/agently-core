@@ -38,6 +38,11 @@ type Service struct {
 	// Optional builder to produce a GenerateInput identical to agent.runPlanLoop,
 	// with the exception that the user query is provided as `instruction`.
 	buildPlanInput func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core2.GenerateInput, error)
+
+	// lastPreamble deduplicates patchStreamingToolPreamble calls: only patches
+	// when the preamble text has actually changed. Keyed by message ID.
+	lastPreambleMu sync.Mutex
+	lastPreamble   map[string]string
 }
 
 // ctxKeyLimitRecoveryAttempted guards one-shot presentation of the context-limit guidance within a single Run invocation.
@@ -156,6 +161,14 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			default:
 			}
 		}
+	}
+
+	// Check if all tool steps were blocked by the duplicate guard.
+	// When this happens, the LLM is stuck in a loop calling the same tools;
+	// mark the plan so the ReAct loop can terminate.
+	if guard := duplicateGuardFromContext(ctx); guard != nil && guard.AllBlockedInRound() {
+		aPlan.AllBlocked = true
+		fmt.Printf("[debug] reactor.Run: all %d tool steps blocked by duplicate guard — marking plan AllBlocked\n", len(aPlan.Steps))
 	}
 
 	RefinePlan(aPlan)
@@ -519,15 +532,18 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 				// repetition patterns (same tool+args over and over) while still
 				// preserving transcript via synthetic tool results.
 				if guard != nil {
-					if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-						// If we have a previous successful result, synthesize a
-						// matching tool call so the transcript remains consistent
-						// without re-executing the tool.
-						if prev.Name != "" && prev.Error == "" && s.convClient != nil {
-							_ = executil.SynthesizeToolStep(runCtx, s.convClient, stepInfo, prev.Result)
-						}
+					if block, _ := guard.ShouldBlock(step.Name, step.Args); block {
+						fmt.Printf("[debug] reactor: duplicate guard BLOCKED tool=%q args=%s — skipping (no synthesis)\n",
+							step.Name, CanonicalArgs(step.Args))
+						// Do NOT synthesize tool results. Synthesis pollutes the
+						// transcript and confuses the LLM into re-calling the tool.
+						// Instead, the AllBlocked flag on the plan will terminate
+						// the ReAct loop, and the existing tool result from the
+						// first execution remains in history for the model to use.
 						return
 					}
+					fmt.Printf("[debug] reactor: duplicate guard ALLOWED tool=%q args=%s\n",
+						step.Name, CanonicalArgs(step.Args))
 				}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
@@ -657,6 +673,19 @@ func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Cho
 	if content == "" {
 		content = preamble
 	}
+
+	// Deduplicate: skip patch when preamble text hasn't changed for this message.
+	s.lastPreambleMu.Lock()
+	if s.lastPreamble == nil {
+		s.lastPreamble = make(map[string]string)
+	}
+	if s.lastPreamble[msgID] == preamble {
+		s.lastPreambleMu.Unlock()
+		return
+	}
+	s.lastPreamble[msgID] = preamble
+	s.lastPreambleMu.Unlock()
+
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
 	msg.SetConversationID(conversationID)
