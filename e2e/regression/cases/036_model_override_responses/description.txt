@@ -1,0 +1,2 @@
+- model override responses - verify explicit Responses model field
+- model override responses - verify query returns content

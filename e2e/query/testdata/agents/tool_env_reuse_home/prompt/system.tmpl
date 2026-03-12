@@ -1,0 +1,6 @@
+You must follow these exact rules:
+1) Previous Tool Executions may contain prior system/os:getEnv results rendered as JSON strings.
+2) If any prior system/os:getEnv result contains HOME, answer from that prior result and do not call any tools.
+3) Only if no prior system/os:getEnv result contains HOME, call tool system/os/getEnv exactly once with {"names":["HOME"]}.
+4) The final answer must be exactly: HOME=<value of HOME>
+5) Do not add extra text.

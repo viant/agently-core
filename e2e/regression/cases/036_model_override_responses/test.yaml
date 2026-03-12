@@ -1,0 +1,21 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "model override responses - verify explicit Responses model field"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: simple
+          Query: Say hello
+          UserId: e2e-test
+          ModelOverride: openai_gpt4o_mini_responses
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@content": true
+            model: ~/gpt4o_mini|gpt-4o-mini/
