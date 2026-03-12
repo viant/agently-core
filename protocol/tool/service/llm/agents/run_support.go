@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	toolpol "github.com/viant/agently-core/protocol/tool"
@@ -94,7 +93,10 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		ro.ConversationID = runCtx.childConversationID
 	}
 	qo := &agentsvc.QueryOutput{}
-	childCtx := toolpol.WithPolicy(ctx, nil)
+	// Detach from parent's tool-execution deadline so the child agent
+	// runs with its own independent timeout instead of inheriting
+	// the parent's (often short) tool-call timeout.
+	childCtx := toolpol.WithPolicy(context.WithoutCancel(ctx), nil)
 	debugf("agents.run internal invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
 		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
@@ -188,7 +190,6 @@ func (s *Service) createChildConversation(ctx context.Context, agentID, objectiv
 	}
 	debugf("agents.run %s created child_convo=%q parent_convo=%q", route, strings.TrimSpace(cid), strings.TrimSpace(parent.ConversationID))
 	s.assignConversationAgent(ctx, cid, agentID, route)
-	s.addLinkPreview(ctx, parent, cid, objective, route)
 	if waitForConversation {
 		if err := s.waitForConversation(ctx, cid); err != nil {
 			errorf("agents.run %s wait child error child_convo=%q err=%v", route, strings.TrimSpace(cid), err)
@@ -207,16 +208,6 @@ func (s *Service) assignConversationAgent(ctx context.Context, conversationID, a
 	upd.SetAgentId(strings.TrimSpace(agentID))
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); err != nil {
 		errorf("agents.run %s set agent error child_convo=%q agent_id=%q err=%v", route, strings.TrimSpace(conversationID), strings.TrimSpace(agentID), err)
-	}
-}
-
-func (s *Service) addLinkPreview(ctx context.Context, parent memory.TurnMeta, childConversationID, objective, route string) {
-	if s == nil || s.linker == nil || strings.TrimSpace(childConversationID) == "" || strings.TrimSpace(parent.ConversationID) == "" {
-		return
-	}
-	preview := textutil.RuneTruncate(strings.TrimSpace(objective), 512)
-	if err := s.linker.AddLinkMessage(ctx, parent, childConversationID, "assistant", "tool", "exec", preview); err != nil {
-		errorf("agents.run %s link message error child_convo=%q err=%v", route, strings.TrimSpace(childConversationID), err)
 	}
 }
 

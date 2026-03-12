@@ -893,14 +893,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			req:      req,
 			orig:     request,
 		}
-		// Read response body
-		respBody, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			events <- llm.StreamEvent{Err: fmt.Errorf("failed to read response body: %w", readErr)}
-			return
-		}
-
+		// Handle HTTP error status codes by reading full body for error parsing.
 		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+			respBody, _ := io.ReadAll(resp.Body)
 			msg, code := parseOpenAIError(respBody)
 			if msg == "" {
 				msg = fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, string(respBody))
@@ -916,34 +911,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 			return
 		}
-
-		// If Responses stream returned an immediate JSON error and it's
-		// a continuation error, bubble up an error and do not fallback.
-		if !bytes.Contains(respBody, []byte("data: ")) {
-			if msg, code := parseOpenAIError(respBody); msg != "" {
-				if isContinuationError(respBody) {
-					full := fmt.Sprintf("openai continuation error: %s", msg)
-					events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
-					if proc.observer != nil && !proc.state.ended {
-						if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
-							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
-							return
-						}
-					}
-					return
-				}
-				full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
-				events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
-				if proc.observer != nil && !proc.state.ended {
-					if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
-						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
-						return
-					}
-				}
-				return
-			}
-		}
-		if resp.StatusCode == http.StatusUnauthorized {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode >= http.StatusBadRequest {
+			respBody, _ := io.ReadAll(resp.Body)
 			msg, code := parseOpenAIError(respBody)
 			if msg == "" {
 				msg = strings.TrimSpace(string(respBody))
@@ -957,13 +926,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			}
 			return
 		}
-		// Normal SSE handling
-		proc.respBody = respBody
-		// Prepare scanner
-		scanner := bufio.NewScanner(bytes.NewReader(respBody))
+		// Normal SSE handling: stream line-by-line while buffering for logging.
+		var respBodyBuf bytes.Buffer
+		scanner := bufio.NewScanner(io.TeeReader(resp.Body, &respBodyBuf))
 		buf := make([]byte, 0, sseInitialBuf)
 		scanner.Buffer(buf, sseMaxBuf)
 		currentEvent := ""
+		gotSSEData := false
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.HasPrefix(line, "event: ") {
@@ -973,11 +942,38 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}
+			gotSSEData = true
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
 				break
 			}
 			if ok := proc.handleEvent(currentEvent, data); !ok {
+				proc.respBody = respBodyBuf.Bytes()
+				return
+			}
+		}
+		proc.respBody = respBodyBuf.Bytes()
+		// If no SSE data was seen, the response may be a JSON error body.
+		if !gotSSEData {
+			respBody := proc.respBody
+			if msg, code := parseOpenAIError(respBody); msg != "" {
+				if isContinuationError(respBody) {
+					full := fmt.Sprintf("openai continuation error: %s", msg)
+					events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+					if proc.observer != nil && !proc.state.ended {
+						if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+						}
+					}
+					return
+				}
+				full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+				events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+				if proc.observer != nil && !proc.state.ended {
+					if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+					}
+				}
 				return
 			}
 		}

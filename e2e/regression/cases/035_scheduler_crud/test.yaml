@@ -1,0 +1,111 @@
+pipeline:
+  listEmpty:
+    action: http/runner:send
+    description: "scheduler CRUD - list schedules (empty)"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/agently/scheduler/
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+            data:
+              schedules: []
+
+  createSchedule:
+    action: http/runner:send
+    description: "scheduler CRUD - create schedule via PATCH"
+    requests:
+      - Method: PATCH
+        URL: ${serverURL}/v1/api/agently/scheduler/
+        JSONBody:
+          schedules:
+            - id: sched-e2e-001
+              name: E2E Test Schedule
+              agentRef: simple
+              enabled: true
+              scheduleType: adhoc
+              timezone: UTC
+              taskPrompt: Say hello
+        Expect:
+          Code: 204
+
+  getSchedule:
+    action: http/runner:send
+    description: "scheduler CRUD - get schedule by ID"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/agently/scheduler/schedule/sched-e2e-001
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+            data:
+              id: sched-e2e-001
+              name: E2E Test Schedule
+              agentRef: simple
+              enabled: true
+              scheduleType: adhoc
+
+  listOne:
+    action: http/runner:send
+    description: "scheduler CRUD - list schedules (one entry)"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/agently/scheduler/
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+            "@exists@data.schedules[0].id": true
+
+  updateSchedule:
+    action: http/runner:send
+    description: "scheduler CRUD - update schedule (rename and disable)"
+    requests:
+      - Method: PATCH
+        URL: ${serverURL}/v1/api/agently/scheduler/
+        JSONBody:
+          schedules:
+            - id: sched-e2e-001
+              name: E2E Updated Schedule
+              agentRef: simple
+              enabled: false
+              scheduleType: adhoc
+              timezone: UTC
+              taskPrompt: Say goodbye
+        Expect:
+          Code: 204
+
+  getUpdated:
+    action: http/runner:send
+    description: "scheduler CRUD - verify updated state"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/agently/scheduler/schedule/sched-e2e-001
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+            data:
+              id: sched-e2e-001
+              name: E2E Updated Schedule
+              enabled: false
+
+  getMissing:
+    action: http/runner:send
+    description: "scheduler CRUD - get non-existent schedule returns 404"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/agently/scheduler/schedule/does-not-exist
+        Expect:
+          Code: 404
+
+  runNowMissing:
+    action: http/runner:send
+    description: "scheduler CRUD - run-now with non-existent ID returns 500"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/api/agently/scheduler/run-now/does-not-exist
+        Expect:
+          Code: 500

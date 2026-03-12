@@ -392,3 +392,64 @@ func TestAttachLinkedConversation_AttachesToStatusAndToolMessage(t *testing.T) {
 	require.NotNil(t, gotTool.LinkedConversationId)
 	assert.Equal(t, "child-conv", *gotTool.LinkedConversationId)
 }
+
+func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	objective := "Analyze project /Users/awitas/go/src/github.com/viant/xdatly and summarize the structure."
+	svc := New(nil,
+		WithConversationClient(conv),
+		WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
+			return "done", "completed", "task-1", "ctx-1", false, nil, nil
+		}),
+	)
+	svc.agent = &fakeAgentRuntime{}
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: objective,
+	}, &out)
+	require.NoError(t, err)
+
+	got, err := conv.GetConversation(ctx, "parent-conv")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	var foundObjectiveEcho bool
+	var foundLinkedStatus bool
+	for _, transcriptTurn := range got.Transcript {
+		if transcriptTurn == nil {
+			continue
+		}
+		for _, msg := range transcriptTurn.Message {
+			if msg == nil {
+				continue
+			}
+			if msg.Role == "assistant" && msg.Content != nil && *msg.Content == objective {
+				foundObjectiveEcho = true
+			}
+			if msg.Role == "assistant" && msg.ToolName != nil && *msg.ToolName == "llm/agents-run" && msg.LinkedConversationId != nil && *msg.LinkedConversationId != "" {
+				foundLinkedStatus = true
+			}
+		}
+	}
+
+	assert.False(t, foundObjectiveEcho, "parent conversation should not persist an assistant echo preview for delegation objective")
+	assert.True(t, foundLinkedStatus, "linked status message should still be present")
+}
