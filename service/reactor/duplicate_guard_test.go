@@ -1,10 +1,11 @@
 package reactor
 
 import (
-	plan "github.com/viant/agently-core/genai/llm"
-
+	"encoding/json"
 	"sync"
 	"testing"
+
+	plan "github.com/viant/agently-core/genai/llm"
 )
 
 func TestDuplicateGuard_ShouldBlock(t *testing.T) {
@@ -483,6 +484,87 @@ func TestDuplicateGuard_Args(t *testing.T) {
 						Result:    "some result",
 					})
 				}
+			}
+		})
+	}
+}
+
+// TestDuplicateGuard_RoundTracking verifies that the guard tracks per-round
+// blocked vs total counters, allowing callers to detect when ALL tool steps
+// in a single orchestrator round were blocked (the root cause of infinite
+// ReAct loops).
+func TestDuplicateGuard_RoundTracking(t *testing.T) {
+	testCases := []struct {
+		name             string
+		sequence         []struct{ Name, Args, Error string }
+		expectAllBlocked bool
+	}{
+		{
+			name: "all blocked in second round",
+			sequence: []struct{ Name, Args, Error string }{
+				// Round 1: first call — allowed
+				{Name: "system_os-getEnv", Args: `{"names":["HOME"]}`, Error: ""},
+			},
+			expectAllBlocked: true, // second round with same call should be all-blocked
+		},
+		{
+			name: "mixed blocked and allowed in round",
+			sequence: []struct{ Name, Args, Error string }{
+				{Name: "system_os-getEnv", Args: `{"names":["HOME"]}`, Error: ""},
+			},
+			expectAllBlocked: false, // when we add a different call in round 2, not all blocked
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			guard := NewDuplicateGuard(nil)
+
+			// Execute round 1 sequence
+			for _, call := range tc.sequence {
+				var args map[string]interface{}
+				if call.Args != "" {
+					_ = json.Unmarshal([]byte(call.Args), &args)
+				}
+				blocked, _ := guard.ShouldBlock(call.Name, args)
+				if !blocked {
+					guard.RegisterResult(call.Name, args, plan.ToolCall{
+						Name: call.Name, Arguments: args, Result: "ok", Error: call.Error,
+					})
+				}
+			}
+
+			// Reset round counters for round 2
+			guard.ResetRound()
+
+			if tc.name == "all blocked in second round" {
+				// Round 2: same call as round 1 — should be blocked
+				var args map[string]interface{}
+				_ = json.Unmarshal([]byte(`{"names":["HOME"]}`), &args)
+				blocked, _ := guard.ShouldBlock("system_os-getEnv", args)
+				if !blocked {
+					t.Fatal("expected call to be blocked in round 2")
+				}
+			} else {
+				// Round 2: same call (blocked) + different call (allowed)
+				var args map[string]interface{}
+				_ = json.Unmarshal([]byte(`{"names":["HOME"]}`), &args)
+				guard.ShouldBlock("system_os-getEnv", args)
+
+				var args2 map[string]interface{}
+				_ = json.Unmarshal([]byte(`{"names":["PATH"]}`), &args2)
+				blocked, _ := guard.ShouldBlock("system_os-getEnv", args2)
+				if blocked {
+					t.Fatal("different args should not be blocked")
+				}
+				guard.RegisterResult("system_os-getEnv", args2, plan.ToolCall{
+					Name: "system_os-getEnv", Arguments: args2, Result: "ok",
+				})
+			}
+
+			got := guard.AllBlockedInRound()
+			if got != tc.expectAllBlocked {
+				t.Errorf("AllBlockedInRound()=%v, want %v", got, tc.expectAllBlocked)
 			}
 		})
 	}

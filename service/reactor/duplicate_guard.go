@@ -20,6 +20,11 @@ type DuplicateGuard struct {
 	consecutive int
 	window      []toolKey
 	latest      map[toolKey]plan.ToolCall // most recent result for each key
+
+	// Per-round counters for detecting when ALL tool steps in a single
+	// orchestrator round were blocked (triggers loop termination).
+	roundTotal   int32
+	roundBlocked int32
 }
 
 const (
@@ -61,11 +66,14 @@ func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	g.roundTotal++
+
 	key := g.key(name, args)
 	prev := g.latest[key] // previous result for the same key, if any
 
 	// Heuristic #1: immediately repeated *successful* call.
 	if key == g.lastKey && prev.Name != "" && prev.Error == "" {
+		g.roundBlocked++
 		return true, prev
 	}
 
@@ -75,13 +83,16 @@ func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (
 
 	// Apply remaining heuristics.
 	if g.consecutive >= consecutiveLimit {
+		g.roundBlocked++
 		return true, prev
 	}
 	if g.frequency(key) >= windowFreqLimit {
+		g.roundBlocked++
 		return true, prev
 	}
 
 	if g.isAlternatingPattern() {
+		g.roundBlocked++
 		return true, prev
 	}
 
@@ -141,6 +152,30 @@ func (g *DuplicateGuard) isAlternatingPattern() bool {
 	}
 
 	return alternating
+}
+
+// ResetRound resets the per-round blocked/total counters. Call this at the
+// start of each orchestrator iteration (runPlanLoop) so that AllBlockedInRound
+// reflects only the current round.
+func (g *DuplicateGuard) ResetRound() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.roundTotal = 0
+	g.roundBlocked = 0
+}
+
+// AllBlockedInRound reports whether all tool steps checked in the current
+// round were blocked. Returns false when no steps were checked.
+func (g *DuplicateGuard) AllBlockedInRound() bool {
+	if g == nil {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.roundTotal > 0 && g.roundBlocked == g.roundTotal
 }
 
 // RegisterResult stores latest outcome for reuse.

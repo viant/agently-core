@@ -444,10 +444,16 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	}
 	ctx = memory.WithContextRecoveryMode(ctx, mode)
 
+	const maxPlanIterations = 25 // safety net: prevent runaway ReAct loops
+
 	input.RequestTime = time.Now()
 	for {
 		iter++
 		iterStart := time.Now()
+
+		// Reset per-round counters on the duplicate guard so AllBlockedInRound
+		// reflects only this iteration's tool steps.
+		duplicateGuard.ResetRound()
 		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
 		if ckErr != nil {
 			warnf("agent.runPlan checkpoint error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, ckErr)
@@ -552,9 +558,26 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		genOutput := &core.GenerateOutput{}
 		planStart := time.Now()
+
+		// Debug: log LLM history summary for each iteration to diagnose looping.
+		if DebugEnabled() && genInput.Binding != nil {
+			msgs := genInput.Binding.History.LLMMessages()
+			debugf("agent.runPlan iter=%d history_msgs=%d model=%q convo=%q turn_id=%q",
+				iter, len(msgs), genInput.ModelSelection.Model,
+				strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+			for i, m := range msgs {
+				content := headString(m.Content, 120)
+				toolCallCount := len(m.ToolCalls)
+				debugf("  history[%d] role=%s tool_call_id=%q tool_calls=%d content_len=%d content_head=%q",
+					i, m.Role, m.ToolCallId, toolCallCount, len(m.Content), content)
+			}
+		}
+
 		runCtx := reactor.WithDuplicateGuard(ctx, duplicateGuard)
 		aPlan, pErr := s.orchestrator.Run(runCtx, genInput, genOutput)
-		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(planStart))
+		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d allBlocked=%v duration=%s",
+			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID),
+			iter, len(aPlan.Steps), aPlan.AllBlocked, time.Since(planStart))
 		if pErr != nil {
 			return pErr
 		}
@@ -623,7 +646,18 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 
 		// No elicitation: plan either completed with final content or produced tool calls.
-		if aPlan.IsEmpty() {
+		// Treat as terminal when the plan is empty OR all tool steps were blocked
+		// by the duplicate guard (LLM stuck in a loop calling the same tools).
+		isTerminal := aPlan.IsEmpty() || aPlan.AllBlocked
+		if aPlan.AllBlocked {
+			infof("agent.runPlan all tool steps blocked by duplicate guard — terminating loop convo=%q turn_id=%q iter=%d steps=%d content_len=%d",
+				strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(aPlan.Steps), len(genOutput.Content))
+			// The genOutput.Content at this point is a preamble (e.g., "Using system/os:getEnv."),
+			// NOT a final answer. The actual tool result from the first execution is already in
+			// history. Clear the preamble so we don't persist it as a fake final answer.
+			genOutput.Content = ""
+		}
+		if isTerminal {
 			// Persist final assistant text using the shared message ID
 			if strings.TrimSpace(genOutput.Content) != "" {
 				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
@@ -648,6 +682,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				continue
 			}
 			debugf("agent.runPlan completed convo=%q turn_id=%q iter=%d content_len=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(genOutput.Content), time.Since(iterStart))
+			queryOutput.Content = genOutput.Content
+			return nil
+		}
+
+		// Safety net: prevent runaway loops even when guard doesn't catch the pattern.
+		if iter >= maxPlanIterations {
+			warnf("agent.runPlan max iterations reached convo=%q turn_id=%q iter=%d — forcing termination", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 			queryOutput.Content = genOutput.Content
 			return nil
 		}
