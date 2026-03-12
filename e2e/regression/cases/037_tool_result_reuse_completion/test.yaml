@@ -1,0 +1,82 @@
+pipeline:
+  setupTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    TimeoutMs: 240000
+    description: "tool result reuse completion - seed HOME and USER with chat completions model"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: tool_env_seed_user_only
+          UserId: e2e-test
+          Query: Check HOME and USER environment variables, but present only USER.
+          ModelOverride: openai_gpt4o_mini
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@messageId": true
+            content: /USER=/
+
+  verifyToolTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool result reuse completion - first turn should emit a tool_op"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0]": true
+
+  probeTurn2:
+    when: $sdkKey != ''
+    action: http/runner:send
+    TimeoutMs: 240000
+    description: "tool result reuse completion - second turn should answer HOME from prior tool result"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: tool_env_reuse_home
+          ConversationID: ${setupTurn1.Responses[0].JSONBody.conversationId}
+          UserId: e2e-test
+          Query: What is HOME?
+          ModelOverride: openai_gpt4o_mini
+          ToolCallExposure: conversation
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@messageId": true
+            content: /HOME=/
+
+  turn2Message:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool result reuse completion - resolve turn2 id from response message id"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&id=${probeTurn2.Responses[0].JSONBody.messageId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].TurnId": true
+
+  verifyTurn2ToolOp:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool result reuse completion - second turn should not emit a new tool call"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&turnId=${turn2Message.Responses[0].JSONBody.Rows[0].TurnId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            HasMore: false
+            "@exists@Rows[0]": false

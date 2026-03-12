@@ -1,0 +1,16 @@
+id: tool_env_reuse_home
+name: Tool Env Reuse Home
+description: Agent that answers HOME from prior tool executions when available
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ToolEnvReuse
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/os

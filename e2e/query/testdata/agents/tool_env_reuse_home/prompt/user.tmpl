@@ -1,0 +1,10 @@
+{{- if gt (len .Tools.Executions) 0 }}
+Previous Tool Executions:
+{{- range .Tools.Executions }}
+- tool: {{.Name}} result: {{.Result}}
+{{- end}}
+End of Previous Tool Executions.
+
+{{- end}}
+User Query:
+{{.Task.Prompt}}

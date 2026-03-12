@@ -1,0 +1,16 @@
+id: tool_env_seed_user_only
+name: Tool Env Seed User Only
+description: Agent that fetches HOME and USER but responds only with USER
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: ToolEnvSeed
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/os

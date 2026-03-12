@@ -1,0 +1,4 @@
+- tool result reuse completion - seed HOME and USER with chat completions model
+- tool result reuse completion - first turn should answer only USER
+- tool result reuse completion - second turn should answer HOME from prior tool result
+- tool result reuse completion - second turn should not emit a new tool call
