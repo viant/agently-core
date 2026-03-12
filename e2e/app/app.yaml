@@ -5,17 +5,15 @@ pipeline:
     message: 'running agently-app host from repoPath: ${repoPath}'
 
   app:
-    stop:
-      action: process:stop
-      input: agently-app serve
-
-    start:
-      action: process:start
-      directory: ${repoPath}
-      checkError: true
-      immuneToHangups: true
-      sleepTimeMs: 4000
-      env:
-        TEST: 1
-        AGENTLY_WORKSPACE: ${workspacePath}
-      command: ${repoPath}/e2e/bin/agently-app serve --addr ':8585'
+    action: exec:run
+    checkError: true
+    commands:
+      - |
+        pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
+        if [ -n "$pids" ]; then
+          kill $pids || true
+        fi
+      - |
+        (nohup env TEST=1 AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
+      - sleep 4
+      - lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep LISTEN

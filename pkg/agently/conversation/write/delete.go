@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 
+	"github.com/viant/agently-core/internal/datlycompat"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -44,7 +45,7 @@ func (h *DeleteHandler) Exec(ctx context.Context, sess handler.Session) (interfa
 }
 
 func DefineDeleteComponent(ctx context.Context, srv *datly.Service) (*repository.Component, error) {
-	component, err := srv.AddHandler(ctx, contract.NewPath(http.MethodDelete, PathURI), &DeleteHandler{},
+	component, err := datlycompat.AddHandler(ctx, srv, contract.NewPath(http.MethodDelete, PathURI), &DeleteHandler{},
 		repository.WithResource(srv.Resource()),
 		repository.WithContract(reflect.TypeOf(&DeleteInput{}), reflect.TypeOf(&DeleteOutput{}), &ConversationPostFS))
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/viant/agently-core/internal/datlycompat"
 	"github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
@@ -53,7 +54,7 @@ func DefineMessageComponent(ctx context.Context, srv *datly.Service) error {
 	if err != nil {
 		return fmt.Errorf("failed to create Conversation component: %w", err)
 	}
-	if err := srv.AddComponent(ctx, aComponent); err != nil {
+	if err := datlycompat.AddComponent(ctx, srv, aComponent); err != nil {
 		return fmt.Errorf("failed to add Conversation component: %w", err)
 	}
 	return nil

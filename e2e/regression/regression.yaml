@@ -1,7 +1,7 @@
 init:
   repoPath: $WorkingDirectory(../..)
   testdataPath: ${repoPath}/e2e/query/testdata
-  serverPort: 8585
+  serverPort: '$serverPort ? $serverPort : 9001'
   serverURL: http://127.0.0.1:${serverPort}
   workspacePath: /tmp/agently-core-e2e-workspace/.agently
   sdkKey: ${env.OPENAI_API_KEY}
@@ -62,7 +62,7 @@ pipeline:
           if [ -n "$pids" ]; then
             kill $pids || true
           fi
-        - nohup ${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources >/tmp/agently-core-mcp-resources.log 2>&1 &
+        - (nohup ${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources >/tmp/agently-core-mcp-resources.log 2>&1 &)
         - sleep 1
         - lsof -nP -iTCP:18091 -sTCP:LISTEN | grep LISTEN
 
@@ -77,7 +77,7 @@ pipeline:
           if [ -n "$pids" ]; then
             kill $pids || true
           fi
-        - nohup ${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form >/tmp/agently-core-mcp-form.log 2>&1 &
+        - (nohup ${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form >/tmp/agently-core-mcp-form.log 2>&1 &)
         - sleep 1
         - lsof -nP -iTCP:18092 -sTCP:LISTEN | grep LISTEN
 
@@ -92,7 +92,7 @@ pipeline:
           if [ -n "$pids" ]; then
             kill $pids || true
           fi
-        - nohup ${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob >/tmp/agently-core-mcp-oob.log 2>&1 &
+        - (nohup ${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob >/tmp/agently-core-mcp-oob.log 2>&1 &)
         - sleep 1
         - lsof -nP -iTCP:18093 -sTCP:LISTEN | grep LISTEN
 
@@ -122,7 +122,7 @@ pipeline:
               fi
               sleep 0.5
             done
-            nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &
+            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
           else
             pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
             if [ -n "$pids" ]; then
@@ -134,7 +134,7 @@ pipeline:
               fi
               sleep 0.5
             done
-            nohup ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath} >/tmp/agently-core-e2e-server.log 2>&1 &
+            (nohup ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath} >/tmp/agently-core-e2e-server.log 2>&1 &)
           fi
         - |
           for i in $(seq 1 40); do

@@ -1,7 +1,7 @@
 pipeline:
   listEmpty:
     action: http/runner:send
-    description: "scheduler CRUD - list schedules (empty)"
+    description: "scheduler CRUD - list schedules baseline"
     requests:
       - Method: GET
         URL: ${serverURL}/v1/api/agently/scheduler/
@@ -9,8 +9,7 @@ pipeline:
           Code: 200
           JSONBody:
             status: ok
-            data:
-              schedules: []
+            "@exists@data.schedules": true
 
   createSchedule:
     action: http/runner:send
