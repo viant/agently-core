@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.16.0
-	github.com/viant/datly v0.37.1-0.20260302193722-0da955e56ab4
+	github.com/viant/datly v0.37.1-0.20260310143220-8c91587c9de0
 	github.com/viant/embedius v0.5.3
 	github.com/viant/forge v0.2.18
 	github.com/viant/gds v0.6.0
@@ -30,7 +30,7 @@ require (
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.25.3
 	github.com/viant/velty v0.4.0
-	github.com/viant/xdatly v0.5.4-0.20251113181159-0ac8b8b0ff3a
+	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
 	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
 	github.com/viant/xdatly/types/core v0.0.0-20250307183722-8c84fc717b52
 	github.com/viant/xdatly/types/custom v0.0.0-20240801144911-4c2bfca4c23a
@@ -155,7 +155,7 @@ require (
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/x v0.4.0 // indirect
+	github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect

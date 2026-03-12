@@ -2,11 +2,9 @@ init:
   mysqlCred: mysql-e2e.json
   mysqlSecrets: ${secrets.$mysqlCred}
   repoPath: $WorkingDirectory(./..)
-  appURL: http://127.0.0.1:8585
   testdataPath: ${repoPath}/e2e/query/testdata
   workspacePath: /tmp/agently-core-e2e-workspace/.agently
-  serverPort: 8090
-  serverURL: http://127.0.0.1:${serverPort}
+  serverPort: '$serverPort ? $serverPort : 9001'
   debugger: off
   sdkKey: ${env.OPENAI_API_KEY}
   dbIP:
@@ -48,6 +46,8 @@ pipeline:
     action: run
     description: run agently-app host
     request: '@app/app'
+    params:
+      serverPort: $serverPort
 
   rule:
     cleanup:
@@ -84,3 +84,5 @@ pipeline:
     action: run
     description: run e2e regression tests
     request: '@regression/regression'
+    params:
+      serverPort: $serverPort

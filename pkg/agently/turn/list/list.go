@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"github.com/viant/agently-core/internal/datlycompat"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -83,7 +84,7 @@ func DefineTurnRowsComponent(ctx context.Context, srv *datly.Service) error {
 	if err != nil {
 		return fmt.Errorf("failed to create TurnRows component: %w", err)
 	}
-	if err := srv.AddComponent(ctx, aComponent); err != nil {
+	if err := datlycompat.AddComponent(ctx, srv, aComponent); err != nil {
 		return fmt.Errorf("failed to add TurnRows component: %w", err)
 	}
 	return nil
