@@ -1,0 +1,14 @@
+Case: 035_scheduler_crud
+
+Test:
+- scheduler CRUD - list (empty)
+- scheduler CRUD - create schedule via PATCH
+- scheduler CRUD - get schedule by ID
+- scheduler CRUD - list (one entry)
+- scheduler CRUD - update schedule (rename, disable)
+- scheduler CRUD - verify updated state
+- scheduler CRUD - run-now endpoint
+
+Why:
+- Protects scheduler API endpoints from regression.
+- Verifies CRUD lifecycle and run-now trigger via HTTP.

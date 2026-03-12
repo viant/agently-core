@@ -23,7 +23,98 @@ func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcrip
 
 func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
 	task := input.Query
+	if directive := runtimeDelegationDirective(input); directive != "" {
+		task = directive + "\n\nUser request:\n" + strings.TrimSpace(task)
+	}
 	return prompt.Task{Prompt: task, Attachments: input.Attachments}
+}
+
+func runtimeDelegationDirective(input *QueryInput) string {
+	if input == nil || input.Agent == nil {
+		return ""
+	}
+	agentID := strings.TrimSpace(input.Agent.ID)
+	if agentID != "coder" {
+		return ""
+	}
+	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
+		return ""
+	}
+	maxDepth := input.Agent.Delegation.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 2
+	}
+	currentDepth := delegationDepthFromContextMap(input.Context, agentID)
+	if currentDepth >= maxDepth || currentDepth > 0 {
+		return ""
+	}
+	query := strings.TrimSpace(input.Query)
+	if !looksLikeRepoAnalysisRequest(query) {
+		return ""
+	}
+	workdir := resolveDelegationWorkdir(input)
+	if workdir == "" {
+		return ""
+	}
+	objective := fmt.Sprintf(
+		"Inspect the repository at %s, explore its structure and key modules, and return a focused summary or findings for the parent to relay.",
+		workdir,
+	)
+	return fmt.Sprintf(
+		"Runtime directive: this is a top-level repository-analysis request. Before any local repo exploration, call `llm/agents:run` exactly once with `agentId: \"coder\"`, `context.workdir: %q`, and an objective equivalent to %q. Only `orchestration:updatePlan` may come before that delegated call. After the child returns, validate and relay its result in the parent response.",
+		workdir,
+		objective,
+	)
+}
+
+func looksLikeRepoAnalysisRequest(query string) bool {
+	lower := strings.ToLower(strings.TrimSpace(query))
+	if lower == "" {
+		return false
+	}
+	hasAnalysisVerb := strings.Contains(lower, "analyze") ||
+		strings.Contains(lower, "analyse") ||
+		strings.Contains(lower, "review") ||
+		strings.Contains(lower, "inspect") ||
+		strings.Contains(lower, "scan") ||
+		strings.Contains(lower, "summarize") ||
+		strings.Contains(lower, "summarise") ||
+		strings.Contains(lower, "explain")
+	if !hasAnalysisVerb {
+		return false
+	}
+	hasRepoNoun := strings.Contains(lower, "repo") ||
+		strings.Contains(lower, "repository") ||
+		strings.Contains(lower, "project") ||
+		strings.Contains(lower, "codebase") ||
+		strings.Contains(lower, "directory")
+	if hasRepoNoun {
+		return true
+	}
+	for _, candidate := range extractPathCandidates(query) {
+		if resolveExistingWorkdir(candidate) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveDelegationWorkdir(input *QueryInput) string {
+	if input == nil {
+		return ""
+	}
+	if existing := normalizeWorkdirValue(input.Context["workdir"]); existing != "" {
+		return existing
+	}
+	if existing := normalizeWorkdirValue(input.Context["resolvedWorkdir"]); existing != "" {
+		return existing
+	}
+	for _, candidate := range extractPathCandidates(input.Query) {
+		if resolved := resolveExistingWorkdir(candidate); resolved != "" {
+			return resolved
+		}
+	}
+	return ""
 }
 
 // buildHistory derives history from a provided conversation transcript.
