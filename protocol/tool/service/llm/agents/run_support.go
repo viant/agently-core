@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"strings"
+	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -60,6 +61,11 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 	return true, nil
 }
 
+// DefaultChildAgentTimeout is the maximum duration a child agent run is
+// allowed before its context is cancelled. This prevents hung tool calls
+// inside the child from blocking the parent agent forever.
+const DefaultChildAgentTimeout = 10 * time.Minute
+
 func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, convID string, depth int) error {
 	if s.agent == nil {
 		errorf("agents.run internal error: agent runtime not configured")
@@ -82,7 +88,15 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		qi.Context = childContext
 	}
 	qi.ToolsAllowed = []string{}
-	if ri.ModelPreferences != nil && (qi.Agent == nil || strings.TrimSpace(qi.Agent.ModelSelection.Model) == "") {
+	// Inherit the parent conversation's model selection so child agents use
+	// the same model the user selected, not the system default.
+	childHasModel := qi.Agent != nil && strings.TrimSpace(qi.Agent.ModelSelection.Model) != ""
+	if !childHasModel {
+		if parentModel := s.parentConversationModel(ctx); parentModel != "" {
+			qi.ModelOverride = parentModel
+		}
+	}
+	if ri.ModelPreferences != nil && !childHasModel {
 		qi.ModelPreferences = ri.ModelPreferences
 	}
 	if ri.ReasoningEffort != nil {
@@ -94,10 +108,16 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	}
 	qo := &agentsvc.QueryOutput{}
 	// Detach from parent's tool-execution deadline so the child agent
-	// runs with its own independent timeout instead of inheriting
-	// the parent's (often short) tool-call timeout.
+	// runs with its own independent timeout. Apply a hard deadline so a
+	// hung child doesn't block the parent forever.
 	childCtx := toolpol.WithPolicy(context.WithoutCancel(ctx), nil)
-	debugf("agents.run internal invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
+	childTimeout := s.ChildTimeout
+	if childTimeout <= 0 {
+		childTimeout = DefaultChildAgentTimeout
+	}
+	childCtx, childCancel := context.WithTimeout(childCtx, childTimeout)
+	defer childCancel()
+	debugf("agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), childTimeout)
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
 		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
 		s.finalizeRunStatus(ctx, runCtx, "failed")
@@ -215,7 +235,7 @@ func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, ch
 	if s == nil || s.status == nil || strings.TrimSpace(parent.ConversationID) == "" {
 		return ""
 	}
-	mid, err := s.status.Start(ctx, parent, "llm/agents-run", "assistant", "tool", "exec")
+	mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec")
 	if err != nil {
 		errorf("agents.run %s status start error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
 		return ""
@@ -230,4 +250,22 @@ func (s *Service) finalizeRunStatus(ctx context.Context, runCtx linkedRun, statu
 		return
 	}
 	_ = s.status.Finalize(ctx, runCtx.parent, runCtx.statusMessageID, strings.TrimSpace(status), "")
+}
+
+// parentConversationModel returns the default model from the parent
+// conversation, if available. This allows child agents to inherit the
+// user-selected model instead of falling back to a system default.
+func (s *Service) parentConversationModel(ctx context.Context) string {
+	if s == nil || s.conv == nil {
+		return ""
+	}
+	parentConvID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	if parentConvID == "" {
+		return ""
+	}
+	conv, err := s.conv.GetConversation(ctx, parentConvID)
+	if err != nil || conv == nil || conv.DefaultModel == nil {
+		return ""
+	}
+	return strings.TrimSpace(*conv.DefaultModel)
 }

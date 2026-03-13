@@ -15,6 +15,7 @@ import (
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
@@ -27,6 +28,7 @@ import (
 	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -789,6 +791,7 @@ func (c *EmbeddedClient) ListPendingElicitations(ctx context.Context, input *Lis
 					CreatedAt:      row.CreatedAt,
 					Content:        strings.TrimSpace(valueOrEmpty(row.Content)),
 				}
+				item.Elicitation = c.resolveElicitationPayload(ctx, elicID, valueOrEmpty(row.ElicitationPayloadId), valueOrEmpty(row.Content))
 				if prev, ok := byElicitation[elicID]; ok {
 					if prev.CreatedAt.After(item.CreatedAt) {
 						continue
@@ -840,6 +843,7 @@ func (c *EmbeddedClient) ListPendingElicitations(ctx context.Context, input *Lis
 						CreatedAt:      msg.CreatedAt,
 						Content:        strings.TrimSpace(valueOrEmpty(msg.Content)),
 					}
+					item.Elicitation = c.resolveMessageElicitation(ctx, msg)
 					if prev, ok := byElicitation[elicID]; ok {
 						if prev.CreatedAt.After(item.CreatedAt) {
 							continue
@@ -1204,8 +1208,14 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 		return nil, errors.New("conversation ID is required")
 	}
 	var opts []conversation.Option
-	if input.Since != "" {
-		opts = append(opts, conversation.WithSince(input.Since))
+	sinceMessageID := ""
+	if since := strings.TrimSpace(input.Since); since != "" {
+		sinceTurnID := since
+		if msg, err := c.conv.GetMessage(ctx, since); err == nil && msg != nil && msg.TurnId != nil && strings.TrimSpace(*msg.TurnId) != "" {
+			sinceMessageID = since
+			sinceTurnID = strings.TrimSpace(*msg.TurnId)
+		}
+		opts = append(opts, conversation.WithSince(sinceTurnID))
 	}
 	if input.IncludeModelCalls {
 		opts = append(opts, conversation.WithIncludeModelCall(true))
@@ -1221,7 +1231,110 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 		return &TranscriptOutput{Turns: nil}, nil
 	}
 	turns := conv.GetTranscript()
+	c.enrichTranscriptElicitations(ctx, turns)
+	if sinceMessageID != "" {
+		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
+	}
 	return &TranscriptOutput{Turns: turns}, nil
+}
+
+func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {
+	for _, turn := range turns {
+		if turn == nil || len(turn.Message) == 0 {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			if elicitation := c.resolveMessageElicitation(ctx, msg); len(elicitation) > 0 {
+				msg.Elicitation = elicitation
+			}
+		}
+	}
+}
+
+func (c *EmbeddedClient) resolveMessageElicitation(ctx context.Context, msg *agconv.MessageView) map[string]interface{} {
+	if msg == nil || msg.ElicitationId == nil || strings.TrimSpace(*msg.ElicitationId) == "" {
+		return nil
+	}
+	if msg.Elicitation != nil {
+		return msg.Elicitation
+	}
+	return c.resolveElicitationPayload(ctx, strings.TrimSpace(*msg.ElicitationId), valueOrEmpty(msg.ElicitationPayloadId), valueOrEmpty(msg.Content))
+}
+
+func (c *EmbeddedClient) resolveElicitationPayload(ctx context.Context, elicitationID, payloadID, content string) map[string]interface{} {
+	elicitationID = strings.TrimSpace(elicitationID)
+	if elicitationID == "" {
+		return nil
+	}
+	payloadID = strings.TrimSpace(payloadID)
+	content = strings.TrimSpace(content)
+	if payloadID != "" {
+		if payload, err := c.GetPayload(ctx, payloadID); err == nil && payload != nil && payload.InlineBody != nil && len(*payload.InlineBody) > 0 {
+			var elicitation map[string]interface{}
+			if err = json.Unmarshal(*payload.InlineBody, &elicitation); err == nil {
+				elicitation["elicitationId"] = elicitationID
+				if content != "" {
+					if _, ok := elicitation["message"]; !ok {
+						elicitation["message"] = content
+					}
+				}
+				return elicitation
+			}
+		}
+	}
+	if content != "" {
+		var elicitation plan.Elicitation
+		if err := json.Unmarshal([]byte(content), &elicitation); err == nil && !elicitation.IsEmpty() {
+			raw, err := json.Marshal(elicitation)
+			if err == nil {
+				out := map[string]interface{}{}
+				if err = json.Unmarshal(raw, &out); err == nil {
+					out["elicitationId"] = elicitationID
+					return out
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func filterTranscriptSinceMessage(turns conversation.Transcript, messageID string) conversation.Transcript {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return turns
+	}
+	result := make(conversation.Transcript, 0, len(turns))
+	found := false
+	for _, turn := range turns {
+		if turn == nil {
+			continue
+		}
+		if !found {
+			index := -1
+			for i, msg := range turn.Message {
+				if msg != nil && strings.TrimSpace(msg.Id) == messageID {
+					index = i
+					break
+				}
+			}
+			if index == -1 {
+				continue
+			}
+			found = true
+			cloned := *turn
+			cloned.Message = append([]*agconv.MessageView(nil), turn.Message[index:]...)
+			result = append(result, &cloned)
+			continue
+		}
+		result = append(result, turn)
+	}
+	if found {
+		return result
+	}
+	return turns
 }
 
 func (c *EmbeddedClient) TerminateConversation(ctx context.Context, conversationID string) error {

@@ -47,6 +47,9 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 		Agent:    "chatter",
 		Model:    "openai_gpt4o_mini",
 		Embedder: "openai_text",
+		ToolAutoSelection: config.ToolAutoSelectionDefaults{
+			Enabled: true,
+		},
 	}, nil, "test-version").SetStarterTasks([]StarterTask{
 		{
 			ID:          "analyze-repo",
@@ -72,6 +75,21 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	assert.Equal(t, "chatter", response.DefaultAgent)
 	assert.Equal(t, "openai_gpt4o_mini", response.DefaultModel)
 	assert.Equal(t, "openai_text", response.DefaultEmbedder)
+	if assert.NotNil(t, response.Defaults) {
+		assert.Equal(t, "chatter", response.Defaults.Agent)
+		assert.Equal(t, "openai_gpt4o_mini", response.Defaults.Model)
+		assert.Equal(t, "openai_text", response.Defaults.Embedder)
+		assert.True(t, response.Defaults.AutoSelectTools)
+	}
+	assert.True(t, response.Capabilities.AgentAutoSelection)
+	assert.False(t, response.Capabilities.ModelAutoSelection)
+	assert.True(t, response.Capabilities.ToolAutoSelection)
+	assert.True(t, response.Capabilities.CompactConversation)
+	assert.True(t, response.Capabilities.PruneConversation)
+	assert.True(t, response.Capabilities.AnonymousSession)
+	assert.True(t, response.Capabilities.MessageCursor)
+	assert.True(t, response.Capabilities.StructuredElicitation)
+	assert.True(t, response.Capabilities.TurnStartedEvent)
 	if assert.Len(t, response.StarterTasks, 1) {
 		assert.Equal(t, "analyze-repo", response.StarterTasks[0].ID)
 		assert.Equal(t, "Analyze this repo", response.StarterTasks[0].Title)

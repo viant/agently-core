@@ -9,12 +9,14 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/runtime/memory"
 )
 
 // createToolMessage persists a new tool message and returns its ID.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time, toolName string) (string, error) {
 	toolMsgID := uuid.New().String()
+	displayName := mcpname.Display(toolName)
 	opts := []apiconv.MessageOption{
 		apiconv.WithId(toolMsgID),
 		apiconv.WithRole("tool"),
@@ -22,8 +24,11 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 		apiconv.WithStatus("running"),
 		apiconv.WithCreatedAt(startedAt),
 	}
-	if name := strings.TrimSpace(toolName); name != "" {
+	if name := strings.TrimSpace(displayName); name != "" {
 		opts = append(opts, apiconv.WithToolName(name))
+	}
+	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
 	}
 	if IsChainMode(ctx) {
 		opts = append(opts, apiconv.WithMode("chain"))
@@ -47,6 +52,7 @@ func updateToolMessageStatus(ctx context.Context, conv apiconv.Client, toolMsgID
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
 func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time, traceID string) error {
+	displayName := mcpname.Display(toolName)
 	tc := apiconv.NewToolCall()
 	tc.SetMessageID(toolMsgID)
 	if opID != "" {
@@ -56,9 +62,17 @@ func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID stri
 		tc.TurnID = &turn.TurnID
 		tc.Has.TurnID = true
 	}
-	tc.SetToolName(toolName)
+	tc.SetToolName(displayName)
 	tc.SetToolKind("general")
 	tc.SetStatus("running")
+	if runMeta, ok := memory.RunMetaFromContext(ctx); ok {
+		if strings.TrimSpace(runMeta.RunID) != "" {
+			tc.SetRunID(runMeta.RunID)
+		}
+		if runMeta.Iteration > 0 {
+			tc.SetIteration(runMeta.Iteration)
+		}
+	}
 
 	now := startedAt
 	tc.StartedAt = &now

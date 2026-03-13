@@ -26,8 +26,9 @@ func WithUpdatedAt(t time.Time) MessageOption { return func(m *MutableMessage) {
 func WithCreatedByUserID(id string) MessageOption {
 	return func(m *MutableMessage) { m.SetCreatedByUserID(id) }
 }
-func WithArchived(v int) MessageOption { return func(m *MutableMessage) { m.SetArchived(v) } }
-func WithSequence(v int) MessageOption { return func(m *MutableMessage) { m.SetSequence(v) } }
+func WithArchived(v int) MessageOption  { return func(m *MutableMessage) { m.SetArchived(v) } }
+func WithSequence(v int) MessageOption  { return func(m *MutableMessage) { m.SetSequence(v) } }
+func WithIteration(v int) MessageOption { return func(m *MutableMessage) { m.SetIteration(v) } }
 
 // Message content and semantics
 func WithRole(role string) MessageOption     { return func(m *MutableMessage) { m.SetRole(role) } }

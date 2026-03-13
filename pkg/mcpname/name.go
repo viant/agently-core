@@ -63,3 +63,18 @@ func (t Name) String() string { return string(t) }
 func NewName(service, name string) Name {
 	return Name(strings.ReplaceAll(service, "/", "_") + "-" + name)
 }
+
+// Display normalizes a tool name to the user-facing slash form service/path/method.
+func Display(raw string) string {
+	canon := strings.TrimSpace(Canonical(raw))
+	if canon == "" {
+		return strings.TrimSpace(raw)
+	}
+	n := Name(canon)
+	service := strings.TrimSpace(n.Service())
+	method := strings.TrimSpace(n.Method())
+	if service != "" && method != "" {
+		return service + "/" + method
+	}
+	return canon
+}

@@ -10,11 +10,6 @@ type Plan struct {
 	Intention   string       `yaml:"intention,omitempty" json:"intention,omitempty"`     // Optional summary of the user’s goal
 	Steps       Steps        `yaml:"steps" json:"steps"`                                 // Ordered list of steps to execute
 	Elicitation *Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"` // Optional elicitation details if user input is needed
-
-	// AllBlocked is set to true when every tool step in the plan was blocked
-	// by the duplicate guard. The ReAct loop should treat this as a terminal
-	// state and stop iterating.
-	AllBlocked bool `json:"allBlocked,omitempty" yaml:"allBlocked,omitempty"`
 }
 
 func New() *Plan {

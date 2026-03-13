@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
@@ -308,6 +309,78 @@ func TestOnCallEnd_DoesNotPatchConversationWhenFinishModelCallFails(t *testing.T
 	assert.EqualValues(t, 0, client.patchConversationCount)
 }
 
+func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
+	baseClient := convmem.New()
+	client := &capturingModelCallClient{Client: baseClient}
+	base := memory.WithConversationID(context.Background(), "conv-echo")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-echo", "")))
+
+	user := apiconv.NewMessage()
+	user.SetId("user-1")
+	user.SetConversationID("conv-echo")
+	user.SetTurnID("turn-1")
+	user.SetRole("user")
+	user.SetType("task")
+	user.SetContent("Call the tool")
+	user.SetRawContent("Call the tool")
+	require.NoError(t, client.PatchMessage(base, user))
+
+	ctx := memory.WithTurnMeta(base, memory.TurnMeta{
+		ConversationID:  "conv-echo",
+		TurnID:          "turn-1",
+		ParentMessageID: "user-1",
+		Assistant:       "agent-1",
+	})
+	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: "turn-1", Iteration: 2})
+	ctx = WithRecorderObserver(ctx, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	resp := &llm.GenerateResponse{
+		Choices: []llm.Choice{{
+			Message: llm.Message{
+				Role:    llm.RoleAssistant,
+				Content: "Call the tool",
+				ToolCalls: []llm.ToolCall{{
+					ID:   "call-1",
+					Name: "resources-roots",
+				}},
+			},
+		}},
+	}
+	require.NoError(t, ob.OnCallEnd(ctx2, Info{Model: "test-model", LLMResponse: resp}))
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+	msg, err := client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.NotNil(t, msg.Content)
+	require.Equal(t, "Using resources-roots.", *msg.Content)
+	require.NotNil(t, msg.Preamble)
+	require.Equal(t, "Using resources-roots.", *msg.Preamble)
+	require.NotNil(t, msg.RawContent)
+	require.Equal(t, "Using resources-roots.", *msg.RawContent)
+
+	var persisted *apiconv.MutableModelCall
+	for _, call := range client.modelCalls {
+		if call != nil && call.RunID != nil && call.Iteration != nil {
+			persisted = call
+			break
+		}
+	}
+	require.NotNil(t, persisted)
+	require.Equal(t, "turn-1", *persisted.RunID)
+	require.EqualValues(t, 2, *persisted.Iteration)
+}
+
 type failingPayloadClient struct {
 	apiconv.Client
 	failAtCount            int
@@ -326,4 +399,14 @@ func (f *failingPayloadClient) PatchPayload(ctx context.Context, payload *apicon
 func (f *failingPayloadClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
 	f.patchConversationCount++
 	return f.Client.PatchConversations(ctx, conversations)
+}
+
+type capturingModelCallClient struct {
+	apiconv.Client
+	modelCalls []*apiconv.MutableModelCall
+}
+
+func (c *capturingModelCallClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
+	c.modelCalls = append(c.modelCalls, modelCall)
+	return c.Client.PatchModelCall(ctx, modelCall)
 }

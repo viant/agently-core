@@ -720,6 +720,21 @@ func (c *HTTPClient) applyAuth(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
+func (c *HTTPClient) newRequest(ctx context.Context, method, path string, body io.Reader, contentType string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.applyAuth(ctx, req); err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	if strings.TrimSpace(contentType) != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	return req, nil
+}
+
 func (c *HTTPClient) doJSON(ctx context.Context, method, path string, in interface{}, out interface{}) error {
 	var body io.Reader
 	if in != nil {
@@ -729,16 +744,13 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path string, in interfa
 		}
 		body = bytes.NewReader(payload)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	contentType := ""
+	if in != nil {
+		contentType = "application/json"
+	}
+	req, err := c.newRequest(ctx, method, path, body, contentType)
 	if err != nil {
 		return err
-	}
-	if err := c.applyAuth(ctx, req); err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {

@@ -62,18 +62,27 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 	if strings.TrimSpace(elic.CallbackURL) == "" && turn != nil {
 		elic.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", turn.ConversationID, elic.ElicitationId)
 	}
-	raw, _ := json.Marshal(elic)
+	payloadID, err := s.storeElicitationRequestPayload(ctx, elic)
+	if err != nil {
+		errorf("elicitation request payload error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), err)
+		return nil, err
+	}
 	messageType := "control"
 	if role == llm.RoleAssistant.String() {
 		messageType = "text"
+	}
+	content := strings.TrimSpace(elic.Message)
+	if content == "" {
+		content = "Additional input required."
 	}
 	msg, err := apiconv.AddMessage(ctx, s.client, turn,
 		apiconv.WithId(uuid.New().String()),
 		apiconv.WithRole(role),
 		apiconv.WithType(messageType),
 		apiconv.WithElicitationID(elic.ElicitationId),
+		apiconv.WithElicitationPayloadID(payloadID),
 		apiconv.WithStatus("pending"),
-		apiconv.WithContent(string(raw)),
+		apiconv.WithContent(content),
 	)
 	if err != nil {
 		errorf("elicitation record error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), err)
@@ -118,9 +127,13 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 	if s.awaiterFactory != nil {
 		go func() {
 			var req plan.Elicitation
-			if msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID); err == nil && msg != nil && msg.Content != nil {
-				if c := strings.TrimSpace(*msg.Content); c != "" {
-					_ = json.Unmarshal([]byte(c), &req)
+			if msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID); err == nil && msg != nil {
+				if loaded, ok := s.loadRecordedElicitation(ctx, msg); ok {
+					req = loaded
+				} else if msg.Content != nil {
+					if c := strings.TrimSpace(*msg.Content); c != "" {
+						_ = json.Unmarshal([]byte(c), &req)
+					}
 				}
 			}
 			// Ensure ElicitationId is present
@@ -180,6 +193,40 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 		debugf("elicitation wait result convo=%q elicitation_id=%q action=%q payload_keys=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(act), PayloadKeys(res.Content))
 		return act, res.Content, nil
 	}
+}
+
+func (s *Service) storeElicitationRequestPayload(ctx context.Context, elic *plan.Elicitation) (string, error) {
+	raw, err := json.Marshal(elic)
+	if err != nil {
+		return "", err
+	}
+	pid := uuid.New().String()
+	payload := apiconv.NewPayload()
+	payload.SetId(pid)
+	payload.SetKind("elicitation_request")
+	payload.SetMimeType("application/json")
+	payload.SetSizeBytes(len(raw))
+	payload.SetStorage("inline")
+	payload.SetInlineBody(raw)
+	if err = s.client.PatchPayload(ctx, payload); err != nil {
+		return "", err
+	}
+	return pid, nil
+}
+
+func (s *Service) loadRecordedElicitation(ctx context.Context, msg *apiconv.Message) (plan.Elicitation, bool) {
+	if msg == nil || msg.ElicitationPayloadId == nil || strings.TrimSpace(*msg.ElicitationPayloadId) == "" {
+		return plan.Elicitation{}, false
+	}
+	payload, err := s.client.GetPayload(ctx, strings.TrimSpace(*msg.ElicitationPayloadId))
+	if err != nil || payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
+		return plan.Elicitation{}, false
+	}
+	var req plan.Elicitation
+	if err = json.Unmarshal(*payload.InlineBody, &req); err != nil {
+		return plan.Elicitation{}, false
+	}
+	return req, true
 }
 
 // Elicit records a new elicitation control message and waits for a resolution via router/UI.

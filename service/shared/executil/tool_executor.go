@@ -433,15 +433,5 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 }
 
 func displayQueueToolName(name string) string {
-	canon := strings.TrimSpace(mcpname.Canonical(name))
-	if canon == "" {
-		return strings.TrimSpace(name)
-	}
-	n := mcpname.Name(canon)
-	service := strings.TrimSpace(n.Service())
-	method := strings.TrimSpace(n.Method())
-	if service != "" && method != "" {
-		return service + "/" + method
-	}
-	return canon
+	return mcpname.Display(name)
 }

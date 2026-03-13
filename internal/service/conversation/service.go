@@ -29,6 +29,7 @@ import (
 	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turnread "github.com/viant/agently-core/pkg/agently/turn/read"
 	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/datly"
@@ -562,7 +563,7 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 		Type:      streaming.EventTypeControl,
 		Op:        "message_patch",
 		Patch:     patch,
-		CreatedAt: time.Now(),
+		CreatedAt: patchEventCreatedAt(message),
 	}
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("PatchMessage publish event error id=%q convo=%q err=%v", strings.TrimSpace(message.Id), conversationID, err)
@@ -577,11 +578,14 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.LinkedConversationID && message.LinkedConversationID != nil {
 		out["linkedConversationId"] = strings.TrimSpace(*message.LinkedConversationID)
 	}
+	if message.Has.TurnID && message.TurnID != nil {
+		out["turnId"] = strings.TrimSpace(*message.TurnID)
+	}
 	if message.Has.Status && message.Status != nil {
 		out["status"] = strings.TrimSpace(*message.Status)
 	}
 	if message.Has.ToolName && message.ToolName != nil {
-		out["toolName"] = strings.TrimSpace(*message.ToolName)
+		out["toolName"] = mcpname.Display(strings.TrimSpace(*message.ToolName))
 	}
 	if message.Has.Interim && message.Interim != nil {
 		out["interim"] = *message.Interim
@@ -589,7 +593,29 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.Preamble && message.Preamble != nil {
 		out["preamble"] = strings.TrimSpace(*message.Preamble)
 	}
+	if message.Has.Content && message.Content != nil {
+		out["content"] = *message.Content
+	}
+	if message.Has.Role && strings.TrimSpace(message.Role) != "" {
+		out["role"] = strings.TrimSpace(message.Role)
+	}
+	if message.Has.Type && strings.TrimSpace(message.Type) != "" {
+		out["messageType"] = strings.TrimSpace(message.Type)
+	}
+	if message.Has.CreatedAt && message.CreatedAt != nil && !message.CreatedAt.IsZero() {
+		out["createdAt"] = message.CreatedAt.Format(time.RFC3339Nano)
+	}
+	if message.Has.Iteration && message.Iteration != nil {
+		out["iteration"] = *message.Iteration
+	}
 	return out
+}
+
+func patchEventCreatedAt(message *convcli.MutableMessage) time.Time {
+	if message != nil && message.Has != nil && message.Has.CreatedAt && message.CreatedAt != nil && !message.CreatedAt.IsZero() {
+		return *message.CreatedAt
+	}
+	return time.Now()
 }
 
 // valueOrEmpty renders pointer values without exposing nil dereference in logs.
@@ -745,8 +771,50 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 		warnf("PatchTurn violation id=%q msg=%q", strings.TrimSpace(turn.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
+	s.publishTurnEvent(ctx, turn)
 	debugf("PatchTurn ok id=%q status=%q", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.Status))
 	return nil
+}
+
+func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTurn) {
+	if s == nil || s.streamPub == nil || turn == nil || turn.Has == nil {
+		return
+	}
+	status := strings.ToLower(strings.TrimSpace(turn.Status))
+	if !turn.Has.Status || status != "running" {
+		return
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	if conversationID == "" {
+		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	}
+	if conversationID == "" {
+		return
+	}
+	patch := map[string]interface{}{
+		"turnId":         strings.TrimSpace(turn.Id),
+		"conversationId": conversationID,
+		"status":         "running",
+	}
+	createdAt := time.Now()
+	if turn.Has.CreatedAt && turn.CreatedAt != nil && !turn.CreatedAt.IsZero() {
+		createdAt = *turn.CreatedAt
+		patch["createdAt"] = turn.CreatedAt.Format(time.RFC3339Nano)
+	}
+	if turn.Has.RunID && turn.RunID != nil {
+		patch["runId"] = strings.TrimSpace(*turn.RunID)
+	}
+	event := &streaming.Event{
+		ID:        strings.TrimSpace(turn.Id),
+		StreamID:  conversationID,
+		Type:      streaming.EventTypeControl,
+		Op:        "turn_started",
+		Patch:     patch,
+		CreatedAt: createdAt,
+	}
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		warnf("PatchTurn publish turn event error id=%q convo=%q err=%v", strings.TrimSpace(turn.Id), conversationID, err)
+	}
 }
 
 // DeleteConversation removes a conversation by id. Dependent rows are removed via DB FKs (ON DELETE CASCADE).
