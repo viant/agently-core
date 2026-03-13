@@ -1,0 +1,3 @@
+- openai_responses_generated_file_output - create a deterministic image artifact
+- openai_responses_generated_file_output - verify generated file metadata is listed by conversation
+- openai_responses_generated_file_output - verify generated file content is downloadable

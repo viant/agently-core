@@ -62,13 +62,16 @@ type ResponsesContentItem struct {
 // ResponsesTool is the Responses API tool schema. For function tools, the
 // name/description/parameters are top-level (not nested under "function").
 type ResponsesTool struct {
-	Type        string                 `json:"type"`
-	Name        string                 `json:"name,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
-	Required    []string               `json:"required,omitempty"`
-	Strict      *bool                  `json:"strict,omitempty"`
-	Container   *Container             `json:"container,omitempty"`
+	Type         string                 `json:"type"`
+	Name         string                 `json:"name,omitempty"`
+	Description  string                 `json:"description,omitempty"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty"`
+	Required     []string               `json:"required,omitempty"`
+	Strict       *bool                  `json:"strict,omitempty"`
+	Container    *Container             `json:"container,omitempty"`
+	OutputFormat string                 `json:"output_format,omitempty"`
+	Background   string                 `json:"background,omitempty"`
+	Size         string                 `json:"size,omitempty"`
 }
 
 type Container struct {
@@ -162,6 +165,14 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 			},
 		})
 	}
+	if req.EnableImageGeneration && !hasResponsesToolType(out.Tools, "image_generation") {
+		out.Tools = append(out.Tools, ResponsesTool{
+			Type:         "image_generation",
+			OutputFormat: "png",
+			Background:   "opaque",
+			Size:         "1024x1024",
+		})
+	}
 
 	// Convert Messages to Input content
 	out.Input = make([]InputItem, 0, len(req.Messages))
@@ -237,11 +248,10 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 					case "file":
 						if it.File != nil && it.File.FileID != "" {
 							items = append(items, ResponsesContentItem{Type: "input_file", FileID: it.File.FileID})
-						} else {
+						} else if it.File != nil {
 							items = append(items, ResponsesContentItem{Type: "input_file", FileName: it.File.FileName, FileData: it.File.FileData})
 						}
 					default:
-						// Fallback attempt: treat any other type with text
 						t := "input_text"
 						if isAssistant {
 							t = "output_text"

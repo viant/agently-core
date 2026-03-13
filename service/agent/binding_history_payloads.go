@@ -226,7 +226,7 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
 		return nil
 	}
 	defaultName := ""
-	if msg.Content != nil {
+	if msg.Content != nil && strings.EqualFold(strings.TrimSpace(msg.Type), "control") {
 		defaultName = strings.TrimSpace(*msg.Content)
 	}
 	var attachments []*prompt.Attachment
@@ -236,7 +236,7 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
 		}
 		var data []byte
 		if av.InlineBody != nil && len(*av.InlineBody) > 0 {
-			data = append([]byte(nil), (*av.InlineBody)...)
+			data = decodeAttachmentInlineBodyBytes(*av.InlineBody, av.Compression)
 		} else {
 			continue
 		}
@@ -248,6 +248,9 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
 		if name == "" && uri != "" {
 			name = path.Base(uri)
 		}
+		if name == "" {
+			name = "(attachment)"
+		}
 		mimeType := strings.TrimSpace(av.MimeType)
 		attachments = append(attachments, &prompt.Attachment{
 			Name: name,
@@ -257,4 +260,23 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
 		})
 	}
 	return attachments
+}
+
+func decodeAttachmentInlineBodyBytes(inline []byte, compression string) []byte {
+	if len(inline) == 0 {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(compression), "gzip") {
+		return append([]byte(nil), inline...)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(inline))
+	if err != nil {
+		return append([]byte(nil), inline...)
+	}
+	defer reader.Close()
+	inflated, err := io.ReadAll(reader)
+	if err != nil || len(inflated) == 0 {
+		return append([]byte(nil), inline...)
+	}
+	return inflated
 }

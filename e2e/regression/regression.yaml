@@ -1,5 +1,5 @@
 init:
-  repoPath: $WorkingDirectory(../..)
+  repoPath: $WorkingDirectory(.)
   testdataPath: ${repoPath}/e2e/query/testdata
   serverPort: '$serverPort ? $serverPort : 9001'
   serverURL: http://127.0.0.1:${serverPort}

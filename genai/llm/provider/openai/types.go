@@ -32,6 +32,9 @@ type Request struct {
 	// EnableCodeInterpreter controls stream-only injection of a default
 	// code_interpreter tool in Responses API payloads.
 	EnableCodeInterpreter bool `json:"-"`
+	// EnableImageGeneration controls stream-only injection of the built-in
+	// image_generation tool in Responses API payloads.
+	EnableImageGeneration bool `json:"-"`
 }
 
 // TextControls enables response formatting controls on the Responses API.

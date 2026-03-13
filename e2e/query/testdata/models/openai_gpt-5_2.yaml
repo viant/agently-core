@@ -1,0 +1,9 @@
+id: openai_gpt-5.2
+name: gpt-5.2 (OpenAI)
+description: OpenAI gpt-5.2 model
+intelligence: 0.92
+speed: 0.80
+options:
+  provider: openai
+  model: gpt-5.2
+  envKey: OPENAI_API_KEY

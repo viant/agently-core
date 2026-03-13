@@ -1,0 +1,15 @@
+id: pdf_inline
+name: PDF Inline
+description: Inline PDF attachment test agent
+modelRef: openai_gpt-5.2_responses
+temperature: 0
+persona:
+  role: assistant
+  actor: PDFBot
+attachment:
+  mode: inline
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

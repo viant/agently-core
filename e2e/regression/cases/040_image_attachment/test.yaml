@@ -1,0 +1,63 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_image_attachment - ask for dominant color"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: simple
+          Query: What is the dominant color in the attached image? Answer with one word.
+          UserId: e2e-image
+          attachments:
+            - name: red-dot.png
+              mime: image/png
+              data: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            content: Red
+
+  transcript:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_image_attachment - transcript exposes attachment on user task message"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@turns[0].Message[0].Attachment[0].MimeType": true
+            "@exists@turns[0].Message[0].Attachment[0].InlineBody": true
+
+  attachmentMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_image_attachment - attachment control message is persisted"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}&roles=user&types=control
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].AttachmentPayloadId": true
+            "@exists@Rows[0].Content": true
+
+  attachmentPayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_image_attachment - payload metadata and inline body are retrievable"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}?inline=1
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}
+            MimeType: image/png
+            InlineBody: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC

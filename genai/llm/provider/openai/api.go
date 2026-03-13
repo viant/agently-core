@@ -19,8 +19,8 @@ import (
 
 // Scanner buffer sizes for SSE processing
 const (
-	sseInitialBuf         = 64 * 1024
-	sseMaxBuf             = 1024 * 1024
+	sseInitialBuf         = 256 * 1024
+	sseMaxBuf             = 16 * 1024 * 1024
 	defaultRequestTimeout = 10 * time.Minute
 )
 
@@ -183,8 +183,8 @@ func (c *Client) canMultimodal() bool {
 	if m == "" {
 		return false
 	}
-	// Heuristic: enable only on known vision-capable chat families.
-	keywords := []string{"gpt-4o", "4o", "4.1", "-omni", "vision"}
+	// Heuristic: enable only on known vision-capable families.
+	keywords := []string{"gpt-5", "5.2", "gpt-4o", "4o", "4.1", "-omni", "vision"}
 	for _, kw := range keywords {
 		if strings.Contains(m, kw) {
 			return true

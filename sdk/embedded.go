@@ -1098,8 +1098,42 @@ func (c *EmbeddedClient) UploadFile(_ context.Context, _ *UploadFileInput) (*Upl
 	return nil, errors.New("file operations not yet implemented")
 }
 
-func (c *EmbeddedClient) DownloadFile(_ context.Context, _ *DownloadFileInput) (*DownloadFileOutput, error) {
-	return nil, errors.New("file operations not yet implemented")
+func (c *EmbeddedClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {
+	if c.data == nil {
+		return nil, errors.New("data service not configured")
+	}
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" || strings.TrimSpace(input.FileID) == "" {
+		return nil, errors.New("conversation ID and file ID are required")
+	}
+	rows, err := c.data.ListGeneratedFiles(ctx, input.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row == nil || strings.TrimSpace(row.ID) != strings.TrimSpace(input.FileID) || row.PayloadID == nil || strings.TrimSpace(*row.PayloadID) == "" {
+			continue
+		}
+		payload, err := c.GetPayload(ctx, strings.TrimSpace(*row.PayloadID))
+		if err != nil {
+			return nil, err
+		}
+		if payload == nil {
+			return nil, nil
+		}
+		out := &DownloadFileOutput{}
+		if row.Filename != nil {
+			out.Name = *row.Filename
+		}
+		if row.MimeType != nil {
+			out.ContentType = *row.MimeType
+		}
+		if payload.InlineBody != nil {
+			out.Data = make([]byte, len(*payload.InlineBody))
+			copy(out.Data, *payload.InlineBody)
+		}
+		return out, nil
+	}
+	return nil, nil
 }
 
 func (c *EmbeddedClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {

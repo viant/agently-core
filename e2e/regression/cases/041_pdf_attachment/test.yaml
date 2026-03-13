@@ -1,0 +1,63 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_pdf_attachment - extract deterministic token"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: pdf_inline
+          Query: What exact token appears in the attached PDF? Answer only with the token.
+          UserId: e2e-pdf
+          attachments:
+            - name: token.pdf
+              mime: application/pdf
+              data: JVBERi0xLjMKMyAwIG9iago8PC9UeXBlIC9QYWdlCi9QYXJlbnQgMSAwIFIKL1Jlc291cmNlcyAyIDAgUgovQ29udGVudHMgNCAwIFI+PgplbmRvYmoKNCAwIG9iago8PC9MZW5ndGggMTM2Pj4Kc3RyZWFtCjAgSgowIGoKMC41NyB3CjAuMDAwIEcKMC4wMDAgZwpCVCAvRjBhNzY3MDVkMThlMDQ5NGRkMjRjYjU3M2U1M2FhMGE4YzcxMGVjOTkgMTYuMDAgVGYgRVQKQlQgNTYuNjkgNzU2Ljg1IFRkIChQREZfVEVTVF9UT0tFTl80NzI5KSBUaiBFVAoKZW5kc3RyZWFtCmVuZG9iagoxIDAgb2JqCjw8L1R5cGUgL1BhZ2VzCi9LaWRzIFszIDAgUiBdCi9Db3VudCAxCi9NZWRpYUJveCBbMCAwIDU5NS4yOCA4NDEuODldCj4+CmVuZG9iago1IDAgb2JqCjw8L1R5cGUgL0ZvbnQKL0Jhc2VGb250IC9IZWx2ZXRpY2EKL1N1YnR5cGUgL1R5cGUxCi9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9Qcm9jU2V0IFsvUERGIC9UZXh0IC9JbWFnZUIgL0ltYWdlQyAvSW1hZ2VJXQovRm9udCA8PAovRjBhNzY3MDVkMThlMDQ5NGRkMjRjYjU3M2U1M2FhMGE4YzcxMGVjOTkgNSAwIFIKPj4KL1hPYmplY3QgPDwKPj4KL0NvbG9yU3BhY2UgPDwKPj4KPj4KZW5kb2JqCjYgMCBvYmoKPDwKL1Byb2R1Y2VyICj+/wBGAFAARABGACAAMQAuADcpCi9DcmVhdGlvbkRhdGUgKEQ6MjAyNjAzMTMxNjMzMjQpCi9Nb2REYXRlIChEOjIwMjYwMzEzMTYzMzI0KQo+PgplbmRvYmoKNyAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMSAwIFIKL05hbWVzIDw8Ci9FbWJlZGRlZEZpbGVzIDw8IC9OYW1lcyBbCiAgCl0gPj4KPj4KPj4KZW5kb2JqCnhyZWYKMCA4CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDI3MiAwMDAwMCBuIAowMDAwMDAwNDU1IDAwMDAwIG4gCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA4NyAwMDAwMCBuIAowMDAwMDAwMzU5IDAwMDAwIG4gCjAwMDAwMDA2MTYgMDAwMDAgbiAKMDAwMDAwMDcyOSAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9TaXplIDgKL1Jvb3QgNyAwIFIKL0luZm8gNiAwIFIKPj4Kc3RhcnR4cmVmCjgyNgolJUVPRgo=
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            content: PDF_TEST_TOKEN_4729
+
+  transcript:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_pdf_attachment - transcript exposes attachment on user task message"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@turns[0].Message[0].Attachment[0].MimeType": true
+            "@exists@turns[0].Message[0].Attachment[0].InlineBody": true
+
+  attachmentMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_pdf_attachment - attachment control message is persisted"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}&roles=user&types=control
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].AttachmentPayloadId": true
+            "@exists@Rows[0].Content": true
+
+  attachmentPayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_pdf_attachment - payload metadata and inline body are retrievable"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}?inline=1
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}
+            MimeType: application/pdf
+            "@exists@InlineBody": true
