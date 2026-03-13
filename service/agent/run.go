@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
+	"github.com/viant/agently-core/internal/debugtrace"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
@@ -567,12 +568,25 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				debugf("  history[%d] role=%s tool_call_id=%q tool_calls=%d content_len=%d content_head=%q",
 					i, m.Role, m.ToolCallId, toolCallCount, len(m.Content), content)
 			}
+			if debugtrace.Enabled() {
+				debugtrace.Write("agent", "run_plan_request", map[string]any{
+					"conversationID": strings.TrimSpace(turn.ConversationID),
+					"turnID":         strings.TrimSpace(turn.TurnID),
+					"iteration":      iter,
+					"model":          strings.TrimSpace(genInput.ModelSelection.Model),
+					"history":        debugtrace.SummarizeMessages(msgs),
+				})
+			}
 		}
 
 		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
+		stepCount := 0
+		if aPlan != nil {
+			stepCount = len(aPlan.Steps)
+		}
 		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d duration=%s",
 			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID),
-			iter, len(aPlan.Steps), time.Since(planStart))
+			iter, stepCount, time.Since(planStart))
 		if pErr != nil {
 			return pErr
 		}
@@ -587,11 +601,18 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		queryOutput.Plan = aPlan
-		stepCount := 0
-		if aPlan != nil {
-			stepCount = len(aPlan.Steps)
-		}
 		debugf("agent.runPlan plan ready convo=%q turn_id=%q iter=%d steps=%d elicitation=%v empty=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, stepCount, aPlan != nil && aPlan.Elicitation != nil, aPlan != nil && aPlan.IsEmpty())
+		if debugtrace.Enabled() {
+			debugtrace.Write("agent", "run_plan_result", map[string]any{
+				"conversationID": strings.TrimSpace(turn.ConversationID),
+				"turnID":         strings.TrimSpace(turn.TurnID),
+				"iteration":      iter,
+				"planEmpty":      aPlan != nil && aPlan.IsEmpty(),
+				"hasElicitation": aPlan != nil && aPlan.Elicitation != nil,
+				"contentLen":     len(genOutput.Content),
+				"steps":          summarizePlanSteps(aPlan),
+			})
+		}
 
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {

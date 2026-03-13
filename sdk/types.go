@@ -29,6 +29,7 @@ type GetMessagesInput struct {
 	ConversationID string
 	Page           *PageInput
 	// Optional filters
+	ID     string
 	TurnID string
 	Roles  []string
 	Types  []string

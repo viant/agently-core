@@ -17,10 +17,11 @@ func (c *Conversation) GetTranscript() Transcript {
 
 // GetRequest defines parameters to retrieve a conversation view.
 type GetRequest struct {
-	Id               string
-	Since            string
-	IncludeModelCall bool
-	IncludeToolCall  bool
+	Id                string
+	Since             string
+	IncludeTranscript bool
+	IncludeModelCall  bool
+	IncludeToolCall   bool
 }
 
 // GetResponse wraps the conversation view.
@@ -41,6 +42,9 @@ func (s *Service) Get(ctx context.Context, req GetRequest) (*GetResponse, error)
 	var opts []Option
 	if req.Since != "" {
 		opts = append(opts, WithSince(req.Since))
+	}
+	if req.IncludeTranscript {
+		opts = append(opts, WithIncludeTranscript(true))
 	}
 	if req.IncludeModelCall {
 		opts = append(opts, WithIncludeModelCall(true))
@@ -65,6 +69,16 @@ func WithSince(since string) Option {
 			input.Has = &agconv.ConversationInputHas{}
 		}
 		input.Has.Since = true
+	}
+}
+
+func WithIncludeTranscript(include bool) Option {
+	return func(input *Input) {
+		input.IncludeTranscript = include
+		if input.Has == nil {
+			input.Has = &agconv.ConversationInputHas{}
+		}
+		input.Has.IncludeTranscript = true
 	}
 }
 

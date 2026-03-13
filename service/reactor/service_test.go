@@ -70,6 +70,41 @@ func TestService_extendPlanFromContent_DD(t *testing.T) {
 	}
 }
 
+func TestService_extendPlanFromResponse_ElicitationOnlyIsNotEmpty(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{}
+	aPlan := plan.New()
+	genOutput := &core2.GenerateOutput{
+		Content: `{
+  "type": "elicitation",
+  "message": "Provide repository path",
+  "requestedSchema": {
+    "type": "object",
+    "properties": {
+      "workdir": { "type": "string" }
+    },
+    "required": ["workdir"]
+  }
+}`,
+		Response: &llm.GenerateResponse{
+			Choices: []llm.Choice{{
+				Index: 0,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Content: `{"type":"elicitation","message":"Provide repository path","requestedSchema":{"type":"object","properties":{"workdir":{"type":"string"}},"required":["workdir"]}}`,
+				},
+				FinishReason: "stop",
+			}},
+		},
+	}
+
+	ok, err := service.extendPlanFromResponse(ctx, genOutput, aPlan)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotNil(t, aPlan.Elicitation)
+	assert.Equal(t, "Provide repository path", aPlan.Elicitation.Message)
+}
+
 func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 	service := &Service{}
 	aPlan := plan.New()

@@ -81,3 +81,25 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryStatus(t *test
 	require.NotNil(t, got.ModelCall.TraceId)
 	require.Equal(t, respMain, *got.ModelCall.TraceId)
 }
+
+func TestTranscript_LastAssistantMessageWithModelCall_AllowsTraceOnlyModelCall(t *testing.T) {
+	now := time.Now().UTC()
+	resp := "resp-trace-only"
+
+	traceOnly := &Message{
+		Id:        "msg-trace-only",
+		Role:      "assistant",
+		Type:      "text",
+		CreatedAt: now,
+		ModelCall: &agconv.ModelCallView{TraceId: &resp},
+	}
+
+	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(traceOnly)}}
+	tr := Transcript{turn}
+
+	got := (&tr).LastAssistantMessageWithModelCall()
+	require.NotNil(t, got)
+	require.NotNil(t, got.ModelCall)
+	require.NotNil(t, got.ModelCall.TraceId)
+	require.Equal(t, resp, *got.ModelCall.TraceId)
+}

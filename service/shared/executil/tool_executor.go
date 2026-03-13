@@ -12,6 +12,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	plan "github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/debugtrace"
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
@@ -60,6 +61,17 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 	}
 	debugConvf("tool execute start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512))
+	if debugtrace.Enabled() {
+		debugtrace.Write("executil", "tool_execute_start", map[string]any{
+			"conversationID": strings.TrimSpace(turn.ConversationID),
+			"turnID":         strings.TrimSpace(turn.TurnID),
+			"toolCallID":     strings.TrimSpace(step.ID),
+			"toolName":       strings.TrimSpace(step.Name),
+			"responseID":     strings.TrimSpace(step.ResponseID),
+			"turnTrace":      strings.TrimSpace(memory.TurnTrace(turn.TurnID)),
+			"args":           step.Args,
+		})
+	}
 	toolMsgID := ""
 	toolCallStarted := false
 	toolCallClosed := false
@@ -90,6 +102,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 		finCtx, cancelFin := detachedFinalizeCtx(ctx)
 		defer cancelFin()
+		if toolCallClosed && strings.EqualFold(status, "completed") && strings.TrimSpace(errMsg) == "" {
+			return
+		}
 		warnConvf("tool force close convo=%q turn=%q op_id=%q tool=%q status=%q ret_err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), strings.TrimSpace(errMsg), strings.TrimSpace(formatContextErr(ctx)))
 		if !toolCallClosed {
 			_ = completeToolCall(finCtx, conv, toolMsgID, step.ID, status, time.Now(), "", errMsg)
@@ -202,6 +217,18 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	} else {
 		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	}
+	if debugtrace.Enabled() {
+		debugtrace.Write("executil", "tool_execute_done", map[string]any{
+			"conversationID": strings.TrimSpace(turn.ConversationID),
+			"turnID":         strings.TrimSpace(turn.TurnID),
+			"toolCallID":     strings.TrimSpace(step.ID),
+			"toolName":       strings.TrimSpace(step.Name),
+			"responseID":     strings.TrimSpace(step.ResponseID),
+			"status":         strings.TrimSpace(status),
+			"resultLen":      len(toolResult),
+			"error":          errString(retErr),
+		})
+	}
 
 	return
 }
@@ -226,6 +253,18 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 		}
 	}
 	debugConvf("tool synth start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512), len(toolResult))
+	if debugtrace.Enabled() {
+		debugtrace.Write("executil", "tool_synth_start", map[string]any{
+			"conversationID": strings.TrimSpace(turn.ConversationID),
+			"turnID":         strings.TrimSpace(turn.TurnID),
+			"toolCallID":     strings.TrimSpace(step.ID),
+			"toolName":       strings.TrimSpace(step.Name),
+			"responseID":     strings.TrimSpace(step.ResponseID),
+			"turnTrace":      strings.TrimSpace(memory.TurnTrace(turn.TurnID)),
+			"args":           step.Args,
+			"resultLen":      len(toolResult),
+		})
+	}
 	startedAt := time.Now()
 	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt, step.Name)
 	if err != nil {
@@ -257,6 +296,17 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 		return fmt.Errorf("complete tool call: %w", cErr)
 	}
 	debugConvf("tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
+	if debugtrace.Enabled() {
+		debugtrace.Write("executil", "tool_synth_done", map[string]any{
+			"conversationID": strings.TrimSpace(turn.ConversationID),
+			"turnID":         strings.TrimSpace(turn.TurnID),
+			"toolCallID":     strings.TrimSpace(step.ID),
+			"toolName":       strings.TrimSpace(step.Name),
+			"responseID":     strings.TrimSpace(step.ResponseID),
+			"status":         strings.TrimSpace(status),
+			"resultLen":      len(toolResult),
+		})
+	}
 	return nil
 }
 
@@ -315,6 +365,13 @@ func hasExplicitWorkdir(args map[string]interface{}) bool {
 	default:
 		return true
 	}
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // resolveToolStatus determines the terminal status for a tool call based on execution error and parent context.

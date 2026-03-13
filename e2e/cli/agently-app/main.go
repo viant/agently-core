@@ -33,6 +33,7 @@ import (
 	toolPatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
 	"github.com/viant/agently-core/sdk"
 	"github.com/viant/agently-core/service/scheduler"
+	svcworkspace "github.com/viant/agently-core/service/workspace"
 	"github.com/viant/agently-core/workspace"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	wsfs "github.com/viant/agently-core/workspace/loader/fs"
@@ -71,8 +72,10 @@ func serve(args []string) {
 	schedStore := newMemoryScheduleStore()
 	schedSvc := scheduler.New(schedStore, rt.Agent)
 	schedHandler := scheduler.NewHandler(schedSvc)
+	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-core-e2e")
 
 	sdkHandler := sdk.NewHandler(client,
+		sdk.WithMetadataHandler(metadataHandler),
 		sdk.WithScheduler(schedSvc, schedHandler, &sdk.SchedulerOptions{
 			EnableAPI:    true,
 			EnableRunNow: true,

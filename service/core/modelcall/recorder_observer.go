@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/debugtrace"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/runtime/memory"
 )
@@ -218,6 +219,9 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	content, hasToolCalls := AssistantContentFromResponse(resp)
 	content = strings.TrimSpace(content)
+	if !hasToolCalls && looksLikeElicitationContent(content) {
+		return false, nil
+	}
 	if hasToolCalls && o.isLikelyUserEcho(ctx, content) {
 		content = ""
 	}
@@ -313,6 +317,15 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 				// Always cache in-memory per-turn for quick reuse.
 				if turn, ok := memory.TurnMetaFromContext(ctx); ok {
 					memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
+					if debugtrace.Enabled() {
+						debugtrace.Write("modelcall", "stream_response_anchor", map[string]any{
+							"turnID":       strings.TrimSpace(turn.TurnID),
+							"messageID":    strings.TrimSpace(msgID),
+							"eventType":    strings.TrimSpace(probe.Type),
+							"responseID":   strings.TrimSpace(probe.Response.ID),
+							"turnTraceNow": strings.TrimSpace(memory.TurnTrace(turn.TurnID)),
+						})
+					}
 				}
 				// In legacy mode, also persist trace id early (one DB write).
 				if !streamPersistFinalOnly() && strings.TrimSpace(msgID) != "" {
@@ -433,10 +446,14 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 }
 
 func looksLikeElicitationDelta(data []byte) bool {
-	if len(data) == 0 {
+	return looksLikeElicitationContent(string(data))
+}
+
+func looksLikeElicitationContent(content string) bool {
+	if len(content) == 0 {
 		return false
 	}
-	raw := strings.ToLower(strings.TrimSpace(string(data)))
+	raw := strings.ToLower(strings.TrimSpace(content))
 	if raw == "" {
 		return false
 	}
@@ -570,6 +587,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 			return err
 		}
 		mc.SetProviderRequestPayloadID(prID)
+		_ = debugtrace.WritePayload("llm-provider-request", msgID, info.RequestJSON)
 	}
 	// Do not link stream payload at start to avoid FK violation.
 	// Stream payload link will be set after the payload is created (OnStreamDelta/OnCallEnd).
@@ -614,6 +632,14 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 			if turn, ok := memory.TurnMetaFromContext(ctx); ok {
 				memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(info.LLMResponse.ResponseID))
 			}
+			if debugtrace.Enabled() {
+				debugtrace.Write("modelcall", "finish_model_call", map[string]any{
+					"messageID":    strings.TrimSpace(msgID),
+					"status":       strings.TrimSpace(status),
+					"responseID":   strings.TrimSpace(info.LLMResponse.ResponseID),
+					"finishReason": strings.TrimSpace(info.FinishReason),
+				})
+			}
 		}
 	}
 	if len(info.ResponseJSON) > 0 {
@@ -623,6 +649,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 			return err
 		}
 		upd.SetProviderResponsePayloadID(provID)
+		_ = debugtrace.WritePayload("llm-provider-response", msgID, []byte(info.ResponseJSON))
 	}
 	if strings.TrimSpace(streamTxt) != "" {
 		sid := strings.TrimSpace(o.streamPayloadID)
