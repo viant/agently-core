@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -454,12 +455,54 @@ func (c *HTTPClient) UploadFile(_ context.Context, _ *UploadFileInput) (*UploadF
 	return nil, errors.New("file operations not yet implemented")
 }
 
-func (c *HTTPClient) DownloadFile(_ context.Context, _ *DownloadFileInput) (*DownloadFileOutput, error) {
-	return nil, errors.New("file operations not yet implemented")
+func (c *HTTPClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" || strings.TrimSpace(input.FileID) == "" {
+		return nil, errors.New("conversation ID and file ID are required")
+	}
+	q := url.Values{}
+	q.Set("conversationId", strings.TrimSpace(input.ConversationID))
+	q.Set("raw", "1")
+	path := strings.TrimRight(c.filesPath, "/") + "/" + url.PathEscape(strings.TrimSpace(input.FileID)) + "?" + q.Encode()
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download file: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	out := &DownloadFileOutput{
+		ContentType: strings.TrimSpace(resp.Header.Get("Content-Type")),
+		Data:        data,
+	}
+	if disposition := strings.TrimSpace(resp.Header.Get("Content-Disposition")); disposition != "" {
+		if _, params, err := mime.ParseMediaType(disposition); err == nil {
+			out.Name = strings.TrimSpace(params["filename"])
+		}
+	}
+	return out, nil
 }
 
-func (c *HTTPClient) ListFiles(_ context.Context, _ *ListFilesInput) (*ListFilesOutput, error) {
-	return nil, errors.New("file operations not yet implemented")
+func (c *HTTPClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	q := url.Values{}
+	q.Set("conversationId", strings.TrimSpace(input.ConversationID))
+	var out ListFilesOutput
+	if err := c.doJSON(ctx, http.MethodGet, c.filesPath+"?"+q.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *HTTPClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
@@ -671,6 +714,8 @@ func (s *sseSubscription) readLoop(ctx context.Context, body io.ReadCloser, inpu
 	defer body.Close()
 	defer close(s.ch)
 	scanner := bufio.NewScanner(body)
+	buf := make([]byte, 0, 256*1024)
+	scanner.Buffer(buf, 16*1024*1024)
 	var dataLines []string
 	for scanner.Scan() {
 		line := scanner.Text()

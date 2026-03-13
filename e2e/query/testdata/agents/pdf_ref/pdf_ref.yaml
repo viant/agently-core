@@ -1,0 +1,15 @@
+id: pdf_ref
+name: PDF Ref
+description: Reference-mode PDF attachment test agent
+modelRef: openai_gpt-5.2_responses
+temperature: 0
+persona:
+  role: assistant
+  actor: PDFRefBot
+attachment:
+  mode: ref
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

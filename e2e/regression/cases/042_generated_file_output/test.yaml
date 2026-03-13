@@ -1,0 +1,48 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_generated_file_output - create a deterministic image artifact"
+    TimeoutMs: 240000
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: image_generator
+          Query: Generate a tiny red square PNG image and reply with only the filename.
+          UserId: e2e-file
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@content": true
+
+  listFiles:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_generated_file_output - generated file metadata is listed"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/files?conversationId=${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Files[0].ID": true
+            "@exists@Files[0].Name": true
+            "@exists@Files[0].ContentType": true
+
+  downloadFile:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_generated_file_output - generated file content is downloadable"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/files/${listFiles.Responses[0].JSONBody.Files[0].ID}?conversationId=${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            Name: generated-image.png
+            ContentType: image/png
+            "@exists@Data": true

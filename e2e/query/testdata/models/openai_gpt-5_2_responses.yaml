@@ -1,0 +1,10 @@
+id: openai_gpt-5.2_responses
+name: gpt-5.2 (OpenAI Responses)
+description: OpenAI gpt-5.2 model using the Responses API
+intelligence: 0.95
+speed: 0.78
+options:
+  provider: openai
+  model: gpt-5.2
+  envKey: OPENAI_API_KEY
+  contextContinuation: true

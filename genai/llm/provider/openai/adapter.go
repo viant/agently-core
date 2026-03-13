@@ -1,10 +1,13 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
-	"strconv"
+	"io"
+	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/viant/afsc/openai/assets"
 	"github.com/viant/agently-core/internal/shared"
 
+	pdf "github.com/ledongthuc/pdf"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -116,34 +120,30 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		req.ToolChoice = "auto"
 	}
 	if len(req.Tools) == 0 {
-		req.ToolChoice = nil
+		if m, ok := req.ToolChoice.(map[string]interface{}); ok {
+			if strings.EqualFold(strings.TrimSpace(fmt.Sprint(m["type"])), "allowed_tools") ||
+				strings.EqualFold(strings.TrimSpace(fmt.Sprint(m["type"])), "code_interpreter") {
+				// Keep explicit built-in tool choices even before later tool injection.
+			} else {
+				req.ToolChoice = nil
+			}
+		} else {
+			req.ToolChoice = nil
+		}
 	}
 
 	// Attachment preferences and limits
 	attachMode := "upload" // prefer upload for tool-result PDFs
-	agentID := "unknownAgent"
-	var ttlSec int64
-	// default threshold ~200kB for converting tool results to PDF attachments
 	if request != nil && request.Options != nil && request.Options.Metadata != nil {
 		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
 		}
-		if v, ok := request.Options.Metadata["agentId"].(string); ok && strings.TrimSpace(v) != "" {
-			agentID = strings.ToLower(strings.TrimSpace(v))
+		if v, ok := request.Options.Metadata["forceCodeInterpreter"].(bool); ok && v {
+			req.ToolChoice = map[string]interface{}{"type": "code_interpreter"}
 		}
-		if v, ok := request.Options.Metadata["attachmentTTLSec"]; ok {
-			switch t := v.(type) {
-			case int:
-				ttlSec = int64(t)
-			case int64:
-				ttlSec = t
-			case float64:
-				ttlSec = int64(t)
-			case string:
-				if n, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
-					ttlSec = n
-				}
-			}
+		if v, ok := request.Options.Metadata["forceImageGeneration"].(bool); ok && v {
+			req.ToolChoice = map[string]interface{}{"type": "image_generation"}
+			req.EnableImageGeneration = true
 		}
 	}
 	ToolCallIdToReplaceContent := map[string]struct{}{}
@@ -186,6 +186,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		message := Message{
 			Role: string(msg.Role),
 		}
+		isAssistant := msg.Role == llm.RoleAssistant
 		// Propagate speaker name only for user/assistant roles
 		if msg.Role == llm.RoleUser || msg.Role == llm.RoleAssistant {
 			message.Name = msg.Name
@@ -239,11 +240,22 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 							dataURL := "data:" + item.MimeType + ";base64," + item.Data
 							contentItem.ImageURL = &ImageURL{URL: dataURL}
 						} else if strings.EqualFold(item.MimeType, "application/pdf") && item.Data != "" {
-							contentItem.Type = "file"
-							contentItem.File = &File{
-								FileName: item.Name,
-								FileData: "data:" + item.MimeType + ";base64," + item.Data,
+							text, err := extractPDFContentItemText(item.Data, item.Name)
+							if err != nil {
+								return nil, fmt.Errorf("failed to extract PDF content item: %w", err)
 							}
+							if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
+								preview := text
+								if len(preview) > 120 {
+									preview = preview[:120]
+								}
+								_, _ = fmt.Fprintf(os.Stderr, "[pdf-inline-convert] type=%q preview=%q\n", contentItem.Type, preview)
+							}
+							contentItem.Type = "input_text"
+							if isAssistant {
+								contentItem.Type = "output_text"
+							}
+							contentItem.Text = text
 						} else {
 							return nil, fmt.Errorf("unsupported inline binary content item mime type: %q", item.MimeType)
 						}
@@ -254,20 +266,22 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 							dataURL := "data:" + item.MimeType + ";base64," + item.Data
 							contentItem.ImageURL = &ImageURL{URL: dataURL}
 						} else if strings.EqualFold(item.MimeType, "application/pdf") {
-							fileID, err := c.uploadFiledAndGetID(context.Background(), item.Data, item.Name, agentID, ttlSec)
+							text, err := extractPDFContentItemText(item.Data, item.Name)
 							if err != nil {
-								return nil, fmt.Errorf("failed to upload PDF content item: %w", err)
+								return nil, fmt.Errorf("failed to extract PDF content item: %w", err)
 							}
-
-							_, ok := ToolCallIdToReplaceContent[msg.ToolCallId]
-							if msg.Role == "tool" && ok {
-								msg.Content = fmt.Sprintf(`{"status":"ok","file_id":"%s","filename":"%s","bytes":%d}`, fileID, item.Name, len(item.Data))
-								msg.Items = []llm.ContentItem{}
-							} else {
-								contentItem.Type = "file"
-								contentItem.File = &File{FileID: fileID}
+							if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
+								preview := text
+								if len(preview) > 120 {
+									preview = preview[:120]
+								}
+								_, _ = fmt.Fprintf(os.Stderr, "[pdf-ref-convert] type=%q preview=%q\n", contentItem.Type, preview)
 							}
-
+							contentItem.Type = "input_text"
+							if isAssistant {
+								contentItem.Type = "output_text"
+							}
+							contentItem.Text = text
 						} else {
 							return nil, fmt.Errorf("unsupported uploaded binary content item mime type: %q", item.MimeType)
 						}
@@ -354,6 +368,49 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	return req, nil
 }
 
+func extractPDFContentItemText(base64Data string, name string) (string, error) {
+	raw := strings.TrimSpace(base64Data)
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil || !bytes.HasPrefix(data, []byte("%PDF-")) {
+		data = []byte(raw)
+	}
+	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
+		decodedPrefix := ""
+		if len(data) > 0 {
+			end := len(data)
+			if end > 16 {
+				end = 16
+			}
+			decodedPrefix = fmt.Sprintf("%q", string(data[:end]))
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "[pdf-extract] name=%q raw_len=%d decoded_len=%d prefix=%s\n", name, len(raw), len(data), decodedPrefix)
+	}
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		return "", fmt.Errorf("not a PDF file: invalid header")
+	}
+	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", err
+	}
+	plain, err := reader.GetPlainText()
+	if err != nil {
+		return "", err
+	}
+	body, err := io.ReadAll(plain)
+	if err != nil {
+		return "", err
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return "", fmt.Errorf("pdf text content was empty")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "attachment.pdf"
+	}
+	return fmt.Sprintf("PDF attachment %s:\n%s", name, text), nil
+}
+
 // ToRequest is a convenience wrapper retained for backward-compatible tests.
 // It constructs a default client and adapts an llm.GenerateRequest to provider Request.
 // Errors are ignored in this wrapper; callers requiring error handling should use Client.ToRequest.
@@ -365,8 +422,6 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 
 // uploadFiledAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
 func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, name string, agentID string, ttlSec int64) (string, error) {
-	// Keep all prior messages in order; higher layers may dedupe user echoes.
-
 	var attachmentTTLSec int64 = ttlSec
 	// Apply provider default TTL (86400 sec = 1 day) when not specified
 	if attachmentTTLSec <= 0 {
@@ -394,7 +449,17 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 		return "", fmt.Errorf("failed to determine host ip prefix: %w", err)
 	}
 
-	filename := fmt.Sprintf("agently/%s/%s/%s/%s", user, agentID, c.Model, name)
+	baseName := path.Base(strings.TrimSpace(name))
+	if baseName == "" || baseName == "." || baseName == "/" || !strings.HasSuffix(strings.ToLower(baseName), ".pdf") {
+		baseName = "attachment.pdf"
+	}
+	sanitize := strings.NewReplacer("/", "_", "\\", "_", " ", "_", ":", "_")
+	filename := fmt.Sprintf("agently_%s_%s_%s_%s",
+		sanitize.Replace(strings.TrimSpace(user)),
+		sanitize.Replace(strings.TrimSpace(agentID)),
+		sanitize.Replace(strings.TrimSpace(c.Model)),
+		sanitize.Replace(baseName),
+	)
 	dest := "openai://assets/" + filename
 	if err := c.ensureStorageManager(ctx); err != nil {
 		return "", err
@@ -405,7 +470,7 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 	// Always include TTL (provider default baked above)
 	opts = append(opts, &openai.FileNewParamsExpiresAfter{Seconds: attachmentTTLSec})
 
-	if err := c.storageMgr.Upload(ctx, dest, 0644, strings.NewReader(string(data)), opts...); err != nil {
+	if err := c.storageMgr.Upload(ctx, dest, 0644, bytes.NewReader(data), opts...); err != nil {
 		return "", err
 	}
 

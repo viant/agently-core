@@ -1,0 +1,3 @@
+- openai_responses_image_attachment - ask for dominant color from attached PNG
+- openai_responses_image_attachment - verify user attachment is exposed on transcript message
+- openai_responses_image_attachment - verify attachment payload metadata and inline body are retrievable

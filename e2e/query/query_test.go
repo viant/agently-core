@@ -1,13 +1,18 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/go-pdf/fpdf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/afs"
@@ -19,6 +24,7 @@ import (
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -84,7 +90,7 @@ func setupSDK(t *testing.T) sdk.Client {
 		WithMCPManager(mcpMgr).
 		WithElicitationRouter(elicrouter.New()).
 		WithDefaults(&config.Defaults{
-			Model:                 "openai_gpt4o_mini",
+			Model:                 "openai_gpt-5.2",
 			ElicitationTimeoutSec: 1,
 		}).
 		Build(ctx)
@@ -258,6 +264,126 @@ func TestQueryLLMSourcedElicitationFavoriteColor(t *testing.T) {
 		}
 	}
 	assert.True(t, foundElicitationMessage, "expected persisted assistant message with elicitation_id and favoriteColor schema")
+}
+
+func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx := context.Background()
+
+	imageData := mustCreatePNG(t, color.RGBA{R: 255, A: 255})
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID:       "simple",
+		ModelOverride: "openai_gpt-5.2_responses",
+		Query:         "What is the dominant color in the attached image? Answer with one word.",
+		UserId:        "e2e-image",
+		Attachments: []*prompt.Attachment{
+			{Name: "red-dot.png", Mime: "image/png", Data: imageData},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Contains(t, strings.ToLower(out.Content), "red")
+
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	require.NoError(t, err)
+	require.NotNil(t, transcript)
+	require.NotEmpty(t, transcript.Turns)
+	require.NotEmpty(t, transcript.Turns[0].Message)
+	require.NotEmpty(t, transcript.Turns[0].Message[0].Attachment)
+	assert.Equal(t, "image/png", transcript.Turns[0].Message[0].Attachment[0].MimeType)
+}
+
+func TestQueryOpenAIResponsesPDFInlineAttachment(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx := context.Background()
+
+	pdfData := mustCreatePDF(t, "PDF_TEST_TOKEN_4729")
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID: "pdf_inline",
+		Query:   "What exact token appears in the attached PDF? Answer only with the token.",
+		UserId:  "e2e-pdf-inline",
+		Attachments: []*prompt.Attachment{
+			{Name: "token.pdf", Mime: "application/pdf", Data: pdfData},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Contains(t, out.Content, "PDF_TEST_TOKEN_4729")
+}
+
+func TestQueryOpenAIResponsesPDFRefAttachment(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx := context.Background()
+
+	pdfData := mustCreatePDF(t, "PDF_TEST_TOKEN_4729")
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID: "pdf_ref",
+		Query:   "What exact token appears in the attached PDF? Answer only with the token.",
+		UserId:  "e2e-pdf-ref",
+		Attachments: []*prompt.Attachment{
+			{Name: "token.pdf", Mime: "application/pdf", Data: pdfData},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Contains(t, out.Content, "PDF_TEST_TOKEN_4729")
+}
+
+func TestQueryOpenAIResponsesGeneratedImageOutput(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx := context.Background()
+
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID: "image_generator",
+		Query:   "Generate a tiny red square PNG image and reply with only the filename.",
+		UserId:  "e2e-file",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	files, err := client.ListFiles(ctx, &sdk.ListFilesInput{ConversationID: out.ConversationID})
+	require.NoError(t, err)
+	require.NotNil(t, files)
+	require.NotEmpty(t, files.Files)
+	assert.Equal(t, "generated-image.png", files.Files[0].Name)
+
+	fileData, err := client.DownloadFile(ctx, &sdk.DownloadFileInput{
+		ConversationID: out.ConversationID,
+		FileID:         files.Files[0].ID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fileData)
+	assert.True(t,
+		strings.Contains(strings.ToLower(fileData.ContentType), "image/png") ||
+			bytes.HasPrefix(fileData.Data, []byte{0x89, 0x50, 0x4e, 0x47}),
+		"expected generated image payload; contentType=%q len=%d", fileData.ContentType, len(fileData.Data),
+	)
+}
+
+func mustCreatePNG(t *testing.T, fill color.RGBA) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.SetRGBA(0, 0, fill)
+	var buf bytes.Buffer
+	err := png.Encode(&buf, img)
+	require.NoError(t, err)
+	return buf.Bytes()
+}
+
+func mustCreatePDF(t *testing.T, text string) []byte {
+	t.Helper()
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.SetCompression(false)
+	pdf.AddPage()
+	pdf.SetFont("Helvetica", "", 16)
+	pdf.Text(20, 30, text)
+	var buf bytes.Buffer
+	err := pdf.Output(&buf)
+	require.NoError(t, err)
+	return buf.Bytes()
 }
 
 func truncate(s string, n int) string {

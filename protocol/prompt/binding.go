@@ -1,14 +1,18 @@
 package prompt
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"path"
 	"sort"
 	"strings"
 	"time"
 
+	pdf "github.com/ledongthuc/pdf"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/pkg/mcpname"
 )
@@ -345,19 +349,62 @@ func (m *Message) ToLLM() llm.Message {
 		}
 		return strings.Compare(m.Attachment[i].URI, m.Attachment[j].URI) < 0
 	})
-	items := make([]*llm.AttachmentItem, 0, len(m.Attachment))
+	items := make([]llm.ContentItem, 0, len(m.Attachment)+1)
 	for _, a := range m.Attachment {
 		if a == nil {
 			continue
 		}
-		items = append(items, &llm.AttachmentItem{
-			Name:     a.Name,
-			MimeType: a.MIMEType(),
-			Data:     a.Data,
-			Content:  a.Content,
-		})
+		if attItem, extracted := attachmentToLLMContent(a); extracted {
+			items = append(items, attItem)
+			continue
+		}
+		items = append(items, llm.NewBinaryContent(a.Data, a.MIMEType(), a.Name))
 	}
-	return llm.NewMessageWithBinaries(role, items, m.Content)
+	if strings.TrimSpace(m.Content) != "" {
+		items = append(items, llm.NewTextContent(m.Content))
+	}
+	return llm.Message{Role: role, Items: items, Content: m.Content}
+}
+
+func attachmentToLLMContent(a *Attachment) (llm.ContentItem, bool) {
+	if a == nil {
+		return llm.ContentItem{}, false
+	}
+	mimeType := strings.TrimSpace(a.MIMEType())
+	if !strings.EqualFold(mimeType, "application/pdf") {
+		return llm.ContentItem{}, false
+	}
+	text := strings.TrimSpace(a.Content)
+	if text == "" {
+		text = extractPDFAttachmentText(a.Data)
+	}
+	if text == "" {
+		return llm.ContentItem{}, false
+	}
+	name := strings.TrimSpace(a.Name)
+	if name == "" {
+		name = "attachment.pdf"
+	}
+	return llm.NewTextContent(fmt.Sprintf("PDF attachment %s:\n%s", name, text)), true
+}
+
+func extractPDFAttachmentText(data []byte) string {
+	if len(data) == 0 || !bytes.HasPrefix(data, []byte("%PDF-")) {
+		return ""
+	}
+	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return ""
+	}
+	plain, err := reader.GetPlainText()
+	if err != nil {
+		return ""
+	}
+	body, err := io.ReadAll(plain)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // Messages flattens Past turns (and optionally Current when present)

@@ -50,6 +50,12 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	i.Options.Metadata["attachMode"] = mode
 	// Use agentId for provider-side scoping (uploads, telemetry). Agent name is reserved for prompt identity only.
 	i.Options.Metadata["agentId"] = agent.ID
+	if strings.EqualFold(strings.TrimSpace(agent.ID), "file_generator") {
+		i.Options.Metadata["forceCodeInterpreter"] = true
+	}
+	if strings.EqualFold(strings.TrimSpace(agent.ID), "image_generator") {
+		i.Options.Metadata["forceImageGeneration"] = true
+	}
 
 	if ui := auth.User(ctx); ui != nil {
 		uname := strings.TrimSpace(ui.Subject)

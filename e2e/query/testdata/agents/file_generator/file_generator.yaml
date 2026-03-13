@@ -1,0 +1,13 @@
+id: file_generator
+name: File Generator
+description: Generates small deterministic files for e2e validation
+modelRef: openai_gpt-5.2_responses
+temperature: 0
+persona:
+  role: assistant
+  actor: FileBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}

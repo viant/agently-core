@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -63,110 +64,89 @@ func New(ctx context.Context, dao *datly.Service) (*Service, error) {
 }
 
 func (s *Service) init(ctx context.Context, dao *datly.Service) error {
-	var initErr error
-	componentsOnce.Do(func() {
-		if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := convlist.DefineConversationRowsComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := messageread.DefineMessageByElicitationComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := messagelist.DefineMessageRowsComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := payloadread.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := generatedfileread.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-
-		if _, err := convw.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := msgwrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := modelcallwrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := toolcallwrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := toolread.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := queueWrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := queueRead.DefineQueueRowsComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := turnwrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := turnread.DefineNextQueuedComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := turnread.DefineActiveTurnComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := turnread.DefineTurnByIDComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := turnread.DefineQueuedCountComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if err := turnread.DefineQueuedListComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := generatedfilewrite.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := convdel.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-		if _, err := msgdel.DefineComponent(ctx, dao); err != nil {
-			initErr = err
-			return
-		}
-	})
-	return initErr
+	if dao == nil {
+		return errors.New("datly service was nil")
+	}
+	key := reflect.ValueOf(dao).Pointer()
+	if _, loaded := componentsByDAO.LoadOrStore(key, struct{}{}); loaded {
+		return nil
+	}
+	if err := agconv.DefineConversationComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := convlist.DefineConversationRowsComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := messageread.DefineMessageComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := messageread.DefineMessageByElicitationComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := messagelist.DefineMessageRowsComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := payloadread.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := generatedfileread.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := convw.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := msgwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := modelcallwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := toolcallwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := toolread.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := queueWrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := queueRead.DefineQueueRowsComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := turnwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := turnread.DefineNextQueuedComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := turnread.DefineActiveTurnComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := turnread.DefineTurnByIDComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := turnread.DefineQueuedCountComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := turnread.DefineQueuedListComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := payloadwrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := generatedfilewrite.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := convdel.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if _, err := msgdel.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	return nil
 }
 
-var componentsOnce sync.Once
+var componentsByDAO sync.Map
 
 func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
 	if conversations != nil {

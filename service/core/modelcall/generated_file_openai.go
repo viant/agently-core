@@ -298,6 +298,30 @@ func walkOpenAIGeneratedFiles(node interface{}, containerID string, out *[]openA
 				})
 			}
 		}
+		if strings.EqualFold(stringValue(actual["type"]), "image_generation_call") {
+			if result := stringValue(actual["result"]); result != "" {
+				body, mimeType := decodeOpenAIFileData(result)
+				if len(body) > 0 {
+					if mimeType == "" {
+						mimeType = "image/png"
+					}
+					filename := firstNonEmpty(
+						stringValue(actual["filename"]),
+						stringValue(actual["name"]),
+						stringValue(actual["title"]),
+						"generated-image.png",
+					)
+					*out = append(*out, openAIGeneratedFileRef{
+						Mode:       "inline",
+						Filename:   filename,
+						MimeType:   mimeType,
+						SizeBytes:  len(body),
+						Checksum:   sha256Hex(body),
+						InlineBody: body,
+					})
+				}
+			}
+		}
 
 		providerFileID := stringValue(actual["file_id"])
 		if providerFileID == "" && strings.EqualFold(stringValue(actual["type"]), "file") {
