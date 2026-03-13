@@ -1,6 +1,8 @@
 package plan
 
 import (
+	"strings"
+
 	"github.com/google/uuid"
 )
 
@@ -31,15 +33,27 @@ func (p *Plan) IsEmpty() bool {
 	if p == nil {
 		return true
 	}
+	if p.Elicitation != nil && !p.Elicitation.IsEmpty() {
+		return false
+	}
 	if len(p.Steps) == 0 {
 		return true
 	}
 	for _, step := range p.Steps {
-		if step.Name == "" && (step.Elicitation == nil || step.Elicitation.IsEmpty()) {
-			return true
+		if strings.TrimSpace(step.Name) != "" {
+			return false
+		}
+		if strings.TrimSpace(step.Content) != "" {
+			return false
+		}
+		if step.Elicitation != nil && !step.Elicitation.IsEmpty() {
+			return false
+		}
+		if strings.TrimSpace(step.Type) != "" && !strings.EqualFold(strings.TrimSpace(step.Type), "noop") {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (s Steps) Find(id string) *Step {

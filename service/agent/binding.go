@@ -8,7 +8,9 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
+	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/runtime/memory"
@@ -36,7 +38,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 	fetchStart := time.Now()
 	debugf("agent.BuildBinding fetchConversation start convo=%q", convoID)
-	conv, err := s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeToolCall(true))
+	conv, err := s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
 	if err != nil {
 		debugf("agent.BuildBinding fetchConversation error convo=%q elapsed=%s err=%v", convoID, time.Since(fetchStart).String(), err)
 		return nil, err
@@ -194,7 +196,54 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	s.applyDelegationContext(input, b)
 
 	debugf("agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))
+	if debugtrace.Enabled() {
+		debugtrace.Write("agent", "build_binding", map[string]any{
+			"conversationID": convoID,
+			"elapsedMs":      time.Since(start).Milliseconds(),
+			"model":          strings.TrimSpace(b.Model),
+			"currentTurnID":  strings.TrimSpace(b.History.CurrentTurnID),
+			"toolExposure":   strings.TrimSpace(b.History.ToolExposure),
+			"lastResponse": map[string]any{
+				"id":   bindingTraceID(b.History.LastResponse),
+				"kind": bindingTraceKind(b.History.LastResponse),
+			},
+			"traceCount":      len(b.History.Traces),
+			"historyMessages": debugtrace.SummarizeMessages(b.History.LLMMessages()),
+			"toolNames":       bindingToolNames(b.Tools.Signatures),
+			"contextJSON":     b.ContextJSON(),
+		})
+	}
 	return b, nil
+}
+
+func bindingTraceID(trace *prompt.Trace) string {
+	if trace == nil {
+		return ""
+	}
+	return strings.TrimSpace(trace.ID)
+}
+
+func bindingTraceKind(trace *prompt.Trace) string {
+	if trace == nil {
+		return ""
+	}
+	return strings.TrimSpace(string(trace.Kind))
+}
+
+func bindingToolNames(defs []*llm.ToolDefinition) []string {
+	if len(defs) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(defs))
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		if name := strings.TrimSpace(def.Name); name != "" {
+			result = append(result, name)
+		}
+	}
+	return result
 }
 
 func cloneContextMap(src map[string]interface{}) map[string]interface{} {

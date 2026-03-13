@@ -1,9 +1,15 @@
-{{- if gt (len .Tools.Executions) 0 }}
-Previous Tool Executions:
-{{- range .Tools.Executions }}
-- tool: {{.Name}} result: {{.Result}}
-{{- end}}
-End of Previous Tool Executions.
+{{- $hasToolResult := false }}
+{{- range .History.Messages }}
+  {{- if eq .Kind "tool_result" }}{{ $hasToolResult = true }}{{ end }}
+{{- end }}
+{{- if $hasToolResult }}
+Previous Tool Results:
+{{- range .History.Messages }}
+  {{- if eq .Kind "tool_result" }}
+- tool: {{.ToolName}} result: {{.Content}}
+  {{- end }}
+{{- end }}
+End of Previous Tool Results.
 
 {{- end}}
 User Query:

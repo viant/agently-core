@@ -28,6 +28,7 @@ import (
 	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	"github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
@@ -183,6 +184,10 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 			ConversationId: input.ConversationID,
 			Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
 		}
+		if input.ID != "" {
+			in.Id = input.ID
+			in.Has.Id = true
+		}
 		if input.TurnID != "" {
 			in.TurnId = input.TurnID
 			in.Has.TurnId = true
@@ -197,6 +202,7 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 		}
 		page, err := c.data.GetMessagesPage(ctx, in, input.Page)
 		if err == nil {
+			normalizeMessagePage(page)
 			return page, nil
 		}
 	}
@@ -232,6 +238,9 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 			if msg == nil {
 				continue
 			}
+			if strings.TrimSpace(input.ID) != "" && strings.TrimSpace(msg.Id) != strings.TrimSpace(input.ID) {
+				continue
+			}
 			if strings.TrimSpace(input.TurnID) != "" {
 				turnID := strings.TrimSpace(valueOrEmpty(msg.TurnId))
 				if turnID != strings.TrimSpace(input.TurnID) {
@@ -246,6 +255,11 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 			if len(typeFilter) > 0 && !typeFilter[typ] {
 				continue
 			}
+			toolName := msg.ToolName
+			if toolName != nil {
+				name := mcpname.Display(strings.TrimSpace(*toolName))
+				toolName = &name
+			}
 			rows = append(rows, &agmessagelist.MessageRowsView{
 				Id:                   msg.Id,
 				ConversationId:       msg.ConversationId,
@@ -257,7 +271,7 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 				ElicitationId:        msg.ElicitationId,
 				ElicitationPayloadId: msg.ElicitationPayloadId,
 				CreatedAt:            msg.CreatedAt,
-				ToolName:             msg.ToolName,
+				ToolName:             toolName,
 			})
 		}
 	}
@@ -268,6 +282,19 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
 	})
 	return &MessagePage{Rows: rows}, nil
+}
+
+func normalizeMessagePage(page *MessagePage) {
+	if page == nil {
+		return
+	}
+	for _, row := range page.Rows {
+		if row == nil || row.ToolName == nil {
+			continue
+		}
+		name := mcpname.Display(strings.TrimSpace(*row.ToolName))
+		row.ToolName = &name
+	}
 }
 
 func (c *EmbeddedClient) StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
@@ -1232,6 +1259,7 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 	}
 	turns := conv.GetTranscript()
 	c.enrichTranscriptElicitations(ctx, turns)
+	pruneTranscriptNoise(turns)
 	if sinceMessageID != "" {
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
@@ -1249,9 +1277,64 @@ func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns
 			}
 			if elicitation := c.resolveMessageElicitation(ctx, msg); len(elicitation) > 0 {
 				msg.Elicitation = elicitation
+				if content, ok := elicitation["message"].(string); ok {
+					content = strings.TrimSpace(content)
+					if content != "" && shouldNormalizeElicitationContent(valueOrEmpty(msg.Content)) {
+						msg.Content = &content
+					}
+				}
 			}
 		}
 	}
+}
+
+func shouldNormalizeElicitationContent(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return true
+	}
+	return strings.HasPrefix(content, "{") || strings.HasPrefix(content, "map[")
+}
+
+func pruneTranscriptNoise(turns conversation.Transcript) {
+	for _, turn := range turns {
+		if turn == nil || len(turn.Message) == 0 {
+			continue
+		}
+		filtered := turn.Message[:0]
+		for _, msg := range turn.Message {
+			if shouldDropTranscriptMessage(msg) {
+				continue
+			}
+			filtered = append(filtered, msg)
+		}
+		turn.Message = filtered
+	}
+}
+
+func shouldDropTranscriptMessage(msg *agconv.MessageView) bool {
+	if msg == nil {
+		return true
+	}
+	if msg.Interim != 1 {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+		return false
+	}
+	if strings.TrimSpace(valueOrEmpty(msg.Content)) != "" || strings.TrimSpace(valueOrEmpty(msg.RawContent)) != "" {
+		return false
+	}
+	if strings.TrimSpace(valueOrEmpty(msg.Preamble)) != "" {
+		return false
+	}
+	if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
+		return false
+	}
+	if msg.ModelCall != nil || len(msg.ToolMessage) > 0 {
+		return false
+	}
+	return true
 }
 
 func (c *EmbeddedClient) resolveMessageElicitation(ctx context.Context, msg *agconv.MessageView) map[string]interface{} {

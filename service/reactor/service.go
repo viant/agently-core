@@ -14,6 +14,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
+	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -50,12 +51,25 @@ type ctxKeyPresentedType int
 
 const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 
+// ctxKeyContinuationMode marks runs that are invoked as part of a
+// continuation/recovery flow (for example, context-limit handling). Duplicate
+// protection is disabled in this mode so internal/message tools can iterate
+// freely when trimming history.
+const ctxKeyContinuationMode ctxKeyPresentedType = 2
+
 const (
 	pruneMinRemove        = 20
 	pruneMaxRemove        = 50
 	pruneCandidateLimit   = 50
 	compactCandidateLimit = 200
 )
+
+func inContinuationMode(ctx context.Context) bool {
+	if v, ok := ctx.Value(ctxKeyContinuationMode).(bool); ok {
+		return v
+	}
+	return false
+}
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
@@ -439,6 +453,10 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	runCtx := ctx
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
+	var guard *DuplicateGuard
+	if !inContinuationMode(ctx) {
+		guard = NewDuplicateGuard(nil)
+	}
 	// Execute steps in order; do not de-duplicate by tool/args.
 	// Duplicated tool steps will each execute independently.
 	var stopped atomic.Bool
@@ -453,6 +471,15 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			return nil
 		}
 		choice := event.Response.Choices[0]
+		if debugtrace.Enabled() {
+			debugtrace.Write("reactor", "stream_choice", map[string]any{
+				"responseID":    strings.TrimSpace(event.Response.ResponseID),
+				"finishReason":  strings.TrimSpace(choice.FinishReason),
+				"contentHead":   textutil.RuneTruncate(strings.TrimSpace(choice.Message.Content), 200),
+				"toolCallCount": len(choice.Message.ToolCalls),
+				"toolCalls":     debugtrace.SummarizeToolCalls(choice.Message.ToolCalls),
+			})
+		}
 		mux.Lock()
 		defer mux.Unlock()
 		if content := strings.TrimSpace(choice.Message.Content); content != "" {
@@ -479,17 +506,68 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			go func() {
 				defer wg.Done()
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
+				if debugtrace.Enabled() {
+					turnID := ""
+					if tm, ok := memory.TurnMetaFromContext(runCtx); ok {
+						turnID = strings.TrimSpace(tm.TurnID)
+					}
+					debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
+						"stepID":      strings.TrimSpace(step.ID),
+						"name":        strings.TrimSpace(step.Name),
+						"responseID":  strings.TrimSpace(step.ResponseID),
+						"args":        step.Args,
+						"currentTurn": turnID,
+					})
+				}
+				if guard != nil {
+					if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
+						if debugtrace.Enabled() {
+							debugtrace.Write("reactor", "tool_step_blocked", map[string]any{
+								"stepID":       strings.TrimSpace(step.ID),
+								"name":         strings.TrimSpace(step.Name),
+								"responseID":   strings.TrimSpace(step.ResponseID),
+								"args":         step.Args,
+								"reusedResult": prev.Name != "" && prev.Error == "",
+								"previous":     debugtrace.SummarizeToolCalls([]llm.ToolCall{prev}),
+							})
+						}
+						if prev.Name != "" && prev.Error == "" && s.convClient != nil {
+							_ = executil.SynthesizeToolStep(runCtx, s.convClient, stepInfo, prev.Result)
+						}
+						return
+					}
+				}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				_, _, err := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
+				call, _, err := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
 				if err != nil {
 					fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
+				}
+				if debugtrace.Enabled() {
+					debugtrace.Write("reactor", "tool_step_executed", map[string]any{
+						"stepID":     strings.TrimSpace(step.ID),
+						"name":       strings.TrimSpace(step.Name),
+						"responseID": strings.TrimSpace(step.ResponseID),
+						"args":       step.Args,
+						"result":     debugtrace.SummarizeToolCalls([]llm.ToolCall{call}),
+						"error":      errorString(err),
+					})
+				}
+				if guard != nil {
+					guard.RegisterResult(step.Name, step.Args, call)
 				}
 			}()
 		}
 		return nil
 	})
 	return id, stepErrCh
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {

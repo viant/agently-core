@@ -343,13 +343,14 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	}
 	upd := apiconv.NewMessage()
 	upd.SetId(msg.Id)
-	upd.SetElicitationPayloadID(pid)
 	if msg.Role == llm.RoleAssistant.String() {
 		turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
 		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload); err != nil {
 			return err
 		}
+		return nil
 	}
+	upd.SetElicitationPayloadID(pid)
 	return s.client.PatchMessage(ctx, upd)
 }
 

@@ -133,7 +133,7 @@ func (t *Transcript) LastAssistantMessageWithModelCall() *Message {
 		msgs := turn.GetMessages()
 		for mi := len(msgs) - 1; mi >= 0; mi-- {
 			m := msgs[mi]
-			if m == nil || m.ModelCall == nil || m.ModelCall.ProviderResponsePayloadId == nil {
+			if m == nil || m.ModelCall == nil {
 				continue
 			}
 			if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {

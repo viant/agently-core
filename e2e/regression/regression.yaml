@@ -44,6 +44,19 @@ pipeline:
           exit 1
         fi
 
+  refreshAgentlyApp:
+    action: exec:run
+    description: rebuild agently-app from current source for regression host
+    TimeoutMs: 180000
+    checkError: true
+    commands:
+      - |
+        cd ${repoPath}
+        export PATH=/usr/local/go/bin:$PATH
+        export GOPATH=${env.GOPATH}
+        mkdir -p ${repoPath}/e2e/bin
+        go build -o ${repoPath}/e2e/bin/agently-app ./e2e/cli/agently-app
+
   prepareWorkspace:
     action: exec:run
     description: reset e2e workspace fixtures from testdata

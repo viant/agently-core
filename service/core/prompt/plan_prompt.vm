@@ -71,8 +71,8 @@ we show
 
 User Query:  ${Query}
 
-#if(${Context})
-Context: ${Context}
+#if(${ContextJSON})
+Context: ${ContextJSON}
 #end
 
 #if(${Results})
@@ -84,6 +84,5 @@ Context: ${Context}
 #end
 #end
 #if(${ResultSummary})${ResultSummary}#end
-
 
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/runtime/memory"
 )
@@ -23,12 +24,24 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 
 	anchor := history.LastResponse
 	if req == nil || strings.TrimSpace(conversationID) == "" || anchor == nil || !anchor.IsValid() || len(history.Traces) == 0 {
+		if debugtrace.Enabled() {
+			debugtrace.Write("core", "continuation_skipped", map[string]any{
+				"conversationID": strings.TrimSpace(conversationID),
+				"reason":         continuationSkipReason(req, conversationID, history),
+			})
+		}
 		return nil
 	}
 
 	// Anchor derived from binding History.LastResponse
 	anchorID := strings.TrimSpace(anchor.ID)
 	if anchorID == "" {
+		if debugtrace.Enabled() {
+			debugtrace.Write("core", "continuation_skipped", map[string]any{
+				"conversationID": strings.TrimSpace(conversationID),
+				"reason":         "empty_anchor_id",
+			})
+		}
 		return nil
 	}
 
@@ -77,6 +90,13 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	}
 
 	if len(selected) == 0 {
+		if debugtrace.Enabled() {
+			debugtrace.Write("core", "continuation_skipped", map[string]any{
+				"conversationID": strings.TrimSpace(conversationID),
+				"reason":         "no_selected_messages",
+				"anchorID":       anchorID,
+			})
+		}
 		return nil
 	}
 
@@ -88,7 +108,34 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	}
 	continuationRequest.Messages = append(continuationRequest.Messages, selected...)
 	continuationRequest.PreviousResponseID = anchorID
+	if debugtrace.Enabled() {
+		debugtrace.Write("core", "continuation_request", map[string]any{
+			"conversationID":     strings.TrimSpace(conversationID),
+			"anchorID":           anchorID,
+			"selectedMessageCnt": len(selected),
+			"selectedMessages":   debugtrace.SummarizeMessages(selected),
+		})
+	}
 	return continuationRequest
+}
+
+func continuationSkipReason(req *llm.GenerateRequest, conversationID string, history *prompt.History) string {
+	switch {
+	case req == nil:
+		return "nil_request"
+	case strings.TrimSpace(conversationID) == "":
+		return "missing_conversation_id"
+	case history == nil:
+		return "nil_history"
+	case history.LastResponse == nil:
+		return "missing_last_response"
+	case !history.LastResponse.IsValid():
+		return "invalid_last_response"
+	case len(history.Traces) == 0:
+		return "empty_traces"
+	default:
+		return "unknown"
+	}
 }
 
 func filterToolCallsByAnchor(toolCalls []llm.ToolCall, history *prompt.History, anchorID string) []llm.ToolCall {

@@ -505,6 +505,7 @@ func handleGetMessages(client Client) http.HandlerFunc {
 		q := r.URL.Query()
 		input := &GetMessagesInput{
 			ConversationID: q.Get("conversationId"),
+			ID:             q.Get("id"),
 			TurnID:         q.Get("turnId"),
 		}
 		if roles := q.Get("roles"); roles != "" {

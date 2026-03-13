@@ -68,6 +68,7 @@ func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conver
 	adjustInputIfNeeded(tokenDelta, overlimit, genInput)
 
 	genOutput := &core2.GenerateOutput{}
+	ctx = context.WithValue(ctx, ctxKeyContinuationMode, true)
 	if _, err := s.Run(ctx, genInput, genOutput); err != nil {
 		return err
 	}

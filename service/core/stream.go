@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/debugtrace"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
@@ -93,6 +94,20 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if IsAnchorContinuationEnabled(model) {
 		continuationRequest = s.BuildContinuationRequest(ctx, req, &input.GenerateInput.Binding.History)
 
+	}
+	if debugtrace.Enabled() {
+		activeReq := req
+		mode := "full"
+		if continuationRequest != nil {
+			activeReq = continuationRequest
+			mode = "continuation"
+		}
+		debugtrace.Write("core", "stream_request", map[string]any{
+			"mode":               mode,
+			"messageCount":       len(activeReq.Messages),
+			"previousResponseID": strings.TrimSpace(activeReq.PreviousResponseID),
+			"messages":           debugtrace.SummarizeMessages(activeReq.Messages),
+		})
 	}
 
 	// Retry starting stream up to 3 attempts. Consult provider-specific

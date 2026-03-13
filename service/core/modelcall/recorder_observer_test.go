@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/debugtrace"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	"github.com/viant/agently-core/runtime/memory"
 )
@@ -157,6 +160,12 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 				return raw
 			}(),
 			expected: "from json",
+		},
+		{
+			name:          "elicitation json is not persisted as assistant text",
+			resp:          &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: `{"type":"elicitation","message":"Need favorite color","requestedSchema":{"type":"object"}}`}}}},
+			expected:      "",
+			expectInterim: 1,
 		},
 	}
 
@@ -379,6 +388,52 @@ func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 	require.NotNil(t, persisted)
 	require.Equal(t, "turn-1", *persisted.RunID)
 	require.EqualValues(t, 2, *persisted.Iteration)
+}
+
+func TestRecorderObserver_WritesProviderPayloadFiles(t *testing.T) {
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-payloads")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-payloads", "")))
+
+	payloadDir := filepath.Join(t.TempDir(), "payloads")
+	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	requestBody := []byte(`{"model":"gpt-5.2","input":"hello"}`)
+	responseBody := []byte(`{"response":{"id":"resp-1"},"output":"done"}`)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:    "openai",
+		Model:       "gpt-5.2",
+		LLMRequest:  &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+		RequestJSON: requestBody,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnCallEnd(ctx2, Info{
+		Model:        "gpt-5.2",
+		LLMResponse:  &llm.GenerateResponse{ResponseID: "resp-1"},
+		ResponseJSON: responseBody,
+	}))
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+
+	requestPath := filepath.Join(payloadDir, "llm-provider-request-"+msgID+".json")
+	responsePath := filepath.Join(payloadDir, "llm-provider-response-"+msgID+".json")
+
+	gotRequest, err := os.ReadFile(requestPath)
+	require.NoError(t, err)
+	require.JSONEq(t, string(requestBody), string(gotRequest))
+
+	gotResponse, err := os.ReadFile(responsePath)
+	require.NoError(t, err)
+	require.JSONEq(t, string(responseBody), string(gotResponse))
+
+	require.NotEmpty(t, debugtrace.PayloadDir())
 }
 
 type failingPayloadClient struct {

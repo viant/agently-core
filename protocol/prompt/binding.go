@@ -241,6 +241,7 @@ func (b *Binding) Data() map[string]interface{} {
 		"Documents":       &b.Documents,
 		"Meta":            &b.Meta,
 		"Context":         &b.Context,
+		"ContextJSON":     b.ContextJSON(),
 		"SystemDocuments": &b.SystemDocuments,
 		"Elicitation":     &b.Elicitation,
 	}
@@ -252,6 +253,19 @@ func (b *Binding) Data() map[string]interface{} {
 		}
 	}
 	return context
+}
+
+// ContextJSON returns a stable JSON rendering of binding context for prompts.
+// Templates should prefer this over printing the raw map to avoid Go's map[...] format.
+func (b *Binding) ContextJSON() string {
+	if b == nil || len(b.Context) == 0 {
+		return ""
+	}
+	data, err := json.MarshalIndent(b.Context, "", "  ")
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }
 
 func (a *Attachment) Type() string {

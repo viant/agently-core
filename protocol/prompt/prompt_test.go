@@ -178,3 +178,26 @@ func TestPrompt_Generate_ReloadsURI(t *testing.T) {
 	assert.NoError(t, err)
 	assert.EqualValues(t, "[GO2] Hello", got2GO)
 }
+
+func TestPrompt_Generate_ContextJSON(t *testing.T) {
+	ctx := context.Background()
+	binding := &Binding{
+		Context: map[string]interface{}{
+			"resolvedWorkdir": "/tmp/repo",
+			"flags":           map[string]interface{}{"stream": true},
+		},
+	}
+
+	vmPrompt := Prompt{Engine: "vm", Text: "Context: ${ContextJSON}"}
+	vmGot, err := vmPrompt.Generate(ctx, binding)
+	assert.NoError(t, err)
+	assert.Contains(t, vmGot, `"resolvedWorkdir": "/tmp/repo"`)
+	assert.Contains(t, vmGot, `"stream": true`)
+
+	goPrompt := Prompt{Engine: "go", Text: "Context: {{.ContextJSON}}"}
+	goGot, err := goPrompt.Generate(ctx, binding)
+	assert.NoError(t, err)
+	assert.Contains(t, goGot, `"resolvedWorkdir": "/tmp/repo"`)
+	assert.Contains(t, goGot, `"stream": true`)
+	assert.NotContains(t, goGot, "map[")
+}
