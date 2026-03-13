@@ -41,6 +41,9 @@ type Service struct {
 	conv   apiconv.Client
 	linker *linksvc.Service
 	status *statussvc.Service
+	// ChildTimeout overrides DefaultChildAgentTimeout for internal runs.
+	// Zero means use DefaultChildAgentTimeout.
+	ChildTimeout time.Duration
 }
 
 // New creates a Service bound to the internal agent runtime.

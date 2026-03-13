@@ -19,6 +19,27 @@ pipeline:
             "@exists@conversationId": true
             "@exists@plan.elicitation.elicitationId": true
 
+  verifyTranscriptElicitationShape:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "elicitation accept - transcript exposes structured elicitation instead of raw JSON content"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${queryForAccept.Responses[0].JSONBody.conversationId}/transcript
+        Expect:
+          Code: 200
+          JSONBody:
+            turns:
+              - Message:
+                  - Role: user
+                  - Role: assistant
+                    elicitation:
+                      elicitationId: ${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}
+                      message: Please provide your favorite color so I can describe it in 3 sentences.
+                      requestedSchema:
+                        type: object
+                    Content: Please provide your favorite color so I can describe it in 3 sentences.
+
   resolveAccept:
     when: $sdkKey != ''
     action: http/runner:send

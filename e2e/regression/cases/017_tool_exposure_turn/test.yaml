@@ -21,7 +21,7 @@ pipeline:
   verifyToolTurn1:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool exposure turn - verify prior turn emitted tool_op"
+    description: "tool exposure turn - verify prior turn emitted canonical tool_op with iteration metadata"
     requests:
       - Method: GET
         URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&types=tool_op
@@ -29,6 +29,24 @@ pipeline:
           Code: 200
           JSONBody:
             "@exists@Rows[0]": true
+            Rows:
+              "@indexBy@": ToolName
+              system/os/getEnv:
+                "@exists@CreatedAt": true
+                Iteration: 1
+
+  verifyAssistantTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool exposure turn - assistant message persists explicit preamble"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&roles=assistant
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].Preamble": true
+            "@exists@Rows[0].CreatedAt": true
 
   probeTurn2:
     when: $sdkKey != ''

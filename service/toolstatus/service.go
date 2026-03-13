@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/runtime/memory"
 )
 
@@ -39,7 +40,7 @@ func (s *Service) Start(ctx context.Context, parent memory.TurnMeta, toolName, r
 		apiconv.WithContent(""),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
-		apiconv.WithToolName(toolName),
+		apiconv.WithToolName(mcpname.Display(toolName)),
 	)
 	if err != nil {
 		errorf("status start error parent_convo=%q tool=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(toolName), err)

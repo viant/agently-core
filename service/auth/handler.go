@@ -295,9 +295,13 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
+		username := strings.TrimSpace(body.Username)
+		if username == "" {
+			username = "anonymous:" + uuid.New().String()
+		}
 		sess := &Session{
 			ID:        uuid.New().String(),
-			Username:  body.Username,
+			Username:  username,
 			CreatedAt: time.Now(),
 		}
 		if body.AccessToken != "" {
@@ -314,6 +318,16 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))
 				return
 			}
+		}
+		if h.cfg != nil && h.cfg.CookieName != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     h.cfg.CookieName,
+				Value:    sess.ID,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   int(h.sessions.ttl.Seconds()),
+			})
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"sessionId": sess.ID})
 	}

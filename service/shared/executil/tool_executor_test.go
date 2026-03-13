@@ -299,6 +299,45 @@ func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 	assert.EqualValues(t, true, sawLink)
 }
 
+func TestExecuteToolStep_CanonicalizesToolNameAndPersistsRunMeta(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-tool", TurnID: "t-tool", ParentMessageID: "p-tool"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: "run-tool", Iteration: 3})
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok"}`}}}
+	conv := &stubConv{}
+
+	step := StepInfo{
+		ID:         "call-tool",
+		Name:       "system_os-getEnv",
+		Args:       map[string]interface{}{"names": []string{"USER"}},
+		ResponseID: "resp-1",
+	}
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+	require.NotEmpty(t, conv.patchedMessages)
+	require.NotEmpty(t, conv.patchedToolCalls)
+
+	var toolMsg *apiconv.MutableMessage
+	for _, msg := range conv.patchedMessages {
+		if msg != nil && strings.EqualFold(msg.Role, "tool") {
+			toolMsg = msg
+			break
+		}
+	}
+	require.NotNil(t, toolMsg)
+	require.NotNil(t, toolMsg.ToolName)
+	assert.Equal(t, "system/os/getEnv", *toolMsg.ToolName)
+	require.NotNil(t, toolMsg.Iteration)
+	assert.EqualValues(t, 3, *toolMsg.Iteration)
+
+	started := conv.patchedToolCalls[0]
+	assert.Equal(t, "system/os/getEnv", started.ToolName)
+	require.NotNil(t, started.RunID)
+	assert.Equal(t, "run-tool", *started.RunID)
+	require.NotNil(t, started.Iteration)
+	assert.EqualValues(t, 3, *started.Iteration)
+}
+
 func TestExecuteToolStep_PersistsToolMessageNameAndStatus(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-tool", TurnID: "t-tool", ParentMessageID: "p-tool"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)
@@ -322,7 +361,7 @@ func TestExecuteToolStep_PersistsToolMessageNameAndStatus(t *testing.T) {
 		if msg == nil {
 			continue
 		}
-		if derefString(msg.ToolName) != "system_os-getEnv" {
+		if derefString(msg.ToolName) != "system/os/getEnv" {
 			if toolMsgID == "" || msg.Id != toolMsgID {
 				continue
 			}

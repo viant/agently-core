@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -216,6 +218,9 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	content, hasToolCalls := AssistantContentFromResponse(resp)
 	content = strings.TrimSpace(content)
+	if hasToolCalls && o.isLikelyUserEcho(ctx, content) {
+		content = ""
+	}
 	preamble := strings.TrimSpace(AssistantPreambleFromResponse(resp, content))
 	if content == "" && preamble != "" {
 		content = preamble
@@ -230,6 +235,9 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 		if strings.TrimSpace(turn.TurnID) != "" {
 			msg.SetTurnID(turn.TurnID)
 		}
+	}
+	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+		msg.SetIteration(runMeta.Iteration)
 	}
 	// Store content always. Store raw_content only for tool-call responses so
 	// transcripts can distinguish tool-driven interim content from normal replies.
@@ -479,14 +487,18 @@ func WithRecorderObserverWithPrice(ctx context.Context, client apiconv.Client, p
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
 func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte, mode string) error {
 	debugf("patchInterimRequestMessage start convo=%q turn=%q msg=%q mode=%q payload_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(mode), len(payload))
-	_, err := apiconv.AddMessage(ctx, o.client, &turn,
+	opts := []apiconv.MessageOption{
 		apiconv.WithId(msgID),
 		apiconv.WithMode(mode),
 		apiconv.WithRole("assistant"),
 		apiconv.WithType("text"),
 		apiconv.WithCreatedByUserID(turn.Assistant),
 		apiconv.WithInterim(1),
-	)
+	}
+	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
+	}
+	_, err := apiconv.AddMessage(ctx, o.client, &turn, opts...)
 	if err != nil {
 		errorf("patchInterimRequestMessage error convo=%q turn=%q msg=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), err)
 	} else {
@@ -523,6 +535,14 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 	mc.SetMessageID(msgID)
 	if turn.TurnID != "" {
 		mc.SetTurnID(turn.TurnID)
+	}
+	if runMeta, ok := memory.RunMetaFromContext(ctx); ok {
+		if strings.TrimSpace(runMeta.RunID) != "" {
+			mc.SetRunID(runMeta.RunID)
+		}
+		if runMeta.Iteration > 0 {
+			mc.SetIteration(runMeta.Iteration)
+		}
 	}
 	mc.SetProvider(info.Provider)
 	mc.SetModel(info.Model)
@@ -683,6 +703,57 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	}
 	debugf("upsertInlinePayload ok id=%q", strings.TrimSpace(id))
 	return id, nil
+}
+
+var markdownLinkPattern = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`)
+
+func normalizeComparableText(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = markdownLinkPattern.ReplaceAllString(value, "$1")
+	value = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsLetter(r), unicode.IsNumber(r), unicode.IsSpace(r):
+			return r
+		default:
+			return ' '
+		}
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func (o *recorderObserver) isLikelyUserEcho(ctx context.Context, assistantContent string) bool {
+	assistantText := normalizeComparableText(assistantContent)
+	if assistantText == "" {
+		return false
+	}
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		return false
+	}
+	for _, candidateID := range []string{strings.TrimSpace(turn.ParentMessageID), strings.TrimSpace(turn.TurnID)} {
+		if candidateID == "" {
+			continue
+		}
+		msg, err := o.client.GetMessage(ctx, candidateID)
+		if err != nil || msg == nil || !strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
+			continue
+		}
+		userText := normalizeComparableText(valueOrEmptyPtr(msg.RawContent))
+		if userText == "" {
+			userText = normalizeComparableText(valueOrEmptyPtr(msg.Content))
+		}
+		if assistantText == userText && userText != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func valueOrEmptyPtr(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
 }
 
 // --- transient debug helpers (enabled with AGENTLY_DEBUG_PRICING=1) ---

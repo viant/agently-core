@@ -68,9 +68,6 @@ func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conver
 	adjustInputIfNeeded(tokenDelta, overlimit, genInput)
 
 	genOutput := &core2.GenerateOutput{}
-	// Mark this Run as continuation/recovery so DuplicateGuard remains
-	// disabled and internal/message tools can iterate as needed.
-	ctx = context.WithValue(ctx, ctxKeyContinuationMode, true)
 	if _, err := s.Run(ctx, genInput, genOutput); err != nil {
 		return err
 	}

@@ -17,12 +17,36 @@ type MetadataResponse struct {
 	DefaultAgent    string        `json:"defaultAgent,omitempty"`
 	DefaultModel    string        `json:"defaultModel,omitempty"`
 	DefaultEmbedder string        `json:"defaultEmbedder,omitempty"`
+	Defaults        *Defaults     `json:"defaults,omitempty"`
+	Capabilities    Capabilities  `json:"capabilities,omitempty"`
 	Agents          []string      `json:"agents,omitempty"`
 	Models          []string      `json:"models,omitempty"`
 	AgentInfos      []AgentInfo   `json:"agentInfos,omitempty"`
 	ModelInfos      []ModelInfo   `json:"modelInfos,omitempty"`
 	StarterTasks    []StarterTask `json:"starterTasks,omitempty"`
 	Version         string        `json:"version,omitempty"`
+}
+
+// Defaults captures UI-facing runtime defaults in a stable nested shape.
+type Defaults struct {
+	Agent           string `json:"agent,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Embedder        string `json:"embedder,omitempty"`
+	AutoSelectTools bool   `json:"autoSelectTools,omitempty"`
+}
+
+// Capabilities advertises optional backend contracts so the UI can avoid
+// inventing client-only sentinels and endpoint probes.
+type Capabilities struct {
+	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
+	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
+	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
+	CompactConversation   bool `json:"compactConversation,omitempty"`
+	PruneConversation     bool `json:"pruneConversation,omitempty"`
+	AnonymousSession      bool `json:"anonymousSession,omitempty"`
+	MessageCursor         bool `json:"messageCursor,omitempty"`
+	StructuredElicitation bool `json:"structuredElicitation,omitempty"`
+	TurnStartedEvent      bool `json:"turnStartedEvent,omitempty"`
 }
 
 // AgentInfo describes a UI-facing agent entry with its preferred model.
@@ -83,11 +107,28 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 		ctx := r.Context()
 		resp := MetadataResponse{
 			Version: h.version,
+			Capabilities: Capabilities{
+				AgentAutoSelection:    true,
+				ModelAutoSelection:    false,
+				ToolAutoSelection:     h.defaults != nil && h.defaults.ToolAutoSelection.Enabled,
+				CompactConversation:   true,
+				PruneConversation:     true,
+				AnonymousSession:      true,
+				MessageCursor:         true,
+				StructuredElicitation: true,
+				TurnStartedEvent:      true,
+			},
 		}
 		if h.defaults != nil {
 			resp.DefaultAgent = h.defaults.Agent
 			resp.DefaultModel = h.defaults.Model
 			resp.DefaultEmbedder = h.defaults.Embedder
+			resp.Defaults = &Defaults{
+				Agent:           h.defaults.Agent,
+				Model:           h.defaults.Model,
+				Embedder:        h.defaults.Embedder,
+				AutoSelectTools: h.defaults.ToolAutoSelection.Enabled,
+			}
 		}
 		if h.store != nil {
 			if agents, err := h.store.List(ctx, ws.KindAgent); err == nil {

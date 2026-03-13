@@ -35,7 +35,6 @@ import (
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elact "github.com/viant/agently-core/service/elicitation/action"
-	"github.com/viant/agently-core/service/reactor"
 	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
@@ -163,6 +162,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ParentMessageID: input.MessageID,
 	}
 	ctx = memory.WithTurnMeta(ctx, turn)
+	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: turn.TurnID})
 
 	// Establish authoritative cancel and register it if available
 	var cancel func()
@@ -424,7 +424,6 @@ func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	iter := 0
-	duplicateGuard := reactor.NewDuplicateGuard(nil)
 	// resolvedModel tracks the first model selected (either via explicit
 	// override or matcher-based preferences) for this Query turn. Once set,
 	// subsequent iterations within the same turn stick to this model instead
@@ -444,16 +443,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	}
 	ctx = memory.WithContextRecoveryMode(ctx, mode)
 
-	const maxPlanIterations = 25 // safety net: prevent runaway ReAct loops
-
 	input.RequestTime = time.Now()
 	for {
 		iter++
+		ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: turn.TurnID, Iteration: iter})
 		iterStart := time.Now()
+		s.updateRunIteration(ctx, turn, iter)
 
-		// Reset per-round counters on the duplicate guard so AllBlockedInRound
-		// reflects only this iteration's tool steps.
-		duplicateGuard.ResetRound()
 		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
 		if ckErr != nil {
 			warnf("agent.runPlan checkpoint error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, ckErr)
@@ -573,11 +569,10 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 
-		runCtx := reactor.WithDuplicateGuard(ctx, duplicateGuard)
-		aPlan, pErr := s.orchestrator.Run(runCtx, genInput, genOutput)
-		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d allBlocked=%v duration=%s",
+		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
+		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d duration=%s",
 			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID),
-			iter, len(aPlan.Steps), aPlan.AllBlocked, time.Since(planStart))
+			iter, len(aPlan.Steps), time.Since(planStart))
 		if pErr != nil {
 			return pErr
 		}
@@ -597,9 +592,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			stepCount = len(aPlan.Steps)
 		}
 		debugf("agent.runPlan plan ready convo=%q turn_id=%q iter=%d steps=%d elicitation=%v empty=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, stepCount, aPlan != nil && aPlan.Elicitation != nil, aPlan != nil && aPlan.IsEmpty())
-
-		// Detect duplicated tool steps in the plan and attach warnings to the turn context.
-		reactor.WarnOnDuplicateSteps(aPlan, func(msg string) { appendWarning(ctx, msg) })
 
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {
@@ -646,17 +638,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 
 		// No elicitation: plan either completed with final content or produced tool calls.
-		// Treat as terminal when the plan is empty OR all tool steps were blocked
-		// by the duplicate guard (LLM stuck in a loop calling the same tools).
-		isTerminal := aPlan.IsEmpty() || aPlan.AllBlocked
-		if aPlan.AllBlocked {
-			infof("agent.runPlan all tool steps blocked by duplicate guard — terminating loop convo=%q turn_id=%q iter=%d steps=%d content_len=%d",
-				strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(aPlan.Steps), len(genOutput.Content))
-			// The genOutput.Content at this point is a preamble (e.g., "Using system/os:getEnv."),
-			// NOT a final answer. The actual tool result from the first execution is already in
-			// history. Clear the preamble so we don't persist it as a fake final answer.
-			genOutput.Content = ""
-		}
+		// Terminal when the plan is empty (LLM produced final content, no more tool calls).
+		isTerminal := aPlan.IsEmpty()
 		if isTerminal {
 			// Persist final assistant text using the shared message ID
 			if strings.TrimSpace(genOutput.Content) != "" {
@@ -686,13 +669,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			return nil
 		}
 
-		// Safety net: prevent runaway loops even when guard doesn't catch the pattern.
-		if iter >= maxPlanIterations {
-			warnf("agent.runPlan max iterations reached convo=%q turn_id=%q iter=%d — forcing termination", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
-			queryOutput.Content = genOutput.Content
-			return nil
-		}
-		// Otherwise, continue loop to allow the orchestrator to perform next step
+		// Continue loop — the context deadline (child timeout or parent cancel)
+		// is the proper safety net against runaway loops, not an arbitrary cap.
 		debugf("agent.runPlan continue convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 	}
 }
@@ -743,6 +721,9 @@ func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, a
 	}
 	if strings.TrimSpace(id) != "" {
 		opts = append(opts, apiconv.WithId(id))
+	}
+	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
 	}
 	infof("agent.addMessage start convo=%q turn_id=%q role=%q actor=%q mode=%q id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), strings.TrimSpace(id), len(content), headString(content, 512), tailString(content, 512))
 	msg, err := apiconv.AddMessage(ctx, s.conversation, turn, opts...)
@@ -1191,21 +1172,27 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
 	rec.SetStatus("running")
+	rec.SetRunID(turn.TurnID)
 	rec.SetCreatedAt(time.Now()) // it overrides queued turns createdAt, don't delete this line
 	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	turnErr := s.conversation.PatchTurn(ctx, rec)
+	runErr := s.ensureRunRecord(ctx, turn, "running")
 	convErr := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
-	if turnErr == nil && convErr == nil {
+	if turnErr == nil && convErr == nil && runErr == nil {
 		return nil
 	}
-	if turnErr != nil && convErr != nil {
+	if turnErr != nil && convErr != nil && runErr != nil {
 		return errors.Join(
 			fmt.Errorf("failed to create turn: %w", turnErr),
+			fmt.Errorf("failed to create run: %w", runErr),
 			fmt.Errorf("failed to update conversation status: %w", convErr),
 		)
 	}
 	if turnErr != nil {
 		return fmt.Errorf("failed to create turn: %w", turnErr)
+	}
+	if runErr != nil {
+		return fmt.Errorf("failed to create run: %w", runErr)
 	}
 	return fmt.Errorf("failed to update conversation status: %w", convErr)
 }
@@ -1307,8 +1294,12 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	}
 
 	turnPatchErr := s.conversation.PatchTurn(patchCtx, upd)
+	runPatchErr := s.patchRunTerminalState(patchCtx, turn, status, emsg)
 	if turnPatchErr != nil {
 		errorf("agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)
+	}
+	if runPatchErr != nil {
+		errorf("agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
 	}
 	conversationPatchErr := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
 	if conversationPatchErr != nil {
@@ -1322,6 +1313,9 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	}
 	if turnPatchErr != nil {
 		errs = append(errs, fmt.Errorf("failed to update turn: %w", turnPatchErr))
+	}
+	if runPatchErr != nil {
+		errs = append(errs, fmt.Errorf("failed to update run: %w", runPatchErr))
 	}
 	if conversationPatchErr != nil {
 		errs = append(errs, fmt.Errorf("failed to update conversation: %w", conversationPatchErr))
@@ -1479,4 +1473,50 @@ func valueOrEmpty(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func (s *Service) ensureRunRecord(ctx context.Context, turn memory.TurnMeta, status string) error {
+	if s == nil || s.dataService == nil {
+		return nil
+	}
+	now := time.Now()
+	run := &agrunwrite.MutableRunView{}
+	run.SetId(turn.TurnID)
+	run.SetTurnID(turn.TurnID)
+	run.SetConversationID(turn.ConversationID)
+	run.SetConversationKind("interactive")
+	run.SetStatus(status)
+	run.SetIteration(1)
+	run.SetCreatedAt(now)
+	run.SetStartedAt(now)
+	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
+	return err
+}
+
+func (s *Service) updateRunIteration(ctx context.Context, turn memory.TurnMeta, iteration int) {
+	if s == nil || s.dataService == nil || iteration <= 0 {
+		return
+	}
+	run := &agrunwrite.MutableRunView{}
+	run.SetId(turn.TurnID)
+	run.SetIteration(iteration)
+	run.SetStatus("running")
+	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+		warnf("agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
+	}
+}
+
+func (s *Service) patchRunTerminalState(ctx context.Context, turn memory.TurnMeta, status, errorMessage string) error {
+	if s == nil || s.dataService == nil {
+		return nil
+	}
+	run := &agrunwrite.MutableRunView{}
+	run.SetId(turn.TurnID)
+	run.SetStatus(status)
+	run.SetCompletedAt(time.Now())
+	if strings.TrimSpace(errorMessage) != "" {
+		run.SetErrorMessage(errorMessage)
+	}
+	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
+	return err
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	convstore "github.com/viant/agently-core/app/store/conversation"
 	iauth "github.com/viant/agently-core/internal/auth"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
@@ -338,6 +339,7 @@ func handleQuery(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
+		input.UserId = resolveQueryUserID(w, r, input.UserId)
 		out, err := client.Query(r.Context(), &input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -345,6 +347,33 @@ func handleQuery(client Client) http.HandlerFunc {
 		}
 		httpJSON(w, http.StatusOK, out)
 	}
+}
+
+const anonymousUserCookieName = "agently_anonymous_user"
+
+func resolveQueryUserID(w http.ResponseWriter, r *http.Request, explicit string) string {
+	userID := strings.TrimSpace(explicit)
+	if userID != "" {
+		return userID
+	}
+	if derived := strings.TrimSpace(iauth.EffectiveUserID(r.Context())); derived != "" {
+		return derived
+	}
+	if cookie, err := r.Cookie(anonymousUserCookieName); err == nil {
+		if existing := strings.TrimSpace(cookie.Value); existing != "" {
+			return existing
+		}
+	}
+	anonymousID := "anonymous:" + uuid.NewString()
+	http.SetCookie(w, &http.Cookie{
+		Name:     anonymousUserCookieName,
+		Value:    anonymousID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
+	})
+	return anonymousID
 }
 
 func handleCreateConversation(client Client) http.HandlerFunc {
@@ -419,8 +448,8 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 		input := &GetTranscriptInput{
 			ConversationID:    id,
 			Since:             q.Get("since"),
-			IncludeModelCalls: q.Get("includeModelCalls") == "true",
-			IncludeToolCalls:  q.Get("includeToolCalls") == "true",
+			IncludeModelCalls: q.Get("includeModelCalls") == "true" || q.Get("includeModelCall") == "true",
+			IncludeToolCalls:  q.Get("includeToolCalls") == "true" || q.Get("includeToolCall") == "true",
 		}
 		out, err := client.GetTranscript(r.Context(), input)
 		if err != nil {

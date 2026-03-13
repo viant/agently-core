@@ -165,6 +165,43 @@ func TestHandler_Healthz(t *testing.T) {
 	}
 }
 
+type spyQueryClient struct {
+	*HTTPClient
+	gotInput *agentsvc.QueryInput
+}
+
+func (s *spyQueryClient) Query(_ context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+	s.gotInput = input
+	return &agentsvc.QueryOutput{ConversationID: "c1", Content: "ok"}, nil
+}
+
+func TestHandler_Query_AssignsAnonymousUserCookie(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyQueryClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	body := []byte(`{"query":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotInput == nil {
+		t.Fatalf("expected Query to be called")
+	}
+	if spy.gotInput.UserId == "" {
+		t.Fatalf("expected anonymous user id to be assigned")
+	}
+	if got := rec.Result().Cookies(); len(got) == 0 || got[0].Name != anonymousUserCookieName {
+		t.Fatalf("expected anonymous user cookie, got %#v", got)
+	}
+}
+
 type spyMessagesClient struct {
 	*HTTPClient
 	gotInput *GetMessagesInput
@@ -227,6 +264,39 @@ func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
 	}
 	if spy.gotInput != nil {
 		t.Fatalf("GetMessages should not be called on invalid limit")
+	}
+}
+
+type spyTranscriptClient struct {
+	*HTTPClient
+	gotInput *GetTranscriptInput
+}
+
+func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput) (*TranscriptOutput, error) {
+	s.gotInput = input
+	return &TranscriptOutput{}, nil
+}
+
+func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyTranscriptClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/transcript?since=m1&includeModelCall=true&includeToolCall=true", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotInput == nil {
+		t.Fatalf("expected GetTranscript to be called")
+	}
+	if spy.gotInput.Since != "m1" || !spy.gotInput.IncludeModelCalls || !spy.gotInput.IncludeToolCalls {
+		t.Fatalf("unexpected transcript input: %#v", spy.gotInput)
 	}
 }
 

@@ -151,6 +151,7 @@ type MessageView struct {
 	LinkedConversation   *LinkedConversationView  `view:",table=conversation" on:"LinkedConversationId:linked_conversation_id=Id:id" sql:"uri=conversation/linked_conversation.sql"`
 	Attachment           []*AttachmentView        `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/attachment.sql"`
 	ModelCall            *ModelCallView           `view:",table=model_call" on:"Id:id=MessageId:message_id" sql:"uri=conversation/model_call.sql"`
+	Elicitation          map[string]interface{}   `sqlx:"-" json:"elicitation,omitempty"`
 }
 
 type ToolMessageView struct {

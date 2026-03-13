@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,15 +123,74 @@ type fakeAgentRuntime struct {
 	lastInput  *agentsvc.QueryInput
 	lastPolicy *toolpol.Policy
 	finder     agentmdl.Finder
+	queryFn    func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error
 }
 
 func (f *fakeAgentRuntime) Query(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
 	f.lastInput = in
 	f.lastPolicy = toolpol.FromContext(ctx)
+	if f.queryFn != nil {
+		return f.queryFn(ctx, in, out)
+	}
 	if out != nil {
 		out.Content = "ok"
 	}
 	return nil
+}
+
+// TestService_Run_Internal_RespectsTimeout verifies that the child agent
+// context carries a deadline so a hung child doesn't block forever.
+// TDD: this test FAILS until runInternal applies a timeout to the child context.
+func TestService_Run_Internal_RespectsTimeout(t *testing.T) {
+	ctx := context.Background()
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"slow": {Identity: agentmdl.Identity{ID: "slow"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			// The child context MUST have a deadline.
+			_, hasDeadline := ctx.Deadline()
+			assert.True(t, hasDeadline, "child agent context must have a deadline to prevent hanging forever")
+			if out != nil {
+				out.Content = "done"
+			}
+			return nil
+		},
+	}
+	s := &Service{agent: fake}
+
+	var out RunOutput
+	err := s.run(ctx, &RunInput{AgentID: "slow", Objective: "test timeout"}, &out)
+	assert.NoError(t, err)
+	assert.Equal(t, "done", out.Answer)
+}
+
+// TestService_Run_Internal_HungChildTimesOut verifies that a child agent
+// that blocks indefinitely is terminated by the timeout.
+func TestService_Run_Internal_HungChildTimesOut(t *testing.T) {
+	ctx := context.Background()
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"hung": {Identity: agentmdl.Identity{ID: "hung"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			// Simulate a hung tool call — block until context is cancelled.
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	s := &Service{agent: fake, ChildTimeout: 500 * time.Millisecond}
+
+	var out RunOutput
+	start := time.Now()
+	err := s.run(ctx, &RunInput{AgentID: "hung", Objective: "will hang"}, &out)
+	elapsed := time.Since(start)
+	// Should return an error (context deadline exceeded), NOT hang forever.
+	assert.Error(t, err, "expected timeout error for hung child agent")
+	// Must complete within a reasonable time (well under 10 minutes).
+	assert.Less(t, elapsed, 5*time.Second, "should time out quickly, not hang")
 }
 
 // Finder is unused in this test; return nil to satisfy the interface.
@@ -444,7 +504,7 @@ func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
 			if msg.Role == "assistant" && msg.Content != nil && *msg.Content == objective {
 				foundObjectiveEcho = true
 			}
-			if msg.Role == "assistant" && msg.ToolName != nil && *msg.ToolName == "llm/agents-run" && msg.LinkedConversationId != nil && *msg.LinkedConversationId != "" {
+			if msg.Role == "assistant" && msg.ToolName != nil && (*msg.ToolName == "llm/agents:run" || *msg.ToolName == "llm/agents-run") && msg.LinkedConversationId != nil && *msg.LinkedConversationId != "" {
 				foundLinkedStatus = true
 			}
 		}
@@ -452,4 +512,135 @@ func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
 
 	assert.False(t, foundObjectiveEcho, "parent conversation should not persist an assistant echo preview for delegation objective")
 	assert.True(t, foundLinkedStatus, "linked status message should still be present")
+}
+
+// TestService_Run_Internal_InheritsParentModel verifies that the child agent
+// inherits the parent conversation's default model when the child agent has
+// no explicitly configured model. This prevents the child from falling back
+// to the system default (e.g., gpt-4o-mini) when the user selected gpt-5.2.
+func TestService_Run_Internal_InheritsParentModel(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	// Set up parent conversation with a specific default model (simulating
+	// user selecting gpt-5.2 in the UI).
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	parentModel := "openai/gpt-5.2"
+	parentConv.SetDefaultModel(parentModel)
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	// Parent turn context
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	// Child agent with NO explicit model configured
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"analyzer": {Identity: agentmdl.Identity{ID: "analyzer"}},
+		}},
+	}
+	s := &Service{agent: fake, conv: conv}
+
+	var out RunOutput
+	err := s.run(runCtx, &RunInput{AgentID: "analyzer", Objective: "analyze code"}, &out)
+	assert.NoError(t, err)
+
+	// The child's QueryInput should inherit the parent's model.
+	require.NotNil(t, fake.lastInput, "expected QueryInput to be captured")
+	assert.Equal(t, parentModel, fake.lastInput.ModelOverride,
+		"child agent should inherit parent conversation's default model")
+}
+
+// TestService_Run_Internal_DoesNotOverrideChildModel verifies that when the
+// child agent has its own explicitly configured model, the parent's model
+// does NOT override it.
+func TestService_Run_Internal_DoesNotOverrideChildModel(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	parentModel := "openai/gpt-5.2"
+	parentConv.SetDefaultModel(parentModel)
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	// Child agent WITH an explicit model configured
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"specialist": {
+				Identity:       agentmdl.Identity{ID: "specialist"},
+				ModelSelection: llm.ModelSelection{Model: "anthropic/claude-sonnet"},
+			},
+		}},
+	}
+	s := &Service{agent: fake, conv: conv}
+
+	var out RunOutput
+	err := s.run(runCtx, &RunInput{AgentID: "specialist", Objective: "specialize"}, &out)
+	assert.NoError(t, err)
+
+	require.NotNil(t, fake.lastInput, "expected QueryInput to be captured")
+	// Child has its own model — parent's model should NOT override.
+	assert.Empty(t, fake.lastInput.ModelOverride,
+		"child with explicit model should not get parent's model override")
+}
+
+// TestService_Run_StatusToolNameFormat verifies that the status message tool
+// name uses colon separator (llm/agents:run) instead of dash (llm/agents-run)
+// so the UI groups them consistently.
+func TestService_Run_StatusToolNameFormat(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
+		}},
+	}
+	s := &Service{agent: fake, conv: conv}
+	s.linker = nil // no linker → no child conversation created
+	// Set up status service to capture the tool name
+	// (we verify via the persisted message's ToolName field)
+
+	var out RunOutput
+	err := s.run(runCtx, &RunInput{AgentID: "worker", Objective: "work"}, &out)
+	assert.NoError(t, err)
+
+	// Verify no messages with dash-separator tool name exist
+	gotConv, err := conv.GetConversation(ctx, "parent-conv")
+	require.NoError(t, err)
+	for _, tr := range gotConv.Transcript {
+		if tr == nil {
+			continue
+		}
+		for _, msg := range tr.Message {
+			if msg == nil || msg.ToolName == nil {
+				continue
+			}
+			assert.NotContains(t, *msg.ToolName, "agents-run",
+				"status message tool name should use colon separator, not dash")
+		}
+	}
 }

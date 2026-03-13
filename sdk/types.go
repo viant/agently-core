@@ -104,14 +104,15 @@ type ListPendingElicitationsInput struct {
 
 // PendingElicitation represents one pending elicitation message.
 type PendingElicitation struct {
-	ConversationID string    `json:"conversationId"`
-	ElicitationID  string    `json:"elicitationId"`
-	MessageID      string    `json:"messageId"`
-	Status         string    `json:"status"`
-	Role           string    `json:"role"`
-	Type           string    `json:"type"`
-	CreatedAt      time.Time `json:"createdAt"`
-	Content        string    `json:"content,omitempty"`
+	ConversationID string                 `json:"conversationId"`
+	ElicitationID  string                 `json:"elicitationId"`
+	MessageID      string                 `json:"messageId"`
+	Status         string                 `json:"status"`
+	Role           string                 `json:"role"`
+	Type           string                 `json:"type"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	Content        string                 `json:"content,omitempty"`
+	Elicitation    map[string]interface{} `json:"elicitation,omitempty"`
 }
 
 type ListPendingToolApprovalsInput struct {
@@ -256,7 +257,7 @@ type ImportResourcesOutput struct {
 // GetTranscriptInput controls which transcript turns are returned for a conversation.
 type GetTranscriptInput struct {
 	ConversationID    string
-	Since             string // optional: turn ID — only return turns after this
+	Since             string // optional: turn ID or message ID cursor
 	IncludeModelCalls bool
 	IncludeToolCalls  bool
 }

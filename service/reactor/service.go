@@ -50,43 +50,12 @@ type ctxKeyPresentedType int
 
 const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 
-// ctxKeyContinuationMode marks runs that are invoked as part of a
-// continuation/recovery flow (e.g., context-limit handling). Duplicate
-// protection is disabled in this mode so internal/message tools can iterate
-// freely when trimming history.
-const ctxKeyContinuationMode ctxKeyPresentedType = 2
-const ctxKeyDuplicateGuard ctxKeyPresentedType = 3
-
 const (
 	pruneMinRemove        = 20
 	pruneMaxRemove        = 50
 	pruneCandidateLimit   = 50
 	compactCandidateLimit = 200
 )
-
-func inContinuationMode(ctx context.Context) bool {
-	if v, ok := ctx.Value(ctxKeyContinuationMode).(bool); ok {
-		return v
-	}
-	return false
-}
-
-func WithDuplicateGuard(ctx context.Context, guard *DuplicateGuard) context.Context {
-	if ctx == nil || guard == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, ctxKeyDuplicateGuard, guard)
-}
-
-func duplicateGuardFromContext(ctx context.Context) *DuplicateGuard {
-	if ctx == nil {
-		return nil
-	}
-	if guard, ok := ctx.Value(ctxKeyDuplicateGuard).(*DuplicateGuard); ok && guard != nil {
-		return guard
-	}
-	return nil
-}
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
@@ -161,14 +130,6 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			default:
 			}
 		}
-	}
-
-	// Check if all tool steps were blocked by the duplicate guard.
-	// When this happens, the LLM is stuck in a loop calling the same tools;
-	// mark the plan so the ReAct loop can terminate.
-	if guard := duplicateGuardFromContext(ctx); guard != nil && guard.AllBlockedInRound() {
-		aPlan.AllBlocked = true
-		fmt.Printf("[debug] reactor.Run: all %d tool steps blocked by duplicate guard — marking plan AllBlocked\n", len(aPlan.Steps))
 	}
 
 	RefinePlan(aPlan)
@@ -478,16 +439,6 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	runCtx := ctx
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
-	// Enable duplicate guard only in non-continuation mode so that recovery
-	// flows (e.g., context-limit handling) can freely iterate internal/message
-	// tools without being short-circuited.
-	var guard *DuplicateGuard
-	if !inContinuationMode(ctx) {
-		guard = duplicateGuardFromContext(ctx)
-		if guard == nil {
-			guard = NewDuplicateGuard(nil)
-		}
-	}
 	// Execute steps in order; do not de-duplicate by tool/args.
 	// Duplicated tool steps will each execute independently.
 	var stopped atomic.Bool
@@ -528,32 +479,11 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			go func() {
 				defer wg.Done()
 				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
-				// Optional duplicate protection: when enabled, block pathological
-				// repetition patterns (same tool+args over and over) while still
-				// preserving transcript via synthetic tool results.
-				if guard != nil {
-					if block, _ := guard.ShouldBlock(step.Name, step.Args); block {
-						fmt.Printf("[debug] reactor: duplicate guard BLOCKED tool=%q args=%s — skipping (no synthesis)\n",
-							step.Name, CanonicalArgs(step.Args))
-						// Do NOT synthesize tool results. Synthesis pollutes the
-						// transcript and confuses the LLM into re-calling the tool.
-						// Instead, the AllBlocked flag on the plan will terminate
-						// the ReAct loop, and the existing tool result from the
-						// first execution remains in history for the model to use.
-						return
-					}
-					fmt.Printf("[debug] reactor: duplicate guard ALLOWED tool=%q args=%s\n",
-						step.Name, CanonicalArgs(step.Args))
-				}
 				// Execute tool; even on error we let the LLM decide next steps.
 				// Errors are persisted on the tool call and exposed via tool result payload.
-				call, _, err := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
+				_, _, err := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
 				if err != nil {
 					fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
-				}
-
-				if guard != nil {
-					guard.RegisterResult(step.Name, step.Args, call)
 				}
 			}()
 		}
@@ -561,11 +491,6 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	})
 	return id, stepErrCh
 }
-
-// toolDedupKey builds a stable key from tool name and arguments.
-// It canonicalizes map/array structures so logically equivalent args
-// produce identical keys independent of map iteration order.
-// (dedup helpers removed; duplicates are now executed independently)
 
 func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
 	if genOutput.Response == nil || len(genOutput.Response.Choices) == 0 {

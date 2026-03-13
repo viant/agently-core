@@ -1,0 +1,20 @@
+pipeline:
+  metadata:
+    action: http/runner:send
+    description: "metadata - backend advertises defaults and capabilities"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/workspace/metadata
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@defaults.agent": true
+            "@exists@defaults.model": true
+            capabilities:
+              agentAutoSelection: true
+              compactConversation: true
+              pruneConversation: true
+              anonymousSession: true
+              messageCursor: true
+              structuredElicitation: true
+              turnStartedEvent: true
