@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/viant/agently-core/internal/datlycompat"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -78,7 +77,7 @@ func DefineComponent(ctx context.Context, srv *datly.Service) error {
 	if err != nil {
 		return fmt.Errorf("failed to create generated file base component: %w", err)
 	}
-	if err := datlycompat.AddComponent(ctx, srv, base); err != nil {
+	if err := srv.AddComponent(ctx, base); err != nil {
 		return fmt.Errorf("failed to add generated file base: %w", err)
 	}
 	return nil

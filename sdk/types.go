@@ -5,6 +5,7 @@ import (
 
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -37,10 +38,35 @@ type GetMessagesInput struct {
 
 // ListConversationsInput controls the conversation listing query.
 type ListConversationsInput struct {
-	AgentID string
-	Query   string
-	Status  string
-	Page    *PageInput
+	AgentID      string
+	ParentID     string
+	ParentTurnID string
+	Query        string
+	Status       string
+	Page         *PageInput
+}
+
+type ListLinkedConversationsInput struct {
+	ParentConversationID string
+	ParentTurnID         string
+	Page                 *PageInput
+}
+
+type LinkedConversationEntry struct {
+	ConversationID       string     `json:"conversationId"`
+	ParentConversationID string     `json:"parentConversationId,omitempty"`
+	ParentTurnID         string     `json:"parentTurnId,omitempty"`
+	Status               string     `json:"status,omitempty"`
+	Response             string     `json:"response,omitempty"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	UpdatedAt            *time.Time `json:"updatedAt,omitempty"`
+}
+
+type LinkedConversationPage struct {
+	Rows       []*LinkedConversationEntry `json:"rows"`
+	NextCursor string                     `json:"nextCursor,omitempty"`
+	PrevCursor string                     `json:"prevCursor,omitempty"`
+	HasMore    bool                       `json:"hasMore"`
 }
 
 type SteerTurnInput struct {
@@ -263,7 +289,62 @@ type GetTranscriptInput struct {
 	IncludeToolCalls  bool
 }
 
+type QuerySelector struct {
+	Limit   int    `json:"limit,omitempty"`
+	Offset  int    `json:"offset,omitempty"`
+	OrderBy string `json:"orderBy,omitempty"`
+}
+
+type ExecutionGroup struct {
+	ParentMessageID string                    `json:"parentMessageId"`
+	ModelMessageID  string                    `json:"modelMessageId"`
+	Sequence        int                       `json:"sequence"`
+	Iteration       *int                      `json:"iteration,omitempty"`
+	Preamble        string                    `json:"preamble,omitempty"`
+	Content         string                    `json:"content,omitempty"`
+	FinalResponse   bool                      `json:"finalResponse"`
+	Status          string                    `json:"status,omitempty"`
+	ModelCall       *agconv.ModelCallView     `json:"modelCall,omitempty"`
+	ToolMessages    []*agconv.ToolMessageView `json:"toolMessages,omitempty"`
+	ToolCalls       []*agconv.ToolCallView    `json:"toolCalls,omitempty"`
+}
+
+type TranscriptTurn struct {
+	*conversation.Turn
+	ExecutionGroups []*ExecutionGroup `json:"executionGroups,omitempty"`
+}
+
 // TranscriptOutput is the result of fetching a conversation transcript.
 type TranscriptOutput struct {
-	Turns []*conversation.Turn `json:"turns"`
+	Turns []*TranscriptTurn `json:"turns"`
+}
+
+type TranscriptOption func(*transcriptOptions)
+
+type transcriptOptions struct {
+	selectors map[string]*QuerySelector
+}
+
+func WithTranscriptSelector(name string, selector *QuerySelector) TranscriptOption {
+	return func(o *transcriptOptions) {
+		if selector == nil {
+			return
+		}
+		if o.selectors == nil {
+			o.selectors = map[string]*QuerySelector{}
+		}
+		o.selectors[name] = selector
+	}
+}
+
+func WithTranscriptTurnSelector(selector *QuerySelector) TranscriptOption {
+	return WithTranscriptSelector("Transcript", selector)
+}
+
+func WithTranscriptMessageSelector(selector *QuerySelector) TranscriptOption {
+	return WithTranscriptSelector("Message", selector)
+}
+
+func WithTranscriptToolMessageSelector(selector *QuerySelector) TranscriptOption {
+	return WithTranscriptSelector("ToolMessage", selector)
 }

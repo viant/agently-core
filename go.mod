@@ -9,8 +9,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.32.2
 	github.com/aws/smithy-go v1.24.1
 	github.com/fsnotify/fsnotify v1.8.0
+	github.com/go-pdf/fpdf v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/openai/openai-go/v3 v3.24.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62
@@ -18,7 +20,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.16.0
-	github.com/viant/datly v0.37.1-0.20260310143220-8c91587c9de0
+	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
 	github.com/viant/forge v0.2.18
 	github.com/viant/gds v0.6.0
@@ -42,6 +44,10 @@ require (
 )
 
 replace github.com/viant/afsc => ../afsc
+
+replace github.com/viant/datly => ../datly
+
+replace github.com/viant/xreflect => ../xreflect
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -102,7 +108,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-pdf/fpdf v0.6.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
@@ -115,7 +120,6 @@ require (
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
@@ -162,7 +166,7 @@ require (
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
-	github.com/viant/xreflect v0.7.3 // indirect
+	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
 	github.com/viant/xunsafe v0.10.3 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect

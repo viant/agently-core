@@ -1,0 +1,46 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    TimeoutMs: 240000
+    description: "linked story review - final response comes after critic review"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: linked_story_chatter
+          UserId: e2e-test
+          Query: Write a story about a dog.
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            content: A dog named Comet found a blue ball in the park.
+
+  transcript:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "linked story review - parent transcript exposes linked conversation id"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
+        Expect:
+          Code: 200
+          JSONBody:
+            turns[0].Message[1].Role: assistant
+            turns[0].Message[1].Content: A dog named Comet found a blue ball in the park.
+
+  linkedConversations:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "linked story review - child conversation is listed with status and reviewed response"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/linked?parentId=${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            rows: []
+            hasMore: false

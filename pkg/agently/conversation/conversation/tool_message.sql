@@ -2,6 +2,7 @@ SELECT
     m.id,
     m.parent_message_id,
     m.created_at,
+    m.sequence,
     m.type,
     m.content,
     m.tool_name,
@@ -9,3 +10,4 @@ SELECT
  FROM message m
  WHERE m.parent_message_id IS NOT NULL
    AND (m.type = 'tool_op' OR m.role = 'tool')
+ ORDER BY m.sequence, m.created_at

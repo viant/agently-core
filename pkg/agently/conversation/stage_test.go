@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestComputeStage_ElicitationAndCancelSemantics(t *testing.T) {
@@ -110,4 +111,32 @@ func TestComputeTurnStage_CanceledAssistantMessage(t *testing.T) {
 
 	tView.OnRelation(nil)
 	assert.EqualValues(t, StageCanceled, tView.Stage)
+}
+
+func TestTranscriptOnRelation_PopulatesElicitationFromUserElicitationData(t *testing.T) {
+	now := time.Now()
+	elicID := "elic-1"
+	content := "{\"message\":\"Pick a color\",\"requestedSchema\":{\"type\":\"object\"}}"
+	tView := &TranscriptView{
+		CreatedAt: now,
+		Message: []*MessageView{{
+			Id:            "assistant-elic",
+			Role:          "assistant",
+			Type:          "text",
+			CreatedAt:     now,
+			Content:       &content,
+			ElicitationId: &elicID,
+			UserElicitationData: &UserElicitationDataView{
+				InlineBody:  &content,
+				Compression: "none",
+				MessageId:   "assistant-elic",
+			},
+		}},
+	}
+
+	tView.OnRelation(nil)
+	require.Len(t, tView.Message, 1)
+	require.NotNil(t, tView.Message[0].Elicitation)
+	assert.Equal(t, elicID, tView.Message[0].Elicitation["elicitationId"])
+	assert.Equal(t, "Pick a color", tView.Message[0].Elicitation["message"])
 }

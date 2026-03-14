@@ -14,7 +14,7 @@ import type {
     Conversation, ConversationPage, CreateConversationInput, ListConversationsInput,
     UpdateConversationInput,
     Message, MessagePage, GetMessagesInput,
-    Turn, TranscriptOutput, GetTranscriptInput,
+    Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions,
     QueryInput, QueryOutput,
     SteerTurnInput, SteerTurnOutput, MoveQueuedTurnInput, EditQueuedTurnInput,
     SSEEvent, StreamEventsInput,
@@ -141,11 +141,14 @@ export class AgentlyClient {
     // ── Transcript ───────────────────────────────────────────────────────────
 
     /** Get structured turn-based transcript with optional tool/model call details. */
-    async getTranscript(input: GetTranscriptInput): Promise<TranscriptOutput> {
+    async getTranscript(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
+        if (options?.selectors && Object.keys(options.selectors).length > 0) {
+            q.set('selectors', JSON.stringify(options.selectors));
+        }
         return this.get(`/conversations/${enc(input.conversationId)}/transcript`, q);
     }
 

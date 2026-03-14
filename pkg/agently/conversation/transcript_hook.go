@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 )
@@ -43,6 +44,9 @@ func (t *TranscriptView) normalizeMessages() {
 		if m == nil {
 			continue
 		}
+		if len(m.Elicitation) == 0 {
+			m.Elicitation = buildElicitationMap(m)
+		}
 		if m.ModelCall != nil {
 			m.Status = &m.ModelCall.Status
 		}
@@ -53,6 +57,47 @@ func (t *TranscriptView) normalizeMessages() {
 			m.Status = m.LinkedConversation.Status
 		}
 	}
+}
+
+func buildElicitationMap(m *MessageView) map[string]interface{} {
+	if m == nil || m.ElicitationId == nil || strings.TrimSpace(*m.ElicitationId) == "" {
+		return nil
+	}
+	elicitationID := strings.TrimSpace(*m.ElicitationId)
+	if m.UserElicitationData != nil && m.UserElicitationData.InlineBody != nil {
+		inline := strings.TrimSpace(*m.UserElicitationData.InlineBody)
+		if inline != "" {
+			if out := parseElicitationMap(inline, elicitationID, valueOrEmpty(m.Content)); len(out) > 0 {
+				return out
+			}
+		}
+	}
+	return parseElicitationMap(valueOrEmpty(m.Content), elicitationID, valueOrEmpty(m.Content))
+}
+
+func parseElicitationMap(raw, elicitationID, fallbackMessage string) map[string]interface{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || len(out) == 0 {
+		return nil
+	}
+	out["elicitationId"] = elicitationID
+	if msg := strings.TrimSpace(fallbackMessage); msg != "" {
+		if _, ok := out["message"]; !ok {
+			out["message"] = msg
+		}
+	}
+	return out
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func computeTurnStage(t *TranscriptView) string {

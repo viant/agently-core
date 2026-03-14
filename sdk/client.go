@@ -40,6 +40,9 @@ type Client interface {
 
 	// ListConversations returns a cursor-paginated list of conversations.
 	ListConversations(ctx context.Context, input *ListConversationsInput) (*ConversationPage, error)
+	// ListLinkedConversations returns child conversations for a given parent conversation/turn,
+	// including status and latest assistant response.
+	ListLinkedConversations(ctx context.Context, input *ListLinkedConversationsInput) (*LinkedConversationPage, error)
 
 	// GetConversation retrieves a single conversation by ID.
 	GetConversation(ctx context.Context, id string) (*conversation.Conversation, error)
@@ -111,7 +114,7 @@ type Client interface {
 	PruneConversation(ctx context.Context, conversationID string) error
 
 	// GetTranscript returns the structured turn-based transcript for a conversation with optional filtering.
-	GetTranscript(ctx context.Context, input *GetTranscriptInput) (*TranscriptOutput, error)
+	GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error)
 
 	// GetA2AAgentCard returns the A2A agent card for the given agent.
 	GetA2AAgentCard(ctx context.Context, agentID string) (*a2a.AgentCard, error)

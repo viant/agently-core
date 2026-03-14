@@ -26,6 +26,7 @@ import (
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
+	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
@@ -95,6 +96,7 @@ func setupSDK(t *testing.T) sdk.Client {
 		}).
 		Build(ctx)
 	require.NoError(t, err, "build runtime")
+	tool.AddInternalService(rt.Registry, llmagents.New(rt.Agent, llmagents.WithConversationClient(rt.Conversation)))
 
 	// 7. Embedded SDK client
 	client, err := sdk.NewEmbeddedFromRuntime(rt)
@@ -170,8 +172,8 @@ func TestQueryWithToolUsage(t *testing.T) {
 	ctx := context.Background()
 
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
-		AgentID: "tool_user",
-		Query:   "What is the value of the OPENAI_API_KEY environment variable? Just tell me if it exists or not and the first 10 characters.",
+		AgentID: "tool_forcer_exec",
+		Query:   "Run a command to print hello and then answer.",
 		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
@@ -363,6 +365,77 @@ func TestQueryOpenAIResponsesGeneratedImageOutput(t *testing.T) {
 	)
 }
 
+func TestQueryLinkedConversationCriticReview(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx := context.Background()
+
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID: "linked_story_chatter",
+		Query:   "Write a story about a dog.",
+		UserId:  "e2e-linked",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, "A dog named Comet found a blue ball in the park and carried it home proudly.", strings.TrimSpace(out.Content))
+
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	require.NoError(t, err)
+	parentGroups := transcriptExecutionGroups(transcript)
+	require.NotEmpty(t, parentGroups, "expected execution groups in parent transcript")
+	assert.NotNil(t, parentGroups[0].ModelCall)
+	assert.NotEmpty(t, parentGroups[0].ParentMessageID)
+	assert.True(t, len(parentGroups[0].ToolCalls) > 0 || len(parentGroups) > 1, "expected model-driven execution flow")
+	linkedConversationID := firstLinkedConversationID(transcript)
+	require.NotEmpty(t, linkedConversationID, "expected linked child conversation in transcript")
+
+	linkedPage, err := client.ListLinkedConversations(ctx, &sdk.ListLinkedConversationsInput{
+		ParentConversationID: out.ConversationID,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, linkedPage.Rows)
+	assert.Equal(t, linkedConversationID, linkedPage.Rows[0].ConversationID)
+	assert.NotEmpty(t, linkedPage.Rows[0].Status)
+	assert.Contains(t, linkedPage.Rows[0].Response, "A dog named Comet found a blue ball in the park and carried it home proudly.")
+
+	childTranscript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: linkedConversationID})
+	require.NoError(t, err)
+	childGroups := transcriptExecutionGroups(childTranscript)
+	require.NotEmpty(t, childGroups, "expected execution groups in child transcript")
+	assert.True(t, childGroups[len(childGroups)-1].FinalResponse, "expected child transcript to end with final response group")
+	assert.Contains(t, childGroups[len(childGroups)-1].Content, "A dog named Comet found a blue ball in the park and carried it home proudly.")
+	childText := collectTranscriptText(childTranscript)
+	assert.Contains(t, childText, "A dog named Comet found a blue ball in the park and carried it home proudly.")
+
+	limitedTranscript, err := client.GetTranscript(ctx,
+		&sdk.GetTranscriptInput{ConversationID: out.ConversationID},
+		sdk.WithTranscriptMessageSelector(&sdk.QuerySelector{
+			Limit:   1,
+			Offset:  1,
+			OrderBy: "created_at ASC,id ASC",
+		}),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, limitedTranscript.Turns)
+	require.Len(t, limitedTranscript.Turns[0].Message, 1)
+	assert.Equal(t, "assistant", strings.ToLower(limitedTranscript.Turns[0].Message[0].Role))
+	limitedGroups := transcriptExecutionGroups(limitedTranscript)
+	require.Len(t, limitedGroups, 1)
+
+	offsetTranscript, err := client.GetTranscript(ctx,
+		&sdk.GetTranscriptInput{ConversationID: out.ConversationID},
+		sdk.WithTranscriptMessageSelector(&sdk.QuerySelector{
+			Limit:   1,
+			Offset:  0,
+			OrderBy: "created_at ASC,id ASC",
+		}),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, offsetTranscript.Turns)
+	require.Len(t, offsetTranscript.Turns[0].Message, 1)
+	assert.NotEqual(t, limitedTranscript.Turns[0].Message[0].Id, offsetTranscript.Turns[0].Message[0].Id)
+}
+
 func mustCreatePNG(t *testing.T, fill color.RGBA) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
@@ -391,4 +464,59 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func firstLinkedConversationID(transcript *sdk.TranscriptOutput) string {
+	if transcript == nil {
+		return ""
+	}
+	for _, turn := range transcript.Turns {
+		if turn == nil {
+			continue
+		}
+		for _, message := range turn.Message {
+			if message == nil || message.LinkedConversationId == nil {
+				continue
+			}
+			if value := strings.TrimSpace(*message.LinkedConversationId); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func collectTranscriptText(transcript *sdk.TranscriptOutput) string {
+	var parts []string
+	if transcript == nil {
+		return ""
+	}
+	for _, turn := range transcript.Turns {
+		if turn == nil {
+			continue
+		}
+		for _, message := range turn.Message {
+			if message == nil || message.Content == nil {
+				continue
+			}
+			if text := strings.TrimSpace(*message.Content); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func transcriptExecutionGroups(transcript *sdk.TranscriptOutput) []*sdk.ExecutionGroup {
+	var groups []*sdk.ExecutionGroup
+	if transcript == nil {
+		return nil
+	}
+	for _, turn := range transcript.Turns {
+		if turn == nil || len(turn.ExecutionGroups) == 0 {
+			continue
+		}
+		groups = append(groups, turn.ExecutionGroups...)
+	}
+	return groups
 }

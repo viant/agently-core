@@ -33,6 +33,8 @@ pipeline:
               "@indexBy@": ToolName
               system/os/getEnv:
                 "@exists@CreatedAt": true
+                "@exists@ParentMessageId": true
+                "@exists@Sequence": true
                 Iteration: 1
 
   verifyAssistantTurn1:

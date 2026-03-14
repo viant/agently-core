@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	_ "github.com/viant/agently-core/pkg/dependency"
 	"github.com/viant/datly"
 	datlycmd "github.com/viant/datly/cmd"
 )

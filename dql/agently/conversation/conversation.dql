@@ -23,7 +23,8 @@
 
 SELECT conversation.*,
 cast(attachment.inline_body as []byte),
-cast(transcript.elapsedInSec as int)
+cast(transcript.elapsedInSec as int),
+cast(message.ELICITATION as 'map[string]interface{}')
 FROM (
     SELECT t.*,
           (SELECT id
@@ -43,7 +44,9 @@ JOIN  (
       ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
     ) transcript ON transcript.conversation_id = conversation.id
 JOIN (
-    SELECT m.* FROM message m
+    SELECT m.*,
+           NULL AS ELICITATION
+      FROM message m
     ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
 ) message ON message.turn_id = transcript.id
 JOIN (
@@ -51,6 +54,7 @@ JOIN (
     m.id,
     m.parent_message_id,
     m.created_at,
+    m.sequence,
     m.type,
     m.content,
     m.tool_name,
@@ -58,6 +62,7 @@ JOIN (
  FROM message m
  WHERE m.parent_message_id IS NOT NULL
    AND (m.type = 'tool_op' OR m.role = 'tool')
+ ORDER BY m.sequence, m.created_at
 ) toolMessage ON toolMessage.parent_message_id = message.id
 JOIN (
  SELECT inline_body, compression, m.id as message_id FROM message m
@@ -94,8 +99,10 @@ JOIN (
    SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
 ) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND  1 = 1
 JOIN (
-   SELECT t.*
+   SELECT t.*,
+          m.sequence AS message_sequence
  FROM tool_call t
+ JOIN message m ON m.id = t.message_id
  ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
 ) toolCall ON toolCall.message_id = toolMessage.id AND  1 = 1
 JOIN (
