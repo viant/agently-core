@@ -311,7 +311,10 @@ type ExecutionGroup struct {
 
 type TranscriptTurn struct {
 	*conversation.Turn
-	ExecutionGroups []*ExecutionGroup `json:"executionGroups,omitempty"`
+	ExecutionGroups       []*ExecutionGroup `json:"executionGroups,omitempty"`
+	ExecutionGroupsTotal  int               `json:"executionGroupsTotal,omitempty"`
+	ExecutionGroupsOffset int               `json:"executionGroupsOffset,omitempty"`
+	ExecutionGroupsLimit  int               `json:"executionGroupsLimit,omitempty"`
 }
 
 // TranscriptOutput is the result of fetching a conversation transcript.
