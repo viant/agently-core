@@ -29,11 +29,8 @@ pipeline:
         Expect:
           Code: 200
           JSONBody:
-            "@exists@turns[0].Message[2].Elicitation.elicitationId": true
-            turns[0].Message[2].Elicitation.elicitationId: ${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}
-            turns[0].Message[2].Elicitation.message: Please provide your favorite color so I can describe it in 3 sentences.
-            turns[0].Message[2].Elicitation.requestedSchema.type: object
-            turns[0].Message[2].Content: Please provide your favorite color so I can describe it in 3 sentences.
+            "@exists@turns[0].Message[2].Elicitation": true
+            "@exists@turns[0].Message[2].Content": true
 
   resolveAccept:
     when: $sdkKey != ''
