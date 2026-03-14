@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/viant/agently-core/internal/datlycompat"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -61,7 +60,7 @@ func DefineComponent(ctx context.Context, srv *datly.Service) (contract.Path, er
 	if err != nil {
 		return contract.Path{}, fmt.Errorf("failed to create toolcall/by-op component: %w", err)
 	}
-	if err := datlycompat.AddComponent(ctx, srv, comp); err != nil {
+	if err := srv.AddComponent(ctx, comp); err != nil {
 		return contract.Path{}, fmt.Errorf("failed to add toolcall/by-op component: %w", err)
 	}
 	return comp.Path, nil

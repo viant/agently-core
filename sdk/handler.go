@@ -148,6 +148,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client))
 	mux.HandleFunc("PATCH /v1/conversations/{id}", handleUpdateConversation(client))
 	mux.HandleFunc("GET /v1/conversations", handleListConversations(client))
+	mux.HandleFunc("GET /v1/conversations/linked", handleListLinkedConversations(client))
 
 	mux.HandleFunc("GET /v1/messages", handleGetMessages(client))
 	mux.HandleFunc("GET /v1/elicitations", handleListPendingElicitations(client))
@@ -506,7 +507,18 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 			IncludeModelCalls: q.Get("includeModelCalls") == "true" || q.Get("includeModelCall") == "true",
 			IncludeToolCalls:  q.Get("includeToolCalls") == "true" || q.Get("includeToolCall") == "true",
 		}
-		out, err := client.GetTranscript(r.Context(), input)
+		var opts []TranscriptOption
+		if rawSelectors := strings.TrimSpace(q.Get("selectors")); rawSelectors != "" {
+			var decoded map[string]*QuerySelector
+			if err := json.Unmarshal([]byte(rawSelectors), &decoded); err != nil {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid selectors"))
+				return
+			}
+			for name, selector := range decoded {
+				opts = append(opts, WithTranscriptSelector(name, selector))
+			}
+		}
+		out, err := client.GetTranscript(r.Context(), input, opts...)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -519,9 +531,11 @@ func handleListConversations(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		input := &ListConversationsInput{
-			AgentID: strings.TrimSpace(q.Get("agentId")),
-			Query:   strings.TrimSpace(q.Get("q")),
-			Status:  strings.TrimSpace(q.Get("status")),
+			AgentID:      strings.TrimSpace(q.Get("agentId")),
+			ParentID:     strings.TrimSpace(q.Get("parentId")),
+			ParentTurnID: strings.TrimSpace(q.Get("parentTurnId")),
+			Query:        strings.TrimSpace(q.Get("q")),
+			Status:       strings.TrimSpace(q.Get("status")),
 		}
 		if limitRaw := strings.TrimSpace(q.Get("limit")); limitRaw != "" {
 			limit, err := strconv.Atoi(limitRaw)
@@ -547,6 +561,45 @@ func handleListConversations(client Client) http.HandlerFunc {
 			input.Page.Direction = Direction(direction)
 		}
 		out, err := client.ListConversations(r.Context(), input)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleListLinkedConversations(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		input := &ListLinkedConversationsInput{
+			ParentConversationID: strings.TrimSpace(q.Get("parentId")),
+			ParentTurnID:         strings.TrimSpace(q.Get("parentTurnId")),
+		}
+		if limitRaw := strings.TrimSpace(q.Get("limit")); limitRaw != "" {
+			limit, err := strconv.Atoi(limitRaw)
+			if err != nil || limit <= 0 {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit"))
+				return
+			}
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Limit = limit
+		}
+		if cursor := strings.TrimSpace(q.Get("cursor")); cursor != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Cursor = cursor
+		}
+		if direction := strings.TrimSpace(q.Get("direction")); direction != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Direction = Direction(direction)
+		}
+		out, err := client.ListLinkedConversations(r.Context(), input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return

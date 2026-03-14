@@ -341,6 +341,7 @@ func (c *Client) attachToolMessages(conv *agconv.ConversationView) {
 			Id:              msg.Id,
 			ParentMessageId: msg.ParentMessageId,
 			CreatedAt:       msg.CreatedAt,
+			Sequence:        msg.Sequence,
 			Type:            msg.Type,
 			Content:         msg.Content,
 			ToolName:        msg.ToolName,
@@ -348,6 +349,7 @@ func (c *Client) attachToolMessages(conv *agconv.ConversationView) {
 		}
 		if tc := c.toolCalls[msg.Id]; tc != nil {
 			tcc := *tc
+			tcc.MessageSequence = msg.Sequence
 			tm.ToolCall = &tcc
 		}
 		parent.ToolMessage = append(parent.ToolMessage, tm)

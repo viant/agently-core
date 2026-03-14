@@ -1,0 +1,4 @@
+Case: linked story critic review
+- Chatter agent must delegate story review to a linked critic conversation before presenting final content
+- Parent transcript should expose a linked conversation id
+- Linked child conversation should be listed with status and reviewed response

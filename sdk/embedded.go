@@ -39,6 +39,7 @@ import (
 	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
+	hstate "github.com/viant/xdatly/handler/state"
 )
 
 type toolApprovalQueueLister interface {
@@ -356,6 +357,14 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 			in.AgentId = agentID
 			in.Has.AgentId = true
 		}
+		if strings.TrimSpace(input.ParentID) != "" {
+			in.ParentId = strings.TrimSpace(input.ParentID)
+			in.Has.ParentId = true
+		}
+		if strings.TrimSpace(input.ParentTurnID) != "" {
+			in.ParentTurnId = strings.TrimSpace(input.ParentTurnID)
+			in.Has.ParentTurnId = true
+		}
 		if strings.TrimSpace(input.Query) != "" {
 			query = strings.TrimSpace(input.Query)
 			in.Query = query
@@ -422,6 +431,82 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
 	})
 	return &ConversationPage{Rows: rows, NextCursor: "", PrevCursor: "", HasMore: false}, nil
+}
+
+func (c *EmbeddedClient) ListLinkedConversations(ctx context.Context, input *ListLinkedConversationsInput) (*LinkedConversationPage, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	parentID := strings.TrimSpace(input.ParentConversationID)
+	parentTurnID := strings.TrimSpace(input.ParentTurnID)
+	if parentID == "" && parentTurnID == "" {
+		return nil, errors.New("parent conversation ID or parent turn ID is required")
+	}
+	page, err := c.ListConversations(ctx, &ListConversationsInput{
+		ParentID:     parentID,
+		ParentTurnID: parentTurnID,
+		Page:         input.Page,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := &LinkedConversationPage{
+		Rows:       make([]*LinkedConversationEntry, 0, len(page.Rows)),
+		NextCursor: page.NextCursor,
+		PrevCursor: page.PrevCursor,
+		HasMore:    page.HasMore,
+	}
+	for _, row := range page.Rows {
+		if row == nil {
+			continue
+		}
+		entry := &LinkedConversationEntry{
+			ConversationID: row.Id,
+			CreatedAt:      row.CreatedAt,
+			UpdatedAt:      row.UpdatedAt,
+		}
+		if row.ConversationParentId != nil {
+			entry.ParentConversationID = strings.TrimSpace(*row.ConversationParentId)
+		}
+		if row.ConversationParentTurnId != nil {
+			entry.ParentTurnID = strings.TrimSpace(*row.ConversationParentTurnId)
+		}
+		if row.Status != nil {
+			entry.Status = strings.TrimSpace(*row.Status)
+		}
+		entry.Response = strings.TrimSpace(c.latestAssistantResponse(ctx, row.Id))
+		if entry.Response == "" && row.Summary != nil {
+			entry.Response = strings.TrimSpace(*row.Summary)
+		}
+		result.Rows = append(result.Rows, entry)
+	}
+	return result, nil
+}
+
+func (c *EmbeddedClient) latestAssistantResponse(ctx context.Context, conversationID string) string {
+	transcript, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
+	if err != nil || transcript == nil {
+		return ""
+	}
+	for i := len(transcript.Turns) - 1; i >= 0; i-- {
+		turn := transcript.Turns[i]
+		if turn == nil {
+			continue
+		}
+		for j := len(turn.Message) - 1; j >= 0; j-- {
+			message := turn.Message[j]
+			if message == nil || message.Content == nil {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+				continue
+			}
+			if text := strings.TrimSpace(*message.Content); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
 }
 
 func (c *EmbeddedClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error) {
@@ -1264,27 +1349,26 @@ func (c *EmbeddedClient) ImportResources(ctx context.Context, input *ImportResou
 	return out, nil
 }
 
-func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput) (*TranscriptOutput, error) {
+func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
-	var opts []conversation.Option
+	optState := &transcriptOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(optState)
+		}
+	}
 	sinceMessageID := ""
+	sinceTurnID := ""
 	if since := strings.TrimSpace(input.Since); since != "" {
-		sinceTurnID := since
+		sinceTurnID = since
 		if msg, err := c.conv.GetMessage(ctx, since); err == nil && msg != nil && msg.TurnId != nil && strings.TrimSpace(*msg.TurnId) != "" {
 			sinceMessageID = since
 			sinceTurnID = strings.TrimSpace(*msg.TurnId)
 		}
-		opts = append(opts, conversation.WithSince(sinceTurnID))
 	}
-	if input.IncludeModelCalls {
-		opts = append(opts, conversation.WithIncludeModelCall(true))
-	}
-	if input.IncludeToolCalls {
-		opts = append(opts, conversation.WithIncludeToolCall(true))
-	}
-	conv, err := c.conv.GetConversation(ctx, input.ConversationID, opts...)
+	conv, err := c.getTranscriptConversation(ctx, input.ConversationID, sinceTurnID, input, optState)
 	if err != nil {
 		return nil, err
 	}
@@ -1297,7 +1381,79 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 	if sinceMessageID != "" {
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
-	return &TranscriptOutput{Turns: turns}, nil
+	return &TranscriptOutput{Turns: wrapTranscriptTurns(turns)}, nil
+}
+
+func (c *EmbeddedClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {
+	selectors := map[string]*QuerySelector(nil)
+	if optsState != nil {
+		selectors = optsState.selectors
+	}
+	includeModelCalls := true
+	includeToolCalls := true
+	if c.data != nil && len(selectors) > 0 {
+		in := &agconv.ConversationInput{
+			Id:                conversationID,
+			IncludeTranscript: true,
+			IncludeModelCal:   includeModelCalls,
+			IncludeToolCall:   includeToolCalls,
+			Has: &agconv.ConversationInputHas{
+				Id:                true,
+				IncludeTranscript: true,
+				IncludeModelCal:   true,
+				IncludeToolCall:   true,
+			},
+		}
+		if strings.TrimSpace(sinceTurnID) != "" {
+			in.Since = sinceTurnID
+			in.Has.Since = true
+		}
+		dataOpts := make([]data.Option, 0, len(selectors))
+		if namedSelectors := buildTranscriptQuerySelectors(selectors); len(namedSelectors) > 0 {
+			dataOpts = append(dataOpts, data.WithQuerySelector(namedSelectors...))
+		}
+		got, err := c.data.GetConversation(ctx, conversationID, in, dataOpts...)
+		if err != nil {
+			return nil, err
+		}
+		if got == nil {
+			return nil, nil
+		}
+		return (*conversation.Conversation)(got), nil
+	}
+
+	var opts []conversation.Option
+	opts = append(opts,
+		conversation.WithIncludeModelCall(includeModelCalls),
+		conversation.WithIncludeToolCall(includeToolCalls),
+	)
+	if strings.TrimSpace(sinceTurnID) != "" {
+		opts = append(opts, conversation.WithSince(sinceTurnID))
+	}
+	return c.conv.GetConversation(ctx, conversationID, opts...)
+}
+
+func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstate.NamedQuerySelector {
+	if len(selectors) == 0 {
+		return nil
+	}
+	names := []string{"Transcript", "Message", "ToolMessage"}
+	result := make([]*hstate.NamedQuerySelector, 0, len(selectors))
+	for _, name := range names {
+		selector := selectors[name]
+		if selector == nil {
+			continue
+		}
+		result = append(result, &hstate.NamedQuerySelector{
+			Name: name,
+			QuerySelector: hstate.QuerySelector{
+				Limit:   selector.Limit,
+				Offset:  selector.Offset,
+				OrderBy: selector.OrderBy,
+			},
+		})
+	}
+	return result
 }
 
 func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {
@@ -1310,7 +1466,6 @@ func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns
 				continue
 			}
 			if elicitation := c.resolveMessageElicitation(ctx, msg); len(elicitation) > 0 {
-				msg.Elicitation = elicitation
 				if content, ok := elicitation["message"].(string); ok {
 					content = strings.TrimSpace(content)
 					if content != "" && shouldNormalizeElicitationContent(valueOrEmpty(msg.Content)) {

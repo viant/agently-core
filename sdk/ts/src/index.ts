@@ -21,7 +21,7 @@ export type {
     Conversation, ConversationPage, CreateConversationInput,
     ListConversationsInput, UpdateConversationInput,
     // Turn / Transcript
-    Turn, TranscriptOutput, GetTranscriptInput,
+    Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     // Message
     Message, MessagePage, GetMessagesInput,
     ToolMessageView, ToolCallView, ModelCallView,

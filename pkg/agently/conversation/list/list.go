@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"github.com/viant/agently-core/internal/datlycompat"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository"
 	"github.com/viant/datly/repository/contract"
@@ -109,7 +108,7 @@ func DefineConversationRowsComponent(ctx context.Context, srv *datly.Service) er
 	if err != nil {
 		return fmt.Errorf("failed to create ConversationRows component: %w", err)
 	}
-	if err := datlycompat.AddComponent(ctx, srv, aComponent); err != nil {
+	if err := srv.AddComponent(ctx, aComponent); err != nil {
 		return fmt.Errorf("failed to add ConversationRows component: %w", err)
 	}
 	return nil

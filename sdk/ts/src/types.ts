@@ -81,6 +81,7 @@ export interface Turn {
     runId?: string;
     createdAt: string;
     message: Message[];
+    executionGroups?: ExecutionGroup[];
 }
 
 export interface TranscriptOutput {
@@ -92,6 +93,30 @@ export interface GetTranscriptInput {
     since?: string;
     includeModelCalls?: boolean;
     includeToolCalls?: boolean;
+}
+
+export interface QuerySelector {
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+}
+
+export interface GetTranscriptOptions {
+    selectors?: Record<string, QuerySelector>;
+}
+
+export interface ExecutionGroup {
+    parentMessageId: string;
+    modelMessageId: string;
+    sequence: number;
+    iteration?: number;
+    preamble?: string;
+    content?: string;
+    finalResponse: boolean;
+    status?: string;
+    modelCall?: ModelCall;
+    toolMessages?: ToolMessage[];
+    toolCalls?: ToolCall[];
 }
 
 // ─── Message ───────────────────────────────────────────────────────────────────

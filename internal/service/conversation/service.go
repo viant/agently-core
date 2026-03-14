@@ -558,6 +558,9 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.LinkedConversationID && message.LinkedConversationID != nil {
 		out["linkedConversationId"] = strings.TrimSpace(*message.LinkedConversationID)
 	}
+	if message.Has.ParentMessageID && message.ParentMessageID != nil {
+		out["parentMessageId"] = strings.TrimSpace(*message.ParentMessageID)
+	}
 	if message.Has.TurnID && message.TurnID != nil {
 		out["turnId"] = strings.TrimSpace(*message.TurnID)
 	}
@@ -584,6 +587,9 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	}
 	if message.Has.CreatedAt && message.CreatedAt != nil && !message.CreatedAt.IsZero() {
 		out["createdAt"] = message.CreatedAt.Format(time.RFC3339Nano)
+	}
+	if message.Has.Sequence && message.Sequence != nil {
+		out["sequence"] = *message.Sequence
 	}
 	if message.Has.Iteration && message.Iteration != nil {
 		out["iteration"] = *message.Iteration

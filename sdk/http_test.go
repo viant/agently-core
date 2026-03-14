@@ -123,9 +123,11 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 		t.Fatalf("NewHTTP: %v", err)
 	}
 	_, err = c.ListConversations(context.Background(), &ListConversationsInput{
-		AgentID: "agent-1",
-		Query:   "favorite color",
-		Status:  "active",
+		AgentID:      "agent-1",
+		ParentID:     "parent-conv",
+		ParentTurnID: "parent-turn",
+		Query:        "favorite color",
+		Status:       "active",
 		Page: &PageInput{
 			Limit:     5,
 			Cursor:    "c-2",
@@ -138,11 +140,97 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 	if gotPath != "/v1/conversations" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
-	if gotQuery.Get("agentId") != "agent-1" || gotQuery.Get("q") != "favorite color" || gotQuery.Get("status") != "active" {
+	if gotQuery.Get("agentId") != "agent-1" || gotQuery.Get("parentId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" || gotQuery.Get("q") != "favorite color" || gotQuery.Get("status") != "active" {
 		t.Fatalf("unexpected query values: %#v", gotQuery)
 	}
 	if gotQuery.Get("limit") != "5" || gotQuery.Get("cursor") != "c-2" || gotQuery.Get("direction") != "after" {
 		t.Fatalf("unexpected page query values: %#v", gotQuery)
+	}
+}
+
+func TestHTTPClient_ListLinkedConversations_QueryParams(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(&LinkedConversationPage{Rows: nil})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	_, err = c.ListLinkedConversations(context.Background(), &ListLinkedConversationsInput{
+		ParentConversationID: "parent-conv",
+		ParentTurnID:         "parent-turn",
+		Page: &PageInput{
+			Limit:     3,
+			Cursor:    "c-9",
+			Direction: DirectionBefore,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ListLinkedConversations: %v", err)
+	}
+	if gotPath != "/v1/conversations/linked" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotQuery.Get("parentId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" {
+		t.Fatalf("unexpected query values: %#v", gotQuery)
+	}
+	if gotQuery.Get("limit") != "3" || gotQuery.Get("cursor") != "c-9" || gotQuery.Get("direction") != "before" {
+		t.Fatalf("unexpected page query values: %#v", gotQuery)
+	}
+}
+
+func TestHTTPClient_GetTranscript_QueryParamsAndSelectors(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(&TranscriptOutput{})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	_, err = c.GetTranscript(context.Background(), &GetTranscriptInput{
+		ConversationID:    "c1",
+		Since:             "m1",
+		IncludeModelCalls: true,
+		IncludeToolCalls:  true,
+	}, WithTranscriptMessageSelector(&QuerySelector{
+		Limit:   1,
+		Offset:  2,
+		OrderBy: "created_at ASC,id ASC",
+	}))
+	if err != nil {
+		t.Fatalf("GetTranscript: %v", err)
+	}
+	if gotPath != "/v1/conversations/c1/transcript" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotQuery.Get("since") != "m1" || gotQuery.Get("includeModelCalls") != "true" || gotQuery.Get("includeToolCalls") != "true" {
+		t.Fatalf("unexpected query values: %#v", gotQuery)
+	}
+	rawSelectors := gotQuery.Get("selectors")
+	if rawSelectors == "" {
+		t.Fatalf("expected selectors query param")
+	}
+	var selectors map[string]*QuerySelector
+	if err := json.Unmarshal([]byte(rawSelectors), &selectors); err != nil {
+		t.Fatalf("unmarshal selectors: %v", err)
+	}
+	if selectors["Message"] == nil {
+		t.Fatalf("expected Message selector")
+	}
+	if selectors["Message"].Limit != 1 || selectors["Message"].Offset != 2 || selectors["Message"].OrderBy != "created_at ASC,id ASC" {
+		t.Fatalf("unexpected selector: %#v", selectors["Message"])
 	}
 }
 
@@ -269,11 +357,13 @@ func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
 
 type spyTranscriptClient struct {
 	*HTTPClient
-	gotInput *GetTranscriptInput
+	gotInput   *GetTranscriptInput
+	gotOptions []TranscriptOption
 }
 
-func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput) (*TranscriptOutput, error) {
+func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error) {
 	s.gotInput = input
+	s.gotOptions = options
 	return &TranscriptOutput{}, nil
 }
 
@@ -297,6 +387,36 @@ func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {
 	}
 	if spy.gotInput.Since != "m1" || !spy.gotInput.IncludeModelCalls || !spy.gotInput.IncludeToolCalls {
 		t.Fatalf("unexpected transcript input: %#v", spy.gotInput)
+	}
+}
+
+func TestHandler_GetTranscript_ParsesSelectors(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyTranscriptClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/transcript?selectors="+url.QueryEscape(`{"Message":{"limit":1,"offset":2,"orderBy":"created_at ASC,id ASC"}}`), nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(spy.gotOptions) != 1 {
+		t.Fatalf("expected selector option, got %d", len(spy.gotOptions))
+	}
+	opts := &transcriptOptions{}
+	for _, option := range spy.gotOptions {
+		option(opts)
+	}
+	if opts.selectors["Message"] == nil {
+		t.Fatalf("expected Message selector")
+	}
+	if opts.selectors["Message"].Limit != 1 || opts.selectors["Message"].Offset != 2 || opts.selectors["Message"].OrderBy != "created_at ASC,id ASC" {
+		t.Fatalf("unexpected selector: %#v", opts.selectors["Message"])
 	}
 }
 

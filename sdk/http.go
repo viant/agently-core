@@ -250,6 +250,12 @@ func (c *HTTPClient) ListConversations(ctx context.Context, input *ListConversat
 		if strings.TrimSpace(input.AgentID) != "" {
 			q.Set("agentId", input.AgentID)
 		}
+		if strings.TrimSpace(input.ParentID) != "" {
+			q.Set("parentId", input.ParentID)
+		}
+		if strings.TrimSpace(input.ParentTurnID) != "" {
+			q.Set("parentTurnId", input.ParentTurnID)
+		}
 		if strings.TrimSpace(input.Query) != "" {
 			q.Set("q", input.Query)
 		}
@@ -270,6 +276,38 @@ func (c *HTTPClient) ListConversations(ctx context.Context, input *ListConversat
 	}
 	var out ConversationPage
 	path := c.conversationsPath
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ListLinkedConversations(ctx context.Context, input *ListLinkedConversationsInput) (*LinkedConversationPage, error) {
+	q := url.Values{}
+	if input != nil {
+		if strings.TrimSpace(input.ParentConversationID) != "" {
+			q.Set("parentId", input.ParentConversationID)
+		}
+		if strings.TrimSpace(input.ParentTurnID) != "" {
+			q.Set("parentTurnId", input.ParentTurnID)
+		}
+		if input.Page != nil {
+			if input.Page.Limit > 0 {
+				q.Set("limit", fmt.Sprintf("%d", input.Page.Limit))
+			}
+			if input.Page.Cursor != "" {
+				q.Set("cursor", input.Page.Cursor)
+			}
+			if input.Page.Direction != "" {
+				q.Set("direction", string(input.Page.Direction))
+			}
+		}
+	}
+	var out LinkedConversationPage
+	path := strings.TrimRight(c.conversationsPath, "/") + "/linked"
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
@@ -571,9 +609,15 @@ func (c *HTTPClient) ImportResources(ctx context.Context, input *ImportResources
 	return &out, nil
 }
 
-func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput) (*TranscriptOutput, error) {
+func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
+	}
+	optState := &transcriptOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(optState)
+		}
 	}
 	q := url.Values{}
 	if input.Since != "" {
@@ -584,6 +628,13 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 	}
 	if input.IncludeToolCalls {
 		q.Set("includeToolCalls", "true")
+	}
+	if len(optState.selectors) > 0 {
+		data, err := json.Marshal(optState.selectors)
+		if err != nil {
+			return nil, err
+		}
+		q.Set("selectors", string(data))
 	}
 	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(input.ConversationID) + "/transcript"
 	if len(q) > 0 {

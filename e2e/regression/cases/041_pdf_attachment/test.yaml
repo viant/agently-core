@@ -32,7 +32,9 @@ pipeline:
         Expect:
           Code: 200
           JSONBody:
-            "@exists@turns[0].Message[0].Attachment[0].MimeType": true
+            turns[0].Message[0].Role: user
+            turns[0].Message[0].Type: text
+            turns[0].Message[0].Attachment[0].MimeType: application/pdf
             "@exists@turns[0].Message[0].Attachment[0].InlineBody": true
 
   attachmentMessage:

@@ -85,6 +85,161 @@ func TestPruneTranscriptNoise_RemovesBlankInterimAssistant(t *testing.T) {
 	require.Equal(t, "m2", turn.Message[0].Id)
 }
 
+func TestWrapTranscriptTurns_BuildsExecutionGroupsPerModelMessage(t *testing.T) {
+	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
+	modelStatus := "completed"
+	toolStatus := "completed"
+	iteration1 := 1
+	iteration2 := 2
+	content1 := "I'm going to inspect the repository structure."
+	content2 := "The repo is primarily Go code."
+
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   &content1,
+				Iteration: &iteration1,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: modelStatus},
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:              "tm1",
+						ParentMessageId: strPtr("m1"),
+						CreatedAt:       now.Add(time.Second),
+						Sequence:        intPtr(1),
+						Iteration:       &iteration1,
+						ToolCall: &agconv.ToolCallView{
+							MessageId: "tm1",
+							ToolName:  "resources-list",
+							Status:    toolStatus,
+						},
+					},
+					{
+						Id:              "tm2",
+						ParentMessageId: strPtr("m1"),
+						CreatedAt:       now.Add(2 * time.Second),
+						Sequence:        intPtr(2),
+						Iteration:       &iteration1,
+						ToolCall: &agconv.ToolCallView{
+							MessageId: "tm2",
+							ToolName:  "resources-grepFiles",
+							Status:    toolStatus,
+						},
+					},
+				},
+			},
+			{
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &content2,
+				Iteration: &iteration2,
+				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: modelStatus},
+			},
+		},
+	}
+
+	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)})
+	require.Len(t, got, 1)
+	require.Len(t, got[0].ExecutionGroups, 2)
+
+	first := got[0].ExecutionGroups[0]
+	require.Equal(t, "m1", first.ParentMessageID)
+	require.Equal(t, 1, first.Sequence)
+	require.Equal(t, content1, first.Preamble)
+	require.False(t, first.FinalResponse)
+	require.Len(t, first.ToolMessages, 2)
+	require.Len(t, first.ToolCalls, 2)
+	require.Equal(t, "resources-list", first.ToolCalls[0].ToolName)
+	require.Equal(t, "resources-grepFiles", first.ToolCalls[1].ToolName)
+
+	second := got[0].ExecutionGroups[1]
+	require.Equal(t, "m2", second.ParentMessageID)
+	require.Equal(t, 2, second.Sequence)
+	require.True(t, second.FinalResponse)
+	require.Equal(t, content2, second.Content)
+	require.Len(t, second.ToolMessages, 0)
+	require.Len(t, second.ToolCalls, 0)
+}
+
+func TestWrapTranscriptTurns_SelectorLimitedGroupsReflectTranscriptWindow(t *testing.T) {
+	iteration1 := 1
+	iteration2 := 2
+	modelStatus := "completed"
+	toolStatus := "completed"
+	firstPreamble := "Inspecting files."
+	finalContent := "Done."
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   &firstPreamble,
+				Iteration: &iteration1,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: modelStatus},
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:              "tm2",
+						ParentMessageId: strPtr("m1"),
+						Sequence:        intPtr(2),
+						ToolCall: &agconv.ToolCallView{
+							MessageId: "tm2",
+							ToolName:  "resources-grepFiles",
+							Status:    toolStatus,
+						},
+					},
+				},
+			},
+			{
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &finalContent,
+				Iteration: &iteration2,
+				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: modelStatus},
+			},
+		},
+	}
+
+	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)})
+	require.Len(t, got, 1)
+	require.Len(t, got[0].ExecutionGroups, 2)
+	require.Equal(t, "m1", got[0].ExecutionGroups[0].ParentMessageID)
+	require.Len(t, got[0].ExecutionGroups[0].ToolCalls, 1)
+	require.Equal(t, "resources-grepFiles", got[0].ExecutionGroups[0].ToolCalls[0].ToolName)
+	require.True(t, got[0].ExecutionGroups[1].FinalResponse)
+}
+
+func TestBuildTranscriptSelectors(t *testing.T) {
+	selectors := buildTranscriptQuerySelectors(map[string]*QuerySelector{
+		"Transcript": {Limit: 1},
+		"Message":    {Limit: 1, Offset: 2, OrderBy: "created_at ASC,id ASC"},
+		"ToolMessage": {
+			Limit:   1,
+			Offset:  1,
+			OrderBy: "created_at ASC,id ASC",
+		},
+	})
+	require.Len(t, selectors, 3)
+	require.Equal(t, "Transcript", selectors[0].Name)
+	require.Equal(t, 1, selectors[0].QuerySelector.Limit)
+	require.Equal(t, "Message", selectors[1].Name)
+	require.Equal(t, 2, selectors[1].QuerySelector.Offset)
+	require.Equal(t, "ToolMessage", selectors[2].Name)
+	require.Equal(t, "created_at ASC,id ASC", selectors[2].QuerySelector.OrderBy)
+}
+
 func strPtr(value string) *string {
+	return &value
+}
+
+func intPtr(value int) *int {
 	return &value
 }
