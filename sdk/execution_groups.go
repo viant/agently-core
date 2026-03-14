@@ -9,7 +9,7 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
-func wrapTranscriptTurns(turns convstore.Transcript) []*TranscriptTurn {
+func wrapTranscriptTurns(turns convstore.Transcript, selector *QuerySelector) []*TranscriptTurn {
 	if len(turns) == 0 {
 		return nil
 	}
@@ -18,9 +18,35 @@ func wrapTranscriptTurns(turns convstore.Transcript) []*TranscriptTurn {
 		if turn == nil {
 			continue
 		}
+		groups := buildExecutionGroups(turn)
+		total := len(groups)
+		offset := 0
+		limit := total
+		if selector != nil {
+			if selector.Offset > 0 {
+				offset = selector.Offset
+			}
+			if selector.Limit > 0 {
+				limit = selector.Limit
+			}
+			if offset > total {
+				offset = total
+			}
+			end := total
+			if selector.Limit > 0 {
+				end = offset + selector.Limit
+				if end > total {
+					end = total
+				}
+			}
+			groups = groups[offset:end]
+		}
 		out = append(out, &TranscriptTurn{
-			Turn:            turn,
-			ExecutionGroups: buildExecutionGroups(turn),
+			Turn:                  turn,
+			ExecutionGroups:       groups,
+			ExecutionGroupsTotal:  total,
+			ExecutionGroupsOffset: offset,
+			ExecutionGroupsLimit:  limit,
 		})
 	}
 	return out

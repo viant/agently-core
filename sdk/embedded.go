@@ -1381,7 +1381,7 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 	if sinceMessageID != "" {
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
-	return &TranscriptOutput{Turns: wrapTranscriptTurns(turns)}, nil
+	return &TranscriptOutput{Turns: wrapTranscriptTurns(turns, transcriptExecutionGroupSelector(optState))}, nil
 }
 
 func (c *EmbeddedClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {
@@ -1454,6 +1454,13 @@ func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstat
 		})
 	}
 	return result
+}
+
+func transcriptExecutionGroupSelector(optsState *transcriptOptions) *QuerySelector {
+	if optsState == nil || optsState.selectors == nil {
+		return nil
+	}
+	return optsState.selectors["Message"]
 }
 
 func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {
