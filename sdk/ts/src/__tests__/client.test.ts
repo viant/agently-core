@@ -141,6 +141,25 @@ describe('Transcript', () => {
         expect(call.url).toContain('includeToolCalls=true');
         expect(call.url).toContain('includeModelCalls=true');
     });
+
+    it('getTranscript serializes execution-group selector helpers', async () => {
+        const f = mockFetch(200, { turns: [] });
+        const c = client(f);
+        await c.getTranscript(
+            { conversationId: 'conv_1' },
+            {
+                executionGroupLimit: 5,
+                executionGroupOffset: 2,
+            },
+        );
+
+        const call = lastCall(f);
+        const rawSelectors = new URL(call.url).searchParams.get('selectors');
+        expect(rawSelectors).toBeTruthy();
+        const selectors = JSON.parse(String(rawSelectors));
+        expect(selectors.ExecutionGroup.limit).toBe(5);
+        expect(selectors.ExecutionGroup.offset).toBe(2);
+    });
 });
 
 // ─── Query ─────────────────────────────────────────────────────────────────────

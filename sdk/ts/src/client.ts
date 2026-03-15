@@ -14,7 +14,7 @@ import type {
     Conversation, ConversationPage, CreateConversationInput, ListConversationsInput,
     UpdateConversationInput,
     Message, MessagePage, GetMessagesInput,
-    Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions,
+    Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     QueryInput, QueryOutput,
     SteerTurnInput, SteerTurnOutput, MoveQueuedTurnInput, EditQueuedTurnInput,
     SSEEvent, StreamEventsInput,
@@ -146,8 +146,27 @@ export class AgentlyClient {
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
-        if (options?.selectors && Object.keys(options.selectors).length > 0) {
-            q.set('selectors', JSON.stringify(options.selectors));
+        const selectors = { ...(options?.selectors ?? {}) } as Record<string, QuerySelector>;
+        if (options?.executionGroupSelector) {
+            selectors.ExecutionGroup = {
+                ...(selectors.ExecutionGroup ?? {}),
+                ...options.executionGroupSelector,
+            };
+        }
+        if (Number.isFinite(options?.executionGroupLimit)) {
+            selectors.ExecutionGroup = {
+                ...(selectors.ExecutionGroup ?? {}),
+                limit: Number(options?.executionGroupLimit),
+            };
+        }
+        if (Number.isFinite(options?.executionGroupOffset)) {
+            selectors.ExecutionGroup = {
+                ...(selectors.ExecutionGroup ?? {}),
+                offset: Number(options?.executionGroupOffset),
+            };
+        }
+        if (Object.keys(selectors).length > 0) {
+            q.set('selectors', JSON.stringify(selectors));
         }
         return this.get(`/conversations/${enc(input.conversationId)}/transcript`, q);
     }

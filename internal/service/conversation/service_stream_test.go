@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	convcli "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -56,7 +57,7 @@ func TestMessagePatchPayload_Empty(t *testing.T) {
 }
 
 func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
-	bus := streaming.NewMemoryBus(1)
+	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}
 	sub, err := bus.Subscribe(context.Background(), nil)
 	require.NoError(t, err)
@@ -85,4 +86,78 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected turn_started event")
 	}
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeTurnStarted, ev.Type)
+		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "running", ev.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected typed turn_started event")
+	}
+}
+
+func TestLLMResponseEventFromMessage(t *testing.T) {
+	msg := convcli.NewMessage()
+	msg.SetId("m1")
+	msg.SetConversationID("conv-1")
+	msg.SetTurnID("turn-1")
+	msg.SetParentMessageID("parent-1")
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetIteration(2)
+	msg.SetPreamble("Inspecting the repo")
+	msg.SetContent("Final answer")
+	msg.SetInterim(0)
+	msg.SetStatus("completed")
+	msg.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
+	got := llmResponseEventFromMessage(msg, "conv-1")
+	require.NotNil(t, got)
+	require.Equal(t, streaming.EventTypeLLMResponse, got.Type)
+	require.Equal(t, "m1", got.AssistantMessageID)
+	require.Equal(t, "parent-1", got.ParentMessageID)
+	require.Equal(t, "turn-1", got.TurnID)
+	require.Equal(t, 2, got.Iteration)
+	require.Equal(t, 2, got.PageIndex)
+	require.Equal(t, "Inspecting the repo", got.Preamble)
+	require.Equal(t, "Final answer", got.Content)
+	require.True(t, got.FinalResponse)
+	require.Equal(t, "completed", got.Status)
+}
+
+func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:          "turn-1",
+		ConversationID:  "conv-1",
+		ParentMessageID: "parent-1",
+	})
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "assistant-1")
+
+	call := convcli.NewToolCall()
+	call.SetMessageID("tool-msg-1")
+	call.SetOpID("tool-call-1")
+	call.SetTurnID("turn-1")
+	call.SetToolName("llm/agents-run")
+	call.SetStatus("running")
+	call.SetIteration(3)
+	reqID := "req-1"
+	call.RequestPayloadID = &reqID
+	call.Has.RequestPayloadID = true
+
+	got := toolCallEvent(ctx, call)
+	require.NotNil(t, got)
+	require.Equal(t, streaming.EventTypeToolCallStarted, got.Type)
+	require.Equal(t, "assistant-1", got.AssistantMessageID)
+	require.Equal(t, "tool-call-1", got.ToolCallID)
+	require.Equal(t, "tool-msg-1", got.ToolMessageID)
+	require.Equal(t, "llm/agents/run", got.ToolName)
+	require.Equal(t, 3, got.Iteration)
 }

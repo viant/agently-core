@@ -4,6 +4,7 @@ import (
 	"context"
 
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	"github.com/viant/agently-core/runtime/streaming"
 )
 
 type streamPublisherKey struct{}
@@ -15,6 +16,7 @@ type StreamEvent struct {
 	Message        *agconv.MessageView
 	ContentType    string
 	Content        interface{}
+	Event          *streaming.Event
 }
 
 // StreamPublisher publishes ephemeral stream events (e.g., token deltas).

@@ -1437,7 +1437,7 @@ func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstat
 	if len(selectors) == 0 {
 		return nil
 	}
-	names := []string{"Transcript", "Message", "ToolMessage"}
+	names := []string{TranscriptSelectorTurn, TranscriptSelectorMessage, TranscriptSelectorToolMessage}
 	result := make([]*hstate.NamedQuerySelector, 0, len(selectors))
 	for _, name := range names {
 		selector := selectors[name]
@@ -1460,7 +1460,10 @@ func transcriptExecutionGroupSelector(optsState *transcriptOptions) *QuerySelect
 	if optsState == nil || optsState.selectors == nil {
 		return nil
 	}
-	return optsState.selectors["Message"]
+	if selector := optsState.selectors[TranscriptSelectorExecutionPage]; selector != nil {
+		return selector
+	}
+	return optsState.selectors[TranscriptSelectorMessage]
 }
 
 func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {
