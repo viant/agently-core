@@ -82,6 +82,9 @@ export interface Turn {
     createdAt: string;
     message: Message[];
     executionGroups?: ExecutionGroup[];
+    executionGroupsTotal?: number;
+    executionGroupsOffset?: number;
+    executionGroupsLimit?: number;
 }
 
 export interface TranscriptOutput {
@@ -103,9 +106,13 @@ export interface QuerySelector {
 
 export interface GetTranscriptOptions {
     selectors?: Record<string, QuerySelector>;
+    executionGroupSelector?: QuerySelector;
+    executionGroupLimit?: number;
+    executionGroupOffset?: number;
 }
 
 export interface ExecutionGroup {
+    assistantMessageId: string;
     parentMessageId: string;
     modelMessageId: string;
     sequence: number;
@@ -117,7 +124,10 @@ export interface ExecutionGroup {
     modelCall?: ModelCall;
     toolMessages?: ToolMessage[];
     toolCalls?: ToolCall[];
+    toolCallsPlanned?: PlannedToolCall[];
 }
+
+export type ExecutionPage = ExecutionGroup;
 
 // ─── Message ───────────────────────────────────────────────────────────────────
 
@@ -238,20 +248,64 @@ export interface GetMessagesInput {
 
 // ─── Streaming ─────────────────────────────────────────────────────────────────
 
-export type SSEEventType = 'chunk' | 'tool' | 'done' | 'error' | 'control';
+export type SSEEventType =
+    | 'chunk'
+    | 'tool'
+    | 'done'
+    | 'error'
+    | 'control'
+    | 'turn_started'
+    | 'llm_request_started'
+    | 'llm_response'
+    | 'tool_call_started'
+    | 'tool_call_completed'
+    | 'turn_completed';
+
+export interface EventModel {
+    provider?: string;
+    model?: string;
+    kind?: string;
+}
+
+export interface PlannedToolCall {
+    toolCallId?: string;
+    toolName?: string;
+}
 
 export interface SSEEvent {
     id?: string;
     streamId?: string;
+    conversationId?: string;
+    turnId?: string;
+    assistantMessageId?: string;
+    parentMessageId?: string;
+    requestId?: string;
+    responseId?: string;
+    toolCallId?: string;
+    toolMessageId?: string;
+    requestPayloadId?: string;
+    responsePayloadId?: string;
+    linkedConversationId?: string;
     type: SSEEventType;
     op?: string;
     patch?: Record<string, any>;
     content?: string;
+    preamble?: string;
     toolName?: string;
     arguments?: Record<string, any>;
     error?: string;
+    status?: string;
+    iteration?: number;
+    pageIndex?: number;
+    pageCount?: number;
+    latestPage?: boolean;
+    finalResponse?: boolean;
+    model?: EventModel;
+    toolCallsPlanned?: PlannedToolCall[];
     createdAt?: string;
 }
+
+export type ExecutionEvent = SSEEvent;
 
 export interface StreamEventsInput {
     conversationId: string;

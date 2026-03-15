@@ -21,6 +21,7 @@ import (
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
 	modelcall "github.com/viant/agently-core/service/core/modelcall"
@@ -29,6 +30,83 @@ import (
 )
 
 var freeTokenPrompt = prompts.Prune
+
+func plannedToolCalls(choice *llm.Choice) []streaming.PlannedToolCall {
+	if choice == nil || len(choice.Message.ToolCalls) == 0 {
+		return nil
+	}
+	result := make([]streaming.PlannedToolCall, 0, len(choice.Message.ToolCalls))
+	for _, call := range choice.Message.ToolCalls {
+		name := strings.TrimSpace(call.Name)
+		if name == "" {
+			name = strings.TrimSpace(call.Function.Name)
+		}
+		result = append(result, streaming.PlannedToolCall{
+			ToolCallID: strings.TrimSpace(call.ID),
+			ToolName:   name,
+		})
+	}
+	return result
+}
+
+func (s *Service) publishPlannedToolCallsEvent(ctx context.Context, responseID string, choice *llm.Choice) {
+	pub, ok := modelcall.StreamPublisherFromContext(ctx)
+	if !ok || choice == nil {
+		return
+	}
+	toolCalls := plannedToolCalls(choice)
+	if len(toolCalls) == 0 {
+		return
+	}
+	turn, _ := memory.TurnMetaFromContext(ctx)
+	runMeta, _ := memory.RunMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	if assistantMessageID == "" {
+		return
+	}
+	content := strings.TrimSpace(choice.Message.Content)
+	resp := &llm.GenerateResponse{
+		Choices:    []llm.Choice{*choice},
+		ResponseID: strings.TrimSpace(responseID),
+	}
+	preamble := strings.TrimSpace(modelcall.AssistantPreambleFromResponse(resp, content))
+	iteration := 0
+	if runMeta.Iteration > 0 {
+		iteration = runMeta.Iteration
+	}
+	status := "thinking"
+	if strings.TrimSpace(choice.FinishReason) != "" {
+		status = strings.TrimSpace(choice.FinishReason)
+	}
+	modelName := ""
+	if resp != nil {
+		modelName = strings.TrimSpace(resp.Model)
+	}
+	_ = pub.Publish(ctx, &modelcall.StreamEvent{
+		ConversationID: strings.TrimSpace(turn.ConversationID),
+		Event: &streaming.Event{
+			ID:                 assistantMessageID,
+			ConversationID:     strings.TrimSpace(turn.ConversationID),
+			StreamID:           strings.TrimSpace(turn.ConversationID),
+			Type:               streaming.EventTypeLLMResponse,
+			TurnID:             strings.TrimSpace(turn.TurnID),
+			AssistantMessageID: assistantMessageID,
+			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
+			ResponseID:         strings.TrimSpace(responseID),
+			Status:             status,
+			Content:            content,
+			Preamble:           preamble,
+			Iteration:          iteration,
+			PageIndex:          iteration,
+			PageCount:          iteration,
+			LatestPage:         true,
+			Model: &streaming.EventModel{
+				Model: modelName,
+			},
+			ToolCallsPlanned: toolCalls,
+		},
+	})
+}
 
 type Service struct {
 	llm        *core2.Service
@@ -490,6 +568,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			}
 		}
 
+		s.publishPlannedToolCallsEvent(runCtx, event.Response.ResponseID, &choice)
 		s.patchStreamingToolPreamble(runCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
 

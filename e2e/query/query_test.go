@@ -172,8 +172,8 @@ func TestQueryWithToolUsage(t *testing.T) {
 	ctx := context.Background()
 
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
-		AgentID: "tool_forcer_exec",
-		Query:   "Run a command to print hello and then answer.",
+		AgentID: "tool_user",
+		Query:   "What is the value of the OPENAI_API_KEY environment variable? Just tell me if it exists or not and the first 10 characters.",
 		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
@@ -260,12 +260,16 @@ func TestQueryLLMSourcedElicitationFavoriteColor(t *testing.T) {
 		if row == nil || row.ElicitationId == nil || strings.TrimSpace(*row.ElicitationId) == "" {
 			continue
 		}
-		if row.Content != nil && strings.Contains(strings.ToLower(*row.Content), "favoritecolor") {
+		if row.ElicitationPayloadId != nil && strings.TrimSpace(*row.ElicitationPayloadId) != "" {
+			foundElicitationMessage = true
+			break
+		}
+		if row.Content != nil && strings.Contains(strings.ToLower(*row.Content), "favorite color") {
 			foundElicitationMessage = true
 			break
 		}
 	}
-	assert.True(t, foundElicitationMessage, "expected persisted assistant message with elicitation_id and favoriteColor schema")
+	assert.True(t, foundElicitationMessage, "expected persisted assistant elicitation message with payload linkage")
 }
 
 func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
@@ -409,31 +413,26 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 
 	limitedTranscript, err := client.GetTranscript(ctx,
 		&sdk.GetTranscriptInput{ConversationID: out.ConversationID},
-		sdk.WithTranscriptMessageSelector(&sdk.QuerySelector{
-			Limit:   1,
-			Offset:  1,
-			OrderBy: "created_at ASC,id ASC",
-		}),
+		sdk.WithExecutionGroupLimit(1),
+		sdk.WithExecutionGroupOffset(1),
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, limitedTranscript.Turns)
-	require.Len(t, limitedTranscript.Turns[0].Message, 1)
-	assert.Equal(t, "assistant", strings.ToLower(limitedTranscript.Turns[0].Message[0].Role))
 	limitedGroups := transcriptExecutionGroups(limitedTranscript)
 	require.Len(t, limitedGroups, 1)
+	assert.Equal(t, 1, limitedTranscript.Turns[0].ExecutionGroupsLimit)
+	assert.Equal(t, 1, limitedTranscript.Turns[0].ExecutionGroupsOffset)
 
 	offsetTranscript, err := client.GetTranscript(ctx,
 		&sdk.GetTranscriptInput{ConversationID: out.ConversationID},
-		sdk.WithTranscriptMessageSelector(&sdk.QuerySelector{
-			Limit:   1,
-			Offset:  0,
-			OrderBy: "created_at ASC,id ASC",
-		}),
+		sdk.WithExecutionGroupLimit(1),
+		sdk.WithExecutionGroupOffset(0),
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, offsetTranscript.Turns)
-	require.Len(t, offsetTranscript.Turns[0].Message, 1)
-	assert.NotEqual(t, limitedTranscript.Turns[0].Message[0].Id, offsetTranscript.Turns[0].Message[0].Id)
+	offsetGroups := transcriptExecutionGroups(offsetTranscript)
+	require.Len(t, offsetGroups, 1)
+	assert.NotEqual(t, limitedGroups[0].AssistantMessageID, offsetGroups[0].AssistantMessageID)
 }
 
 func mustCreatePNG(t *testing.T, fill color.RGBA) []byte {

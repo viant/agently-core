@@ -2,11 +2,13 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	convstore "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 )
@@ -272,21 +274,61 @@ func TestWrapTranscriptTurns_AttachesRootParentToolMessagesByIteration(t *testin
 
 func TestBuildTranscriptSelectors(t *testing.T) {
 	selectors := buildTranscriptQuerySelectors(map[string]*QuerySelector{
-		"Transcript": {Limit: 1},
-		"Message":    {Limit: 1, Offset: 2, OrderBy: "created_at ASC,id ASC"},
-		"ToolMessage": {
+		TranscriptSelectorTurn:    {Limit: 1},
+		TranscriptSelectorMessage: {Limit: 1, Offset: 2, OrderBy: "created_at ASC,id ASC"},
+		TranscriptSelectorToolMessage: {
 			Limit:   1,
 			Offset:  1,
 			OrderBy: "created_at ASC,id ASC",
 		},
+		TranscriptSelectorExecutionPage: {Limit: 5, Offset: 7},
 	})
 	require.Len(t, selectors, 3)
-	require.Equal(t, "Transcript", selectors[0].Name)
+	require.Equal(t, TranscriptSelectorTurn, selectors[0].Name)
 	require.Equal(t, 1, selectors[0].QuerySelector.Limit)
-	require.Equal(t, "Message", selectors[1].Name)
+	require.Equal(t, TranscriptSelectorMessage, selectors[1].Name)
 	require.Equal(t, 2, selectors[1].QuerySelector.Offset)
-	require.Equal(t, "ToolMessage", selectors[2].Name)
+	require.Equal(t, TranscriptSelectorToolMessage, selectors[2].Name)
 	require.Equal(t, "created_at ASC,id ASC", selectors[2].QuerySelector.OrderBy)
+}
+
+func TestTranscriptExecutionGroupSelectorPrefersDedicatedSelector(t *testing.T) {
+	opts := &transcriptOptions{}
+	WithExecutionGroupLimit(5)(opts)
+	WithExecutionGroupOffset(2)(opts)
+	WithTranscriptMessageSelector(&QuerySelector{Limit: 99})(opts)
+
+	got := transcriptExecutionGroupSelector(opts)
+	require.NotNil(t, got)
+	require.Equal(t, 5, got.Limit)
+	require.Equal(t, 2, got.Offset)
+}
+
+func TestPlannedToolCallsFromMessage(t *testing.T) {
+	response := llm.GenerateResponse{
+		Choices: []llm.Choice{{
+			Message: llm.Message{
+				ToolCalls: []llm.ToolCall{
+					{ID: "tc1", Name: "llm/agents/run"},
+				},
+			},
+		}},
+	}
+	raw, err := json.Marshal(response)
+	require.NoError(t, err)
+	body := string(raw)
+	message := &agconv.MessageView{
+		ModelCall: &agconv.ModelCallView{
+			ModelCallResponsePayload: &agconv.ModelCallStreamPayloadView{
+				InlineBody: &body,
+			},
+		},
+	}
+
+	got := plannedToolCallsFromMessage(message)
+	require.Len(t, got, 1)
+	require.Equal(t, "tc1", got[0].ToolCallID)
+	require.Equal(t, "llm/agents/run", got[0].ToolName)
 }
 
 func strPtr(value string) *string {

@@ -11,32 +11,70 @@ import (
 type EventType string
 
 const (
-	EventTypeChunk   EventType = "chunk"
-	EventTypeTool    EventType = "tool"
-	EventTypeDone    EventType = "done"
-	EventTypeError   EventType = "error"
-	EventTypeControl EventType = "control"
+	EventTypeChunk           EventType = "chunk"
+	EventTypeTool            EventType = "tool"
+	EventTypeDone            EventType = "done"
+	EventTypeError           EventType = "error"
+	EventTypeControl         EventType = "control"
+	EventTypeTurnStarted     EventType = "turn_started"
+	EventTypeLLMRequestStart EventType = "llm_request_started"
+	EventTypeLLMResponse     EventType = "llm_response"
+	EventTypeToolCallStarted EventType = "tool_call_started"
+	EventTypeToolCallDone    EventType = "tool_call_completed"
+	EventTypeTurnCompleted   EventType = "turn_completed"
 )
+
+type EventModel struct {
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+}
+
+type PlannedToolCall struct {
+	ToolCallID string `json:"toolCallId,omitempty"`
+	ToolName   string `json:"toolName,omitempty"`
+}
 
 // Event is a transport-neutral streaming event.
 type Event struct {
-	ID        string                 `json:"id,omitempty"`
-	StreamID  string                 `json:"streamId,omitempty"`
-	Type      EventType              `json:"type"`
-	Op        string                 `json:"op,omitempty"`
-	Patch     map[string]interface{} `json:"patch,omitempty"`
-	Content   string                 `json:"content,omitempty"`
-	ToolName  string                 `json:"toolName,omitempty"`
-	Arguments map[string]interface{} `json:"arguments,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	CreatedAt time.Time              `json:"createdAt,omitempty"`
+	ID                   string                 `json:"id,omitempty"`
+	StreamID             string                 `json:"streamId,omitempty"`
+	ConversationID       string                 `json:"conversationId,omitempty"`
+	TurnID               string                 `json:"turnId,omitempty"`
+	AssistantMessageID   string                 `json:"assistantMessageId,omitempty"`
+	ParentMessageID      string                 `json:"parentMessageId,omitempty"`
+	RequestID            string                 `json:"requestId,omitempty"`
+	ResponseID           string                 `json:"responseId,omitempty"`
+	ToolCallID           string                 `json:"toolCallId,omitempty"`
+	ToolMessageID        string                 `json:"toolMessageId,omitempty"`
+	RequestPayloadID     string                 `json:"requestPayloadId,omitempty"`
+	ResponsePayloadID    string                 `json:"responsePayloadId,omitempty"`
+	LinkedConversationID string                 `json:"linkedConversationId,omitempty"`
+	Type                 EventType              `json:"type"`
+	Op                   string                 `json:"op,omitempty"`
+	Patch                map[string]interface{} `json:"patch,omitempty"`
+	Content              string                 `json:"content,omitempty"`
+	Preamble             string                 `json:"preamble,omitempty"`
+	ToolName             string                 `json:"toolName,omitempty"`
+	Arguments            map[string]interface{} `json:"arguments,omitempty"`
+	Error                string                 `json:"error,omitempty"`
+	Status               string                 `json:"status,omitempty"`
+	Iteration            int                    `json:"iteration,omitempty"`
+	PageIndex            int                    `json:"pageIndex,omitempty"`
+	PageCount            int                    `json:"pageCount,omitempty"`
+	LatestPage           bool                   `json:"latestPage,omitempty"`
+	FinalResponse        bool                   `json:"finalResponse,omitempty"`
+	Model                *EventModel            `json:"model,omitempty"`
+	ToolCallsPlanned     []PlannedToolCall      `json:"toolCallsPlanned,omitempty"`
+	CreatedAt            time.Time              `json:"createdAt,omitempty"`
 }
 
 // FromLLMEvent converts an llm stream event to a generic streaming event.
 func FromLLMEvent(streamID string, in llm.StreamEvent) *Event {
 	out := &Event{
-		StreamID:  streamID,
-		CreatedAt: time.Now(),
+		StreamID:       streamID,
+		ConversationID: streamID,
+		CreatedAt:      time.Now(),
 	}
 	if in.Err != nil {
 		out.Type = EventTypeError
