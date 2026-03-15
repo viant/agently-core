@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,7 @@ func buildExecutionGroups(turn *convstore.Turn) []*ExecutionGroup {
 	if turn == nil || len(turn.Message) == 0 {
 		return nil
 	}
+	parentToolMessages := indexToolMessagesByParentAndIteration(turn)
 	groups := make([]*ExecutionGroup, 0, len(turn.Message))
 	for _, message := range turn.Message {
 		if message == nil || message.ModelCall == nil {
@@ -72,13 +74,37 @@ func buildExecutionGroups(turn *convstore.Turn) []*ExecutionGroup {
 			Status:          strings.TrimSpace(valueOrEmpty(message.Status)),
 			ModelCall:       message.ModelCall,
 		}
-		group.ToolMessages, group.ToolCalls = collectToolChildren(message)
+		group.ToolMessages, group.ToolCalls = collectToolChildren(turn, message, parentToolMessages)
 		if group.Status == "" && group.ModelCall != nil {
 			group.Status = strings.TrimSpace(group.ModelCall.Status)
 		}
 		groups = append(groups, group)
 	}
 	return groups
+}
+
+func indexToolMessagesByParentAndIteration(turn *convstore.Turn) map[string][]*agconv.ToolMessageView {
+	if turn == nil || len(turn.Message) == 0 {
+		return nil
+	}
+	out := map[string][]*agconv.ToolMessageView{}
+	for _, message := range turn.Message {
+		if message == nil || len(message.ToolMessage) == 0 {
+			continue
+		}
+		parentID := strings.TrimSpace(message.Id)
+		if parentID == "" {
+			continue
+		}
+		for _, toolMessage := range message.ToolMessage {
+			if toolMessage == nil {
+				continue
+			}
+			key := toolMessageGroupKey(parentID, toolMessage.Iteration)
+			out[key] = append(out[key], toolMessage)
+		}
+	}
+	return out
 }
 
 func executionPreamble(message *agconv.MessageView) string {
@@ -107,16 +133,38 @@ func isFinalExecutionMessage(message *agconv.MessageView) bool {
 	return strings.TrimSpace(stringValue(message.Content)) != ""
 }
 
-func collectToolChildren(message *agconv.MessageView) ([]*agconv.ToolMessageView, []*agconv.ToolCallView) {
-	if message == nil || len(message.ToolMessage) == 0 {
+func collectToolChildren(turn *convstore.Turn, message *agconv.MessageView, indexed map[string][]*agconv.ToolMessageView) ([]*agconv.ToolMessageView, []*agconv.ToolCallView) {
+	if message == nil {
 		return nil, nil
 	}
 	toolMessages := make([]*agconv.ToolMessageView, 0, len(message.ToolMessage))
 	for _, toolMessage := range message.ToolMessage {
+		if toolMessage != nil {
+			toolMessages = append(toolMessages, toolMessage)
+		}
+	}
+	parentID := strings.TrimSpace(stringValue(message.ParentMessageId))
+	if parentID == "" {
+		parentID = strings.TrimSpace(message.Id)
+	}
+	key := toolMessageGroupKey(parentID, message.Iteration)
+	for _, toolMessage := range indexed[key] {
 		if toolMessage == nil {
 			continue
 		}
-		toolMessages = append(toolMessages, toolMessage)
+		already := false
+		for _, existing := range toolMessages {
+			if existing != nil && existing.Id == toolMessage.Id {
+				already = true
+				break
+			}
+		}
+		if !already {
+			toolMessages = append(toolMessages, toolMessage)
+		}
+	}
+	if len(toolMessages) == 0 {
+		return nil, nil
 	}
 	sort.SliceStable(toolMessages, func(i, j int) bool {
 		left, right := toolMessages[i], toolMessages[j]
@@ -139,6 +187,17 @@ func collectToolChildren(message *agconv.MessageView) ([]*agconv.ToolMessageView
 		}
 	}
 	return toolMessages, toolCalls
+}
+
+func toolMessageGroupKey(parentID string, iteration *int) string {
+	return parentID + "::" + iterationKey(iteration)
+}
+
+func iterationKey(iteration *int) string {
+	if iteration == nil {
+		return ""
+	}
+	return strconv.Itoa(*iteration)
 }
 
 func sequenceValue(message *agconv.ToolMessageView) int {

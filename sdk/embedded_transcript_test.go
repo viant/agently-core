@@ -143,7 +143,7 @@ func TestWrapTranscriptTurns_BuildsExecutionGroupsPerModelMessage(t *testing.T) 
 		},
 	}
 
-	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)})
+	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)}, nil)
 	require.Len(t, got, 1)
 	require.Len(t, got[0].ExecutionGroups, 2)
 
@@ -208,13 +208,66 @@ func TestWrapTranscriptTurns_SelectorLimitedGroupsReflectTranscriptWindow(t *tes
 		},
 	}
 
-	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)})
+	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)}, nil)
 	require.Len(t, got, 1)
 	require.Len(t, got[0].ExecutionGroups, 2)
 	require.Equal(t, "m1", got[0].ExecutionGroups[0].ParentMessageID)
 	require.Len(t, got[0].ExecutionGroups[0].ToolCalls, 1)
 	require.Equal(t, "resources-grepFiles", got[0].ExecutionGroups[0].ToolCalls[0].ToolName)
 	require.True(t, got[0].ExecutionGroups[1].FinalResponse)
+}
+
+func TestWrapTranscriptTurns_AttachesRootParentToolMessagesByIteration(t *testing.T) {
+	iteration1 := 1
+	modelStatus := "running"
+	toolStatus := "completed"
+	rootID := "root-1"
+	preamble := "Using resources-list."
+
+	root := &agconv.MessageView{
+		Id:   rootID,
+		Role: "user",
+		ToolMessage: []*agconv.ToolMessageView{
+			{
+				Id:              "tm1",
+				ParentMessageId: strPtr(rootID),
+				Sequence:        intPtr(2),
+				Iteration:       &iteration1,
+				ToolName:        strPtr("resources/list"),
+				ToolCall: &agconv.ToolCallView{
+					MessageId: "tm1",
+					ToolName:  "resources/list",
+					Status:    toolStatus,
+				},
+			},
+		},
+	}
+	model := &agconv.MessageView{
+		Id:              "m1",
+		Role:            "assistant",
+		Interim:         1,
+		Content:         &preamble,
+		Iteration:       &iteration1,
+		ParentMessageId: strPtr(rootID),
+		ModelCall: &agconv.ModelCallView{
+			MessageId: "m1",
+			Status:    modelStatus,
+		},
+	}
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Message:        []*agconv.MessageView{root, model},
+	}
+
+	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)}, nil)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].ExecutionGroups, 1)
+	require.Equal(t, "m1", got[0].ExecutionGroups[0].ModelMessageID)
+	require.Equal(t, preamble, got[0].ExecutionGroups[0].Preamble)
+	require.Len(t, got[0].ExecutionGroups[0].ToolMessages, 1)
+	require.Len(t, got[0].ExecutionGroups[0].ToolCalls, 1)
+	require.Equal(t, "resources/list", got[0].ExecutionGroups[0].ToolCalls[0].ToolName)
 }
 
 func TestBuildTranscriptSelectors(t *testing.T) {
