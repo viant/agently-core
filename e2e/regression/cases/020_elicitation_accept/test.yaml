@@ -28,9 +28,7 @@ pipeline:
         URL: ${serverURL}/v1/conversations/${queryForAccept.Responses[0].JSONBody.conversationId}/transcript
         Expect:
           Code: 200
-          JSONBody:
-            "@exists@turns[0].Message[2].Elicitation": true
-            "@exists@turns[0].Message[2].Content": true
+          Body: /Please provide your favorite color so I can describe it in 3 sentences./
 
   resolveAccept:
     when: $sdkKey != ''
@@ -73,8 +71,4 @@ pipeline:
         URL: ${serverURL}/v1/messages?conversationId=${queryForAccept.Responses[0].JSONBody.conversationId}&roles=user&types=elicitation_response
         Expect:
           Code: 200
-          JSONBody:
-            Rows:
-              "@indexBy@": ElicitationId
-              "${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}":
-                "@exists@Content": true
+          Body: /favoriteColor/

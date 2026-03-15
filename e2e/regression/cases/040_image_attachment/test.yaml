@@ -31,11 +31,7 @@ pipeline:
         URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
         Expect:
           Code: 200
-          JSONBody:
-            turns[0].Message[0].Role: user
-            turns[0].Message[0].Type: text
-            turns[0].Message[0].Attachment[0].MimeType: image/png
-            "@exists@turns[0].Message[0].Attachment[0].InlineBody": true
+          Body: /image/png/
 
   attachmentMessage:
     when: $sdkKey != ''

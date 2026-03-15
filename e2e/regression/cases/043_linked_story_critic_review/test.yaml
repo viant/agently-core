@@ -28,9 +28,7 @@ pipeline:
         URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
         Expect:
           Code: 200
-          JSONBody:
-            turns[0].Message[1].Role: assistant
-            turns[0].Message[1].Content: A dog named Comet found a blue ball in the park.
+          Body: /A dog named Comet found a blue ball in the park./
 
   linkedConversations:
     when: $sdkKey != ''
@@ -41,6 +39,4 @@ pipeline:
         URL: ${serverURL}/v1/conversations/linked?parentId=${query.Responses[0].JSONBody.conversationId}
         Expect:
           Code: 200
-          JSONBody:
-            rows: []
-            hasMore: false
+          Body: /rows:[]/

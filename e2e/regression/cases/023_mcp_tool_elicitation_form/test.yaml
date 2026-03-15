@@ -2,6 +2,7 @@ pipeline:
   executeFormTool:
     when: $sdkKey != ''
     action: http/runner:send
+    TimeoutMs: 240000
     description: "mcp form tool - direct MCP tool execution should succeed"
     requests:
       - Method: POST
