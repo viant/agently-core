@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/shared"
 )
 
@@ -18,11 +20,39 @@ import (
 // linkage so both internal and external agent runs can rely on consistent
 // behavior.
 type Service struct {
-	conv apiconv.Client
+	conv      apiconv.Client
+	streamPub streaming.Publisher
 }
 
 // New returns a new linking Service.
 func New(c apiconv.Client) *Service { return &Service{conv: c} }
+
+// SetStreamPublisher wires a streaming publisher so the service can emit
+// canonical linked-conversation events to the SSE bus.
+func (s *Service) SetStreamPublisher(p streaming.Publisher) {
+	if s == nil {
+		return
+	}
+	s.streamPub = p
+}
+
+func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent memory.TurnMeta, childConversationID, toolCallID string) {
+	if s == nil || s.streamPub == nil {
+		return
+	}
+	event := &streaming.Event{
+		StreamID:             strings.TrimSpace(parent.ConversationID),
+		ConversationID:       strings.TrimSpace(parent.ConversationID),
+		TurnID:               strings.TrimSpace(parent.TurnID),
+		Type:                 streaming.EventTypeLinkedConversationAttached,
+		LinkedConversationID: strings.TrimSpace(childConversationID),
+		ToolCallID:           strings.TrimSpace(toolCallID),
+		CreatedAt:            time.Now(),
+	}
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		warnf("linked_conversation_attached publish error parent_convo=%q child_convo=%q err=%v", parent.ConversationID, childConversationID, err)
+	}
+}
 
 // CreateLinkedConversation creates a new conversation linked to the provided
 // parent turn (by conversation/turn id). When cloneTranscript is true and a
@@ -89,6 +119,7 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, ch
 		return fmt.Errorf("linking: add link message failed: %w", err)
 	}
 	debugf("AddLinkMessage ok parent_convo=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(childConversationID))
+	s.emitLinkedConversationAttached(ctx, parent, childConversationID, "")
 	return nil
 }
 

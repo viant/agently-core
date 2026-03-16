@@ -17,12 +17,12 @@ describe('applyEvent', () => {
         const buf = newMessageBuffer();
 
         const r1 = applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'chunk', content: 'Hello ',
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'Hello ',
         } as SSEEvent);
         expect(r1).toEqual({ id: 'msg_1', content: 'Hello ', final: false });
 
         const r2 = applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'chunk', content: 'world',
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'world',
         } as SSEEvent);
         expect(r2).toEqual({ id: 'msg_1', content: 'Hello world', final: false });
     });
@@ -30,7 +30,7 @@ describe('applyEvent', () => {
     it('sets activeTurnId on chunk', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'chunk', content: 'hi',
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'hi',
         } as SSEEvent);
         expect(buf.activeTurnId).toBe('conv_1');
     });
@@ -38,11 +38,11 @@ describe('applyEvent', () => {
     it('marks done as final', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'chunk', content: 'text',
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'text',
         } as SSEEvent);
 
         const r = applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'done',
+            id: 'msg_1', streamId: 'conv_1', type: 'turn_completed',
         } as SSEEvent);
 
         expect(r).toEqual({ id: 'msg_1', content: 'text', final: true });
@@ -52,7 +52,7 @@ describe('applyEvent', () => {
     it('clears activeTurnId on error', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'chunk', content: 'hi',
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'hi',
         } as SSEEvent);
 
         applyEvent(buf, {
@@ -65,15 +65,70 @@ describe('applyEvent', () => {
     it('returns null for tool events', () => {
         const buf = newMessageBuffer();
         const r = applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'tool', toolName: 'exec',
+            id: 'msg_1', streamId: 'conv_1', type: 'tool_call_completed', toolName: 'exec',
         } as SSEEvent);
         expect(r).toBeNull();
     });
 
     it('returns null for events without id', () => {
         const buf = newMessageBuffer();
-        const r = applyEvent(buf, { type: 'chunk', content: 'hi' } as SSEEvent);
+        const r = applyEvent(buf, { type: 'text_delta', content: 'hi' } as SSEEvent);
         expect(r).toBeNull();
+    });
+
+    it('accumulates text_delta content', () => {
+        const buf = newMessageBuffer();
+        const r1 = applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'Hello ',
+        } as SSEEvent);
+        expect(r1).toEqual({ id: 'msg_1', content: 'Hello ', final: false });
+        const r2 = applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'world',
+        } as SSEEvent);
+        expect(r2).toEqual({ id: 'msg_1', content: 'Hello world', final: false });
+    });
+
+    it('accumulates reasoning_delta into preamble', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'reasoning_delta', content: 'Thinking...',
+        } as SSEEvent);
+        expect(buf.byId.get('msg_1')?.preamble).toBe('Thinking...');
+    });
+
+    it('marks turn_completed as final', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'done',
+        } as SSEEvent);
+        const r = applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'turn_completed',
+        } as SSEEvent);
+        expect(r).toEqual({ id: 'msg_1', content: 'done', final: true });
+    });
+
+    it('marks turn_failed with failed status', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'partial',
+        } as SSEEvent);
+        applyEvent(buf, {
+            id: 'msg_1', streamId: 'conv_1', type: 'turn_failed',
+        } as SSEEvent);
+        expect(buf.byId.get('msg_1')?.status).toBe('failed');
+    });
+
+    it('returns null for usage and item_completed', () => {
+        const buf = newMessageBuffer();
+        expect(applyEvent(buf, { id: 'msg_1', type: 'usage' } as SSEEvent)).toBeNull();
+        expect(applyEvent(buf, { id: 'msg_1', type: 'item_completed' } as SSEEvent)).toBeNull();
+    });
+
+    it('returns null for tool_call lifecycle events', () => {
+        const buf = newMessageBuffer();
+        expect(applyEvent(buf, { id: 'msg_1', streamId: 'c1', type: 'tool_call_started', toolName: 'exec' } as SSEEvent)).toBeNull();
+        expect(applyEvent(buf, { id: 'msg_1', streamId: 'c1', type: 'tool_call_delta', toolName: 'exec' } as SSEEvent)).toBeNull();
+        expect(applyEvent(buf, { id: 'msg_1', streamId: 'c1', type: 'tool_call_completed', toolName: 'exec' } as SSEEvent)).toBeNull();
     });
 });
 

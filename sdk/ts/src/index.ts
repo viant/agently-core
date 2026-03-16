@@ -22,6 +22,8 @@ export type {
     ListConversationsInput, UpdateConversationInput,
     // Turn / Transcript
     Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
+    // Execution pages (canonical)
+    ExecutionPage, ModelStepState, ToolStepState,
     // Message
     Message, MessagePage, GetMessagesInput,
     ToolMessageView, ToolCallView, ModelCallView,

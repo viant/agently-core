@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/runtime/streaming"
 	stream "github.com/viant/agently-core/service/core/stream"
 )
 
@@ -33,10 +34,10 @@ func TestService_Stream_RetriesOnTransientStreamEventError(t *testing.T) {
 
 	assert.Equal(t, 2, model.calls, "expected one retry after transient stream event error")
 	require.NotEmpty(t, out.Events)
-	assert.Equal(t, "chunk", out.Events[0].Type)
+	assert.Equal(t, streaming.EventTypeTextDelta, out.Events[0].Type)
 	assert.Equal(t, "ok", out.Events[0].Content)
 	for _, ev := range out.Events {
-		assert.NotEqual(t, "error", ev.Type, "retry should clear transient attempt error output")
+		assert.NotEqual(t, streaming.EventTypeError, ev.Type, "retry should clear transient attempt error output")
 	}
 }
 
@@ -141,13 +142,13 @@ func TestService_Stream_DoesNotRetryWhenConsumeProducedMeaningfulEvents(t *testi
 	assert.Contains(t, err.Error(), "failed to handle Stream event")
 	assert.Equal(t, 1, model.calls, "must not retry after meaningful output in failed attempt")
 	require.NotEmpty(t, out.Events)
-	assert.Equal(t, "chunk", out.Events[0].Type)
+	assert.Equal(t, streaming.EventTypeTextDelta, out.Events[0].Type)
 	assert.Equal(t, "partial", out.Events[0].Content)
 }
 
 func TestService_Stream_RejectsNonEmptyOutputEvents(t *testing.T) {
 	svc := &Service{llmFinder: &fixedFinder{model: &scriptedStreamModel{}}}
-	out := &StreamOutput{Events: []stream.Event{{Type: "error", Content: "old"}}}
+	out := &StreamOutput{Events: []streaming.Event{{Type: streaming.EventTypeError, Error: "old"}}}
 
 	_, err := svc.Stream(context.Background(), newStreamInput("stream-id"), out)
 	require.Error(t, err)
@@ -157,8 +158,8 @@ func TestService_Stream_RejectsNonEmptyOutputEvents(t *testing.T) {
 func TestCanRetryStreamConsume(t *testing.T) {
 	err500 := fmt.Errorf("OpenAI API error (status 500): server error")
 	assert.True(t, canRetryStreamConsume(err500, &StreamOutput{}))
-	assert.True(t, canRetryStreamConsume(err500, &StreamOutput{Events: []stream.Event{{Type: "error", Content: "boom"}}}))
-	assert.False(t, canRetryStreamConsume(err500, &StreamOutput{Events: []stream.Event{{Type: "chunk", Content: "partial"}}}))
+	assert.True(t, canRetryStreamConsume(err500, &StreamOutput{Events: []streaming.Event{{Type: streaming.EventTypeError, Error: "boom"}}}))
+	assert.False(t, canRetryStreamConsume(err500, &StreamOutput{Events: []streaming.Event{{Type: streaming.EventTypeTextDelta, Content: "partial"}}}))
 }
 
 func TestIsTransientNetworkError_Status500And503(t *testing.T) {

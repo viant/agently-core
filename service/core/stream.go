@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	stream "github.com/viant/agently-core/service/core/stream"
 )
@@ -22,8 +23,8 @@ type StreamInput struct {
 
 // StreamOutput aggregates streaming events into a slice.
 type StreamOutput struct {
-	Events    []stream.Event `json:"events"`
-	MessageID string         `json:"messageId,omitempty"`
+	Events    []streaming.Event `json:"events"`
+	MessageID string            `json:"messageId,omitempty"`
 }
 
 func nop() {}
@@ -90,13 +91,43 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		})
 	}()
 
+	// Try anchor continuation when history provides a valid last response.
+	// BuildContinuationRequest already skips multi-tool anchors. For streaming,
+	// we apply an additional guard: only use continuation when there are NO
+	// tool-call messages in the request (single-tool anchors where all outputs
+	// are materialized). This avoids "No tool output found" provider errors
+	// when tool results haven't been fully persisted to the anchor.
 	var continuationRequest *llm.GenerateRequest
-	// Streaming continuation by previous_response_id is currently too fragile
-	// for multi-tool turns: provider-side 400s occur when a continuation is sent
-	// before every function-call output is safely reflected in history.
-	// Prefer the full transcript path for streaming until anchor continuation is
-	// made iteration-safe.
-	_ = continuationRequest
+	if input.Binding != nil {
+		candidate := s.BuildContinuationRequest(ctx, req, &input.Binding.History)
+		if candidate != nil {
+			hasToolResults := false
+			for _, m := range candidate.Messages {
+				if m.ToolCallId != "" {
+					hasToolResults = true
+					break
+				}
+			}
+			// Only use continuation when tool results are present (all outputs
+			// materialized) or when there are no tool calls at all (pure text
+			// continuation). Skip if continuation has tool-call assistant messages
+			// but no matching tool results — that's the fragile case.
+			hasToolCalls := false
+			for _, m := range candidate.Messages {
+				if len(m.ToolCalls) > 0 {
+					hasToolCalls = true
+					break
+				}
+			}
+			if !hasToolCalls || hasToolResults {
+				continuationRequest = candidate
+			} else if debugtrace.Enabled() {
+				debugtrace.Write("core", "stream_continuation_skipped", map[string]any{
+					"reason": "tool_calls_without_results_in_streaming",
+				})
+			}
+		}
+	}
 	if debugtrace.Enabled() {
 		activeReq := req
 		mode := "full"
@@ -176,9 +207,8 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 
 	var b strings.Builder
-	// keep for completeness
 	for _, ev := range output.Events {
-		if ev.Type == "chunk" && strings.TrimSpace(ev.Content) != "" {
+		if ev.Type == streaming.EventTypeTextDelta && strings.TrimSpace(ev.Content) != "" {
 			b.WriteString(ev.Content)
 		}
 	}
@@ -247,19 +277,17 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 			continue
 		}
 
-		// Stop on done or error
+		// Stop on terminal events.
 		if len(output.Events) > 0 {
 			last := output.Events[len(output.Events)-1]
-			// For tool-calls, finish_reason == "tool_calls" indicates that the
-			// model is requesting tools, not that the overall stream is done.
-			// In that case we must continue consuming subsequent events so that
-			// additional tool_call items (and the final assistant message) are
-			// observed and executed.
-			if last.Type == "done" {
-				if strings.TrimSpace(last.FinishReason) != "tool_calls" {
+			switch last.Type {
+			case streaming.EventTypeTurnCompleted:
+				// finish_reason == "tool_calls" means model is requesting tools,
+				// not that the stream is done. Continue consuming.
+				if strings.TrimSpace(last.Status) != "tool_calls" {
 					ignore = true
 				}
-			} else if last.Type == "error" {
+			case streaming.EventTypeError:
 				ignore = true
 			}
 		}
@@ -268,37 +296,86 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 	return resErr
 }
 
-// appendStreamEvent converts provider event to public stream.Event(s).
+// appendStreamEvent converts provider event to canonical streaming.Event(s).
+// When the event carries typed Kind fields, those take precedence.
 func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput) error {
+	now := time.Now()
 	if event.Err != nil {
-		output.Events = append(output.Events, stream.Event{Type: "error", Content: event.Err.Error()})
+		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeError, Error: event.Err.Error(), CreatedAt: now})
 		if isContextLimitError(event.Err) {
 			return fmt.Errorf("%w: %v", ErrContextLimitExceeded, event.Err)
 		}
 		return event.Err
 	}
+
+	// Typed delta path — map each provider Kind to a distinct domain event type.
+	// All events are preserved in StreamOutput (no dropping).
+	if event.Kind != "" {
+		ev := streaming.Event{
+			ID:         event.ItemID,
+			ResponseID: event.ResponseID,
+			ToolCallID: event.ToolCallID,
+			CreatedAt:  now,
+		}
+		switch event.Kind {
+		case llm.StreamEventTextDelta:
+			ev.Type = streaming.EventTypeTextDelta
+			ev.Content = event.Delta
+		case llm.StreamEventReasoningDelta:
+			ev.Type = streaming.EventTypeReasoningDelta
+			ev.Content = event.Delta
+		case llm.StreamEventToolCallStarted:
+			ev.Type = streaming.EventTypeToolCallStarted
+			ev.ToolName = event.ToolName
+		case llm.StreamEventToolCallDelta:
+			ev.Type = streaming.EventTypeToolCallDelta
+			ev.ToolName = event.ToolName
+			ev.Content = event.Delta
+		case llm.StreamEventToolCallCompleted:
+			ev.Type = streaming.EventTypeToolCallCompleted
+			ev.ToolName = event.ToolName
+			ev.Arguments = event.Arguments
+		case llm.StreamEventUsage:
+			ev.Type = streaming.EventTypeUsage
+		case llm.StreamEventItemCompleted:
+			ev.Type = streaming.EventTypeItemCompleted
+		case llm.StreamEventTurnCompleted:
+			ev.Type = streaming.EventTypeTurnCompleted
+			ev.Status = event.FinishReason
+		case llm.StreamEventError:
+			ev.Type = streaming.EventTypeError
+			ev.Error = event.Delta
+		default:
+			return nil
+		}
+		output.Events = append(output.Events, ev)
+		return nil
+	}
+
+	// Legacy Response path — map to canonical types.
 	resp := event.Response
 	if resp == nil || len(resp.Choices) == 0 {
 		return nil
 	}
 	choice := resp.Choices[0]
-	// Tool calls
+	// Tool calls → tool_call_completed
 	if len(choice.Message.ToolCalls) > 0 {
 		output.Events = append(output.Events, s.toolCallEvents(resp.ResponseID, &choice)...)
 	}
-	// Text chunk
+	// Text → text_delta
 	if content := strings.TrimSpace(choice.Message.Content); content != "" {
-		output.Events = append(output.Events, stream.Event{Type: "chunk", Content: content})
+		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeTextDelta, Content: content, CreatedAt: now})
 	}
-	// Done
+	// Finish → turn_completed
 	if choice.FinishReason != "" {
-		output.Events = append(output.Events, stream.Event{Type: "done", FinishReason: choice.FinishReason})
+		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeTurnCompleted, Status: choice.FinishReason, CreatedAt: now})
 	}
 	return nil
 }
 
-func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []stream.Event {
-	out := make([]stream.Event, 0, len(choice.Message.ToolCalls))
+func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []streaming.Event {
+	out := make([]streaming.Event, 0, len(choice.Message.ToolCalls))
+	now := time.Now()
 	for _, tc := range choice.Message.ToolCalls {
 		name := tc.Name
 		args := tc.Arguments
@@ -311,7 +388,14 @@ func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []stream
 				args = parsed
 			}
 		}
-		out = append(out, stream.Event{ID: tc.ID, Type: "function_call", Name: name, Arguments: args, ResponseID: strings.TrimSpace(responseID)})
+		out = append(out, streaming.Event{
+			ID:         tc.ID,
+			Type:       streaming.EventTypeToolCallCompleted,
+			ToolName:   name,
+			Arguments:  args,
+			ResponseID: strings.TrimSpace(responseID),
+			CreatedAt:  now,
+		})
 	}
 	return out
 }
@@ -348,7 +432,11 @@ func canRetryStreamConsume(err error, output *StreamOutput) bool {
 		return true
 	}
 	for _, ev := range output.Events {
-		if strings.TrimSpace(ev.Type) != "" && ev.Type != "error" {
+		switch ev.Type {
+		case streaming.EventTypeError, "":
+			// Error-only or empty events are safe to retry
+		default:
+			// Any content-bearing event means we've produced meaningful output
 			return false
 		}
 	}

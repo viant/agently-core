@@ -52,6 +52,7 @@ type RunInput struct {
 type RunOutput struct {
 	Answer          string   `json:"answer"`
 	Status          string   `json:"status,omitempty"`
+	Error           string   `json:"error,omitempty"`
 	ConversationID  string   `json:"conversationId,omitempty"`
 	MessageID       string   `json:"messageId,omitempty"`
 	TaskID          string   `json:"taskId,omitempty"`

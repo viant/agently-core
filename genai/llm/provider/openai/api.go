@@ -130,12 +130,37 @@ func endObserverErrorOnce(observer mcbuf.Observer, ctx context.Context, model st
 	return nil
 }
 
-// emitResponse wraps publishing a response event.
+// emitResponse wraps publishing a response event with typed delta fields.
 func emitResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
 	if out == nil || lr == nil {
 		return
 	}
-	out <- llm.StreamEvent{Response: lr}
+	ev := llm.StreamEvent{Response: lr, ResponseID: lr.ResponseID}
+	if len(lr.Choices) > 0 {
+		choice := lr.Choices[0]
+		if len(choice.Message.ToolCalls) > 0 {
+			tc := choice.Message.ToolCalls[0]
+			ev.Kind = llm.StreamEventToolCallCompleted
+			ev.ToolCallID = tc.ID
+			ev.ItemID = tc.ID
+			ev.ToolName = tc.Name
+			ev.Arguments = tc.Arguments
+			ev.FinishReason = choice.FinishReason
+		} else if content := strings.TrimSpace(choice.Message.Content); content != "" && choice.FinishReason == "" {
+			ev.Kind = llm.StreamEventTextDelta
+			ev.Delta = content
+		} else if choice.FinishReason != "" {
+			ev.Kind = llm.StreamEventTurnCompleted
+			ev.FinishReason = choice.FinishReason
+			if content != "" {
+				ev.Delta = content
+			}
+		}
+		if lr.Usage != nil {
+			ev.Usage = lr.Usage
+		}
+	}
+	out <- ev
 }
 
 func (c *Client) Implements(feature string) bool {

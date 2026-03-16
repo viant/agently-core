@@ -191,7 +191,7 @@ func TestHTTPClient_GetTranscript_QueryParamsAndSelectors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
-		_ = json.NewEncoder(w).Encode(&TranscriptOutput{})
+		_ = json.NewEncoder(w).Encode(&ConversationState{})
 	}))
 	defer srv.Close()
 
@@ -361,10 +361,10 @@ type spyTranscriptClient struct {
 	gotOptions []TranscriptOption
 }
 
-func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error) {
+func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error) {
 	s.gotInput = input
 	s.gotOptions = options
-	return &TranscriptOutput{}, nil
+	return &ConversationState{}, nil
 }
 
 func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {

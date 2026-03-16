@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	elact "github.com/viant/agently-core/service/elicitation/action"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	"github.com/viant/mcp-protocol/schema"
@@ -28,6 +30,7 @@ type Service struct {
 	refiner        Refiner
 	router         elicrouter.ElicitationRouter
 	awaiterFactory func() Awaiter
+	streamPub      streaming.Publisher
 }
 
 // New constructs the elicitation service with all collaborators.
@@ -38,6 +41,67 @@ func New(client apiconv.Client, refiner Refiner, router elicrouter.ElicitationRo
 		refiner = DefaultRefiner{}
 	}
 	return &Service{client: client, refiner: refiner, router: router, awaiterFactory: awaiterFactory}
+}
+
+// SetStreamPublisher wires a streaming publisher so the service can emit
+// canonical elicitation events to the SSE bus.
+func (s *Service) SetStreamPublisher(p streaming.Publisher) {
+	if s == nil {
+		return
+	}
+	s.streamPub = p
+}
+
+func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.TurnMeta, elic *plan.Elicitation, messageID string) {
+	if s == nil || s.streamPub == nil || turn == nil || elic == nil {
+		return
+	}
+	elicData := map[string]interface{}{}
+	if raw, err := json.Marshal(elic.RequestedSchema); err == nil {
+		_ = json.Unmarshal(raw, &elicData)
+	}
+	now := time.Now()
+	event := &streaming.Event{
+		ID:                 strings.TrimSpace(messageID),
+		StreamID:           strings.TrimSpace(turn.ConversationID),
+		ConversationID:     strings.TrimSpace(turn.ConversationID),
+		TurnID:             strings.TrimSpace(turn.TurnID),
+		AssistantMessageID: strings.TrimSpace(messageID),
+		Type:               streaming.EventTypeElicitationRequested,
+		ElicitationID:      strings.TrimSpace(elic.ElicitationId),
+		Content:            strings.TrimSpace(elic.Message),
+		ElicitationData:    elicData,
+		CallbackURL:        strings.TrimSpace(elic.CallbackURL),
+		Status:             "pending",
+		CreatedAt:          now,
+	}
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		warnf("elicitation_requested publish error convo=%q elicitation_id=%q err=%v", turn.ConversationID, elic.ElicitationId, err)
+	}
+}
+
+func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitationID, status string, payload map[string]interface{}) {
+	if s == nil || s.streamPub == nil {
+		return
+	}
+	now := time.Now()
+	event := &streaming.Event{
+		StreamID:        strings.TrimSpace(convID),
+		ConversationID:  strings.TrimSpace(convID),
+		Type:            streaming.EventTypeElicitationResolved,
+		ElicitationID:   strings.TrimSpace(elicitationID),
+		Status:          strings.TrimSpace(status),
+		ResponsePayload: payload,
+		CreatedAt:       now,
+		CompletedAt:     &now,
+	}
+	// Try to get turn ID from context
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		event.TurnID = strings.TrimSpace(turn.TurnID)
+	}
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		warnf("elicitation_resolved publish error convo=%q elicitation_id=%q err=%v", convID, elicitationID, err)
+	}
 }
 
 func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedSchema) {
@@ -89,6 +153,7 @@ func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string
 		return nil, err
 	}
 	debugf("elicitation record ok convo=%q elicitation_id=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(msg.Id))
+	s.emitElicitationRequested(ctx, turn, elic, msg.Id)
 	return msg, nil
 }
 
@@ -407,6 +472,7 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 			return err
 		}
 	}
+	s.emitElicitationResolved(ctx, convID, elicitationID, elact.ToStatus(act), payload)
 	out := &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
 	s.router.AcceptByElicitation(convID, elicitationID, out)
 	return nil

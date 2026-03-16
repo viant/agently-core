@@ -14,7 +14,7 @@ func TestMemoryBus_PublishSubscribe(t *testing.T) {
 	}
 	defer sub.Close()
 
-	ev := &Event{Type: EventTypeChunk, Content: "hello"}
+	ev := &Event{Type: EventTypeTextDelta, Content: "hello"}
 	if err := bus.Publish(context.Background(), ev); err != nil {
 		t.Fatalf("publish: %v", err)
 	}

@@ -201,8 +201,14 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 						p.fcPending = map[string]*pendingFuncCall{}
 					}
 					p.fcPending[e.Item.ID] = &pendingFuncCall{ItemID: e.Item.ID, CallID: e.Item.CallID, Name: e.Item.Name}
-					// Keep TurnTrace via lastResponseID; do not maintain separate in-memory anchors.
-
+					// Emit typed tool_call_started event with stable IDs.
+					p.events <- llm.StreamEvent{
+						Kind:       llm.StreamEventToolCallStarted,
+						ResponseID: p.state.lastResponseID,
+						ItemID:     e.Item.ID,
+						ToolCallID: e.Item.CallID,
+						ToolName:   e.Item.Name,
+					}
 				}
 			}
 			return true
@@ -217,6 +223,15 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				if p.fcPending != nil {
 					if fc := p.fcPending[e.ItemID]; fc != nil {
 						fc.ArgsBuf.WriteString(e.Delta)
+						// Emit typed tool_call_delta with stable IDs.
+						p.events <- llm.StreamEvent{
+							Kind:       llm.StreamEventToolCallDelta,
+							ResponseID: p.state.lastResponseID,
+							ItemID:     e.ItemID,
+							ToolCallID: fc.CallID,
+							ToolName:   fc.Name,
+							Delta:      e.Delta,
+						}
 					}
 				}
 			}
@@ -271,7 +286,9 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			return true
 		case "response.output_text.delta":
 			var d struct {
-				Delta string `json:"delta"`
+				Delta       string `json:"delta"`
+				ItemID      string `json:"item_id"`
+				OutputIndex int    `json:"output_index"`
 			}
 			if err := json.Unmarshal([]byte(data), &d); err == nil && d.Delta != "" {
 				if p.observer != nil {
@@ -279,6 +296,14 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 						p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
 						return false
 					}
+				}
+				// Emit typed text delta with stable IDs.
+				p.events <- llm.StreamEvent{
+					Kind:       llm.StreamEventTextDelta,
+					ResponseID: p.state.lastResponseID,
+					ItemID:     strings.TrimSpace(d.ItemID),
+					Delta:      d.Delta,
+					Role:       llm.RoleAssistant,
 				}
 				// aggregate content on choice 0
 				ch := StreamChoice{Index: 0, Delta: DeltaMessage{Content: &d.Delta}}
@@ -398,10 +423,19 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			p.agg.updateDelta(ch)
 			// Emit text stream delta to observer when content arrives
 			if ch.Delta.Content != nil {
-				if txt := strings.TrimSpace(*ch.Delta.Content); txt != "" && p.observer != nil {
-					if err := p.observer.OnStreamDelta(p.ctx, []byte(txt)); err != nil {
-						p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
-						return false
+				if txt := strings.TrimSpace(*ch.Delta.Content); txt != "" {
+					if p.observer != nil {
+						if err := p.observer.OnStreamDelta(p.ctx, []byte(txt)); err != nil {
+							p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+							return false
+						}
+					}
+					// Emit typed text delta for chat/completions path.
+					p.events <- llm.StreamEvent{
+						Kind:       llm.StreamEventTextDelta,
+						ResponseID: p.state.lastResponseID,
+						Delta:      txt,
+						Role:       llm.RoleAssistant,
 					}
 				}
 			}

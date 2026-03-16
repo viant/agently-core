@@ -126,12 +126,12 @@ func decodePayloadInlineBody(inline string, compression string) string {
 	if strings.EqualFold(strings.TrimSpace(compression), "gzip") || looksLikeGzip(inline) {
 		reader, err := gzip.NewReader(bytes.NewReader([]byte(inline)))
 		if err != nil {
-			return strings.TrimSpace(inline)
+			return ""
 		}
 		defer reader.Close()
 		inflated, err := io.ReadAll(reader)
 		if err != nil {
-			return strings.TrimSpace(inline)
+			return ""
 		}
 		decoded := strings.TrimSpace(string(inflated))
 		if nested := decodeWrappedPayloadInlineBody(decoded); nested != "" {
@@ -140,7 +140,7 @@ func decodePayloadInlineBody(inline string, compression string) string {
 		if decoded != "" {
 			return decoded
 		}
-		return strings.TrimSpace(inline)
+		return ""
 	}
 	return strings.TrimSpace(inline)
 }
@@ -153,6 +153,9 @@ type payloadWrapper struct {
 func decodeWrappedPayloadInlineBody(inline string) string {
 	var wrapper payloadWrapper
 	if err := json.Unmarshal([]byte(inline), &wrapper); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(wrapper.InlineBody) == "" && strings.TrimSpace(wrapper.Compression) == "" {
 		return ""
 	}
 	if strings.TrimSpace(wrapper.InlineBody) == "" {

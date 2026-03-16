@@ -548,9 +548,7 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 		CreatedAt:      patchEventCreatedAt(message),
 	}
 	s.emitTimelineEvent(ctx, event, "PatchMessage publish event")
-	if explicit := llmResponseEventFromMessage(message, conversationID); explicit != nil {
-		s.emitTimelineEvent(ctx, explicit, "PatchMessage publish llm_response")
-	}
+	s.emitCanonicalAssistantEvents(ctx, message, conversationID)
 }
 
 func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{} {
@@ -696,102 +694,6 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	}
 }
 
-func llmResponseEventFromMessage(message *convcli.MutableMessage, conversationID string) *streaming.Event {
-	if message == nil {
-		return nil
-	}
-	role := strings.ToLower(strings.TrimSpace(message.Role))
-	if role != "assistant" {
-		return nil
-	}
-	content := ""
-	if message.Has != nil && message.Has.Content && message.Content != nil {
-		content = *message.Content
-	}
-	preamble := ""
-	if message.Has != nil && message.Has.Preamble && message.Preamble != nil {
-		preamble = strings.TrimSpace(*message.Preamble)
-	}
-	status := strings.TrimSpace(valueOrEmptyStr(message.Status))
-	linkedConversationID := ""
-	if message.Has != nil && message.Has.LinkedConversationID && message.LinkedConversationID != nil {
-		linkedConversationID = strings.TrimSpace(*message.LinkedConversationID)
-	}
-	if strings.TrimSpace(content) == "" && preamble == "" && status == "" && linkedConversationID == "" {
-		return nil
-	}
-	event := &streaming.Event{
-		ID:                   strings.TrimSpace(message.Id),
-		StreamID:             conversationID,
-		ConversationID:       conversationID,
-		Type:                 streaming.EventTypeLLMResponse,
-		AssistantMessageID:   strings.TrimSpace(message.Id),
-		Content:              content,
-		Preamble:             preamble,
-		Status:               status,
-		LinkedConversationID: linkedConversationID,
-		CreatedAt:            patchEventCreatedAt(message),
-	}
-	if message.Has != nil {
-		if message.Has.ParentMessageID && message.ParentMessageID != nil {
-			event.ParentMessageID = strings.TrimSpace(*message.ParentMessageID)
-		}
-		if message.Has.TurnID && message.TurnID != nil {
-			event.TurnID = strings.TrimSpace(*message.TurnID)
-		}
-		if message.Has.Interim && message.Interim != nil {
-			event.FinalResponse = *message.Interim == 0 && strings.TrimSpace(content) != ""
-		}
-		applyIterationPage(event, message.Iteration)
-	}
-	return event
-}
-
-func llmRequestStartedEvent(ctx context.Context, modelCall *convcli.MutableModelCall) *streaming.Event {
-	if modelCall == nil {
-		return nil
-	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
-	conversationID := strings.TrimSpace(turn.ConversationID)
-	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
-	}
-	if conversationID == "" {
-		return nil
-	}
-	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
-	if status == "" {
-		status = "thinking"
-	}
-	if status != "thinking" && status != "streaming" && status != "running" && !(modelCall.Has != nil && (modelCall.Has.RequestPayloadID || modelCall.Has.StartedAt)) {
-		return nil
-	}
-	event := &streaming.Event{
-		ID:                 strings.TrimSpace(modelCall.MessageID),
-		StreamID:           conversationID,
-		ConversationID:     conversationID,
-		Type:               streaming.EventTypeLLMRequestStart,
-		TurnID:             strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)),
-		AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
-		ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-		RequestID:          strings.TrimSpace(valueOrEmptyStr(modelCall.RequestPayloadID)),
-		RequestPayloadID:   strings.TrimSpace(valueOrEmptyStr(modelCall.RequestPayloadID)),
-		ResponseID:         strings.TrimSpace(valueOrEmptyStr(modelCall.TraceID)),
-		Status:             strings.TrimSpace(modelCall.Status),
-		CreatedAt:          time.Now(),
-		Model: &streaming.EventModel{
-			Provider: strings.TrimSpace(modelCall.Provider),
-			Model:    strings.TrimSpace(modelCall.Model),
-			Kind:     strings.TrimSpace(modelCall.ModelKind),
-		},
-	}
-	if modelCall.Has != nil && modelCall.Has.StartedAt && modelCall.StartedAt != nil && !modelCall.StartedAt.IsZero() {
-		event.CreatedAt = *modelCall.StartedAt
-	}
-	applyIterationPage(event, modelCall.Iteration)
-	return event
-}
-
 func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *streaming.Event {
 	if toolCall == nil {
 		return nil
@@ -810,7 +712,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 	}
 	eventType := streaming.EventTypeToolCallStarted
 	if status != "running" && status != "thinking" {
-		eventType = streaming.EventTypeToolCallDone
+		eventType = streaming.EventTypeToolCallCompleted
 	}
 	event := &streaming.Event{
 		ID:                 strings.TrimSpace(toolCall.MessageID),
@@ -837,7 +739,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		if toolCall.Has.StartedAt && toolCall.StartedAt != nil && !toolCall.StartedAt.IsZero() {
 			event.CreatedAt = *toolCall.StartedAt
 		}
-		if eventType == streaming.EventTypeToolCallDone && toolCall.Has.CompletedAt && toolCall.CompletedAt != nil && !toolCall.CompletedAt.IsZero() {
+		if eventType == streaming.EventTypeToolCallCompleted && toolCall.Has.CompletedAt && toolCall.CompletedAt != nil && !toolCall.CompletedAt.IsZero() {
 			event.CreatedAt = *toolCall.CompletedAt
 		}
 		applyIterationPage(event, toolCall.Iteration)
@@ -885,9 +787,7 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 		warnf("PatchModelCall violation message_id=%q msg=%q", strings.TrimSpace(modelCall.MessageID), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
-	if event := llmRequestStartedEvent(ctx, modelCall); event != nil {
-		s.emitTimelineEvent(ctx, event, "PatchModelCall publish timeline event")
-	}
+	s.emitCanonicalModelEvent(ctx, modelCall)
 	debugf("PatchModelCall ok message_id=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(modelCall.Status))
 	return nil
 }
@@ -1058,15 +958,166 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 		return
 	}
 	if status == "completed" || status == "succeeded" || status == "failed" || status == "canceled" || status == "cancelled" {
+		eventType := streaming.EventTypeTurnCompleted
+		switch status {
+		case "failed":
+			eventType = streaming.EventTypeTurnFailed
+		case "canceled", "cancelled":
+			eventType = streaming.EventTypeTurnCanceled
+		}
 		s.emitTimelineEvent(ctx, &streaming.Event{
 			ID:             strings.TrimSpace(turn.Id),
 			StreamID:       conversationID,
 			ConversationID: conversationID,
-			Type:           streaming.EventTypeTurnCompleted,
+			Type:           eventType,
 			TurnID:         strings.TrimSpace(turn.Id),
 			Status:         status,
+			Error:          strings.TrimSpace(valueOrEmptyStr(turn.ErrorMessage)),
 			CreatedAt:      createdAt,
-		}, "PatchTurn publish turn_completed")
+		}, "PatchTurn publish "+string(eventType))
+	}
+}
+
+// emitCanonicalAssistantEvents emits assistant_preamble or assistant_final events
+// based on message patch content. These are canonical events from the render pipeline
+// that provide explicit semantics (not overloaded like llm_response).
+func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *convcli.MutableMessage, conversationID string) {
+	if s == nil || s.streamPub == nil || message == nil || message.Has == nil {
+		return
+	}
+	role := strings.ToLower(strings.TrimSpace(message.Role))
+	if role != "assistant" {
+		return
+	}
+	preamble := ""
+	if message.Has.Preamble && message.Preamble != nil {
+		preamble = strings.TrimSpace(*message.Preamble)
+	}
+	content := ""
+	if message.Has.Content && message.Content != nil {
+		content = strings.TrimSpace(*message.Content)
+	}
+	isFinal := false
+	if message.Has.Interim && message.Interim != nil {
+		isFinal = *message.Interim == 0 && content != ""
+	}
+
+	turnID := ""
+	if message.Has.TurnID && message.TurnID != nil {
+		turnID = strings.TrimSpace(*message.TurnID)
+	}
+	if turnID == "" {
+		if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+			turnID = strings.TrimSpace(turn.TurnID)
+		}
+	}
+
+	// Emit preamble event when we have preamble text and the message is interim
+	if preamble != "" && !isFinal {
+		event := &streaming.Event{
+			ID:                 strings.TrimSpace(message.Id),
+			StreamID:           conversationID,
+			ConversationID:     conversationID,
+			Type:               streaming.EventTypeAssistantPreamble,
+			TurnID:             turnID,
+			AssistantMessageID: strings.TrimSpace(message.Id),
+			Content:            preamble,
+			CreatedAt:          patchEventCreatedAt(message),
+		}
+		applyIterationPage(event, message.Iteration)
+		s.emitTimelineEvent(ctx, event, "PatchMessage publish assistant_preamble")
+	}
+
+	// Emit final event when the message has non-empty content and is not interim
+	if isFinal && content != "" {
+		event := &streaming.Event{
+			ID:                 strings.TrimSpace(message.Id),
+			StreamID:           conversationID,
+			ConversationID:     conversationID,
+			Type:               streaming.EventTypeAssistantFinal,
+			TurnID:             turnID,
+			AssistantMessageID: strings.TrimSpace(message.Id),
+			Content:            content,
+			FinalResponse:      true,
+			CreatedAt:          patchEventCreatedAt(message),
+		}
+		applyIterationPage(event, message.Iteration)
+		s.emitTimelineEvent(ctx, event, "PatchMessage publish assistant_final")
+	}
+}
+
+// emitCanonicalModelEvent emits a model_started or model_completed event
+// alongside the legacy llm_request_started / llm_response events.
+func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcli.MutableModelCall) {
+	if s == nil || s.streamPub == nil || modelCall == nil {
+		return
+	}
+	turn, _ := memory.TurnMetaFromContext(ctx)
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	if conversationID == "" {
+		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	}
+	if conversationID == "" {
+		return
+	}
+	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
+	if status == "thinking" || status == "streaming" || status == "running" {
+		event := &streaming.Event{
+			ID:                 strings.TrimSpace(modelCall.MessageID),
+			StreamID:           conversationID,
+			ConversationID:     conversationID,
+			Type:               streaming.EventTypeModelStarted,
+			TurnID:             strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)),
+			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
+			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
+			ModelCallID:        strings.TrimSpace(modelCall.MessageID),
+			Provider:           strings.TrimSpace(modelCall.Provider),
+			ModelName:          strings.TrimSpace(modelCall.Model),
+			Status:             strings.TrimSpace(modelCall.Status),
+			CreatedAt:          time.Now(),
+		}
+		if modelCall.Model != "" || modelCall.Provider != "" {
+			event.Model = &streaming.EventModel{
+				Provider: strings.TrimSpace(modelCall.Provider),
+				Model:    strings.TrimSpace(modelCall.Model),
+				Kind:     strings.TrimSpace(modelCall.ModelKind),
+			}
+		}
+		if modelCall.Has != nil && modelCall.Has.StartedAt && modelCall.StartedAt != nil && !modelCall.StartedAt.IsZero() {
+			event.CreatedAt = *modelCall.StartedAt
+			event.StartedAt = modelCall.StartedAt
+		}
+		applyIterationPage(event, modelCall.Iteration)
+		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_started")
+	} else if status == "completed" || status == "succeeded" || status == "failed" {
+		now := time.Now()
+		event := &streaming.Event{
+			ID:                 strings.TrimSpace(modelCall.MessageID),
+			StreamID:           conversationID,
+			ConversationID:     conversationID,
+			Type:               streaming.EventTypeModelCompleted,
+			TurnID:             strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)),
+			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
+			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
+			ModelCallID:        strings.TrimSpace(modelCall.MessageID),
+			Provider:           strings.TrimSpace(modelCall.Provider),
+			ModelName:          strings.TrimSpace(modelCall.Model),
+			Status:             strings.TrimSpace(modelCall.Status),
+			CreatedAt:          now,
+			CompletedAt:        &now,
+		}
+		if modelCall.Model != "" || modelCall.Provider != "" {
+			event.Model = &streaming.EventModel{
+				Provider: strings.TrimSpace(modelCall.Provider),
+				Model:    strings.TrimSpace(modelCall.Model),
+				Kind:     strings.TrimSpace(modelCall.ModelKind),
+			}
+		}
+		if modelCall.Has != nil && modelCall.Has.ResponsePayloadID && modelCall.ResponsePayloadID != nil {
+			event.ResponsePayloadID = strings.TrimSpace(*modelCall.ResponsePayloadID)
+		}
+		applyIterationPage(event, modelCall.Iteration)
+		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_completed")
 	}
 }
 
