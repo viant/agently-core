@@ -1,0 +1,14 @@
+Case: 049_conversation_stage_error
+
+Purpose:
+Validate derived conversation/turn stage for a deterministic runtime failure.
+
+What this test verifies:
+- a query with an invalid per-turn `model` value fails the turn
+- the HTTP query endpoint returns an error response
+- the conversation ends in derived stage `error`
+- the latest turn persists with `Status: failed`
+
+Why it matters:
+- protects the terminal error stage used by UI and SDK consumers
+- provides deterministic failure coverage without depending on external provider behavior beyond model resolution

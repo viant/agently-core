@@ -244,6 +244,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 
 	out.CancelRegistry = b.cancelRegistry
+	if out.CancelRegistry == nil {
+		out.CancelRegistry = cancels.Default()
+	}
 	out.Streaming = b.streamBus
 	if out.Streaming == nil {
 		out.Streaming = streaming.NewMemoryBus(0)
@@ -261,10 +264,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	out.Agent = b.agentSvc
 	if out.Agent == nil {
-		agentOpts := []agentsvc.Option{}
-		if b.cancelRegistry != nil {
-			agentOpts = append(agentOpts, agentsvc.WithCancelRegistry(b.cancelRegistry))
-		}
+		agentOpts := []agentsvc.Option{agentsvc.WithCancelRegistry(out.CancelRegistry)}
 		if out.ElicitationRouter != nil {
 			agentOpts = append(agentOpts, agentsvc.WithElicitationRouter(out.ElicitationRouter))
 		}

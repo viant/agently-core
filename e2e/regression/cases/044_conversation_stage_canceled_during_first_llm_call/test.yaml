@@ -1,0 +1,70 @@
+init:
+  turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
+
+pipeline:
+    createConversation:
+      action: http/runner:send
+      requests:
+        - Method: POST
+          URL: ${serverURL}/v1/conversations
+          JSONBody:
+            AgentID: simple
+            Title: conversation-stage-canceled-during-first-llm-call-e2e
+          Expect:
+            Code: 200
+            JSONBody:
+              "@exists@Id": true
+
+    runAndCancel:
+      multiAction: true
+
+      startStoryTurn:
+        async: true
+        action: http/runner:send
+        description: start long story turn (step 1)
+        requests:
+          - Method: POST
+            URL: ${serverURL}/v1/agent/query
+            Header:
+              Connection: [close]
+            JSONBody:
+              ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+              AgentID: simple
+              MessageID: e2e-stage-running-turn-first-llm-${turnSuffix}
+              UserId: e2e-stage-test
+              Query: create 500 words long story about mouse in bakery, for kids, no violence
+#            Expect:
+#              Code: 500
+#              JSONBody:
+#                error: "execution of query function canceled: context canceled"
+
+      waitForTurnActivation:
+        action: nop
+        sleepTimeMs: 2000
+
+      cancelRunningTurn:
+        action: http/runner:send
+        description: cancel the active running turn (step 2)
+        requests:
+          - Method: POST
+            URL: ${serverURL}/v1/turns/e2e-stage-running-turn-first-llm-${turnSuffix}/cancel
+            Expect:
+              Code: 200
+
+    waitForCancelPersistence:
+      action: nop
+      sleepTimeMs: 1200
+
+    getConversation:
+      action: http/runner:send
+      requests:
+        - Method: GET
+          URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
+          Expect:
+            Code: 200
+            JSONBody:
+              Id: ${createConversation.Responses[0].JSONBody.Id}
+              Stage: canceled
+              Transcript:
+                - Stage: canceled
+                  Status: canceled

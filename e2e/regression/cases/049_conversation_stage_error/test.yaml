@@ -1,0 +1,54 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage error - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: simple
+          Title: conversation-stage-error-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  queryInvalidModel:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage error - invalid model override should fail"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: simple
+          UserId: e2e-stage-test
+          Query: Say hello in one short sentence.
+          model: openai_model_does_not_exist
+        Expect:
+          Code: 500
+
+  waitForFailurePersistence:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 1200
+
+  getConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage error - conversation and latest turn should be error"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${createConversation.Responses[0].JSONBody.Id}
+            Stage: error
+            Transcript:
+              - Stage: error
+                Status: failed
