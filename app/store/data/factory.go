@@ -106,6 +106,28 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 // NewDatlyServiceFromEnv is an alias kept for compatibility with existing patterns.
 func NewDatlyServiceFromEnv(ctx context.Context) (*datly.Service, error) { return NewDatly(ctx) }
 
+// NewDatlyFromWorkspace creates a datly service backed by file-based SQLite
+// in the given workspace root directory ({root}/db/agently-core.db).
+// Data persists across restarts.
+func NewDatlyFromWorkspace(ctx context.Context, root string) (*datly.Service, error) {
+	svc, err := datly.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dsn, err := sqlitesvc.New(root).Ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn := view.NewConnector("agently", "sqlite", dsn)
+	if err := svc.AddConnectors(ctx, conn); err != nil {
+		return nil, err
+	}
+	if err := registerReadComponents(ctx, svc); err != nil {
+		return nil, err
+	}
+	return svc, nil
+}
+
 // NewDatlyInMemory creates a non-singleton datly service backed by in-memory sqlite.
 func NewDatlyInMemory(ctx context.Context) (*datly.Service, error) {
 	svc, err := datly.New(ctx)

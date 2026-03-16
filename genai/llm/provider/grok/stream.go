@@ -232,7 +232,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					}
 				}
 			}
-			if err := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "grok", Model: lastModel, ModelKind: "chat", ResponseJSON: lastProvider, CompletedAt: time.Now(), Usage: lastUsage, LLMResponse: lastLR, StreamText: streamTxt}); err != nil {
+			finishReason := ""
+			if lastLR != nil && len(lastLR.Choices) > 0 {
+				finishReason = strings.TrimSpace(lastLR.Choices[0].FinishReason)
+			}
+			if err := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "grok", Model: lastModel, ModelKind: "chat", ResponseJSON: lastProvider, CompletedAt: time.Now(), Usage: lastUsage, FinishReason: finishReason, LLMResponse: lastLR, StreamText: streamTxt}); err != nil {
 				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 			}
 		}

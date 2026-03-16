@@ -39,6 +39,9 @@ func NewDatlyServiceFromEnv(ctx context.Context) (*datly.Service, error) {
 	return old.NewDatlyServiceFromEnv(ctx)
 }
 func NewDatlyInMemory(ctx context.Context) (*datly.Service, error) { return old.NewDatlyInMemory(ctx) }
+func NewDatlyFromWorkspace(ctx context.Context, root string) (*datly.Service, error) {
+	return old.NewDatlyFromWorkspace(ctx, root)
+}
 func NewThinServiceFromEnv(ctx context.Context) (Service, error) {
 	return old.NewThinServiceFromEnv(ctx)
 }

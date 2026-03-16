@@ -246,8 +246,18 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	// Store content always. Store raw_content only for tool-call responses so
 	// transcripts can distinguish tool-driven interim content from normal replies.
+	// Use finish reason as the authoritative signal — hasToolCalls from the
+	// response object may be unreliable for typed streaming providers.
 	msg.SetContent(content)
-	if hasToolCalls {
+	// Determine finish reason from response object or from the Info struct
+	// (which captures finish reason from typed streaming events).
+	finishReason := strings.TrimSpace(info.FinishReason)
+	if finishReason == "" && resp != nil && len(resp.Choices) > 0 {
+		finishReason = strings.TrimSpace(resp.Choices[0].FinishReason)
+	}
+	finishLower := strings.ToLower(finishReason)
+	isToolCallResponse := hasToolCalls || strings.Contains(finishLower, "tool")
+	if isToolCallResponse {
 		if preamble == "" {
 			preamble = content
 		}
@@ -720,15 +730,24 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	// include content/preamble/finalResponse in the model_completed event.
 	patchCtx := ctx
 	if info.LLMResponse != nil && len(info.LLMResponse.Choices) > 0 {
-		choice := info.LLMResponse.Choices[0]
-		content := strings.TrimSpace(llm.MessageText(choice.Message))
+		content, hasToolCalls := AssistantContentFromResponse(info.LLMResponse)
+		content = strings.TrimSpace(content)
 		preamble := strings.TrimSpace(AssistantPreambleFromResponse(info.LLMResponse, content))
-		finalResponse := len(choice.Message.ToolCalls) == 0 && content != ""
+		// Use info.FinishReason (from typed streaming) as primary source,
+		// fall back to response object.
+		finishReason := strings.TrimSpace(info.FinishReason)
+		if finishReason == "" && len(info.LLMResponse.Choices) > 0 {
+			finishReason = strings.TrimSpace(info.LLMResponse.Choices[0].FinishReason)
+		}
+		finishLower := strings.ToLower(finishReason)
+		isToolRelated := hasToolCalls || strings.Contains(finishLower, "tool")
+		isFinalStop := finishLower == "stop" || finishLower == "end_turn" || finishLower == "length"
+		finalResponse := isFinalStop && !isToolRelated && content != ""
 		patchCtx = memory.WithModelCompletionMeta(ctx, memory.ModelCompletionMeta{
 			Content:       content,
 			Preamble:      preamble,
 			FinalResponse: finalResponse,
-			FinishReason:  strings.TrimSpace(choice.FinishReason),
+			FinishReason:  finishReason,
 		})
 	}
 	if err := o.client.PatchModelCall(patchCtx, upd); err != nil {

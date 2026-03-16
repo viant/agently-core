@@ -179,6 +179,32 @@ func buildExecutionPages(turn *convstore.Turn) []*ExecutionPageState {
 			pages = append(pages, page)
 		}
 	}
+	// Scan for a final assistant message that may not have a ModelCall
+	// (e.g., created by the agent run loop's addMessage after model call completion).
+	// Attach its content to the last page.
+	if len(pages) > 0 {
+		lastPage := pages[len(pages)-1]
+		if !lastPage.FinalResponse || strings.TrimSpace(lastPage.Content) == "" {
+			for i := len(turn.Message) - 1; i >= 0; i-- {
+				msg := turn.Message[i]
+				if msg == nil {
+					continue
+				}
+				role := strings.ToLower(strings.TrimSpace(msg.Role))
+				if role != "assistant" || msg.Interim != 0 {
+					continue
+				}
+				content := strings.TrimSpace(stringValue(msg.Content))
+				if content == "" {
+					continue
+				}
+				lastPage.Content = content
+				lastPage.FinalResponse = true
+				lastPage.FinalAssistantMessageID = msg.Id
+				break
+			}
+		}
+	}
 	return pages
 }
 
