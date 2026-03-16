@@ -1,0 +1,17 @@
+Case: 046_conversation_stage_elicitation
+
+Purpose:
+Validate derived conversation/turn stage when a query opens a deferred elicitation.
+
+What this test verifies:
+- a query to `elicitation_favorite_color` with `ElicitationMode: deferred` returns a conversation id and an elicitation id
+- the conversation persists with derived stage `elicitation`
+- the latest turn also persists in stage `elicitation`
+
+Implementation note:
+- the case uses the normal synchronous `/v1/agent/query` path
+- it asserts both the immediate query response shape and the persisted conversation state from `GET /v1/conversations/{id}`
+
+Why it matters:
+- protects the nonterminal elicitation stage used by UI and SDK consumers
+- gives deterministic coverage for deferred-input flows without requiring user completion

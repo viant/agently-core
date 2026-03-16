@@ -1,0 +1,35 @@
+pipeline:
+  query:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage done - simple query should complete successfully"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: simple
+          UserId: e2e-stage-test
+          Query: Hi
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@messageId": true
+
+  getConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage done - conversation and latest turn should be done"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${query.Responses[0].JSONBody.conversationId}
+            Stage: done
+            Transcript:
+              - Stage: done
+                Status: succeeded

@@ -66,6 +66,32 @@ func TestComputeStage_ElicitationAndCancelSemantics(t *testing.T) {
 		c.OnRelation(nil)
 		assert.EqualValues(t, StageCanceled, c.Stage)
 	})
+
+	t.Run("failed latest turn with user-only message -> error", func(t *testing.T) {
+		userStatus := "rejected"
+		c := &ConversationView{Transcript: []*TranscriptView{{
+			CreatedAt: now,
+			Status:    "failed",
+			Message: []*MessageView{{
+				Id:        "m-user",
+				Role:      "user",
+				CreatedAt: now,
+				Status:    &userStatus,
+				Type:      "text",
+			}},
+		}}}
+		c.OnRelation(nil)
+		assert.EqualValues(t, StageError, c.Stage)
+	})
+
+	t.Run("failed latest turn without messages -> error", func(t *testing.T) {
+		c := &ConversationView{Transcript: []*TranscriptView{{
+			CreatedAt: now,
+			Status:    "failed",
+		}}}
+		c.OnRelation(nil)
+		assert.EqualValues(t, StageError, c.Stage)
+	})
 }
 
 func TestComputeTurnStage_UsesToolMessages(t *testing.T) {
@@ -139,4 +165,32 @@ func TestTranscriptOnRelation_PopulatesElicitationFromUserElicitationData(t *tes
 	require.NotNil(t, tView.Message[0].Elicitation)
 	assert.Equal(t, elicID, tView.Message[0].Elicitation["elicitationId"])
 	assert.Equal(t, "Pick a color", tView.Message[0].Elicitation["message"])
+}
+
+func TestComputeTurnStage_FailedTurnStatus(t *testing.T) {
+	now := time.Now()
+
+	t.Run("failed user-only turn -> error", func(t *testing.T) {
+		userStatus := "rejected"
+		turn := &TranscriptView{
+			CreatedAt: now,
+			Status:    "failed",
+			Message: []*MessageView{{
+				Id:        "m-user",
+				Role:      "user",
+				CreatedAt: now,
+				Status:    &userStatus,
+				Type:      "text",
+			}},
+		}
+		assert.EqualValues(t, StageError, computeTurnStage(turn))
+	})
+
+	t.Run("failed empty turn -> error", func(t *testing.T) {
+		turn := &TranscriptView{
+			CreatedAt: now,
+			Status:    "failed",
+		}
+		assert.EqualValues(t, StageError, computeTurnStage(turn))
+	})
 }

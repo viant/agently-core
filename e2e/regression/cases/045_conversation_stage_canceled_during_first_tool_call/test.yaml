@@ -1,0 +1,74 @@
+init:
+  turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
+
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage canceled during first tool call - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: tool_forcer_exec_sleep
+          Title: conversation-stage-canceled-during-first-tool-call-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  runAndCancel:
+    multiAction: true
+
+    startSleepTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      Async: true
+      description: "conversation stage canceled during first tool call - start sleep turn asynchronously"
+      requests:
+        - Method: POST
+          URL: ${serverURL}/v1/agent/query
+          Header:
+            Connection: [close]
+          JSONBody:
+            ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+            AgentID: tool_forcer_exec_sleep
+            MessageID: e2e-stage-running-turn-${turnSuffix}
+            UserId: e2e-stage-test
+            Query: run sleep tool
+
+    waitForToolActivation:
+      when: $sdkKey != ''
+      action: nop
+      sleepTimeMs: 12000
+
+    cancelRunningTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      description: "conversation stage canceled during first tool call - cancel the active running turn"
+      requests:
+        - Method: POST
+          URL: ${serverURL}/v1/turns/e2e-stage-running-turn-${turnSuffix}/cancel
+          Expect:
+            Code: 200
+
+  waitForCancelPersistence:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 1200
+
+  getConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage canceled during first tool call - conversation and latest turn should be canceled"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${createConversation.Responses[0].JSONBody.Id}
+            Stage: canceled
+            Transcript:
+              - Stage: canceled
+                Status: canceled
