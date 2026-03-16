@@ -43,11 +43,6 @@ require (
 	modernc.org/sqlite v1.45.0
 )
 
-replace github.com/viant/afsc => ../afsc
-
-replace github.com/viant/datly => ../datly
-
-replace github.com/viant/xreflect => ../xreflect
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -209,3 +204,6 @@ require (
 )
 
 replace github.com/viant/forge => /Users/awitas/go/src/github.com/viant/forge
+replace github.com/viant/afsc => ../afsc
+replace github.com/viant/datly => ../datly
+replace github.com/viant/xreflect => ../xreflect

@@ -270,11 +270,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		var usage *llm.Usage
 		var promptTokens, completionTokens int
 		ended := false
-		emit := func(lr *llm.GenerateResponse) {
-			if lr != nil {
-				events <- llm.StreamEvent{Response: lr}
-			}
-		}
 		// endObserverOnce removed; directly call OnCallEnd when final response is assembled.
 
 		emitToolsIfAny := func() {
@@ -294,19 +289,15 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					j--
 				}
 			}
-			calls := make([]llm.ToolCall, 0, len(idxs))
 			for _, i := range idxs {
 				ta := tools[i]
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(ta.json), &args); err != nil {
 					args = map[string]interface{}{"raw": ta.json}
 				}
-				calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
+				events <- llm.StreamEvent{Kind: llm.StreamEventToolCallCompleted, ToolCallID: ta.id, ToolName: ta.name, Arguments: args}
 				ta.emitted = true
 			}
-			msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String(), ToolCalls: calls}
-			lr := &llm.GenerateResponse{Choices: []llm.Choice{{Index: 0, Message: msg, FinishReason: finishReason}}, Model: c.Model}
-			events <- llm.StreamEvent{Response: lr}
 		}
 		var lastLR *llm.GenerateResponse
 		for scanner.Scan() {
@@ -335,11 +326,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 			case "content_block_start":
 				if evt.ContentBlock != nil && evt.ContentBlock.Type == "tool_use" {
 					tools[evt.Index] = &toolAgg{id: evt.ContentBlock.ID, name: evt.ContentBlock.Name}
+					events <- llm.StreamEvent{Kind: llm.StreamEventToolCallStarted, ToolCallID: evt.ContentBlock.ID, ToolName: evt.ContentBlock.Name}
 				}
 			case "content_block_delta":
 				if evt.Delta != nil {
 					if evt.Delta.Text != "" {
 						aggText.WriteString(evt.Delta.Text)
+						events <- llm.StreamEvent{Kind: llm.StreamEventTextDelta, Delta: evt.Delta.Text}
 						if observer != nil {
 							if obErr := observer.OnStreamDelta(ctx, []byte(evt.Delta.Text)); obErr != nil {
 								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
@@ -350,6 +343,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					if evt.Delta.PartialJSON != "" {
 						if ta, ok := tools[evt.Index]; ok {
 							ta.json += evt.Delta.PartialJSON
+							events <- llm.StreamEvent{Kind: llm.StreamEventToolCallDelta, ToolCallID: ta.id, ToolName: ta.name, Delta: evt.Delta.PartialJSON}
 						}
 					}
 				}
@@ -371,9 +365,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				if c.UsageListener != nil {
 					c.UsageListener.OnUsage(c.Model, usage)
 				}
+				// Emit any remaining tool_call_completed events
+				emitToolsIfAny()
+				// Emit usage event
+				events <- llm.StreamEvent{Kind: llm.StreamEventUsage, Usage: usage}
+				// Build the full GenerateResponse for the observer
 				msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String()}
 				if len(tools) > 0 {
-					// include all tool calls aggregated so far, in index order
 					idxs := make([]int, 0, len(tools))
 					for i := range tools {
 						idxs = append(idxs, i)
@@ -405,7 +403,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					}
 					ended = true
 				}
-				emit(lr)
+				// Emit turn_completed event
+				events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: finishReason, Usage: usage}
 				lastLR = lr
 			case "message_start":
 				// read prompt tokens from nested message.usage if available

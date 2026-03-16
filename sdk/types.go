@@ -3,9 +3,7 @@ package sdk
 import (
 	"time"
 
-	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -295,38 +293,6 @@ type QuerySelector struct {
 	OrderBy string `json:"orderBy,omitempty"`
 }
 
-type ExecutionGroup struct {
-	AssistantMessageID string                      `json:"assistantMessageId"`
-	ParentMessageID    string                      `json:"parentMessageId"`
-	ModelMessageID     string                      `json:"modelMessageId"`
-	Sequence           int                         `json:"sequence"`
-	Iteration          *int                        `json:"iteration,omitempty"`
-	Preamble           string                      `json:"preamble,omitempty"`
-	Content            string                      `json:"content,omitempty"`
-	FinalResponse      bool                        `json:"finalResponse"`
-	Status             string                      `json:"status,omitempty"`
-	ModelCall          *agconv.ModelCallView       `json:"modelCall,omitempty"`
-	ToolMessages       []*agconv.ToolMessageView   `json:"toolMessages,omitempty"`
-	ToolCalls          []*agconv.ToolCallView      `json:"toolCalls,omitempty"`
-	ToolCallsPlanned   []streaming.PlannedToolCall `json:"toolCallsPlanned,omitempty"`
-}
-
-type ExecutionPage = ExecutionGroup
-type ExecutionEvent = streaming.Event
-
-type TranscriptTurn struct {
-	*conversation.Turn
-	ExecutionGroups       []*ExecutionGroup `json:"executionGroups,omitempty"`
-	ExecutionGroupsTotal  int               `json:"executionGroupsTotal,omitempty"`
-	ExecutionGroupsOffset int               `json:"executionGroupsOffset,omitempty"`
-	ExecutionGroupsLimit  int               `json:"executionGroupsLimit,omitempty"`
-}
-
-// TranscriptOutput is the result of fetching a conversation transcript.
-type TranscriptOutput struct {
-	Turns []*TranscriptTurn `json:"turns"`
-}
-
 type TranscriptOption func(*transcriptOptions)
 
 type transcriptOptions struct {
@@ -334,10 +300,9 @@ type transcriptOptions struct {
 }
 
 const (
-	TranscriptSelectorTurn          = "Transcript"
-	TranscriptSelectorMessage       = "Message"
-	TranscriptSelectorToolMessage   = "ToolMessage"
-	TranscriptSelectorExecutionPage = "ExecutionGroup"
+	TranscriptSelectorTurn        = "Transcript"
+	TranscriptSelectorMessage     = "Message"
+	TranscriptSelectorToolMessage = "ToolMessage"
 )
 
 func ensureTranscriptSelector(o *transcriptOptions, name string) *QuerySelector {
@@ -375,36 +340,4 @@ func WithTranscriptMessageSelector(selector *QuerySelector) TranscriptOption {
 
 func WithTranscriptToolMessageSelector(selector *QuerySelector) TranscriptOption {
 	return WithTranscriptSelector(TranscriptSelectorToolMessage, selector)
-}
-
-func WithTranscriptExecutionGroupSelector(selector *QuerySelector) TranscriptOption {
-	return WithTranscriptSelector(TranscriptSelectorExecutionPage, selector)
-}
-
-func WithExecutionGroupSelector(selector *QuerySelector) TranscriptOption {
-	return WithTranscriptExecutionGroupSelector(selector)
-}
-
-func WithExecutionGroupLimit(limit int) TranscriptOption {
-	return func(o *transcriptOptions) {
-		if limit < 0 {
-			limit = 0
-		}
-		selector := ensureTranscriptSelector(o, TranscriptSelectorExecutionPage)
-		if selector != nil {
-			selector.Limit = limit
-		}
-	}
-}
-
-func WithExecutionGroupOffset(offset int) TranscriptOption {
-	return func(o *transcriptOptions) {
-		if offset < 0 {
-			offset = 0
-		}
-		selector := ensureTranscriptSelector(o, TranscriptSelectorExecutionPage)
-		if selector != nil {
-			selector.Offset = offset
-		}
-	}
 }

@@ -182,8 +182,15 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		reader := bufio.NewReader(resp.Body)
 		ended := false
 		emit := func(lr *llm.GenerateResponse) {
-			if lr != nil {
-				events <- llm.StreamEvent{Response: lr}
+			if lr == nil || len(lr.Choices) == 0 {
+				return
+			}
+			choice := lr.Choices[0]
+			if content := strings.TrimSpace(choice.Message.Content); content != "" {
+				events <- llm.StreamEvent{Kind: llm.StreamEventTextDelta, Delta: content}
+			}
+			if choice.FinishReason != "" {
+				events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: choice.FinishReason}
 			}
 		}
 		endObserverOnce := func(lr *llm.GenerateResponse) {

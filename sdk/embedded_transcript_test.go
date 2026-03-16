@@ -2,13 +2,11 @@ package sdk
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 )
@@ -87,7 +85,7 @@ func TestPruneTranscriptNoise_RemovesBlankInterimAssistant(t *testing.T) {
 	require.Equal(t, "m2", turn.Message[0].Id)
 }
 
-func TestWrapTranscriptTurns_BuildsExecutionGroupsPerModelMessage(t *testing.T) {
+func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 	modelStatus := "completed"
 	toolStatus := "completed"
@@ -99,6 +97,8 @@ func TestWrapTranscriptTurns_BuildsExecutionGroupsPerModelMessage(t *testing.T) 
 	turn := &agconv.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
+		Status:         "succeeded",
+		CreatedAt:      now,
 		Message: []*agconv.MessageView{
 			{
 				Id:        "m1",
@@ -145,81 +145,31 @@ func TestWrapTranscriptTurns_BuildsExecutionGroupsPerModelMessage(t *testing.T) 
 		},
 	}
 
-	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)}, nil)
-	require.Len(t, got, 1)
-	require.Len(t, got[0].ExecutionGroups, 2)
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 2)
 
-	first := got[0].ExecutionGroups[0]
-	require.Equal(t, "m1", first.ParentMessageID)
-	require.Equal(t, 1, first.Sequence)
+	first := ts.Execution.Pages[0]
+	require.Equal(t, "m1", first.AssistantMessageID)
+	require.Equal(t, 1, first.Iteration)
 	require.Equal(t, content1, first.Preamble)
 	require.False(t, first.FinalResponse)
-	require.Len(t, first.ToolMessages, 2)
-	require.Len(t, first.ToolCalls, 2)
-	require.Equal(t, "resources-list", first.ToolCalls[0].ToolName)
-	require.Equal(t, "resources-grepFiles", first.ToolCalls[1].ToolName)
+	require.Len(t, first.ToolSteps, 2)
+	require.Equal(t, "resources-list", first.ToolSteps[0].ToolName)
+	require.Equal(t, "resources-grepFiles", first.ToolSteps[1].ToolName)
 
-	second := got[0].ExecutionGroups[1]
-	require.Equal(t, "m2", second.ParentMessageID)
-	require.Equal(t, 2, second.Sequence)
+	second := ts.Execution.Pages[1]
+	require.Equal(t, "m2", second.AssistantMessageID)
+	require.Equal(t, 2, second.Iteration)
 	require.True(t, second.FinalResponse)
 	require.Equal(t, content2, second.Content)
-	require.Len(t, second.ToolMessages, 0)
-	require.Len(t, second.ToolCalls, 0)
+	require.Len(t, second.ToolSteps, 0)
 }
 
-func TestWrapTranscriptTurns_SelectorLimitedGroupsReflectTranscriptWindow(t *testing.T) {
-	iteration1 := 1
-	iteration2 := 2
-	modelStatus := "completed"
-	toolStatus := "completed"
-	firstPreamble := "Inspecting files."
-	finalContent := "Done."
-	turn := &agconv.TranscriptView{
-		Id:             "turn-1",
-		ConversationId: "conv-1",
-		Message: []*agconv.MessageView{
-			{
-				Id:        "m1",
-				Role:      "assistant",
-				Interim:   1,
-				Content:   &firstPreamble,
-				Iteration: &iteration1,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: modelStatus},
-				ToolMessage: []*agconv.ToolMessageView{
-					{
-						Id:              "tm2",
-						ParentMessageId: strPtr("m1"),
-						Sequence:        intPtr(2),
-						ToolCall: &agconv.ToolCallView{
-							MessageId: "tm2",
-							ToolName:  "resources-grepFiles",
-							Status:    toolStatus,
-						},
-					},
-				},
-			},
-			{
-				Id:        "m2",
-				Role:      "assistant",
-				Interim:   0,
-				Content:   &finalContent,
-				Iteration: &iteration2,
-				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: modelStatus},
-			},
-		},
-	}
-
-	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)}, nil)
-	require.Len(t, got, 1)
-	require.Len(t, got[0].ExecutionGroups, 2)
-	require.Equal(t, "m1", got[0].ExecutionGroups[0].ParentMessageID)
-	require.Len(t, got[0].ExecutionGroups[0].ToolCalls, 1)
-	require.Equal(t, "resources-grepFiles", got[0].ExecutionGroups[0].ToolCalls[0].ToolName)
-	require.True(t, got[0].ExecutionGroups[1].FinalResponse)
-}
-
-func TestWrapTranscriptTurns_AttachesRootParentToolMessagesByIteration(t *testing.T) {
+func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testing.T) {
 	iteration1 := 1
 	modelStatus := "running"
 	toolStatus := "completed"
@@ -259,17 +209,61 @@ func TestWrapTranscriptTurns_AttachesRootParentToolMessagesByIteration(t *testin
 	turn := &agconv.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
+		Status:         "running",
 		Message:        []*agconv.MessageView{root, model},
 	}
 
-	got := wrapTranscriptTurns(convstore.Transcript{(*convstore.Turn)(turn)}, nil)
-	require.Len(t, got, 1)
-	require.Len(t, got[0].ExecutionGroups, 1)
-	require.Equal(t, "m1", got[0].ExecutionGroups[0].ModelMessageID)
-	require.Equal(t, preamble, got[0].ExecutionGroups[0].Preamble)
-	require.Len(t, got[0].ExecutionGroups[0].ToolMessages, 1)
-	require.Len(t, got[0].ExecutionGroups[0].ToolCalls, 1)
-	require.Equal(t, "resources/list", got[0].ExecutionGroups[0].ToolCalls[0].ToolName)
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 1)
+
+	page := ts.Execution.Pages[0]
+	require.Equal(t, "m1", page.AssistantMessageID)
+	require.Equal(t, preamble, page.Preamble)
+	require.Len(t, page.ToolSteps, 1)
+	require.Equal(t, "resources/list", page.ToolSteps[0].ToolName)
+}
+
+func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
+	iteration1 := 1
+	iteration2 := 2
+	preamble := "Let me check."
+	final := "Here is the answer."
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   &preamble,
+				Iteration: &iteration1,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+			},
+			{
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &final,
+				Iteration: &iteration2,
+				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Assistant)
+	require.NotNil(t, ts.Assistant.Preamble)
+	require.Equal(t, preamble, ts.Assistant.Preamble.Content)
+	require.NotNil(t, ts.Assistant.Final)
+	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
 func TestBuildTranscriptSelectors(t *testing.T) {
@@ -281,7 +275,6 @@ func TestBuildTranscriptSelectors(t *testing.T) {
 			Offset:  1,
 			OrderBy: "created_at ASC,id ASC",
 		},
-		TranscriptSelectorExecutionPage: {Limit: 5, Offset: 7},
 	})
 	require.Len(t, selectors, 3)
 	require.Equal(t, TranscriptSelectorTurn, selectors[0].Name)
@@ -290,45 +283,6 @@ func TestBuildTranscriptSelectors(t *testing.T) {
 	require.Equal(t, 2, selectors[1].QuerySelector.Offset)
 	require.Equal(t, TranscriptSelectorToolMessage, selectors[2].Name)
 	require.Equal(t, "created_at ASC,id ASC", selectors[2].QuerySelector.OrderBy)
-}
-
-func TestTranscriptExecutionGroupSelectorPrefersDedicatedSelector(t *testing.T) {
-	opts := &transcriptOptions{}
-	WithExecutionGroupLimit(5)(opts)
-	WithExecutionGroupOffset(2)(opts)
-	WithTranscriptMessageSelector(&QuerySelector{Limit: 99})(opts)
-
-	got := transcriptExecutionGroupSelector(opts)
-	require.NotNil(t, got)
-	require.Equal(t, 5, got.Limit)
-	require.Equal(t, 2, got.Offset)
-}
-
-func TestPlannedToolCallsFromMessage(t *testing.T) {
-	response := llm.GenerateResponse{
-		Choices: []llm.Choice{{
-			Message: llm.Message{
-				ToolCalls: []llm.ToolCall{
-					{ID: "tc1", Name: "llm/agents/run"},
-				},
-			},
-		}},
-	}
-	raw, err := json.Marshal(response)
-	require.NoError(t, err)
-	body := string(raw)
-	message := &agconv.MessageView{
-		ModelCall: &agconv.ModelCallView{
-			ModelCallResponsePayload: &agconv.ModelCallStreamPayloadView{
-				InlineBody: &body,
-			},
-		},
-	}
-
-	got := plannedToolCallsFromMessage(message)
-	require.Len(t, got, 1)
-	require.Equal(t, "tc1", got[0].ToolCallID)
-	require.Equal(t, "llm/agents/run", got[0].ToolName)
 }
 
 func strPtr(value string) *string {

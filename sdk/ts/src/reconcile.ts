@@ -36,40 +36,59 @@ export function applyEvent(
     const key = event.id || event.streamId || '';
     if (!key) return null;
 
-    switch (event.type) {
-        case 'chunk': {
-            const existing = buf.byId.get(key) || {
-                id: key,
-                role: 'assistant',
-                content: '',
-                interim: 1,
-                createdAt: event.createdAt || new Date().toISOString(),
-            } as Partial<Message>;
+    const ensureEntry = (): Partial<Message> => {
+        return buf.byId.get(key) || {
+            id: key,
+            role: 'assistant',
+            content: '',
+            interim: 1,
+            createdAt: event.createdAt || new Date().toISOString(),
+        } as Partial<Message>;
+    };
 
+    switch (event.type) {
+        case 'text_delta': {
+            const existing = ensureEntry();
             existing.content = (existing.content || '') + (event.content || '');
             buf.byId.set(key, existing);
             buf.activeTurnId = event.streamId || null;
-
             return { id: key, content: existing.content!, final: false };
         }
 
-        case 'tool': {
-            // Tool events are informational — tracked but not directly displayed as text
+        case 'reasoning_delta': {
+            const existing = ensureEntry();
+            existing.preamble = (existing.preamble || '') + (event.content || '');
+            buf.byId.set(key, existing);
             buf.activeTurnId = event.streamId || null;
             return null;
         }
 
+        case 'tool_call_started':
+        case 'tool_call_delta':
+        case 'tool_call_completed': {
+            buf.activeTurnId = event.streamId || null;
+            return null;
+        }
+
+        case 'model_started':
+        case 'model_completed':
+        case 'assistant_preamble':
+        case 'assistant_final':
+        case 'elicitation_requested':
+        case 'elicitation_resolved':
+        case 'linked_conversation_attached': {
+            buf.activeTurnId = event.streamId || null;
+            return null;
+        }
+
+        case 'usage':
+        case 'item_completed': {
+            return null;
+        }
+
         case 'control': {
-            // Non-token patch events (e.g., linkedConversationId/status updates)
-            // should update the optimistic message row immediately.
             if (event.op !== 'message_patch') return null;
-            const existing = buf.byId.get(key) || {
-                id: key,
-                role: 'assistant',
-                content: '',
-                interim: 1,
-                createdAt: event.createdAt || new Date().toISOString(),
-            } as Partial<Message>;
+            const existing = ensureEntry();
             const patch = (event.patch || {}) as Record<string, any>;
             if (patch.linkedConversationId != null) {
                 (existing as any).linkedConversationId = String(patch.linkedConversationId);
@@ -93,11 +112,15 @@ export function applyEvent(
             return null;
         }
 
-        case 'done': {
+        case 'turn_completed':
+        case 'turn_failed':
+        case 'turn_canceled': {
             const existing = buf.byId.get(key);
             if (existing) {
                 existing.interim = 0;
-                existing.status = 'completed';
+                existing.status = event.type === 'turn_failed' ? 'failed'
+                    : event.type === 'turn_canceled' ? 'canceled'
+                    : 'completed';
             }
             buf.activeTurnId = null;
             return existing

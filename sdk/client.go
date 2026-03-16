@@ -113,8 +113,8 @@ type Client interface {
 	// PruneConversation uses an LLM to select and remove low-value messages from conversation history.
 	PruneConversation(ctx context.Context, conversationID string) error
 
-	// GetTranscript returns the structured turn-based transcript for a conversation with optional filtering.
-	GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error)
+	// GetTranscript returns the canonical conversation state for rendering.
+	GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error)
 
 	// GetA2AAgentCard returns the A2A agent card for the given agent.
 	GetA2AAgentCard(ctx context.Context, agentID string) (*a2a.AgentCard, error)

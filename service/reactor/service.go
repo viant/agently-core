@@ -88,7 +88,7 @@ func (s *Service) publishPlannedToolCallsEvent(ctx context.Context, responseID s
 			ID:                 assistantMessageID,
 			ConversationID:     strings.TrimSpace(turn.ConversationID),
 			StreamID:           strings.TrimSpace(turn.ConversationID),
-			Type:               streaming.EventTypeLLMResponse,
+			Type:               streaming.EventTypeModelCompleted,
 			TurnID:             strings.TrimSpace(turn.TurnID),
 			AssistantMessageID: assistantMessageID,
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
@@ -543,10 +543,20 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		if stopped.Load() {
 			return nil
 		}
-		if event == nil || event.Response == nil || len(event.Response.Choices) == 0 {
-			if event != nil {
-				return event.Err
-			}
+		if event == nil {
+			return nil
+		}
+		if event.Err != nil {
+			return event.Err
+		}
+
+		// Typed Kind path — handle events directly without Response.
+		if event.Kind != "" {
+			return s.handleTypedStreamEvent(runCtx, event, &mux, genOutput, aPlan, nextStepIdx, wg, guard, reg)
+		}
+
+		// Legacy Response path — for providers not yet migrated to typed Kind deltas.
+		if event.Response == nil || len(event.Response.Choices) == 0 {
 			return nil
 		}
 		choice := event.Response.Choices[0]
@@ -573,71 +583,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		s.patchStreamingToolPreamble(runCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
 
-		for *nextStepIdx < len(aPlan.Steps) {
-			st := aPlan.Steps[*nextStepIdx]
-			*nextStepIdx++
-			if st.Type != "tool" {
-				continue
-			}
-			// Previously we de-duplicated by tool name + canonical args and fanned-out
-			// the result. We now always execute each step.
-			wg.Add(1)
-			step := st
-			go func() {
-				defer wg.Done()
-				stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
-				if debugtrace.Enabled() {
-					turnID := ""
-					if tm, ok := memory.TurnMetaFromContext(runCtx); ok {
-						turnID = strings.TrimSpace(tm.TurnID)
-					}
-					debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
-						"stepID":      strings.TrimSpace(step.ID),
-						"name":        strings.TrimSpace(step.Name),
-						"responseID":  strings.TrimSpace(step.ResponseID),
-						"args":        step.Args,
-						"currentTurn": turnID,
-					})
-				}
-				if guard != nil {
-					if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-						if debugtrace.Enabled() {
-							debugtrace.Write("reactor", "tool_step_blocked", map[string]any{
-								"stepID":       strings.TrimSpace(step.ID),
-								"name":         strings.TrimSpace(step.Name),
-								"responseID":   strings.TrimSpace(step.ResponseID),
-								"args":         step.Args,
-								"reusedResult": prev.Name != "" && prev.Error == "",
-								"previous":     debugtrace.SummarizeToolCalls([]llm.ToolCall{prev}),
-							})
-						}
-						if prev.Name != "" && prev.Error == "" && s.convClient != nil {
-							_ = executil.SynthesizeToolStep(runCtx, s.convClient, stepInfo, prev.Result)
-						}
-						return
-					}
-				}
-				// Execute tool; even on error we let the LLM decide next steps.
-				// Errors are persisted on the tool call and exposed via tool result payload.
-				call, _, err := executil.ExecuteToolStep(runCtx, reg, stepInfo, s.convClient)
-				if err != nil {
-					fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
-				}
-				if debugtrace.Enabled() {
-					debugtrace.Write("reactor", "tool_step_executed", map[string]any{
-						"stepID":     strings.TrimSpace(step.ID),
-						"name":       strings.TrimSpace(step.Name),
-						"responseID": strings.TrimSpace(step.ResponseID),
-						"args":       step.Args,
-						"result":     debugtrace.SummarizeToolCalls([]llm.ToolCall{call}),
-						"error":      errorString(err),
-					})
-				}
-				if guard != nil {
-					guard.RegisterResult(step.Name, step.Args, call)
-				}
-			}()
-		}
+		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, guard, reg)
 		return nil
 	})
 	return id, stepErrCh
@@ -718,6 +664,178 @@ func fallbackToolStepID(responseID string, idx int, name string) string {
 		name = "tool"
 	}
 	return fmt.Sprintf("%s:%d:%s", base, idx, name)
+}
+
+// handleTypedStreamEvent processes typed Kind stream events from providers that
+// have been migrated to the new streaming contract.
+func (s *Service) handleTypedStreamEvent(
+	ctx context.Context,
+	event *llm.StreamEvent,
+	mux *sync.Mutex,
+	genOutput *core2.GenerateOutput,
+	aPlan *plan.Plan,
+	nextStepIdx *int,
+	wg *sync.WaitGroup,
+	guard *DuplicateGuard,
+	reg tool.Registry,
+) error {
+	switch event.Kind {
+	case llm.StreamEventTextDelta:
+		mux.Lock()
+		genOutput.Content += event.Delta
+		mux.Unlock()
+
+	case llm.StreamEventToolCallCompleted:
+		mux.Lock()
+		defer mux.Unlock()
+		stepID := strings.TrimSpace(event.ToolCallID)
+		if stepID == "" {
+			stepID = fallbackToolStepID(event.ResponseID, len(aPlan.Steps), event.ToolName)
+		}
+		if prev := aPlan.Steps.Find(stepID); prev != nil {
+			prev.Name = strings.TrimSpace(event.ToolName)
+			prev.Args = event.Arguments
+			prev.Reason = strings.TrimSpace(genOutput.Content)
+		} else {
+			aPlan.Steps = append(aPlan.Steps, plan.Step{
+				ID:         stepID,
+				Type:       "tool",
+				Name:       strings.TrimSpace(event.ToolName),
+				Args:       event.Arguments,
+				Reason:     strings.TrimSpace(genOutput.Content),
+				ResponseID: strings.TrimSpace(event.ResponseID),
+			})
+		}
+		// Publish planned tool call event for the UI
+		s.publishTypedToolCallEvent(ctx, event)
+		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, guard, reg)
+
+	case llm.StreamEventToolCallStarted:
+		// Tool call started — no action needed until completed
+
+	case llm.StreamEventTurnCompleted, llm.StreamEventReasoningDelta,
+		llm.StreamEventToolCallDelta, llm.StreamEventUsage,
+		llm.StreamEventItemCompleted:
+		// No reactor action needed for these event types
+
+	default:
+		if debugtrace.Enabled() {
+			debugtrace.Write("reactor", "unhandled_kind", map[string]any{"kind": string(event.Kind)})
+		}
+	}
+	return nil
+}
+
+// publishTypedToolCallEvent publishes a planned tool call event from a typed stream event.
+func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.StreamEvent) {
+	pub, ok := modelcall.StreamPublisherFromContext(ctx)
+	if !ok {
+		return
+	}
+	turn, _ := memory.TurnMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	if assistantMessageID == "" {
+		return
+	}
+	runMeta, _ := memory.RunMetaFromContext(ctx)
+	iteration := 0
+	if runMeta.Iteration > 0 {
+		iteration = runMeta.Iteration
+	}
+	_ = pub.Publish(ctx, &modelcall.StreamEvent{
+		ConversationID: strings.TrimSpace(turn.ConversationID),
+		Event: &streaming.Event{
+			ID:                 assistantMessageID,
+			ConversationID:     strings.TrimSpace(turn.ConversationID),
+			StreamID:           strings.TrimSpace(turn.ConversationID),
+			Type:               streaming.EventTypeModelCompleted,
+			TurnID:             strings.TrimSpace(turn.TurnID),
+			AssistantMessageID: assistantMessageID,
+			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
+			ResponseID:         strings.TrimSpace(event.ResponseID),
+			Status:             "tool_calls",
+			Iteration:          iteration,
+			PageIndex:          iteration,
+			PageCount:          iteration,
+			LatestPage:         true,
+			ToolCallsPlanned: []streaming.PlannedToolCall{{
+				ToolCallID: strings.TrimSpace(event.ToolCallID),
+				ToolName:   strings.TrimSpace(event.ToolName),
+			}},
+		},
+	})
+}
+
+// launchPendingSteps launches goroutines for any plan steps not yet started.
+func (s *Service) launchPendingSteps(
+	ctx context.Context,
+	aPlan *plan.Plan,
+	nextStepIdx *int,
+	wg *sync.WaitGroup,
+	guard *DuplicateGuard,
+	reg tool.Registry,
+) {
+	for *nextStepIdx < len(aPlan.Steps) {
+		st := aPlan.Steps[*nextStepIdx]
+		*nextStepIdx++
+		if st.Type != "tool" {
+			continue
+		}
+		wg.Add(1)
+		step := st
+		go func() {
+			defer wg.Done()
+			stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
+			if debugtrace.Enabled() {
+				turnID := ""
+				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+					turnID = strings.TrimSpace(tm.TurnID)
+				}
+				debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
+					"stepID":      strings.TrimSpace(step.ID),
+					"name":        strings.TrimSpace(step.Name),
+					"responseID":  strings.TrimSpace(step.ResponseID),
+					"args":        step.Args,
+					"currentTurn": turnID,
+				})
+			}
+			if guard != nil {
+				if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
+					if debugtrace.Enabled() {
+						debugtrace.Write("reactor", "tool_step_blocked", map[string]any{
+							"stepID":       strings.TrimSpace(step.ID),
+							"name":         strings.TrimSpace(step.Name),
+							"responseID":   strings.TrimSpace(step.ResponseID),
+							"args":         step.Args,
+							"reusedResult": prev.Name != "" && prev.Error == "",
+							"previous":     debugtrace.SummarizeToolCalls([]llm.ToolCall{prev}),
+						})
+					}
+					if prev.Name != "" && prev.Error == "" && s.convClient != nil {
+						_ = executil.SynthesizeToolStep(ctx, s.convClient, stepInfo, prev.Result)
+					}
+					return
+				}
+			}
+			call, _, err := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+			if err != nil {
+				fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
+			}
+			if debugtrace.Enabled() {
+				debugtrace.Write("reactor", "tool_step_executed", map[string]any{
+					"stepID":     strings.TrimSpace(step.ID),
+					"name":       strings.TrimSpace(step.Name),
+					"responseID": strings.TrimSpace(step.ResponseID),
+					"args":       step.Args,
+					"result":     debugtrace.SummarizeToolCalls([]llm.ToolCall{call}),
+					"error":      errorString(err),
+				})
+			}
+			if guard != nil {
+				guard.RegisterResult(step.Name, step.Args, call)
+			}
+		}()
+	}
 }
 
 func extractPriorToolResults(genInput *core2.GenerateInput) []llm.ToolCall {

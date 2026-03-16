@@ -1,133 +1,14 @@
 package sdk
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/runtime/streaming"
 )
-
-func wrapTranscriptTurns(turns convstore.Transcript, selector *QuerySelector) []*TranscriptTurn {
-	if len(turns) == 0 {
-		return nil
-	}
-	out := make([]*TranscriptTurn, 0, len(turns))
-	for _, turn := range turns {
-		if turn == nil {
-			continue
-		}
-		groups := buildExecutionGroups(turn)
-		total := len(groups)
-		offset := 0
-		limit := total
-		if selector != nil {
-			if selector.Offset > 0 {
-				offset = selector.Offset
-			}
-			if selector.Limit > 0 {
-				limit = selector.Limit
-			}
-			if offset > total {
-				offset = total
-			}
-			end := total
-			if selector.Limit > 0 {
-				end = offset + selector.Limit
-				if end > total {
-					end = total
-				}
-			}
-			groups = groups[offset:end]
-		}
-		out = append(out, &TranscriptTurn{
-			Turn:                  turn,
-			ExecutionGroups:       groups,
-			ExecutionGroupsTotal:  total,
-			ExecutionGroupsOffset: offset,
-			ExecutionGroupsLimit:  limit,
-		})
-	}
-	return out
-}
-
-func buildExecutionGroups(turn *convstore.Turn) []*ExecutionGroup {
-	if turn == nil || len(turn.Message) == 0 {
-		return nil
-	}
-	parentToolMessages := indexToolMessagesByParentAndIteration(turn)
-	groups := make([]*ExecutionGroup, 0, len(turn.Message))
-	for _, message := range turn.Message {
-		if message == nil || message.ModelCall == nil {
-			continue
-		}
-		group := &ExecutionGroup{
-			AssistantMessageID: message.Id,
-			ParentMessageID:    message.Id,
-			ModelMessageID:     message.Id,
-			Sequence:           len(groups) + 1,
-			Iteration:          message.Iteration,
-			Preamble:           executionPreamble(message),
-			Content:            strings.TrimSpace(valueOrEmpty(message.Content)),
-			FinalResponse:      isFinalExecutionMessage(message),
-			Status:             strings.TrimSpace(valueOrEmpty(message.Status)),
-			ModelCall:          message.ModelCall,
-			ToolCallsPlanned:   plannedToolCallsFromMessage(message),
-		}
-		group.ToolMessages, group.ToolCalls = collectToolChildren(turn, message, parentToolMessages)
-		if group.Status == "" && group.ModelCall != nil {
-			group.Status = strings.TrimSpace(group.ModelCall.Status)
-		}
-		groups = append(groups, group)
-	}
-	return groups
-}
-
-func plannedToolCallsFromMessage(message *agconv.MessageView) []streaming.PlannedToolCall {
-	if message == nil || message.ModelCall == nil {
-		return nil
-	}
-	payloads := []*agconv.ModelCallStreamPayloadView{
-		message.ModelCall.ModelCallResponsePayload,
-		message.ModelCall.ModelCallProviderResponsePayload,
-	}
-	for _, payload := range payloads {
-		if payload == nil || payload.InlineBody == nil || strings.TrimSpace(*payload.InlineBody) == "" {
-			continue
-		}
-		var response llm.GenerateResponse
-		if err := json.Unmarshal([]byte(*payload.InlineBody), &response); err != nil {
-			continue
-		}
-		if len(response.Choices) == 0 {
-			continue
-		}
-		choice := response.Choices[0]
-		if len(choice.Message.ToolCalls) == 0 {
-			continue
-		}
-		out := make([]streaming.PlannedToolCall, 0, len(choice.Message.ToolCalls))
-		for _, call := range choice.Message.ToolCalls {
-			name := strings.TrimSpace(call.Name)
-			if name == "" {
-				name = strings.TrimSpace(call.Function.Name)
-			}
-			out = append(out, streaming.PlannedToolCall{
-				ToolCallID: strings.TrimSpace(call.ID),
-				ToolName:   name,
-			})
-		}
-		if len(out) > 0 {
-			return out
-		}
-	}
-	return nil
-}
 
 func indexToolMessagesByParentAndIteration(turn *convstore.Turn) map[string][]*agconv.ToolMessageView {
 	if turn == nil || len(turn.Message) == 0 {

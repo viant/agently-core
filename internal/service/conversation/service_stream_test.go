@@ -126,35 +126,6 @@ func TestPublishTurnEvent_SucceededTurnPublishesCompleted(t *testing.T) {
 	}
 }
 
-func TestLLMResponseEventFromMessage(t *testing.T) {
-	msg := convcli.NewMessage()
-	msg.SetId("m1")
-	msg.SetConversationID("conv-1")
-	msg.SetTurnID("turn-1")
-	msg.SetParentMessageID("parent-1")
-	msg.SetRole("assistant")
-	msg.SetType("text")
-	msg.SetIteration(2)
-	msg.SetPreamble("Inspecting the repo")
-	msg.SetContent("Final answer")
-	msg.SetInterim(0)
-	msg.SetStatus("completed")
-	msg.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
-
-	got := llmResponseEventFromMessage(msg, "conv-1")
-	require.NotNil(t, got)
-	require.Equal(t, streaming.EventTypeLLMResponse, got.Type)
-	require.Equal(t, "m1", got.AssistantMessageID)
-	require.Equal(t, "parent-1", got.ParentMessageID)
-	require.Equal(t, "turn-1", got.TurnID)
-	require.Equal(t, 2, got.Iteration)
-	require.Equal(t, 2, got.PageIndex)
-	require.Equal(t, "Inspecting the repo", got.Preamble)
-	require.Equal(t, "Final answer", got.Content)
-	require.True(t, got.FinalResponse)
-	require.Equal(t, "completed", got.Status)
-}
-
 func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {
 	bus := streaming.NewMemoryBus(2)
 	sub, err := bus.Subscribe(context.Background(), nil)

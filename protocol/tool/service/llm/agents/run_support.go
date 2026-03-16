@@ -129,6 +129,7 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		if summary, ok := s.failedChildRunSummary(ctx, runCtx.childConversationID, err); ok {
 			ro.Answer = summary
 			ro.Status = "failed"
+			ro.Error = strings.TrimSpace(err.Error())
 			if strings.TrimSpace(qo.ConversationID) != "" {
 				ro.ConversationID = qo.ConversationID
 			}
@@ -136,6 +137,10 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 				ro.ConversationID = strings.TrimSpace(runCtx.childConversationID)
 			}
 			s.finalizeRunStatus(ctx, runCtx, "failed")
+			// Return nil: the tool call completed (with a failure summary as the
+			// result). The LLM receives ro.Answer and can react to the failure.
+			// Callers must check ro.Status == "failed" for the tool-level outcome;
+			// a Go error here would abort the parent turn entirely.
 			return nil
 		}
 		s.finalizeRunStatus(ctx, runCtx, "failed")

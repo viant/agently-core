@@ -78,7 +78,7 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 		ID:                 messageID,
 		StreamID:           convID,
 		ConversationID:     convID,
-		Type:               streaming.EventTypeChunk,
+		Type:               streaming.EventTypeTextDelta,
 		AssistantMessageID: messageID,
 		Content:            content,
 		CreatedAt:          time.Now(),

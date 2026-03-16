@@ -173,6 +173,12 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 							return
 						}
 					}
+					// Emit typed text delta.
+					events <- llm.StreamEvent{
+						Kind:  llm.StreamEventTextDelta,
+						Delta: cch.Delta.Content,
+						Role:  llm.RoleAssistant,
+					}
 				}
 				if cch.FinishReason != nil {
 					// finalize this choice
@@ -196,7 +202,18 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				}
 				// Publish usage once with the latest cumulative
 				c.publishUsageOnce(lastModel, lastUsage, &published)
-				events <- llm.StreamEvent{Response: lr}
+				ev := llm.StreamEvent{Response: lr}
+				if len(finalized) > 0 && finalized[0].FinishReason != "" {
+					ev.Kind = llm.StreamEventTurnCompleted
+					ev.FinishReason = finalized[0].FinishReason
+					if finalized[0].Message.Content != "" {
+						ev.Delta = finalized[0].Message.Content
+					}
+				}
+				if lastUsage != nil {
+					ev.Usage = lastUsage
+				}
+				events <- ev
 				lastLR = lr
 			}
 		}

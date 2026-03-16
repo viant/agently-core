@@ -38,7 +38,7 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 	if ev.StreamID != "c1" {
 		t.Fatalf("unexpected stream id: %s", ev.StreamID)
 	}
-	if ev.Type != streaming.EventTypeChunk {
+	if ev.Type != streaming.EventTypeTextDelta {
 		t.Fatalf("unexpected event type: %s", ev.Type)
 	}
 	if ev.Content != "hello" {
@@ -58,7 +58,7 @@ func TestStreamPublisherAdapterPublish_TimelineEventPassthrough(t *testing.T) {
 	err = adapter.Publish(context.Background(), &modelcallctx.StreamEvent{
 		ConversationID: "c1",
 		Event: &streaming.Event{
-			Type:               streaming.EventTypeLLMResponse,
+			Type:               streaming.EventTypeModelCompleted,
 			AssistantMessageID: "m1",
 			ToolCallsPlanned: []streaming.PlannedToolCall{
 				{ToolCallID: "tc1", ToolName: "llm/agents/run"},
@@ -73,7 +73,7 @@ func TestStreamPublisherAdapterPublish_TimelineEventPassthrough(t *testing.T) {
 	if ev == nil {
 		t.Fatalf("expected event")
 	}
-	if ev.Type != streaming.EventTypeLLMResponse {
+	if ev.Type != streaming.EventTypeModelCompleted {
 		t.Fatalf("unexpected event type: %s", ev.Type)
 	}
 	if ev.ConversationID != "c1" {

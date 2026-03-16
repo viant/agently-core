@@ -276,11 +276,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		defer close(events)
 		var lastLR *llm.GenerateResponse
 		ended := false
-		emit := func(lr *llm.GenerateResponse) {
-			if lr != nil {
-				events <- llm.StreamEvent{Response: lr}
-			}
-		}
 		// endObserverOnce removed; directly call OnCallEnd when final response is assembled.
 
 		// Aggregator for Claude streaming events
@@ -328,6 +323,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						id, _ := cb["id"].(string)
 						name, _ := cb["name"].(string)
 						tools[index] = &toolAgg{id: id, name: name}
+						events <- llm.StreamEvent{Kind: llm.StreamEventToolCallStarted, ToolCallID: id, ToolName: name}
 					}
 				}
 			case "content_block_delta":
@@ -336,6 +332,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					// Text delta
 					if txt, _ := delta["text"].(string); txt != "" {
 						aggText.WriteString(txt)
+						events <- llm.StreamEvent{Kind: llm.StreamEventTextDelta, Delta: txt}
 						if observer != nil {
 							if obErr := observer.OnStreamDelta(ctx, []byte(txt)); obErr != nil {
 								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
@@ -347,6 +344,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					if part, _ := delta["partial_json"].(string); part != "" {
 						if ta, ok := tools[index]; ok {
 							ta.json += part
+							events <- llm.StreamEvent{Kind: llm.StreamEventToolCallDelta, ToolCallID: ta.id, ToolName: ta.name, Delta: part}
 						}
 					}
 				}
@@ -365,10 +363,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						finishReason = sr
 					}
 				}
-				// When stop reason arrives, emit a single aggregated event
+				// When stop reason arrives, emit typed completion events
 				if finishReason != "" {
 					msg := llm.Message{Role: llm.RoleAssistant, Content: aggText.String()}
-					// Build tool calls in order of index
+					// Build tool calls in order of index and emit tool_call_completed for each
 					if len(tools) > 0 {
 						// gather keys
 						idxs := make([]int, 0, len(tools))
@@ -391,6 +389,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 								args = map[string]interface{}{"raw": ta.json}
 							}
 							calls = append(calls, llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args})
+							events <- llm.StreamEvent{Kind: llm.StreamEventToolCallCompleted, ToolCallID: ta.id, ToolName: ta.name, Arguments: args}
 						}
 						msg.ToolCalls = calls
 					}
@@ -403,6 +402,10 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					if c.UsageListener != nil && lr.Usage != nil && lr.Usage.TotalTokens > 0 {
 						c.UsageListener.OnUsage(c.Model, lr.Usage)
 					}
+					// Emit usage event if usage is present
+					if aggregatedUsage != nil {
+						events <- llm.StreamEvent{Kind: llm.StreamEventUsage, Usage: aggregatedUsage}
+					}
 					if observer != nil {
 						respJSON, _ := json.Marshal(lr)
 						if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "bedrock/claude", Model: c.Model, ModelKind: "chat", ResponseJSON: respJSON, CompletedAt: time.Now(), FinishReason: finishReason, Usage: lr.Usage, LLMResponse: lr}); obErr != nil {
@@ -412,7 +415,8 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						ended = true
 					}
 					lastLR = lr
-					emit(lr)
+					// Emit turn_completed as the final event
+					events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: finishReason}
 				}
 			default:
 				// ignore other types

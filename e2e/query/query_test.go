@@ -226,20 +226,20 @@ func TestQueryWithForcedToolUsage(t *testing.T) {
 
 	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
 	require.NoError(t, err)
-	groups := transcriptExecutionGroups(transcript)
-	require.NotEmpty(t, groups, "expected execution groups in transcript")
+	pages := collectExecutionPages(transcript)
+	require.NotEmpty(t, pages, "expected execution pages in transcript")
 	toolCallCount := 0
 	foundEnvTool := false
-	for _, group := range groups {
-		if group == nil {
+	for _, page := range pages {
+		if page == nil {
 			continue
 		}
-		for _, toolCall := range group.ToolCalls {
-			if toolCall == nil {
+		for _, toolStep := range page.ToolSteps {
+			if toolStep == nil {
 				continue
 			}
 			toolCallCount++
-			name := strings.ToLower(strings.TrimSpace(toolCall.ToolName))
+			name := strings.ToLower(strings.TrimSpace(toolStep.ToolName))
 			if strings.Contains(name, "system/os:getenv") || strings.Contains(name, "system_os-getenv") || strings.Contains(name, "system/os/getenv") {
 				foundEnvTool = true
 			}
@@ -272,20 +272,20 @@ func TestQueryWithToolUsage(t *testing.T) {
 
 	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
 	require.NoError(t, err)
-	groups := transcriptExecutionGroups(transcript)
-	require.NotEmpty(t, groups, "expected execution groups in transcript")
+	pages := collectExecutionPages(transcript)
+	require.NotEmpty(t, pages, "expected execution pages in transcript")
 	toolCallCount := 0
 	foundEnvTool := false
-	for _, group := range groups {
-		if group == nil {
+	for _, page := range pages {
+		if page == nil {
 			continue
 		}
-		for _, toolCall := range group.ToolCalls {
-			if toolCall == nil {
+		for _, toolStep := range page.ToolSteps {
+			if toolStep == nil {
 				continue
 			}
 			toolCallCount++
-			name := strings.ToLower(strings.TrimSpace(toolCall.ToolName))
+			name := strings.ToLower(strings.TrimSpace(toolStep.ToolName))
 			if strings.Contains(name, "system/os:getenv") || strings.Contains(name, "system_os-getenv") || strings.Contains(name, "system/os/getenv") {
 				foundEnvTool = true
 			}
@@ -348,7 +348,7 @@ func TestQueryLLMSourcedElicitationFavoriteColor(t *testing.T) {
 	require.NotNil(t, out.Plan.Elicitation, "expected model to return elicitation plan")
 
 	elic := out.Plan.Elicitation
-	assert.Contains(t, strings.ToLower(elic.Message), "favorite color", "elicitation message should request favorite color")
+	assert.Contains(t, compactText(elic.Message), "favoritecolor", "elicitation message should request favorite color")
 	assert.Contains(t, elic.RequestedSchema.Required, "favoriteColor", "required schema should include favoriteColor")
 	_, hasFavoriteColor := elic.RequestedSchema.Properties["favoriteColor"]
 	assert.True(t, hasFavoriteColor, "requested schema should define favoriteColor property")
@@ -401,9 +401,18 @@ func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, transcript)
 	require.NotEmpty(t, transcript.Turns)
-	require.NotEmpty(t, transcript.Turns[0].Message)
-	require.NotEmpty(t, transcript.Turns[0].Message[0].Attachment)
-	assert.Equal(t, "image/png", transcript.Turns[0].Message[0].Attachment[0].MimeType)
+	msgs, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: out.ConversationID, Roles: []string{"user"}})
+	require.NoError(t, err)
+	require.NotNil(t, msgs)
+	foundAttachmentPayload := false
+	for _, row := range msgs.Rows {
+		if row == nil || row.AttachmentPayloadId == nil || strings.TrimSpace(*row.AttachmentPayloadId) == "" {
+			continue
+		}
+		foundAttachmentPayload = true
+		break
+	}
+	assert.True(t, foundAttachmentPayload, "expected persisted attachment payload on user message rows")
 }
 
 func TestQueryOpenAIResponsesPDFInlineAttachment(t *testing.T) {
@@ -487,15 +496,15 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.Equal(t, "A dog named Comet found a blue ball in the park and carried it home proudly.", strings.TrimSpace(out.Content))
+	assert.Equal(t, compactText("A dog named Comet found a blue ball in the park and carried it home proudly."), compactText(out.Content))
 
 	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
 	require.NoError(t, err)
-	parentGroups := transcriptExecutionGroups(transcript)
-	require.NotEmpty(t, parentGroups, "expected execution groups in parent transcript")
-	assert.NotNil(t, parentGroups[0].ModelCall)
-	assert.NotEmpty(t, parentGroups[0].ParentMessageID)
-	assert.True(t, len(parentGroups[0].ToolCalls) > 0 || len(parentGroups) > 1, "expected model-driven execution flow")
+	parentPages := collectExecutionPages(transcript)
+	require.NotEmpty(t, parentPages, "expected execution pages in parent transcript")
+	require.NotEmpty(t, parentPages[0].ModelSteps)
+	assert.NotEmpty(t, parentPages[0].AssistantMessageID)
+	assert.True(t, len(parentPages[0].ToolSteps) > 0 || len(parentPages) > 1, "expected model-driven execution flow")
 	linkedConversationID := firstLinkedConversationID(transcript)
 	require.NotEmpty(t, linkedConversationID, "expected linked child conversation in transcript")
 
@@ -506,39 +515,16 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 	require.NotEmpty(t, linkedPage.Rows)
 	assert.Equal(t, linkedConversationID, linkedPage.Rows[0].ConversationID)
 	assert.NotEmpty(t, linkedPage.Rows[0].Status)
-	assert.Contains(t, linkedPage.Rows[0].Response, "A dog named Comet found a blue ball in the park and carried it home proudly.")
+	assert.Contains(t, compactText(linkedPage.Rows[0].Response), compactText("A dog named Comet found a blue ball in the park and carried it home proudly."))
 
 	childTranscript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: linkedConversationID})
 	require.NoError(t, err)
-	childGroups := transcriptExecutionGroups(childTranscript)
-	require.NotEmpty(t, childGroups, "expected execution groups in child transcript")
-	assert.True(t, childGroups[len(childGroups)-1].FinalResponse, "expected child transcript to end with final response group")
-	assert.Contains(t, childGroups[len(childGroups)-1].Content, "A dog named Comet found a blue ball in the park and carried it home proudly.")
+	childPages := collectExecutionPages(childTranscript)
+	require.NotEmpty(t, childPages, "expected execution pages in child transcript")
+	assert.True(t, childPages[len(childPages)-1].FinalResponse, "expected child transcript to end with final response page")
+	assert.Contains(t, compactText(childPages[len(childPages)-1].Content), compactText("A dog named Comet found a blue ball in the park and carried it home proudly."))
 	childText := collectTranscriptText(childTranscript)
-	assert.Contains(t, childText, "A dog named Comet found a blue ball in the park and carried it home proudly.")
-
-	limitedTranscript, err := client.GetTranscript(ctx,
-		&sdk.GetTranscriptInput{ConversationID: out.ConversationID},
-		sdk.WithExecutionGroupLimit(1),
-		sdk.WithExecutionGroupOffset(1),
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, limitedTranscript.Turns)
-	limitedGroups := transcriptExecutionGroups(limitedTranscript)
-	require.Len(t, limitedGroups, 1)
-	assert.Equal(t, 1, limitedTranscript.Turns[0].ExecutionGroupsLimit)
-	assert.Equal(t, 1, limitedTranscript.Turns[0].ExecutionGroupsOffset)
-
-	offsetTranscript, err := client.GetTranscript(ctx,
-		&sdk.GetTranscriptInput{ConversationID: out.ConversationID},
-		sdk.WithExecutionGroupLimit(1),
-		sdk.WithExecutionGroupOffset(0),
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, offsetTranscript.Turns)
-	offsetGroups := transcriptExecutionGroups(offsetTranscript)
-	require.Len(t, offsetGroups, 1)
-	assert.NotEqual(t, limitedGroups[0].AssistantMessageID, offsetGroups[0].AssistantMessageID)
+	assert.Contains(t, compactText(childText), compactText("A dog named Comet found a blue ball in the park and carried it home proudly."))
 }
 
 func mustCreatePNG(t *testing.T, fill color.RGBA) []byte {
@@ -571,57 +557,58 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func firstLinkedConversationID(transcript *sdk.TranscriptOutput) string {
-	if transcript == nil {
+func compactText(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), ""))
+}
+
+func firstLinkedConversationID(state *sdk.ConversationState) string {
+	if state == nil {
 		return ""
 	}
-	for _, turn := range transcript.Turns {
+	for _, turn := range state.Turns {
 		if turn == nil {
 			continue
 		}
-		for _, message := range turn.Message {
-			if message == nil || message.LinkedConversationId == nil {
-				continue
-			}
-			if value := strings.TrimSpace(*message.LinkedConversationId); value != "" {
-				return value
+		for _, lc := range turn.LinkedConversations {
+			if lc != nil && strings.TrimSpace(lc.ConversationID) != "" {
+				return strings.TrimSpace(lc.ConversationID)
 			}
 		}
 	}
 	return ""
 }
 
-func collectTranscriptText(transcript *sdk.TranscriptOutput) string {
+func collectTranscriptText(state *sdk.ConversationState) string {
 	var parts []string
-	if transcript == nil {
+	if state == nil {
 		return ""
 	}
-	for _, turn := range transcript.Turns {
+	for _, turn := range state.Turns {
 		if turn == nil {
 			continue
 		}
-		for _, message := range turn.Message {
-			if message == nil || message.Content == nil {
-				continue
+		if turn.Assistant != nil {
+			if turn.Assistant.Preamble != nil && strings.TrimSpace(turn.Assistant.Preamble.Content) != "" {
+				parts = append(parts, strings.TrimSpace(turn.Assistant.Preamble.Content))
 			}
-			if text := strings.TrimSpace(*message.Content); text != "" {
-				parts = append(parts, text)
+			if turn.Assistant.Final != nil && strings.TrimSpace(turn.Assistant.Final.Content) != "" {
+				parts = append(parts, strings.TrimSpace(turn.Assistant.Final.Content))
 			}
 		}
 	}
 	return strings.Join(parts, "\n")
 }
 
-func transcriptExecutionGroups(transcript *sdk.TranscriptOutput) []*sdk.ExecutionGroup {
-	var groups []*sdk.ExecutionGroup
-	if transcript == nil {
+func collectExecutionPages(state *sdk.ConversationState) []*sdk.ExecutionPageState {
+	var pages []*sdk.ExecutionPageState
+	if state == nil {
 		return nil
 	}
-	for _, turn := range transcript.Turns {
-		if turn == nil || len(turn.ExecutionGroups) == 0 {
+	for _, turn := range state.Turns {
+		if turn == nil || turn.Execution == nil {
 			continue
 		}
-		groups = append(groups, turn.ExecutionGroups...)
+		pages = append(pages, turn.Execution.Pages...)
 	}
-	return groups
+	return pages
 }

@@ -609,7 +609,7 @@ func (c *HTTPClient) ImportResources(ctx context.Context, input *ImportResources
 	return &out, nil
 }
 
-func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error) {
+func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -640,7 +640,7 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	var out TranscriptOutput
+	var out ConversationState
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}

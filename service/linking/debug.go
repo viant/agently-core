@@ -31,6 +31,13 @@ func infof(format string, args ...any) {
 	log.Printf("[debug][conversation][INFO] "+format, args...)
 }
 
+func warnf(format string, args ...any) {
+	if !DebugEnabled() {
+		return
+	}
+	log.Printf("[debug][conversation][WARN] "+format, args...)
+}
+
 func errorf(format string, args ...any) {
 	if !DebugEnabled() {
 		return

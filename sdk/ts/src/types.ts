@@ -111,23 +111,52 @@ export interface GetTranscriptOptions {
     executionGroupOffset?: number;
 }
 
-export interface ExecutionGroup {
+export interface ExecutionPage {
+    pageId: string;
     assistantMessageId: string;
     parentMessageId: string;
-    modelMessageId: string;
-    sequence: number;
+    turnId?: string;
     iteration?: number;
     preamble?: string;
     content?: string;
     finalResponse: boolean;
     status?: string;
-    modelCall?: ModelCall;
-    toolMessages?: ToolMessage[];
-    toolCalls?: ToolCall[];
+    modelSteps: ModelStepState[];
+    toolSteps: ToolStepState[];
     toolCallsPlanned?: PlannedToolCall[];
+    preambleMessageId?: string;
+    finalAssistantMessageId?: string;
 }
 
-export type ExecutionPage = ExecutionGroup;
+export interface ModelStepState {
+    modelCallId: string;
+    assistantMessageId?: string;
+    provider?: string;
+    model?: string;
+    status?: string;
+    requestPayloadId?: string;
+    responsePayloadId?: string;
+    providerRequestPayloadId?: string;
+    providerResponsePayloadId?: string;
+    streamPayloadId?: string;
+    startedAt?: string;
+    completedAt?: string;
+}
+
+export interface ToolStepState {
+    toolCallId: string;
+    toolMessageId?: string;
+    toolName: string;
+    status?: string;
+    requestPayloadId?: string;
+    responsePayloadId?: string;
+    linkedConversationId?: string;
+    startedAt?: string;
+    completedAt?: string;
+}
+
+/** @deprecated Use ExecutionPage instead */
+export type ExecutionGroup = ExecutionPage;
 
 // ─── Message ───────────────────────────────────────────────────────────────────
 
@@ -249,17 +278,35 @@ export interface GetMessagesInput {
 // ─── Streaming ─────────────────────────────────────────────────────────────────
 
 export type SSEEventType =
-    | 'chunk'
-    | 'tool'
-    | 'done'
+    // Stream deltas
+    | 'text_delta'
+    | 'reasoning_delta'
+    | 'tool_call_delta'
     | 'error'
-    | 'control'
+    // Turn lifecycle
     | 'turn_started'
-    | 'llm_request_started'
-    | 'llm_response'
+    | 'turn_completed'
+    | 'turn_failed'
+    | 'turn_canceled'
+    // Model lifecycle
+    | 'model_started'
+    | 'model_completed'
+    // Assistant content (aggregated)
+    | 'assistant_preamble'
+    | 'assistant_final'
+    // Tool call lifecycle
     | 'tool_call_started'
     | 'tool_call_completed'
-    | 'turn_completed';
+    // Metadata
+    | 'item_completed'
+    | 'usage'
+    // Elicitation
+    | 'elicitation_requested'
+    | 'elicitation_resolved'
+    // Linked conversation
+    | 'linked_conversation_attached'
+    // Control (patch-based)
+    | 'control';
 
 export interface EventModel {
     provider?: string;

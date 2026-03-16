@@ -484,24 +484,22 @@ func (c *EmbeddedClient) ListLinkedConversations(ctx context.Context, input *Lis
 }
 
 func (c *EmbeddedClient) latestAssistantResponse(ctx context.Context, conversationID string) string {
-	transcript, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
-	if err != nil || transcript == nil {
+	state, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
+	if err != nil || state == nil {
 		return ""
 	}
-	for i := len(transcript.Turns) - 1; i >= 0; i-- {
-		turn := transcript.Turns[i]
-		if turn == nil {
+	for i := len(state.Turns) - 1; i >= 0; i-- {
+		turn := state.Turns[i]
+		if turn == nil || turn.Assistant == nil {
 			continue
 		}
-		for j := len(turn.Message) - 1; j >= 0; j-- {
-			message := turn.Message[j]
-			if message == nil || message.Content == nil {
-				continue
+		if turn.Assistant.Final != nil {
+			if text := strings.TrimSpace(turn.Assistant.Final.Content); text != "" {
+				return text
 			}
-			if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
-				continue
-			}
-			if text := strings.TrimSpace(*message.Content); text != "" {
+		}
+		if turn.Assistant.Preamble != nil {
+			if text := strings.TrimSpace(turn.Assistant.Preamble.Content); text != "" {
 				return text
 			}
 		}
@@ -1349,7 +1347,7 @@ func (c *EmbeddedClient) ImportResources(ctx context.Context, input *ImportResou
 	return out, nil
 }
 
-func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*TranscriptOutput, error) {
+func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -1373,7 +1371,7 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 		return nil, err
 	}
 	if conv == nil {
-		return &TranscriptOutput{Turns: nil}, nil
+		return &ConversationState{ConversationID: input.ConversationID}, nil
 	}
 	turns := conv.GetTranscript()
 	c.enrichTranscriptElicitations(ctx, turns)
@@ -1381,7 +1379,7 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 	if sinceMessageID != "" {
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
-	return &TranscriptOutput{Turns: wrapTranscriptTurns(turns, transcriptExecutionGroupSelector(optState))}, nil
+	return BuildCanonicalState(input.ConversationID, turns), nil
 }
 
 func (c *EmbeddedClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {
@@ -1454,16 +1452,6 @@ func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstat
 		})
 	}
 	return result
-}
-
-func transcriptExecutionGroupSelector(optsState *transcriptOptions) *QuerySelector {
-	if optsState == nil || optsState.selectors == nil {
-		return nil
-	}
-	if selector := optsState.selectors[TranscriptSelectorExecutionPage]; selector != nil {
-		return selector
-	}
-	return optsState.selectors[TranscriptSelectorMessage]
 }
 
 func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {

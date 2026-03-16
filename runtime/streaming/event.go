@@ -11,17 +11,43 @@ import (
 type EventType string
 
 const (
-	EventTypeChunk           EventType = "chunk"
-	EventTypeTool            EventType = "tool"
-	EventTypeDone            EventType = "done"
-	EventTypeError           EventType = "error"
-	EventTypeControl         EventType = "control"
-	EventTypeTurnStarted     EventType = "turn_started"
-	EventTypeLLMRequestStart EventType = "llm_request_started"
-	EventTypeLLMResponse     EventType = "llm_response"
-	EventTypeToolCallStarted EventType = "tool_call_started"
-	EventTypeToolCallDone    EventType = "tool_call_completed"
-	EventTypeTurnCompleted   EventType = "turn_completed"
+	// Stream delta types — fine-grained provider output.
+	EventTypeTextDelta      EventType = "text_delta"
+	EventTypeReasoningDelta EventType = "reasoning_delta"
+	EventTypeToolCallDelta  EventType = "tool_call_delta"
+	EventTypeError          EventType = "error"
+
+	// Control events (patch-based updates).
+	EventTypeControl EventType = "control"
+
+	// Turn lifecycle.
+	EventTypeTurnStarted   EventType = "turn_started"
+	EventTypeTurnCompleted EventType = "turn_completed"
+	EventTypeTurnFailed    EventType = "turn_failed"
+	EventTypeTurnCanceled  EventType = "turn_canceled"
+
+	// Model lifecycle.
+	EventTypeModelStarted   EventType = "model_started"
+	EventTypeModelCompleted EventType = "model_completed"
+
+	// Assistant content (aggregated).
+	EventTypeAssistantPreamble EventType = "assistant_preamble"
+	EventTypeAssistantFinal    EventType = "assistant_final"
+
+	// Tool call lifecycle.
+	EventTypeToolCallStarted   EventType = "tool_call_started"
+	EventTypeToolCallCompleted EventType = "tool_call_completed"
+
+	// Stream metadata / completion.
+	EventTypeItemCompleted EventType = "item_completed"
+	EventTypeUsage         EventType = "usage"
+
+	// Elicitation lifecycle.
+	EventTypeElicitationRequested EventType = "elicitation_requested"
+	EventTypeElicitationResolved  EventType = "elicitation_resolved"
+
+	// Linked conversation.
+	EventTypeLinkedConversationAttached EventType = "linked_conversation_attached"
 )
 
 type EventModel struct {
@@ -67,38 +93,97 @@ type Event struct {
 	Model                *EventModel            `json:"model,omitempty"`
 	ToolCallsPlanned     []PlannedToolCall      `json:"toolCallsPlanned,omitempty"`
 	CreatedAt            time.Time              `json:"createdAt,omitempty"`
+	ElicitationID        string                 `json:"elicitationId,omitempty"`
+	ElicitationData      map[string]interface{} `json:"elicitationData,omitempty"`
+	CallbackURL          string                 `json:"callbackUrl,omitempty"`
+	ResponsePayload      map[string]interface{} `json:"responsePayload,omitempty"`
+	CompletedAt          *time.Time             `json:"completedAt,omitempty"`
+	StartedAt            *time.Time             `json:"startedAt,omitempty"`
+	UserMessageID        string                 `json:"userMessageId,omitempty"`
+	ModelCallID          string                 `json:"modelCallId,omitempty"`
+	Provider             string                 `json:"provider,omitempty"`
+	ModelName            string                 `json:"modelName,omitempty"`
 }
 
 // FromLLMEvent converts an llm stream event to a generic streaming event.
+// When the event carries typed Kind fields, those take precedence over
+// the legacy Response-based inference.
 func FromLLMEvent(streamID string, in llm.StreamEvent) *Event {
 	out := &Event{
 		StreamID:       streamID,
 		ConversationID: streamID,
 		CreatedAt:      time.Now(),
 	}
+
+	// Propagate stable IDs from typed stream deltas.
+	out.ResponseID = strings.TrimSpace(in.ResponseID)
+	out.ID = strings.TrimSpace(in.ItemID)
+	out.ToolCallID = strings.TrimSpace(in.ToolCallID)
+
 	if in.Err != nil {
 		out.Type = EventTypeError
 		out.Error = in.Err.Error()
 		return out
 	}
+
+	// Typed delta path — map each provider Kind to a distinct domain event type.
+	if in.Kind != "" {
+		switch in.Kind {
+		case llm.StreamEventTextDelta:
+			out.Type = EventTypeTextDelta
+			out.Content = in.Delta
+		case llm.StreamEventReasoningDelta:
+			out.Type = EventTypeReasoningDelta
+			out.Content = in.Delta
+		case llm.StreamEventToolCallStarted:
+			out.Type = EventTypeToolCallStarted
+			out.ToolName = in.ToolName
+		case llm.StreamEventToolCallDelta:
+			out.Type = EventTypeToolCallDelta
+			out.ToolName = in.ToolName
+			out.Content = in.Delta
+		case llm.StreamEventToolCallCompleted:
+			out.Type = EventTypeToolCallCompleted
+			out.ToolName = in.ToolName
+			out.Arguments = in.Arguments
+		case llm.StreamEventUsage:
+			out.Type = EventTypeUsage
+		case llm.StreamEventItemCompleted:
+			out.Type = EventTypeItemCompleted
+		case llm.StreamEventTurnStarted:
+			out.Type = EventTypeTurnStarted
+		case llm.StreamEventTurnCompleted:
+			out.Type = EventTypeTurnCompleted
+			out.Status = in.FinishReason
+		case llm.StreamEventError:
+			out.Type = EventTypeError
+			out.Error = in.Delta
+		}
+		return out
+	}
+
+	// Legacy Response path — map to canonical types.
 	if in.Response == nil {
-		out.Type = EventTypeDone
+		out.Type = EventTypeTurnCompleted
 		return out
 	}
 	if len(in.Response.Choices) == 0 {
-		out.Type = EventTypeDone
+		out.Type = EventTypeTurnCompleted
 		return out
 	}
 	choice := in.Response.Choices[0]
 	msg := choice.Message
 	if len(msg.ToolCalls) > 0 {
-		out.Type = EventTypeTool
+		out.Type = EventTypeToolCallCompleted
 		out.ToolName = msg.ToolCalls[0].Name
 		out.Arguments = msg.ToolCalls[0].Arguments
+		if out.ToolCallID == "" {
+			out.ToolCallID = msg.ToolCalls[0].ID
+		}
 		return out
 	}
 	if msg.FunctionCall != nil {
-		out.Type = EventTypeTool
+		out.Type = EventTypeToolCallCompleted
 		out.ToolName = msg.FunctionCall.Name
 		if strings.TrimSpace(msg.FunctionCall.Arguments) != "" {
 			args := map[string]interface{}{}
@@ -109,10 +194,10 @@ func FromLLMEvent(streamID string, in llm.StreamEvent) *Event {
 	}
 	content := llm.MessageText(msg)
 	if content == "" {
-		out.Type = EventTypeDone
+		out.Type = EventTypeTurnCompleted
 		return out
 	}
-	out.Type = EventTypeChunk
+	out.Type = EventTypeTextDelta
 	out.Content = content
 	return out
 }

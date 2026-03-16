@@ -250,14 +250,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		defer close(out)
 		_ = resp.Header.Get("Content-Type")
 		agg := newGeminiAggregator(c.Model, c.UsageListener)
-		// buffer final response so we can notify observer before publishing it
+		// buffer events so we can track the last response for observer before publishing
 		bufCh := make(chan llm.StreamEvent, 10)
 		var lastLR *llm.GenerateResponse
-		emit := func(lr *llm.GenerateResponse) {
-			if lr != nil {
-				out <- llm.StreamEvent{Response: lr}
-			}
-		}
 		endObserver := func(final *llm.GenerateResponse) {
 			if observer != nil {
 				var respJSON []byte
@@ -288,8 +283,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		go func() {
 			defer wg.Done()
 			for ev := range bufCh {
-				if ev.Response != nil {
-					lastLR = ev.Response
+				if ev.Kind == llm.StreamEventTurnCompleted {
+					// Build a GenerateResponse for observer tracking
+					lastLR = agg.buildResponse(ev.FinishReason)
 				}
 				out <- ev
 			}
@@ -298,10 +294,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		c.streamJSON(resp.Body, bufCh, agg, observer, ctx)
 		close(bufCh)
 		wg.Wait()
-		// Prepare remainder as final response without emitting yet
-		final := agg.emitRemainderResponse()
+		// Emit remainder for non-finished candidates on stream end
+		final := agg.emitRemainderEvents(out)
 		endObserver(final)
-		emit(final)
 	}()
 	return out, nil
 }
@@ -376,42 +371,93 @@ func (a *geminiAggregator) addResponse(resp *Response) {
 	}
 }
 
-// emitFinished builds and emits a response only for completed candidates, then clears them.
+// emitFinished emits typed delta events for completed candidates, then clears them.
 func (a *geminiAggregator) emitFinished(events chan<- llm.StreamEvent) {
 	if len(a.finish) == 0 {
 		return
 	}
-	out := &llm.GenerateResponse{Model: a.model}
 	for idx, reason := range a.finish {
-		msg := llm.Message{Role: llm.RoleAssistant, Content: a.text[idx].String()}
+		// Note: inline text deltas are emitted from streamJSON; the aggregator text is for observer/response building.
+
+		// Emit each tool call as completed
 		if calls := a.tools[idx]; len(calls) > 0 {
-			msg.ToolCalls = calls
+			for _, tc := range calls {
+				events <- llm.StreamEvent{
+					Kind:       llm.StreamEventToolCallCompleted,
+					ToolCallID: tc.ID,
+					ToolName:   tc.Name,
+					Arguments:  tc.Arguments,
+				}
+			}
 		}
-		out.Choices = append(out.Choices, llm.Choice{Index: idx, Message: msg, FinishReason: reason})
+
+		// Emit usage if available
+		if a.usage != nil && (a.usage.TotalTokens > 0 || a.usage.PromptTokens > 0 || a.usage.CompletionTokens > 0) {
+			events <- llm.StreamEvent{Kind: llm.StreamEventUsage, Usage: a.usage}
+		}
+
+		// Emit turn completed
+		events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: reason}
+
 		delete(a.text, idx)
 		delete(a.tools, idx)
 	}
 	a.finish = map[int]string{}
-	if a.usage != nil && a.usage.TotalTokens > 0 {
-		out.Usage = a.usage
-	}
-	if len(out.Choices) > 0 {
-		events <- llm.StreamEvent{Response: out}
-	}
 }
 
-// emitRemainder flushes any non-finished candidates on stream end, using STOP finish reason.
-func (a *geminiAggregator) emitRemainderResponse() *llm.GenerateResponse {
-	if len(a.text) == 0 && len(a.tools) == 0 {
-		return nil
-	}
+// buildResponse creates a GenerateResponse from current aggregator state (for observer tracking).
+func (a *geminiAggregator) buildResponse(finishReason string) *llm.GenerateResponse {
 	out := &llm.GenerateResponse{Model: a.model}
 	for idx, b := range a.text {
 		msg := llm.Message{Role: llm.RoleAssistant, Content: b.String()}
 		if calls := a.tools[idx]; len(calls) > 0 {
 			msg.ToolCalls = calls
 		}
+		reason := finishReason
+		if r, ok := a.finish[idx]; ok && r != "" {
+			reason = r
+		}
+		out.Choices = append(out.Choices, llm.Choice{Index: idx, Message: msg, FinishReason: reason})
+	}
+	if a.usage != nil && a.usage.TotalTokens > 0 {
+		out.Usage = a.usage
+	}
+	if len(out.Choices) > 0 {
+		return out
+	}
+	return nil
+}
+
+// emitRemainderEvents flushes any non-finished candidates on stream end as typed events, using STOP finish reason.
+// It also returns a GenerateResponse for observer use.
+func (a *geminiAggregator) emitRemainderEvents(events chan<- llm.StreamEvent) *llm.GenerateResponse {
+	if len(a.text) == 0 && len(a.tools) == 0 {
+		return nil
+	}
+	out := &llm.GenerateResponse{Model: a.model}
+	for idx, b := range a.text {
+		msg := llm.Message{Role: llm.RoleAssistant, Content: b.String()}
+		// Emit tool calls
+		if calls := a.tools[idx]; len(calls) > 0 {
+			msg.ToolCalls = calls
+			for _, tc := range calls {
+				events <- llm.StreamEvent{
+					Kind:       llm.StreamEventToolCallCompleted,
+					ToolCallID: tc.ID,
+					ToolName:   tc.Name,
+					Arguments:  tc.Arguments,
+				}
+			}
+		}
 		out.Choices = append(out.Choices, llm.Choice{Index: idx, Message: msg, FinishReason: "STOP"})
+	}
+	// Emit usage if available
+	if a.usage != nil && (a.usage.TotalTokens > 0 || a.usage.PromptTokens > 0 || a.usage.CompletionTokens > 0) {
+		events <- llm.StreamEvent{Kind: llm.StreamEventUsage, Usage: a.usage}
+	}
+	// Emit turn completed for remainder
+	if len(out.Choices) > 0 {
+		events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: "STOP"}
 	}
 	// clear state
 	a.text = map[int]*strings.Builder{}
@@ -422,6 +468,24 @@ func (a *geminiAggregator) emitRemainderResponse() *llm.GenerateResponse {
 	}
 	if len(out.Choices) > 0 {
 		return out
+	}
+	return nil
+}
+
+// emitChunkTextDeltas emits typed text delta events for each text part in a Gemini response chunk,
+// and forwards them to the observer if present.
+func emitChunkTextDeltas(obj *Response, events chan<- llm.StreamEvent, observer mcbuf.Observer, ctx context.Context) error {
+	for _, cand := range obj.Candidates {
+		for _, p := range cand.Content.Parts {
+			if p.Text != "" {
+				events <- llm.StreamEvent{Kind: llm.StreamEventTextDelta, Delta: p.Text}
+				if observer != nil {
+					if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
+						return obErr
+					}
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -485,18 +549,10 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 					return
 				}
 				agg.addResponse(&obj)
-				// emit text deltas to observer when present
-				if observer != nil {
-					for _, cand := range obj.Candidates {
-						for _, p := range cand.Content.Parts {
-							if p.Text != "" {
-								if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
-									events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
-									return
-								}
-							}
-						}
-					}
+				// emit inline text deltas and forward to observer
+				if err := emitChunkTextDeltas(&obj, events, observer, ctx); err != nil {
+					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+					return
 				}
 				agg.emitFinished(events)
 			}
@@ -513,17 +569,10 @@ func (c *Client) streamJSON(r io.Reader, events chan<- llm.StreamEvent, agg *gem
 				return
 			}
 			agg.addResponse(&obj)
-			if observer != nil {
-				for _, cand := range obj.Candidates {
-					for _, p := range cand.Content.Parts {
-						if p.Text != "" {
-							if obErr := observer.OnStreamDelta(ctx, []byte(p.Text)); obErr != nil {
-								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
-								return
-							}
-						}
-					}
-				}
+			// emit inline text deltas and forward to observer
+			if err := emitChunkTextDeltas(&obj, events, observer, ctx); err != nil {
+				events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+				return
 			}
 			agg.emitFinished(events)
 		default:
