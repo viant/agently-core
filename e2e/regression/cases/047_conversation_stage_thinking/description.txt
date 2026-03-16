@@ -1,0 +1,18 @@
+Case: 047_conversation_stage_thinking
+
+Purpose:
+Validate derived conversation/turn stage while the first LLM call is actively in progress.
+
+What this test verifies:
+- a long-running first LLM call can be started on the `simple` agent
+- the conversation enters derived stage `thinking` before completion
+- the latest turn remains `running` while stage is `thinking`
+
+Implementation note:
+- the case uses an Endly `multiAction` task so the query can keep running while the same task fetches conversation state
+- the test waits briefly for turn activation and then asserts `thinking` directly from `GET /v1/conversations/{id}`
+- the turn is canceled after verification to avoid test bleed
+
+Why it matters:
+- protects the live pre-tool stage used by UI and SDK consumers
+- complements the canceled-first-llm case by verifying the nonterminal stage itself

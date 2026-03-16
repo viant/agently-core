@@ -1,0 +1,13 @@
+Case: 041_conversation_stage_done
+
+Purpose:
+Validate derived conversation/turn stage for a normal successful completion.
+
+What this test verifies:
+- a simple query completes without elicitation or tool execution
+- the conversation ends in derived stage `done`
+- the latest turn persists with `Status: succeeded`
+
+Why it matters:
+- protects the normal terminal success state used by UI and SDK consumers
+- gives explicit stage coverage instead of relying only on general happy-path cases

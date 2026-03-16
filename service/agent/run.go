@@ -36,6 +36,7 @@ import (
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elact "github.com/viant/agently-core/service/elicitation/action"
+	"github.com/viant/agently-core/service/shared"
 	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
@@ -74,6 +75,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Bridge auth/user identity first so conversation bootstrap can persist owner.
 	ctx = s.bindAuthFromInputContext(ctx, input)
 	ctx = bindEffectiveUserFromInput(ctx, input)
+	if input != nil {
+		infof("agent.Query serviceStart at=%s convo=%q message_id=%q agent_id=%q user_id=%q", queryStarted.Format(time.RFC3339Nano), strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.AgentID), strings.TrimSpace(input.UserId))
+	}
 
 	envStarted := time.Now()
 	if err := s.ensureEnvironment(ctx, input); err != nil {
@@ -1218,6 +1222,22 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	return fmt.Errorf("failed to update conversation status: %w", convErr)
 }
 
+func (s *Service) patchQueuedStarterMessageStatus(ctx context.Context, conversationID, turnID, starterID, status string) {
+	if s == nil || s.conversation == nil || strings.TrimSpace(starterID) == "" || strings.TrimSpace(status) == "" {
+		return
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(strings.TrimSpace(starterID))
+	msg.SetConversationID(strings.TrimSpace(conversationID))
+	if strings.TrimSpace(turnID) != "" {
+		msg.SetTurnID(strings.TrimSpace(turnID))
+	}
+	msg.SetStatus(shared.NormalizeMessageStatus(status))
+	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+		warnf("agent.queueDrain patch starter message failed convo=%q turn_id=%q starter_id=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(starterID), strings.TrimSpace(status), err)
+	}
+}
+
 func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content, raw string) error {
 	var rawPtr *string
 	if strings.TrimSpace(raw) != "" {
@@ -1409,6 +1429,7 @@ func (s *Service) drainQueuedTurns(conversationID string) error {
 			upd.SetStatus("failed")
 			upd.SetErrorMessage("queued starter message is empty")
 			_ = s.conversation.PatchTurn(context.Background(), upd)
+			s.patchQueuedStarterMessageStatus(context.Background(), conversationID, turnID, starterID, "failed")
 			warnf("agent.queueDrain empty starter message convo=%q turn_id=%q starter_id=%q", conversationID, turnID, starterID)
 			continue
 		}

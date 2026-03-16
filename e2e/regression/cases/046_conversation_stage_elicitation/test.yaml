@@ -1,0 +1,35 @@
+pipeline:
+  queryDeferredElicitation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage elicitation - query should open deferred elicitation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: elicitation_favorite_color
+          UserId: e2e-stage-elicitation
+          Query: describe my favourite color in 3 sentences
+          ElicitationMode: deferred
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@plan.elicitation.elicitationId": true
+
+  getConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage elicitation - conversation and latest turn should be elicitation"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${queryDeferredElicitation.Responses[0].JSONBody.conversationId}
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${queryDeferredElicitation.Responses[0].JSONBody.conversationId}
+            Stage: elicitation
+            Transcript:
+              - Stage: elicitation

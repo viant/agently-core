@@ -1,0 +1,69 @@
+init:
+  turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
+
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage thinking - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: simple
+          Title: conversation-stage-thinking-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  runAndCheckThinking:
+    multiAction: true
+
+    startLongTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      Async: true
+      description: "conversation stage thinking - start long story turn asynchronously"
+      requests:
+        - Method: POST
+          URL: ${serverURL}/v1/agent/query
+          Header:
+            Connection: [close]
+          JSONBody:
+            ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+            AgentID: simple
+            MessageID: e2e-stage-thinking-turn-${turnSuffix}
+            UserId: e2e-stage-test
+            Query: create 500 words long story about mouse in bakery, for kids, no violence
+
+    waitForTurnActivation:
+      when: $sdkKey != ''
+      action: nop
+      sleepTimeMs: 2000
+
+    getConversation:
+      when: $sdkKey != ''
+      action: http/runner:send
+      description: "conversation stage thinking - conversation and latest turn should be thinking"
+      requests:
+        - Method: GET
+          URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
+          Expect:
+            Code: 200
+            JSONBody:
+              Id: ${createConversation.Responses[0].JSONBody.Id}
+              Stage: thinking
+              Transcript:
+                - Stage: thinking
+                  Status: running
+
+  cancelRunningTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage thinking - cancel turn for cleanup"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/turns/e2e-stage-thinking-turn-${turnSuffix}/cancel
+        Expect:
+          Code: 200

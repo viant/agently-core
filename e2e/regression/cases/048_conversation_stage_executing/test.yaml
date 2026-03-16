@@ -1,0 +1,69 @@
+init:
+  turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
+
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage executing - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: tool_forcer_exec_sleep
+          Title: conversation-stage-executing-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  runAndCheckExecuting:
+    multiAction: true
+
+    startSleepTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      Async: true
+      description: "conversation stage executing - start sleep turn asynchronously"
+      requests:
+        - Method: POST
+          URL: ${serverURL}/v1/agent/query
+          Header:
+            Connection: [close]
+          JSONBody:
+            ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+            AgentID: tool_forcer_exec_sleep
+            MessageID: e2e-stage-executing-turn-${turnSuffix}
+            UserId: e2e-stage-test
+            Query: run sleep tool
+
+    waitForToolActivation:
+      when: $sdkKey != ''
+      action: nop
+      sleepTimeMs: 12000
+
+    getConversation:
+      when: $sdkKey != ''
+      action: http/runner:send
+      description: "conversation stage executing - conversation and latest turn should be executing"
+      requests:
+        - Method: GET
+          URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
+          Expect:
+            Code: 200
+            JSONBody:
+              Id: ${createConversation.Responses[0].JSONBody.Id}
+              Stage: executing
+              Transcript:
+                - Stage: executing
+                  Status: running
+
+  cancelRunningTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage executing - cancel turn for cleanup"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/turns/e2e-stage-executing-turn-${turnSuffix}/cancel
+        Expect:
+          Code: 200
