@@ -39,6 +39,13 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 			},
 		},
 		{
+			name:    "wrapped gzip inline response payload",
+			service: &Service{},
+			responseBody: &agconv.ModelCallStreamPayloadView{
+				InlineBody: strPtr(`{"InlineBody":` + quoteJSONString(gzipString(t, body)) + `,"Compression":"gzip"}`),
+			},
+		},
+		{
 			name: "payload id response payload",
 			service: &Service{
 				conversation: &stubConversationClient{
@@ -144,6 +151,32 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 
 func ptrBytes(value []byte) *[]byte {
 	return &value
+}
+
+func quoteJSONString(value string) string {
+	buf := bytes.Buffer{}
+	buf.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '\\', '"':
+			buf.WriteByte('\\')
+			buf.WriteRune(r)
+		case '\b':
+			buf.WriteString(`\b`)
+		case '\f':
+			buf.WriteString(`\f`)
+		case '\n':
+			buf.WriteString(`\n`)
+		case '\r':
+			buf.WriteString(`\r`)
+		case '\t':
+			buf.WriteString(`\t`)
+		default:
+			buf.WriteRune(r)
+		}
+	}
+	buf.WriteByte('"')
+	return buf.String()
 }
 
 func gzipString(t *testing.T, value string) string {

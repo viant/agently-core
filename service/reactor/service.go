@@ -151,13 +151,14 @@ func inContinuationMode(ctx context.Context) bool {
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
+	priorResults := extractPriorToolResults(genInput)
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
 	// Binding registry to current conversation (if any) so tool.Execute receives ctx with convID.
 	reg := tool.WithConversation(s.registry, memory.ConversationIDFromContext(ctx))
 	// Do not create child cancels here; errors must not cancel context.
-	streamId, stepErrCh := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput)
+	streamId, stepErrCh := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput, priorResults)
 	canStream, err := s.canStream(ctx, genInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
@@ -525,7 +526,7 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return doStream, nil
 }
 
-func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) (string, <-chan error) {
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput, prior []llm.ToolCall) (string, <-chan error) {
 	// Use the orchestrator.Run context for executing tools so auth (e.g. MCP/BFF tokens)
 	// propagates into tool execution. The stream callback context may not carry it.
 	runCtx := ctx
@@ -533,7 +534,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	stepErrCh := make(chan error, 1)
 	var guard *DuplicateGuard
 	if !inContinuationMode(ctx) {
-		guard = NewDuplicateGuard(nil)
+		guard = NewDuplicateGuard(prior)
 	}
 	// Execute steps in order; do not de-duplicate by tool/args.
 	// Duplicated tool steps will each execute independently.
@@ -670,10 +671,6 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 		return
 	}
 	reason := strings.TrimSpace(choice.Message.Content)
-	if reason == "" {
-		resp := &llm.GenerateResponse{Choices: []llm.Choice{*choice}}
-		reason = strings.TrimSpace(modelcall.AssistantPreambleFromResponse(resp, ""))
-	}
 	steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
 	for idx, tc := range choice.Message.ToolCalls {
 		name := tc.Name
@@ -721,6 +718,56 @@ func fallbackToolStepID(responseID string, idx int, name string) string {
 		name = "tool"
 	}
 	return fmt.Sprintf("%s:%d:%s", base, idx, name)
+}
+
+func extractPriorToolResults(genInput *core2.GenerateInput) []llm.ToolCall {
+	if genInput == nil || genInput.Binding == nil {
+		return nil
+	}
+	messages := genInput.Binding.History.LLMMessages()
+	if len(messages) == 0 {
+		return nil
+	}
+	byID := map[string]llm.ToolCall{}
+	order := make([]string, 0)
+	for _, msg := range messages {
+		if len(msg.ToolCalls) > 0 {
+			for _, call := range msg.ToolCalls {
+				id := strings.TrimSpace(call.ID)
+				if id == "" {
+					continue
+				}
+				if _, ok := byID[id]; !ok {
+					order = append(order, id)
+				}
+				byID[id] = call
+			}
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(msg.Role.String())) != strings.ToLower(strings.TrimSpace(string(llm.RoleTool))) {
+			continue
+		}
+		id := strings.TrimSpace(msg.ToolCallId)
+		if id == "" {
+			continue
+		}
+		call := byID[id]
+		call.ID = id
+		call.Result = strings.TrimSpace(msg.Content)
+		if _, ok := byID[id]; !ok {
+			order = append(order, id)
+		}
+		byID[id] = call
+	}
+	out := make([]llm.ToolCall, 0, len(order))
+	for _, id := range order {
+		call := byID[id]
+		if strings.TrimSpace(call.Name) == "" {
+			continue
+		}
+		out = append(out, call)
+	}
+	return out
 }
 
 func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Choice) {

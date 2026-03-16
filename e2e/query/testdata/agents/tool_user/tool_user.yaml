@@ -1,7 +1,7 @@
 id: tool_user
 name: Tool User
 description: Agent with OS tool access for e2e testing
-modelRef: openai_gpt4o_mini
+modelRef: openai_gpt-5.2
 temperature: 0
 persona:
   role: assistant

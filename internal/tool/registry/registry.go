@@ -1062,6 +1062,7 @@ func (r *Registry) Initialize(ctx context.Context) {
 	if r == nil {
 		return
 	}
+	r.addInternalMcp()
 	servers, err := r.listServers(ctx)
 	if err != nil {
 		r.warnf("list servers failed: %v", err)

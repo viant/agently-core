@@ -49,12 +49,22 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	// are already part of the anchored context and do not participate
 	// in continuation-by-anchor.
 	var selected llm.Messages
+	assistantToolCallCount := 0
+	toolResultCount := 0
+	expectedToolCallIDs := make([]string, 0)
+	toolResultIDs := make([]string, 0)
 	for _, m := range req.Messages {
 
 		if len(m.ToolCalls) > 0 {
 			filtered := filterToolCallsByAnchor(m.ToolCalls, history, anchorID)
 			if len(filtered) == 0 {
 				continue
+			}
+			assistantToolCallCount += len(filtered)
+			for _, call := range filtered {
+				if id := strings.TrimSpace(call.ID); id != "" {
+					expectedToolCallIDs = append(expectedToolCallIDs, id)
+				}
 			}
 			copyMsg := m
 			copyMsg.ToolCalls = filtered
@@ -68,6 +78,8 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			if !ok || trace.ID != anchorID {
 				continue
 			}
+			toolResultCount++
+			toolResultIDs = append(toolResultIDs, strings.TrimSpace(m.ToolCallId))
 			selected.Append(m)
 			continue
 		}
@@ -95,6 +107,24 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 				"conversationID": strings.TrimSpace(conversationID),
 				"reason":         "no_selected_messages",
 				"anchorID":       anchorID,
+			})
+		}
+		return nil
+	}
+	// OpenAI Responses continuation has proven fragile for multi-tool anchors.
+	// Fall back to full transcript in those cases rather than sending an
+	// incomplete/mismatched function_call_output set under previous_response_id.
+	if assistantToolCallCount > 1 || toolResultCount > 1 || (assistantToolCallCount > 0 && toolResultCount < assistantToolCallCount) {
+		if debugtrace.Enabled() {
+			debugtrace.Write("core", "continuation_skipped", map[string]any{
+				"conversationID":      strings.TrimSpace(conversationID),
+				"reason":              "multi_tool_anchor_fallback",
+				"anchorID":            anchorID,
+				"assistantToolCalls":  assistantToolCallCount,
+				"toolResultMessages":  toolResultCount,
+				"expectedToolCallIDs": expectedToolCallIDs,
+				"toolResultIDs":       toolResultIDs,
+				"selectedMessages":    debugtrace.SummarizeMessages(selected),
 			})
 		}
 		return nil

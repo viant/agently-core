@@ -64,6 +64,7 @@ func setupSDK(t *testing.T) sdk.Client {
 	// 2. Resolve testdata path (go test runs from package dir)
 	testdataDir, err := filepath.Abs("testdata")
 	require.NoError(t, err, "resolve testdata path")
+	prepareWorkspaceForEmbeddedE2E(t, testdataDir, tmp)
 
 	// 3. Agent loader from testdata (loader adds agents/ prefix)
 	fs := afs.New()
@@ -102,6 +103,43 @@ func setupSDK(t *testing.T) sdk.Client {
 	client, err := sdk.NewEmbeddedFromRuntime(rt)
 	require.NoError(t, err, "create SDK client")
 	return client
+}
+
+func prepareWorkspaceForEmbeddedE2E(t *testing.T, testdataDir, workspaceDir string) {
+	t.Helper()
+	dirs := []string{
+		filepath.Join(workspaceDir, "agents"),
+		filepath.Join(workspaceDir, "mcp"),
+		filepath.Join(workspaceDir, "models"),
+		filepath.Join(workspaceDir, "tools", "bundles"),
+	}
+	for _, dir := range dirs {
+		require.NoError(t, os.MkdirAll(dir, 0o755), "mkdir %s", dir)
+	}
+	var copyDir func(src, dst string)
+	copyDir = func(src, dst string) {
+		entries, err := os.ReadDir(src)
+		require.NoError(t, err, "read dir %s", src)
+		for _, entry := range entries {
+			srcPath := filepath.Join(src, entry.Name())
+			dstPath := filepath.Join(dst, entry.Name())
+			if entry.IsDir() {
+				require.NoError(t, os.MkdirAll(dstPath, 0o755), "mkdir %s", dstPath)
+				copyDir(srcPath, dstPath)
+				continue
+			}
+			data, err := os.ReadFile(srcPath)
+			require.NoError(t, err, "read file %s", srcPath)
+			require.NoError(t, os.WriteFile(dstPath, data, 0o644), "write file %s", dstPath)
+		}
+	}
+	copyDir(filepath.Join(testdataDir, "agents"), filepath.Join(workspaceDir, "agents"))
+	copyDir(filepath.Join(testdataDir, "mcp"), filepath.Join(workspaceDir, "mcp"))
+	copyDir(filepath.Join(testdataDir, "models"), filepath.Join(workspaceDir, "models"))
+	copyDir(filepath.Join(testdataDir, "tools", "bundles"), filepath.Join(workspaceDir, "tools", "bundles"))
+	configFile := filepath.Join(workspaceDir, "config.yaml")
+	configBody := "models: []\nagents: []\n\ninternalMCP:\n  services:\n    - system/exec\n    - system/os\n"
+	require.NoError(t, os.WriteFile(configFile, []byte(configBody), 0o644), "write config")
 }
 
 func TestQuerySimple(t *testing.T) {
@@ -166,27 +204,95 @@ func TestQueryWithSystemKnowledge(t *testing.T) {
 	fmt.Printf("[knowledge_system] content: %s\n", truncate(out.Content, 300))
 }
 
-func TestQueryWithToolUsage(t *testing.T) {
+func TestQueryWithForcedToolUsage(t *testing.T) {
 	skipIfNoAPIKey(t)
 	client := setupSDK(t)
 	ctx := context.Background()
+	expectedUser := strings.TrimSpace(os.Getenv("USER"))
+	require.NotEmpty(t, expectedUser, "USER must be set for forced tool usage e2e")
 
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
-		AgentID: "tool_user",
-		Query:   "What is the value of the OPENAI_API_KEY environment variable? Just tell me if it exists or not and the first 10 characters.",
+		AgentID: "tool_env_seed_user_only",
+		Query:   "Please return USER only.",
 		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.NotEmpty(t, out.Content)
+	require.NotEmpty(t, out.ConversationID, "expected conversation ID")
 
-	content := strings.ToLower(out.Content)
-	hasEnvInfo := strings.Contains(content, "sk-") ||
-		strings.Contains(content, "openai") ||
-		strings.Contains(content, "api") ||
-		strings.Contains(content, "environment") ||
-		strings.Contains(content, "variable")
-	assert.True(t, hasEnvInfo, "response should reference the env variable; got: %s", truncate(out.Content, 300))
+	responseText := strings.TrimSpace(out.Content)
+	assert.Equal(t, "USER="+expectedUser, responseText, "response should come from actual tool result")
+
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	require.NoError(t, err)
+	groups := transcriptExecutionGroups(transcript)
+	require.NotEmpty(t, groups, "expected execution groups in transcript")
+	toolCallCount := 0
+	foundEnvTool := false
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		for _, toolCall := range group.ToolCalls {
+			if toolCall == nil {
+				continue
+			}
+			toolCallCount++
+			name := strings.ToLower(strings.TrimSpace(toolCall.ToolName))
+			if strings.Contains(name, "system/os:getenv") || strings.Contains(name, "system_os-getenv") || strings.Contains(name, "system/os/getenv") {
+				foundEnvTool = true
+			}
+		}
+	}
+	assert.Greater(t, toolCallCount, 0, "expected at least one tool call in transcript")
+	assert.True(t, foundEnvTool, "expected system/os:getEnv tool call in transcript")
+	fmt.Printf("[tool_forced] content: %s\n", truncate(out.Content, 300))
+}
+
+func TestQueryWithToolUsage(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx := context.Background()
+	expectedHome := strings.TrimSpace(os.Getenv("HOME"))
+	require.NotEmpty(t, expectedHome, "HOME must be set for tool usage e2e")
+
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		AgentID: "chatter_system_os",
+		Query:   "What is the value of the HOME environment variable? Reply with the exact value only.",
+		UserId:  "e2e-test",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.NotEmpty(t, out.Content)
+	require.NotEmpty(t, out.ConversationID, "expected conversation ID")
+
+	responseText := strings.TrimSpace(out.Content)
+	assert.Contains(t, responseText, expectedHome, "response should include HOME value; got: %s", truncate(out.Content, 300))
+
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	require.NoError(t, err)
+	groups := transcriptExecutionGroups(transcript)
+	require.NotEmpty(t, groups, "expected execution groups in transcript")
+	toolCallCount := 0
+	foundEnvTool := false
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		for _, toolCall := range group.ToolCalls {
+			if toolCall == nil {
+				continue
+			}
+			toolCallCount++
+			name := strings.ToLower(strings.TrimSpace(toolCall.ToolName))
+			if strings.Contains(name, "system/os:getenv") || strings.Contains(name, "system_os-getenv") || strings.Contains(name, "system/os/getenv") {
+				foundEnvTool = true
+			}
+		}
+	}
+	assert.Greater(t, toolCallCount, 0, "expected at least one tool call in transcript")
+	assert.True(t, foundEnvTool, "expected system/os:getEnv tool call in transcript")
 	fmt.Printf("[tool_user] content: %s\n", truncate(out.Content, 300))
 }
 

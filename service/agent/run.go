@@ -200,6 +200,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			finalStatus = "failed"
 			if errors.Is(finalErr, context.Canceled) || errors.Is(finalErr, context.DeadlineExceeded) {
 				finalStatus = "canceled"
+			} else if s.isTurnCanceled(context.WithoutCancel(ctx), turn.ConversationID, turn.TurnID) {
+				finalStatus = "canceled"
 			}
 		}
 		if err := s.finalizeTurn(ctx, turn, finalStatus, finalErr); err != nil {
@@ -1369,6 +1371,23 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 
 	s.triggerQueueDrain(turn.ConversationID)
 	return nil
+}
+
+func (s *Service) isTurnCanceled(ctx context.Context, conversationID, turnID string) bool {
+	if s == nil || s.conversation == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(turnID) == "" {
+		return false
+	}
+	conv, err := s.conversation.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return false
+	}
+	for _, turn := range conv.GetTranscript() {
+		if strings.TrimSpace(turn.Id) != strings.TrimSpace(turnID) {
+			continue
+		}
+		return strings.EqualFold(strings.TrimSpace(turn.Status), "canceled") || strings.EqualFold(strings.TrimSpace(turn.Status), "cancelled")
+	}
+	return false
 }
 
 func (s *Service) triggerQueueDrain(conversationID string) {
