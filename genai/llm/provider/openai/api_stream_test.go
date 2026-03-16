@@ -566,6 +566,57 @@ func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 	}
 }
 
+func TestStream_ResponseCompleted_DoesNotReplayAlreadyStreamedText(t *testing.T) {
+	lines := []string{
+		"event: response.output_text.delta",
+		`data: {"delta":"PDF_TEST_TOKEN_4729"}`,
+		"event: response.completed",
+		`data: {"id":"resp_pdf","status":"completed","model":"gpt-5.2","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"PDF_TEST_TOKEN_4729"}]}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-5.2"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("extract token")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var textDeltas []string
+	var final *llm.GenerateResponse
+	for ev := range ch {
+		if ev.Err != nil {
+			t.Fatalf("streaming error: %v", ev.Err)
+		}
+		if ev.Kind == llm.StreamEventTextDelta {
+			textDeltas = append(textDeltas, ev.Delta)
+		}
+		if ev.Response != nil {
+			final = ev.Response
+		}
+	}
+
+	if assert.NotNil(t, final) {
+		assert.Equal(t, "PDF_TEST_TOKEN_4729", final.Choices[0].Message.Content)
+	}
+	assert.Equal(t, []string{"PDF_TEST_TOKEN_4729"}, textDeltas)
+}
+
 // newLocalServerOrSkip attempts to start an httptest.Server and skips the test
 // when the environment does not permit binding a local TCP listener.
 func newLocalServerOrSkip(t *testing.T, handler http.Handler) *httptest.Server {
