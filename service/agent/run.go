@@ -1181,7 +1181,9 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) 
 			upd := apiconv.NewTurn()
 			upd.SetId(turn.TurnID)
 			upd.SetStatus("canceled")
-			_ = s.conversation.PatchTurn(context.Background(), upd)
+			if err := s.conversation.PatchTurn(context.Background(), upd); err == nil {
+				s.patchStarterMessageTerminalStatus(context.Background(), turn, "canceled")
+			}
 		}
 		warnf("agent.turn cancel convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
@@ -1238,6 +1240,18 @@ func (s *Service) patchQueuedStarterMessageStatus(ctx context.Context, conversat
 	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
 		warnf("agent.queueDrain patch starter message failed convo=%q turn_id=%q starter_id=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(starterID), strings.TrimSpace(status), err)
 	}
+}
+
+func (s *Service) patchStarterMessageTerminalStatus(ctx context.Context, turn memory.TurnMeta, status string) {
+	normalized := shared.NormalizeMessageStatus(status)
+	if normalized != "rejected" && normalized != "cancel" {
+		return
+	}
+	starterID := strings.TrimSpace(turn.ParentMessageID)
+	if starterID == "" {
+		starterID = strings.TrimSpace(turn.TurnID)
+	}
+	s.patchQueuedStarterMessageStatus(ctx, turn.ConversationID, turn.TurnID, starterID, normalized)
 }
 
 func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content, raw string) error {
@@ -1337,6 +1351,9 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	}
 
 	turnPatchErr := s.conversation.PatchTurn(patchCtx, upd)
+	if turnPatchErr == nil {
+		s.patchStarterMessageTerminalStatus(patchCtx, turn, status)
+	}
 	runPatchErr := s.patchRunTerminalState(patchCtx, turn, status, emsg)
 	if turnPatchErr != nil {
 		errorf("agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)

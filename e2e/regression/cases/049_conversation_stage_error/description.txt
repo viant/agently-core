@@ -8,6 +8,7 @@ What this test verifies:
 - the HTTP query endpoint returns an error response
 - the conversation ends in derived stage `error`
 - the latest turn persists with `Status: failed`
+- the starter user message persists with `Status: rejected`
 
 Why it matters:
 - protects the terminal error stage used by UI and SDK consumers

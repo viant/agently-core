@@ -1,3 +1,6 @@
+init:
+  turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
+
 pipeline:
   createConversation:
     when: $sdkKey != ''
@@ -26,6 +29,7 @@ pipeline:
         JSONBody:
           ConversationID: ${createConversation.Responses[0].JSONBody.Id}
           AgentID: simple
+          MessageID: e2e-stage-error-turn-${turnSuffix}
           UserId: e2e-stage-test
           Query: Say hello in one short sentence.
           model: openai_model_does_not_exist
@@ -36,6 +40,21 @@ pipeline:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 1200
+
+  verifyRejectedStarterMessage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "conversation stage error - starter user message should be rejected"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${createConversation.Responses[0].JSONBody.Id}&roles=user&types=text
+        Expect:
+          Code: 200
+          JSONBody:
+            Rows:
+              "@indexBy@": Id
+              e2e-stage-error-turn-${turnSuffix}:
+                Status: rejected
 
   getConversation:
     when: $sdkKey != ''
