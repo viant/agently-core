@@ -119,7 +119,7 @@ func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 	service.extendPlanWithToolCalls("resp-1", choice, aPlan)
 
 	require.Len(t, aPlan.Steps, 1)
-	assert.EqualValues(t, "Using resources-roots.", aPlan.Steps[0].Reason)
+	assert.EqualValues(t, "", aPlan.Steps[0].Reason)
 }
 
 func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreamingDeltas(t *testing.T) {
@@ -202,6 +202,7 @@ func TestService_patchStreamingToolPreamble_SkipsDuplicatePatch(t *testing.T) {
 	service := &Service{convClient: client}
 	choice := llm.Choice{
 		Message: llm.Message{
+			Content:   "I will use system_os-getEnv.",
 			Role:      llm.RoleAssistant,
 			ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "system/os:getEnv"}},
 		},
@@ -219,7 +220,8 @@ func TestService_patchStreamingToolPreamble_SkipsDuplicatePatch(t *testing.T) {
 	// Third call with different preamble should patch
 	choice2 := llm.Choice{
 		Message: llm.Message{
-			Role: llm.RoleAssistant,
+			Content: "I will use system_exec-execute instead.",
+			Role:    llm.RoleAssistant,
 			ToolCalls: []llm.ToolCall{
 				{ID: "call_1", Name: "system/os:getEnv"},
 				{ID: "call_2", Name: "system/exec:execute"},
@@ -252,6 +254,7 @@ func TestService_patchStreamingToolPreamble_PatchesAssistantMessage(t *testing.T
 	service := &Service{convClient: client}
 	service.patchStreamingToolPreamble(ctx, llm.Choice{
 		Message: llm.Message{
+			Content:   "I will use system_os-getEnv.",
 			Role:      llm.RoleAssistant,
 			ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "system/os:getEnv"}},
 		},
@@ -264,8 +267,8 @@ func TestService_patchStreamingToolPreamble_PatchesAssistantMessage(t *testing.T
 	require.NotNil(t, msg.Content)
 	require.NotNil(t, msg.Preamble)
 	require.NotNil(t, msg.RawContent)
-	assert.EqualValues(t, "Using system/os:getEnv.", *msg.Content)
-	assert.EqualValues(t, "Using system/os:getEnv.", *msg.Preamble)
-	assert.EqualValues(t, "Using system/os:getEnv.", *msg.RawContent)
+	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.Content)
+	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.Preamble)
+	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.RawContent)
 	assert.EqualValues(t, 1, msg.Interim)
 }

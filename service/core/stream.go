@@ -91,10 +91,12 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}()
 
 	var continuationRequest *llm.GenerateRequest
-	if IsAnchorContinuationEnabled(model) {
-		continuationRequest = s.BuildContinuationRequest(ctx, req, &input.GenerateInput.Binding.History)
-
-	}
+	// Streaming continuation by previous_response_id is currently too fragile
+	// for multi-tool turns: provider-side 400s occur when a continuation is sent
+	// before every function-call output is safely reflected in history.
+	// Prefer the full transcript path for streaming until anchor continuation is
+	// made iteration-safe.
+	_ = continuationRequest
 	if debugtrace.Enabled() {
 		activeReq := req
 		mode := "full"

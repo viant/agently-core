@@ -1057,7 +1057,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 		}, "PatchTurn publish turn_started")
 		return
 	}
-	if status == "completed" || status == "failed" || status == "canceled" || status == "cancelled" {
+	if status == "completed" || status == "succeeded" || status == "failed" || status == "canceled" || status == "cancelled" {
 		s.emitTimelineEvent(ctx, &streaming.Event{
 			ID:             strings.TrimSpace(turn.Id),
 			StreamID:       conversationID,
