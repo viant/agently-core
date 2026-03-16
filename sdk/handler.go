@@ -472,6 +472,7 @@ func handleUpdateConversation(client Client) http.HandlerFunc {
 			return
 		}
 		var body struct {
+			Title      string `json:"title"`
 			Visibility string `json:"visibility"`
 			Shareable  *bool  `json:"shareable"`
 		}
@@ -481,6 +482,7 @@ func handleUpdateConversation(client Client) http.HandlerFunc {
 		}
 		input := &UpdateConversationInput{
 			ConversationID: id,
+			Title:          strings.TrimSpace(body.Title),
 			Visibility:     strings.TrimSpace(body.Visibility),
 			Shareable:      body.Shareable,
 		}

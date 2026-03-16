@@ -148,17 +148,22 @@ func (c *EmbeddedClient) UpdateConversation(ctx context.Context, input *UpdateCo
 	if conversationID == "" {
 		return nil, errors.New("conversation ID is required")
 	}
+	title := strings.TrimSpace(input.Title)
+	hasTitle := title != ""
 	visibility := strings.ToLower(strings.TrimSpace(input.Visibility))
 	hasVisibility := visibility != ""
 	hasShareable := input.Shareable != nil
-	if !hasVisibility && !hasShareable {
-		return nil, errors.New("at least one of visibility or shareable is required")
+	if !hasTitle && !hasVisibility && !hasShareable {
+		return nil, errors.New("at least one of title, visibility, or shareable is required")
 	}
 	if hasVisibility && visibility != agconvwrite.VisibilityPrivate && visibility != agconvwrite.VisibilityPublic {
 		return nil, fmt.Errorf("unsupported visibility: %q", input.Visibility)
 	}
 	row := agconvwrite.NewMutableConversationView()
 	row.SetId(conversationID)
+	if hasTitle {
+		row.SetTitle(title)
+	}
 	if hasVisibility {
 		row.SetVisibility(visibility)
 	}
