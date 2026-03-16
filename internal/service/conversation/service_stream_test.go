@@ -99,6 +99,33 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 	}
 }
 
+func TestPublishTurnEvent_SucceededTurnPublishesCompleted(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("conv-1")
+	turn.SetStatus("succeeded")
+	turn.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
+	svc.publishTurnEvent(context.Background(), turn)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeTurnCompleted, ev.Type)
+		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "succeeded", ev.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected turn_completed event")
+	}
+}
+
 func TestLLMResponseEventFromMessage(t *testing.T) {
 	msg := convcli.NewMessage()
 	msg.SetId("m1")

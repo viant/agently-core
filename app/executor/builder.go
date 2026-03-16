@@ -228,6 +228,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.Registry = reg
 	}
+	out.Registry.Initialize(ctx)
 
 	out.Core = b.core
 	if out.Core == nil {

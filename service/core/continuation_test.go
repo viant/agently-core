@@ -47,6 +47,30 @@ func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {
 	}
 }
 
+func TestBuildContinuationRequest_SkipsMultiToolAnchor(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	history := &prompt.History{
+		Traces:       map[string]*prompt.Trace{},
+		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	}
+	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123"}
+	history.Traces[prompt.KindToolCall.Key("call-2")] = &prompt.Trace{ID: "resp-123"}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call-1", Name: "toolA"},
+			{ID: "call-2", Name: "toolB"},
+		}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1"},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-2"},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	assert.Nil(t, cont)
+}
+
 func TestGroupMessagesByAnchor_IncludesAssistantMessages(t *testing.T) {
 	respID := "resp-1"
 	timeRef := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)

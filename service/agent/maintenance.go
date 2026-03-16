@@ -3,8 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	apiconv "github.com/viant/agently-core/app/store/conversation"
+	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 )
 
 // maintenanceGuards prevents concurrent maintenance operations on the same conversation.
@@ -39,10 +44,60 @@ func (s *Service) Terminate(ctx context.Context, conversationID string) error {
 	if conversationID == "" {
 		return fmt.Errorf("conversation ID is required")
 	}
+	return s.terminateConversationTree(ctx, conversationID, map[string]struct{}{})
+}
+
+func (s *Service) terminateConversationTree(ctx context.Context, conversationID string, visited map[string]struct{}) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	if _, ok := visited[conversationID]; ok {
+		return nil
+	}
+	visited[conversationID] = struct{}{}
+
 	if s.cancelReg != nil {
-		s.cancelReg.CancelTurn(conversationID)
+		s.cancelReg.CancelConversation(conversationID)
+	}
+
+	if s.conversation == nil {
+		return nil
+	}
+
+	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(conversationID, "canceled")); err != nil {
+		return err
+	}
+
+	conv, err := s.conversation.GetConversation(patchCtx, conversationID,
+		apiconv.WithIncludeTranscript(true),
+		apiconv.WithIncludeToolCall(true),
+		apiconv.WithIncludeModelCall(true),
+	)
+	if err != nil || conv == nil {
+		return err
+	}
+
+	for _, turn := range conv.GetTranscript() {
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			if childID := strings.TrimSpace(pointerString(msg.LinkedConversationId)); childID != "" {
+				_ = s.terminateConversationTree(patchCtx, childID, visited)
+			}
+		}
 	}
 	return nil
+}
+
+func pointerString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // Compact generates an LLM summary of the conversation history, archiving old
