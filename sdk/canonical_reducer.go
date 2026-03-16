@@ -205,6 +205,30 @@ func reduceToolCallsPlanned(state *ConversationState, event *streaming.Event) *C
 	if preamble := strings.TrimSpace(event.Preamble); preamble != "" {
 		page.Preamble = preamble
 	}
+	// Seed preliminary tool steps so SDK consumers can show planned tools
+	// immediately, before tool_call_started arrives from the database.
+	for _, tc := range event.ToolCallsPlanned {
+		toolCallID := strings.TrimSpace(tc.ToolCallID)
+		toolName := strings.TrimSpace(tc.ToolName)
+		if toolCallID == "" && toolName == "" {
+			continue
+		}
+		// Dedup: skip if already present
+		found := false
+		for _, ts := range page.ToolSteps {
+			if ts.ToolCallID == toolCallID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			page.ToolSteps = append(page.ToolSteps, &ToolStepState{
+				ToolCallID: toolCallID,
+				ToolName:   toolName,
+				Status:     "planned",
+			})
+		}
+	}
 	return state
 }
 
