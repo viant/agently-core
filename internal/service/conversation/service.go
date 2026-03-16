@@ -580,6 +580,9 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.Content && message.Content != nil {
 		out["content"] = *message.Content
 	}
+	if message.Has.RawContent && message.RawContent != nil && strings.TrimSpace(*message.RawContent) != "" {
+		out["rawContent"] = *message.RawContent
+	}
 	if message.Has.Role && strings.TrimSpace(message.Role) != "" {
 		out["role"] = strings.TrimSpace(message.Role)
 	}
@@ -1115,6 +1118,13 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		}
 		if modelCall.Has != nil && modelCall.Has.ResponsePayloadID && modelCall.ResponsePayloadID != nil {
 			event.ResponsePayloadID = strings.TrimSpace(*modelCall.ResponsePayloadID)
+		}
+		// Include LLM response data (content, preamble, finalResponse) when
+		// available via context — makes model_completed self-sufficient.
+		if meta, ok := memory.ModelCompletionMetaFromContext(ctx); ok {
+			event.Content = meta.Content
+			event.Preamble = meta.Preamble
+			event.FinalResponse = meta.FinalResponse
 		}
 		applyIterationPage(event, modelCall.Iteration)
 		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_completed")

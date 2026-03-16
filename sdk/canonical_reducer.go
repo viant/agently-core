@@ -52,6 +52,10 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 	case streaming.EventTypeReasoningDelta:
 		return reduceReasoningDelta(state, event)
 
+	// Tool calls planned (from reactor, before tool execution begins)
+	case streaming.EventTypeToolCallsPlanned:
+		return reduceToolCallsPlanned(state, event)
+
 	// Tool call lifecycle
 	case streaming.EventTypeToolCallStarted:
 		return reduceToolStarted(state, event)
@@ -183,6 +187,23 @@ func reduceModelCompleted(state *ConversationState, event *streaming.Event) *Con
 	if event.FinalResponse {
 		page.FinalResponse = true
 		page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
+	}
+	return state
+}
+
+// --- tool calls planned (reactor fast-path) ---
+
+func reduceToolCallsPlanned(state *ConversationState, event *streaming.Event) *ConversationState {
+	turn := findOrCreateTurnWithTime(state, event)
+	if turn == nil {
+		return state
+	}
+	page := ensureCurrentPage(turn, event)
+	if content := strings.TrimSpace(event.Content); content != "" {
+		page.Content = content
+	}
+	if preamble := strings.TrimSpace(event.Preamble); preamble != "" {
+		page.Preamble = preamble
 	}
 	return state
 }

@@ -101,9 +101,10 @@ type CreateConversationInput struct {
 }
 
 // UpdateConversationInput updates mutable conversation fields.
-// At least one of Visibility or Shareable must be provided.
+// At least one of Title, Visibility, or Shareable must be provided.
 type UpdateConversationInput struct {
 	ConversationID string `json:"-"`
+	Title          string `json:"title,omitempty"`
 	Visibility     string `json:"visibility,omitempty"` // private|public
 	Shareable      *bool  `json:"shareable,omitempty"`
 }

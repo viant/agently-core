@@ -612,6 +612,14 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	upd := apiconv.NewModelCall()
 	upd.SetMessageID(msgID)
 	upd.SetStatus(status)
+	// Carry provider/model from the start info so emitCanonicalModelEvent
+	// can include model info on model_completed events.
+	if provider := strings.TrimSpace(o.start.Provider); provider != "" {
+		upd.SetProvider(provider)
+	}
+	if model := strings.TrimSpace(o.start.Model); model != "" {
+		upd.SetModel(model)
+	}
 	if strings.TrimSpace(info.Err) != "" {
 		upd.SetErrorMessage(info.Err)
 	}
@@ -708,7 +716,22 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 			debugPricingf("price provider not set; skipping cost for model=%s", strings.TrimSpace(info.Model))
 		}
 	}
-	if err := o.client.PatchModelCall(ctx, upd); err != nil {
+	// Enrich context with LLM response data so emitCanonicalModelEvent can
+	// include content/preamble/finalResponse in the model_completed event.
+	patchCtx := ctx
+	if info.LLMResponse != nil && len(info.LLMResponse.Choices) > 0 {
+		choice := info.LLMResponse.Choices[0]
+		content := strings.TrimSpace(llm.MessageText(choice.Message))
+		preamble := strings.TrimSpace(AssistantPreambleFromResponse(info.LLMResponse, content))
+		finalResponse := len(choice.Message.ToolCalls) == 0 && content != ""
+		patchCtx = memory.WithModelCompletionMeta(ctx, memory.ModelCompletionMeta{
+			Content:       content,
+			Preamble:      preamble,
+			FinalResponse: finalResponse,
+			FinishReason:  strings.TrimSpace(choice.FinishReason),
+		})
+	}
+	if err := o.client.PatchModelCall(patchCtx, upd); err != nil {
 		errorf("finishModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
 		return err
 	}

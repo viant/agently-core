@@ -109,6 +109,38 @@ func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
 	return TurnMeta{}, false
 }
 
+// ModelCompletionMeta carries LLM response data through context so that
+// emitCanonicalModelEvent can include all data points in a single
+// model_completed event (content, preamble, finalResponse, finish reason).
+type ModelCompletionMeta struct {
+	Content       string
+	Preamble      string
+	FinalResponse bool
+	FinishReason  string
+}
+
+type modelCompletionMetaKeyT string
+
+var modelCompletionMetaKey = modelCompletionMetaKeyT("modelCompletionMeta")
+
+// WithModelCompletionMeta stores completion metadata on the context.
+func WithModelCompletionMeta(ctx context.Context, meta ModelCompletionMeta) context.Context {
+	return context.WithValue(ctx, modelCompletionMetaKey, meta)
+}
+
+// ModelCompletionMetaFromContext returns completion metadata if present.
+func ModelCompletionMetaFromContext(ctx context.Context) (ModelCompletionMeta, bool) {
+	if ctx == nil {
+		return ModelCompletionMeta{}, false
+	}
+	if v := ctx.Value(modelCompletionMetaKey); v != nil {
+		if m, ok := v.(ModelCompletionMeta); ok {
+			return m, true
+		}
+	}
+	return ModelCompletionMeta{}, false
+}
+
 // EmbedFunc defines a function that creates embeddings for given texts.
 // It should return one embedding per input text.
 type EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)

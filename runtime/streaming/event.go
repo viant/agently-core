@@ -35,6 +35,7 @@ const (
 	EventTypeAssistantFinal    EventType = "assistant_final"
 
 	// Tool call lifecycle.
+	EventTypeToolCallsPlanned  EventType = "tool_calls_planned"
 	EventTypeToolCallStarted   EventType = "tool_call_started"
 	EventTypeToolCallCompleted EventType = "tool_call_completed"
 

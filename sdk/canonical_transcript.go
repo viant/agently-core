@@ -47,9 +47,15 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		switch role {
 		case "user":
 			if ts.User == nil && msg.Interim == 0 {
+				// Prefer RawContent (original user query) over Content
+				// (which may be the expanded/internal prompt).
+				content := stringValue(msg.RawContent)
+				if content == "" {
+					content = stringValue(msg.Content)
+				}
 				ts.User = &UserMessageState{
 					MessageID: msg.Id,
-					Content:   stringValue(msg.Content),
+					Content:   content,
 				}
 			}
 		}
