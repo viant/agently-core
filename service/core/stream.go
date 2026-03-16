@@ -363,7 +363,7 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 		output.Events = append(output.Events, s.toolCallEvents(resp.ResponseID, &choice)...)
 	}
 	// Text → text_delta
-	if content := strings.TrimSpace(choice.Message.Content); content != "" {
+	if content := choice.Message.Content; content != "" {
 		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeTextDelta, Content: content, CreatedAt: now})
 	}
 	// Finish → turn_completed
