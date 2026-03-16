@@ -68,7 +68,7 @@ func persistToolImageAttachmentIfNeeded(ctx context.Context, conv apiconv.Client
 func isReadImageTool(toolName string) bool {
 	can := strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName)))
 	switch can {
-	case "resources-readimage", "system_image-readimage":
+	case "resources-readimage", "resources.readimage", "system_image-readimage", "system.image.readimage":
 		return true
 	}
 	return false

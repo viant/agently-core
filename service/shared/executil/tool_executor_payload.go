@@ -60,6 +60,9 @@ func decodeWrappedToolResponse(result string) (string, bool) {
 	if err := json.Unmarshal([]byte(result), &wrapper); err != nil {
 		return "", false
 	}
+	if strings.TrimSpace(wrapper.InlineBody) == "" && strings.TrimSpace(wrapper.Compression) == "" {
+		return "", false
+	}
 	if strings.TrimSpace(wrapper.InlineBody) == "" {
 		return "", true
 	}
