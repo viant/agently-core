@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/runtime/memory"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
+	"github.com/viant/agently-core/shared"
 )
 
 // Scanner buffer sizes for SSE processing
@@ -163,6 +164,25 @@ func emitResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
 	out <- ev
 }
 
+// emitTerminalResponse publishes the final response snapshot without reclassifying
+// completed assistant text as another text delta. This preserves the full
+// response on the event while preventing downstream stream accumulators from
+// appending already-streamed text a second time.
+func emitTerminalResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
+	if out == nil || lr == nil {
+		return
+	}
+	ev := llm.StreamEvent{Response: lr, ResponseID: lr.ResponseID, Kind: llm.StreamEventTurnCompleted}
+	if len(lr.Choices) > 0 {
+		choice := lr.Choices[0]
+		ev.FinishReason = choice.FinishReason
+		if lr.Usage != nil {
+			ev.Usage = lr.Usage
+		}
+	}
+	out <- ev
+}
+
 func (c *Client) Implements(feature string) bool {
 	switch feature {
 	case base.CanUseTools:
@@ -250,6 +270,9 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 	if err != nil {
 		return nil, err
 	}
+	////
+	shared.LogPayload(payload, "", "_REQUEST_G_OPENAI")
+	////
 
 	httpReq, err := c.createHTTPResponsesApiRequest(ctx, payload)
 	if err != nil {
@@ -288,6 +311,9 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	////
+	shared.LogPayload(respBytes, "", "_response_G_OPENAI")
+	////
 
 	if resp.StatusCode != http.StatusOK {
 		// Bubble continuation errors – do not fallback/summarize
@@ -558,6 +584,9 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 	if err != nil {
 		return nil, err
 	}
+	////
+	shared.LogPayload(payload, "", "_REQUEST_G_OPENAI_CHAT_COMPL")
+	////
 
 	httpReq, err := c.createHTTPChatCompletionsApiRequest(ctx, payload)
 	if err != nil {
@@ -596,6 +625,9 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 	if err != nil {
 		return nil, fmt.Errorf("failed to read chat.completions response body: %w", err)
 	}
+	////
+	shared.LogPayload(respBytes, "", "_response_G_OPENAI_CHAT_COMPL")
+	////
 
 	if resp.StatusCode != http.StatusOK {
 		if isContinuationError(respBytes) {
@@ -636,6 +668,9 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 		if perr != nil {
 			info.Err = perr.Error()
 		}
+		////
+		shared.LogPayload(respBytes, "", "_response_S2_OPENAI")
+		////
 
 		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
 			return nil, fmt.Errorf("observer OnCallEnd failed (chat.completions): %w", obErr)
@@ -783,6 +818,9 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
+	////
+	shared.LogPayload(payload, "", "_REQUEST_S_OPENAI")
+	////
 
 	var httpReq *http.Request
 	if isContextContinuationEnabled(c) {
