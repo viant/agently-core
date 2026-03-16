@@ -20,6 +20,9 @@ type streamState struct {
 	ended          bool
 	publishedUsage bool
 	lastResponseID string
+	// Track whether assistant text was already emitted as streaming deltas so the
+	// terminal full response does not replay the same text into downstream accumulators.
+	emittedAssistantText bool
 	// Track tool call IDs that were already emitted to avoid duplicates
 	emittedToolCallIDs map[string]struct{}
 	// Track arguments for emitted tool calls (for duplicate diagnostics)
@@ -149,6 +152,32 @@ func cloneGenerateResponse(lr *llm.GenerateResponse) *llm.GenerateResponse {
 		}
 	}
 	return &cp
+}
+
+func (p *streamProcessor) markAssistantTextEmitted(txt string) {
+	if strings.TrimSpace(txt) == "" {
+		return
+	}
+	p.state.emittedAssistantText = true
+}
+
+func (p *streamProcessor) shouldEmitTerminalResponse(lr *llm.GenerateResponse) bool {
+	if lr == nil || !p.state.emittedAssistantText || len(lr.Choices) == 0 {
+		return false
+	}
+	choice := lr.Choices[0]
+	if len(choice.Message.ToolCalls) > 0 {
+		return false
+	}
+	return strings.TrimSpace(llm.MessageText(choice.Message)) != ""
+}
+
+func (p *streamProcessor) emitFinalResponse(lr *llm.GenerateResponse) {
+	if p.shouldEmitTerminalResponse(lr) {
+		emitTerminalResponse(p.events, lr)
+		return
+	}
+	emitResponse(p.events, lr)
 }
 
 func (p *streamProcessor) handleEvent(eventName string, data string) bool {
@@ -298,6 +327,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					}
 				}
 				// Emit typed text delta with stable IDs.
+				p.markAssistantTextEmitted(d.Delta)
 				p.events <- llm.StreamEvent{
 					Kind:       llm.StreamEventTextDelta,
 					ResponseID: p.state.lastResponseID,
@@ -370,7 +400,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, observerLR, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
 					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 				}
-				emitResponse(p.events, lr)
+				p.emitFinalResponse(lr)
 				p.state.lastLR = lr
 				return true
 			}
@@ -390,7 +420,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, observerLR, p.state.lastUsage, []byte(data), &p.state.ended); err != nil {
 					p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 				}
-				emitResponse(p.events, lr)
+				p.emitFinalResponse(lr)
 				p.state.lastLR = lr
 				return true
 			}
@@ -431,6 +461,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 						}
 					}
 					// Emit typed text delta for chat/completions path.
+					p.markAssistantTextEmitted(txt)
 					p.events <- llm.StreamEvent{
 						Kind:       llm.StreamEventTextDelta,
 						ResponseID: p.state.lastResponseID,
@@ -486,7 +517,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				updated := *p.state.lastLR
 				updated.Usage = lr.Usage
 				updated.Model = p.state.lastModel
-				emitResponse(p.events, &updated)
+				p.emitFinalResponse(&updated)
 				p.state.lastLR = &updated
 			}
 		}
@@ -504,7 +535,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 	if err := endObserverOnce(p.observer, p.ctx, p.state.lastModel, lr, p.state.lastUsage, nil, &p.state.ended); err != nil {
 		p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", err)}
 	}
-	emitResponse(p.events, lr)
+	p.emitFinalResponse(lr)
 	p.state.lastLR = lr
 	return true
 }
