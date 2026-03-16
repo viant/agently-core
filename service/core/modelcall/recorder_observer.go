@@ -16,6 +16,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/runtime/memory"
 )
@@ -603,6 +604,11 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status string, info Info, streamTxt string) error {
 	hasResp := info.LLMResponse != nil
 	debugf("finishModelCall start msg=%q status=%q has_llm_response=%v provider_resp_bytes=%d stream_bytes=%d", strings.TrimSpace(msgID), strings.TrimSpace(status), hasResp, len(info.ResponseJSON), len(streamTxt))
+	if DebugEnabled() && info.LLMResponse != nil {
+		for idx, choice := range info.LLMResponse.Choices {
+			debugf("finishModelCall choice[%d] finish_reason=%q tool_calls=%d content_head=%q", idx, strings.TrimSpace(choice.FinishReason), len(choice.Message.ToolCalls), textutil.RuneTruncate(strings.TrimSpace(messageText(choice.Message)), 200))
+		}
+	}
 	upd := apiconv.NewModelCall()
 	upd.SetMessageID(msgID)
 	upd.SetStatus(status)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -119,22 +120,52 @@ func decodePayloadInlineBody(inline string, compression string) string {
 	if inline == "" {
 		return ""
 	}
-	if !strings.EqualFold(strings.TrimSpace(compression), "gzip") {
-		return strings.TrimSpace(inline)
+	if nested := decodeWrappedPayloadInlineBody(inline); nested != "" {
+		return nested
 	}
-	reader, err := gzip.NewReader(bytes.NewReader([]byte(inline)))
-	if err != nil {
+	if strings.EqualFold(strings.TrimSpace(compression), "gzip") || looksLikeGzip(inline) {
+		reader, err := gzip.NewReader(bytes.NewReader([]byte(inline)))
+		if err != nil {
+			return strings.TrimSpace(inline)
+		}
+		defer reader.Close()
+		inflated, err := io.ReadAll(reader)
+		if err != nil {
+			return strings.TrimSpace(inline)
+		}
+		decoded := strings.TrimSpace(string(inflated))
+		if nested := decodeWrappedPayloadInlineBody(decoded); nested != "" {
+			return nested
+		}
+		if decoded != "" {
+			return decoded
+		}
 		return strings.TrimSpace(inline)
-	}
-	defer reader.Close()
-	inflated, err := io.ReadAll(reader)
-	if err != nil {
-		return strings.TrimSpace(inline)
-	}
-	if decoded := strings.TrimSpace(string(inflated)); decoded != "" {
-		return decoded
 	}
 	return strings.TrimSpace(inline)
+}
+
+type payloadWrapper struct {
+	InlineBody  string `json:"InlineBody"`
+	Compression string `json:"Compression"`
+}
+
+func decodeWrappedPayloadInlineBody(inline string) string {
+	var wrapper payloadWrapper
+	if err := json.Unmarshal([]byte(inline), &wrapper); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(wrapper.InlineBody) == "" {
+		return ""
+	}
+	return decodePayloadInlineBody(wrapper.InlineBody, wrapper.Compression)
+}
+
+func looksLikeGzip(inline string) bool {
+	if len(inline) < 2 {
+		return false
+	}
+	return inline[0] == 0x1f && inline[1] == 0x8b
 }
 
 func isAttachmentCarrier(msg *apiconv.Message) bool {

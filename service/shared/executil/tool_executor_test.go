@@ -1,7 +1,10 @@
 package executil
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -299,6 +302,40 @@ func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 	assert.EqualValues(t, true, sawLink)
 }
 
+func TestExecuteToolStep_PersistsDecodedWrappedToolResponse(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-wrap", TurnID: "t-wrap", ParentMessageID: "p-wrap", Assistant: "agent-test"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	body := `{"status":"ok","items":[1,2,3]}`
+	wrapped, err := json.Marshal(map[string]string{
+		"InlineBody":  gzipStringValue(t, body),
+		"Compression": "gzip",
+	})
+	require.NoError(t, err)
+	reg := &scriptedRegistry{script: []scriptedResult{{
+		result: string(wrapped),
+	}}}
+	conv := &stubConv{}
+
+	step := StepInfo{
+		ID:         "call-wrap",
+		Name:       "resources.grepFiles",
+		Args:       map[string]interface{}{"path": "/repo"},
+		ResponseID: "resp-wrap",
+	}
+	_, _, err = ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+
+	var persisted string
+	for _, p := range conv.patchedPayloads {
+		if p == nil || p.Has == nil || !p.Has.Kind || p.Kind != "tool_response" || p.InlineBody == nil {
+			continue
+		}
+		persisted = string(*p.InlineBody)
+	}
+	require.NotEmpty(t, persisted)
+	assert.EqualValues(t, "tool response payload could not be decoded", persisted)
+}
+
 func TestExecuteToolStep_CanonicalizesToolNameAndPersistsRunMeta(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-tool", TurnID: "t-tool", ParentMessageID: "p-tool"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)
@@ -558,6 +595,19 @@ func (s *scriptedRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { r
 func (s *scriptedRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
 func (s *scriptedRegistry) SetDebugLogger(io.Writer)                         {}
 func (s *scriptedRegistry) Initialize(context.Context)                       {}
+
+func gzipStringValue(t *testing.T, value string) string {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write([]byte(value)); err != nil {
+		t.Fatalf("gzip write failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("gzip close failed: %v", err)
+	}
+	return buffer.String()
+}
 
 func TestExecuteToolStep_InheritsContextWorkdir(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-workdir", TurnID: "t-workdir", ParentMessageID: "p-workdir"}

@@ -50,6 +50,28 @@ func TestDuplicateGuard_ShouldBlock(t *testing.T) {
 	}
 }
 
+func TestDuplicateGuard_BlocksRepeatedResourcesListByName(t *testing.T) {
+	guard := NewDuplicateGuard(nil)
+	argsA := map[string]interface{}{"rootId": "local", "path": "/repo", "maxItems": 200}
+	firstBlock, _ := guard.ShouldBlock("resources/list", argsA)
+	if firstBlock {
+		t.Fatalf("first resources/list should not be blocked")
+	}
+	guard.RegisterResult("resources/list", argsA, llm.ToolCall{
+		Name:      "resources/list",
+		Arguments: argsA,
+		Result:    "ok",
+	})
+
+	secondBlock, reused := guard.ShouldBlock("resources/list", map[string]interface{}{"rootId": "local", "path": "/repo", "maxItems": 100})
+	if !secondBlock {
+		t.Fatalf("repeated resources/list should be blocked")
+	}
+	if reused.Name != "resources/list" {
+		t.Fatalf("expected resources/list result to be reused, got %q", reused.Name)
+	}
+}
+
 func TestDuplicateGuard_ConsecutiveCalls(t *testing.T) {
 	type call struct {
 		Name      string
@@ -163,6 +185,33 @@ func TestDuplicateGuard_AlternatingPattern(t *testing.T) {
 				Result:    "some result",
 			})
 		}
+	}
+}
+
+func TestDuplicateGuard_BlocksRepeatedUpdatePlanEvenWhenArgsChange(t *testing.T) {
+	guard := NewDuplicateGuard(nil)
+
+	firstBlock, _ := guard.ShouldBlock("orchestration/updatePlan", map[string]interface{}{
+		"plan": []map[string]interface{}{{"step": "scan repo", "status": "in_progress"}},
+	})
+	if firstBlock {
+		t.Fatalf("first updatePlan should not be blocked")
+	}
+	guard.RegisterResult("orchestration/updatePlan", map[string]interface{}{
+		"plan": []map[string]interface{}{{"step": "scan repo", "status": "in_progress"}},
+	}, llm.ToolCall{
+		Name:   "orchestration/updatePlan",
+		Result: `{"plan":[{"step":"scan repo","status":"in_progress"}]}`,
+	})
+
+	secondBlock, reused := guard.ShouldBlock("orchestration/updatePlan", map[string]interface{}{
+		"plan": []map[string]interface{}{{"step": "inspect packages", "status": "in_progress"}},
+	})
+	if !secondBlock {
+		t.Fatalf("second consecutive updatePlan should be blocked even when args change")
+	}
+	if reused.Name != "orchestration/updatePlan" {
+		t.Fatalf("expected previous updatePlan result to be reused, got %q", reused.Name)
 	}
 }
 

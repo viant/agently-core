@@ -1,0 +1,16 @@
+id: chatter_system_os
+name: Chatter System OS
+description: Chatter-style agent with the system/os tool bundle for environment-variable queries
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: Chatter
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/os

@@ -1,7 +1,6 @@
 package modelcall
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -30,48 +29,9 @@ func AssistantContentFromResponse(resp *llm.GenerateResponse) (string, bool) {
 	return strings.TrimSpace(strings.Join(parts, "\n\n")), hasToolCalls
 }
 
-// AssistantPreambleFromResponse returns a canonical preamble for a tool-producing
-// assistant response. When content is empty, it synthesizes a concise tool-group
-// sentence so the transcript can show execution intent during streaming.
+// AssistantPreambleFromResponse returns model-authored preamble text for a
+// tool-producing assistant response. It must not synthesize text from tool
+// metadata; provisional bubbles should reflect only what the model actually said.
 func AssistantPreambleFromResponse(resp *llm.GenerateResponse, content string) string {
-	if text := strings.TrimSpace(content); text != "" {
-		return text
-	}
-	if resp == nil || len(resp.Choices) == 0 {
-		return ""
-	}
-	names := make([]string, 0, 4)
-	seen := map[string]struct{}{}
-	for _, c := range resp.Choices {
-		for _, tc := range c.Message.ToolCalls {
-			name := strings.TrimSpace(tc.Name)
-			if name == "" {
-				continue
-			}
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			names = append(names, name)
-		}
-		if c.Message.FunctionCall != nil {
-			name := strings.TrimSpace(c.Message.FunctionCall.Name)
-			if name != "" {
-				if _, ok := seen[name]; !ok {
-					seen[name] = struct{}{}
-					names = append(names, name)
-				}
-			}
-		}
-	}
-	if len(names) == 0 {
-		return ""
-	}
-	if len(names) == 1 {
-		return "Using " + names[0] + "."
-	}
-	if len(names) == 2 {
-		return "Using " + names[0] + " and " + names[1] + "."
-	}
-	return fmt.Sprintf("Using %s and %d more tool(s).", strings.Join(names[:2], ", "), len(names)-2)
+	return strings.TrimSpace(content)
 }

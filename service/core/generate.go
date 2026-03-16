@@ -690,6 +690,20 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		Options:      input.Options,
 		Instructions: input.Instructions,
 	}
+	if modelcallctx.DebugEnabled() {
+		toolNames := make([]string, 0, len(request.Options.Tools))
+		for _, item := range request.Options.Tools {
+			if name := strings.TrimSpace(item.Definition.Name); name != "" {
+				toolNames = append(toolNames, name)
+			}
+		}
+		fmt.Printf("[debug][core][request] model=%q tool_choice=%+v tools=%q messages=%d\n",
+			strings.TrimSpace(input.Model),
+			request.Options.ToolChoice,
+			strings.Join(toolNames, ","),
+			len(request.Messages),
+		)
+	}
 	if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
 		request.PromptCacheKey = convID
 	}

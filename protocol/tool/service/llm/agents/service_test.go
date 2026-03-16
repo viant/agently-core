@@ -207,7 +207,7 @@ func TestService_Run_Internal_ThreadsModelPrefsAndReasoning(t *testing.T) {
 	}
 	in := &RunInput{
 		AgentID:          "dev_reviewer",
-		Objective:        "review repo",
+		Objective:        "review changes",
 		Streaming:        &streaming,
 		ModelPreferences: prefs,
 		ReasoningEffort:  &reasoning,
@@ -264,7 +264,7 @@ func TestService_Run_Internal_DoesNotInheritParentToolAllowList(t *testing.T) {
 	streaming := false
 	in := &RunInput{
 		AgentID:   "dev_reviewer",
-		Objective: "review repo",
+		Objective: "check status",
 		Streaming: &streaming,
 		Context:   map[string]interface{}{"foo": "bar"},
 	}
@@ -304,6 +304,118 @@ func TestService_Run_Internal_DoesNotInheritParentToolAllowList(t *testing.T) {
 			assert.EqualValues(t, tc.expectedPolicy, fake.lastPolicy)
 		})
 	}
+}
+
+func TestService_Run_Internal_RepoAnalysisUsesBoundedToolAllowList(t *testing.T) {
+	streaming := false
+	in := &RunInput{
+		AgentID:   "coder",
+		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
+		Streaming: &streaming,
+		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+	}
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+	}
+	s := &Service{agent: fake}
+
+	var out RunOutput
+	err := s.run(context.Background(), in, &out)
+
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastInput)
+	assert.Contains(t, fake.lastInput.Query, "Use at most one `resources-list` call on the repo root")
+	assert.EqualValues(t, []string{
+		"resources:list",
+		"resources-list",
+		"resources:read",
+		"resources-read",
+		"resources:grepFiles",
+		"resources-grepFiles",
+		"resources:roots",
+		"resources-roots",
+		"resources:match",
+		"resources-match",
+		"resources:matchDocuments",
+		"resources-matchDocuments",
+		"system/exec:execute",
+		"system_exec-execute",
+		"system/os:getEnv",
+		"system_os-getEnv",
+		"internal/message:show",
+		"internal_message-show",
+		"internal/message:summarize",
+		"internal_message-summarize",
+		"internal/message:match",
+		"internal_message-match",
+	}, fake.lastInput.ToolsAllowed)
+}
+
+func TestService_Run_Internal_ChildFailureReturnsToolResult(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			childConvID := in.ConversationID
+			require.NotEmpty(t, childConvID)
+
+			childTurn := convcli.NewTurn()
+			childTurn.SetId("child-turn-1")
+			childTurn.SetConversationID(childConvID)
+			childTurn.SetStatus("failed")
+			errMsg := "child stream failed"
+			childTurn.SetErrorMessage(errMsg)
+			require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+			childMsg := convcli.NewMessage()
+			childMsg.SetId("child-msg-1")
+			childMsg.SetConversationID(childConvID)
+			childMsg.SetTurnID("child-turn-1")
+			childMsg.SetRole("assistant")
+			childMsg.SetType("text")
+			childMsg.SetContent("partial child summary")
+			require.NoError(t, conv.PatchMessage(ctx, childMsg))
+
+			return assert.AnError
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
+		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+	}, &out)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
+	assert.Contains(t, out.Answer, "ended with status failed")
+	assert.Contains(t, out.Answer, "partial child summary")
 }
 
 type fakeFinder struct {
@@ -504,7 +616,7 @@ func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
 			if msg.Role == "assistant" && msg.Content != nil && *msg.Content == objective {
 				foundObjectiveEcho = true
 			}
-			if msg.Role == "assistant" && msg.ToolName != nil && (*msg.ToolName == "llm/agents:run" || *msg.ToolName == "llm/agents-run") && msg.LinkedConversationId != nil && *msg.LinkedConversationId != "" {
+			if msg.Role == "assistant" && msg.ToolName != nil && (*msg.ToolName == "llm/agents:run" || *msg.ToolName == "llm/agents-run" || *msg.ToolName == "llm/agents/run") && msg.LinkedConversationId != nil && *msg.LinkedConversationId != "" {
 				foundLinkedStatus = true
 			}
 		}

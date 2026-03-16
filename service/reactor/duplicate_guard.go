@@ -1,6 +1,7 @@
 package reactor
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -16,11 +17,14 @@ type toolKey struct {
 // result exists, callers may synthesize that same result instead of re-running
 // the tool.
 type DuplicateGuard struct {
-	mu          sync.Mutex
-	lastKey     toolKey
-	consecutive int
-	window      []toolKey
-	latest      map[toolKey]llm.ToolCall
+	mu           sync.Mutex
+	lastKey      toolKey
+	consecutive  int
+	lastName     string
+	nameStreak   int
+	window       []toolKey
+	latest       map[toolKey]llm.ToolCall
+	latestByName map[string]llm.ToolCall
 }
 
 const (
@@ -31,14 +35,17 @@ const (
 
 func NewDuplicateGuard(prior []llm.ToolCall) *DuplicateGuard {
 	g := &DuplicateGuard{
-		latest: make(map[toolKey]llm.ToolCall, len(prior)),
-		window: make([]toolKey, 0, windowSize),
+		latest:       make(map[toolKey]llm.ToolCall, len(prior)),
+		latestByName: make(map[string]llm.ToolCall, len(prior)),
+		window:       make([]toolKey, 0, windowSize),
 	}
 	for _, r := range prior {
 		key := g.key(r.Name, r.Arguments)
 		g.latest[key] = r
+		g.latestByName[g.normalizedName(r.Name)] = r
 		g.window = append(g.window, key)
 		g.lastKey = key
+		g.updateNameStreak(r.Name)
 	}
 	return g
 }
@@ -53,16 +60,24 @@ func (g *DuplicateGuard) ShouldBlock(name string, args map[string]interface{}) (
 
 	key := g.key(name, args)
 	prev := g.latest[key]
+	prevByName := g.latestByName[g.normalizedName(name)]
 
 	if key == g.lastKey && prev.Name != "" && prev.Error == "" {
 		return true, prev
 	}
+	if g.isRootListTool(name) && prevByName.Name != "" && prevByName.Error == "" {
+		return true, prevByName
+	}
 
 	g.updateConsecutive(key)
+	g.updateNameStreak(name)
 	g.updateWindow(key)
 
 	if g.consecutive >= consecutiveLimit {
 		return true, prev
+	}
+	if g.isPlanTool(name) && g.nameStreak >= 2 && prevByName.Name != "" && prevByName.Error == "" {
+		return true, prevByName
 	}
 	if g.frequency(key) >= windowFreqLimit {
 		return true, prev
@@ -79,6 +94,16 @@ func (g *DuplicateGuard) updateConsecutive(k toolKey) {
 	} else {
 		g.consecutive = 1
 		g.lastKey = k
+	}
+}
+
+func (g *DuplicateGuard) updateNameStreak(name string) {
+	normalized := g.normalizedName(name)
+	if normalized == g.lastName {
+		g.nameStreak++
+	} else {
+		g.lastName = normalized
+		g.nameStreak = 1
 	}
 }
 
@@ -125,4 +150,23 @@ func (g *DuplicateGuard) RegisterResult(name string, args map[string]interface{}
 	k := g.key(name, args)
 	g.latest[k] = res
 	g.lastKey = k
+	normalized := g.normalizedName(name)
+	g.latestByName[normalized] = res
+	g.updateNameStreak(name)
+}
+
+func (g *DuplicateGuard) normalizedName(name string) string {
+	text := strings.ToLower(strings.TrimSpace(name))
+	text = strings.ReplaceAll(text, ":", "/")
+	text = strings.ReplaceAll(text, "_", "/")
+	text = strings.ReplaceAll(text, "-", "/")
+	return text
+}
+
+func (g *DuplicateGuard) isPlanTool(name string) bool {
+	return g.normalizedName(name) == "orchestration/updateplan"
+}
+
+func (g *DuplicateGuard) isRootListTool(name string) bool {
+	return g.normalizedName(name) == "resources/list" || g.normalizedName(name) == "resources/roots"
 }
