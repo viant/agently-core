@@ -1,0 +1,18 @@
+Case: 045_conversation_stage_canceled_during_first_tool_call
+
+Purpose:
+Validate cancellation of a live turn after the first LLM call has already produced a tool request and while the first tool call is still running.
+
+What this test verifies:
+- a new conversation can start a long-running `tool_forcer_exec_sleep` turn
+- the first LLM call finishes and the first tool call begins execution
+- `POST /v1/turns/{id}/cancel` reaches the active running turn during that tool call
+- the turn and conversation persist as `canceled`
+
+Implementation note:
+- this case uses an Endly `multiAction` task so the query can run asynchronously while the cancel request is executed in the same task
+- the wait before cancel is intentionally long enough to allow the first LLM call to complete and the `sleep 12` tool call to be in flight
+
+Why it matters:
+- protects the runtime cancel path for the first live tool-execution window
+- complements case 044, which covers cancellation during the first LLM call before any tool execution starts

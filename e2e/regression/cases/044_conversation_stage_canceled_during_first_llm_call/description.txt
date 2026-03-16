@@ -1,0 +1,19 @@
+Case: 044_conversation_stage_canceled_during_first_llm_call
+
+Purpose:
+Validate cancellation of a live turn while the first LLM call is in progress and before any tool execution starts.
+
+What this test verifies:
+- a new conversation can start a long-running first LLM call on the `simple` agent
+- the turn remains live long enough for a second request to cancel it during that first model call
+- `POST /v1/turns/{id}/cancel` reaches the active running turn while the model call is still in flight
+- the in-flight model call is interrupted and finalized as `canceled`
+- conversation stage and latest turn stage/status persist as `canceled`
+
+Implementation note:
+- this case uses an Endly `multiAction` task so `startStoryTurn` can run asynchronously and `cancelRunningTurn` can execute in the same task
+- the short wait before cancel is only there to let the first model call become active; the query endpoint remains the normal blocking `/v1/agent/query`
+
+Why it matters:
+- protects the runtime cancel path for the most common pre-tool cancellation window
+- gives deterministic coverage for turn/conversation cancel semantics without depending on tool execution timing

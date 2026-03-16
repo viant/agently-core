@@ -1,0 +1,18 @@
+Case: 048_conversation_stage_executing
+
+Purpose:
+Validate derived conversation/turn stage while the first tool call is actively executing.
+
+What this test verifies:
+- `tool_forcer_exec_sleep` starts a live tool execution in the first turn
+- the conversation enters derived stage `executing` while that tool call is still running
+- the latest turn remains `running` while stage is `executing`
+
+Implementation note:
+- the case uses an Endly `multiAction` task so the query can keep running while the same task fetches conversation state
+- the test waits long enough for the first tool call to be in flight and then asserts `executing` from `GET /v1/conversations/{id}`
+- the turn is canceled after verification to avoid test bleed
+
+Why it matters:
+- protects the live in-tool stage used by UI and SDK consumers
+- complements the canceled-first-tool-call case by verifying the nonterminal stage itself

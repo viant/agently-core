@@ -101,11 +101,17 @@ func valueOrEmpty(value *string) string {
 }
 
 func computeTurnStage(t *TranscriptView) string {
-	if t == nil || len(t.Message) == 0 {
+	if t == nil {
 		return StageWaiting
 	}
 	if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
 		return StageCanceled
+	}
+	if strings.EqualFold(strings.TrimSpace(t.Status), "failed") || strings.EqualFold(strings.TrimSpace(t.Status), "error") {
+		return StageError
+	}
+	if len(t.Message) == 0 {
+		return StageWaiting
 	}
 
 	lastRole := ""
