@@ -668,19 +668,26 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// Terminal when the plan is empty (LLM produced final content, no more tool calls).
 		isTerminal := aPlan.IsEmpty()
 		if isTerminal {
-			// Persist final assistant text using the shared message ID
+			// Mark the existing stream message as final (interim=0) instead of
+			// creating a duplicate message. The model call's message already has
+			// the content from patchAssistantMessageFromInfo in OnCallEnd.
 			if strings.TrimSpace(genOutput.Content) != "" {
 				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 				msgID := memory.ModelMessageIDFromContext(ctx)
 				if msgID == "" {
 					msgID = genOutput.MessageID
 				}
-				// Attribute assistant message to the agent ID for history and UI display
-				actor := input.Actor()
-				if shouldSkipFinalAssistantPersist(ctx, s.conversation, &turn, genOutput.Content) {
-					debugf("agent.runPlan skip duplicate final assistant convo=%q turn_id=%q content_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(genOutput.Content))
-				} else if _, err := s.addMessage(ctx, &turn, "assistant", actor, genOutput.Content, nil, "plan", msgID); err != nil {
-					return err
+				if strings.TrimSpace(msgID) != "" {
+					msg := apiconv.NewMessage()
+					msg.SetId(msgID)
+					msg.SetRole("assistant")
+					msg.SetConversationID(turn.ConversationID)
+					msg.SetTurnID(turn.TurnID)
+					msg.SetContent(strings.TrimSpace(genOutput.Content))
+					msg.SetInterim(0)
+					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+						warnf("agent.runPlan patch final interim=0 error convo=%q msg=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(msgID), err)
+					}
 				}
 			}
 			pending, pErr := s.hasNewTurnTaskSince(ctx, turn, checkpoint)
