@@ -12,6 +12,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	linksvc "github.com/viant/agently-core/service/linking"
 	executil "github.com/viant/agently-core/service/shared/executil"
@@ -72,6 +73,16 @@ func WithConversationClient(c apiconv.Client) Option {
 		if c != nil {
 			s.linker = linksvc.New(c)
 			s.status = statussvc.New(c)
+		}
+	}
+}
+
+// WithStreamPublisher wires a streaming publisher to the linking service so
+// linked_conversation_attached events reach the SSE bus.
+func WithStreamPublisher(p streaming.Publisher) Option {
+	return func(s *Service) {
+		if s.linker != nil && p != nil {
+			s.linker.SetStreamPublisher(p)
 		}
 	}
 }

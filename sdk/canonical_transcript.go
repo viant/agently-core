@@ -37,6 +37,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		Status:    canonicalTurnStatus(turn),
 		CreatedAt: turn.CreatedAt,
 	}
+	linkedSeen := map[string]struct{}{}
 
 	// Extract user message, assistant messages, elicitation, linked conversations
 	for _, msg := range turn.Message {
@@ -65,22 +66,23 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		}
 		// Collect linked conversations from messages
 		if msg.LinkedConversationId != nil && strings.TrimSpace(*msg.LinkedConversationId) != "" {
-			lc := &LinkedConversationState{
+			appendLinkedConversationState(ts, linkedSeen, &LinkedConversationState{
 				ConversationID: strings.TrimSpace(*msg.LinkedConversationId),
 				CreatedAt:      msg.CreatedAt,
+				ParentTurnID:   stringValue(msg.TurnId),
+				ToolCallID:     firstToolCallID(msg.ToolMessage),
+			})
+		}
+		for _, tm := range msg.ToolMessage {
+			if tm == nil || tm.LinkedConversationId == nil || strings.TrimSpace(*tm.LinkedConversationId) == "" {
+				continue
 			}
-			if msg.TurnId != nil {
-				lc.ParentTurnID = strings.TrimSpace(*msg.TurnId)
-			}
-			// Extract ToolCallID from the tool call attached to this message,
-			// so SelectLinkedConversationForToolCall can look up by tool call ID.
-			for _, tm := range msg.ToolMessage {
-				if tm != nil && tm.ToolCall != nil && strings.TrimSpace(tm.ToolCall.OpId) != "" {
-					lc.ToolCallID = strings.TrimSpace(tm.ToolCall.OpId)
-					break
-				}
-			}
-			ts.LinkedConversations = append(ts.LinkedConversations, lc)
+			appendLinkedConversationState(ts, linkedSeen, &LinkedConversationState{
+				ConversationID: strings.TrimSpace(*tm.LinkedConversationId),
+				CreatedAt:      tm.CreatedAt,
+				ParentTurnID:   stringValue(msg.TurnId),
+				ToolCallID:     toolCallIDFromToolMessage(tm),
+			})
 		}
 	}
 
@@ -322,13 +324,41 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	if tc.ResponsePayloadId != nil {
 		step.ResponsePayloadID = strings.TrimSpace(*tc.ResponsePayloadId)
 	}
-	// Extract linked conversation ID from the parent assistant message's
-	// LinkedConversationId field or LinkedConversation relation, rather than
-	// parsing the tool result content.
-	// Note: ToolMessageView doesn't carry LinkedConversationId directly —
-	// the link lives on the parent MessageView. The caller attaches it via
-	// the turn-level linked conversation collection in buildTurnState.
+	if tm.LinkedConversationId != nil {
+		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
+	}
 	return step
+}
+
+func appendLinkedConversationState(turn *TurnState, seen map[string]struct{}, linked *LinkedConversationState) {
+	if turn == nil || linked == nil {
+		return
+	}
+	id := strings.TrimSpace(linked.ConversationID)
+	if id == "" {
+		return
+	}
+	if _, ok := seen[id]; ok {
+		return
+	}
+	seen[id] = struct{}{}
+	turn.LinkedConversations = append(turn.LinkedConversations, linked)
+}
+
+func toolCallIDFromToolMessage(tm *agconv.ToolMessageView) string {
+	if tm == nil || tm.ToolCall == nil {
+		return ""
+	}
+	return strings.TrimSpace(tm.ToolCall.OpId)
+}
+
+func firstToolCallID(items []*agconv.ToolMessageView) string {
+	for _, item := range items {
+		if id := toolCallIDFromToolMessage(item); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func extractAssistantState(pages []*ExecutionPageState) *AssistantState {

@@ -154,15 +154,16 @@ type MessageView struct {
 }
 
 type ToolMessageView struct {
-	Id              string        `sqlx:"id"`
-	ParentMessageId *string       `sqlx:"parent_message_id"`
-	CreatedAt       time.Time     `sqlx:"created_at"`
-	Sequence        *int          `sqlx:"sequence"`
-	Type            string        `sqlx:"type"`
-	Content         *string       `sqlx:"content"`
-	ToolName        *string       `sqlx:"tool_name"`
-	Iteration       *int          `sqlx:"iteration"`
-	ToolCall        *ToolCallView `view:",table=tool_call" on:"Id:m.id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
+	Id                   string        `sqlx:"id"`
+	ParentMessageId      *string       `sqlx:"parent_message_id"`
+	CreatedAt            time.Time     `sqlx:"created_at"`
+	Sequence             *int          `sqlx:"sequence"`
+	Type                 string        `sqlx:"type"`
+	Content              *string       `sqlx:"content"`
+	ToolName             *string       `sqlx:"tool_name"`
+	Iteration            *int          `sqlx:"iteration"`
+	LinkedConversationId *string       `sqlx:"linked_conversation_id"`
+	ToolCall             *ToolCallView `view:",table=tool_call" on:"Id:m.id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
 }
 
 type ToolCallView struct {

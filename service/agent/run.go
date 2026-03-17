@@ -685,6 +685,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if msgID != "" {
 					msg := apiconv.NewMessage()
 					msg.SetId(msgID)
+					msg.SetConversationID(turn.ConversationID)
 					msg.SetContent(strings.TrimSpace(genOutput.Content))
 					msg.SetInterim(0)
 					if err := s.conversation.PatchMessage(ctx, msg); err != nil {

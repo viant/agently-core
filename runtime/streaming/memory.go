@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -59,7 +60,8 @@ func (b *MemoryBus) Publish(ctx context.Context, event *Event) error {
 			return ctx.Err()
 		case sub.ch <- event:
 		default:
-			// best effort; drop when consumer is slow
+			log.Printf("[warn][streaming-bus] DROPPED event type=%q stream_id=%q convo=%q turn=%q tool=%q sub=%q buf_cap=%d",
+				string(event.Type), event.StreamID, event.ConversationID, event.TurnID, event.ToolName, sub.id, cap(sub.ch))
 		}
 	}
 	return nil

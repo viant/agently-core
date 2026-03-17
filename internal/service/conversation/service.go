@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"reflect"
 	"strings"
@@ -527,15 +528,19 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 	if s == nil || s.streamPub == nil || message == nil {
 		return
 	}
-	patch := messagePatchPayload(message)
-	if len(patch) == 0 {
-		return
-	}
 	conversationID := strings.TrimSpace(message.ConversationID)
 	if conversationID == "" {
 		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
+		return
+	}
+	if shouldSuppressMessagePatchEvent(ctx, message) {
+		s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+		return
+	}
+	patch := messagePatchPayload(message)
+	if len(patch) == 0 {
 		return
 	}
 	event := &streaming.Event{
@@ -549,6 +554,46 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 	}
 	s.emitTimelineEvent(ctx, event, "PatchMessage publish event")
 	s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+}
+
+func shouldSuppressMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) bool {
+	if message == nil {
+		return false
+	}
+	if isToolStatusMessage(message) {
+		return true
+	}
+	if isToolMessage(message) {
+		return true
+	}
+	toolMessageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	return toolMessageID != "" && toolMessageID == strings.TrimSpace(message.Id)
+}
+
+func isToolMessage(message *convcli.MutableMessage) bool {
+	if message == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(message.Type), "tool_op")
+}
+
+func isToolStatusMessage(message *convcli.MutableMessage) bool {
+	if message == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+		return false
+	}
+	if message.CreatedByUserID == nil || !strings.EqualFold(strings.TrimSpace(*message.CreatedByUserID), "tool") {
+		return false
+	}
+	if message.Mode == nil || !strings.EqualFold(strings.TrimSpace(*message.Mode), "exec") {
+		return false
+	}
+	return message.ToolName != nil && strings.TrimSpace(*message.ToolName) != ""
 }
 
 func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{} {
@@ -688,6 +733,8 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
+	log.Printf("[emitTimelineEvent] %s type=%q stream_id=%q convo=%q turn=%q tool=%q id=%q status=%q final=%v",
+		action, string(event.Type), event.StreamID, event.ConversationID, event.TurnID, event.ToolName, event.ID, event.Status, event.FinalResponse)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("%s error type=%q id=%q convo=%q err=%v", action, strings.TrimSpace(string(event.Type)), strings.TrimSpace(event.ID), strings.TrimSpace(event.ConversationID), err)
 		return
@@ -722,7 +769,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		StreamID:           conversationID,
 		ConversationID:     conversationID,
 		Type:               eventType,
-		TurnID:             strings.TrimSpace(valueOrEmptyStr(toolCall.TurnID)),
+		TurnID:             resolveTurnID(ctx, valueOrEmptyStr(toolCall.TurnID)),
 		AssistantMessageID: strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)),
 		ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
 		ToolCallID:         strings.TrimSpace(toolCall.OpID),
@@ -1017,6 +1064,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 
 	// Emit preamble event when we have preamble text and the message is interim
 	if preamble != "" && !isFinal {
+		debugf("emitCanonicalAssistantEvents preamble convo=%q turn=%q msg=%q preamble_len=%d", conversationID, turnID, strings.TrimSpace(message.Id), len(preamble))
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(message.Id),
 			StreamID:           conversationID,
@@ -1061,16 +1109,18 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
+		log.Printf("[emitCanonicalModelEvent] SKIP no conversationID msg=%q status=%q", modelCall.MessageID, modelCall.Status)
 		return
 	}
 	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
+	log.Printf("[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(modelCall.MessageID),
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
 			Type:               streaming.EventTypeModelStarted,
-			TurnID:             strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)),
+			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
 			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
 			ModelCallID:        strings.TrimSpace(modelCall.MessageID),
@@ -1099,7 +1149,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
 			Type:               streaming.EventTypeModelCompleted,
-			TurnID:             strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)),
+			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
 			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
 			ModelCallID:        strings.TrimSpace(modelCall.MessageID),
@@ -1129,6 +1179,16 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		applyIterationPage(event, modelCall.Iteration)
 		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_completed")
 	}
+}
+
+func resolveTurnID(ctx context.Context, explicit string) string {
+	if turnID := strings.TrimSpace(explicit); turnID != "" {
+		return turnID
+	}
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		return strings.TrimSpace(turn.TurnID)
+	}
+	return ""
 }
 
 // DeleteConversation removes a conversation by id. Dependent rows are removed via DB FKs (ON DELETE CASCADE).

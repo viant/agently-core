@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -677,6 +678,7 @@ func handleListPendingElicitations(client Client) http.HandlerFunc {
 func handleStreamEvents(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		convID := r.URL.Query().Get("conversationId")
+		log.Printf("[SSE] client connected convo=%q", convID)
 		input := &StreamEventsInput{ConversationID: convID}
 		sub, err := client.StreamEvents(r.Context(), input)
 		if err != nil {
@@ -700,14 +702,18 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 			select {
 			case ev, open := <-sub.C():
 				if !open {
+					log.Printf("[SSE] channel closed convo=%q", convID)
 					return
 				}
+				log.Printf("[SSE] sending type=%q convo=%q stream_id=%q turn=%q tool=%q toolCallId=%q toolMsgId=%q status=%q final=%v",
+					string(ev.Type), ev.ConversationID, ev.StreamID, ev.TurnID, ev.ToolName, ev.ToolCallID, ev.ToolMessageID, ev.Status, ev.FinalResponse)
 				data, _ := json.Marshal(ev)
 				fmt.Fprintf(w, "data:%s\n\n", data)
 				if ok {
 					flusher.Flush()
 				}
 			case <-ctx.Done():
+				log.Printf("[SSE] client disconnected convo=%q", convID)
 				return
 			}
 		}

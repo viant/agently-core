@@ -107,7 +107,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 		warnConvf("tool force close convo=%q turn=%q op_id=%q tool=%q status=%q ret_err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), strings.TrimSpace(errMsg), strings.TrimSpace(formatContextErr(ctx)))
 		if !toolCallClosed {
-			_ = completeToolCall(finCtx, conv, toolMsgID, step.ID, status, time.Now(), "", errMsg)
+			_ = completeToolCall(finCtx, conv, toolMsgID, step.ID, step.Name, status, time.Now(), "", errMsg)
 		}
 	}()
 
@@ -212,7 +212,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	// Use detached + bounded context for terminal writes.
 	finCtx, cancelFin := detachedFinalizeCtx(ctx)
 	defer cancelFin()
-	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, status, span.EndedAt, respID, errMsg); cErr != nil {
+	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, step.Name, status, span.EndedAt, respID, errMsg); cErr != nil {
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	} else {
 		toolCallClosed = true
@@ -302,7 +302,7 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	completedAt := time.Now()
 	finCtx, cancelFin := detachedFinalizeCtx(ctx)
 	defer cancelFin()
-	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, status, completedAt, respID, ""); cErr != nil {
+	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, step.Name, status, completedAt, respID, ""); cErr != nil {
 		return fmt.Errorf("complete tool call: %w", cErr)
 	}
 	debugConvf("tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
