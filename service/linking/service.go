@@ -3,6 +3,7 @@ package linking
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 	if s == nil || s.streamPub == nil {
 		return
 	}
+	log.Printf("[emitLinkedConversationAttached] parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
 	event := &streaming.Event{
 		StreamID:             strings.TrimSpace(parent.ConversationID),
 		ConversationID:       strings.TrimSpace(parent.ConversationID),
@@ -52,6 +54,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("linked_conversation_attached publish error parent_convo=%q child_convo=%q err=%v", parent.ConversationID, childConversationID, err)
 	}
+	debugf("emitLinkedConversationAttached ok parent_convo=%q child_convo=%q", parent.ConversationID, childConversationID)
 }
 
 // CreateLinkedConversation creates a new conversation linked to the provided
@@ -60,6 +63,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 // conversation for context.
 func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.TurnMeta, cloneTranscript bool, transcript apiconv.Transcript) (string, error) {
 	childID := uuid.New().String()
+	log.Printf("[CreateLinkedConversation] parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
 	debugf("CreateLinkedConversation start parent_convo=%q parent_turn=%q child_convo=%q clone=%v transcript_len=%d", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), cloneTranscript, len(transcript))
 	// Create child conversation and set parent ids
 	w := convw.Conversation{Has: &convw.ConversationHas{}}
@@ -86,6 +90,10 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.Tu
 		}
 	}
 	debugf("CreateLinkedConversation ok parent_convo=%q parent_turn=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID))
+	// ToolMessageID is used as the toolCallId in the SSE event — the UI matches
+	// against both toolCallId and toolMessageId on the step, so this works.
+	toolMessageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	s.emitLinkedConversationAttached(ctx, parent, childID, toolMessageID)
 	return childID, nil
 }
 

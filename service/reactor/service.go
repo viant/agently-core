@@ -165,7 +165,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
 	}
 	if canStream {
+		log.Printf("[reactor.Run] starting stream...")
 		cleanup, err := s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{})
+		log.Printf("[reactor.Run] stream returned, err=%v", err)
 		defer cleanup()
 		if err != nil {
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
@@ -179,7 +181,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			}
 			return nil, fmt.Errorf("failed to stream: %w", err)
 		}
+		log.Printf("[reactor.Run] waiting for tool goroutines...")
 		wg.Wait()
+		log.Printf("[reactor.Run] all tool goroutines done, checking errors")
 		// propagate first tool error if any
 		select {
 		case toolErr := <-stepErrCh:
@@ -211,10 +215,23 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			return nil, fmt.Errorf("failed to extend plan from response: %w", err)
 		}
 		if ok {
+			// Ensure genOutput.MessageID is populated for non-streaming tool
+			// calls (e.g., extendPlanFromResponse path). OnCallStart stored
+			// the assistant message ID at the turn level during streaming.
+			if genOutput.MessageID == "" {
+				if tm, ok2 := memory.TurnMetaFromContext(ctx); ok2 {
+					if mid := strings.TrimSpace(memory.TurnModelMessageID(tm.TurnID)); mid != "" {
+						genOutput.MessageID = mid
+					}
+				}
+			}
+			log.Printf("[reactor.Run] streamPlanSteps starting, steps=%d msgID=%q", len(aPlan.Steps), genOutput.MessageID)
 			if err = s.streamPlanSteps(ctx, streamId, aPlan); err != nil {
 				return nil, fmt.Errorf("failed to stream plan steps: %w", err)
 			}
+			log.Printf("[reactor.Run] streamPlanSteps done, waiting for wg...")
 			wg.Wait()
+			log.Printf("[reactor.Run] extendPlan wg done")
 			// propagate first tool error if any
 			select {
 			case toolErr := <-stepErrCh:

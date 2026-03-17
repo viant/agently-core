@@ -53,24 +53,3 @@ func TestBuildTaskBinding_SkipsRuntimeDelegationDirectiveForDelegatedCoderChild(
 
 	require.Equal(t, "Analyze project "+workdir, task.Prompt)
 }
-
-func TestShouldForceInitialRepoAnalysisDelegation(t *testing.T) {
-	workdir := t.TempDir()
-	input := &QueryInput{
-		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "coder"},
-			Delegation: &agentmdl.Delegation{
-				Enabled:  true,
-				MaxDepth: 1,
-			},
-		},
-		Query: "Analyze project " + workdir,
-	}
-
-	require.True(t, shouldForceInitialRepoAnalysisDelegation(input))
-
-	input.Context = map[string]interface{}{
-		"DelegationDepths": map[string]interface{}{"coder": 1},
-	}
-	require.False(t, shouldForceInitialRepoAnalysisDelegation(input))
-}

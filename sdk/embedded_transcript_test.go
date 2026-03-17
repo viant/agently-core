@@ -227,6 +227,55 @@ func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testin
 	require.Equal(t, "resources/list", page.ToolSteps[0].ToolName)
 }
 
+func TestBuildCanonicalState_PreservesLinkedConversationOnToolStepAndTurn(t *testing.T) {
+	iteration1 := 1
+	linkedID := "child-conv-1"
+	toolStatus := "completed"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   strPtr("Delegating to coder."),
+				Iteration: &iteration1,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:                   "tm1",
+						ParentMessageId:      strPtr("m1"),
+						Iteration:            &iteration1,
+						LinkedConversationId: &linkedID,
+						ToolCall: &agconv.ToolCallView{
+							MessageId: "tm1",
+							OpId:      "call-1",
+							ToolName:  "llm/agents/run",
+							Status:    toolStatus,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+
+	ts := state.Turns[0]
+	require.Len(t, ts.LinkedConversations, 1)
+	require.Equal(t, linkedID, ts.LinkedConversations[0].ConversationID)
+	require.Equal(t, "call-1", ts.LinkedConversations[0].ToolCallID)
+
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 1)
+	require.Len(t, ts.Execution.Pages[0].ToolSteps, 1)
+	require.Equal(t, linkedID, ts.Execution.Pages[0].ToolSteps[0].LinkedConversationID)
+}
+
 func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2

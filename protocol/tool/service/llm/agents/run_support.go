@@ -112,7 +112,12 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	// Detach from parent's tool-execution deadline so the child agent
 	// runs with its own independent timeout. Apply a hard deadline so a
 	// hung child doesn't block the parent forever.
-	childCtx := toolpol.WithPolicy(context.WithoutCancel(ctx), nil)
+	// Clear the parent's ModelMessageIDKey so the child's tool_op messages
+	// don't inherit the parent's assistant message as their parent_message_id.
+	childCtx := context.WithValue(
+		toolpol.WithPolicy(context.WithoutCancel(ctx), nil),
+		memory.ModelMessageIDKey, "",
+	)
 	childTimeout := s.ChildTimeout
 	if childTimeout <= 0 {
 		childTimeout = DefaultChildAgentTimeout

@@ -56,6 +56,7 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.Tur
 	if s == nil || s.streamPub == nil || turn == nil || elic == nil {
 		return
 	}
+	debugf("emitElicitationRequested convo=%q turn=%q elicitation_id=%q message_id=%q message=%q callback=%q", turn.ConversationID, turn.TurnID, elic.ElicitationId, messageID, elic.Message, elic.CallbackURL)
 	elicData := map[string]interface{}{}
 	if raw, err := json.Marshal(elic.RequestedSchema); err == nil {
 		_ = json.Unmarshal(raw, &elicData)
@@ -78,6 +79,7 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.Tur
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("elicitation_requested publish error convo=%q elicitation_id=%q err=%v", turn.ConversationID, elic.ElicitationId, err)
 	}
+	debugf("emitElicitationRequested ok convo=%q elicitation_id=%q", turn.ConversationID, elic.ElicitationId)
 }
 
 func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitationID, status string, payload map[string]interface{}) {

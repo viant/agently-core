@@ -3,7 +3,6 @@ package executil
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -44,9 +43,6 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 	// tool_message.sql JOIN to group tool calls under the correct iteration.
 	if id := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); id != "" {
 		opts = append(opts, apiconv.WithParentMessageID(id))
-		log.Printf("[createToolMessage] tool=%s parent_override=%s (from context ModelMessageID)", displayName, id)
-	} else {
-		log.Printf("[createToolMessage] tool=%s NO ModelMessageID in context, falling back to turn parent=%s", displayName, strings.TrimSpace(turn.ParentMessageID))
 	}
 	msg, err := apiconv.AddMessage(ctx, conv, &turn, opts...)
 	if err != nil {
@@ -110,11 +106,18 @@ func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID stri
 }
 
 // completeToolCall marks the tool call as finished and attaches the response payload and error message.
-func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID, status string, completedAt time.Time, respPayloadID string, errMsg string) error {
+func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID, toolName, status string, completedAt time.Time, respPayloadID string, errMsg string) error {
 	updTC := apiconv.NewToolCall()
 	updTC.SetMessageID(toolMsgID)
 	if strings.TrimSpace(opID) != "" {
 		updTC.SetOpID(opID)
+	}
+	if strings.TrimSpace(toolName) != "" {
+		updTC.SetToolName(toolName)
+	}
+	// Propagate turn so the SSE event carries it for UI matching.
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+		updTC.SetTurnID(turn.TurnID)
 	}
 	updTC.SetStatus(status)
 	done := completedAt
