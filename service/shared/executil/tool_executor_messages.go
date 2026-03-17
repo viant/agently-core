@@ -3,6 +3,7 @@ package executil
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 )
 
 // createToolMessage persists a new tool message and returns its ID.
+// The tool message's parent_message_id is set to the interim assistant
+// message (from ModelMessageIDFromContext) so the UI can group tool calls
+// under the correct model-call iteration. Falls back to the turn's
+// ParentMessageID when the model message ID is not in context.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.TurnMeta, startedAt time.Time, toolName string) (string, error) {
 	toolMsgID := uuid.New().String()
 	displayName := mcpname.Display(toolName)
@@ -32,6 +37,16 @@ func createToolMessage(ctx context.Context, conv apiconv.Client, turn memory.Tur
 	}
 	if IsChainMode(ctx) {
 		opts = append(opts, apiconv.WithMode("chain"))
+	}
+	// Override parent_message_id to point to the assistant message that
+	// triggered this tool call. The model message ID is set in context by
+	// OnCallStart and propagated via launchPendingSteps. This enables the
+	// tool_message.sql JOIN to group tool calls under the correct iteration.
+	if id := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); id != "" {
+		opts = append(opts, apiconv.WithParentMessageID(id))
+		log.Printf("[createToolMessage] tool=%s parent_override=%s (from context ModelMessageID)", displayName, id)
+	} else {
+		log.Printf("[createToolMessage] tool=%s NO ModelMessageID in context, falling back to turn parent=%s", displayName, strings.TrimSpace(turn.ParentMessageID))
 	}
 	msg, err := apiconv.AddMessage(ctx, conv, &turn, opts...)
 	if err != nil {

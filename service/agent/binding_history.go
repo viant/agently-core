@@ -507,6 +507,14 @@ func (s *Service) collectNormalizedMessages(
 				continue
 			}
 			if baseMsg.IsArchived() || baseMsg.IsInterim() {
+				// Even when the base message is skipped (e.g., interim assistant
+				// preamble), its tool_op children must enter the history so the
+				// model can see prior tool results and continuation can work.
+				for _, toolMsg := range toolMsgs {
+					if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
+						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
+					}
+				}
 				continue
 			}
 			if baseMsg.Status != nil {
@@ -556,6 +564,14 @@ func (s *Service) collectNormalizedMessages(
 			for _, toolMsg := range toolMsgs {
 				if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
 					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
+				} else if DebugEnabled() {
+					opID := ""
+					toolName := ""
+					if tc := messageToolCall(toolMsg); tc != nil {
+						opID = strings.TrimSpace(tc.OpId)
+						toolName = strings.TrimSpace(tc.ToolName)
+					}
+					warnf("agent.collectNormalizedMessages dropped tool_result with empty body op_id=%q tool=%q turn=%q msg_id=%q", opID, toolName, strings.TrimSpace(turn.Id), strings.TrimSpace(toolMsg.Id))
 				}
 			}
 		}

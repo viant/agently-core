@@ -35,3 +35,40 @@ func AssistantContentFromResponse(resp *llm.GenerateResponse) (string, bool) {
 func AssistantPreambleFromResponse(resp *llm.GenerateResponse, content string) string {
 	return strings.TrimSpace(content)
 }
+
+// synthesizeToolPreamble builds a human-readable preamble from the tool call
+// names in the response. Used when the model produces tool calls without any
+// accompanying text, so the interim assistant message still exists in the
+// transcript for parent_message_id linking.
+func synthesizeToolPreamble(resp *llm.GenerateResponse) string {
+	if resp == nil {
+		return "Executing tool calls."
+	}
+	seen := map[string]struct{}{}
+	var names []string
+	for _, c := range resp.Choices {
+		for _, tc := range c.Message.ToolCalls {
+			name := strings.TrimSpace(tc.Name)
+			if name == "" {
+				name = strings.TrimSpace(tc.Function.Name)
+			}
+			if name == "" {
+				continue
+			}
+			// Use the short display name (last segment after / or -)
+			display := name
+			if idx := strings.LastIndexAny(display, "/-"); idx >= 0 && idx+1 < len(display) {
+				display = display[idx+1:]
+			}
+			if _, ok := seen[display]; ok {
+				continue
+			}
+			seen[display] = struct{}{}
+			names = append(names, display)
+		}
+	}
+	if len(names) == 0 {
+		return "Executing tool calls."
+	}
+	return "Calling " + strings.Join(names, ", ") + "."
+}

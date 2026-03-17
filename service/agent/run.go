@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -668,25 +669,26 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// Terminal when the plan is empty (LLM produced final content, no more tool calls).
 		isTerminal := aPlan.IsEmpty()
 		if isTerminal {
-			// Mark the existing stream message as final (interim=0) instead of
-			// creating a duplicate message. The model call's message already has
-			// the content from patchAssistantMessageFromInfo in OnCallEnd.
 			if strings.TrimSpace(genOutput.Content) != "" {
 				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
-				msgID := memory.ModelMessageIDFromContext(ctx)
+				// Find the last interim assistant message for this turn from DB
+				// and patch it to interim=0 with the final content.
+				msgID := strings.TrimSpace(genOutput.MessageID)
 				if msgID == "" {
-					msgID = genOutput.MessageID
+					msgID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
 				}
-				if strings.TrimSpace(msgID) != "" {
+				if msgID == "" {
+					msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
+				}
+				log.Printf("[runPlan-final] patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
+					msgID, turn.ConversationID, turn.TurnID, len(genOutput.Content))
+				if msgID != "" {
 					msg := apiconv.NewMessage()
 					msg.SetId(msgID)
-					msg.SetRole("assistant")
-					msg.SetConversationID(turn.ConversationID)
-					msg.SetTurnID(turn.TurnID)
 					msg.SetContent(strings.TrimSpace(genOutput.Content))
 					msg.SetInterim(0)
 					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
-						warnf("agent.runPlan patch final interim=0 error convo=%q msg=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(msgID), err)
+						log.Printf("[runPlan-final] ERROR patching msg=%q err=%v", msgID, err)
 					}
 				}
 			}
@@ -1393,6 +1395,9 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 
 	infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 
+	// Release in-memory turn state to prevent sync.Map growth.
+	memory.CleanupTurn(turn.TurnID)
+
 	s.triggerQueueDrain(turn.ConversationID)
 	return nil
 }
@@ -1589,6 +1594,42 @@ func (s *Service) updateRunIteration(ctx context.Context, turn memory.TurnMeta, 
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
 		warnf("agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
+}
+
+// findLastInterimAssistantMessageID queries the DB for the last interim
+// assistant message in the turn. This is the message that should be patched
+// to interim=0 with the final response content.
+func (s *Service) findLastInterimAssistantMessageID(ctx context.Context, conversationID, turnID string) string {
+	if s.conversation == nil || conversationID == "" || turnID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return ""
+	}
+	transcript := conv.GetTranscript()
+	for i := len(transcript) - 1; i >= 0; i-- {
+		t := transcript[i]
+		if t == nil || strings.TrimSpace(t.Id) != turnID {
+			continue
+		}
+		// Find the last interim assistant message (highest iteration)
+		var lastMsgID string
+		for _, msg := range t.Message {
+			if msg == nil {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if msg.Interim != 1 {
+				continue
+			}
+			lastMsgID = msg.Id
+		}
+		return lastMsgID
+	}
+	return ""
 }
 
 func (s *Service) patchRunTerminalState(ctx context.Context, turn memory.TurnMeta, status, errorMessage string) error {

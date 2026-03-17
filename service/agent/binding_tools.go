@@ -189,9 +189,9 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 		have[mcpname.Canonical(e.Name)] = true
 	}
 
-	// Query only internal/message tools from the registry (avoid full scan)
+	// Query only message tools from the registry (avoid full scan)
 	// Using a service-only pattern matches any method under that service.
-	pattern := "internal/message" // service-only pattern (match any method)
+	pattern := "message" // service-only pattern (match any method)
 	defs := s.registry.MatchDefinition(pattern)
 
 	for _, d := range defs {
@@ -306,9 +306,9 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 		have[mcpname.Canonical(sig.Name)] = true
 	}
 
-	// Collect internal/message tool definitions and append a consistent subset used in overflow handling
+	// Collect message tool definitions and append a consistent subset used in overflow handling
 	// We include: show, summarize, match, remove (the union of tools referenced in handleOverflow).
-	defs := s.registry.MatchDefinition("internal/message")
+	defs := s.registry.MatchDefinition("message")
 	wanted := map[string]bool{"show": true, "summarize": true, "match": true, "remove": true}
 	for _, d := range defs {
 		if d == nil {

@@ -53,6 +53,31 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	toolResultCount := 0
 	expectedToolCallIDs := make([]string, 0)
 	toolResultIDs := make([]string, 0)
+
+	// Debug: log all traces and their anchor mappings
+	traceDetails := make([]map[string]string, 0)
+	for key, trace := range history.Traces {
+		if trace == nil {
+			continue
+		}
+		traceDetails = append(traceDetails, map[string]string{
+			"key":     key,
+			"traceID": trace.ID,
+			"kind":    string(trace.Kind),
+			"matchesAnchor": func() string {
+				if trace.ID == anchorID {
+					return "YES"
+				}
+				return "no"
+			}(),
+		})
+	}
+	debugtrace.LogToFile("core", "continuation_trace_map", map[string]interface{}{
+		"anchorID": anchorID,
+		"traces":   traceDetails,
+		"msgCount": len(req.Messages),
+	})
+
 	for _, m := range req.Messages {
 
 		if len(m.ToolCalls) > 0 {
@@ -102,19 +127,24 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	}
 
 	if len(selected) == 0 {
-		if debugtrace.Enabled() {
-			debugtrace.Write("core", "continuation_skipped", map[string]any{
-				"conversationID": strings.TrimSpace(conversationID),
-				"reason":         "no_selected_messages",
-				"anchorID":       anchorID,
-			})
-		}
+		debugtrace.LogToFile("core", "continuation_rejected", map[string]interface{}{
+			"reason":   "no_selected_messages",
+			"anchorID": anchorID,
+		})
 		return nil
 	}
-	// OpenAI Responses continuation has proven fragile for multi-tool anchors.
-	// Fall back to full transcript in those cases rather than sending an
-	// incomplete/mismatched function_call_output set under previous_response_id.
-	if assistantToolCallCount > 1 || toolResultCount > 1 || (assistantToolCallCount > 0 && toolResultCount < assistantToolCallCount) {
+	// Guard: reject continuation when tool results are incomplete.
+	// Multi-tool continuation is fine as long as every tool call has a matching
+	// result — the provider sends all function_call_output items together.
+	if assistantToolCallCount > 0 && toolResultCount < assistantToolCallCount {
+		debugtrace.LogToFile("core", "continuation_rejected", map[string]interface{}{
+			"reason":              "multi_tool_guard",
+			"anchorID":            anchorID,
+			"assistantToolCalls":  assistantToolCallCount,
+			"toolResults":         toolResultCount,
+			"expectedToolCallIDs": expectedToolCallIDs,
+			"toolResultIDs":       toolResultIDs,
+		})
 		if debugtrace.Enabled() {
 			debugtrace.Write("core", "continuation_skipped", map[string]any{
 				"conversationID":      strings.TrimSpace(conversationID),
@@ -125,6 +155,43 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 				"expectedToolCallIDs": expectedToolCallIDs,
 				"toolResultIDs":       toolResultIDs,
 				"selectedMessages":    debugtrace.SummarizeMessages(selected),
+			})
+		}
+		return nil
+	}
+
+	// Cross-check: count how many tool calls the anchor actually produced
+	// (from the traces map) vs how many we selected. If they disagree, a tool
+	// result was dropped (e.g. missing payload) and continuing would trigger
+	// "No tool output found" from the provider.
+	anchorToolCallIDs := make([]string, 0)
+	for key, trace := range history.Traces {
+		if trace == nil || trace.Kind != prompt.KindToolCall || trace.ID != anchorID {
+			continue
+		}
+		// Extract the opID from the key (format "toolcall:<opID>")
+		if idx := strings.Index(key, ":"); idx >= 0 && idx+1 < len(key) {
+			anchorToolCallIDs = append(anchorToolCallIDs, key[idx+1:])
+		}
+	}
+	debugtrace.LogToFile("core", "continuation_cross_check", map[string]interface{}{
+		"anchorID":            anchorID,
+		"anchorToolCallCount": len(anchorToolCallIDs),
+		"anchorToolCallIDs":   anchorToolCallIDs,
+		"selectedToolResults": toolResultCount,
+		"selectedToolCalls":   assistantToolCallCount,
+	})
+	if len(anchorToolCallIDs) > 0 && toolResultCount < len(anchorToolCallIDs) {
+		if debugtrace.Enabled() {
+			debugtrace.Write("core", "continuation_skipped", map[string]any{
+				"conversationID":      strings.TrimSpace(conversationID),
+				"reason":              "anchor_tool_count_mismatch",
+				"anchorID":            anchorID,
+				"anchorToolCallIDs":   anchorToolCallIDs,
+				"selectedToolResults": toolResultCount,
+				"selectedToolCalls":   assistantToolCallCount,
+				"expectedToolCallIDs": expectedToolCallIDs,
+				"toolResultIDs":       toolResultIDs,
 			})
 		}
 		return nil
@@ -143,6 +210,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			"conversationID":     strings.TrimSpace(conversationID),
 			"anchorID":           anchorID,
 			"selectedMessageCnt": len(selected),
+			"anchorToolCallCnt":  len(anchorToolCallIDs),
 			"selectedMessages":   debugtrace.SummarizeMessages(selected),
 		})
 	}

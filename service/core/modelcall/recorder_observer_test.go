@@ -147,10 +147,10 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			expectInterim: 1,
 		},
 		{
-			name:          "tool calls without model-authored text do not synthesize preamble",
+			name:          "tool calls without model-authored text synthesize preamble from tool names",
 			resp:          &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "resources-roots"}}}}}},
-			expected:      "",
-			expectRaw:     false,
+			expected:      "Calling roots.",
+			expectRaw:     true,
 			expectInterim: 1,
 		},
 		{
@@ -371,9 +371,13 @@ func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 	msg, err := client.GetMessage(context.Background(), msgID)
 	require.NoError(t, err)
 	require.NotNil(t, msg)
-	require.Nil(t, msg.Content)
-	require.Nil(t, msg.Preamble)
-	require.Nil(t, msg.RawContent)
+	// After echo suppression the original content is cleared, but a
+	// synthesized preamble (derived from tool names) ensures the interim
+	// assistant message exists so tool_op messages can reference it as parent.
+	require.NotNil(t, msg.Content)
+	assert.Equal(t, "Calling roots.", *msg.Content)
+	require.NotNil(t, msg.Preamble)
+	assert.Equal(t, "Calling roots.", *msg.Preamble)
 
 	var persisted *apiconv.MutableModelCall
 	for _, call := range client.modelCalls {

@@ -170,20 +170,30 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 					key := prompt.KindResponse.Key(id)
 					result[key] = &prompt.Trace{ID: id, Kind: prompt.KindResponse, At: m.CreatedAt}
 				}
-				continue
+				// Fall through to also process ToolMessage children below.
+				// When parent_message_id points to this assistant message,
+				// its ToolMessage contains the tool_op children with TraceId.
 			}
-			// Tool-call message
-			if tc := messageToolCall(m); tc != nil {
-				opID := strings.TrimSpace(tc.OpId)
-				if opID != "" {
-					respId := ""
-					if tc.TraceId != nil {
-						respId = strings.TrimSpace(*tc.TraceId)
-					}
-					key := prompt.KindToolCall.Key(opID)
-					result[key] = &prompt.Trace{ID: respId, Kind: prompt.KindToolCall, At: m.CreatedAt}
+
+			// Process ALL tool message children (not just the first).
+			// Tool_op messages are joined via parent_message_id. When multiple
+			// tool calls share the same parent (assistant or user message),
+			// all of them need trace entries for continuation to work.
+			for _, tm := range m.ToolMessage {
+				if tm == nil || tm.ToolCall == nil {
+					continue
 				}
-				continue
+				tc := tm.ToolCall
+				opID := strings.TrimSpace(tc.OpId)
+				if opID == "" {
+					continue
+				}
+				respId := ""
+				if tc.TraceId != nil {
+					respId = strings.TrimSpace(*tc.TraceId)
+				}
+				key := prompt.KindToolCall.Key(opID)
+				result[key] = &prompt.Trace{ID: respId, Kind: prompt.KindToolCall, At: tm.CreatedAt}
 			}
 
 			// User/assistant text message

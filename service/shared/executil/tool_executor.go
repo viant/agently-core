@@ -111,7 +111,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 	}()
 
-	// 1) Create tool message
+	// 1) Create tool message (parent derived from ModelMessageIDFromContext)
 	toolMsgID, err := createToolMessage(ctx, conv, turn, span.StartedAt, step.Name)
 	if err != nil {
 		retErr = err
@@ -171,6 +171,16 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		warnConvf("tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
 	}
 	span.SetEnd(time.Now())
+
+	// Debug trace: log tool call result to /tmp/agently-debug.log
+	{
+		errStr := ""
+		if execErr != nil {
+			errStr = execErr.Error()
+		}
+		status, _ := resolveToolStatus(execErr, ctx)
+		debugtrace.LogToolCall(step.Name, step.ID, status, len(toolResult), toolResult, errStr)
+	}
 
 	// 5) Persist side effects + response payload.
 	if strings.TrimSpace(toolResult) != "" {
