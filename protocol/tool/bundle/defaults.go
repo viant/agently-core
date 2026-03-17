@@ -29,7 +29,7 @@ func DefaultIconRef(service string) string {
 		return "builtin:agents"
 	case "orchestration":
 		return "builtin:orchestration"
-	case "internal/message":
+	case "message", "internal/message":
 		return "builtin:message"
 	case "agentExec":
 		return "builtin:agents"

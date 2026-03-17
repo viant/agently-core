@@ -15,8 +15,10 @@ import (
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/runtime/memory"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
-	"github.com/viant/agently-core/shared"
 )
+
+// logPayload is a no-op debug helper (replaces removed logPayload).
+func logPayload(_ []byte, _, _ string) {}
 
 // Scanner buffer sizes for SSE processing
 const (
@@ -271,7 +273,7 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 		return nil, err
 	}
 	////
-	shared.LogPayload(payload, "", "_REQUEST_G_OPENAI")
+	logPayload(payload, "", "_REQUEST_G_OPENAI")
 	////
 
 	httpReq, err := c.createHTTPResponsesApiRequest(ctx, payload)
@@ -312,7 +314,7 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	////
-	shared.LogPayload(respBytes, "", "_response_G_OPENAI")
+	logPayload(respBytes, "", "_response_G_OPENAI")
 	////
 
 	if resp.StatusCode != http.StatusOK {
@@ -585,7 +587,7 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 		return nil, err
 	}
 	////
-	shared.LogPayload(payload, "", "_REQUEST_G_OPENAI_CHAT_COMPL")
+	logPayload(payload, "", "_REQUEST_G_OPENAI_CHAT_COMPL")
 	////
 
 	httpReq, err := c.createHTTPChatCompletionsApiRequest(ctx, payload)
@@ -626,7 +628,7 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 		return nil, fmt.Errorf("failed to read chat.completions response body: %w", err)
 	}
 	////
-	shared.LogPayload(respBytes, "", "_response_G_OPENAI_CHAT_COMPL")
+	logPayload(respBytes, "", "_response_G_OPENAI_CHAT_COMPL")
 	////
 
 	if resp.StatusCode != http.StatusOK {
@@ -669,7 +671,7 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 			info.Err = perr.Error()
 		}
 		////
-		shared.LogPayload(respBytes, "", "_response_S2_OPENAI")
+		logPayload(respBytes, "", "_response_S2_OPENAI")
 		////
 
 		if obErr := observer.OnCallEnd(ctx, info); obErr != nil {
@@ -819,7 +821,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		return nil, err
 	}
 	////
-	shared.LogPayload(payload, "", "_REQUEST_S_OPENAI")
+	logPayload(payload, "", "_REQUEST_S_OPENAI")
 	////
 
 	var httpReq *http.Request

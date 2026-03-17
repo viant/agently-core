@@ -93,7 +93,7 @@ func (s *Service) adjustToolDefinitions(genInput *core2.GenerateInput) {
 	genInput.Options.Tools = []llm.Tool{}
 	genInput.Binding.Tools = prompt.Tools{}
 	if s.registry != nil {
-		for _, def := range s.registry.MatchDefinition("internal/message") {
+		for _, def := range s.registry.MatchDefinition("message") {
 			if def == nil {
 				continue
 			}

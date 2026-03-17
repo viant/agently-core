@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"strings"
@@ -65,6 +66,10 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	o.ended = false
 	o.mu.Unlock()
 	turn, _ := memory.TurnMetaFromContext(ctx)
+	// Store the assistant message ID at the turn level so the stream handler
+	// (which uses the original non-enriched context) can read it for
+	// parent_message_id on tool_op messages.
+	memory.SetTurnModelMessageID(turn.TurnID, msgID)
 
 	// Create interim assistant message to capture request payload in transcript
 	if turn.ConversationID != "" {
@@ -157,23 +162,28 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 	defer cancelPersist()
 	turn, _ := memory.TurnMetaFromContext(persistCtx)
 
-	// Persist assistant content (including tool_calls responses) so the UI can show it.
-	// When content exists, clear Interim flag to make it visible in the transcript.
-	if info.LLMResponse != nil || len(info.ResponseJSON) > 0 {
-		madeVisible, err := o.patchAssistantMessageFromInfo(persistCtx, msgID, info)
+	// Prefer provider-supplied stream text; fall back to accumulated chunks.
+	// Compute this BEFORE patchAssistantMessageFromInfo so it can use it as fallback.
+	streamTxt := info.StreamText
+	if strings.TrimSpace(streamTxt) == "" {
+		streamTxt = o.acc.String()
+	}
+
+	// Persist assistant content. Use stream text as fallback when the LLM
+	// response object doesn't have content (typed streaming providers).
+	{
+		infoWithStream := info
+		if strings.TrimSpace(infoWithStream.StreamText) == "" {
+			infoWithStream.StreamText = streamTxt
+		}
+		madeVisible, err := o.patchAssistantMessageFromInfo(persistCtx, msgID, infoWithStream)
 		if err != nil {
 			warnf("patchAssistantMessageFromInfo failed message=%q err=%v", strings.TrimSpace(msgID), err)
 		} else if !madeVisible {
-			// Keep interim flag only when there is no user-visible content to render.
 			if err := o.patchInterimFlag(persistCtx, msgID); err != nil {
 				warnf("patchInterimFlag failed message=%q err=%v", strings.TrimSpace(msgID), err)
 			}
 		}
-	}
-	// Prefer provider-supplied stream text; fall back to accumulated chunks
-	streamTxt := info.StreamText
-	if strings.TrimSpace(streamTxt) == "" {
-		streamTxt = o.acc.String()
 	}
 
 	// Finish model call with response/providerResponse and stream payload.
@@ -208,19 +218,32 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 
 func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, msgID string, info Info) (bool, error) {
 	if strings.TrimSpace(msgID) == "" {
+		log.Printf("[patchAssistant] SKIP empty msgID")
 		return false, nil
 	}
 	resp := info.LLMResponse
 	if resp == nil && len(info.ResponseJSON) > 0 {
-		// Best-effort decode of response JSON (some providers omit LLMResponse but do provide a JSON snapshot).
 		var decoded llm.GenerateResponse
 		if err := json.Unmarshal(info.ResponseJSON, &decoded); err == nil {
 			resp = &decoded
 		}
 	}
+	respChoices := 0
+	if resp != nil {
+		respChoices = len(resp.Choices)
+	}
 	content, hasToolCalls := AssistantContentFromResponse(resp)
 	content = strings.TrimSpace(content)
+	streamTxt := strings.TrimSpace(info.StreamText)
+	log.Printf("[patchAssistant] msg=%s respChoices=%d contentFromResp=%d streamText=%d hasToolCalls=%v finishReason=%q",
+		msgID, respChoices, len(content), len(streamTxt), hasToolCalls, info.FinishReason)
+	// Fall back to accumulated stream text when LLMResponse has no content
+	if content == "" && streamTxt != "" {
+		content = streamTxt
+		log.Printf("[patchAssistant] msg=%s using streamText fallback contentLen=%d", msgID, len(content))
+	}
 	if !hasToolCalls && looksLikeElicitationContent(content) {
+		log.Printf("[patchAssistant] msg=%s SKIP elicitation content", msgID)
 		return false, nil
 	}
 	if hasToolCalls && o.isLikelyUserEcho(ctx, content) {
@@ -230,8 +253,18 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	if content == "" && preamble != "" {
 		content = preamble
 	}
-	if content == "" {
+	if content == "" && !hasToolCalls {
+		log.Printf("[patchAssistant] msg=%s SKIP empty content after all fallbacks", msgID)
 		return false, nil
+	}
+	// When the model response has tool calls but no text content, synthesize
+	// a preamble from the tool names so the interim assistant message exists
+	// in the transcript. This allows tool_op messages to reference it as
+	// their parent_message_id, enabling the UI to group tool calls under the
+	// correct model-call iteration.
+	if content == "" && hasToolCalls {
+		content = synthesizeToolPreamble(resp)
+		log.Printf("[patchAssistant] msg=%s synthesized preamble for tool-only response: %q", msgID, content)
 	}
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
@@ -257,6 +290,13 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	finishLower := strings.ToLower(finishReason)
 	isToolCallResponse := hasToolCalls || strings.Contains(finishLower, "tool")
+	log.Printf("[patchAssistant] msg=%s finishReason=%q isToolCall=%v -> interim=%d contentHead=%q",
+		msgID, finishReason, isToolCallResponse, func() int {
+			if isToolCallResponse {
+				return 1
+			}
+			return 0
+		}(), content[:min(len(content), 60)])
 	if isToolCallResponse {
 		if preamble == "" {
 			preamble = content
@@ -468,9 +508,8 @@ func looksLikeElicitationContent(content string) bool {
 	if raw == "" {
 		return false
 	}
-	if strings.HasPrefix(raw, "```json") {
-		return true
-	}
+	// Only treat ```json as elicitation if it also contains elicitation markers.
+	// Plain JSON responses (e.g., {"HOME":"/Users/awitas"}) are NOT elicitations.
 	if strings.Contains(raw, "\"requestedSchema\"") && strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") {
 		return true
 	}

@@ -84,7 +84,41 @@ func TurnTrace(turnID string) string {
 	return ""
 }
 
-// Deprecated in-memory tool_call anchors have been removed.
+// turnModelMsgID holds the per-turn assistant message UUID set by OnCallStart.
+// This bridges the gap between the observer (which creates the ID) and the
+// stream handler (which needs it for parent_message_id on tool_op messages).
+var turnModelMsgID sync.Map // key: turnID string -> value: msgID string
+
+// SetTurnModelMessageID stores the current model call's assistant message ID.
+func SetTurnModelMessageID(turnID, msgID string) {
+	if turnID == "" || msgID == "" {
+		return
+	}
+	turnModelMsgID.Store(turnID, msgID)
+}
+
+// TurnModelMessageID returns the most recent assistant message ID for this turn.
+func TurnModelMessageID(turnID string) string {
+	if turnID == "" {
+		return ""
+	}
+	if v, ok := turnModelMsgID.Load(turnID); ok {
+		if s, ok2 := v.(string); ok2 {
+			return s
+		}
+	}
+	return ""
+}
+
+// CleanupTurn removes all in-memory state for the given turn.
+// Call this when the turn completes or is canceled to prevent memory leaks.
+func CleanupTurn(turnID string) {
+	if turnID == "" {
+		return
+	}
+	turnTrace.Delete(turnID)
+	turnModelMsgID.Delete(turnID)
+}
 
 // WithTurnMeta stores TurnMeta on the context and also seeds individual keys
 // for backward compatibility with existing readers.

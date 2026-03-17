@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 	core "github.com/viant/agently-core/service/core"
 )
 
-const Name = "internal/message"
+const Name = "message"
 
 var (
 	//go:embed tools/show.md
@@ -23,13 +24,16 @@ var (
 	matchDesc string
 	//go:embed tools/remove.md
 	removeDesc string
+	//go:embed tools/askUser.md
+	askUserDesc string
 )
 
-// Service provides internal message utilities (hidden from metadata/UI).
+// Service provides message utilities exposed to agents.
 type Service struct {
 	conv                                                  apiconv.Client
 	core                                                  coreGen
 	embedder                                              embedder.Finder
+	elicitor                                              Elicitor
 	summarizeChunk, matchChunk                            int
 	summaryModel, summaryPrompt, defaultModel, embedModel string
 }
@@ -42,24 +46,40 @@ type coreGen interface {
 func New(conv apiconv.Client) *Service { return &Service{conv: conv} }
 
 // NewWithDeps provides full dependencies for summarize/match operations.
-func NewWithDeps(conv apiconv.Client, core coreGen, emb embedder.Finder, summarizeChunk, matchChunk int, summaryModel, summaryPrompt, defaultModel, embedModel string) *Service {
-	return &Service{conv: conv, core: core, embedder: emb, summarizeChunk: summarizeChunk, matchChunk: matchChunk, summaryModel: summaryModel, summaryPrompt: summaryPrompt, defaultModel: defaultModel, embedModel: embedModel}
+func NewWithDeps(conv apiconv.Client, core coreGen, emb embedder.Finder, summarizeChunk, matchChunk int, summaryModel, summaryPrompt, defaultModel, embedModel string, opts ...Option) *Service {
+	s := &Service{conv: conv, core: core, embedder: emb, summarizeChunk: summarizeChunk, matchChunk: matchChunk, summaryModel: summaryModel, summaryPrompt: summaryPrompt, defaultModel: defaultModel, embedModel: embedModel}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// Option configures optional dependencies on the message service.
+type Option func(*Service)
+
+// WithElicitor sets the elicitation dependency for the askUser tool.
+func WithElicitor(e Elicitor) Option {
+	return func(s *Service) { s.elicitor = e }
 }
 
 func (s *Service) Name() string { return Name }
 
 func (s *Service) Methods() svc.Signatures {
-	// Note: internal/message:compact is intentionally NOT registered here.
+	// Note: message:compact is intentionally NOT registered here.
 	// Compaction is only used internally by the orchestrator to free space
 	// for the Token‑Limit Presentation message. Normal cleanup should be
 	// LLM-driven via listCandidates + remove (and optionally summarize).
-	return []svc.Signature{
+	sigs := []svc.Signature{
 		{Name: "show", Description: showDesc, Input: reflect.TypeOf(&ShowInput{}), Output: reflect.TypeOf(&ShowOutput{})},
 		{Name: "summarize", Description: summarizeDesc, Input: reflect.TypeOf(&SummarizeInput{}), Output: reflect.TypeOf(&SummarizeOutput{})},
 		{Name: "match", Description: matchDesc, Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "listCandidates", Description: "List removable messages with byte/token size and concise preview.", Input: reflect.TypeOf(&ListCandidatesInput{}), Output: reflect.TypeOf(&ListCandidatesOutput{})},
 		{Name: "remove", Description: removeDesc, Input: reflect.TypeOf(&RemoveInput{}), Output: reflect.TypeOf(&RemoveOutput{})},
 	}
+	if s.elicitor != nil {
+		sigs = append(sigs, svc.Signature{Name: "askUser", Description: askUserDesc, Input: reflect.TypeOf(&AskUserInput{}), Output: reflect.TypeOf(&AskUserOutput{})})
+	}
+	return sigs
 }
 
 func (s *Service) Method(name string) (svc.Executable, error) {
@@ -74,6 +94,11 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.listCandidates, nil
 	case "remove":
 		return s.remove, nil
+	case "askuser":
+		if s.elicitor == nil {
+			return nil, fmt.Errorf("askUser: elicitation not configured")
+		}
+		return s.askUser, nil
 	default:
 		return nil, svc.NewMethodNotFoundError(name)
 	}

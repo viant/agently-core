@@ -100,6 +100,18 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	var continuationRequest *llm.GenerateRequest
 	if input.Binding != nil {
 		candidate := s.BuildContinuationRequest(ctx, req, &input.Binding.History)
+		debugtrace.LogToFile("core", "stream_continuation_check", map[string]interface{}{
+			"hasCandidate":    candidate != nil,
+			"hasLastResponse": input.Binding.History.LastResponse != nil,
+			"lastResponseID": func() string {
+				if input.Binding.History.LastResponse != nil {
+					return input.Binding.History.LastResponse.ID
+				}
+				return ""
+			}(),
+			"traceCount":   len(input.Binding.History.Traces),
+			"fullMsgCount": len(req.Messages),
+		})
 		if candidate != nil {
 			hasToolResults := false
 			for _, m := range candidate.Messages {
@@ -142,6 +154,28 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 			"messages":           debugtrace.SummarizeMessages(activeReq.Messages),
 		})
 	}
+
+	// Log final continuation decision
+	debugtrace.LogToFile("core", "stream_mode", map[string]interface{}{
+		"mode": func() string {
+			if continuationRequest != nil {
+				return "continuation"
+			}
+			return "full"
+		}(),
+		"msgCount": func() int {
+			if continuationRequest != nil {
+				return len(continuationRequest.Messages)
+			}
+			return len(req.Messages)
+		}(),
+		"previousResponseID": func() string {
+			if continuationRequest != nil {
+				return continuationRequest.PreviousResponseID
+			}
+			return ""
+		}(),
+	})
 
 	// Retry starting stream up to 3 attempts. Consult provider-specific
 	// BackoffAdvisor (e.g., Bedrock ThrottlingException -> 30s) when available.

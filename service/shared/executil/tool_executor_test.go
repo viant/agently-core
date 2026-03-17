@@ -627,3 +627,94 @@ func TestExecuteToolStep_InheritsContextWorkdir(t *testing.T) {
 	require.NotNil(t, reg.lastArgs)
 	assert.EqualValues(t, "/tmp/workdir", reg.lastArgs["workdir"])
 }
+
+// TestExecuteToolStep_ParentMessageID verifies that the tool_op message's
+// parent_message_id is set to the model message ID from context when present,
+// and falls back to the turn's ParentMessageID otherwise.
+func TestExecuteToolStep_ParentMessageID(t *testing.T) {
+	findToolMsg := func(msgs []*apiconv.MutableMessage) *apiconv.MutableMessage {
+		for _, msg := range msgs {
+			if msg != nil && strings.EqualFold(msg.Role, "tool") && strings.EqualFold(msg.Type, "tool_op") {
+				return msg
+			}
+		}
+		return nil
+	}
+
+	t.Run("without model message ID in context falls back to turn parent", func(t *testing.T) {
+		turn := memory.TurnMeta{ConversationID: "c1", TurnID: "t1", ParentMessageID: "user-msg-1"}
+		ctx := memory.WithTurnMeta(context.Background(), turn)
+		// No ModelMessageIDKey in context
+		reg := &scriptedRegistry{script: []scriptedResult{{result: `{"ok":true}`}}}
+		conv := &stubConv{}
+		step := StepInfo{
+			ID:         "call-1",
+			Name:       "resources-list",
+			Args:       map[string]interface{}{"path": "/"},
+			ResponseID: "resp-1",
+		}
+
+		_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+		require.NoError(t, err)
+
+		toolMsg := findToolMsg(conv.patchedMessages)
+		require.NotNil(t, toolMsg, "expected a tool_op message")
+		require.NotNil(t, toolMsg.ParentMessageID)
+		assert.Equal(t, "user-msg-1", *toolMsg.ParentMessageID,
+			"without model message ID in context, parent should fall back to turn.ParentMessageID")
+	})
+
+	t.Run("with model message ID in context overrides parent to assistant", func(t *testing.T) {
+		turn := memory.TurnMeta{ConversationID: "c1", TurnID: "t1", ParentMessageID: "user-msg-1"}
+		ctx := memory.WithTurnMeta(context.Background(), turn)
+		// Inject the assistant message ID via context (as launchPendingSteps does)
+		ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "assistant-msg-42")
+		reg := &scriptedRegistry{script: []scriptedResult{{result: `{"ok":true}`}}}
+		conv := &stubConv{}
+		step := StepInfo{
+			ID:         "call-2",
+			Name:       "resources-list",
+			Args:       map[string]interface{}{"path": "/"},
+			ResponseID: "resp-1",
+		}
+
+		_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+		require.NoError(t, err)
+
+		toolMsg := findToolMsg(conv.patchedMessages)
+		require.NotNil(t, toolMsg, "expected a tool_op message")
+		require.NotNil(t, toolMsg.ParentMessageID)
+		assert.Equal(t, "assistant-msg-42", *toolMsg.ParentMessageID,
+			"with model message ID in context, parent should be the assistant message")
+	})
+}
+
+// TestSynthesizeToolStep_ParentMessageID verifies that synthesized tool
+// results (from DuplicateGuard reuse) also get the correct parent via context.
+func TestSynthesizeToolStep_ParentMessageID(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c1", TurnID: "t1", ParentMessageID: "user-msg-1"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "assistant-msg-99")
+	conv := &stubConv{}
+	step := StepInfo{
+		ID:         "call-synth",
+		Name:       "resources-list",
+		Args:       map[string]interface{}{"path": "/"},
+		ResponseID: "resp-1",
+	}
+
+	err := SynthesizeToolStep(ctx, conv, step, `{"files":["a.go"]}`)
+	require.NoError(t, err)
+
+	var toolMsg *apiconv.MutableMessage
+	for _, msg := range conv.patchedMessages {
+		if msg != nil && strings.EqualFold(msg.Role, "tool") && strings.EqualFold(msg.Type, "tool_op") {
+			toolMsg = msg
+			break
+		}
+	}
+	require.NotNil(t, toolMsg, "expected a tool_op message from SynthesizeToolStep")
+	require.NotNil(t, toolMsg.ParentMessageID)
+	assert.Equal(t, "assistant-msg-99", *toolMsg.ParentMessageID,
+		"synthesized tool should also point to assistant message from context")
+}

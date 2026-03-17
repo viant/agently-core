@@ -48,6 +48,7 @@ type Runtime struct {
 	MCPManager        *mcpmgr.Manager
 	CancelRegistry    cancels.Registry
 	ElicitationRouter elicrouter.ElicitationRouter
+	Elicitation       *elicsvc.Service
 	Streaming         streaming.Bus
 	HotSwap           *hotswap.Manager
 	Store             workspace.Store
@@ -211,9 +212,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.ElicitationRouter = elicrouter.New()
 	}
 
+	out.Elicitation = elicsvc.New(out.Conversation, nil, out.ElicitationRouter, nil)
+
 	out.MCPManager = b.mcpManager
 	if out.MCPManager == nil {
-		mgr, err := b.newDefaultMCPManager(out.Conversation, out.ElicitationRouter)
+		mgr, err := b.newDefaultMCPManager(out.Conversation, out.Elicitation)
 		if err != nil {
 			return nil, err
 		}
@@ -262,6 +265,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if streamPub != nil {
 		out.Core.SetStreamPublisher(streamPub)
 	}
+	if out.Elicitation != nil {
+		out.Elicitation.SetStreamPublisher(out.Streaming)
+	}
 
 	out.Agent = b.agentSvc
 	if out.Agent == nil {
@@ -293,11 +299,10 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	return out, nil
 }
 
-func (b *Builder) newDefaultMCPManager(conv conversation.Client, router elicrouter.ElicitationRouter) (*mcpmgr.Manager, error) {
-	if conv == nil || router == nil {
-		return nil, fmt.Errorf("executor builder requires conversation and elicitation router for default MCP manager")
+func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *elicsvc.Service) (*mcpmgr.Manager, error) {
+	if conv == nil || elicitation == nil {
+		return nil, fmt.Errorf("executor builder requires conversation and elicitation service for default MCP manager")
 	}
-	elicitation := elicsvc.New(conv, nil, router, nil)
 	return mcpmgr.New(
 		mcpmgr.NewRepoProvider(),
 		mcpmgr.WithHandlerFactory(func() protoclient.Handler {

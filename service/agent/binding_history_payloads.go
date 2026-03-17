@@ -83,11 +83,26 @@ func normalizedToolMessage(tm *agconv.ToolMessageView, body string) *agconv.Tool
 
 func (s *Service) toolMessageResponseBody(ctx context.Context, tm *agconv.ToolMessageView) string {
 	if tm == nil || tm.ToolCall == nil || tm.ToolCall.ResponsePayload == nil {
+		if DebugEnabled() && tm != nil && tm.ToolCall != nil {
+			opID := strings.TrimSpace(tm.ToolCall.OpId)
+			toolName := ""
+			if tm.ToolName != nil {
+				toolName = strings.TrimSpace(*tm.ToolName)
+			}
+			warnf("agent.toolMessageResponseBody no payload for tool_call op_id=%q tool=%q", opID, toolName)
+		}
 		return ""
 	}
 	payloadID := strings.TrimSpace(tm.ToolCall.ResponsePayload.Id)
 	if payloadID != "" && s != nil && s.conversation != nil {
 		payload, err := s.conversation.GetPayload(ctx, payloadID)
+		if err != nil && DebugEnabled() {
+			tn := ""
+			if tm.ToolName != nil {
+				tn = *tm.ToolName
+			}
+			warnf("agent.toolMessageResponseBody GetPayload failed payload_id=%q tool=%q op_id=%q err=%v", payloadID, strings.TrimSpace(tn), strings.TrimSpace(tm.ToolCall.OpId), err)
+		}
 		if err == nil && payload != nil && payload.InlineBody != nil && len(*payload.InlineBody) > 0 {
 			if body := decodePayloadInlineBody(string(*payload.InlineBody), payload.Compression); body != "" {
 				return body
@@ -100,6 +115,13 @@ func (s *Service) toolMessageResponseBody(ctx context.Context, tm *agconv.ToolMe
 				return body
 			}
 		}
+	}
+	if DebugEnabled() {
+		tn := ""
+		if tm.ToolName != nil {
+			tn = *tm.ToolName
+		}
+		warnf("agent.toolMessageResponseBody empty body for tool_call op_id=%q tool=%q payload_id=%q", strings.TrimSpace(tm.ToolCall.OpId), strings.TrimSpace(tn), payloadID)
 	}
 	return ""
 }

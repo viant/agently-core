@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
-	"github.com/viant/agently-core/internal/debugtrace"
+	debugtrace "github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -226,6 +227,22 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	}
 
 	RefinePlan(aPlan)
+
+	// Debug trace: log plan summary to /tmp/agently-debug.log
+	{
+		toolNames := make([]string, 0, len(aPlan.Steps))
+		for _, st := range aPlan.Steps {
+			toolNames = append(toolNames, fmt.Sprintf("%s(%s)", st.Name, st.ID))
+		}
+		debugtrace.LogToFile("reactor", "plan_after_run", map[string]interface{}{
+			"stepCount":   len(aPlan.Steps),
+			"steps":       toolNames,
+			"contentLen":  len(genOutput.Content),
+			"contentHead": truncStr(genOutput.Content, 120),
+			"messageID":   genOutput.MessageID,
+		})
+	}
+
 	// If this turn executed message:remove, perform one retry generation automatically
 	if hasRemovalTool(aPlan) {
 		// Retry once to produce final assistant content with reduced context
@@ -532,14 +549,11 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 	runCtx := ctx
 	var mux sync.Mutex
 	stepErrCh := make(chan error, 1)
+	// No deduplication guard — each tool call executes independently.
+	// The model is responsible for avoiding redundant calls.
 	var guard *DuplicateGuard
-	if !inContinuationMode(ctx) {
-		guard = NewDuplicateGuard(prior)
-	}
-	// Execute steps in order; do not de-duplicate by tool/args.
-	// Duplicated tool steps will each execute independently.
 	var stopped atomic.Bool
-	id := stream.Register(func(_ context.Context, event *llm.StreamEvent) error {
+	id := stream.Register(func(callbackCtx context.Context, event *llm.StreamEvent) error {
 		if stopped.Load() {
 			return nil
 		}
@@ -548,6 +562,18 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		}
 		if event.Err != nil {
 			return event.Err
+		}
+
+		// Capture the model message ID so tool_op messages reference the
+		// correct interim assistant message as parent. Always prefer the
+		// latest value — OnCallStart updates TurnModelMessageID on each
+		// iteration, so genOutput.MessageID must track it.
+		if mid := strings.TrimSpace(memory.ModelMessageIDFromContext(callbackCtx)); mid != "" {
+			genOutput.MessageID = mid
+		} else if tm, ok := memory.TurnMetaFromContext(runCtx); ok {
+			if mid := strings.TrimSpace(memory.TurnModelMessageID(tm.TurnID)); mid != "" {
+				genOutput.MessageID = mid
+			}
 		}
 
 		// Typed Kind path — handle events directly without Response.
@@ -583,10 +609,17 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		s.patchStreamingToolPreamble(runCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
 
-		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, guard, reg)
+		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, guard, reg, genOutput.MessageID)
 		return nil
 	})
 	return id, stepErrCh
+}
+
+func truncStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func errorString(err error) string {
@@ -708,7 +741,7 @@ func (s *Service) handleTypedStreamEvent(
 		}
 		// Publish planned tool call event for the UI
 		s.publishTypedToolCallEvent(ctx, event)
-		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, guard, reg)
+		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, guard, reg, genOutput.MessageID)
 
 	case llm.StreamEventToolCallStarted:
 		// Tool call started — no action needed until completed
@@ -767,6 +800,9 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 }
 
 // launchPendingSteps launches goroutines for any plan steps not yet started.
+// assistantMsgID, when non-empty, is injected into each goroutine's context
+// as ModelMessageIDKey so that createToolMessage can set parent_message_id
+// to the interim assistant message that triggered these tool calls.
 func (s *Service) launchPendingSteps(
 	ctx context.Context,
 	aPlan *plan.Plan,
@@ -774,7 +810,22 @@ func (s *Service) launchPendingSteps(
 	wg *sync.WaitGroup,
 	guard *DuplicateGuard,
 	reg tool.Registry,
+	assistantMsgID ...string,
 ) {
+	// Enrich the context with the assistant message ID so tool_op messages
+	// can reference it as their parent without threading through StepInfo.
+	toolCtx := ctx
+	if len(assistantMsgID) > 0 {
+		if id := strings.TrimSpace(assistantMsgID[0]); id != "" {
+			toolCtx = context.WithValue(ctx, memory.ModelMessageIDKey, id)
+			log.Printf("[launchPendingSteps] enriched context with assistant_msg_id=%s", id)
+		} else {
+			log.Printf("[launchPendingSteps] assistantMsgID param is empty")
+		}
+	} else {
+		existing := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+		log.Printf("[launchPendingSteps] no assistantMsgID param, ctx has ModelMessageID=%q", existing)
+	}
 	for *nextStepIdx < len(aPlan.Steps) {
 		st := aPlan.Steps[*nextStepIdx]
 		*nextStepIdx++
@@ -788,7 +839,7 @@ func (s *Service) launchPendingSteps(
 			stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
 			if debugtrace.Enabled() {
 				turnID := ""
-				if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+				if tm, ok := memory.TurnMetaFromContext(toolCtx); ok {
 					turnID = strings.TrimSpace(tm.TurnID)
 				}
 				debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
@@ -812,12 +863,12 @@ func (s *Service) launchPendingSteps(
 						})
 					}
 					if prev.Name != "" && prev.Error == "" && s.convClient != nil {
-						_ = executil.SynthesizeToolStep(ctx, s.convClient, stepInfo, prev.Result)
+						_ = executil.SynthesizeToolStep(toolCtx, s.convClient, stepInfo, prev.Result)
 					}
 					return
 				}
 			}
-			call, _, err := executil.ExecuteToolStep(ctx, reg, stepInfo, s.convClient)
+			call, _, err := executil.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
 			if err != nil {
 				fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
 			}

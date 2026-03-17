@@ -14,6 +14,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
+	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/prompt"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
@@ -708,6 +709,48 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		request.PromptCacheKey = convID
 	}
 	applyInstructionsDefaults(request, model)
+
+	// Debug trace: log LLM request summary to /tmp/agently-debug.log
+	{
+		toolNames := make([]string, 0, len(request.Options.Tools))
+		for _, item := range request.Options.Tools {
+			if name := strings.TrimSpace(item.Definition.Name); name != "" {
+				toolNames = append(toolNames, name)
+			}
+		}
+		msgs := make([]map[string]string, 0, len(request.Messages))
+		for _, m := range request.Messages {
+			entry := map[string]string{
+				"role":       string(m.Role),
+				"contentLen": fmt.Sprintf("%d", len(m.Content)),
+			}
+			if len(m.Content) > 0 {
+				head := m.Content
+				if len(head) > 120 {
+					head = head[:120] + "..."
+				}
+				entry["head"] = head
+			}
+			if m.ToolCallId != "" {
+				entry["tool_call_id"] = m.ToolCallId
+			}
+			if len(m.ToolCalls) > 0 {
+				names := make([]string, 0, len(m.ToolCalls))
+				for _, tc := range m.ToolCalls {
+					names = append(names, tc.Name)
+				}
+				entry["tool_calls"] = strings.Join(names, ",")
+			}
+			msgs = append(msgs, entry)
+		}
+		debugtrace.LogToFile("llm", "request", map[string]interface{}{
+			"model":     strings.TrimSpace(input.Model),
+			"msgCount":  len(request.Messages),
+			"toolCount": len(toolNames),
+			"tools":     strings.Join(toolNames, ","),
+			"messages":  msgs,
+		})
+	}
 
 	return request, model, nil
 }
