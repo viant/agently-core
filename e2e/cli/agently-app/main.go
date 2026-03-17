@@ -180,11 +180,11 @@ func envOr(name, fallback string) string {
 }
 
 func defaultWorkspace() string {
-	home, err := os.UserHomeDir()
+	wd, err := os.Getwd()
 	if err != nil {
 		return ".agently"
 	}
-	return filepath.Join(home, ".agently")
+	return filepath.Join(wd, ".agently")
 }
 
 // memoryScheduleStore is a simple in-memory implementation of scheduler.ScheduleStore for e2e testing.

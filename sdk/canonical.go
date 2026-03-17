@@ -91,6 +91,12 @@ type ModelStepState struct {
 	ResponsePayloadID         string     `json:"responsePayloadId,omitempty"`
 	ProviderRequestPayloadID  string     `json:"providerRequestPayloadId,omitempty"`
 	ProviderResponsePayloadID string     `json:"providerResponsePayloadId,omitempty"`
+	StreamPayloadID           string     `json:"streamPayloadId,omitempty"`
+	RequestPayload            any        `json:"requestPayload,omitempty"`
+	ResponsePayload           any        `json:"responsePayload,omitempty"`
+	ProviderRequestPayload    any        `json:"providerRequestPayload,omitempty"`
+	ProviderResponsePayload   any        `json:"providerResponsePayload,omitempty"`
+	StreamPayload             any        `json:"streamPayload,omitempty"`
 	StartedAt                 *time.Time `json:"startedAt,omitempty"`
 	CompletedAt               *time.Time `json:"completedAt,omitempty"`
 }
@@ -103,6 +109,8 @@ type ToolStepState struct {
 	Status               string     `json:"status,omitempty"`
 	RequestPayloadID     string     `json:"requestPayloadId,omitempty"`
 	ResponsePayloadID    string     `json:"responsePayloadId,omitempty"`
+	RequestPayload       any        `json:"requestPayload,omitempty"`
+	ResponsePayload      any        `json:"responsePayload,omitempty"`
 	LinkedConversationID string     `json:"linkedConversationId,omitempty"`
 	StartedAt            *time.Time `json:"startedAt,omitempty"`
 	CompletedAt          *time.Time `json:"completedAt,omitempty"`
