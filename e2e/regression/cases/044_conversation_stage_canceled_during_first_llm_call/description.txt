@@ -9,6 +9,8 @@ What this test verifies:
 - `POST /v1/turns/{id}/cancel` reaches the active running turn while the model call is still in flight
 - the in-flight model call is interrupted and finalized as `canceled`
 - conversation stage and latest turn stage/status persist as `canceled`
+- the canceled model call retains a non-empty `stream_payload_id`
+- the persisted `model_stream` payload remains readable after cancellation
 
 Implementation note:
 - this case uses an Endly `multiAction` task so `startStoryTurn` can run asynchronously and `cancelRunningTurn` can execute in the same task
