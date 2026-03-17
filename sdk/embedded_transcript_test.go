@@ -276,6 +276,62 @@ func TestBuildCanonicalState_PreservesLinkedConversationOnToolStepAndTurn(t *tes
 	require.Equal(t, linkedID, ts.Execution.Pages[0].ToolSteps[0].LinkedConversationID)
 }
 
+func TestBuildCanonicalState_PreservesModelPayloadsOnCanonicalStep(t *testing.T) {
+	requestID := "req-1"
+	responseID := "resp-1"
+	providerRequestID := "preq-1"
+	providerResponseID := "presp-1"
+	streamID := "stream-1"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:      "m1",
+				Role:    "assistant",
+				Interim: 0,
+				Content: strPtr("done"),
+				ModelCall: &agconv.ModelCallView{
+					MessageId:                        "m1",
+					Provider:                         "openai",
+					Model:                            "gpt-5.2",
+					Status:                           "completed",
+					RequestPayloadId:                 &requestID,
+					ResponsePayloadId:                &responseID,
+					ProviderRequestPayloadId:         &providerRequestID,
+					ProviderResponsePayloadId:        &providerResponseID,
+					StreamPayloadId:                  &streamID,
+					ModelCallRequestPayload:          &agconv.ModelCallStreamPayloadView{Id: requestID, InlineBody: strPtr(`{"input":"hello"}`)},
+					ModelCallResponsePayload:         &agconv.ModelCallStreamPayloadView{Id: responseID, InlineBody: strPtr(`{"output":"world"}`)},
+					ModelCallProviderRequestPayload:  &agconv.ModelCallStreamPayloadView{Id: providerRequestID, InlineBody: strPtr(`{"provider":"request"}`)},
+					ModelCallProviderResponsePayload: &agconv.ModelCallStreamPayloadView{Id: providerResponseID, InlineBody: strPtr(`{"provider":"response"}`)},
+					ModelCallStreamPayload:           &agconv.ModelCallStreamPayloadView{Id: streamID, InlineBody: strPtr("stream body")},
+				},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+	require.Len(t, state.Turns[0].Execution.Pages[0].ModelSteps, 1)
+
+	step := state.Turns[0].Execution.Pages[0].ModelSteps[0]
+	require.Equal(t, requestID, step.RequestPayloadID)
+	require.Equal(t, responseID, step.ResponsePayloadID)
+	require.Equal(t, providerRequestID, step.ProviderRequestPayloadID)
+	require.Equal(t, providerResponseID, step.ProviderResponsePayloadID)
+	require.Equal(t, streamID, step.StreamPayloadID)
+	require.NotNil(t, step.RequestPayload)
+	require.NotNil(t, step.ResponsePayload)
+	require.NotNil(t, step.ProviderRequestPayload)
+	require.NotNil(t, step.ProviderResponsePayload)
+	require.NotNil(t, step.StreamPayload)
+}
+
 func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2

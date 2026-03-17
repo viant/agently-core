@@ -77,7 +77,7 @@ func SetRoot(path string) {
 // The lookup order is:
 //  1. Explicit path set via SetRoot (e.g. CLI --workspace flag)
 //  2. $AGENTLY_WORKSPACE environment variable, if set and non-empty
-//  3. $HOME/.agently
+//  3. ./.agently under the current working directory
 //
 // The result is cached for the lifetime of the process.
 func Root() string {

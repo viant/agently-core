@@ -302,6 +302,24 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 	if mc.ProviderResponsePayloadId != nil {
 		step.ProviderResponsePayloadID = strings.TrimSpace(*mc.ProviderResponsePayloadId)
 	}
+	if mc.StreamPayloadId != nil {
+		step.StreamPayloadID = strings.TrimSpace(*mc.StreamPayloadId)
+	}
+	if mc.ModelCallRequestPayload != nil {
+		step.RequestPayload = mc.ModelCallRequestPayload
+	}
+	if mc.ModelCallResponsePayload != nil {
+		step.ResponsePayload = mc.ModelCallResponsePayload
+	}
+	if mc.ModelCallProviderRequestPayload != nil {
+		step.ProviderRequestPayload = mc.ModelCallProviderRequestPayload
+	}
+	if mc.ModelCallProviderResponsePayload != nil {
+		step.ProviderResponsePayload = mc.ModelCallProviderResponsePayload
+	}
+	if mc.ModelCallStreamPayload != nil {
+		step.StreamPayload = mc.ModelCallStreamPayload
+	}
 	return step
 }
 
@@ -323,6 +341,12 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	}
 	if tc.ResponsePayloadId != nil {
 		step.ResponsePayloadID = strings.TrimSpace(*tc.ResponsePayloadId)
+	}
+	if tc.RequestPayload != nil {
+		step.RequestPayload = tc.RequestPayload
+	}
+	if tc.ResponsePayload != nil {
+		step.ResponsePayload = tc.ResponsePayload
 	}
 	if tm.LinkedConversationId != nil {
 		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
