@@ -15,7 +15,8 @@ import (
 )
 
 type recordingObserver struct {
-	last mcbuf.Info
+	last   mcbuf.Info
+	deltas []string
 }
 
 func (r *recordingObserver) OnCallStart(ctx context.Context, info mcbuf.Info) (context.Context, error) {
@@ -27,7 +28,8 @@ func (r *recordingObserver) OnCallEnd(_ context.Context, info mcbuf.Info) error 
 	return nil
 }
 
-func (r *recordingObserver) OnStreamDelta(_ context.Context, _ []byte) error {
+func (r *recordingObserver) OnStreamDelta(_ context.Context, data []byte) error {
+	r.deltas = append(r.deltas, string(data))
 	return nil
 }
 
@@ -265,6 +267,48 @@ func TestStream_EventError_Fallback(t *testing.T) {
 	if assert.Error(t, gotErr) {
 		assert.Contains(t, gotErr.Error(), "gpt-5.3-codex")
 	}
+}
+
+func TestStream_ObserverReceivesWhitespaceDeltaChunks(t *testing.T) {
+	lines := []string{
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":" "},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":"stop"}]}`,
+		`data: [DONE]`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	continuationEnabled := false
+	c := &Client{APIKey: "test", ContextContinuation: &continuationEnabled}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-4o-mini"
+
+	req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}}
+	observer := &recordingObserver{}
+	ctx, cancel := context.WithTimeout(mcbuf.WithObserver(context.Background(), observer), 2*time.Second)
+	defer cancel()
+
+	ch, err := c.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+	for ev := range ch {
+		if ev.Err != nil {
+			t.Fatalf("streaming error: %v", ev.Err)
+		}
+	}
+
+	assert.Equal(t, []string{"Hello", " ", "world"}, observer.deltas)
 }
 
 func TestStream_NonSSE_JSONError_TopLevel(t *testing.T) {
