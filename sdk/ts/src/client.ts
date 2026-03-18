@@ -23,6 +23,8 @@ import type {
     FileEntry, UploadFileOutput,
     Resource, ResourceRef, RunView,
     Schedule, ScheduleListOutput,
+    WorkspaceMetadata, PayloadView, GetPayloadOptions,
+    ListLinkedConversationsInput, LinkedConversationPage,
 } from './types';
 import { HttpError } from './errors';
 
@@ -49,6 +51,10 @@ export interface ClientOptions {
     timeoutMs?: number;
     /** Custom fetch implementation (default globalThis.fetch) */
     fetchImpl?: typeof fetch;
+    /** Called on every non-retryable HTTP error (for UI toast notifications, logging, etc.) */
+    onError?: (error: HttpError) => void;
+    /** Called on 401 responses (for login redirects, token refresh, etc.) */
+    onUnauthorized?: (error: HttpError) => void;
 }
 
 // ─── Client ────────────────────────────────────────────────────────────────────
@@ -63,6 +69,8 @@ export class AgentlyClient {
     private retryStatuses: Set<number>;
     private timeoutMs: number;
     private fetchImpl: typeof fetch;
+    private onErrorHook?: (error: HttpError) => void;
+    private onUnauthorizedHook?: (error: HttpError) => void;
 
     constructor(opts: ClientOptions) {
         this.baseURL = opts.baseURL.replace(/\/+$/, '');
@@ -74,6 +82,8 @@ export class AgentlyClient {
         this.retryStatuses = new Set(opts.retryStatuses ?? [429, 502, 503, 504]);
         this.timeoutMs = opts.timeoutMs ?? 30_000;
         this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
+        this.onErrorHook = opts.onError;
+        this.onUnauthorizedHook = opts.onUnauthorized;
     }
 
     // ── Conversations ────────────────────────────────────────────────────────
@@ -96,6 +106,7 @@ export class AgentlyClient {
                 data: out.Rows,
                 page: {
                     cursor: out.NextCursor,
+                    prevCursor: out.PrevCursor,
                     hasMore: out.HasMore,
                 },
             };
@@ -251,35 +262,52 @@ export class AgentlyClient {
      * Subscribe to real-time streaming events for a conversation.
      * Returns an object with a close() method to unsubscribe.
      *
-     * Events are delivered via the onEvent callback as parsed SSEEvent objects.
-     * Convenience callbacks (onChunk, onTool, onDone, onError) are also available.
+     * All server events are delivered via the onEvent callback as parsed SSEEvent
+     * objects whose `type` field matches the SSEEventType union (text_delta,
+     * reasoning_delta, tool_call_started, turn_completed, etc.).
+     *
+     * Convenience callbacks map to the most common event types:
+     *   onTextDelta  — text_delta events (streaming content chunks)
+     *   onToolEvent  — tool_call_started / tool_call_delta / tool_call_completed
+     *   onTurnEnd    — turn_completed / turn_failed / turn_canceled
+     *   onError      — error events and SSE connection errors
      */
     streamEvents(
         conversationId: string,
         handlers: {
-            onChunk?: (content: string) => void;
-            onTool?: (toolName: string, args?: Record<string, any>) => void;
-            onDone?: () => void;
-            onError?: (error: string) => void;
+            /** Called for every SSE event (raw). */
             onEvent?: (event: SSEEvent) => void;
+            /** Streaming text content chunks. */
+            onTextDelta?: (content: string, event: SSEEvent) => void;
+            /** Tool call lifecycle events. */
+            onToolEvent?: (event: SSEEvent) => void;
+            /** Turn finished (completed, failed, or canceled). */
+            onTurnEnd?: (event: SSEEvent) => void;
+            /** Error events or SSE connection failures. */
+            onError?: (error: string) => void;
         },
     ): { close: () => void } {
         const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}`;
         const es = new EventSource(url, { withCredentials: this.useCookies });
+        let closed = false;
 
         es.onmessage = (ev) => {
             try {
                 const event: SSEEvent = JSON.parse(ev.data);
                 handlers.onEvent?.(event);
                 switch (event.type) {
-                    case 'chunk':
-                        handlers.onChunk?.(event.content ?? '');
+                    case 'text_delta':
+                        handlers.onTextDelta?.(event.content ?? '', event);
                         break;
-                    case 'tool':
-                        handlers.onTool?.(event.toolName ?? '', event.arguments);
+                    case 'tool_call_started':
+                    case 'tool_call_delta':
+                    case 'tool_call_completed':
+                        handlers.onToolEvent?.(event);
                         break;
-                    case 'done':
-                        handlers.onDone?.();
+                    case 'turn_completed':
+                    case 'turn_failed':
+                    case 'turn_canceled':
+                        handlers.onTurnEnd?.(event);
                         break;
                     case 'error':
                         handlers.onError?.(event.error ?? 'Unknown error');
@@ -289,10 +317,51 @@ export class AgentlyClient {
         };
 
         es.onerror = () => {
-            handlers.onError?.('SSE connection error');
+            if (closed) return;
+            // EventSource does not expose the HTTP status on error. Probe the
+            // stream endpoint with a HEAD/GET to detect 401 vs transport failure
+            // so the client-level onUnauthorized hook fires correctly.
+            this.probeStreamAuth(url).then((status) => {
+                if (closed) return;
+                if (status === 401) {
+                    const err = new HttpError(401, 'Unauthorized', 'SSE stream rejected (401)');
+                    this.onUnauthorizedHook?.(err);
+                    handlers.onError?.('SSE unauthorized (401)');
+                    es.close();
+                } else {
+                    this.onErrorHook?.(new HttpError(status || 0, 'SSE Error', 'SSE connection error'));
+                    handlers.onError?.('SSE connection error');
+                }
+            }).catch(() => {
+                if (closed) return;
+                this.onErrorHook?.(new HttpError(0, 'NetworkError', 'SSE connection error'));
+                handlers.onError?.('SSE connection error');
+            });
         };
 
-        return { close: () => es.close() };
+        return {
+            close: () => {
+                closed = true;
+                es.close();
+            },
+        };
+    }
+
+    /** Probe the stream endpoint to detect HTTP status (used for SSE error diagnosis). */
+    private async probeStreamAuth(url: string): Promise<number> {
+        try {
+            const headers = await this.authHeaders();
+            const resp = await this.fetchImpl(url, {
+                method: 'GET',
+                headers,
+                credentials: this.useCookies ? 'include' : 'same-origin',
+            });
+            // Abort immediately — we only need the status code, not the stream body.
+            try { resp.body?.cancel(); } catch { /* ignore */ }
+            return resp.status;
+        } catch {
+            return 0;
+        }
     }
 
     // ── Elicitations ─────────────────────────────────────────────────────────
@@ -481,6 +550,94 @@ export class AgentlyClient {
         await this.post(`/api/agently/scheduler/run-now/${enc(id)}`, {});
     }
 
+    // ── Workspace Metadata ────────────────────────────────────────────────────
+
+    /** Get workspace metadata (available agents, models, defaults, capabilities). */
+    async getWorkspaceMetadata(): Promise<WorkspaceMetadata> {
+        return this.get('/workspace/metadata');
+    }
+
+    // ── Payload ─────────────────────────────────────────────────────────────
+
+    /**
+     * Fetch a stored payload by ID.
+     *
+     * With `raw: true`, returns the raw binary content as an ArrayBuffer with
+     * the original content type. Otherwise returns the structured PayloadView.
+     */
+    async getPayload(id: string, opts?: GetPayloadOptions): Promise<PayloadView>;
+    async getPayload(id: string, opts: GetPayloadOptions & { raw: true }): Promise<{ contentType: string; data: ArrayBuffer }>;
+    async getPayload(id: string, opts?: GetPayloadOptions): Promise<any> {
+        const q = new URLSearchParams();
+        if (opts?.raw) q.set('raw', '1');
+        if (opts?.meta) q.set('meta', '1');
+        if (opts?.inline === false) q.set('inline', '0');
+        const qs = q.toString();
+        const url = qs
+            ? `${this.baseURL}/api/payload/${enc(id)}?${qs}`
+            : `${this.baseURL}/api/payload/${enc(id)}`;
+
+        if (opts?.raw) {
+            const headers = await this.authHeaders();
+            const resp = await this.fetchImpl(url, {
+                method: 'GET',
+                headers,
+                credentials: this.useCookies ? 'include' : 'same-origin',
+            });
+            if (!resp.ok) throw await this.toHttpError(resp);
+            const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+            const data = await resp.arrayBuffer();
+            return { contentType, data };
+        }
+
+        return this.request('GET', url);
+    }
+
+    // ── File Browser ────────────────────────────────────────────────────────
+
+    /** Download a workspace file by URI. Returns the raw text content. */
+    async downloadWorkspaceFile(uri: string): Promise<string> {
+        const q = new URLSearchParams({ uri });
+        const url = `${this.baseURL}/workspace/file-browser/download?${q}`;
+        const headers = await this.authHeaders();
+        const resp = await this.fetchImpl(url, {
+            method: 'GET',
+            headers,
+            credentials: this.useCookies ? 'include' : 'same-origin',
+        });
+        if (!resp.ok) throw await this.toHttpError(resp);
+        return resp.text();
+    }
+
+    /** List workspace files/directories at the given path. */
+    async listWorkspaceFiles(path?: string): Promise<any> {
+        const q = new URLSearchParams();
+        if (path) q.set('path', path);
+        return this.get('/workspace/file-browser/list', q);
+    }
+
+    // ── Linked Conversations ────────────────────────────────────────────────
+
+    /** List child conversations linked to a parent conversation/turn. */
+    async listLinkedConversations(input: ListLinkedConversationsInput): Promise<LinkedConversationPage> {
+        const q = new URLSearchParams();
+        q.set('parentId', input.parentConversationId);
+        if (input.parentTurnId) q.set('parentTurnId', input.parentTurnId);
+        this.applyPage(q, input.page);
+        const out = await this.get('/conversations/linked', q);
+        if (Array.isArray(out?.Rows)) {
+            return {
+                data: out.Rows,
+                page: {
+                    cursor: out.NextCursor,
+                    prevCursor: out.PrevCursor,
+                    hasMore: out.HasMore,
+                },
+            };
+        }
+        return out;
+    }
+
     // ── Internal HTTP ────────────────────────────────────────────────────────
 
     private async get(path: string, params?: URLSearchParams): Promise<any> {
@@ -533,6 +690,11 @@ export class AgentlyClient {
                         await sleep(this.retryDelayMs);
                         continue;
                     }
+                    if (lastErr.status === 401) {
+                        this.onUnauthorizedHook?.(lastErr);
+                    } else {
+                        this.onErrorHook?.(lastErr);
+                    }
                     throw lastErr;
                 }
 
@@ -545,6 +707,7 @@ export class AgentlyClient {
                     await sleep(this.retryDelayMs);
                     continue;
                 }
+                this.onErrorHook?.(new HttpError(0, 'NetworkError', String((err as Error)?.message || err || 'network error')));
                 throw err;
             } finally {
                 if (timer) clearTimeout(timer);

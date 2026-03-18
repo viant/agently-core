@@ -641,3 +641,283 @@ describe('A2A', () => {
         expect(call.url).toContain('ids=agent1%2Cagent2');
     });
 });
+
+// ─── Workspace Metadata ───────────────────────────────────────────────────────
+
+describe('Workspace Metadata', () => {
+    it('getWorkspaceMetadata sends GET to /workspace/metadata', async () => {
+        const body = {
+            defaultAgent: 'coder',
+            defaultModel: 'gpt-4',
+            agents: ['coder', 'researcher'],
+            models: ['gpt-4', 'claude'],
+        };
+        const f = mockFetch(200, body);
+        const c = client(f);
+        const res = await c.getWorkspaceMetadata();
+
+        expect(res.defaultAgent).toBe('coder');
+        expect(res.agents).toEqual(['coder', 'researcher']);
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/workspace/metadata');
+    });
+});
+
+// ─── Payload ──────────────────────────────────────────────────────────────────
+
+describe('Payload', () => {
+    it('getPayload sends GET to /api/payload/{id}', async () => {
+        const body = { id: 'p1', kind: 'request', mimeType: 'application/json' };
+        const f = mockFetch(200, body);
+        const c = client(f);
+        const res = await c.getPayload('p1');
+
+        expect(res.id).toBe('p1');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/api/payload/p1');
+    });
+
+    it('getPayload with meta option', async () => {
+        const f = mockFetch(200, { id: 'p1' });
+        const c = client(f);
+        await c.getPayload('p1', { meta: true });
+
+        const call = lastCall(f);
+        expect(call.url).toContain('meta=1');
+    });
+
+    it('getPayload with raw option returns ArrayBuffer', async () => {
+        const buf = new ArrayBuffer(4);
+        const f = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({ 'content-type': 'text/plain' }),
+            arrayBuffer: () => Promise.resolve(buf),
+        } as any);
+        const c = client(f);
+        const res = await c.getPayload('p1', { raw: true });
+
+        expect(res.contentType).toBe('text/plain');
+        expect(res.data).toBe(buf);
+        const call = lastCall(f);
+        expect(call.url).toContain('raw=1');
+    });
+
+    it('getPayload encodes special characters in ID', async () => {
+        const f = mockFetch(200, { id: 'a/b' });
+        const c = client(f);
+        await c.getPayload('a/b');
+
+        const call = lastCall(f);
+        expect(call.url).toContain('a%2Fb');
+    });
+});
+
+// ─── File Browser ─────────────────────────────────────────────────────────────
+
+describe('File Browser', () => {
+    it('downloadWorkspaceFile sends GET with uri param', async () => {
+        const f = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: () => Promise.resolve('file content here'),
+        } as any);
+        const c = client(f);
+        const res = await c.downloadWorkspaceFile('/workspace/main.go');
+
+        expect(res).toBe('file content here');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/workspace/file-browser/download');
+        expect(call.url).toContain('uri=%2Fworkspace%2Fmain.go');
+    });
+
+    it('listWorkspaceFiles sends GET to /workspace/file-browser/list', async () => {
+        const f = mockFetch(200, { files: [{ name: 'a.go' }] });
+        const c = client(f);
+        await c.listWorkspaceFiles('/src');
+
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/workspace/file-browser/list');
+        expect(call.url).toContain('path=%2Fsrc');
+    });
+});
+
+// ─── Linked Conversations ─────────────────────────────────────────────────────
+
+describe('Linked Conversations', () => {
+    it('listLinkedConversations sends GET with parentId', async () => {
+        const f = mockFetch(200, {
+            Rows: [{ conversationId: 'child_1', parentConversationId: 'conv_1', parentTurnId: 't1', createdAt: '2025-01-01' }],
+            HasMore: false,
+            NextCursor: '',
+            PrevCursor: '',
+        });
+        const c = client(f);
+        const res = await c.listLinkedConversations({ parentConversationId: 'conv_1' });
+
+        expect(res.data).toHaveLength(1);
+        expect(res.data[0].conversationId).toBe('child_1');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/conversations/linked');
+        expect(call.url).toContain('parentId=conv_1');
+    });
+
+    it('listLinkedConversations with parentTurnId and pagination', async () => {
+        const f = mockFetch(200, {
+            Rows: [],
+            HasMore: true,
+            NextCursor: 'c2',
+            PrevCursor: 'c0',
+        });
+        const c = client(f);
+        const res = await c.listLinkedConversations({
+            parentConversationId: 'conv_1',
+            parentTurnId: 'turn_1',
+            page: { limit: 5, cursor: 'c1', direction: 'after' },
+        });
+
+        expect(res.page?.hasMore).toBe(true);
+        expect(res.page?.cursor).toBe('c2');
+        expect(res.page?.prevCursor).toBe('c0');
+        const call = lastCall(f);
+        expect(call.url).toContain('parentTurnId=turn_1');
+        expect(call.url).toContain('limit=5');
+        expect(call.url).toContain('cursor=c1');
+        expect(call.url).toContain('direction=after');
+    });
+});
+
+// ─── Error Hooks ──────────────────────────────────────────────────────────────
+
+describe('Error Hooks', () => {
+    it('onUnauthorized is called on 401', async () => {
+        const f = mockFetch(401, 'Unauthorized');
+        const onUnauthorized = vi.fn();
+        const c = new AgentlyClient({
+            baseURL: 'http://localhost:8585/v1',
+            fetchImpl: f,
+            timeoutMs: 0,
+            onUnauthorized,
+        });
+
+        await expect(c.getConversation('x')).rejects.toThrow();
+        expect(onUnauthorized).toHaveBeenCalledTimes(1);
+        expect(onUnauthorized.mock.calls[0][0]).toBeInstanceOf(HttpError);
+        expect(onUnauthorized.mock.calls[0][0].status).toBe(401);
+    });
+
+    it('onError is called on non-401 errors', async () => {
+        const f = mockFetch(500, 'Server Error');
+        const onError = vi.fn();
+        const c = new AgentlyClient({
+            baseURL: 'http://localhost:8585/v1',
+            fetchImpl: f,
+            timeoutMs: 0,
+            retries: 1,
+            onError,
+        });
+
+        await expect(c.createConversation({ agentId: 'x' })).rejects.toThrow();
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0].status).toBe(500);
+    });
+
+    it('onError is not called on 401', async () => {
+        const f = mockFetch(401, 'Unauthorized');
+        const onError = vi.fn();
+        const onUnauthorized = vi.fn();
+        const c = new AgentlyClient({
+            baseURL: 'http://localhost:8585/v1',
+            fetchImpl: f,
+            timeoutMs: 0,
+            onError,
+            onUnauthorized,
+        });
+
+        await expect(c.getConversation('x')).rejects.toThrow();
+        expect(onError).not.toHaveBeenCalled();
+        expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    });
+
+    it('onError is called on transport/network failures (P2)', async () => {
+        const f = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+        const onError = vi.fn();
+        const c = new AgentlyClient({
+            baseURL: 'http://localhost:8585/v1',
+            fetchImpl: f,
+            timeoutMs: 0,
+            retries: 1,
+            onError,
+        });
+
+        await expect(c.createConversation({ agentId: 'x' })).rejects.toThrow('Failed to fetch');
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0].status).toBe(0);
+        expect(onError.mock.calls[0][0].body).toContain('Failed to fetch');
+    });
+
+    it('onError is called on timeout abort (P2)', async () => {
+        const f = vi.fn().mockRejectedValue(new DOMException('The operation was aborted', 'AbortError'));
+        const onError = vi.fn();
+        const c = new AgentlyClient({
+            baseURL: 'http://localhost:8585/v1',
+            fetchImpl: f,
+            timeoutMs: 0,
+            retries: 1,
+            onError,
+        });
+
+        await expect(c.getConversation('x')).rejects.toThrow();
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0].status).toBe(0);
+    });
+});
+
+// ─── UpdateConversation title ─────────────────────────────────────────────────
+
+describe('UpdateConversation with title', () => {
+    it('sends title in PATCH body', async () => {
+        const f = mockFetch(200, { id: 'conv_1', title: 'New Title' });
+        const c = client(f);
+        await c.updateConversation('conv_1', { title: 'New Title' });
+
+        const call = lastCall(f);
+        expect(call.method).toBe('PATCH');
+        expect(call.body).toEqual({ title: 'New Title' });
+    });
+
+    it('sends title + visibility together', async () => {
+        const f = mockFetch(200, { id: 'conv_1' });
+        const c = client(f);
+        await c.updateConversation('conv_1', { title: 'T', visibility: 'archived' });
+
+        const call = lastCall(f);
+        expect(call.body).toEqual({ title: 'T', visibility: 'archived' });
+    });
+});
+
+// ─── listConversations prevCursor ─────────────────────────────────────────────
+
+describe('listConversations prevCursor', () => {
+    it('includes prevCursor in page output', async () => {
+        const f = mockFetch(200, {
+            Rows: [{ id: 'c1', createdAt: '2025-01-01' }],
+            HasMore: true,
+            NextCursor: 'next_1',
+            PrevCursor: 'prev_1',
+        });
+        const c = client(f);
+        const res = await c.listConversations();
+
+        expect(res.page?.cursor).toBe('next_1');
+        expect(res.page?.prevCursor).toBe('prev_1');
+        expect(res.page?.hasMore).toBe(true);
+    });
+});
