@@ -648,3 +648,94 @@ export interface LinkedConversationPage {
     data: LinkedConversationEntry[];
     page?: PageOutput;
 }
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export interface AuthProvider {
+    name: string;
+    label?: string;
+    type: string;
+    /** Present for local providers. */
+    defaultUsername?: string;
+    /** Present for oidc/spa providers. */
+    clientID?: string;
+    discoveryURL?: string;
+    redirectURI?: string;
+    scopes?: string[];
+    /** Present for bff providers. */
+    mode?: string;
+}
+
+export interface AuthUser {
+    subject?: string;
+    username?: string;
+    email?: string;
+    displayName?: string;
+    provider?: string;
+    preferences?: Record<string, any>;
+}
+
+export interface LocalLoginInput {
+    username: string;
+}
+
+export interface LocalLoginOutput {
+    sessionId: string;
+    username: string;
+    provider?: string;
+}
+
+export interface OAuthInitiateOutput {
+    authURL: string;
+    state: string;
+    provider?: string;
+    delegated?: boolean;
+}
+
+export interface OAuthCallbackInput {
+    code: string;
+    state: string;
+}
+
+export interface OAuthCallbackOutput {
+    status: string;
+    username?: string;
+    provider?: string;
+}
+
+export interface OAuthConfigOutput {
+    mode?: string;
+    configURL?: string;
+    clientId?: string;
+    discoveryUrl?: string;
+    redirectUri?: string;
+    scopes?: string[];
+}
+
+export interface CreateSessionInput {
+    username?: string;
+    accessToken?: string;
+    idToken?: string;
+    refreshToken?: string;
+}
+
+export interface CreateSessionOutput {
+    sessionId: string;
+    username?: string;
+}
+
+export interface OOBLoginInput {
+    accessToken: string;
+    idToken?: string;
+    refreshToken?: string;
+    username?: string;
+}
+
+export interface IDPDelegateOutput {
+    mode: string;
+    idpLogin: string;
+    provider?: string;
+    authURL: string;
+    state: string;
+    expiresIn?: number;
+}

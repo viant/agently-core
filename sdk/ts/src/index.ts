@@ -54,6 +54,11 @@ export type {
     PayloadView, GetPayloadOptions,
     // Linked Conversations
     ListLinkedConversationsInput, LinkedConversationEntry, LinkedConversationPage,
+    // Auth
+    AuthProvider, AuthUser, LocalLoginInput, LocalLoginOutput,
+    OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
+    OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
+    OOBLoginInput, IDPDelegateOutput,
 } from './types';
 
 // Streaming reconciliation
