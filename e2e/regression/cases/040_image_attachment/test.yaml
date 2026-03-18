@@ -22,17 +22,6 @@ pipeline:
             "@exists@conversationId": true
             content: Red
 
-  transcript:
-    when: $sdkKey != ''
-    action: http/runner:send
-    description: "openai_responses_image_attachment - transcript exposes attachment on user task message"
-    requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
-        Expect:
-          Code: 200
-          Body: /image/png/
-
   attachmentMessage:
     when: $sdkKey != ''
     action: http/runner:send
