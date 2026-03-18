@@ -47,6 +47,13 @@ export type {
     RunView,
     // Scheduler
     Schedule, ScheduleListOutput,
+    // Workspace Metadata
+    WorkspaceMetadata, AgentInfo, ModelInfo, StarterTask,
+    WorkspaceCapabilities, WorkspaceDefaults,
+    // Payload
+    PayloadView, GetPayloadOptions,
+    // Linked Conversations
+    ListLinkedConversationsInput, LinkedConversationEntry, LinkedConversationPage,
 } from './types';
 
 // Streaming reconciliation

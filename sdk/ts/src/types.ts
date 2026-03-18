@@ -17,6 +17,7 @@ export interface PageInput {
 
 export interface PageOutput {
     cursor?: string;
+    prevCursor?: string;
     hasMore?: boolean;
     total?: number;
 }
@@ -53,6 +54,7 @@ export interface CreateConversationInput {
 }
 
 export interface UpdateConversationInput {
+    title?: string;
     visibility?: string;
     shareable?: boolean;
 }
@@ -371,6 +373,8 @@ export interface QueryInput {
     context?: Record<string, any>;
     attachments?: QueryAttachment[];
     reasoningEffort?: string;
+    elicitationMode?: string;
+    userId?: string;
     autoSummarize?: boolean;
     disableChains?: boolean;
     allowedChains?: string[];
@@ -543,4 +547,104 @@ export interface Schedule {
 
 export interface ScheduleListOutput {
     schedules: Schedule[];
+}
+
+// ─── Workspace Metadata ────────────────────────────────────────────────────────
+
+export interface AgentInfo {
+    id: string;
+    name?: string;
+    description?: string;
+}
+
+export interface ModelInfo {
+    id: string;
+    name?: string;
+    provider?: string;
+}
+
+export interface StarterTask {
+    title?: string;
+    prompt?: string;
+    agentId?: string;
+}
+
+export interface WorkspaceCapabilities {
+    speech?: boolean;
+    scheduler?: boolean;
+    fileBrowser?: boolean;
+    a2a?: boolean;
+}
+
+export interface WorkspaceDefaults {
+    agent?: string;
+    model?: string;
+    embedder?: string;
+}
+
+export interface WorkspaceMetadata {
+    defaultAgent?: string;
+    defaultModel?: string;
+    defaultEmbedder?: string;
+    defaults?: WorkspaceDefaults;
+    capabilities?: WorkspaceCapabilities;
+    agents?: string[];
+    models?: string[];
+    agentInfos?: AgentInfo[];
+    modelInfos?: ModelInfo[];
+    starterTasks?: StarterTask[];
+    version?: string;
+}
+
+// ─── Payload ──────────────────────────────────────────────────────────────────
+
+export interface GetPayloadOptions {
+    /** Return raw binary content with original Content-Type (default false). */
+    raw?: boolean;
+    /** Return only metadata without inline body (default false). */
+    meta?: boolean;
+    /** Include InlineBody in response (default true, ignored if meta=true). */
+    inline?: boolean;
+}
+
+export interface PayloadView {
+    id: string;
+    tenantId?: string;
+    kind?: string;
+    subtype?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    digest?: string;
+    storage?: string;
+    inlineBody?: string;
+    uri?: string;
+    compression?: string;
+    encryptionKmsKeyId?: string;
+    redactionPolicyVersion?: string;
+    redacted?: number;
+    createdAt?: string;
+    schemaRef?: string;
+}
+
+// ─── Linked Conversations ─────────────────────────────────────────────────────
+
+export interface ListLinkedConversationsInput {
+    parentConversationId: string;
+    parentTurnId?: string;
+    page?: PageInput;
+}
+
+export interface LinkedConversationEntry {
+    conversationId: string;
+    parentConversationId: string;
+    parentTurnId: string;
+    status?: string;
+    response?: string;
+    createdAt: string;
+    updatedAt?: string;
+}
+
+export interface LinkedConversationPage {
+    data: LinkedConversationEntry[];
+    page?: PageOutput;
 }
