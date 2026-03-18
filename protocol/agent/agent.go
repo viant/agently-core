@@ -112,7 +112,10 @@ type (
 		// Attachment groups binary-attachment behavior
 		Attachment *Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
 
-		// Chains defines post-turn follow-ups executed after a turn finishes.
+		// FollowUps defines post-turn follow-ups executed after a turn finishes.
+		// Preferred config key: followUps.
+		FollowUps []*Chain `yaml:"followUps,omitempty" json:"followUps,omitempty"`
+		// Chains is a deprecated backward-compatible alias for FollowUps.
 		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
 
 		// MCPResources removed — use generic resources tools instead.
@@ -365,20 +368,37 @@ type WhenExpect struct {
 	Path    string `yaml:"path,omitempty" json:"path,omitempty"`
 }
 
+func (a *Agent) EffectiveFollowUps() []*Chain {
+	if a == nil {
+		return nil
+	}
+	if len(a.FollowUps) == 0 {
+		return a.Chains
+	}
+	if len(a.Chains) == 0 {
+		return a.FollowUps
+	}
+	out := make([]*Chain, 0, len(a.FollowUps)+len(a.Chains))
+	out = append(out, a.FollowUps...)
+	out = append(out, a.Chains...)
+	return out
+}
+
 func (a *Agent) Validate() error {
 	if a == nil {
 		return fmt.Errorf("agent is nil")
 	}
-	// Validate chains (supervised follow-up definitions): target.agentId must be non-empty when chains are declared
-	for i, c := range a.Chains {
+	// Validate followUps (supervised post-turn follow-up definitions):
+	// target.agentId must be non-empty when follow-ups are declared.
+	for i, c := range a.EffectiveFollowUps() {
 		if c == nil {
 			continue
 		}
 		if strings.TrimSpace(c.Target.AgentID) == "" {
-			return fmt.Errorf("invalid chain[%d]: target.agentId is required", i)
+			return fmt.Errorf("invalid followUp[%d]: target.agentId is required", i)
 		}
 		if conv := strings.ToLower(strings.TrimSpace(c.Conversation)); conv != "" && conv != "reuse" && conv != "link" {
-			return fmt.Errorf("invalid chain[%d]: conversation must be reuse or link", i)
+			return fmt.Errorf("invalid followUp[%d]: conversation must be reuse or link", i)
 		}
 	}
 	return nil
