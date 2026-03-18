@@ -333,6 +333,11 @@ func (c *EmbeddedClient) CreateConversation(ctx context.Context, input *CreateCo
 	if strings.TrimSpace(input.Title) != "" {
 		row.SetTitle(strings.TrimSpace(input.Title))
 	}
+	// Set the owner from the authenticated user context so the conversation
+	// is visible in user-scoped ListConversations queries.
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		row.SetCreatedByUserID(userID)
+	}
 	if len(input.Metadata) > 0 {
 		raw, err := json.Marshal(input.Metadata)
 		if err != nil {
