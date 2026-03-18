@@ -20,7 +20,7 @@ pipeline:
           Code: 200
           JSONBody:
             "@exists@conversationId": true
-            content: Red
+          Body: /content:Red/
 
   attachmentMessage:
     when: $sdkKey != ''
@@ -48,3 +48,14 @@ pipeline:
             Id: ${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}
             MimeType: image/png
             InlineBody: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+
+  attachmentPayloadRaw:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_image_attachment - raw payload has PNG signature"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}?raw=1
+        Expect:
+          Code: 200
+          Body: /PNG/
