@@ -25,7 +25,7 @@ require (
 	github.com/viant/forge v0.2.18
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
-	github.com/viant/jsonrpc v0.17.0
+	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.11.0
 	github.com/viant/mcp-protocol v0.11.0
@@ -42,7 +42,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.45.0
 )
-
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -202,8 +201,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/viant/forge => /Users/awitas/go/src/github.com/viant/forge
-replace github.com/viant/afsc => ../afsc
-replace github.com/viant/datly => ../datly
-replace github.com/viant/xreflect => ../xreflect
