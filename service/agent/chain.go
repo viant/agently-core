@@ -102,7 +102,7 @@ func NewChainContext(in *QueryInput, out *QueryOutput, turn *memory.TurnMeta) Ch
 // executeChains filters, evaluates and dispatches supervised follow-up chains
 // declared on the parent agent.
 func (s *Service) executeChains(ctx context.Context, parent ChainContext, status string) error {
-	if parent.Agent == nil || len(parent.Agent.Chains) == 0 {
+	if parent.Agent == nil || len(parent.Agent.EffectiveFollowUps()) == 0 {
 		return nil
 	}
 
@@ -124,7 +124,7 @@ func (s *Service) executeChains(ctx context.Context, parent ChainContext, status
 		}
 	}
 
-	for idx, ch := range parent.Agent.Chains {
+	for idx, ch := range parent.Agent.EffectiveFollowUps() {
 		if ch == nil {
 			continue
 		}
@@ -470,15 +470,21 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 		actor = "chain"
 	}
 
-	if _, err := apiconv.AddMessage(ctx, s.conversation, parent.ParentTurn,
-		apiconv.WithId(uuid.New().String()),
-		apiconv.WithRole(role),
-		apiconv.WithInterim(1),
-		apiconv.WithContent(""),
-		apiconv.WithCreatedByUserID(actor),
-		apiconv.WithMode("chain"),
-		apiconv.WithLinkedConversationID(childIn.ConversationID)); err != nil {
-		return err
+	parentConversationID := strings.TrimSpace(parent.ParentTurn.ConversationID)
+	childConversationID := strings.TrimSpace(childIn.ConversationID)
+	hasDistinctChildConversation := childConversationID != "" && childConversationID != parentConversationID
+
+	if hasDistinctChildConversation {
+		if _, err := apiconv.AddMessage(ctx, s.conversation, parent.ParentTurn,
+			apiconv.WithId(uuid.New().String()),
+			apiconv.WithRole(role),
+			apiconv.WithInterim(1),
+			apiconv.WithContent(""),
+			apiconv.WithCreatedByUserID(actor),
+			apiconv.WithMode("chain"),
+			apiconv.WithLinkedConversationID(childConversationID)); err != nil {
+			return err
+		}
 	}
 
 	content, err := s.fetchChainOutput(ctx, childIn, chain)
@@ -493,11 +499,12 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 	}
 	// Continue parent as new user turn
 	next := &QueryInput{
-		ConversationID: parent.Conversation.Id,
-		AgentID:        parent.Agent.ID,
-		UserId:         strings.TrimSpace(chain.Publish.Name),
-		Query:          content,
-		Context:        map[string]interface{}{},
+		ConversationID:         parent.Conversation.Id,
+		AgentID:                parent.Agent.ID,
+		UserId:                 strings.TrimSpace(chain.Publish.Name),
+		Query:                  content,
+		Context:                map[string]interface{}{},
+		SkipInitialUserMessage: true,
 	}
 	if strings.TrimSpace(next.UserId) == "" {
 		next.UserId = strings.TrimSpace(actor)
@@ -509,7 +516,7 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 		next.Context[k] = v
 	}
 	var out QueryOutput
-	if err := s.Query(ctx, next, &out); err != nil {
+	if err := s.Query(executil.WithChainMode(ctx, true), next, &out); err != nil {
 		return fmt.Errorf("continuation error: %w", err)
 	}
 	return nil

@@ -3,6 +3,7 @@ package loader
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -216,7 +217,7 @@ func (s *Service) resolvePromptURIs(a *agentmdl.Agent) {
 	resolvePath(a.SystemPrompt)
 	resolvePath(a.InstructionPrompt)
 	resolvePath(a.Instruction)
-	for _, chain := range a.Chains {
+	for _, chain := range a.EffectiveFollowUps() {
 		if query := chain.Query; query != nil && query.URI != "" {
 			resolvePath(query)
 			if when := chain.When; when != nil && when.Query != nil && when.Query.URI != "" {
@@ -247,7 +248,7 @@ func normalizeAgent(a *agentmdl.Agent) {
 	if a.InstructionPrompt == nil && a.Instruction != nil {
 		a.InstructionPrompt = a.Instruction
 	}
-	for _, c := range a.Chains {
+	for _, c := range a.EffectiveFollowUps() {
 		if c == nil {
 			continue
 		}
@@ -590,7 +591,12 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return err
 			}
 		case "chains":
-			if err := s.parseChainsBlock(valueNode, agent); err != nil {
+			log.Printf("[warn] agent %q uses deprecated key \"chains\"; use \"followUps\" instead", strings.TrimSpace(agent.ID))
+			if err := s.parseFollowUpsBlock(valueNode, agent); err != nil {
+				return err
+			}
+		case "followups":
+			if err := s.parseFollowUpsBlock(valueNode, agent); err != nil {
 				return err
 			}
 			// mcpresources: removed; use generic resources instead
@@ -1202,13 +1208,13 @@ func (s *Service) parseAttachmentBlock(valueNode *yml.Node, agent *agentmdl.Agen
 	return nil
 }
 
-func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+func (s *Service) parseFollowUpsBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
 	if valueNode.Kind != yaml.SequenceNode {
-		return fmt.Errorf("chains must be a sequence")
+		return fmt.Errorf("followUps must be a sequence")
 	}
 	for _, item := range valueNode.Content {
 		if item == nil || item.Kind != yaml.MappingNode {
-			return fmt.Errorf("invalid chain entry; expected mapping")
+			return fmt.Errorf("invalid followUp entry; expected mapping")
 		}
 		var c agentmdl.Chain
 		var whenExpr string
@@ -1233,7 +1239,7 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 			}
 		}
 		if err := (*yaml.Node)(item).Decode(&c); err != nil {
-			return fmt.Errorf("invalid chain definition: %w", err)
+			return fmt.Errorf("invalid followUp definition: %w", err)
 		}
 		if c.Query == nil {
 			for i := 0; i+1 < len(item.Content); i += 2 {
@@ -1267,7 +1273,7 @@ func (s *Service) parseChainsBlock(valueNode *yml.Node, agent *agentmdl.Agent) e
 		if disabledOverride != nil {
 			c.Disabled = *disabledOverride
 		}
-		agent.Chains = append(agent.Chains, &c)
+		agent.FollowUps = append(agent.FollowUps, &c)
 	}
 	return nil
 }

@@ -119,7 +119,7 @@ func isStubAgent(a *agent.Agent) bool {
 	if len(a.Tool.Items) > 0 || len(a.Tool.Bundles) > 0 {
 		return false
 	}
-	if len(a.Resources) > 0 || len(a.Chains) > 0 {
+	if len(a.Resources) > 0 || len(a.EffectiveFollowUps()) > 0 {
 		return false
 	}
 	if a.ContextInputs != nil || a.Attachment != nil || a.Persona != nil {
