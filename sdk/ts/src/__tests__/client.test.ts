@@ -921,3 +921,124 @@ describe('listConversations prevCursor', () => {
         expect(res.page?.hasMore).toBe(true);
     });
 });
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+describe('Auth', () => {
+    it('getAuthProviders returns providers array', async () => {
+        const f = mockFetch(200, { providers: [{ name: 'local', type: 'local', label: 'Local User' }] });
+        const c = client(f);
+        const res = await c.getAuthProviders();
+
+        expect(res).toHaveLength(1);
+        expect(res[0].name).toBe('local');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/api/auth/providers');
+    });
+
+    it('getAuthProviders unwraps flat array response', async () => {
+        const f = mockFetch(200, [{ name: 'oauth', type: 'bff' }]);
+        const c = client(f);
+        const res = await c.getAuthProviders();
+
+        expect(res).toHaveLength(1);
+        expect(res[0].type).toBe('bff');
+    });
+
+    it('getAuthMe returns user', async () => {
+        const f = mockFetch(200, { subject: 'user1', email: 'u@t.com', provider: 'session' });
+        const c = client(f);
+        const res = await c.getAuthMe();
+
+        expect(res?.subject).toBe('user1');
+        expect(res?.email).toBe('u@t.com');
+    });
+
+    it('getAuthMe returns null on 401', async () => {
+        const f = mockFetch(401, { error: 'not authenticated' });
+        const c = client(f);
+        const res = await c.getAuthMe();
+
+        expect(res).toBeNull();
+    });
+
+    it('localLogin sends POST with username', async () => {
+        const f = mockFetch(200, { sessionId: 's1', username: 'dev' });
+        const c = client(f);
+        const res = await c.localLogin({ username: 'dev' });
+
+        expect(res.sessionId).toBe('s1');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toContain('/api/auth/local/login');
+        expect(call.body).toEqual({ username: 'dev' });
+    });
+
+    it('logout sends POST', async () => {
+        const f = mockFetch(200, { status: 'ok' });
+        const c = client(f);
+        await c.logout();
+
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toContain('/api/auth/logout');
+    });
+
+    it('oauthInitiate sends POST', async () => {
+        const f = mockFetch(200, { authURL: 'https://idp/auth', state: 'abc' });
+        const c = client(f);
+        const res = await c.oauthInitiate();
+
+        expect(res.authURL).toBe('https://idp/auth');
+        expect(res.state).toBe('abc');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+    });
+
+    it('oauthCallback sends POST with code and state', async () => {
+        const f = mockFetch(200, { status: 'ok', username: 'user1' });
+        const c = client(f);
+        const res = await c.oauthCallback({ code: 'xyz', state: 'abc' });
+
+        expect(res.status).toBe('ok');
+        const call = lastCall(f);
+        expect(call.body).toEqual({ code: 'xyz', state: 'abc' });
+    });
+
+    it('getOAuthConfig sends GET', async () => {
+        const f = mockFetch(200, { mode: 'bff', clientId: 'c1' });
+        const c = client(f);
+        const res = await c.getOAuthConfig();
+
+        expect(res.mode).toBe('bff');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/api/auth/oauth/config');
+    });
+
+    it('createAuthSession sends POST', async () => {
+        const f = mockFetch(200, { sessionId: 's2', username: 'anon' });
+        const c = client(f);
+        const res = await c.createAuthSession({ username: 'anon' });
+
+        expect(res.sessionId).toBe('s2');
+        const call = lastCall(f);
+        expect(call.url).toContain('/api/auth/session');
+    });
+
+    it('idpDelegate sends POST', async () => {
+        const f = mockFetch(200, { mode: 'delegated', authURL: 'https://idp/auth', state: 'enc', idpLogin: 'https://idp/auth' });
+        const c = client(f);
+        const res = await c.idpDelegate();
+
+        expect(res.mode).toBe('delegated');
+        expect(res.authURL).toBe('https://idp/auth');
+    });
+
+    it('idpLoginURL builds correct URL', () => {
+        const c = client(mockFetch(200, {}));
+        expect(c.idpLoginURL()).toBe('http://localhost:8585/v1/api/auth/idp/login');
+        expect(c.idpLoginURL('/dashboard')).toBe('http://localhost:8585/v1/api/auth/idp/login?returnURL=%2Fdashboard');
+    });
+});

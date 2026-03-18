@@ -25,6 +25,10 @@ import type {
     Schedule, ScheduleListOutput,
     WorkspaceMetadata, PayloadView, GetPayloadOptions,
     ListLinkedConversationsInput, LinkedConversationPage,
+    AuthProvider, AuthUser, LocalLoginInput, LocalLoginOutput,
+    OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
+    OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
+    OOBLoginInput, IDPDelegateOutput,
 } from './types';
 import { HttpError } from './errors';
 
@@ -638,6 +642,190 @@ export class AgentlyClient {
         return out;
     }
 
+    // ── Auth ─────────────────────────────────────────────────────────────────
+
+    /** List available auth providers (local, bff, oidc, jwt). */
+    async getAuthProviders(): Promise<AuthProvider[]> {
+        const out = await this.get('/api/auth/providers');
+        if (Array.isArray(out?.providers)) return out.providers;
+        if (Array.isArray(out)) return out;
+        return [];
+    }
+
+    /** Get the currently authenticated user. Returns null if not authenticated. */
+    async getAuthMe(): Promise<AuthUser | null> {
+        try {
+            return await this.get('/api/auth/me');
+        } catch (err) {
+            if (err instanceof HttpError && err.status === 401) return null;
+            throw err;
+        }
+    }
+
+    /** Login with a local username. */
+    async localLogin(input: LocalLoginInput): Promise<LocalLoginOutput> {
+        return this.post('/api/auth/local/login', input);
+    }
+
+    /** Logout and destroy the current session. */
+    async logout(): Promise<void> {
+        await this.post('/api/auth/logout', {});
+    }
+
+    /** Initiate an OAuth BFF flow (returns authURL + state for redirect). */
+    async oauthInitiate(): Promise<OAuthInitiateOutput> {
+        return this.post('/api/auth/oauth/initiate', {});
+    }
+
+    /** Complete an OAuth callback with authorization code + state. */
+    async oauthCallback(input: OAuthCallbackInput): Promise<OAuthCallbackOutput> {
+        return this.post('/api/auth/oauth/callback', input);
+    }
+
+    /** Get OAuth client config metadata. */
+    async getOAuthConfig(): Promise<OAuthConfigOutput> {
+        return this.get('/api/auth/oauth/config');
+    }
+
+    /** Create a session from tokens (bearer, OOB, or anonymous). */
+    async createAuthSession(input: CreateSessionInput): Promise<CreateSessionOutput> {
+        return this.post('/api/auth/session', input);
+    }
+
+    /** Out-of-band login with pre-obtained tokens. */
+    async oobLogin(input: OOBLoginInput): Promise<CreateSessionOutput> {
+        return this.post('/api/auth/oob', input);
+    }
+
+    /**
+     * Get a delegated IDP login URL (v1 extension).
+     * Returns the auth URL + encrypted state for BFF PKCE flow.
+     */
+    async idpDelegate(): Promise<IDPDelegateOutput> {
+        return this.post('/api/auth/idp/delegate', {});
+    }
+
+    /**
+     * Build the full IDP login redirect URL (v1 extension).
+     * The backend responds with a 307 redirect to the IDP — callers
+     * should use `window.location.assign()` rather than fetch.
+     */
+    idpLoginURL(returnURL?: string): string {
+        const base = `${this.baseURL}/api/auth/idp/login`;
+        if (returnURL) {
+            return `${base}?returnURL=${encodeURIComponent(returnURL)}`;
+        }
+        return base;
+    }
+
+    /**
+     * Full-page redirect to the IDP login.
+     *
+     * Saves the current URL in sessionStorage so that the OAuth callback
+     * handler can redirect back to it after authentication completes.
+     * The callback SPA route should call `getLoginReturnURL()` to retrieve it.
+     */
+    loginWithRedirect(): void {
+        if (typeof window === 'undefined') return;
+        const returnURL = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        try {
+            sessionStorage.setItem('agently.oauth.returnURL', returnURL);
+        } catch { /* storage unavailable */ }
+        window.location.assign(this.idpLoginURL(returnURL));
+    }
+
+    /**
+     * Retrieve the saved returnURL after an OAuth callback completes.
+     * Clears the stored value. Returns '/' if nothing was saved.
+     */
+    static getLoginReturnURL(): string {
+        if (typeof sessionStorage === 'undefined') return '/';
+        try {
+            const saved = sessionStorage.getItem('agently.oauth.returnURL');
+            sessionStorage.removeItem('agently.oauth.returnURL');
+            return saved || '/';
+        } catch {
+            return '/';
+        }
+    }
+
+    /**
+     * Open the IDP login flow in a popup window.
+     *
+     * The backend's OAuth callback handler posts `{type:'oauth',status:'ok'}`
+     * to the opener window and closes the popup. This method listens for that
+     * message and resolves when authentication completes.
+     *
+     * If popups are blocked, falls back to a full-page redirect to the IDP
+     * login URL with the current page as the returnURL.
+     *
+     * @returns Promise that resolves to `true` on successful auth, `false` if
+     *          the popup was closed without completing auth.
+     */
+    loginWithPopup(opts?: {
+        /** Window features string (default: centered 520x660). */
+        windowFeatures?: string;
+        /** Called when auth succeeds (before promise resolves). */
+        onSuccess?: () => void;
+        /** Called when popup is blocked and falling back to redirect. */
+        onPopupBlocked?: () => void;
+    }): Promise<boolean> {
+        if (typeof window === 'undefined') {
+            return Promise.resolve(false);
+        }
+
+        const url = this.idpLoginURL();
+        const width = 520;
+        const height = 660;
+        const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+        const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+        const features = opts?.windowFeatures
+            ?? `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`;
+
+        let popup: Window | null = null;
+        try {
+            popup = window.open(url, 'agently_login', features);
+        } catch { /* popup blocked */ }
+
+        if (!popup || popup.closed) {
+            opts?.onPopupBlocked?.();
+            const returnURL = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+            window.location.assign(this.idpLoginURL(returnURL));
+            return Promise.resolve(false);
+        }
+
+        return new Promise<boolean>((resolve) => {
+            let settled = false;
+
+            const onMessage = (event: MessageEvent) => {
+                const data = event?.data;
+                if (!data || typeof data !== 'object' || data.type !== 'oauth') return;
+                cleanup();
+                settled = true;
+                if (data.status === 'ok') {
+                    opts?.onSuccess?.();
+                    resolve(true);
+                } else {
+                    resolve(false);
+                }
+            };
+
+            const pollTimer = window.setInterval(() => {
+                if (!popup || popup.closed) {
+                    cleanup();
+                    if (!settled) resolve(false);
+                }
+            }, 500);
+
+            const cleanup = () => {
+                window.removeEventListener('message', onMessage);
+                window.clearInterval(pollTimer);
+            };
+
+            window.addEventListener('message', onMessage);
+        });
+    }
+
     // ── Internal HTTP ────────────────────────────────────────────────────────
 
     private async get(path: string, params?: URLSearchParams): Promise<any> {
@@ -718,7 +906,7 @@ export class AgentlyClient {
     }
 
     private async authHeaders(): Promise<Record<string, string>> {
-        const headers: Record<string, string> = { ...this.staticHeaders };
+        const headers: Record<string, string> = { 'Accept': 'application/json', ...this.staticHeaders };
         const token = this.tokenProvider ? await this.tokenProvider() : null;
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
