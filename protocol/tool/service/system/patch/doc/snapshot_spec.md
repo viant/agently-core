@@ -1,2 +1,1 @@
-List current uncommitted changes captured by the active patch session. Returns file changes with kind and diff snippets. Do not use - helper.
-
+List current uncommitted changes captured by the active patch session. Returns file changes with resolved `origUrl` and `url` locations plus diff snippets. No top-level `workdir` is returned. Do not use - helper.

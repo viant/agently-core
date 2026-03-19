@@ -14,6 +14,7 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
+	WorkspaceRoot   string        `json:"workspaceRoot,omitempty"`
 	DefaultAgent    string        `json:"defaultAgent,omitempty"`
 	DefaultModel    string        `json:"defaultModel,omitempty"`
 	DefaultEmbedder string        `json:"defaultEmbedder,omitempty"`
@@ -106,7 +107,8 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		resp := MetadataResponse{
-			Version: h.version,
+			WorkspaceRoot: ws.Root(),
+			Version:       h.version,
 			Capabilities: Capabilities{
 				AgentAutoSelection:    true,
 				ModelAutoSelection:    false,

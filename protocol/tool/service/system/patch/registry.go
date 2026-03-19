@@ -44,7 +44,7 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "snapshot",
-			Description: "List uncommitted changes captured by the current patch session. If there are no uncommitted changes, this tool returns {\"status\":\"noFound\"} — treat that as an empty result (equivalent to changes: []). This is not an error. Do not retry system_patch-snapshot after receiving {\"status\":\"noFound\"}; proceed to the next step.",
+			Description: "List uncommitted changes captured by the current patch session. Each change includes resolved file locations in origUrl/url and an optional diff. If there are no uncommitted changes, this tool returns {\"status\":\"noFound\"} — treat that as an empty result (equivalent to changes: []). This is not an error. Do not retry system_patch-snapshot after receiving {\"status\":\"noFound\"}; proceed to the next step.",
 			Input:       reflect.TypeOf(&EmptyInput{}),
 			Output:      reflect.TypeOf(&SnapshotOutput{}),
 		},
@@ -232,7 +232,6 @@ func (s *Service) snapshot(ctx context.Context, in, out interface{}) error {
 	output.Status = "ok"
 	if sess == nil {
 		output.Changes = nil
-		output.Workdir = ""
 		output.Status = "noFound"
 		return nil
 	}
@@ -246,7 +245,6 @@ func (s *Service) snapshot(ctx context.Context, in, out interface{}) error {
 		output.Status = "noFound"
 	}
 	output.Changes = changes
-	output.Workdir = sess.Workdir
 	return nil
 }
 
