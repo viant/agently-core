@@ -307,6 +307,9 @@ export type SSEEventType =
     | 'elicitation_resolved'
     // Linked conversation
     | 'linked_conversation_attached'
+    // Tool feed lifecycle
+    | 'tool_feed_active'
+    | 'tool_feed_inactive'
     // Control (patch-based)
     | 'control';
 
@@ -352,6 +355,10 @@ export interface SSEEvent {
     model?: EventModel;
     toolCallsPlanned?: PlannedToolCall[];
     createdAt?: string;
+    // Tool feed fields
+    feedId?: string;
+    feedTitle?: string;
+    feedItemCount?: number;
 }
 
 export type ExecutionEvent = SSEEvent;
@@ -738,4 +745,21 @@ export interface IDPDelegateOutput {
     authURL: string;
     state: string;
     expiresIn?: number;
+}
+
+// ─── Tool Feeds ────────────────────────────────────────────────────────────────
+
+export interface FeedSpec {
+    id: string;
+    title: string;
+    match: { service: string; method: string };
+}
+
+export interface ActiveFeed {
+    feedId: string;
+    title: string;
+    itemCount: number;
+    conversationId?: string;
+    turnId?: string;
+    updatedAt: number;
 }

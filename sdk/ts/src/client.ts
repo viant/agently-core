@@ -29,6 +29,7 @@ import type {
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
     OOBLoginInput, IDPDelegateOutput,
+    FeedSpec,
 } from './types';
 import { HttpError } from './errors';
 
@@ -289,6 +290,8 @@ export class AgentlyClient {
             onTurnEnd?: (event: SSEEvent) => void;
             /** Error events or SSE connection failures. */
             onError?: (error: string) => void;
+            /** Tool feed lifecycle events. */
+            onFeedEvent?: (event: SSEEvent) => void;
         },
     ): { close: () => void } {
         const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}`;
@@ -312,6 +315,10 @@ export class AgentlyClient {
                     case 'turn_failed':
                     case 'turn_canceled':
                         handlers.onTurnEnd?.(event);
+                        break;
+                    case 'tool_feed_active':
+                    case 'tool_feed_inactive':
+                        handlers.onFeedEvent?.(event);
                         break;
                     case 'error':
                         handlers.onError?.(event.error ?? 'Unknown error');
@@ -387,6 +394,20 @@ export class AgentlyClient {
             `/elicitations/${enc(conversationId)}/${enc(elicitationId)}/resolve`,
             input,
         );
+    }
+
+    // ── Tool Feeds ────────────────────────────────────────────────────────────
+
+    /** List available feed specs from workspace. */
+    async listFeeds(): Promise<FeedSpec[]> {
+        const out = await this.get('/feeds');
+        return Array.isArray(out?.feeds) ? out.feeds : [];
+    }
+
+    /** Get resolved feed data for a conversation. */
+    async getFeedData(feedId: string, conversationId: string): Promise<any> {
+        const q = new URLSearchParams({ conversationId });
+        return this.get(`/feeds/${enc(feedId)}/data`, q);
     }
 
     // ── Tool Approvals ───────────────────────────────────────────────────────

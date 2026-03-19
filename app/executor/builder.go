@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -330,10 +329,7 @@ func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *el
 		}),
 	}
 	if b.mcpAuthRTProvider != nil {
-		log.Printf("[executor-builder] wiring MCP auth RT provider")
 		opts = append(opts, mcpmgr.WithAuthRoundTripperProvider(b.mcpAuthRTProvider))
-	} else {
-		log.Printf("[executor-builder] NO MCP auth RT provider configured")
 	}
 	if b.mcpJarProvider != nil {
 		opts = append(opts, mcpmgr.WithCookieJarProvider(b.mcpJarProvider))

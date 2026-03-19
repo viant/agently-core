@@ -30,7 +30,32 @@ const (
 	keyToolTimeout ctxKey = iota + 1
 	keyChainMode
 	keyWorkdir
+	keyFeedNotifier
 )
+
+// FeedNotifier is called after a tool completes to check if a feed should be activated.
+type FeedNotifier interface {
+	// NotifyToolCompleted is called with the tool name and result after execution.
+	// Implementations should check if the tool matches any feed spec and emit SSE events.
+	NotifyToolCompleted(ctx context.Context, toolName string, result string)
+}
+
+// WithFeedNotifier attaches a FeedNotifier to the context.
+func WithFeedNotifier(ctx context.Context, n FeedNotifier) context.Context {
+	if n == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, keyFeedNotifier, n)
+}
+
+func feedNotifierFromContext(ctx context.Context) FeedNotifier {
+	if v := ctx.Value(keyFeedNotifier); v != nil {
+		if n, ok := v.(FeedNotifier); ok {
+			return n
+		}
+	}
+	return nil
+}
 
 // WithToolTimeout attaches a per-tool execution timeout to the context.
 func WithToolTimeout(ctx context.Context, d time.Duration) context.Context {

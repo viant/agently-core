@@ -49,6 +49,10 @@ const (
 
 	// Linked conversation.
 	EventTypeLinkedConversationAttached EventType = "linked_conversation_attached"
+
+	// Tool feed lifecycle.
+	EventTypeToolFeedActive   EventType = "tool_feed_active"
+	EventTypeToolFeedInactive EventType = "tool_feed_inactive"
 )
 
 type EventModel struct {
@@ -104,6 +108,10 @@ type Event struct {
 	ModelCallID          string                 `json:"modelCallId,omitempty"`
 	Provider             string                 `json:"provider,omitempty"`
 	ModelName            string                 `json:"modelName,omitempty"`
+	// Tool feed fields.
+	FeedID        string `json:"feedId,omitempty"`
+	FeedTitle     string `json:"feedTitle,omitempty"`
+	FeedItemCount int    `json:"feedItemCount,omitempty"`
 }
 
 // FromLLMEvent converts an llm stream event to a generic streaming event.
