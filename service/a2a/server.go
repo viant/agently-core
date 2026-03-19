@@ -38,12 +38,20 @@ type A2AAuthConfig struct {
 	ExcludePrefix string
 }
 
+// A2AConfig is a runtime-agnostic serving configuration for one exposed agent.
+type A2AConfig struct {
+	Enabled     bool
+	Port        int
+	Streaming   bool
+	UserCredURL string
+}
+
 // ExposedAgent describes one agent endpoint to expose over A2A.
 type ExposedAgent struct {
 	ID          string
 	Name        string
 	Description string
-	A2A         *agentmodel.ServeA2A
+	A2A         *A2AConfig
 	Auth        *A2AAuthConfig
 }
 
