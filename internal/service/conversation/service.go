@@ -787,10 +787,14 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 	}
 	if toolCall.Has != nil {
 		if toolCall.Has.StartedAt && toolCall.StartedAt != nil && !toolCall.StartedAt.IsZero() {
+			event.StartedAt = toolCall.StartedAt
 			event.CreatedAt = *toolCall.StartedAt
 		}
-		if eventType == streaming.EventTypeToolCallCompleted && toolCall.Has.CompletedAt && toolCall.CompletedAt != nil && !toolCall.CompletedAt.IsZero() {
-			event.CreatedAt = *toolCall.CompletedAt
+		if toolCall.Has.CompletedAt && toolCall.CompletedAt != nil && !toolCall.CompletedAt.IsZero() {
+			event.CompletedAt = toolCall.CompletedAt
+			if eventType == streaming.EventTypeToolCallCompleted {
+				event.CreatedAt = *toolCall.CompletedAt
+			}
 		}
 		applyIterationPage(event, toolCall.Iteration)
 	}
@@ -1140,6 +1144,9 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			event.CreatedAt = *modelCall.StartedAt
 			event.StartedAt = modelCall.StartedAt
 		}
+		if modelCall.Has != nil && modelCall.Has.RequestPayloadID && modelCall.RequestPayloadID != nil {
+			event.RequestPayloadID = strings.TrimSpace(*modelCall.RequestPayloadID)
+		}
 		applyIterationPage(event, modelCall.Iteration)
 		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_started")
 	} else if status == "completed" || status == "succeeded" || status == "failed" {
@@ -1165,6 +1172,12 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 				Model:    strings.TrimSpace(modelCall.Model),
 				Kind:     strings.TrimSpace(modelCall.ModelKind),
 			}
+		}
+		if modelCall.Has != nil && modelCall.Has.StartedAt && modelCall.StartedAt != nil && !modelCall.StartedAt.IsZero() {
+			event.StartedAt = modelCall.StartedAt
+		}
+		if modelCall.Has != nil && modelCall.Has.RequestPayloadID && modelCall.RequestPayloadID != nil {
+			event.RequestPayloadID = strings.TrimSpace(*modelCall.RequestPayloadID)
 		}
 		if modelCall.Has != nil && modelCall.Has.ResponsePayloadID && modelCall.ResponsePayloadID != nil {
 			event.ResponsePayloadID = strings.TrimSpace(*modelCall.ResponsePayloadID)

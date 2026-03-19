@@ -197,6 +197,217 @@ func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL s
 	return err
 }
 
+// resolveActiveFeeds scans transcript tool calls against the feed registry
+// and returns active feeds with their data for the transcript response.
+// resolveActiveFeedsFromState scans canonical state tool steps for matching
+// feeds and fetches their response payloads.
+func (c *EmbeddedClient) resolveActiveFeedsFromState(ctx context.Context, state *ConversationState) []*ActiveFeedState {
+	if c.feeds == nil || state == nil || len(state.Turns) == 0 {
+		return nil
+	}
+	// Collect matching tool call payloads per feed, then merge.
+	// scope:last = last TURN's matching calls (not last individual call).
+	type feedCollector struct {
+		spec     *FeedSpec
+		payloads []string
+		turnIdx  int // track which turn provided payloads
+	}
+	collectors := map[string]*feedCollector{}
+	for turnIdx, turn := range state.Turns {
+		if turn == nil || turn.Execution == nil {
+			continue
+		}
+		for _, page := range turn.Execution.Pages {
+			if page == nil {
+				continue
+			}
+			for _, step := range page.ToolSteps {
+				if step == nil {
+					continue
+				}
+				matched := c.feeds.Match(step.ToolName)
+				for _, spec := range matched {
+					col, exists := collectors[spec.ID]
+					if !exists {
+						col = &feedCollector{spec: spec, turnIdx: turnIdx}
+						collectors[spec.ID] = col
+					}
+					// scope:last = only keep payloads from the latest turn.
+					isAll := strings.EqualFold(strings.TrimSpace(spec.Activation.Scope), "all")
+					if !isAll && col.turnIdx != turnIdx {
+						col.payloads = nil // new turn, reset
+						col.turnIdx = turnIdx
+					}
+					// Fetch response payload.
+					content := ""
+					if step.ResponsePayloadID != "" && c.conv != nil {
+						if p, err := c.conv.GetPayload(ctx, step.ResponsePayloadID); err == nil && p != nil && p.InlineBody != nil {
+							content = strings.TrimSpace(string(*p.InlineBody))
+						}
+					}
+					if content == "" && step.RequestPayloadID != "" && c.conv != nil {
+						if p, err := c.conv.GetPayload(ctx, step.RequestPayloadID); err == nil && p != nil && p.InlineBody != nil {
+							content = strings.TrimSpace(string(*p.InlineBody))
+						}
+					}
+					if content != "" {
+						col.payloads = append(col.payloads, content)
+					}
+				}
+			}
+		}
+	}
+	// Build results from collected payloads.
+	var result []*ActiveFeedState
+	for _, col := range collectors {
+		if len(col.payloads) == 0 {
+			continue
+		}
+		rootData := mergeFeedPayloads(col.payloads)
+		// Apply feed-specific enrichments.
+		if strings.EqualFold(col.spec.ID, "plan") {
+			enrichPlanData(rootData)
+		}
+		if strings.EqualFold(col.spec.ID, "explorer") {
+			enrichExplorerData(rootData)
+		}
+		itemCount := 0
+		if output, ok := rootData["output"].(map[string]interface{}); ok {
+			raw, _ := json.Marshal(output)
+			itemCount = estimateItemCount(string(raw))
+		}
+		if entries, ok := rootData["entries"].([]interface{}); ok && len(entries) > itemCount {
+			itemCount = len(entries)
+		}
+		if itemCount == 0 {
+			continue
+		}
+		result = append(result, &ActiveFeedState{
+			FeedID:    col.spec.ID,
+			Title:     col.spec.Title,
+			ItemCount: itemCount,
+			Data:      rootData,
+		})
+	}
+	return result
+}
+
+// Deprecated: use resolveActiveFeedsFromState instead.
+func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*ActiveFeedState {
+	if c.feeds == nil || len(turns) == 0 {
+		return nil
+	}
+	// Use the Transcript's UniqueToolNames to find matching feeds, then
+	// fetch their data from the call_payload table directly via tool_call records.
+	toolNames := turns.UniqueToolNames()
+	fmt.Printf("[resolve-feeds] unique tools: %v\n", toolNames)
+	feedResults := map[string]*ActiveFeedState{}
+	for _, toolName := range toolNames {
+		matched := c.feeds.Match(toolName)
+		for _, spec := range matched {
+			if _, exists := feedResults[spec.ID]; exists {
+				continue
+			}
+			// Find the last tool call for this tool and fetch its response payload.
+			content := c.findLastToolCallPayload(turns, toolName)
+			fmt.Printf("[resolve-feeds] tool=%q feed=%q contentLen=%d\n", toolName, spec.ID, len(content))
+			var data interface{}
+			if content != "" {
+				var parsed interface{}
+				if err := json.Unmarshal([]byte(content), &parsed); err == nil {
+					data = map[string]interface{}{"output": parsed}
+				}
+			}
+			itemCount := 0
+			if content != "" {
+				itemCount = estimateItemCount(content)
+			}
+			feedResults[spec.ID] = &ActiveFeedState{
+				FeedID:    spec.ID,
+				Title:     spec.Title,
+				ItemCount: itemCount,
+				Data:      data,
+			}
+		}
+	}
+	if len(feedResults) == 0 {
+		return nil
+	}
+	result := make([]*ActiveFeedState, 0, len(feedResults))
+	for _, f := range feedResults {
+		// Only include feeds that have actual data.
+		if f.ItemCount > 0 || f.Data != nil {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
+// findLastToolCallPayload scans turns in reverse for a matching tool call
+// and fetches its response payload content.
+func (c *EmbeddedClient) findLastToolCallPayload(turns conversation.Transcript, targetTool string) string {
+	target := strings.ToLower(strings.TrimSpace(targetTool))
+	for i := len(turns) - 1; i >= 0; i-- {
+		turn := turns[i]
+		if turn == nil {
+			continue
+		}
+		for j := len(turn.Message) - 1; j >= 0; j-- {
+			msg := turn.Message[j]
+			if msg == nil || msg.ToolName == nil {
+				continue
+			}
+			if strings.ToLower(strings.TrimSpace(*msg.ToolName)) != target {
+				continue
+			}
+			// Try message content first.
+			if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" {
+				return strings.TrimSpace(*msg.Content)
+			}
+			// Fetch the tool call's response payload by message ID.
+			// The tool_call table links message_id → response_payload_id.
+			if c.conv != nil {
+				payloadContent := c.fetchToolCallResponsePayload(msg.Id)
+				if payloadContent != "" {
+					return payloadContent
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// fetchToolCallResponsePayload fetches the response payload for a tool call message.
+// It looks up the tool_call record by message_id, gets the response_payload_id,
+// then fetches the payload body.
+func (c *EmbeddedClient) fetchToolCallResponsePayload(messageID string) string {
+	if c.conv == nil || messageID == "" {
+		return ""
+	}
+	// Get the tool call's response payload ID via the message's tool call view.
+	// Since ToolMessage children aren't reliably loaded, try fetching the payload
+	// using the message ID directly — the tool_call.message_id matches this.
+	msg, err := c.conv.GetMessage(context.Background(), messageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	// Check ToolMessage children if loaded.
+	for _, tm := range msg.ToolMessage {
+		if tm == nil || tm.ToolCall == nil {
+			continue
+		}
+		if tm.ToolCall.ResponsePayloadId != nil {
+			payloadID := strings.TrimSpace(*tm.ToolCall.ResponsePayloadId)
+			if payloadID != "" {
+				if p, err := c.conv.GetPayload(context.Background(), payloadID); err == nil && p != nil && p.InlineBody != nil {
+					return strings.TrimSpace(string(*p.InlineBody))
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (c *EmbeddedClient) Mode() Mode { return ModeEmbedded }
 
 // GetPayload returns a payload body/metadata by payload id.
@@ -1481,7 +1692,12 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 	if sinceMessageID != "" {
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
-	return BuildCanonicalState(input.ConversationID, turns), nil
+	state := BuildCanonicalState(input.ConversationID, turns)
+	// Resolve active feeds from canonical state tool steps (opt-in, adds payload fetch overhead).
+	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
+		state.Feeds = c.resolveActiveFeedsFromState(context.Background(), state)
+	}
+	return state, nil
 }
 
 func (c *EmbeddedClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {

@@ -162,6 +162,7 @@ export class AgentlyClient {
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
+        if (input.includeFeeds) q.set('includeFeeds', 'true');
         const selectors = { ...(options?.selectors ?? {}) } as Record<string, QuerySelector>;
         if (options?.executionGroupSelector) {
             selectors.ExecutionGroup = {

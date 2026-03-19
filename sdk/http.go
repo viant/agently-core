@@ -671,6 +671,9 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 	if input.IncludeToolCalls {
 		q.Set("includeToolCalls", "true")
 	}
+	if optState.includeFeeds {
+		q.Set("includeFeeds", "true")
+	}
 	if len(optState.selectors) > 0 {
 		data, err := json.Marshal(optState.selectors)
 		if err != nil {

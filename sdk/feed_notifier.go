@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 	"sync"
 
@@ -36,6 +37,9 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 		return
 	}
 	matched := n.registry.Match(toolName)
+	if len(matched) > 0 {
+		log.Printf("[feed-notifier] tool=%q matched %d feeds", toolName, len(matched))
+	}
 	if len(matched) == 0 {
 		return
 	}
@@ -52,11 +56,19 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	}
 
 	itemCount := estimateItemCount(result)
+	// Parse tool result as JSON to include in the SSE event.
+	var feedData interface{}
+	if strings.TrimSpace(result) != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(result), &parsed); err == nil {
+			feedData = map[string]interface{}{"output": parsed}
+		}
+	}
 	for _, spec := range matched {
 		n.mu.Lock()
 		n.activeFeeds[spec.ID] = true
 		n.mu.Unlock()
-		EmitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount)
+		EmitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
 	}
 }
 
