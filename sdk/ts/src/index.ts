@@ -59,11 +59,17 @@ export type {
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
     OOBLoginInput, IDPDelegateOutput,
+    // Tool Feeds
+    FeedSpec, ActiveFeed,
 } from './types';
 
 // Elicitation tracking
 export { ElicitationTracker } from './elicitation';
 export type { PendingElicitation as TrackedElicitation, ElicitationListener } from './elicitation';
+
+// Feed tracking
+export { FeedTracker } from './feedTracker';
+export type { FeedListener } from './feedTracker';
 
 // Streaming reconciliation
 export {

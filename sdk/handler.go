@@ -157,6 +157,9 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 	mux.HandleFunc("GET /v1/files", handleListFiles(client))
 	mux.HandleFunc("GET /v1/files/{id}", handleDownloadFile(client))
 
+	mux.HandleFunc("GET /v1/feeds", handleListFeeds(client))
+	mux.HandleFunc("GET /v1/feeds/{id}/data", handleGetFeedData(client))
+
 	mux.HandleFunc("GET /v1/stream", handleStreamEvents(client))
 
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", handleCancelTurn(client))
@@ -1179,4 +1182,65 @@ func WaitForReady(baseURL string, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("server not ready after %v", timeout)
+}
+
+func handleListFeeds(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if ec, ok := client.(*EmbeddedClient); ok && ec.feeds != nil {
+			specs := ec.feeds.Specs()
+			type feedSummary struct {
+				ID    string    `json:"id"`
+				Title string    `json:"title"`
+				Match FeedMatch `json:"match"`
+			}
+			result := make([]feedSummary, 0, len(specs))
+			for _, s := range specs {
+				result = append(result, feedSummary{ID: s.ID, Title: s.Title, Match: s.Match})
+			}
+			httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": result})
+			return
+		}
+		httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": []interface{}{}})
+	}
+}
+
+func handleGetFeedData(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		feedID := r.PathValue("id")
+		convID := r.URL.Query().Get("conversationId")
+		if feedID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("feed id required"))
+			return
+		}
+		ec, ok := client.(*EmbeddedClient)
+		if !ok || ec.feeds == nil {
+			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
+			return
+		}
+		// Find the spec.
+		var spec *FeedSpec
+		for _, s := range ec.feeds.Specs() {
+			if s.ID == feedID {
+				spec = s
+				break
+			}
+		}
+		if spec == nil {
+			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
+			return
+		}
+		// Resolve feed data from conversation transcript.
+		data, err := ec.ResolveFeedData(r.Context(), spec, convID)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, map[string]interface{}{
+			"feedId":      spec.ID,
+			"title":       spec.Title,
+			"data":        data,
+			"dataSources": spec.DataSource,
+			"ui":          spec.UI,
+		})
+	}
 }

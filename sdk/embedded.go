@@ -35,8 +35,10 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	"github.com/viant/agently-core/service/scheduler"
+	executil "github.com/viant/agently-core/service/shared/executil"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
 	hstate "github.com/viant/xdatly/handler/state"
@@ -66,10 +68,12 @@ type EmbeddedClient struct {
 	toolPolicy     *tool.Policy
 	cancelRegistry cancels.Registry
 	elicRouter     elicrouter.ElicitationRouter
+	elicSvc        *elicsvc.Service
 	streaming      streaming.Bus
 	store          workspace.Store
 	a2aSvc         *a2a.Service
 	schedulerSvc   *scheduler.Service
+	feeds          *FeedRegistry
 }
 
 func NewEmbedded(agent *agentsvc.Service, conv conversation.Client) (*EmbeddedClient, error) {
@@ -94,6 +98,7 @@ func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
 	c.registry = rt.Registry
 	c.cancelRegistry = rt.CancelRegistry
 	c.elicRouter = rt.ElicitationRouter
+	c.elicSvc = rt.Elicitation
 	c.streaming = rt.Streaming
 	c.store = rt.Store
 	if rt.Defaults != nil {
@@ -106,7 +111,90 @@ func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
 			}
 		}
 	}
+	// Initialize feed registry from workspace.
+	c.feeds = NewFeedRegistry()
 	return c, nil
+}
+
+// FeedRegistry returns the feed registry for external use.
+func (c *EmbeddedClient) FeedRegistry() *FeedRegistry {
+	return c.feeds
+}
+
+// ResolveFeedData extracts feed data from conversation transcript by matching
+// tool call outputs against the feed spec's data source selectors.
+// Returns the matched tool call response payloads keyed by "output".
+func (c *EmbeddedClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, conversationID string) (interface{}, error) {
+	if spec == nil || conversationID == "" || c.conv == nil {
+		return nil, nil
+	}
+	conv, err := c.conv.GetConversation(ctx, conversationID,
+		conversation.WithIncludeTranscript(true),
+		conversation.WithIncludeToolCall(true))
+	if err != nil || conv == nil {
+		return nil, err
+	}
+	useLast := strings.ToLower(strings.TrimSpace(spec.Activation.Scope)) != "all"
+	transcript := conv.GetTranscript()
+	// Scan transcript for matching tool call messages.
+	for i := len(transcript) - 1; i >= 0; i-- {
+		turn := transcript[i]
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil || msg.ToolName == nil {
+				continue
+			}
+			toolSvc, toolMtd := parseToolName(*msg.ToolName)
+			if !matchesRule(spec.Match, toolSvc, toolMtd) {
+				continue
+			}
+			// Extract content as the tool response data.
+			content := ""
+			if msg.Content != nil {
+				content = strings.TrimSpace(*msg.Content)
+			}
+			if content == "" {
+				continue
+			}
+			// Try to parse as JSON for structured data.
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(content), &parsed); err == nil {
+				if useLast {
+					return map[string]interface{}{"output": parsed}, nil
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// RecordOOBAuthElicitation creates a proper elicitation record for an OAuth
+// authentication URL. This creates a real DB entry so resolve/decline works
+// normally through the ElicitationOverlay — no fake SSE events needed.
+func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL string) error {
+	if c.elicSvc == nil {
+		return fmt.Errorf("elicitation service not configured")
+	}
+	convID := memory.ConversationIDFromContext(ctx)
+	turnID := ""
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		turnID = turn.TurnID
+		if convID == "" {
+			convID = turn.ConversationID
+		}
+	}
+	if convID == "" {
+		return fmt.Errorf("no conversation in context for OOB auth")
+	}
+	turn := memory.TurnMeta{ConversationID: convID, TurnID: turnID}
+	elic := &plan.Elicitation{}
+	elic.Message = "MCP server requires authentication. Please sign in to continue."
+	elic.Mode = "url"
+	elic.Url = authURL
+	_, err := c.elicSvc.Record(ctx, &turn, "assistant", elic)
+	return err
 }
 
 func (c *EmbeddedClient) Mode() Mode { return ModeEmbedded }
@@ -126,6 +214,10 @@ func (c *EmbeddedClient) GetPayload(ctx context.Context, id string) (*conversati
 }
 
 func (c *EmbeddedClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+	// Inject feed notifier so tool completion emits SSE feed events.
+	if c.feeds != nil && c.streaming != nil {
+		ctx = executil.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
+	}
 	out := &agentsvc.QueryOutput{}
 	if err := c.agent.Query(ctx, input, out); err != nil {
 		return nil, err

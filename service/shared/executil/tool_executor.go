@@ -182,6 +182,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		debugtrace.LogToolCall(step.Name, step.ID, status, len(toolResult), toolResult, errStr)
 	}
 
+	// Notify feed system about tool completion (for SSE feed events).
+	if notifier := feedNotifierFromContext(ctx); notifier != nil {
+		notifier.NotifyToolCompleted(ctx, step.Name, toolResult)
+	}
+
 	// 5) Persist side effects + response payload.
 	if strings.TrimSpace(toolResult) != "" {
 		if err := persistDocumentsIfNeeded(ctx, reg, conv, turn, step.Name, toolResult); err != nil {
