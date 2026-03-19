@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,10 @@ type FeedRegistry struct {
 func NewFeedRegistry() *FeedRegistry {
 	r := &FeedRegistry{}
 	r.loadFromWorkspace()
+	fmt.Printf("[feed-registry] loaded %d feed specs from %s\n", len(r.specs), filepath.Join(workspace.Root(), "feeds"))
+	for _, s := range r.specs {
+		fmt.Printf("[feed-registry]   %s: match=%s/%s\n", s.ID, s.Match.Service, s.Match.Method)
+	}
 	return r
 }
 
@@ -162,8 +167,8 @@ func parseToolName(name string) (string, string) {
 	return normalized, "*"
 }
 
-// EmitFeedActive publishes a tool_feed_active SSE event.
-func EmitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID string, spec *FeedSpec, itemCount int) {
+// EmitFeedActive publishes a tool_feed_active SSE event with the tool result data.
+func EmitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID string, spec *FeedSpec, itemCount int, data interface{}) {
 	if bus == nil || spec == nil || convID == "" {
 		return
 	}
@@ -175,6 +180,7 @@ func EmitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID strin
 		FeedID:         spec.ID,
 		FeedTitle:      spec.Title,
 		FeedItemCount:  itemCount,
+		FeedData:       data,
 		CreatedAt:      time.Now(),
 	}
 	_ = bus.Publish(ctx, event)

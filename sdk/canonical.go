@@ -10,9 +10,18 @@ import "time"
 // synthesize execution structure outside these types.
 
 // ConversationState is the top-level canonical state for a conversation.
+// ActiveFeedState describes a tool feed matched from the transcript.
+type ActiveFeedState struct {
+	FeedID    string      `json:"feedId"`
+	Title     string      `json:"title"`
+	ItemCount int         `json:"itemCount"`
+	Data      interface{} `json:"data,omitempty"`
+}
+
 type ConversationState struct {
-	ConversationID string       `json:"conversationId"`
-	Turns          []*TurnState `json:"turns"`
+	ConversationID string             `json:"conversationId"`
+	Turns          []*TurnState       `json:"turns"`
+	Feeds          []*ActiveFeedState `json:"feeds,omitempty"`
 }
 
 // TurnState is the canonical representation of a single conversation turn.

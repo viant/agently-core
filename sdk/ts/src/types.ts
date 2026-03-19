@@ -98,6 +98,8 @@ export interface GetTranscriptInput {
     since?: string;
     includeModelCalls?: boolean;
     includeToolCalls?: boolean;
+    /** Include resolved tool feed data in the response. */
+    includeFeeds?: boolean;
 }
 
 export interface QuerySelector {
@@ -359,6 +361,7 @@ export interface SSEEvent {
     feedId?: string;
     feedTitle?: string;
     feedItemCount?: number;
+    feedData?: any;
 }
 
 export type ExecutionEvent = SSEEvent;

@@ -314,7 +314,8 @@ type QuerySelector struct {
 type TranscriptOption func(*transcriptOptions)
 
 type transcriptOptions struct {
-	selectors map[string]*QuerySelector
+	selectors    map[string]*QuerySelector
+	includeFeeds bool
 }
 
 const (
@@ -345,6 +346,15 @@ func WithTranscriptSelector(name string, selector *QuerySelector) TranscriptOpti
 			o.selectors = map[string]*QuerySelector{}
 		}
 		o.selectors[name] = selector
+	}
+}
+
+// WithIncludeFeeds enables tool feed resolution in the transcript response.
+// When enabled, matching tool calls are scanned and their response payloads
+// fetched to populate the Feeds field on ConversationState.
+func WithIncludeFeeds() TranscriptOption {
+	return func(o *transcriptOptions) {
+		o.includeFeeds = true
 	}
 }
 

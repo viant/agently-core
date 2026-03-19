@@ -109,9 +109,10 @@ type Event struct {
 	Provider             string                 `json:"provider,omitempty"`
 	ModelName            string                 `json:"modelName,omitempty"`
 	// Tool feed fields.
-	FeedID        string `json:"feedId,omitempty"`
-	FeedTitle     string `json:"feedTitle,omitempty"`
-	FeedItemCount int    `json:"feedItemCount,omitempty"`
+	FeedID        string      `json:"feedId,omitempty"`
+	FeedTitle     string      `json:"feedTitle,omitempty"`
+	FeedItemCount int         `json:"feedItemCount,omitempty"`
+	FeedData      interface{} `json:"feedData,omitempty"`
 }
 
 // FromLLMEvent converts an llm stream event to a generic streaming event.

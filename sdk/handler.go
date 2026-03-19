@@ -524,6 +524,9 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 				opts = append(opts, WithTranscriptSelector(name, selector))
 			}
 		}
+		if q.Get("includeFeeds") == "true" {
+			opts = append(opts, WithIncludeFeeds())
+		}
 		out, err := client.GetTranscript(r.Context(), input, opts...)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -1229,16 +1232,29 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
 			return
 		}
-		// Resolve feed data from conversation transcript.
-		data, err := ec.ResolveFeedData(r.Context(), spec, convID)
+		// Resolve feed data using the canonical transcript state.
+		transcript, err := ec.GetTranscript(r.Context(), &GetTranscriptInput{
+			ConversationID:    convID,
+			IncludeModelCalls: true,
+			IncludeToolCalls:  true,
+		}, WithIncludeFeeds())
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
+		var feedData interface{}
+		if transcript != nil {
+			for _, f := range transcript.Feeds {
+				if f != nil && f.FeedID == feedID {
+					feedData = f.Data
+					break
+				}
+			}
+		}
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"feedId":      spec.ID,
 			"title":       spec.Title,
-			"data":        data,
+			"data":        feedData,
 			"dataSources": spec.DataSource,
 			"ui":          spec.UI,
 		})
