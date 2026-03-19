@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/augmenter"
 	"github.com/viant/agently-core/service/core"
 	elicitation "github.com/viant/agently-core/service/elicitation"
@@ -206,6 +207,16 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	srv.elicitation = elicitation.New(srv.conversation, nil, srv.elicRouter, srv.awaiterFactory)
 
 	return srv
+}
+
+// SetElicitationStreamPublisher wires the streaming publisher into the agent's
+// internal elicitation service so that LLM-generated elicitation events reach
+// the SSE bus.
+func (s *Service) SetElicitationStreamPublisher(p streaming.Publisher) {
+	if s == nil || s.elicitation == nil {
+		return
+	}
+	s.elicitation.SetStreamPublisher(p)
 }
 
 // Name returns the service name

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -65,30 +66,33 @@ type Runtime struct {
 }
 
 type Builder struct {
-	defaults       *config.Defaults
-	dao            *datly.Service
-	conversation   conversation.Client
-	data           data.Service
-	registry       tool.Registry
-	core           *core.Service
-	agentSvc       *agentsvc.Service
-	agentFinder    agentmodel.Finder
-	agentLoader    agentmodel.Loader
-	modelFinder    llm.Finder
-	modelLoader    *modelloader.Service
-	embedderFinder embedder.Finder
-	embedderLoader *embedderloader.Service
-	augmenter      *augmenter.Service
-	mcpManager     *mcpmgr.Manager
-	cancelRegistry cancels.Registry
-	elicRouter     elicrouter.ElicitationRouter
-	streamPub      modelcallctx.StreamPublisher
-	streamBus      streaming.Bus
-	hotSwapEnabled bool
-	store          workspace.Store
-	knowledgeStore workspace.KnowledgeStore
-	stateStore     workspace.StateStore
-	tokenProvider  token.Provider
+	defaults          *config.Defaults
+	dao               *datly.Service
+	conversation      conversation.Client
+	data              data.Service
+	registry          tool.Registry
+	core              *core.Service
+	agentSvc          *agentsvc.Service
+	agentFinder       agentmodel.Finder
+	agentLoader       agentmodel.Loader
+	modelFinder       llm.Finder
+	modelLoader       *modelloader.Service
+	embedderFinder    embedder.Finder
+	embedderLoader    *embedderloader.Service
+	augmenter         *augmenter.Service
+	mcpManager        *mcpmgr.Manager
+	mcpAuthRTProvider mcpmgr.AuthRTProvider
+	mcpJarProvider    mcpmgr.JarProvider
+	mcpUserIDFn       mcpmgr.UserIDExtractor
+	cancelRegistry    cancels.Registry
+	elicRouter        elicrouter.ElicitationRouter
+	streamPub         modelcallctx.StreamPublisher
+	streamBus         streaming.Bus
+	hotSwapEnabled    bool
+	store             workspace.Store
+	knowledgeStore    workspace.KnowledgeStore
+	stateStore        workspace.StateStore
+	tokenProvider     token.Provider
 }
 
 func NewBuilder() *Builder { return &Builder{} }
@@ -105,7 +109,19 @@ func (b *Builder) WithModelFinder(v llm.Finder) *Builder           { b.modelFind
 func (b *Builder) WithEmbedderFinder(v embedder.Finder) *Builder   { b.embedderFinder = v; return b }
 func (b *Builder) WithAugmenter(v *augmenter.Service) *Builder     { b.augmenter = v; return b }
 func (b *Builder) WithMCPManager(v *mcpmgr.Manager) *Builder       { b.mcpManager = v; return b }
-func (b *Builder) WithCancelRegistry(v cancels.Registry) *Builder  { b.cancelRegistry = v; return b }
+func (b *Builder) WithMCPAuthRTProvider(v mcpmgr.AuthRTProvider) *Builder {
+	b.mcpAuthRTProvider = v
+	return b
+}
+func (b *Builder) WithMCPCookieJarProvider(v mcpmgr.JarProvider) *Builder {
+	b.mcpJarProvider = v
+	return b
+}
+func (b *Builder) WithMCPUserIDExtractor(v mcpmgr.UserIDExtractor) *Builder {
+	b.mcpUserIDFn = v
+	return b
+}
+func (b *Builder) WithCancelRegistry(v cancels.Registry) *Builder { b.cancelRegistry = v; return b }
 func (b *Builder) WithElicitationRouter(v elicrouter.ElicitationRouter) *Builder {
 	b.elicRouter = v
 	return b
@@ -286,6 +302,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}
+	// Wire the streaming bus into the agent's internal elicitation service so
+	// LLM-generated elicitation events reach the SSE channel.
+	if out.Agent != nil && out.Streaming != nil {
+		out.Agent.SetElicitationStreamPublisher(out.Streaming)
+	}
 
 	out.TokenProvider = b.tokenProvider
 
@@ -303,12 +324,24 @@ func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *el
 	if conv == nil || elicitation == nil {
 		return nil, fmt.Errorf("executor builder requires conversation and elicitation service for default MCP manager")
 	}
-	return mcpmgr.New(
-		mcpmgr.NewRepoProvider(),
+	opts := []mcpmgr.Option{
 		mcpmgr.WithHandlerFactory(func() protoclient.Handler {
 			return mcpclienthandler.New(elicitation, conv)
 		}),
-	)
+	}
+	if b.mcpAuthRTProvider != nil {
+		log.Printf("[executor-builder] wiring MCP auth RT provider")
+		opts = append(opts, mcpmgr.WithAuthRoundTripperProvider(b.mcpAuthRTProvider))
+	} else {
+		log.Printf("[executor-builder] NO MCP auth RT provider configured")
+	}
+	if b.mcpJarProvider != nil {
+		opts = append(opts, mcpmgr.WithCookieJarProvider(b.mcpJarProvider))
+	}
+	if b.mcpUserIDFn != nil {
+		opts = append(opts, mcpmgr.WithUserIDExtractor(b.mcpUserIDFn))
+	}
+	return mcpmgr.New(mcpmgr.NewRepoProvider(), opts...)
 }
 
 func (r *Runtime) IsReady() bool {

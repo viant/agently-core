@@ -57,10 +57,28 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.Tur
 		return
 	}
 	debugf("emitElicitationRequested convo=%q turn=%q elicitation_id=%q message_id=%q message=%q callback=%q", turn.ConversationID, turn.TurnID, elic.ElicitationId, messageID, elic.Message, elic.CallbackURL)
+	// Marshal the full ElicitRequestParams (schema, mode, url) into elicData
+	// so the UI can detect OOB elicitations and render the correct form/URL dialog.
 	elicData := map[string]interface{}{}
-	if raw, err := json.Marshal(elic.RequestedSchema); err == nil {
+	if raw, err := json.Marshal(elic.ElicitRequestParams); err == nil {
 		_ = json.Unmarshal(raw, &elicData)
+		debugf("[elicit-data] raw=%s", string(raw))
 	}
+	// Remove redundant fields already on the Event struct.
+	delete(elicData, "message")
+	delete(elicData, "elicitationId")
+	delete(elicData, "_meta")
+	debugf("[elicit-data] mode=%v url=%v schemaType=%v propsCount=%v",
+		elicData["mode"], elicData["url"],
+		elicData["requestedSchema"],
+		func() int {
+			if rs, ok := elicData["requestedSchema"].(map[string]interface{}); ok {
+				if p, ok := rs["properties"].(map[string]interface{}); ok {
+					return len(p)
+				}
+			}
+			return -1
+		}())
 	now := time.Now()
 	event := &streaming.Event{
 		ID:                 strings.TrimSpace(messageID),

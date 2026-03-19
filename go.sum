@@ -1224,8 +1224,8 @@ github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0 h1:1NhySnsDH+bIew
 github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
-github.com/viant/mcp v0.11.0 h1:dMcf5V5dPu3Ybpz7Q1nxj2fGmP/OKE1iM6MW3564eng=
-github.com/viant/mcp v0.11.0/go.mod h1:mBSxAq6WvGpKRtWv3jknp+QU/oqjhov2Ab3nM9bp0F0=
+github.com/viant/mcp v0.14.0 h1:knFhVtqPsWpOKGXvC9Y2vZnUau+Y11TbQpKEESocJF0=
+github.com/viant/mcp v0.14.0/go.mod h1:mBSxAq6WvGpKRtWv3jknp+QU/oqjhov2Ab3nM9bp0F0=
 github.com/viant/mcp-protocol v0.11.0 h1:22IuTTlq0L8l08z23TYRvHM/j19gp9UPExQdzwTuxsY=
 github.com/viant/mcp-protocol v0.11.0/go.mod h1:EJPomVw6jnI+4Aa2ONYC3WTvApiF0YeQIiaaEpA54ec=
 github.com/viant/parsly v0.3.3 h1:7ytgfLOG4Ils+wviGacWxRD0gAUvVEH/iGsSE+UI8YM=
