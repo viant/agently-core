@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
@@ -24,6 +26,39 @@ type ServerConfig struct {
 	// ApplyUserCred is an optional callback to inject user credentials
 	// into the context for agents with UserCredURL configured.
 	// Signature: func(ctx context.Context, credURL string) (context.Context, error)
+	ApplyUserCred func(ctx context.Context, credURL string) (context.Context, error)
+}
+
+// A2AAuthConfig is a runtime-agnostic auth configuration for exposing an A2A endpoint.
+type A2AAuthConfig struct {
+	Enabled       bool
+	Resource      string
+	Scopes        []string
+	UseIDToken    bool
+	ExcludePrefix string
+}
+
+// ExposedAgent describes one agent endpoint to expose over A2A.
+type ExposedAgent struct {
+	ID          string
+	Name        string
+	Description string
+	A2A         *agentmodel.ServeA2A
+	Auth        *A2AAuthConfig
+}
+
+// QueryResult is the minimal result needed to translate an agent query into an A2A task.
+type QueryResult struct {
+	MessageID      string
+	ConversationID string
+	Content        string
+}
+
+// GenericServerConfig allows non-core runtimes to reuse the core A2A launcher.
+type GenericServerConfig struct {
+	AgentIDs      []string
+	ResolveAgent  func(ctx context.Context, agentID string) (*ExposedAgent, error)
+	Query         func(ctx context.Context, agentID, query, conversationID string) (*QueryResult, error)
 	ApplyUserCred func(ctx context.Context, credURL string) (context.Context, error)
 }
 
@@ -67,6 +102,36 @@ func StartServers(ctx context.Context, cfg *ServerConfig) {
 
 	for _, e := range entries {
 		go startAgentServer(ctx, cfg, e.agent, e.a2a)
+	}
+}
+
+// StartServersGeneric starts A2A servers using runtime-agnostic lookup/query callbacks.
+func StartServersGeneric(ctx context.Context, cfg *GenericServerConfig) {
+	if cfg == nil || cfg.ResolveAgent == nil || cfg.Query == nil {
+		return
+	}
+
+	portAgent := make(map[int]string)
+	type agentEntry struct {
+		agent *ExposedAgent
+	}
+	var entries []agentEntry
+
+	for _, id := range cfg.AgentIDs {
+		ag, err := cfg.ResolveAgent(ctx, id)
+		if err != nil || ag == nil || ag.A2A == nil || !ag.A2A.Enabled || ag.A2A.Port <= 0 {
+			continue
+		}
+		if existing, ok := portAgent[ag.A2A.Port]; ok {
+			log.Printf("[a2a] port %d already claimed by agent %s, skipping %s", ag.A2A.Port, existing, id)
+			continue
+		}
+		portAgent[ag.A2A.Port] = id
+		entries = append(entries, agentEntry{agent: ag})
+	}
+
+	for _, e := range entries {
+		go startGenericAgentServer(ctx, cfg, e.agent)
 	}
 }
 
@@ -137,6 +202,276 @@ func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Age
 	if err := http.ListenAndServe(addr, outer); err != nil {
 		log.Printf("[a2a] server for agent %s stopped: %v", name, err)
 	}
+}
+
+func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *ExposedAgent) {
+	name := strings.TrimSpace(ag.Name)
+	if name == "" {
+		name = strings.TrimSpace(ag.ID)
+	}
+	if name == "" || ag.A2A == nil {
+		return
+	}
+
+	card := AgentCard{
+		Name:         name,
+		Description:  strings.TrimSpace(ag.Description),
+		Capabilities: &AgentCapabilities{Streaming: ag.A2A.Streaming},
+	}
+	if ag.Auth != nil && ag.Auth.Enabled {
+		card.Authentication = map[string]interface{}{
+			"type":       "bearer",
+			"resource":   ag.Auth.Resource,
+			"scopes":     ag.Auth.Scopes,
+			"useIDToken": ag.Auth.UseIDToken,
+		}
+	}
+
+	inner := http.NewServeMux()
+	inner.HandleFunc("POST /v1/message:send", handleGenericMessageSend(cfg, ag))
+	if ag.A2A.Streaming {
+		inner.HandleFunc("POST /v1/message:stream", handleGenericMessageStream(cfg, ag))
+	}
+
+	outer := http.NewServeMux()
+	outer.HandleFunc("GET /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(card)
+	})
+
+	if ag.Auth != nil && ag.Auth.Enabled {
+		outer.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+			meta := map[string]interface{}{"resource": ag.Auth.Resource}
+			if len(ag.Auth.Scopes) > 0 {
+				meta["scopes_supported"] = ag.Auth.Scopes
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(meta)
+		})
+		outer.Handle("/", AuthMiddleware(&agentmodel.A2AAuth{
+			Enabled:       ag.Auth.Enabled,
+			Resource:      ag.Auth.Resource,
+			Scopes:        append([]string(nil), ag.Auth.Scopes...),
+			UseIDToken:    ag.Auth.UseIDToken,
+			ExcludePrefix: ag.Auth.ExcludePrefix,
+		})(inner))
+	} else {
+		outer.Handle("/", inner)
+	}
+
+	addr := ":" + strconv.Itoa(ag.A2A.Port)
+	log.Printf("[a2a] starting server for agent %s on %s", name, addr)
+	if err := http.ListenAndServe(addr, outer); err != nil {
+		log.Printf("[a2a] server for agent %s stopped: %v", name, err)
+	}
+}
+
+func handleGenericMessageSend(cfg *GenericServerConfig, ag *ExposedAgent) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req SendMessageRequest
+		var rpcReq JSONRPCRequest
+		body, err := readBody(r)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var rpcID interface{}
+		if err := json.Unmarshal(body, &rpcReq); err == nil && rpcReq.JSONRPC == "2.0" && rpcReq.Method != "" {
+			rpcID = rpcReq.ID
+			if rpcReq.Method != "message/send" {
+				writeJSONRPCError(w, rpcID, -32601, "method not found: "+rpcReq.Method)
+				return
+			}
+			if rpcReq.Params != nil {
+				if err := json.Unmarshal(rpcReq.Params, &req); err != nil {
+					writeJSONRPCError(w, rpcID, -32602, "invalid params: "+err.Error())
+					return
+				}
+			}
+		} else {
+			if err := json.Unmarshal(body, &req); err != nil {
+				writeJSONError(w, http.StatusBadRequest, "invalid request: "+err.Error())
+				return
+			}
+		}
+
+		messages := req.EffectiveMessages()
+		if len(messages) == 0 {
+			msg := "message with at least one part is required"
+			if rpcID != nil {
+				writeJSONRPCError(w, rpcID, -32602, msg)
+			} else {
+				writeJSONError(w, http.StatusBadRequest, msg)
+			}
+			return
+		}
+
+		query := extractText(messages)
+		if query == "" {
+			msg := "no text content in message"
+			if rpcID != nil {
+				writeJSONRPCError(w, rpcID, -32602, msg)
+			} else {
+				writeJSONError(w, http.StatusBadRequest, msg)
+			}
+			return
+		}
+
+		reqCtx := r.Context()
+		if bearerTok := iauth.Bearer(reqCtx); bearerTok != "" && iauth.IDToken(reqCtx) == "" {
+			reqCtx = iauth.WithIDToken(reqCtx, bearerTok)
+		}
+		if ag.A2A != nil && ag.A2A.UserCredURL != "" && cfg.ApplyUserCred != nil {
+			reqCtx, err = cfg.ApplyUserCred(reqCtx, ag.A2A.UserCredURL)
+			if err != nil {
+				log.Printf("[a2a] failed to apply user cred for agent %s: %v", ag.ID, err)
+			}
+		}
+
+		out, err := cfg.Query(reqCtx, ag.ID, query, req.ContextID)
+		if err != nil {
+			errMsg := err.Error()
+			task := Task{
+				ID:        fmt.Sprintf("t-%s", req.ContextID),
+				ContextID: req.ContextID,
+				Status:    TaskStatus{State: TaskStateFailed, Error: &errMsg},
+			}
+			writeResult(w, rpcID, &SendMessageResponse{Task: task})
+			return
+		}
+
+		contextID := req.ContextID
+		if out != nil && out.ConversationID != "" {
+			contextID = out.ConversationID
+		}
+		taskID := "t-generic"
+		if out != nil && strings.TrimSpace(out.MessageID) != "" {
+			taskID = "t-" + out.MessageID
+		}
+		content := ""
+		if out != nil {
+			content = out.Content
+		}
+		task := Task{
+			ID:        taskID,
+			ContextID: contextID,
+			Status:    TaskStatus{State: TaskStateCompleted},
+			Artifacts: []Artifact{{Parts: []Part{{Type: "text", Text: content}}}},
+		}
+		writeResult(w, rpcID, &SendMessageResponse{Task: task})
+	}
+}
+
+func handleGenericMessageStream(cfg *GenericServerConfig, ag *ExposedAgent) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeJSONError(w, http.StatusInternalServerError, "streaming not supported")
+			return
+		}
+
+		var req SendMessageRequest
+		var rpcReq JSONRPCRequest
+		body, err := readBody(r)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		var rpcID interface{}
+		if err := json.Unmarshal(body, &rpcReq); err == nil && rpcReq.JSONRPC == "2.0" && rpcReq.Method != "" {
+			rpcID = rpcReq.ID
+			if rpcReq.Method != "message/stream" {
+				writeJSONRPCError(w, rpcID, -32601, "method not found: "+rpcReq.Method)
+				return
+			}
+			if rpcReq.Params != nil {
+				if err := json.Unmarshal(rpcReq.Params, &req); err != nil {
+					writeJSONRPCError(w, rpcID, -32602, "invalid params: "+err.Error())
+					return
+				}
+			}
+		} else {
+			if err := json.Unmarshal(body, &req); err != nil {
+				writeJSONError(w, http.StatusBadRequest, "invalid request: "+err.Error())
+				return
+			}
+		}
+
+		messages := req.EffectiveMessages()
+		if len(messages) == 0 {
+			writeJSONError(w, http.StatusBadRequest, "message with at least one part is required")
+			return
+		}
+		query := extractText(messages)
+		if query == "" {
+			writeJSONError(w, http.StatusBadRequest, "no text content in message")
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		sendEvent := func(event interface{}) {
+			data, err := json.Marshal(event)
+			if err != nil {
+				return
+			}
+			if rpcID != nil {
+				resp := JSONRPCResponse{JSONRPC: "2.0", ID: rpcID, Result: data}
+				data, _ = json.Marshal(resp)
+			}
+			fmt.Fprintf(w, "data:%s\n\n", data)
+			flusher.Flush()
+		}
+
+		task := &Task{ID: "t-" + uuidString(), ContextID: req.ContextID}
+		task.Touch(TaskStateRunning)
+		sendEvent(NewStatusEvent(task, false))
+
+		reqCtx := r.Context()
+		if bearerTok := iauth.Bearer(reqCtx); bearerTok != "" && iauth.IDToken(reqCtx) == "" {
+			reqCtx = iauth.WithIDToken(reqCtx, bearerTok)
+		}
+		if ag.A2A != nil && ag.A2A.UserCredURL != "" && cfg.ApplyUserCred != nil {
+			reqCtx, err = cfg.ApplyUserCred(reqCtx, ag.A2A.UserCredURL)
+			if err != nil {
+				log.Printf("[a2a] failed to apply user cred for agent %s: %v", ag.ID, err)
+			}
+		}
+
+		out, err := cfg.Query(reqCtx, ag.ID, query, req.ContextID)
+		if err != nil {
+			errMsg := err.Error()
+			task.Touch(TaskStateFailed)
+			task.Status.Error = &errMsg
+			sendEvent(NewStatusEvent(task, true))
+			return
+		}
+		if out != nil && out.ConversationID != "" {
+			task.ContextID = out.ConversationID
+		}
+		content := ""
+		if out != nil {
+			content = out.Content
+		}
+		art := Artifact{
+			ID:        uuidString(),
+			CreatedAt: time.Now().UTC(),
+			Parts:     []Part{{Type: "text", Text: content}},
+		}
+		task.Artifacts = append(task.Artifacts, art)
+		sendEvent(NewArtifactEvent(task, art, false, true))
+		task.Touch(TaskStateCompleted)
+		sendEvent(NewStatusEvent(task, true))
+	}
+}
+
+func uuidString() string {
+	return strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 }
 
 // handleMessageSend bridges an A2A message/send to agent.Query().
