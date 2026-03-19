@@ -623,6 +623,10 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		// Handle elicitation inside the loop as a single-turn interaction.
 		if aPlan.Elicitation != nil {
+			// Replace the streamed raw JSON content with just the elicitation
+			// message so the UI no longer displays the raw JSON block.
+			s.replaceInterimContentForElicitation(ctx, &turn, genOutput, strings.TrimSpace(aPlan.Elicitation.Message))
+
 			if missing := missingRequired(aPlan.Elicitation, binding.Context); len(missing) == 0 {
 				debugf("agent.runPlan elicitation satisfied by context convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				// Elicitation already satisfied by context; re-run plan with updated context.
@@ -643,11 +647,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				ectx, cancel = context.WithTimeout(ctx, time.Duration(s.defaults.ElicitationTimeoutSec)*time.Second)
 				defer cancel()
 			}
-			_, status, _, err := s.elicitation.Elicit(ectx, &turn, "assistant", aPlan.Elicitation)
+			_, status, elicitPayload, err := s.elicitation.Elicit(ectx, &turn, "assistant", aPlan.Elicitation)
 			if err != nil {
 				errorf("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), err)
 			} else {
-				infof("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status))
+				infof("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q payload_keys=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), len(elicitPayload))
 			}
 			if err != nil {
 				// If timed out or canceled, auto-decline to avoid getting stuck
@@ -661,7 +665,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				// User declined/cancelled; finish turn without additional content
 				return nil
 			}
-			// Continue loop with updated binding (which should include payload/user response)
+			// Persist the user's elicitation response as a user message so the
+			// LLM sees it in the next iteration's conversation history.
+			if len(elicitPayload) > 0 {
+				payloadJSON, _ := json.Marshal(elicitPayload)
+				if len(payloadJSON) > 0 {
+					s.addMessage(ctx, &turn, "user", "", string(payloadJSON), nil, "", "")
+				}
+			}
+			// Continue loop with updated binding (which now includes the user response)
 			continue
 		}
 
@@ -1595,6 +1607,36 @@ func (s *Service) updateRunIteration(ctx context.Context, turn memory.TurnMeta, 
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
 		warnf("agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
+}
+
+// replaceInterimContentForElicitation patches the streamed assistant message
+// so the raw JSON block is replaced with the plain elicitation message.
+// This prevents the UI from displaying raw JSON during an LLM-generated
+// elicitation.
+func (s *Service) replaceInterimContentForElicitation(ctx context.Context, turn *memory.TurnMeta, genOutput *core.GenerateOutput, elicitMessage string) {
+	if s.conversation == nil || turn == nil {
+		return
+	}
+	cleanContent := elicitMessage
+	if cleanContent == "" {
+		cleanContent = "Additional input required."
+	}
+	msgID := strings.TrimSpace(genOutput.MessageID)
+	if msgID == "" {
+		msgID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	}
+	if msgID == "" {
+		msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
+	}
+	if msgID == "" {
+		return
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(msgID)
+	msg.SetConversationID(turn.ConversationID)
+	msg.SetContent(cleanContent)
+	msg.SetRawContent(cleanContent)
+	_ = s.conversation.PatchMessage(ctx, msg)
 }
 
 // findLastInterimAssistantMessageID queries the DB for the last interim

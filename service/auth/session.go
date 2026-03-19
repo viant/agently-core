@@ -112,6 +112,20 @@ func (m *Manager) Put(ctx context.Context, s *Session) {
 	}
 }
 
+// ActiveSessions returns a snapshot of all non-expired sessions in memory.
+func (m *Manager) ActiveSessions() []*Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	now := time.Now()
+	var result []*Session
+	for _, s := range m.mem {
+		if s != nil && (s.ExpiresAt.IsZero() || s.ExpiresAt.After(now)) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 // Delete removes a session.
 func (m *Manager) Delete(ctx context.Context, id string) {
 	m.mu.Lock()

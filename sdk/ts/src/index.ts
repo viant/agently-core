@@ -61,6 +61,10 @@ export type {
     OOBLoginInput, IDPDelegateOutput,
 } from './types';
 
+// Elicitation tracking
+export { ElicitationTracker } from './elicitation';
+export type { PendingElicitation as TrackedElicitation, ElicitationListener } from './elicitation';
+
 // Streaming reconciliation
 export {
     newMessageBuffer, applyEvent, reconcileMessages, reconcileFromTranscript,

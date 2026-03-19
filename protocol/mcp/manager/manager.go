@@ -64,7 +64,17 @@ func WithAuthRoundTripperProvider(p AuthRTProvider) Option {
 	return func(m *Manager) error { m.authRTProvider = p; return nil }
 }
 
-// Manager caches MCP clients per (conversationID, serverName) and handles idle reaping.
+// UserIDExtractor returns a user identifier from context for pool isolation.
+// When set, the pool key becomes "userID:convID" instead of just "convID"
+// to prevent shared conversations from leaking MCP auth across users.
+type UserIDExtractor func(ctx context.Context) string
+
+// WithUserIDExtractor sets the function used to derive a user-scoped pool key.
+func WithUserIDExtractor(fn UserIDExtractor) Option {
+	return func(m *Manager) error { m.userIDFn = fn; return nil }
+}
+
+// Manager caches MCP clients per (userID:conversationID, serverName) and handles idle reaping.
 type Manager struct {
 	prov           Provider
 	ttl            time.Duration
@@ -73,9 +83,10 @@ type Manager struct {
 	jarProvider    JarProvider
 	authRT         *authtransport.RoundTripper
 	authRTProvider AuthRTProvider
+	userIDFn       UserIDExtractor
 
 	mu   sync.Mutex
-	pool map[string]map[string]*entry // convID -> serverName -> entry
+	pool map[string]map[string]*entry // poolKey -> serverName -> entry
 }
 
 type entry struct {
@@ -96,6 +107,18 @@ func New(prov Provider, opts ...Option) (*Manager, error) {
 	return m, nil
 }
 
+// poolKey returns a user-scoped key for the connection pool.
+// When a UserIDExtractor is configured, the key is "userID:convID" to
+// prevent shared conversations from leaking MCP auth/tokens across users.
+func (m *Manager) poolKey(ctx context.Context, convID string) string {
+	if m.userIDFn != nil {
+		if uid := strings.TrimSpace(m.userIDFn(ctx)); uid != "" {
+			return uid + ":" + convID
+		}
+	}
+	return convID
+}
+
 // Options exposes the underlying provider client options (authoring metadata,
 // timeouts, etc.) for a given server name.
 func (m *Manager) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
@@ -105,20 +128,23 @@ func (m *Manager) Options(ctx context.Context, serverName string) (*mcpcfg.MCPCl
 	return m.prov.Options(ctx, serverName)
 }
 
-// Get returns an MCP client for (convID, serverName), creating it if needed.
+// Get returns an MCP client for (user+convID, serverName), creating it if needed.
+// When a UserIDExtractor is configured, the pool key includes the user ID to
+// prevent shared conversations from leaking MCP auth/tokens across users.
 func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
 	if m.prov == nil {
 		return nil, errors.New("mcp manager: provider not configured")
 	}
+	key := m.poolKey(ctx, convID)
 	m.mu.Lock()
 	// Intentionally avoid `defer m.mu.Unlock()` here.
 	// This lock must be released before client creation/network setup
 	// (provider options, transport init) to prevent global manager stalls.
 	// Maintain per-conversation client to correlate elicitation correctly.
-	if m.pool[convID] == nil {
-		m.pool[convID] = map[string]*entry{}
+	if m.pool[key] == nil {
+		m.pool[key] = map[string]*entry{}
 	}
-	if e := m.pool[convID][serverName]; e != nil && e.client != nil {
+	if e := m.pool[key][serverName]; e != nil && e.client != nil {
 		e.usedAt = time.Now()
 		client := e.client
 		m.mu.Unlock()
@@ -133,17 +159,17 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 
 	// Double-check under lock: another goroutine may have inserted meanwhile.
 	m.mu.Lock()
-	if m.pool[convID] == nil {
-		m.pool[convID] = map[string]*entry{}
+	if m.pool[key] == nil {
+		m.pool[key] = map[string]*entry{}
 	}
-	if e := m.pool[convID][serverName]; e != nil && e.client != nil {
+	if e := m.pool[key][serverName]; e != nil && e.client != nil {
 		e.usedAt = time.Now()
 		existing := e.client
 		m.mu.Unlock()
 		closeClientBestEffort(client)
 		return existing, nil
 	}
-	m.pool[convID][serverName] = &entry{client: client, usedAt: time.Now()}
+	m.pool[key][serverName] = &entry{client: client, usedAt: time.Now()}
 	m.mu.Unlock()
 	return client, nil
 }
@@ -200,13 +226,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
 	}
-	// Keepalive ping: older mcp client options may not support explicit ping interval.
-	// If supported upstream, configure ~30s; otherwise rely on transport defaults.
-	cli, err := mcp.NewClient(h, opts.ClientOptions)
-	if err != nil {
-		return nil, err
-	}
-	// Attach auth interceptor when configured (prefer per-request provider)
+	// Resolve per-user auth RoundTripper.
 	var rt *authtransport.RoundTripper
 	if m.authRTProvider != nil {
 		rt = m.authRTProvider(ctx)
@@ -214,9 +234,23 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if rt == nil {
 		rt = m.authRT
 	}
+	// Only inject the auth RT into the HTTP transport when the MCP config
+	// explicitly has auth settings. For auth:null configs, the token is
+	// passed via the JSON-RPC interceptor (per-request) because
+	// mcp.NewClient uses context.Background() for Initialize() which has
+	// no user token.
+	hasExplicitAuth := opts.ClientOptions.Auth != nil
+	if rt != nil && hasExplicitAuth {
+		opts.ClientOptions.SetAuthTransport(rt, &http.Client{Transport: rt, Jar: effectiveJar})
+	}
+	cli, err := mcp.NewClient(h, opts.ClientOptions)
+	if err != nil {
+		return nil, err
+	}
+	// Attach the MCP-level auth interceptor for per-request token injection
+	// and protocol-level 401 retries.
 	if rt != nil {
 		authorizer := auth.NewAuthorizer(rt)
-		// apply option to concrete client
 		mcpclient.WithAuthInterceptor(authorizer)(cli)
 	}
 	return cli, nil
@@ -243,25 +277,32 @@ func closeClientBestEffort(client mcpclient.Interface) {
 // Touch updates last-used time for (convID, serverName).
 func (m *Manager) Touch(convID, serverName string) {
 	m.mu.Lock()
-	if e := m.pool[convID][serverName]; e != nil {
-		e.usedAt = time.Now()
+	// Touch is called without context, so search all pool keys that end with the convID.
+	for key, perServer := range m.pool {
+		if key == convID || strings.HasSuffix(key, ":"+convID) {
+			if e := perServer[serverName]; e != nil {
+				e.usedAt = time.Now()
+			}
+		}
 	}
 	m.mu.Unlock()
 }
 
-// CloseConversation drops all clients for a conversation.
+// CloseConversation drops all clients for a conversation (across all users).
 // Note: underlying transports may keep connections if the library doesn't expose Close.
 func (m *Manager) CloseConversation(convID string) {
 	var toClose []mcpclient.Interface
 	m.mu.Lock()
-	if perServer, ok := m.pool[convID]; ok {
-		for server, e := range perServer {
-			if e != nil && e.client != nil {
-				toClose = append(toClose, e.client)
+	for key, perServer := range m.pool {
+		if key == convID || strings.HasSuffix(key, ":"+convID) {
+			for server, e := range perServer {
+				if e != nil && e.client != nil {
+					toClose = append(toClose, e.client)
+				}
+				delete(perServer, server)
 			}
-			delete(perServer, server)
+			delete(m.pool, key)
 		}
-		delete(m.pool, convID)
 	}
 	m.mu.Unlock()
 	for _, client := range toClose {
@@ -299,16 +340,17 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 	if m == nil {
 		return nil, errors.New("mcp manager: nil manager")
 	}
+	key := m.poolKey(ctx, convID)
 	// Drop existing entry to force re-creation
 	var toClose mcpclient.Interface
 	m.mu.Lock()
-	if m.pool[convID] != nil {
-		if e := m.pool[convID][serverName]; e != nil && e.client != nil {
+	if m.pool[key] != nil {
+		if e := m.pool[key][serverName]; e != nil && e.client != nil {
 			toClose = e.client
 		}
-		delete(m.pool[convID], serverName)
-		if len(m.pool[convID]) == 0 {
-			delete(m.pool, convID)
+		delete(m.pool[key], serverName)
+		if len(m.pool[key]) == 0 {
+			delete(m.pool, key)
 		}
 	}
 	m.mu.Unlock()
