@@ -188,6 +188,13 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, turn); err != nil {
 		return err
 	}
+	if strings.TrimSpace(input.AgentID) != "" {
+		upd := apiconv.NewTurn()
+		upd.SetId(turn.TurnID)
+		upd.SetConversationID(turn.ConversationID)
+		upd.SetAgentIDUsed(strings.TrimSpace(input.AgentID))
+		_ = s.conversation.PatchTurn(ctx, upd)
+	}
 	defer func() {
 		if turnFinalized {
 			return

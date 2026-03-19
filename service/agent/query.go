@@ -77,6 +77,10 @@ type QueryInput struct {
 	// SkipInitialUserMessage tells Query to reuse an already persisted starter
 	// user message (e.g. queued turn) instead of adding a duplicate.
 	SkipInitialUserMessage bool `json:"-"`
+	// AutoSelected reports whether the runtime auto-routed the agent for this turn.
+	AutoSelected bool `json:"-"`
+	// RoutingReason captures the auto-routing reason when AutoSelected is true.
+	RoutingReason string `json:"-"`
 }
 
 // QueryOutput represents the result of an agent knowledge query

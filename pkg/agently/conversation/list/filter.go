@@ -36,15 +36,21 @@ func (a *Filter) Compute(ctx context.Context, value interface{}) (*codec.Criteri
 		return trueCriteria, nil
 	}
 
+	// Exclude child conversations unless explicitly querying by parentId.
+	excludeChildren := ""
+	if input.Has == nil || !input.Has.ParentId {
+		excludeChildren = " AND c.conversation_parent_id IS NULL"
+	}
+
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if userID == "" {
 		return &codec.Criteria{
-			Expression:   "COALESCE(c.visibility, '') <> ?",
+			Expression:   "COALESCE(c.visibility, '') <> ?" + excludeChildren,
 			Placeholders: []interface{}{"private"},
 		}, nil
 	}
 	return &codec.Criteria{
-		Expression:   "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)",
+		Expression:   "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)" + excludeChildren,
 		Placeholders: []interface{}{"private", userID},
 	}, nil
 }

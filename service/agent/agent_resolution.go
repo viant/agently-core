@@ -232,7 +232,7 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	if conv != nil && conv.AgentId != nil {
 		explicitAgent = strings.TrimSpace(*conv.AgentId)
 		if explicitAgent != "" && !isAutoAgentRef(explicitAgent) {
-			return explicitAgent, false, "", nil
+			return explicitAgent, false, "explicit", nil
 		}
 		autoRequested = isAutoAgentRef(explicitAgent)
 	} else {
@@ -243,10 +243,10 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	// executed in this conversation, before falling back to workspace defaults.
 	if !autoRequested {
 		if id := lastTurnAgentIDUsed(conv); id != "" {
-			return id, false, "", nil
+			return id, false, "continuity", nil
 		}
 		if defaultAgent != "" && !isAutoAgentRef(defaultAgent) {
-			return defaultAgent, false, "", nil
+			return defaultAgent, false, "default", nil
 		}
 		return "", false, "", fmt.Errorf("agent is required")
 	}
@@ -267,26 +267,26 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 			return "", true, "", err
 		} else if selected != "" {
 			trimmed := strings.TrimSpace(selected)
-			return trimmed, true, "", nil
+			return trimmed, true, "llm_router", nil
 		}
 	}
 	if selected := autoSelectAgentID(query, candidates); selected != "" {
-		return selected, true, "", nil
+		return selected, true, "token_match", nil
 	}
 	// Cold-start fallback: when the catalog is not preloaded, route explicit
 	// capability-discovery queries to agent_selector when present.
 	if providedQuery != "" && isCapabilityDiscoveryQuery(query) {
 		if selected := s.tryResolveCapabilityAgent(ctx); selected != "" {
-			return selected, true, "", nil
+			return selected, true, "capability_fallback", nil
 		}
 	}
 
 	// If routing cannot decide, keep continuity as a safe fallback.
 	if id := lastTurnAgentIDUsed(conv); id != "" {
-		return id, false, "", nil
+		return id, false, "continuity", nil
 	}
 	if defaultAgent != "" && !isAutoAgentRef(defaultAgent) {
-		return defaultAgent, false, "", nil
+		return defaultAgent, false, "default", nil
 	}
 	return "", true, "", fmt.Errorf("agent is required")
 }

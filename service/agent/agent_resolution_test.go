@@ -28,7 +28,7 @@ func TestResolveAgentIDForConversation_AutoCapabilityFallback(t *testing.T) {
 		}},
 	}
 
-	selected, auto, _, err := svc.resolveAgentIDForConversation(context.Background(), nil, "what can you do agent?")
+	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "what can you do agent?")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,6 +37,9 @@ func TestResolveAgentIDForConversation_AutoCapabilityFallback(t *testing.T) {
 	}
 	if selected != "agent_selector" {
 		t.Fatalf("unexpected selected id: %s", selected)
+	}
+	if reason != "capability_fallback" {
+		t.Fatalf("unexpected routing reason: %s", reason)
 	}
 }
 

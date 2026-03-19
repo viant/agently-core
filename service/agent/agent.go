@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
+	promptmdl "github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/service/agent/prompts"
 )
 
 // ensureAgent populates qi.Agent (using finder when needed) and echoes it on
@@ -22,23 +26,62 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				}
 				conv = loaded
 			}
-			selectedID, _, _, err := s.resolveAgentIDForConversation(ctx, conv, qi.Query)
+			selectedID, autoSelected, routingReason, err := s.resolveAgentIDForConversation(ctx, conv, qi.Query)
 			if err != nil {
 				return fmt.Errorf("failed to resolve agent: %w", err)
 			}
 			agentID = strings.TrimSpace(selectedID)
 			qi.AgentID = agentID
+			qi.AutoSelected = autoSelected
+			qi.RoutingReason = strings.TrimSpace(routingReason)
 		}
 		if agentID != "" {
-			a, err := s.agentFinder.Find(ctx, agentID)
+			a, err := s.loadResolvedAgent(ctx, agentID)
 			if err != nil {
 				return fmt.Errorf("failed to load agent: %w", err)
 			}
 			qi.Agent = a
+			if isCapabilityAgentID(agentID) {
+				autoTools := false
+				qi.ToolsAllowed = []string{"llm/agents:list"}
+				qi.AutoSelectTools = &autoTools
+				qi.DisableChains = true
+			}
 		}
 	}
 	if qi.Agent == nil {
 		return fmt.Errorf("agent is required")
 	}
 	return nil
+}
+
+func isCapabilityAgentID(agentID string) bool {
+	agentID = strings.TrimSpace(agentID)
+	return strings.EqualFold(agentID, "agent_selector") || strings.EqualFold(agentID, "agent-selector")
+}
+
+func (s *Service) loadResolvedAgent(ctx context.Context, agentID string) (*agentmdl.Agent, error) {
+	if isCapabilityAgentID(agentID) {
+		return newCapabilityAgent(s.defaults), nil
+	}
+	if s == nil || s.agentFinder == nil {
+		return nil, fmt.Errorf("agent finder not configured")
+	}
+	return s.agentFinder.Find(ctx, agentID)
+}
+
+func newCapabilityAgent(defaults *config.Defaults) *agentmdl.Agent {
+	capPrompt := prompts.CapabilityPrompt()
+	if defaults != nil && strings.TrimSpace(defaults.CapabilityPrompt) != "" {
+		capPrompt = strings.TrimSpace(defaults.CapabilityPrompt)
+	}
+	return &agentmdl.Agent{
+		Identity: agentmdl.Identity{ID: "agent_selector", Name: "Agent Selector"},
+		Prompt:   &promptmdl.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		SystemPrompt: &promptmdl.Prompt{
+			Text:   capPrompt,
+			Engine: "go",
+		},
+		Persona: &promptmdl.Persona{Role: "assistant", Actor: "Capability"},
+	}
 }

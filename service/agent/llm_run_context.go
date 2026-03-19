@@ -45,6 +45,9 @@ func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID
 		rec.SetId(turn.TurnID)
 		rec.SetConversationID(turn.ConversationID)
 		rec.SetStatus("running")
+		if strings.TrimSpace(assistant) != "" {
+			rec.SetAgentIDUsed(strings.TrimSpace(assistant))
+		}
 		_ = s.conversation.PatchTurn(ctx, rec)
 	}
 	return ctx
