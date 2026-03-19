@@ -141,6 +141,23 @@ type PendingElicitation struct {
 	Elicitation    map[string]interface{} `json:"elicitation,omitempty"`
 }
 
+type WorkspaceDefaults struct {
+	Agent    string `json:"agent,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Embedder string `json:"embedder,omitempty"`
+}
+
+type WorkspaceMetadata struct {
+	WorkspaceRoot   string             `json:"workspaceRoot,omitempty"`
+	DefaultAgent    string             `json:"defaultAgent,omitempty"`
+	DefaultModel    string             `json:"defaultModel,omitempty"`
+	DefaultEmbedder string             `json:"defaultEmbedder,omitempty"`
+	Defaults        *WorkspaceDefaults `json:"defaults,omitempty"`
+	Agents          []string           `json:"agents,omitempty"`
+	Models          []string           `json:"models,omitempty"`
+	Version         string             `json:"version,omitempty"`
+}
+
 type ListPendingToolApprovalsInput struct {
 	UserID         string
 	ConversationID string

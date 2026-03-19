@@ -72,6 +72,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	var response MetadataResponse
 	err := json.Unmarshal(rec.Body.Bytes(), &response)
 	assert.NoError(t, err)
+	assert.NotEmpty(t, response.WorkspaceRoot)
 	assert.Equal(t, "chatter", response.DefaultAgent)
 	assert.Equal(t, "openai_gpt4o_mini", response.DefaultModel)
 	assert.Equal(t, "openai_text", response.DefaultEmbedder)
@@ -122,6 +123,7 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 	var response MetadataResponse
 	err := json.Unmarshal(rec.Body.Bytes(), &response)
 	assert.NoError(t, err)
+	assert.NotEmpty(t, response.WorkspaceRoot)
 	if assert.Len(t, response.AgentInfos, 1) {
 		assert.Equal(t, "coder", response.AgentInfos[0].ID)
 		assert.Equal(t, "Coder", response.AgentInfos[0].Name)

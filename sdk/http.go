@@ -134,6 +134,48 @@ func (c *HTTPClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*ag
 	return &out, nil
 }
 
+func (c *HTTPClient) GetWorkspaceMetadata(ctx context.Context) (*WorkspaceMetadata, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/v1/workspace/metadata", nil, "")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("request failed: %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	}
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+	out := &WorkspaceMetadata{}
+	if data, ok := raw["data"]; ok {
+		var wrapped WorkspaceMetadata
+		if err := json.Unmarshal(data, &wrapped); err == nil {
+			out = &wrapped
+		}
+	} else {
+		blob, _ := json.Marshal(raw)
+		if err := json.Unmarshal(blob, out); err != nil {
+			return nil, err
+		}
+	}
+	if out.DefaultAgent == "" && out.Defaults != nil {
+		out.DefaultAgent = out.Defaults.Agent
+	}
+	if out.DefaultModel == "" && out.Defaults != nil {
+		out.DefaultModel = out.Defaults.Model
+	}
+	if out.DefaultEmbedder == "" && out.Defaults != nil {
+		out.DefaultEmbedder = out.Defaults.Embedder
+	}
+	return out, nil
+}
+
 func (c *HTTPClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
 	var out conversation.Conversation
 	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(strings.TrimSpace(id))

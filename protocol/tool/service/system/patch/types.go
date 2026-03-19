@@ -46,8 +46,9 @@ type Change struct {
 }
 
 // SnapshotOutput lists the current uncommitted changes captured by the active session.
+// Each change already carries resolved file locations in OrigURL/URL, so snapshot
+// does not repeat workdir at the top level.
 type SnapshotOutput struct {
-	Workdir string   `json:"workdir,omitempty"`
 	Changes []Change `json:"changes,omitempty"`
 	Status  string   `json:"status,omitempty"`
 	Error   string   `json:"error,omitempty"`
