@@ -152,15 +152,18 @@ func matchesRule(m FeedMatch, service, method string) bool {
 
 func parseToolName(name string) (string, string) {
 	normalized := strings.ToLower(strings.TrimSpace(name))
-	// Handle both "service/method" and "service:method" and "prefix-service/method"
-	// Strip MCP server prefix (e.g., "sqlkit-dbListConnections" → "sqlkit/dbListConnections")
+	// Normalize: some stores use underscores/hyphens instead of slashes.
+	// Convert "system_exec-execute" → "system/exec/execute" before splitting.
+	// Replace underscore with slash first (service separator), then split on last slash.
+	normalized = strings.ReplaceAll(normalized, "_", "/")
+	// Handle "service/method" — split on last slash.
 	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
 		return normalized[:idx], normalized[idx+1:]
 	}
 	if idx := strings.Index(normalized, ":"); idx >= 0 {
 		return normalized[:idx], normalized[idx+1:]
 	}
-	// Try splitting on camelCase boundary for "prefix-serviceName" pattern
+	// Try splitting on hyphen for "prefix-method" pattern.
 	if idx := strings.Index(normalized, "-"); idx >= 0 {
 		return normalized[:idx], normalized[idx+1:]
 	}
