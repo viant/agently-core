@@ -376,6 +376,41 @@ func TestRecorderObserver_OnStreamDelta_IgnoresCanceledPersistenceAndFinalizesAc
 	assert.Equal(t, "Hello world", string(*payload.InlineBody))
 }
 
+func TestCloseIfOpen_CanceledBeforeFirstDeltaDoesNotPersistStreamPayload(t *testing.T) {
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	runCtx, cancel := context.WithCancel(base)
+	ctx := WithRecorderObserver(runCtx, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	cancel()
+
+	require.NoError(t, CloseIfOpen(ctx2, Info{
+		CompletedAt: time.Now(),
+		Err:         `failed to start Stream: failed to send request: Post "https://api.openai.com/v1/responses": context canceled`,
+	}))
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+
+	msg, err := client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.NotNil(t, msg.ModelCall)
+	assert.EqualValues(t, "canceled", msg.ModelCall.Status)
+	assert.Nil(t, msg.ModelCall.StreamPayloadId)
+}
+
 func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 	baseClient := convmem.New()
 	client := &capturingModelCallClient{Client: baseClient}

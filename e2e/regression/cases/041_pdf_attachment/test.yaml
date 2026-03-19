@@ -22,17 +22,6 @@ pipeline:
             "@exists@conversationId": true
             content: PDF_TEST_TOKEN_4729
 
-  transcript:
-    when: $sdkKey != ''
-    action: http/runner:send
-    description: "openai_responses_pdf_attachment - transcript exposes attachment on user task message"
-    requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
-        Expect:
-          Code: 200
-          Body: /application/pdf/
-
   attachmentMessage:
     when: $sdkKey != ''
     action: http/runner:send
@@ -59,3 +48,14 @@ pipeline:
             Id: ${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}
             MimeType: application/pdf
             "@exists@InlineBody": true
+
+  attachmentPayloadRaw:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "openai_responses_pdf_attachment - raw payload has PDF header"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}?raw=1
+        Expect:
+          Code: 200
+          Body: /%PDF-/

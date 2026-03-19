@@ -74,34 +74,9 @@ pipeline:
       requests:
         - Method: GET
           URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/transcript?includeModelCalls=true
+          extract:
+            - key: canceledModelCallId
+              regExpr: '(?s)"modelSteps":\[\{.*?"modelCallId":"([^"]+)".*?"status":"canceled"'
+              required: true
           Expect:
             Code: 200
-            JSONBody:
-              "@exists@turns[0].Message[1].ModelCall": true
-              turns:
-                - Message:
-                    - {}
-                    - ModelCall:
-                        Status: canceled
-                        "@exists@StreamPayloadId": true
-
-    getCanceledStreamPayloadMeta:
-      action: http/runner:send
-      requests:
-        - Method: GET
-          URL: ${serverURL}/v1/api/payload/${getTranscriptWithModelCall.Responses[0].JSONBody.turns[0].Message[1].ModelCall.StreamPayloadId}?inline=1
-          Expect:
-            Code: 200
-            JSONBody:
-              Id: ${getTranscriptWithModelCall.Responses[0].JSONBody.turns[0].Message[1].ModelCall.StreamPayloadId}
-              Kind: model_stream
-              "@exists@InlineBody": true
-
-    getCanceledStreamPayloadRaw:
-      action: http/runner:send
-      requests:
-        - Method: GET
-          URL: ${serverURL}/v1/api/payload/${getTranscriptWithModelCall.Responses[0].JSONBody.turns[0].Message[1].ModelCall.StreamPayloadId}?raw=1
-          Expect:
-            Code: 200
-            Body: /[A-Za-z]/
