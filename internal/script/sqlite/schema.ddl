@@ -263,8 +263,11 @@ CREATE TABLE IF NOT EXISTS schedule (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     description TEXT,
+    created_by_user_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
     agent_ref TEXT NOT NULL,
     model_override TEXT,
+    user_cred_url TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     start_at DATETIME,
     end_at DATETIME,
@@ -272,6 +275,7 @@ CREATE TABLE IF NOT EXISTS schedule (
     cron_expr TEXT,
     interval_seconds INTEGER,
     timezone TEXT NOT NULL DEFAULT 'UTC',
+    timeout_seconds INTEGER NOT NULL DEFAULT 0,
     task_prompt_uri TEXT,
     task_prompt TEXT,
     next_run_at DATETIME,
@@ -383,3 +387,11 @@ CREATE TABLE IF NOT EXISTS generated_file (
 
 CREATE INDEX IF NOT EXISTS idx_gf_conversation ON generated_file(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_gf_dedup ON generated_file(dedup_key);
+
+CREATE TABLE IF NOT EXISTS workspace_resources (
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (kind, name)
+);
