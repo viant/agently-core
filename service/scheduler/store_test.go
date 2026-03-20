@@ -110,6 +110,50 @@ func TestHandler_BatchUpdatePersistsSchedule(t *testing.T) {
 	assertScheduleCount(t, db, "sched-http-1", 1)
 }
 
+func TestHandler_BatchUpdateAnonymousPrivateInsertBecomesPublic(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	body, err := json.Marshal(map[string]interface{}{
+		"schedules": []map[string]interface{}{
+			{
+				"id":           "sched-http-anon-private",
+				"name":         "HTTP Anonymous Private Schedule",
+				"visibility":   "private",
+				"agentRef":     "simple",
+				"enabled":      true,
+				"scheduleType": "adhoc",
+				"timezone":     "UTC",
+				"taskPrompt":   "Say hello",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/v1/api/agently/scheduler/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.handleBatchUpdate()(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertScheduleCount(t, db, "sched-http-anon-private", 1)
+	assertScheduleVisibility(t, db, "sched-http-anon-private", "public")
+
+	list, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected anonymous list to include coerced-public schedule, got %d rows", len(list))
+	}
+}
+
 func newTestStore(t *testing.T) (Store, *sql.DB) {
 	t.Helper()
 	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-core-scheduler-store")
@@ -140,5 +184,16 @@ func assertScheduleCount(t *testing.T, db *sql.DB, id string, expected int) {
 	}
 	if count != expected {
 		t.Fatalf("expected schedule row count %d for %s, got %d", expected, id, count)
+	}
+}
+
+func assertScheduleVisibility(t *testing.T, db *sql.DB, id string, expected string) {
+	t.Helper()
+	var visibility string
+	if err := db.QueryRowContext(context.Background(), `SELECT visibility FROM schedule WHERE id = ?`, id).Scan(&visibility); err != nil {
+		t.Fatalf("QueryRowContext() error: %v", err)
+	}
+	if visibility != expected {
+		t.Fatalf("expected schedule visibility %q for %s, got %q", expected, id, visibility)
 	}
 }
