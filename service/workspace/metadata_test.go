@@ -102,10 +102,12 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
 			ws.KindAgent: {
-				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\n"),
+				"coder":             []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\n"),
+				"chat_helper_agent": []byte("id: chat-helper\nname: Chat Helper\nmodelRef: vertexai_gemini-2.5-flash\n"),
 			},
 			ws.KindModel: {
-				"openai_gpt-5_2": []byte("id: openai_gpt-5.2\nname: GPT-5.2\n"),
+				"openai_gpt-5_2":           []byte("id: openai_gpt-5.2\nname: GPT-5.2\n"),
+				"vertexai_gemini_flash2_5": []byte("id: vertexai_gemini-2.5-flash\nname: Gemini 2.5 Flash\n"),
 			},
 		},
 	}
@@ -124,13 +126,24 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 	err := json.Unmarshal(rec.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response.WorkspaceRoot)
-	if assert.Len(t, response.AgentInfos, 1) {
-		assert.Equal(t, "coder", response.AgentInfos[0].ID)
-		assert.Equal(t, "Coder", response.AgentInfos[0].Name)
-		assert.Equal(t, "openai_gpt-5.2", response.AgentInfos[0].ModelRef)
+	if assert.Len(t, response.AgentInfos, 2) {
+		agents := map[string]AgentInfo{}
+		for _, item := range response.AgentInfos {
+			agents[item.ID] = item
+		}
+		assert.Equal(t, "Coder", agents["coder"].Name)
+		assert.Equal(t, "openai_gpt-5.2", agents["coder"].ModelRef)
+		assert.Equal(t, "Chat Helper", agents["chat-helper"].Name)
+		assert.Equal(t, "vertexai_gemini-2.5-flash", agents["chat-helper"].ModelRef)
 	}
-	if assert.Len(t, response.ModelInfos, 1) {
-		assert.Equal(t, "openai_gpt-5.2", response.ModelInfos[0].ID)
-		assert.Equal(t, "GPT-5.2", response.ModelInfos[0].Name)
+	assert.ElementsMatch(t, []string{"coder", "chat-helper"}, response.Agents)
+	if assert.Len(t, response.ModelInfos, 2) {
+		models := map[string]string{}
+		for _, item := range response.ModelInfos {
+			models[item.ID] = item.Name
+		}
+		assert.Equal(t, "GPT-5.2", models["openai_gpt-5.2"])
+		assert.Equal(t, "Gemini 2.5 Flash", models["vertexai_gemini-2.5-flash"])
 	}
+	assert.ElementsMatch(t, []string{"openai_gpt-5.2", "vertexai_gemini-2.5-flash"}, response.Models)
 }
