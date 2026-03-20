@@ -75,6 +75,48 @@ func TestService_UpsertPersistsSchedule(t *testing.T) {
 	assertScheduleCount(t, db, "sched-service-1", 1)
 }
 
+func TestService_UpsertUpdatesDescriptionAndTaskPrompt(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	initialPrompt := "Say hello"
+	initialDescription := "initial description"
+
+	err := svc.Upsert(context.Background(), &Schedule{
+		ID:           "sched-service-update-1",
+		Name:         "Service Schedule Update",
+		Description:  &initialDescription,
+		Visibility:   "public",
+		AgentRef:     "simple",
+		Enabled:      true,
+		ScheduleType: "adhoc",
+		Timezone:     "UTC",
+		TaskPrompt:   &initialPrompt,
+	})
+	if err != nil {
+		t.Fatalf("initial Upsert() error: %v", err)
+	}
+
+	nextPrompt := "Say goodbye"
+	nextDescription := "updated description"
+	err = svc.Upsert(context.Background(), &Schedule{
+		ID:           "sched-service-update-1",
+		Name:         "Service Schedule Update",
+		Description:  &nextDescription,
+		Visibility:   "public",
+		AgentRef:     "simple",
+		Enabled:      true,
+		ScheduleType: "adhoc",
+		Timezone:     "UTC",
+		TaskPrompt:   &nextPrompt,
+	})
+	if err != nil {
+		t.Fatalf("update Upsert() error: %v", err)
+	}
+
+	assertScheduleCount(t, db, "sched-service-update-1", 1)
+	assertScheduleTextFields(t, db, "sched-service-update-1", nextDescription, nextPrompt)
+}
+
 func TestHandler_BatchUpdatePersistsSchedule(t *testing.T) {
 	store, db := newTestStore(t)
 	svc := New(store, nil)
@@ -154,6 +196,68 @@ func TestHandler_BatchUpdateAnonymousPrivateInsertBecomesPublic(t *testing.T) {
 	}
 }
 
+func TestHandler_BatchUpdateUpdatesDescriptionAndTaskPrompt(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	initialBody, err := json.Marshal(map[string]interface{}{
+		"schedules": []map[string]interface{}{
+			{
+				"id":           "sched-http-update-1",
+				"name":         "HTTP Schedule Update",
+				"description":  "before",
+				"visibility":   "public",
+				"agentRef":     "simple",
+				"enabled":      true,
+				"scheduleType": "adhoc",
+				"timezone":     "UTC",
+				"taskPrompt":   "hello",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/v1/api/agently/scheduler/", bytes.NewReader(initialBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.handleBatchUpdate()(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("initial update unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	updateBody, err := json.Marshal(map[string]interface{}{
+		"schedules": []map[string]interface{}{
+			{
+				"id":           "sched-http-update-1",
+				"name":         "HTTP Schedule Update",
+				"description":  "after",
+				"visibility":   "public",
+				"agentRef":     "simple",
+				"enabled":      true,
+				"scheduleType": "adhoc",
+				"timezone":     "UTC",
+				"taskPrompt":   "goodbye",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/v1/api/agently/scheduler/", bytes.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.handleBatchUpdate()(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("update unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertScheduleTextFields(t, db, "sched-http-update-1", "after", "goodbye")
+}
+
 func newTestStore(t *testing.T) (Store, *sql.DB) {
 	t.Helper()
 	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-core-scheduler-store")
@@ -195,5 +299,20 @@ func assertScheduleVisibility(t *testing.T, db *sql.DB, id string, expected stri
 	}
 	if visibility != expected {
 		t.Fatalf("expected schedule visibility %q for %s, got %q", expected, id, visibility)
+	}
+}
+
+func assertScheduleTextFields(t *testing.T, db *sql.DB, id, expectedDescription, expectedTaskPrompt string) {
+	t.Helper()
+	var description sql.NullString
+	var taskPrompt sql.NullString
+	if err := db.QueryRowContext(context.Background(), `SELECT description, task_prompt FROM schedule WHERE id = ?`, id).Scan(&description, &taskPrompt); err != nil {
+		t.Fatalf("QueryRowContext() error: %v", err)
+	}
+	if description.String != expectedDescription {
+		t.Fatalf("expected description %q for %s, got %q", expectedDescription, id, description.String)
+	}
+	if taskPrompt.String != expectedTaskPrompt {
+		t.Fatalf("expected task_prompt %q for %s, got %q", expectedTaskPrompt, id, taskPrompt.String)
 	}
 }
