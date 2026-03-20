@@ -38,6 +38,8 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 				} else {
 					rec.SetVisibility("private")
 				}
+			} else if userID == "" && strings.EqualFold(strings.TrimSpace(rec.Visibility), "private") {
+				rec.SetVisibility("public")
 			}
 			if rec.Timezone == "" {
 				rec.Timezone = "UTC"
