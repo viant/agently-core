@@ -43,7 +43,7 @@ nextRange:
 hasMore: true
 remaining: %d
 returned: %d
-useToolToSeeMore: internal_message-show
+useToolToSeeMore: message-show
 content: |
 %s`, id, returned, returned, remaining, returned, chunk), true
 	}

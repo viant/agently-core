@@ -77,6 +77,22 @@ export {
 } from './reconcile';
 export type { MessageBuffer } from './reconcile';
 
+// Rich content rendering (pluggable fence registry, markdown, charts, tables)
+export {
+    parseFences, languageHint,
+    findNextPipeTableBlock, looksLikePipeTable, parsePipeTable,
+    parseChartSpecFromFence, normalizeChartSpec, buildChartSeries,
+    escapeHTML, escapeHTMLAttr, resolveHref,
+    inlineMarkdown, renderMarkdownCellHTML, renderMarkdownBlock,
+    FenceRendererRegistry, getDefaultRegistry,
+    registerFenceRenderer, registerFenceClassifier,
+} from './richContent';
+export type {
+    FencePart, TableBlock, ParsedTable,
+    ChartSpec, ChartDef, ChartAxis, NormalizedChart, ChartSeries,
+    BuiltinRendererType, FenceClassification, FenceClassifier,
+} from './richContent';
+
 // Message interpretation helpers
 export {
     isPreamble, isFinalResponse, isUserMessage, isToolMessage,

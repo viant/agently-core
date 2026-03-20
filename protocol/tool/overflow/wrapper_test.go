@@ -32,7 +32,7 @@ func TestBuildOverflowYAML_Bytes(t *testing.T) {
 			"offset": 100,
 			"length": 100,
 		},
-		"hint": "Call internal_message-show with messageId and byteRange.from/to from nextRange.",
+		"hint": "Call message-show with messageId and byteRange.from/to from nextRange.",
 	}
 	assert.EqualValues(t, expected, m)
 }

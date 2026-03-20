@@ -79,6 +79,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input != nil {
 		infof("agent.Query serviceStart at=%s convo=%q message_id=%q agent_id=%q user_id=%q", queryStarted.Format(time.RFC3339Nano), strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.AgentID), strings.TrimSpace(input.UserId))
 	}
+	if input != nil && strings.TrimSpace(input.MessageID) == "" {
+		input.MessageID = uuid.New().String()
+	}
 
 	envStarted := time.Now()
 	if err := s.ensureEnvironment(ctx, input); err != nil {
@@ -87,9 +90,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	infof("agent.Query stage ensureEnvironment convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(envStarted))
 	if input == nil || input.Agent == nil {
 		return fmt.Errorf("invalid input: agent is required")
-	}
-	if input.MessageID == "" {
-		input.MessageID = uuid.New().String()
 	}
 	output.ConversationID = input.ConversationID
 	if queued, err := s.tryQueueTurn(ctx, input); err != nil {
@@ -899,6 +899,17 @@ func resolveExistingWorkdir(raw string) string {
 func (s *Service) ensureEnvironment(ctx context.Context, input *QueryInput) error {
 	if err := s.ensureConversation(ctx, input); err != nil {
 		return err
+	}
+	if input != nil && input.Agent == nil && isAutoAgentRef(strings.TrimSpace(input.AgentID)) && isCapabilityDiscoveryQuery(input.Query) {
+		autoTools := false
+		input.AgentID = "agent_selector"
+		input.Agent = newCapabilityAgent(s.defaults)
+		input.AutoSelected = true
+		input.RoutingReason = "capability_direct"
+		input.AutoSelectTools = &autoTools
+		input.ToolsAllowed = nil
+		input.DisableChains = true
+		log.Printf("[debug][conversation][INFO] agent.ensureEnvironment forced capability mode convo=%q query_head=%q", strings.TrimSpace(input.ConversationID), headString(input.Query, 256))
 	}
 	if err := s.ensureAgent(ctx, input); err != nil {
 		return err

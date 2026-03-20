@@ -160,7 +160,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			if conv == nil || srv.agentFinder == nil {
 				return nil, fmt.Errorf("missing conversation or agent finder")
 			}
-			agentID, _, _, err := srv.resolveAgentIDForConversation(ctx, conv, strings.TrimSpace(instruction))
+			agentID, _, _, err := srv.resolveAgentIDForConversation(ctx, conv, "", strings.TrimSpace(instruction))
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve agent: %w", err)
 			}
@@ -176,8 +176,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			}
 			if isCapabilityAgentID(agentID) {
 				autoTools := false
-				qi.ToolsAllowed = []string{"llm/agents:list"}
 				qi.AutoSelectTools = &autoTools
+				qi.ToolsAllowed = nil
+				qi.DisableChains = true
 			}
 			// Ensure embedding model for knowledge matching like ensureEnvironment does
 			if strings.TrimSpace(qi.EmbeddingModel) == "" && srv.defaults != nil {

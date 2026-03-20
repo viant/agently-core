@@ -201,8 +201,8 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 		name := mcpname.Canonical(d.Name)
 		// Only expose show/summarize/match on overflow; gate remove for token-limit flow
 		// Derive method from tool name. Names can be in forms like:
-		//   internal/message:show  (service:method)
-		//   internal_message-show  (canonicalized with dash)
+		//   message:show  (service:method)
+		//   message-show  (canonicalized with dash)
 		// Fallback to full name when no separator present.
 		method := ""
 		if i := strings.LastIndexAny(name, ":-"); i != -1 && i+1 < len(name) {
@@ -242,7 +242,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 			continue
 		}
 		dd := *d
-		// Canonicalize name to service_path-method for consistency (e.g., internal_message-match)
+		// Canonicalize name to service_path-method for consistency (e.g., message-match)
 		dd.Name = mcpname.Canonical(dd.Name)
 		b.Tools.Signatures = append(b.Tools.Signatures, &dd)
 		have[name] = true
@@ -271,13 +271,18 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Bindi
 	}
 }
 
-// ensureInternalToolsIfNeeded appends internal/message tools that are used during
+// ensureInternalToolsIfNeeded appends message tools that are used during
 // continuation-by-response-id flows so that the model can reference them when
 // continuing a prior response. Tool are appended only when the selected model
 // supports continuation. Duplicates are avoided by canonical name.
 func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *prompt.Binding) {
 	if s == nil || s.registry == nil || b == nil {
 		return
+	}
+	if input != nil {
+		if (input.Agent != nil && isCapabilityAgentID(strings.TrimSpace(input.Agent.ID))) || isCapabilityAgentID(strings.TrimSpace(input.AgentID)) {
+			return
+		}
 	}
 	modelName := strings.TrimSpace(b.Model)
 	if modelName == "" {

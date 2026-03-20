@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/viant/agently-core/app/store/conversation"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/scheduler"
 )
@@ -231,6 +233,59 @@ func TestHTTPClient_GetTranscript_QueryParamsAndSelectors(t *testing.T) {
 	}
 	if selectors["Message"].Limit != 1 || selectors["Message"].Offset != 2 || selectors["Message"].OrderBy != "created_at ASC,id ASC" {
 		t.Fatalf("unexpected selector: %#v", selectors["Message"])
+	}
+}
+
+func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/stream" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: model_started\n")
+		_, _ = io.WriteString(w, "data:{\"type\":\"model_started\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"status\":\"thinking\"}\n\n")
+		_, _ = io.WriteString(w, "data:{\"type\":\"assistant_final\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"content\":\"done\",\"finalResponse\":true}\n\n")
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	sub, err := c.StreamEvents(context.Background(), &StreamEventsInput{ConversationID: "c1"})
+	if err != nil {
+		t.Fatalf("StreamEvents: %v", err)
+	}
+	defer sub.Close()
+
+	var events []*streaming.Event
+	timeout := time.After(2 * time.Second)
+	for len(events) < 2 {
+		select {
+		case ev, ok := <-sub.C():
+			if !ok {
+				t.Fatalf("subscription closed early after %d events", len(events))
+			}
+			events = append(events, ev)
+		case <-timeout:
+			t.Fatalf("timed out waiting for events, got %d", len(events))
+		}
+	}
+
+	if got := events[0].Type; got != streaming.EventTypeModelStarted {
+		t.Fatalf("unexpected first event type: %q", got)
+	}
+	if got := events[0].TurnID; got != "t1" {
+		t.Fatalf("unexpected first event turn: %q", got)
+	}
+	if got := events[1].Type; got != streaming.EventTypeAssistantFinal {
+		t.Fatalf("unexpected second event type: %q", got)
+	}
+	if got := events[1].Content; got != "done" {
+		t.Fatalf("unexpected second event content: %q", got)
+	}
+	if !events[1].FinalResponse {
+		t.Fatalf("expected assistant_final finalResponse=true")
 	}
 }
 

@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,10 +53,6 @@ type FeedRegistry struct {
 func NewFeedRegistry() *FeedRegistry {
 	r := &FeedRegistry{}
 	r.loadFromWorkspace()
-	fmt.Printf("[feed-registry] loaded %d feed specs from %s\n", len(r.specs), filepath.Join(workspace.Root(), "feeds"))
-	for _, s := range r.specs {
-		fmt.Printf("[feed-registry]   %s: match=%s/%s\n", s.ID, s.Match.Service, s.Match.Method)
-	}
 	return r
 }
 
