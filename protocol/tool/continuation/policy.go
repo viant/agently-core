@@ -12,14 +12,14 @@ type Strategy int
 
 const (
 	// NoRanges indicates neither input nor output expose range semantics.
-	// Emit YAML overflow wrapper and instruct internal_message-show.
+	// Emit YAML overflow wrapper and instruct message-show.
 	NoRanges Strategy = iota
 	// NativeRanges indicates both output continuation and compatible input ranges
 	// are present. Follow nextRange using the matching range kind (bytes/lines).
 	NativeRanges
 	// OutputOnlyRanges indicates output exposes continuation but inputs do not
 	// accept compatible range selectors. Emit YAML wrapper with messageId/nextRange
-	// and instruct internal_message-show.
+	// and instruct message-show.
 	OutputOnlyRanges
 	// InputOnlyRanges indicates inputs accept ranges but outputs don't expose
 	// continuation hints. Avoid auto-iteration; only honor explicit user ranges

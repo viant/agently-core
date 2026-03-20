@@ -29,6 +29,7 @@ func TestBestPathAllowed(t *testing.T) {
 		name string
 		want bool
 	}{
+		{"message:remove", false},
 		{"internal/message:remove", true},
 		{"system/os:getEnv", true},
 		{"system/exec:run", false},

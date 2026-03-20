@@ -26,7 +26,7 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 		debugf("delegation.directory skip missing service/input/agent/docs")
 		return
 	}
-	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
+	if !isCapabilityAgentID(strings.TrimSpace(input.Agent.ID)) && (input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled) {
 		debugf("delegation.directory disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
@@ -38,10 +38,12 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 	}
 	items, err := s.listPublishedAgents(ctx)
 	if err != nil {
+		infof("agent.directory error convo=%q agent_id=%q err=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), err)
 		debugf("delegation.directory list_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
 		return
 	}
 	if len(items) == 0 {
+		infof("agent.directory empty convo=%q agent_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID))
 		debugf("delegation.directory list_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
@@ -80,6 +82,7 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 		Metadata:    map[string]string{"kind": "agents_directory"},
 	}
 	docs.Items = append(docs.Items, doc)
+	infof("agent.directory injected convo=%q agent_id=%q count=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), len(items))
 	debugf("delegation.directory injected agent_id=%q count=%d", strings.TrimSpace(input.Agent.ID), len(items))
 }
 
@@ -90,9 +93,6 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 	if s != nil && s.agentFinder != nil {
 		if finder, ok := s.agentFinder.(allFinder); ok {
 			items := finder.All()
-			if len(items) == 0 {
-				return nil, nil
-			}
 			filtered := make([]*agent.Agent, 0, len(items))
 			for _, item := range items {
 				if item == nil || item.Profile == nil || !item.Profile.Publish || item.Internal {
@@ -100,7 +100,15 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 				}
 				filtered = append(filtered, item)
 			}
-			return filtered, nil
+			if len(filtered) > 0 {
+				infof("agent.directory source=finder count=%d", len(filtered))
+				return filtered, nil
+			}
+			if len(items) == 0 {
+				infof("agent.directory source=finder empty")
+			} else {
+				infof("agent.directory source=finder no_published count=%d", len(items))
+			}
 		}
 	}
 	if s == nil || s.registry == nil {
@@ -116,20 +124,25 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 	}
 	var lo struct {
 		Items []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name,omitempty"`
-			Description string `json:"description,omitempty"`
-			Summary     string `json:"summary,omitempty"`
+			ID          string   `json:"id"`
+			Name        string   `json:"name,omitempty"`
+			Description string   `json:"description,omitempty"`
+			Summary     string   `json:"summary,omitempty"`
+			Internal    bool     `json:"internal,omitempty"`
+			Tags        []string `json:"tags,omitempty"`
+			Priority    int      `json:"priority,omitempty"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(raw), &lo); err != nil {
 		return nil, err
 	}
 	if len(lo.Items) == 0 {
+		infof("agent.directory source=tool empty")
 		return nil, nil
 	}
 	result := make([]*agent.Agent, 0, len(lo.Items))
 	for _, item := range lo.Items {
+		publish := !item.Internal
 		a := &agent.Agent{
 			Identity: agent.Identity{
 				ID:   strings.TrimSpace(item.ID),
@@ -137,9 +150,11 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 			},
 			Description: strings.TrimSpace(item.Description),
 			Profile: &agent.Profile{
-				Publish:     true,
+				Publish:     publish,
 				Name:        strings.TrimSpace(item.Name),
 				Description: strings.TrimSpace(item.Description),
+				Tags:        append([]string(nil), item.Tags...),
+				Rank:        item.Priority,
 			},
 		}
 		if a.Description == "" {
@@ -148,8 +163,12 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 		if a.Profile.Description == "" {
 			a.Profile.Description = strings.TrimSpace(item.Summary)
 		}
+		if !a.Profile.Publish {
+			continue
+		}
 		result = append(result, a)
 	}
+	infof("agent.directory source=tool count=%d", len(result))
 	return result, nil
 }
 

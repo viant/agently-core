@@ -134,11 +134,21 @@ func autoSelectAgentID(query string, candidates []*agentmdl.Agent) string {
 		if a == nil {
 			continue
 		}
-		agentText := strings.Join([]string{
+		parts := []string{
 			strings.TrimSpace(a.ID),
 			strings.TrimSpace(a.Name),
 			strings.TrimSpace(a.Description),
-		}, " ")
+		}
+		if a.Profile != nil {
+			parts = append(parts,
+				strings.TrimSpace(a.Profile.Name),
+				strings.TrimSpace(a.Profile.Description),
+				strings.Join(a.Profile.Tags, " "),
+				strings.Join(a.Profile.Responsibilities, " "),
+				strings.Join(a.Profile.InScope, " "),
+			)
+		}
+		agentText := strings.Join(parts, " ")
 		agentTokens := tokenizeText(agentText)
 		if len(agentTokens) == 0 {
 			continue
@@ -196,7 +206,7 @@ func isCapabilityDiscoveryQuery(query string) bool {
 
 func (s *Service) tryResolveCapabilityAgent(ctx context.Context) string {
 	if s == nil || s.agentFinder == nil {
-		return ""
+		return "agent_selector"
 	}
 	candidates := []string{"agent_selector", "agent-selector"}
 	for _, id := range candidates {
@@ -213,10 +223,10 @@ func (s *Service) tryResolveCapabilityAgent(ctx context.Context) string {
 			return name
 		}
 	}
-	return ""
+	return "agent_selector"
 }
 
-func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, query string) (string, bool, string, error) {
+func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, requestedAgent string, query string) (string, bool, string, error) {
 	providedQuery := strings.TrimSpace(query)
 	if strings.TrimSpace(query) == "" {
 		query = lastUserQueryText(conv)
@@ -227,16 +237,24 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 		defaultAgent = strings.TrimSpace(s.defaults.Agent)
 	}
 
-	explicitAgent := ""
+	explicitAgent := strings.TrimSpace(requestedAgent)
 	autoRequested := false
-	if conv != nil && conv.AgentId != nil {
-		explicitAgent = strings.TrimSpace(*conv.AgentId)
-		if explicitAgent != "" && !isAutoAgentRef(explicitAgent) {
+	if explicitAgent != "" {
+		if !isAutoAgentRef(explicitAgent) {
 			return explicitAgent, false, "explicit", nil
 		}
-		autoRequested = isAutoAgentRef(explicitAgent)
-	} else {
-		autoRequested = isAutoAgentRef(defaultAgent)
+		autoRequested = true
+	}
+	if conv != nil && conv.AgentId != nil {
+		conversationAgent := strings.TrimSpace(*conv.AgentId)
+		if explicitAgent == "" {
+			if conversationAgent != "" && !isAutoAgentRef(conversationAgent) {
+				return conversationAgent, false, "explicit", nil
+			}
+			autoRequested = isAutoAgentRef(conversationAgent)
+		}
+	} else if explicitAgent == "" {
+		autoRequested = autoRequested || isAutoAgentRef(defaultAgent)
 	}
 
 	// When auto is not requested, preserve continuity by using the last agent that
@@ -252,10 +270,22 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	}
 
 	var candidates []*agentmdl.Agent
-	if s != nil && s.agentFinder != nil {
+	if s != nil {
+		if items, err := s.listPublishedAgents(ctx); err == nil {
+			candidates = items
+		}
+	}
+	if len(candidates) == 0 && s != nil && s.agentFinder != nil {
 		if c, ok := s.agentFinder.(agentCatalog); ok {
 			candidates = c.All()
 		}
+	}
+
+	// Capability-discovery queries should route directly into the synthetic
+	// capability responder path instead of falling through to cheap token
+	// matching, which can incorrectly select a generic conversational agent.
+	if providedQuery != "" && isCapabilityDiscoveryQuery(query) {
+		return "agent_selector", true, "capability_direct", nil
 	}
 
 	// Prefer LLM-based routing when available, then fall back to cheap token match.
@@ -273,14 +303,6 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	if selected := autoSelectAgentID(query, candidates); selected != "" {
 		return selected, true, "token_match", nil
 	}
-	// Cold-start fallback: when the catalog is not preloaded, route explicit
-	// capability-discovery queries to agent_selector when present.
-	if providedQuery != "" && isCapabilityDiscoveryQuery(query) {
-		if selected := s.tryResolveCapabilityAgent(ctx); selected != "" {
-			return selected, true, "capability_fallback", nil
-		}
-	}
-
 	// If routing cannot decide, keep continuity as a safe fallback.
 	if id := lastTurnAgentIDUsed(conv); id != "" {
 		return id, false, "continuity", nil

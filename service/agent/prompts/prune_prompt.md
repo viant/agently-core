@@ -10,10 +10,10 @@ Remove and replace (via summaries) the least important messages from conversatio
 so the remaining conversation fits under the dynamic limit.
 
 **TOOL USAGE RESTRICTION (CRITICAL)**
-You **must use only one tool: `internal_message-remove`**.
+You **must use only one tool: `message-remove`**.
 
 * No other tools, functions, or outputs are allowed.
-* The entire response must consist solely of a single `internal_message-remove` function call in the specified format.
+* The entire response must consist solely of a single `message-remove` function call in the specified format.
 * Do **not** invoke, reference, or imply use of any additional tools.
 
 **VERY IMPORTANT**
@@ -54,7 +54,7 @@ Remove:
 * Each tuple should have a predominant role for "role".
 
 **OUTPUT FORMAT (MANDATORY)**
-Return **ONLY** a call to function tool "internal_message-remove" with:
+Return **ONLY** a call to function tool "message-remove" with:
 ```json
 {
   "tuples": [
@@ -71,5 +71,5 @@ Return **ONLY** a call to function tool "internal_message-remove" with:
 **CONSTRAINTS**
 * Do NOT assume a fixed token budget; use the figures in {{ERROR_MESSAGE}}.
 * Replace enough content to safely fit under the limit.
-* Output only the function `internal_message-remove` call, no additional text.
+* Output only the function `message-remove` call, no additional text.
 * Use only IDs from fenced code blocks as messageIds. Verify this twice.

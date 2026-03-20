@@ -6,10 +6,28 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	base "github.com/viant/agently-core/genai/llm/provider/base"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	"github.com/viant/agently-core/service/core"
 )
+
+type continuationFinder struct{}
+
+func (continuationFinder) Find(context.Context, string) (llm.Model, error) {
+	return continuationModel{}, nil
+}
+
+type continuationModel struct{}
+
+func (continuationModel) Generate(context.Context, *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	return nil, nil
+}
+
+func (continuationModel) Implements(feature string) bool {
+	return feature == base.SupportsContextContinuation
+}
 
 func TestService_BuildToolSignatures_WithBundles(t *testing.T) {
 	testCases := []struct {
@@ -87,4 +105,30 @@ func TestFilterDelegationDiscoveryTools_RemovesAgentsListWhenDirectoryDocPresent
 		got = append(got, def.Name)
 	}
 	assert.EqualValues(t, []string{"llm/agents:run", "system/exec:execute"}, got)
+}
+
+func TestEnsureInternalToolsIfNeeded_SkipsMessageToolsForCapabilityAgent(t *testing.T) {
+	reg := &fakeRegistry{
+		defs: []llm.ToolDefinition{
+			{Name: "message/show"},
+			{Name: "message/match"},
+			{Name: "message/summarize"},
+			{Name: "message/remove"},
+		},
+	}
+	svc := &Service{
+		registry: reg,
+		llm:      core.New(continuationFinder{}, reg, nil),
+	}
+	binding := &prompt.Binding{Model: "openai_gpt-5.4"}
+	input := &QueryInput{
+		AgentID: "agent_selector",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "agent_selector", Name: "Agent Selector"},
+		},
+	}
+
+	svc.ensureInternalToolsIfNeeded(context.Background(), input, binding)
+
+	assert.Empty(t, binding.Tools.Signatures)
 }

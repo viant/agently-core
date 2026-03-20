@@ -19,7 +19,7 @@ import (
 )
 
 // freeMessageTokensLLM kicks off a focused plan run with the guidance note as
-// the user prompt so the assistant can immediately use internal/message tools
+// the user prompt so the assistant can immediately use message tools
 // (e.g., remove/summarize) to free tokens and continue the conversation.
 func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conversation, instruction string, oldGenInput *core2.GenerateInput, overlimit int) error {
 	if s == nil || s.llm == nil || conv == nil {
@@ -76,7 +76,7 @@ func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conver
 }
 
 // compactHistoryLLM performs a full compaction pass using the compact prompt
-// and internal_message-remove to archive older messages.
+// and message-remove to archive older messages.
 func (s *Service) compactHistoryLLM(ctx context.Context, conv *apiconv.Conversation, errMessage string, oldGenInput *core2.GenerateInput, overlimit int) error {
 	if conv == nil {
 		return fmt.Errorf("missing conversation")
@@ -101,7 +101,7 @@ func (s *Service) adjustToolDefinitions(genInput *core2.GenerateInput) {
 			if strings.Contains(def.Name, "remove") {
 				tmpDef := *def
 				tmpDef.Name = strings.Replace(tmpDef.Name, "/", "_", 1)
-				tmpDef.Name = strings.Replace(tmpDef.Name, "/", "-", 1) // should give internal_message:remove
+				tmpDef.Name = strings.Replace(tmpDef.Name, "/", "-", 1) // should give message-remove
 				genInput.Options.Tools = append(genInput.Options.Tools, llm.Tool{Type: "function", Definition: tmpDef})
 			}
 		}
@@ -312,7 +312,7 @@ func (s *Service) composeCompactPrompt(errMessage string, lines []string, ids []
 	}
 	buf.WriteString("\n")
 	buf.WriteString("Use the candidates above to select messages for removal and replace them with a single compact summary.\n")
-	buf.WriteString("Return ONLY a call to function tool \"internal_message-remove\" with:\n")
+	buf.WriteString("Return ONLY a call to function tool \"message-remove\" with:\n")
 	buf.WriteString("```json\n")
 	buf.WriteString("{\n")
 	buf.WriteString("  \"tuples\": [\n")

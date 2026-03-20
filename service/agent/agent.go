@@ -26,7 +26,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				}
 				conv = loaded
 			}
-			selectedID, autoSelected, routingReason, err := s.resolveAgentIDForConversation(ctx, conv, qi.Query)
+			selectedID, autoSelected, routingReason, err := s.resolveAgentIDForConversation(ctx, conv, agentID, qi.Query)
 			if err != nil {
 				return fmt.Errorf("failed to resolve agent: %w", err)
 			}
@@ -34,6 +34,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 			qi.AgentID = agentID
 			qi.AutoSelected = autoSelected
 			qi.RoutingReason = strings.TrimSpace(routingReason)
+			infof("agent.ensureAgent resolved convo=%q selected=%q auto=%v reason=%q query_head=%q", strings.TrimSpace(qi.ConversationID), agentID, autoSelected, qi.RoutingReason, headString(qi.Query, 256))
 		}
 		if agentID != "" {
 			a, err := s.loadResolvedAgent(ctx, agentID)
@@ -43,9 +44,10 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 			qi.Agent = a
 			if isCapabilityAgentID(agentID) {
 				autoTools := false
-				qi.ToolsAllowed = []string{"llm/agents:list"}
 				qi.AutoSelectTools = &autoTools
+				qi.ToolsAllowed = nil
 				qi.DisableChains = true
+				infof("agent.ensureAgent capability_mode convo=%q agent_id=%q", strings.TrimSpace(qi.ConversationID), agentID)
 			}
 		}
 	}

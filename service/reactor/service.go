@@ -132,7 +132,7 @@ const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 
 // ctxKeyContinuationMode marks runs that are invoked as part of a
 // continuation/recovery flow (for example, context-limit handling). Duplicate
-// protection is disabled in this mode so internal/message tools can iterate
+// protection is disabled in this mode so message tools can iterate
 // freely when trimming history.
 const ctxKeyContinuationMode ctxKeyPresentedType = 2
 
@@ -291,7 +291,7 @@ func hasRemovalTool(p *plan.Plan) bool {
 }
 
 // presentContextLimitExceeded composes a concise guidance note with removable-candidate lines,
-// then triggers a best‑effort, tool‑driven recovery loop to free tokens (via internal/message tools),
+// then triggers a best‑effort, tool‑driven recovery loop to free tokens (via message tools),
 // and finally inserts an assistant message with the guidance for the user.
 func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *core2.GenerateInput, causeErr error, errMessage string) error {
 	convID := memory.ConversationIDFromContext(ctx)

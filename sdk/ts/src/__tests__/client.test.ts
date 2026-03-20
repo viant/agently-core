@@ -2,6 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentlyClient } from '../client';
 import { HttpError } from '../errors';
 
+class MockEventSource {
+    static instances: MockEventSource[] = [];
+    url: string;
+    withCredentials: boolean;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onerror: ((event?: any) => void) | null = null;
+    closed = false;
+
+    constructor(url: string, init?: { withCredentials?: boolean }) {
+        this.url = url;
+        this.withCredentials = !!init?.withCredentials;
+        MockEventSource.instances.push(this);
+    }
+
+    close(): void {
+        this.closed = true;
+    }
+
+    emit(data: any): void {
+        this.onmessage?.({ data: typeof data === 'string' ? data : JSON.stringify(data) } as MessageEvent);
+    }
+}
+
 // ─── Mock fetch ────────────────────────────────────────────────────────────────
 
 function mockFetch(status: number, body: any, headers?: Record<string, string>): typeof fetch {
@@ -41,6 +64,11 @@ function lastCall(fn: ReturnType<typeof vi.fn>): { url: string; method: string; 
         headers: opts?.headers,
     };
 }
+
+beforeEach(() => {
+    MockEventSource.instances = [];
+    vi.stubGlobal('EventSource', MockEventSource as any);
+});
 
 // ─── Conversations ─────────────────────────────────────────────────────────────
 
@@ -182,6 +210,45 @@ describe('Query', () => {
         expect(call.url).toBe('http://localhost:8585/v1/agent/query');
         expect(call.body.query).toBe('Analyze sales');
         expect(call.body.agentId).toBe('coder');
+    });
+});
+
+describe('Streaming', () => {
+    it('dispatches callbacks based on the JSON payload type', () => {
+        const f = mockFetch(200, {});
+        const c = client(f);
+        const seen: string[] = [];
+        const text: string[] = [];
+        const tools: string[] = [];
+        const turns: string[] = [];
+        const feeds: string[] = [];
+
+        const sub = c.streamEvents('conv_1', {
+            onEvent: (event) => seen.push(event.type),
+            onTextDelta: (content) => text.push(content),
+            onToolEvent: (event) => tools.push(event.type),
+            onTurnEnd: (event) => turns.push(event.type),
+            onFeedEvent: (event) => feeds.push(event.type),
+        });
+
+        expect(MockEventSource.instances).toHaveLength(1);
+        const es = MockEventSource.instances[0];
+        expect(es.url).toBe('http://localhost:8585/v1/stream?conversationId=conv_1');
+        expect(es.withCredentials).toBe(false);
+
+        es.emit({ type: 'text_delta', streamId: 'conv_1', content: 'hello' });
+        es.emit({ type: 'tool_call_started', streamId: 'conv_1', toolName: 'system/exec' });
+        es.emit({ type: 'tool_feed_active', streamId: 'conv_1', feedId: 'feed-1' });
+        es.emit({ type: 'turn_completed', streamId: 'conv_1', status: 'completed' });
+
+        expect(seen).toEqual(['text_delta', 'tool_call_started', 'tool_feed_active', 'turn_completed']);
+        expect(text).toEqual(['hello']);
+        expect(tools).toEqual(['tool_call_started']);
+        expect(feeds).toEqual(['tool_feed_active']);
+        expect(turns).toEqual(['turn_completed']);
+
+        sub.close();
+        expect(es.closed).toBe(true);
     });
 });
 

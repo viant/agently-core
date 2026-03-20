@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/viant/agently-core/genai/llm"
 	agproto "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/tool"
 )
 
 type allAgentFinder struct {
@@ -24,6 +27,22 @@ func (f *allAgentFinder) Find(ctx context.Context, id string) (*agproto.Agent, e
 }
 
 func (f *allAgentFinder) All() []*agproto.Agent { return f.items }
+
+type staticRegistry struct {
+	result string
+}
+
+func (s *staticRegistry) Definitions() []llm.ToolDefinition                { return nil }
+func (s *staticRegistry) MatchDefinition(string) []*llm.ToolDefinition     { return nil }
+func (s *staticRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { return nil, false }
+func (s *staticRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
+func (s *staticRegistry) SetDebugLogger(io.Writer)                         {}
+func (s *staticRegistry) Initialize(context.Context)                       {}
+func (s *staticRegistry) Execute(context.Context, string, map[string]interface{}) (string, error) {
+	return s.result, nil
+}
+
+var _ tool.Registry = (*staticRegistry)(nil)
 
 func TestAppendAgentDirectoryDoc_UsesFinderWithoutRegistryExecution(t *testing.T) {
 	svc := &Service{
@@ -60,6 +79,28 @@ func TestAppendAgentDirectoryDoc_UsesFinderWithoutRegistryExecution(t *testing.T
 	if assert.Len(t, docs.Items, 1) {
 		assert.Equal(t, "internal://llm/agents/list", docs.Items[0].SourceURI)
 		assert.Contains(t, docs.Items[0].PageContent, "Coder")
+		assert.NotContains(t, docs.Items[0].PageContent, "Hidden")
+	}
+}
+
+func TestAppendAgentDirectoryDoc_FallsBackToRegistryWhenFinderCacheEmpty(t *testing.T) {
+	svc := &Service{
+		agentFinder: &allAgentFinder{},
+		registry: &staticRegistry{
+			result: `{"items":[{"id":"coder","name":"Coder","summary":"Repository analysis and code changes"},{"id":"hidden","name":"Hidden","internal":true,"summary":"Internal only"}]}`,
+		},
+	}
+	input := &QueryInput{
+		Agent: &agproto.Agent{
+			Identity: agproto.Identity{ID: "agent_selector"},
+		},
+	}
+	docs := &prompt.Documents{}
+
+	svc.appendAgentDirectoryDoc(context.Background(), input, docs)
+
+	if assert.Len(t, docs.Items, 1) {
+		assert.Contains(t, docs.Items[0].PageContent, "Coder (`coder`): Repository analysis and code changes")
 		assert.NotContains(t, docs.Items[0].PageContent, "Hidden")
 	}
 }

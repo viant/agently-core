@@ -40,12 +40,15 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 			modelName = strings.TrimSpace(s.defaults.Model)
 		}
 	}
+	infof("agent.selector config convo=%q agent_auto_model=%q default_model=%q effective_model=%q candidates=%d", strings.TrimSpace(convID(conv)), strings.TrimSpace(valueOrDefaultDefaultsModel(s)), strings.TrimSpace(valueOrDefaultModel(s)), strings.TrimSpace(modelName), len(candidates))
 	if modelName == "" {
+		infof("agent.selector skip convo=%q reason=%q", strings.TrimSpace(convID(conv)), "empty_model")
 		return "", nil
 	}
 
 	model, err := s.llm.ModelFinder().Find(ctx, modelName)
 	if err != nil || model == nil {
+		infof("agent.selector skip convo=%q reason=%q model=%q err=%v", strings.TrimSpace(convID(conv)), "model_not_found", strings.TrimSpace(modelName), err)
 		return "", nil
 	}
 
@@ -121,13 +124,12 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	if conv != nil {
 		convID = conv.Id
 	}
-	runCtx := s.ensureRunTrackedLLMContext(ctx, convID, "agent_selector", "")
 	timeoutSec := 20
 	if s.defaults != nil && s.defaults.AgentAutoSelection.TimeoutSec > 0 {
 		timeoutSec = s.defaults.AgentAutoSelection.TimeoutSec
 	}
 	var cancel func()
-	runCtx, cancel = context.WithTimeout(runCtx, time.Duration(timeoutSec)*time.Second)
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 	infof("agent.selector start convo=%q model=%q timeout_sec=%d candidates=%d query_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), timeoutSec, len(candidateLines), len(query))
 	in := &core.GenerateInput{
@@ -306,4 +308,25 @@ func recentNonInterimTurnsText(conv *apiconv.Conversation, lastN int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func convID(conv *apiconv.Conversation) string {
+	if conv == nil {
+		return ""
+	}
+	return strings.TrimSpace(conv.Id)
+}
+
+func valueOrDefaultDefaultsModel(s *Service) string {
+	if s == nil || s.defaults == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.defaults.AgentAutoSelection.Model)
+}
+
+func valueOrDefaultModel(s *Service) string {
+	if s == nil || s.defaults == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.defaults.Model)
 }

@@ -4,6 +4,8 @@ Pick the single best agent id for the user request from the provided list.
 Hard rule: Return {"{{outputKey}}":"agent_selector"} ONLY when the user is explicitly asking
 about this system as a whole (capabilities, onboarding, how to use this system).
 Examples: "what agent is this", "what can you do", "use cases", "how to use you".
+Selecting `agent_selector` means the runtime will answer directly from the discovered
+agent directory in the same turn. It is not a delegation target.
 
 If the user is asking about a specific agent's capabilities (and names an agent id or name),
 select that agent instead of agent_selector.

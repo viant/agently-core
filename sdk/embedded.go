@@ -310,7 +310,6 @@ func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*Ac
 	// Use the Transcript's UniqueToolNames to find matching feeds, then
 	// fetch their data from the call_payload table directly via tool_call records.
 	toolNames := turns.UniqueToolNames()
-	fmt.Printf("[resolve-feeds] unique tools: %v\n", toolNames)
 	feedResults := map[string]*ActiveFeedState{}
 	for _, toolName := range toolNames {
 		matched := c.feeds.Match(toolName)
@@ -320,7 +319,6 @@ func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*Ac
 			}
 			// Find the last tool call for this tool and fetch its response payload.
 			content := c.findLastToolCallPayload(turns, toolName)
-			fmt.Printf("[resolve-feeds] tool=%q feed=%q contentLen=%d\n", toolName, spec.ID, len(content))
 			var data interface{}
 			if content != "" {
 				var parsed interface{}

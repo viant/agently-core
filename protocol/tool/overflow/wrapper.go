@@ -12,7 +12,7 @@ import (
 )
 
 // BuildOverflowYAML produces a YAML helper document that LLMs and UIs can use
-// to continue reading large content via internal_message-show. It includes the
+// to continue reading large content via message-show. It includes the
 // message id, returned/remaining counts and a nextRange hint when available.
 func BuildOverflowYAML(messageID string, cont *extension.Continuation) (string, error) {
 	doc := map[string]any{
@@ -45,7 +45,7 @@ func BuildOverflowYAML(messageID string, cont *extension.Continuation) (string, 
 		}
 	}
 	// Generic hint for callers. We keep it short and actionable.
-	doc["hint"] = "Call internal_message-show with messageId and byteRange.from/to from nextRange."
+	doc["hint"] = "Call message-show with messageId and byteRange.from/to from nextRange."
 
 	out, err := yaml.Marshal(doc)
 	if err != nil {
