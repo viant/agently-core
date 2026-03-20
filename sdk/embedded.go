@@ -113,6 +113,16 @@ func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
 	}
 	// Initialize feed registry from workspace.
 	c.feeds = NewFeedRegistry()
+	if rt.DAO != nil && rt.Agent != nil {
+		store, err := scheduler.NewDatlyStore(context.Background(), rt.DAO, rt.Data)
+		if err != nil {
+			return nil, err
+		}
+		c.SetScheduler(scheduler.New(store, rt.Agent,
+			scheduler.WithConversationClient(rt.Conversation),
+			scheduler.WithTokenProvider(rt.TokenProvider),
+		))
+	}
 	return c, nil
 }
 

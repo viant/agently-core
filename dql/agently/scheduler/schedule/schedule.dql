@@ -1,0 +1,15 @@
+/* {"URI":"/{id}"} */
+
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $Id<string>(path/id).WithPredicate(0, 'equal', 't', 'id'))
+#define($_ = $DefaultPredicate<bool>(const/value).Value('0').WithPredicate(0, 'handler', '*schedule.Filter'))
+
+SELECT schedule_rows.*
+FROM (
+    SELECT t.*
+    FROM schedule t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) schedule_rows

@@ -6,28 +6,31 @@ import "time"
 type Schedule struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
-	AgentRef        string     `json:"agentRef"`
+	Description     *string    `json:"description,omitempty"`
 	CreatedByUserID *string    `json:"createdByUserId,omitempty"`
-	Visibility      string     `json:"visibility,omitempty"` // public|private
+	Visibility      string     `json:"visibility,omitempty"`
+	AgentRef        string     `json:"agentRef"`
+	ModelOverride   *string    `json:"modelOverride,omitempty"`
+	UserCredURL     *string    `json:"userCredUrl,omitempty"`
 	Enabled         bool       `json:"enabled"`
-	ScheduleType    string     `json:"scheduleType"` // cron, adhoc, interval
+	StartAt         *time.Time `json:"startAt,omitempty"`
+	EndAt           *time.Time `json:"endAt,omitempty"`
+	ScheduleType    string     `json:"scheduleType"`
 	CronExpr        *string    `json:"cronExpr,omitempty"`
 	IntervalSeconds *int       `json:"intervalSeconds,omitempty"`
 	Timezone        string     `json:"timezone,omitempty"`
-	TaskPrompt      *string    `json:"taskPrompt,omitempty"`
+	TimeoutSeconds  int        `json:"timeoutSeconds,omitempty"`
 	TaskPromptURI   *string    `json:"taskPromptUri,omitempty"`
-	UserCredURL     *string    `json:"userCredUrl,omitempty"` // scy-encoded credential reference for auth restoration
+	TaskPrompt      *string    `json:"taskPrompt,omitempty"`
 	NextRunAt       *time.Time `json:"nextRunAt,omitempty"`
 	LastRunAt       *time.Time `json:"lastRunAt,omitempty"`
+	LastStatus      *string    `json:"lastStatus,omitempty"`
+	LastError       *string    `json:"lastError,omitempty"`
+	LeaseOwner      *string    `json:"leaseOwner,omitempty"`
+	LeaseUntil      *time.Time `json:"leaseUntil,omitempty"`
 	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	UpdatedAt       *time.Time `json:"updatedAt,omitempty"`
 }
 
-// ScheduleStore abstracts schedule persistence.
-type ScheduleStore interface {
-	Get(id string) (*Schedule, error)
-	List() ([]*Schedule, error)
-	Upsert(s *Schedule) error
-	Delete(id string) error
-	ListDue(now time.Time) ([]*Schedule, error)
-}
+// ScheduleStore is kept as a compatibility alias for the persisted scheduler store.
+type ScheduleStore = Store

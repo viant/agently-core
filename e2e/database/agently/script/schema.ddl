@@ -80,6 +80,34 @@ CREATE INDEX idx_turn_conv_status_created ON turn (conversation_id, status, crea
 CREATE INDEX idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq);
 
 -- =========================
+-- turn_queue
+-- =========================
+CREATE TABLE IF NOT EXISTS turn_queue
+(
+    id              VARCHAR(255) PRIMARY KEY,
+    conversation_id VARCHAR(255) NOT NULL,
+    turn_id         VARCHAR(255) NOT NULL,
+    message_id      VARCHAR(255) NOT NULL,
+    queue_seq       BIGINT       NOT NULL,
+    status          VARCHAR(255) NOT NULL DEFAULT 'queued',
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP    NULL     DEFAULT NULL,
+
+    CONSTRAINT fk_turn_queue_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE,
+    CONSTRAINT fk_turn_queue_turn
+        FOREIGN KEY (turn_id) REFERENCES turn (id) ON DELETE CASCADE,
+    CONSTRAINT fk_turn_queue_message
+        FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE UNIQUE INDEX ux_turn_queue_turn_id ON turn_queue (turn_id);
+CREATE UNIQUE INDEX ux_turn_queue_message_id ON turn_queue (message_id);
+CREATE INDEX idx_turn_queue_conv_status_seq ON turn_queue (conversation_id, status, queue_seq, created_at);
+
+-- =========================
 -- call_payload
 -- =========================
 CREATE TABLE IF NOT EXISTS call_payload
@@ -364,8 +392,11 @@ CREATE TABLE IF NOT EXISTS schedule
     id               VARCHAR(255) PRIMARY KEY,
     name             VARCHAR(255) NOT NULL UNIQUE,
     description      TEXT,
+    created_by_user_id VARCHAR(255),
+    visibility       VARCHAR(255) NOT NULL DEFAULT 'private',
     agent_ref        VARCHAR(255) NOT NULL,
     model_override   VARCHAR(255),
+    user_cred_url    TEXT,
     enabled          TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     start_at         TIMESTAMP    NULL     DEFAULT NULL,
     end_at           TIMESTAMP    NULL     DEFAULT NULL,
@@ -373,6 +404,7 @@ CREATE TABLE IF NOT EXISTS schedule
     cron_expr        VARCHAR(255),
     interval_seconds BIGINT,
     timezone         VARCHAR(64)  NOT NULL DEFAULT 'UTC',
+    timeout_seconds  INT          NOT NULL DEFAULT 0,
     task_prompt_uri  TEXT,
     task_prompt      MEDIUMTEXT,
     next_run_at      TIMESTAMP    NULL     DEFAULT NULL,
