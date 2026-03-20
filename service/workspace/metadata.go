@@ -134,12 +134,12 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 		}
 		if h.store != nil {
 			if agents, err := h.store.List(ctx, ws.KindAgent); err == nil {
-				resp.Agents = agents
 				resp.AgentInfos = h.loadAgentInfos(ctx, agents)
+				resp.Agents = agentInfoIDs(resp.AgentInfos)
 			}
 			if models, err := h.store.List(ctx, ws.KindModel); err == nil {
-				resp.Models = models
 				resp.ModelInfos = h.loadModelInfos(ctx, models)
+				resp.Models = modelInfoIDs(resp.ModelInfos)
 			}
 		}
 		if len(h.starterTasks) > 0 {
@@ -189,6 +189,26 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 	return result
 }
 
+func agentInfoIDs(entries []AgentInfo) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		id := entry.ID
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
 func (h *MetadataHandler) loadModelInfos(ctx context.Context, names []string) []ModelInfo {
 	if h == nil || h.store == nil || len(names) == 0 {
 		return nil
@@ -214,6 +234,26 @@ func (h *MetadataHandler) loadModelInfos(ctx context.Context, names []string) []
 			label = id
 		}
 		result = append(result, ModelInfo{ID: id, Name: label})
+	}
+	return result
+}
+
+func modelInfoIDs(entries []ModelInfo) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		id := entry.ID
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
 	}
 	return result
 }
