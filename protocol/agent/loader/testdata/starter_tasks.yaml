@@ -1,0 +1,14 @@
+id: starter-demo
+name: Starter Demo
+model: openai_gpt-5.2
+starterTasks:
+  - id: analyze-repo
+    title: Analyze this repo
+    prompt: Analyze this repository.
+    description: Architecture summary and next steps.
+    icon: tree-structure
+  - id: write-tests
+    title: Add missing tests
+    prompt: Add focused tests for a weakly covered area.
+    description: Targeted coverage improvements.
+    icon: flask

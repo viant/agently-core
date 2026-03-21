@@ -51,7 +51,7 @@ func TestService_Load(t *testing.T) {
 			  "name":"Chain Demo",
 			  "source":{"url":"testdata/with_chains.yaml"},
 			  "model":"gpt-4o",
-            "chains":[
+            "followUps":[
                 {"on":"succeeded","target":{"agentId":"summarizer"},"mode":"sync","conversation":"link","query":{"text":"Summarize the assistant reply: {{ .Output.Content }}"},"publish":{"role":"assistant"}},
 			    {"on":"failed","target":{"agentId":"notifier"},"mode":"sync","conversation":"reuse","when":{"expr":"{{ ne .Output.Content \"\" }}"},"onError":"message"}
 			  ]
@@ -240,6 +240,28 @@ func TestService_Load_ToolApprovalQueue(t *testing.T) {
 	assert.EqualValues(t, "task", got.Tool.Items[0].ApprovalQueue.TitleSelector)
 	assert.EqualValues(t, "ds", got.Tool.Items[0].ApprovalQueue.DataSourceSelector)
 	assert.EqualValues(t, "/ui/approval", got.Tool.Items[0].ApprovalQueue.UIURI)
+}
+
+func TestService_Load_StarterTasks(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "starter_tasks.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got.StarterTasks, 2)
+
+	assert.Equal(t, "analyze-repo", got.StarterTasks[0].ID)
+	assert.Equal(t, "Analyze this repo", got.StarterTasks[0].Title)
+	assert.Equal(t, "Analyze this repository.", got.StarterTasks[0].Prompt)
+	assert.Equal(t, "Architecture summary and next steps.", got.StarterTasks[0].Description)
+	assert.Equal(t, "tree-structure", got.StarterTasks[0].Icon)
+
+	assert.Equal(t, "write-tests", got.StarterTasks[1].ID)
+	assert.Equal(t, "Add missing tests", got.StarterTasks[1].Title)
+	assert.Equal(t, "Add focused tests for a weakly covered area.", got.StarterTasks[1].Prompt)
+	assert.Equal(t, "Targeted coverage improvements.", got.StarterTasks[1].Description)
+	assert.Equal(t, "flask", got.StarterTasks[1].Icon)
 }
 
 func TestParseResourceEntry_SystemFlag(t *testing.T) {

@@ -99,6 +99,11 @@ type (
 		// Profile controls agent discoverability in the catalog/list (preferred over Directory).
 		Profile *Profile `yaml:"profile,omitempty" json:"profile,omitempty"`
 
+		// StarterTasks defines suggested empty-state prompts for this agent.
+		// UIs should treat these as agent-specific affordances rather than
+		// workspace-global suggestions.
+		StarterTasks []StarterTask `yaml:"starterTasks,omitempty" json:"starterTasks,omitempty"`
+
 		// Delegation controls whether this agent can delegate to other agents
 		// and the max depth for same-agent-type delegation.
 		Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
@@ -113,10 +118,7 @@ type (
 		Attachment *Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
 
 		// FollowUps defines post-turn follow-ups executed after a turn finishes.
-		// Preferred config key: followUps.
 		FollowUps []*Chain `yaml:"followUps,omitempty" json:"followUps,omitempty"`
-		// Chains is a deprecated backward-compatible alias for FollowUps.
-		Chains []*Chain `yaml:"chains,omitempty" json:"chains,omitempty"`
 
 		// MCPResources removed — use generic resources tools instead.
 
@@ -126,6 +128,15 @@ type (
 		// Runtime behavior remains controlled by QueryInput.elicitationMode and
 		// service options (router/awaiter).
 		ContextInputs *ContextInputs `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
+	}
+
+	// StarterTask describes a suggested starter prompt for empty chat state.
+	StarterTask struct {
+		ID          string `yaml:"id,omitempty" json:"id,omitempty"`
+		Title       string `yaml:"title,omitempty" json:"title,omitempty"`
+		Prompt      string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+		Description string `yaml:"description,omitempty" json:"description,omitempty"`
+		Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
 	}
 
 	// Resource defines a single resource root with optional binding behavior.
@@ -372,16 +383,7 @@ func (a *Agent) EffectiveFollowUps() []*Chain {
 	if a == nil {
 		return nil
 	}
-	if len(a.FollowUps) == 0 {
-		return a.Chains
-	}
-	if len(a.Chains) == 0 {
-		return a.FollowUps
-	}
-	out := make([]*Chain, 0, len(a.FollowUps)+len(a.Chains))
-	out = append(out, a.FollowUps...)
-	out = append(out, a.Chains...)
-	return out
+	return a.FollowUps
 }
 
 func (a *Agent) Validate() error {

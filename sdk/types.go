@@ -142,20 +142,66 @@ type PendingElicitation struct {
 }
 
 type WorkspaceDefaults struct {
-	Agent    string `json:"agent,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Embedder string `json:"embedder,omitempty"`
+	Agent           string `json:"agent,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Embedder        string `json:"embedder,omitempty"`
+	AutoSelectTools bool   `json:"autoSelectTools,omitempty"`
 }
 
+// WorkspaceCapabilities advertises optional backend contracts so clients can
+// adapt UX without probing unsupported features.
+type WorkspaceCapabilities struct {
+	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
+	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
+	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
+	CompactConversation   bool `json:"compactConversation,omitempty"`
+	PruneConversation     bool `json:"pruneConversation,omitempty"`
+	AnonymousSession      bool `json:"anonymousSession,omitempty"`
+	MessageCursor         bool `json:"messageCursor,omitempty"`
+	StructuredElicitation bool `json:"structuredElicitation,omitempty"`
+	TurnStartedEvent      bool `json:"turnStartedEvent,omitempty"`
+}
+
+// StarterTask describes an agent-specific suggested starter prompt for empty
+// chat state.
+type StarterTask struct {
+	ID          string `json:"id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Prompt      string `json:"prompt,omitempty"`
+	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+}
+
+// WorkspaceAgentInfo describes a UI-facing agent entry returned by
+// GET /v1/workspace/metadata.
+type WorkspaceAgentInfo struct {
+	ID           string        `json:"id,omitempty"`
+	Name         string        `json:"name,omitempty"`
+	ModelRef     string        `json:"modelRef,omitempty"`
+	StarterTasks []StarterTask `json:"starterTasks,omitempty"`
+}
+
+// WorkspaceModelInfo describes a UI-facing model entry returned by
+// GET /v1/workspace/metadata.
+type WorkspaceModelInfo struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// WorkspaceMetadata is the workspace bootstrap payload returned by
+// GET /v1/workspace/metadata.
 type WorkspaceMetadata struct {
-	WorkspaceRoot   string             `json:"workspaceRoot,omitempty"`
-	DefaultAgent    string             `json:"defaultAgent,omitempty"`
-	DefaultModel    string             `json:"defaultModel,omitempty"`
-	DefaultEmbedder string             `json:"defaultEmbedder,omitempty"`
-	Defaults        *WorkspaceDefaults `json:"defaults,omitempty"`
-	Agents          []string           `json:"agents,omitempty"`
-	Models          []string           `json:"models,omitempty"`
-	Version         string             `json:"version,omitempty"`
+	WorkspaceRoot   string                `json:"workspaceRoot,omitempty"`
+	DefaultAgent    string                `json:"defaultAgent,omitempty"`
+	DefaultModel    string                `json:"defaultModel,omitempty"`
+	DefaultEmbedder string                `json:"defaultEmbedder,omitempty"`
+	Defaults        *WorkspaceDefaults    `json:"defaults,omitempty"`
+	Capabilities    WorkspaceCapabilities `json:"capabilities,omitempty"`
+	Agents          []string              `json:"agents,omitempty"`
+	Models          []string              `json:"models,omitempty"`
+	AgentInfos      []WorkspaceAgentInfo  `json:"agentInfos,omitempty"`
+	ModelInfos      []WorkspaceModelInfo  `json:"modelInfos,omitempty"`
+	Version         string                `json:"version,omitempty"`
 }
 
 type ListPendingToolApprovalsInput struct {

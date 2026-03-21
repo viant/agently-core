@@ -43,6 +43,13 @@ func (s *metadataTestStore) Entries(_ context.Context, kind string) ([]ws.Entry,
 }
 
 func TestMetadataHandler_StarterTasks(t *testing.T) {
+	store := &metadataTestStore{
+		items: map[string]map[string][]byte{
+			ws.KindAgent: {
+				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\nstarterTasks:\n  - id: analyze-repo\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\n"),
+			},
+		},
+	}
 	handler := NewMetadataHandler(&config.Defaults{
 		Agent:    "chatter",
 		Model:    "openai_gpt4o_mini",
@@ -50,15 +57,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 		ToolAutoSelection: config.ToolAutoSelectionDefaults{
 			Enabled: true,
 		},
-	}, nil, "test-version").SetStarterTasks([]StarterTask{
-		{
-			ID:          "analyze-repo",
-			Title:       "Analyze this repo",
-			Prompt:      "Analyze this repository.",
-			Description: "Architecture summary and next steps.",
-			Icon:        "tree-structure",
-		},
-	})
+	}, store, "test-version")
 
 	mux := http.NewServeMux()
 	handler.Register(mux)
@@ -91,10 +90,13 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	assert.True(t, response.Capabilities.MessageCursor)
 	assert.True(t, response.Capabilities.StructuredElicitation)
 	assert.True(t, response.Capabilities.TurnStartedEvent)
-	if assert.Len(t, response.StarterTasks, 1) {
-		assert.Equal(t, "analyze-repo", response.StarterTasks[0].ID)
-		assert.Equal(t, "Analyze this repo", response.StarterTasks[0].Title)
-		assert.Equal(t, "tree-structure", response.StarterTasks[0].Icon)
+	if assert.Len(t, response.AgentInfos, 1) {
+		assert.Equal(t, "coder", response.AgentInfos[0].ID)
+		if assert.Len(t, response.AgentInfos[0].StarterTasks, 1) {
+			assert.Equal(t, "analyze-repo", response.AgentInfos[0].StarterTasks[0].ID)
+			assert.Equal(t, "Analyze this repo", response.AgentInfos[0].StarterTasks[0].Title)
+			assert.Equal(t, "tree-structure", response.AgentInfos[0].StarterTasks[0].Icon)
+		}
 	}
 }
 

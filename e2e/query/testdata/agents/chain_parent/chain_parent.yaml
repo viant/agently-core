@@ -11,7 +11,7 @@ prompt:
 systemPrompt:
   uri: prompt/system.tmpl
 tool: {}
-chains:
+followUps:
   - on: succeeded
     target:
       agentId: chain_child

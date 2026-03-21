@@ -716,8 +716,18 @@ describe('Workspace Metadata', () => {
         const body = {
             defaultAgent: 'coder',
             defaultModel: 'gpt-4',
+            defaults: { agent: 'coder', model: 'gpt-4', autoSelectTools: true },
+            capabilities: { agentAutoSelection: true, toolAutoSelection: true },
             agents: ['coder', 'researcher'],
             models: ['gpt-4', 'claude'],
+            agentInfos: [
+                {
+                    id: 'coder',
+                    name: 'Coder',
+                    modelRef: 'gpt-4',
+                    starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze this repo.' }],
+                },
+            ],
         };
         const f = mockFetch(200, body);
         const c = client(f);
@@ -725,6 +735,9 @@ describe('Workspace Metadata', () => {
 
         expect(res.defaultAgent).toBe('coder');
         expect(res.agents).toEqual(['coder', 'researcher']);
+        expect(res.defaults?.autoSelectTools).toBe(true);
+        expect(res.capabilities?.agentAutoSelection).toBe(true);
+        expect(res.agentInfos?.[0]?.starterTasks?.[0]?.id).toBe('analyze');
         const call = lastCall(f);
         expect(call.method).toBe('GET');
         expect(call.url).toBe('http://localhost:8585/v1/workspace/metadata');

@@ -14,18 +14,17 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
-	WorkspaceRoot   string        `json:"workspaceRoot,omitempty"`
-	DefaultAgent    string        `json:"defaultAgent,omitempty"`
-	DefaultModel    string        `json:"defaultModel,omitempty"`
-	DefaultEmbedder string        `json:"defaultEmbedder,omitempty"`
-	Defaults        *Defaults     `json:"defaults,omitempty"`
-	Capabilities    Capabilities  `json:"capabilities,omitempty"`
-	Agents          []string      `json:"agents,omitempty"`
-	Models          []string      `json:"models,omitempty"`
-	AgentInfos      []AgentInfo   `json:"agentInfos,omitempty"`
-	ModelInfos      []ModelInfo   `json:"modelInfos,omitempty"`
-	StarterTasks    []StarterTask `json:"starterTasks,omitempty"`
-	Version         string        `json:"version,omitempty"`
+	WorkspaceRoot   string       `json:"workspaceRoot,omitempty"`
+	DefaultAgent    string       `json:"defaultAgent,omitempty"`
+	DefaultModel    string       `json:"defaultModel,omitempty"`
+	DefaultEmbedder string       `json:"defaultEmbedder,omitempty"`
+	Defaults        *Defaults    `json:"defaults,omitempty"`
+	Capabilities    Capabilities `json:"capabilities,omitempty"`
+	Agents          []string     `json:"agents,omitempty"`
+	Models          []string     `json:"models,omitempty"`
+	AgentInfos      []AgentInfo  `json:"agentInfos,omitempty"`
+	ModelInfos      []ModelInfo  `json:"modelInfos,omitempty"`
+	Version         string       `json:"version,omitempty"`
 }
 
 // Defaults captures UI-facing runtime defaults in a stable nested shape.
@@ -52,9 +51,10 @@ type Capabilities struct {
 
 // AgentInfo describes a UI-facing agent entry with its preferred model.
 type AgentInfo struct {
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name,omitempty"`
-	ModelRef string `json:"modelRef,omitempty"`
+	ID           string                 `json:"id,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	ModelRef     string                 `json:"modelRef,omitempty"`
+	StarterTasks []agentmdl.StarterTask `json:"starterTasks,omitempty"`
 }
 
 // ModelInfo describes a UI-facing model entry.
@@ -63,21 +63,11 @@ type ModelInfo struct {
 	Name string `json:"name,omitempty"`
 }
 
-// StarterTask describes a suggested starter prompt for empty chat state.
-type StarterTask struct {
-	ID          string `json:"id,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Prompt      string `json:"prompt,omitempty"`
-	Description string `json:"description,omitempty"`
-	Icon        string `json:"icon,omitempty"`
-}
-
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
-	defaults     *config.Defaults
-	store        ws.Store
-	starterTasks []StarterTask
-	version      string
+	defaults *config.Defaults
+	store    ws.Store
+	version  string
 }
 
 // NewMetadataHandler creates a metadata handler.
@@ -87,15 +77,6 @@ func NewMetadataHandler(defaults *config.Defaults, store ws.Store, version strin
 		store:    store,
 		version:  version,
 	}
-}
-
-// SetStarterTasks configures starter tasks returned by the metadata endpoint.
-func (h *MetadataHandler) SetStarterTasks(tasks []StarterTask) *MetadataHandler {
-	if h == nil {
-		return h
-	}
-	h.starterTasks = append([]StarterTask(nil), tasks...)
-	return h
 }
 
 // Register mounts the metadata endpoint.
@@ -142,9 +123,6 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 				resp.Models = modelInfoIDs(resp.ModelInfos)
 			}
 		}
-		if len(h.starterTasks) > 0 {
-			resp.StarterTasks = append([]StarterTask(nil), h.starterTasks...)
-		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
@@ -181,9 +159,10 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 			label = id
 		}
 		result = append(result, AgentInfo{
-			ID:       id,
-			Name:     label,
-			ModelRef: firstNonEmpty(cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
+			ID:           id,
+			Name:         label,
+			ModelRef:     firstNonEmpty(cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
+			StarterTasks: append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
 		})
 	}
 	return result

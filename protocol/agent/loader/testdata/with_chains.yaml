@@ -1,7 +1,7 @@
 id: agent-chain-demo
 name: Chain Demo
 model: gpt-4o
-chains:
+followUps:
   - on: succeeded
     target:
       agentId: summarizer
