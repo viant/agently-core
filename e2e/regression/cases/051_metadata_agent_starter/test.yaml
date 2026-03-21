@@ -1,0 +1,40 @@
+pipeline:
+  metadataAgentStarter:
+    action: exec:run
+    description: "metadata - backend exposes agent starter tasks under agentInfos"
+    checkError: true
+    commands:
+      - |
+        python3 - <<'PY'
+        import json
+        import sys
+        import urllib.request
+
+        url = "${serverURL}/v1/workspace/metadata"
+        with urllib.request.urlopen(url) as resp:
+            if resp.status != 200:
+                raise SystemExit(f"unexpected status: {resp.status}")
+            payload = json.load(resp)
+
+        agent_infos = payload.get("agentInfos") or []
+        starter_agent = next((item for item in agent_infos if (item or {}).get("id") == "starter_probe"), None)
+        if starter_agent is None:
+            raise SystemExit("starter_probe agent not found in agentInfos")
+
+        tasks = starter_agent.get("starterTasks") or []
+        if len(tasks) != 1:
+            raise SystemExit(f"expected exactly 1 starter task, got {len(tasks)}")
+
+        task = tasks[0]
+        expected = {
+            "id": "analyze-repo",
+            "title": "Analyze this repo",
+            "prompt": "Analyze this repository.",
+            "description": "Architecture summary and next steps.",
+            "icon": "tree-structure",
+        }
+        for key, value in expected.items():
+            actual = task.get(key)
+            if actual != value:
+                raise SystemExit(f"unexpected {key}: {actual!r} != {value!r}")
+        PY

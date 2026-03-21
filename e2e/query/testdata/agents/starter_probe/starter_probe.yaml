@@ -1,0 +1,19 @@
+id: starter_probe
+name: Starter Probe
+description: Agent used to verify starter tasks in workspace metadata.
+modelRef: openai_gpt4o_mini
+temperature: 0
+starterTasks:
+  - id: analyze-repo
+    title: Analyze this repo
+    prompt: Analyze this repository.
+    description: Architecture summary and next steps.
+    icon: tree-structure
+persona:
+  role: assistant
+  actor: StarterBot
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool: {}
