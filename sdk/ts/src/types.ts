@@ -565,6 +565,8 @@ export interface AgentInfo {
     id: string;
     name?: string;
     description?: string;
+    modelRef?: string;
+    starterTasks?: StarterTask[];
 }
 
 export interface ModelInfo {
@@ -580,16 +582,22 @@ export interface StarterTask {
 }
 
 export interface WorkspaceCapabilities {
-    speech?: boolean;
-    scheduler?: boolean;
-    fileBrowser?: boolean;
-    a2a?: boolean;
+    agentAutoSelection?: boolean;
+    modelAutoSelection?: boolean;
+    toolAutoSelection?: boolean;
+    compactConversation?: boolean;
+    pruneConversation?: boolean;
+    anonymousSession?: boolean;
+    messageCursor?: boolean;
+    structuredElicitation?: boolean;
+    turnStartedEvent?: boolean;
 }
 
 export interface WorkspaceDefaults {
     agent?: string;
     model?: string;
     embedder?: string;
+    autoSelectTools?: boolean;
 }
 
 export interface WorkspaceMetadata {
@@ -602,7 +610,6 @@ export interface WorkspaceMetadata {
     models?: string[];
     agentInfos?: AgentInfo[];
     modelInfos?: ModelInfo[];
-    starterTasks?: StarterTask[];
     version?: string;
 }
 

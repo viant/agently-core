@@ -3,7 +3,6 @@ package loader
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -523,6 +522,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return err
 			}
 
+		case "startertasks":
+			if err := s.parseStarterTasksBlock(valueNode, agent); err != nil {
+				return err
+			}
+
 		case "serve":
 			if err := s.parseServeBlock(valueNode, agent); err != nil {
 				return err
@@ -588,11 +592,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			}
 		case "attachment":
 			if err := s.parseAttachmentBlock(valueNode, agent); err != nil {
-				return err
-			}
-		case "chains":
-			log.Printf("[warn] agent %q uses deprecated key \"chains\"; use \"followUps\" instead", strings.TrimSpace(agent.ID))
-			if err := s.parseFollowUpsBlock(valueNode, agent); err != nil {
 				return err
 			}
 		case "followups":
@@ -967,6 +966,18 @@ func (s *Service) parseProfileBlock(valueNode *yml.Node, agent *agentmdl.Agent) 
 		return err
 	}
 	agent.Profile = prof
+	return nil
+}
+
+func (s *Service) parseStarterTasksBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.SequenceNode {
+		return fmt.Errorf("starterTasks must be a sequence")
+	}
+	var tasks []agentmdl.StarterTask
+	if err := (*yaml.Node)(valueNode).Decode(&tasks); err != nil {
+		return fmt.Errorf("invalid starterTasks definition: %w", err)
+	}
+	agent.StarterTasks = append([]agentmdl.StarterTask(nil), tasks...)
 	return nil
 }
 

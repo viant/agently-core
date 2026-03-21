@@ -148,6 +148,79 @@ Core endpoints mounted by `sdk.NewHandler`:
 
 Optional handlers add auth, scheduler, speech, workflow, metadata, file browser, and A2A endpoints.
 
+### Workspace Metadata
+
+When `service/workspace.MetadataHandler` is mounted, `GET /v1/workspace/metadata`
+returns UI-facing bootstrap data for workspace browsers, chat shells, and SDK clients.
+
+High-level shape:
+
+- `defaults`: runtime defaults for agent, model, embedder, and `autoSelectTools`
+- `capabilities`: backend-supported UX contracts such as `agentAutoSelection`,
+  `toolAutoSelection`, `compactConversation`, `messageCursor`, and
+  `structuredElicitation`
+- `agentInfos`: enriched agent entries including `id`, `name`, `modelRef`, and
+  agent-specific `starterTasks`
+- `modelInfos`: enriched model entries including `id` and display `name`
+
+Example response:
+
+```json
+{
+  "workspaceRoot": "/workspace/.agently",
+  "defaults": {
+    "agent": "coder",
+    "model": "openai_gpt-5.2",
+    "embedder": "openai_text",
+    "autoSelectTools": true
+  },
+  "capabilities": {
+    "agentAutoSelection": true,
+    "modelAutoSelection": false,
+    "toolAutoSelection": true,
+    "compactConversation": true,
+    "pruneConversation": true,
+    "anonymousSession": true,
+    "messageCursor": true,
+    "structuredElicitation": true,
+    "turnStartedEvent": true
+  },
+  "agentInfos": [
+    {
+      "id": "coder",
+      "name": "Coder",
+      "modelRef": "openai_gpt-5.2",
+      "starterTasks": [
+        {
+          "id": "analyze-repo",
+          "title": "Analyze this repo",
+          "prompt": "Analyze this repository.",
+          "description": "Architecture summary and next steps.",
+          "icon": "tree-structure"
+        }
+      ]
+    }
+  ],
+  "modelInfos": [
+    {
+      "id": "openai_gpt-5.2",
+      "name": "GPT-5.2"
+    }
+  ]
+}
+```
+
+Starter task guidance:
+
+- Starter tasks are agent-level metadata, not workspace-global metadata.
+- Define them on the agent resource as `starterTasks`.
+- Clients should read them from `agentInfos[].starterTasks`.
+
+Migration note:
+
+- Older integrations that expected top-level `starterTasks` on workspace metadata
+  should switch to `agentInfos[].starterTasks`.
+
 ## SDK Modes
 
 | Mode | Constructor | Use case |
