@@ -1,0 +1,2 @@
+- metadata_agent_starter - verify workspace metadata exposes agent starterTasks
+- metadata_agent_starter - select starter_probe agent by id and assert starter task fields
