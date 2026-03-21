@@ -30,6 +30,14 @@ var modelTemperature = map[string]float64{
 	"o3":      1.0,
 }
 
+func supportsExplicitTemperature(model string) bool {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.4":
+		return false
+	}
+	return true
+}
+
 // ToRequest converts an llm.ChatRequest to a Request
 func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with defaults
@@ -40,6 +48,9 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		// Set model if provided
 		if request.Options.Model != "" {
 			req.Model = request.Options.Model
+		}
+		if req.Model == "" {
+			req.Model = c.Model
 		}
 
 		// Set max tokens if provided
@@ -52,8 +63,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 			req.TopP = request.Options.TopP
 		}
 
-		// Set temperature only when explicitly specified (>0)
-		if request.Options.Temperature > 0 {
+		// Some GPT-5 reasoning models reject explicit temperature entirely.
+		if request.Options.Temperature > 0 && supportsExplicitTemperature(req.Model) {
 			req.Temperature = &request.Options.Temperature
 		}
 
@@ -115,6 +126,9 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 				}
 			}
 		}
+	}
+	if req.Model == "" {
+		req.Model = c.Model
 	}
 	if req.ToolChoice == nil && len(req.Tools) > 0 {
 		req.ToolChoice = "auto"

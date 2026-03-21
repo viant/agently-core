@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	basecfg "github.com/viant/agently-core/genai/llm/provider/base"
 )
 
 func TestToRequest_StreamFlag(t *testing.T) {
@@ -168,6 +169,35 @@ func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
 		assert.True(t, got.ParallelToolCalls)
 		assert.Len(t, got.Tools, 1)
 	})
+}
+
+func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
+	in := llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
+		Options: &llm.Options{
+			Model:       "gpt-5-mini",
+			Temperature: 0.2,
+		},
+	}
+
+	got := ToRequest(&in)
+	assert.Equal(t, "gpt-5-mini", got.Model)
+	assert.Nil(t, got.Temperature)
+}
+
+func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Mini(t *testing.T) {
+	client := &Client{Config: basecfg.Config{Model: "gpt-5-mini"}}
+	in := &llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
+		Options: &llm.Options{
+			Temperature: 0.2,
+		},
+	}
+
+	got, err := client.ToRequest(in)
+	assert.NoError(t, err)
+	assert.Equal(t, "gpt-5-mini", got.Model)
+	assert.Nil(t, got.Temperature)
 }
 
 func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
