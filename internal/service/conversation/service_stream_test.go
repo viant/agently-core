@@ -68,6 +68,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 	turn.SetConversationID("conv-1")
 	turn.SetStatus("running")
 	turn.SetRunID("run-1")
+	turn.SetAgentIDUsed("steward-performance")
 	turn.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
 	svc.publishTurnEvent(context.Background(), turn)
@@ -82,6 +83,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.EqualValues(t, "turn-1", ev.Patch["turnId"])
 		require.EqualValues(t, "running", ev.Patch["status"])
 		require.EqualValues(t, "run-1", ev.Patch["runId"])
+		require.EqualValues(t, "steward-performance", ev.Patch["agentIdUsed"])
 		require.EqualValues(t, "2026-01-02T03:04:05Z", ev.Patch["createdAt"])
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected turn_started event")
@@ -93,6 +95,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.Equal(t, streaming.EventTypeTurnStarted, ev.Type)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "steward-performance", ev.AgentIDUsed)
 		require.Equal(t, "running", ev.Status)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected typed turn_started event")

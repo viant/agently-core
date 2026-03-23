@@ -61,6 +61,32 @@ type RunOutput struct {
 	Warnings        []string `json:"warnings,omitempty"`
 }
 
+// StatusInput queries the status of one child conversation or all children for
+// a parent conversation / turn pair.
+type StatusInput struct {
+	ConversationID       string `json:"conversationId,omitempty"`
+	ParentConversationID string `json:"parentConversationId,omitempty"`
+	ParentTurnID         string `json:"parentTurnId,omitempty"`
+}
+
+type StatusItem struct {
+	ConversationID        string `json:"conversationId,omitempty"`
+	ParentConversationID  string `json:"parentConversationId,omitempty"`
+	ParentTurnID          string `json:"parentTurnId,omitempty"`
+	AgentID               string `json:"agentId,omitempty"`
+	Status                string `json:"status,omitempty"`
+	CreatedAt             string `json:"createdAt,omitempty"`
+	UpdatedAt             string `json:"updatedAt,omitempty"`
+	LastAssistantPreamble string `json:"lastAssistantPreamble,omitempty"`
+	LastAssistantResponse string `json:"lastAssistantResponse,omitempty"`
+	HasFinalResponse      bool   `json:"hasFinalResponse,omitempty"`
+	LastMessageAt         string `json:"lastMessageAt,omitempty"`
+}
+
+type StatusOutput struct {
+	Items []StatusItem `json:"items,omitempty"`
+}
+
 // MeOutput provides minimal execution context details.
 type MeOutput struct {
 	ConversationID string `json:"conversationId,omitempty"`

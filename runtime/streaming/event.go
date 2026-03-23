@@ -72,6 +72,8 @@ type Event struct {
 	StreamID             string                 `json:"streamId,omitempty"`
 	ConversationID       string                 `json:"conversationId,omitempty"`
 	TurnID               string                 `json:"turnId,omitempty"`
+	AgentIDUsed          string                 `json:"agentIdUsed,omitempty"`
+	AgentName            string                 `json:"agentName,omitempty"`
 	AssistantMessageID   string                 `json:"assistantMessageId,omitempty"`
 	ParentMessageID      string                 `json:"parentMessageId,omitempty"`
 	RequestID            string                 `json:"requestId,omitempty"`

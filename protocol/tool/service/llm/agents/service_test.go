@@ -490,6 +490,87 @@ func TestService_Run_Internal_CanceledParentButSucceededChildReturnsSuccess(t *t
 	assert.NotEmpty(t, out.ConversationID)
 }
 
+func TestService_Status_ByConversationID(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-conv")
+	childConv.SetAgentId("coder")
+	childConv.SetStatus("succeeded")
+	parentID := "parent-conv"
+	parentTurnID := "turn-1"
+	childConv.SetConversationParentId(parentID)
+	childConv.SetConversationParentTurnId(parentTurnID)
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-1")
+	childTurn.SetConversationID("child-conv")
+	childTurn.SetStatus("succeeded")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	preamble := convcli.NewMessage()
+	preamble.SetId("child-msg-1")
+	preamble.SetConversationID("child-conv")
+	preamble.SetTurnID("child-turn-1")
+	preamble.SetRole("assistant")
+	preamble.SetType("text")
+	preamble.SetInterim(1)
+	preamble.SetPreamble("calling tools")
+	preamble.SetContent("calling tools")
+	require.NoError(t, conv.PatchMessage(ctx, preamble))
+
+	final := convcli.NewMessage()
+	final.SetId("child-msg-2")
+	final.SetConversationID("child-conv")
+	final.SetTurnID("child-turn-1")
+	final.SetRole("assistant")
+	final.SetType("text")
+	final.SetInterim(0)
+	final.SetContent("final child answer")
+	require.NoError(t, conv.PatchMessage(ctx, final))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-conv"}, &out)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	assert.Equal(t, "child-conv", out.Items[0].ConversationID)
+	assert.Equal(t, "coder", out.Items[0].AgentID)
+	assert.Equal(t, "succeeded", out.Items[0].Status)
+	assert.Equal(t, "calling tools", out.Items[0].LastAssistantPreamble)
+	assert.Equal(t, "final child answer", out.Items[0].LastAssistantResponse)
+	assert.True(t, out.Items[0].HasFinalResponse)
+	assert.Equal(t, parentID, out.Items[0].ParentConversationID)
+	assert.Equal(t, parentTurnID, out.Items[0].ParentTurnID)
+}
+
+func TestService_Status_ByParentConversationAndTurn(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	for i, id := range []string{"child-a", "child-b"} {
+		childConv := convcli.NewConversation()
+		childConv.SetId(id)
+		childConv.SetAgentId("agent-" + string(rune('a'+i)))
+		childConv.SetStatus("running")
+		childConv.SetConversationParentId("parent-conv")
+		childConv.SetConversationParentTurnId("turn-1")
+		require.NoError(t, conv.PatchConversations(ctx, childConv))
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ParentConversationID: "parent-conv", ParentTurnID: "turn-1"}, &out)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 2)
+	assert.Equal(t, "parent-conv", out.Items[0].ParentConversationID)
+	assert.Equal(t, "turn-1", out.Items[0].ParentTurnID)
+	assert.Equal(t, "parent-conv", out.Items[1].ParentConversationID)
+	assert.Equal(t, "turn-1", out.Items[1].ParentTurnID)
+}
+
 type fakeFinder struct {
 	agents map[string]*agentmdl.Agent
 }
