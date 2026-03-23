@@ -472,16 +472,40 @@ describe('Files', () => {
         await expect(c.uploadFile('conv_1', new Blob(['x']))).rejects.toThrow('/v1/files');
     });
 
-    it('listFiles throws explicit unsupported-route error', async () => {
-        const f = mockFetch(200, {});
+    it('listFiles uses the exposed GET /v1/files route', async () => {
+        const f = mockFetch(200, { files: [{ id: 'file_1', name: 'report.csv', contentType: 'text/csv', size: 42 }] });
         const c = client(f);
-        await expect(c.listFiles('conv_1')).rejects.toThrow('/v1/files');
+        const res = await c.listFiles('conv_1');
+
+        expect(res).toHaveLength(1);
+        expect(res[0].name).toBe('report.csv');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/files?conversationId=conv_1');
     });
 
-    it('downloadFile throws explicit unsupported-route error', async () => {
-        const f = mockFetch(200, {});
+    it('downloadFile uses the exposed GET /v1/files/{id} route in raw mode', async () => {
+        const payload = new Uint8Array([1, 2, 3]).buffer;
+        const f = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({
+                'content-type': 'text/csv',
+                'content-disposition': 'attachment; filename=\"report.csv\"',
+            }),
+            arrayBuffer: () => Promise.resolve(payload),
+            text: () => Promise.resolve(''),
+        } as any);
         const c = client(f);
-        await expect(c.downloadFile('conv_1', 'file_1')).rejects.toThrow('/v1/files/{id}');
+        const res = await c.downloadFile('conv_1', 'file_1');
+
+        expect(res.name).toBe('report.csv');
+        expect(res.contentType).toBe('text/csv');
+        expect(res.data).toBe(payload);
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/files/file_1?conversationId=conv_1&raw=1');
     });
 });
 

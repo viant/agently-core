@@ -459,8 +459,12 @@ export class AgentlyClient {
 
     /** List files for a conversation. */
     async listFiles(conversationId: string): Promise<FileEntry[]> {
-        void conversationId;
-        throw new Error('File list routes (/v1/files) are not exposed by sdk/handler.go HTTP routes');
+        const q = new URLSearchParams({ conversationId });
+        const out = await this.get('/files', q);
+        if (Array.isArray(out?.files)) return out.files;
+        if (Array.isArray(out?.Files)) return out.Files;
+        if (Array.isArray(out)) return out;
+        return [];
     }
 
     // ── Workspace Resources ──────────────────────────────────────────────────
@@ -527,9 +531,24 @@ export class AgentlyClient {
     async downloadFile(
         conversationId: string, fileId: string,
     ): Promise<{ name: string; contentType: string; data: ArrayBuffer }> {
-        void conversationId;
-        void fileId;
-        throw new Error('File download routes (/v1/files/{id}) are not exposed by sdk/handler.go HTTP routes');
+        const q = new URLSearchParams({ conversationId, raw: '1' });
+        const url = `${this.baseURL}/files/${enc(fileId)}?${q}`;
+        const headers = await this.authHeaders();
+        const resp = await this.fetchImpl(url, {
+            method: 'GET',
+            headers,
+            credentials: this.useCookies ? 'include' : 'same-origin',
+        });
+        if (!resp.ok) throw await this.toHttpError(resp);
+        const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+        const disposition = resp.headers.get('content-disposition') || '';
+        const nameMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
+        const data = await resp.arrayBuffer();
+        return {
+            name: nameMatch?.[1] || fileId,
+            contentType,
+            data,
+        };
     }
 
     // ── A2A (Agent-to-Agent) ─────────────────────────────────────────────────
