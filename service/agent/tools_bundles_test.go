@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 )
@@ -59,9 +60,10 @@ func matchPattern(pattern, name string) bool {
 
 func canon(s string) string {
 	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, "/", "_")
-	s = strings.ReplaceAll(s, ":", "_")
-	return s
+	if s == "" {
+		return ""
+	}
+	return strings.ReplaceAll(mcpname.Canonical(s), "-", "_")
 }
 
 func (r *fakeRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { return nil, false }
@@ -142,6 +144,27 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/os:getEnv"},
 			},
 			expectNames: []string{"system/exec:execute", "system/os:getEnv"},
+		},
+		{
+			name: "steward_bundle_matches_colon_registry_names",
+			query: &QueryInput{
+				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"steward-agent"}}},
+			},
+			bundles: []*toolbundle.Bundle{
+				{
+					ID: "steward-agent",
+					Match: []toolbundle.MatchRule{
+						{Name: "steward-AdHierarchy"},
+						{Name: "steward-SaveRecommendation"},
+					},
+				},
+			},
+			defs: []llm.ToolDefinition{
+				{Name: "steward:AdHierarchy"},
+				{Name: "steward:SaveRecommendation"},
+				{Name: "llm/agents:run"},
+			},
+			expectNames: []string{"steward:AdHierarchy", "steward:SaveRecommendation"},
 		},
 	}
 
