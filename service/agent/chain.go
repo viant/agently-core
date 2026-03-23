@@ -394,7 +394,7 @@ func (s *Service) cloneContextMessages(ctx context.Context, transcript apiconv.T
 	//	return nil
 	//}
 
-	if err := s.startTurn(ctx, transcriptTurn); err != nil {
+	if err := s.startTurn(ctx, transcriptTurn, ""); err != nil {
 		return fmt.Errorf("failed to start transcript: %w", err)
 	}
 	for _, message := range transcript[0].GetMessages() {

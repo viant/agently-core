@@ -140,15 +140,54 @@ func (s *datlyStore) ListRuns(ctx context.Context, in *schrun.RunListInput) ([]*
 		}
 		input = &copyValue
 	}
+	operateInput := *input
+	if input.Has != nil {
+		hasCopy := *input.Has
+		hasCopy.ScheduleId = false
+		hasCopy.RunStatus = false
+		operateInput.Has = &hasCopy
+	}
 	out := &schrun.RunListOutput{}
 	if _, err := s.dao.Operate(ctx,
 		datly.WithURI(schrun.RunListPathURI),
-		datly.WithInput(input),
+		datly.WithInput(&operateInput),
 		datly.WithOutput(out),
 	); err != nil {
 		return nil, err
 	}
-	return out.Data, nil
+	rows := out.Data
+	if input.Has == nil {
+		return rows, nil
+	}
+	if input.Has.ScheduleId {
+		expected := strings.TrimSpace(input.ScheduleId)
+		filtered := make([]*schrun.RunView, 0, len(rows))
+		for _, row := range rows {
+			if row == nil {
+				continue
+			}
+			if strings.TrimSpace(row.ScheduleId) != expected {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
+	}
+	if input.Has.RunStatus {
+		expected := strings.TrimSpace(input.RunStatus)
+		filtered := make([]*schrun.RunView, 0, len(rows))
+		for _, row := range rows {
+			if row == nil {
+				continue
+			}
+			if strings.TrimSpace(row.Status) != expected {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
+	}
+	return rows, nil
 }
 
 func (s *datlyStore) ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error) {

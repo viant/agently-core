@@ -185,7 +185,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// Start turn and persist initial user message. Prefer using the
 	// expanded user prompt (via llm/core:expandUserPrompt) so the
 	// conversation stores a single, canonical task for this turn.
-	if err := s.startTurn(ctx, turn); err != nil {
+	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err
 	}
 	if strings.TrimSpace(input.AgentID) != "" {
@@ -1236,7 +1236,7 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) 
 	return ctx, wrappedCancel
 }
 
-func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
+func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta, scheduleID string) error {
 	rec := apiconv.NewTurn()
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
@@ -1245,7 +1245,7 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta) error {
 	rec.SetCreatedAt(time.Now()) // it overrides queued turns createdAt, don't delete this line
 	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	turnErr := s.conversation.PatchTurn(ctx, rec)
-	runErr := s.ensureRunRecord(ctx, turn, "running")
+	runErr := s.ensureRunRecord(ctx, turn, "running", strings.TrimSpace(scheduleID))
 	convErr := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
 	if turnErr == nil && convErr == nil && runErr == nil {
 		return nil
@@ -1596,7 +1596,7 @@ func valueOrEmpty(v *string) string {
 	return *v
 }
 
-func (s *Service) ensureRunRecord(ctx context.Context, turn memory.TurnMeta, status string) error {
+func (s *Service) ensureRunRecord(ctx context.Context, turn memory.TurnMeta, status, scheduleID string) error {
 	if s == nil || s.dataService == nil {
 		return nil
 	}
@@ -1605,10 +1605,15 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn memory.TurnMeta, sta
 	run.SetId(turn.TurnID)
 	run.SetTurnID(turn.TurnID)
 	run.SetConversationID(turn.ConversationID)
-	run.SetConversationKind("interactive")
+	if scheduleID != "" {
+		run.SetScheduleID(scheduleID)
+		run.SetConversationKind("scheduled")
+	} else {
+		run.SetConversationKind("interactive")
+		run.SetCreatedAt(now)
+	}
 	run.SetStatus(status)
 	run.SetIteration(1)
-	run.SetCreatedAt(now)
 	run.SetStartedAt(now)
 	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
 	return err
