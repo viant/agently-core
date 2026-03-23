@@ -686,6 +686,10 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 			in.ParentTurnId = strings.TrimSpace(input.ParentTurnID)
 			in.Has.ParentTurnId = true
 		}
+		if input.ExcludeScheduled {
+			in.ExcludeScheduled = true
+			in.Has.ExcludeScheduled = true
+		}
 		if strings.TrimSpace(input.Query) != "" {
 			query = strings.TrimSpace(input.Query)
 			in.Query = query
@@ -733,6 +737,9 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 			if !strings.Contains(text, strings.ToLower(query)) {
 				continue
 			}
+		}
+		if input != nil && input.ExcludeScheduled && item.ScheduleId != nil && strings.TrimSpace(*item.ScheduleId) != "" {
+			continue
 		}
 		rows = append(rows, &agconvlist.ConversationRowsView{
 			Id:                   item.Id,

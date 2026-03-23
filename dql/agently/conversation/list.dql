@@ -7,6 +7,7 @@
 #define($_ = $AgentId<string>(query/agentId).WithPredicate(0, 'equal', 'c', 'agent_id'))
 #define($_ = $ParentId<string>(query/parentId).WithPredicate(0, 'equal', 'c', 'conversation_parent_id'))
 #define($_ = $ParentTurnId<string>(query/parentTurnId).WithPredicate(0, 'equal', 'c', 'conversation_parent_turn_id'))
+#define($_ = $ExcludeScheduled<bool>(query/excludeScheduled).WithPredicate(0, "expr", "c.schedule_id IS NULL"))
 #define($_ = $ScheduleId<string>(query/scheduleId).WithPredicate(0, 'equal', 'c', 'schedule_id'))
 #define($_ = $ScheduleRunId<string>(query/scheduleRunId).WithPredicate(0, 'equal', 'c', 'schedule_run_id'))
 #define($_ = $Query<string>(query/q).WithPredicate(0, "expr", "LOWER(c.id || ' ' || (CASE WHEN c.title IS NULL THEN '' ELSE c.title END) || ' ' || (CASE WHEN c.summary IS NULL THEN '' ELSE c.summary END)) LIKE '%' || LOWER(?) || '%'"))

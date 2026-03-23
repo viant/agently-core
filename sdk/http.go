@@ -298,6 +298,9 @@ func (c *HTTPClient) ListConversations(ctx context.Context, input *ListConversat
 		if strings.TrimSpace(input.ParentTurnID) != "" {
 			q.Set("parentTurnId", input.ParentTurnID)
 		}
+		if input.ExcludeScheduled {
+			q.Set("excludeScheduled", "true")
+		}
 		if strings.TrimSpace(input.Query) != "" {
 			q.Set("q", input.Query)
 		}

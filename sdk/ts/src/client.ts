@@ -103,6 +103,7 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input?.query) q.set('q', input.query);
         if (input?.agentId) q.set('agentId', input.agentId);
+        if (input?.excludeScheduled) q.set('excludeScheduled', 'true');
         if (input?.status) q.set('status', input.status);
         this.applyPage(q, input?.page);
         const out = await this.get('/conversations', q);

@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/viant/agently-core/internal/testutil/dbtest"
+	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	_ "modernc.org/sqlite"
@@ -314,5 +317,221 @@ func assertScheduleTextFields(t *testing.T, db *sql.DB, id, expectedDescription,
 	}
 	if taskPrompt.String != expectedTaskPrompt {
 		t.Fatalf("expected task_prompt %q for %s, got %q", expectedTaskPrompt, id, taskPrompt.String)
+	}
+}
+
+func TestHandler_ListRunsBySchedule(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run?scheduleId=sched-1", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Runs       []*schrun.RunView `json:"runs"`
+			PageCount  int               `json:"pageCount"`
+			TotalCount int               `json:"totalCount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if payload.Data.TotalCount != 1 || len(payload.Data.Runs) != 1 {
+		t.Fatalf("expected 1 run, got count=%d rows=%d", payload.Data.TotalCount, len(payload.Data.Runs))
+	}
+	if payload.Data.Runs[0].Id != "run-1" {
+		t.Fatalf("unexpected run id: %q", payload.Data.Runs[0].Id)
+	}
+}
+
+func TestHandler_ListRunsRequireScheduleIDReturnsEmpty(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run?requireScheduleId=true", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Data struct {
+			Runs []*schrun.RunView `json:"runs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if len(payload.Data.Runs) != 0 {
+		t.Fatalf("expected empty runs, got %d", len(payload.Data.Runs))
+	}
+}
+
+func TestHandler_ListRunsWithoutScheduleIDReturnsAllVisibleRuns(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertScheduleRow(t, db, "sched-2", "Hourly")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertConversationRow(t, db, "conv-2", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+	insertSchedulerRunRow(t, db, "run-2", "sched-2", "conv-2", "running", time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Runs       []*schrun.RunView `json:"runs"`
+			PageCount  int               `json:"pageCount"`
+			TotalCount int               `json:"totalCount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if payload.Data.TotalCount != 2 || len(payload.Data.Runs) != 2 {
+		t.Fatalf("expected 2 runs, got count=%d rows=%d", payload.Data.TotalCount, len(payload.Data.Runs))
+	}
+	if payload.Data.Runs[0].Id != "run-2" || payload.Data.Runs[1].Id != "run-1" {
+		t.Fatalf("unexpected run order: %#v", payload.Data.Runs)
+	}
+}
+
+func TestHandler_ListRunsIncludesPrivateRunsForOwner(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertConversationRowWithOwner(t, db, "conv-1", "private", "devuser")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "devuser"))
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Runs []*schrun.RunView `json:"runs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if len(payload.Data.Runs) != 1 || payload.Data.Runs[0].Id != "run-1" {
+		t.Fatalf("expected owner to see private run, got %#v", payload.Data.Runs)
+	}
+}
+
+func TestHandler_ListRunsIgnoresInteractiveRunsWithoutScheduleID(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertConversationRow(t, db, "conv-scheduled", "public")
+	insertConversationRow(t, db, "conv-interactive", "public")
+	insertSchedulerRunRow(t, db, "run-scheduled", "sched-1", "conv-scheduled", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+	insertInteractiveRunRow(t, db, "run-interactive", "conv-interactive", "running", time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Runs []*schrun.RunView `json:"runs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if len(payload.Data.Runs) != 1 || payload.Data.Runs[0].Id != "run-scheduled" {
+		t.Fatalf("expected only scheduled run, got %#v", payload.Data.Runs)
+	}
+}
+
+func insertScheduleRow(t *testing.T, db *sql.DB, id, name string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO schedule (id, name, visibility, agent_ref, enabled, schedule_type, timezone) VALUES (?, ?, ?, ?, ?, ?, ?)`, id, name, "public", "simple", 1, "adhoc", "UTC"); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+}
+
+func insertConversationRow(t *testing.T, db *sql.DB, id, visibility string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO conversation (id, created_at, visibility) VALUES (?, ?, ?)`, id, time.Now().UTC(), visibility); err != nil {
+		t.Fatalf("insert conversation error: %v", err)
+	}
+}
+
+func insertConversationRowWithOwner(t *testing.T, db *sql.DB, id, visibility, owner string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO conversation (id, created_at, visibility, created_by_user_id) VALUES (?, ?, ?, ?)`, id, time.Now().UTC(), visibility, owner); err != nil {
+		t.Fatalf("insert conversation error: %v", err)
+	}
+}
+
+func insertSchedulerRunRow(t *testing.T, db *sql.DB, id, scheduleID, conversationID, status string, startedAt time.Time) {
+	t.Helper()
+	createdAt := startedAt.Add(-1 * time.Minute)
+	completedAt := startedAt.Add(30 * time.Second)
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, scheduleID, conversationID, "scheduled", status, createdAt, startedAt, completedAt); err != nil {
+		t.Fatalf("insert run error: %v", err)
+	}
+}
+
+func insertInteractiveRunRow(t *testing.T, db *sql.DB, id, conversationID, status string, startedAt time.Time) {
+	t.Helper()
+	createdAt := startedAt.Add(-1 * time.Minute)
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, conversation_id, conversation_kind, status, created_at, started_at) VALUES (?, ?, ?, ?, ?, ?)`, id, conversationID, "interactive", status, createdAt, startedAt); err != nil {
+		t.Fatalf("insert run error: %v", err)
 	}
 }

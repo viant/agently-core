@@ -125,11 +125,12 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 		t.Fatalf("NewHTTP: %v", err)
 	}
 	_, err = c.ListConversations(context.Background(), &ListConversationsInput{
-		AgentID:      "agent-1",
-		ParentID:     "parent-conv",
-		ParentTurnID: "parent-turn",
-		Query:        "favorite color",
-		Status:       "active",
+		AgentID:          "agent-1",
+		ParentID:         "parent-conv",
+		ParentTurnID:     "parent-turn",
+		ExcludeScheduled: true,
+		Query:            "favorite color",
+		Status:           "active",
 		Page: &PageInput{
 			Limit:     5,
 			Cursor:    "c-2",
@@ -144,6 +145,9 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 	}
 	if gotQuery.Get("agentId") != "agent-1" || gotQuery.Get("parentId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" || gotQuery.Get("q") != "favorite color" || gotQuery.Get("status") != "active" {
 		t.Fatalf("unexpected query values: %#v", gotQuery)
+	}
+	if gotQuery.Get("excludeScheduled") != "true" {
+		t.Fatalf("unexpected excludeScheduled query value: %#v", gotQuery)
 	}
 	if gotQuery.Get("limit") != "5" || gotQuery.Get("cursor") != "c-2" || gotQuery.Get("direction") != "after" {
 		t.Fatalf("unexpected page query values: %#v", gotQuery)

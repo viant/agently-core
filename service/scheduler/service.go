@@ -35,6 +35,12 @@ type Service struct {
 	leaseTTL      time.Duration
 }
 
+const (
+	defaultRunStartTimeout = 2 * time.Minute
+	defaultStaleRunTimeout = 20 * time.Minute
+	staleRunGrace          = 15 * time.Second
+)
+
 // New creates a scheduler service.
 func New(store Store, agent *agentsvc.Service, opts ...Option) *Service {
 	s := &Service{
@@ -148,15 +154,25 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 
 	started := 0
 	for _, row := range rows {
-		if row == nil || !row.Enabled {
+		if row == nil {
 			continue
 		}
 		now := time.Now().UTC()
-		due, scheduledFor, err := s.isDue(ctx, row, now)
+		due := false
+		scheduledFor := now
+		if row.Enabled {
+			due, scheduledFor, err = s.isDue(ctx, row, now)
+			if err != nil {
+				return started, err
+			}
+		}
+
+		includeScheduledSlot := row.Enabled && due && row.NextRunAt != nil && !row.NextRunAt.IsZero()
+		runs, err := s.getRunsForDueCheck(ctx, row.Id, scheduledFor, includeScheduledSlot)
 		if err != nil {
 			return started, err
 		}
-		if !due {
+		if len(runs) == 0 && (!row.Enabled || !due) {
 			continue
 		}
 
@@ -173,9 +189,19 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 				_, _ = s.store.ReleaseScheduleLease(context.Background(), row.Id, s.leaseOwner)
 			}()
 
-			runs, runErr := s.getRunsForDueCheck(ctx, row.Id, scheduledFor, row.NextRunAt != nil && !row.NextRunAt.IsZero())
+			runs, runErr := s.getRunsForDueCheck(ctx, row.Id, scheduledFor, includeScheduledSlot)
 			if runErr != nil {
 				err = runErr
+				return
+			}
+
+			runs, runErr = s.cleanupStaleRuns(ctx, row, runs, now)
+			if runErr != nil {
+				err = runErr
+				return
+			}
+
+			if !row.Enabled || !due {
 				return
 			}
 
@@ -438,6 +464,351 @@ func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, sch
 	}
 	add(activeRuns)
 	return runs, nil
+}
+
+func (s *Service) cleanupStaleRuns(ctx context.Context, row *schedulepkg.ScheduleView, runs []*schrun.RunView, now time.Time) ([]*schrun.RunView, error) {
+	if len(runs) == 0 {
+		return runs, nil
+	}
+	result := make([]*schrun.RunView, 0, len(runs))
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		if reason, stale := s.stalePendingRunReason(row, run, now); stale {
+			if err := s.failStaleRun(ctx, row, run, reason, now); err != nil {
+				return nil, err
+			}
+			result = append(result, failedRunCopy(run, reason, now))
+			continue
+		}
+		if reason, stale := s.staleActiveRunReason(row, run, now); stale {
+			if err := s.failStaleRun(ctx, row, run, reason, now); err != nil {
+				return nil, err
+			}
+			result = append(result, failedRunCopy(run, reason, now))
+			continue
+		}
+		result = append(result, run)
+	}
+	return result, nil
+}
+
+func (s *Service) stalePendingRunReason(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (string, bool) {
+	if run == nil || !strings.EqualFold(strings.TrimSpace(run.Status), "pending") {
+		return "", false
+	}
+	if run.CompletedAt != nil && !run.CompletedAt.IsZero() {
+		return "", false
+	}
+	if run.StartedAt != nil && !run.StartedAt.IsZero() {
+		return "", false
+	}
+	if strings.TrimSpace(valueOrEmpty(run.ConversationId)) != "" {
+		return "", false
+	}
+	if run.CreatedAt.IsZero() {
+		return "", false
+	}
+	if run.ScheduledFor != nil && !run.ScheduledFor.IsZero() && !run.ScheduledFor.UTC().Before(now) {
+		return "", false
+	}
+
+	staleAfter := defaultRunStartTimeout
+	if row != nil && row.TimeoutSeconds > 0 {
+		staleAfter = time.Duration(row.TimeoutSeconds) * time.Second
+	}
+	if staleAfter < 3*time.Minute {
+		staleAfter = 3 * time.Minute
+	}
+	leaseWindow := s.leaseTTL * 3
+	if leaseWindow > staleAfter {
+		staleAfter = leaseWindow
+	}
+	staleAfter += staleRunGrace
+
+	age := now.Sub(run.CreatedAt.UTC())
+	if age < staleAfter {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"stale pending run detected: pending without conversation/start for %s",
+		age.Round(time.Second),
+	), true
+}
+
+func (s *Service) staleActiveRunReason(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (string, bool) {
+	runStart, timeout, stale := s.isStaleRun(row, run, now)
+	if !stale {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"stale scheduled run detected: status=%s run_start=%s timeout=%s",
+		strings.TrimSpace(run.Status),
+		runStart.UTC().Format(time.RFC3339Nano),
+		timeout,
+	), true
+}
+
+func (s *Service) isStaleRun(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (time.Time, time.Duration, bool) {
+	if run == nil {
+		return time.Time{}, 0, false
+	}
+	if run.CompletedAt != nil && !run.CompletedAt.IsZero() {
+		return time.Time{}, 0, false
+	}
+	runStart := run.CreatedAt.UTC()
+	if run.StartedAt != nil && !run.StartedAt.IsZero() {
+		runStart = run.StartedAt.UTC()
+	}
+	if runStart.IsZero() {
+		return time.Time{}, 0, false
+	}
+	timeout := defaultStaleRunTimeout
+	if row != nil && row.TimeoutSeconds > 0 {
+		timeout = time.Duration(row.TimeoutSeconds) * time.Second
+	}
+	if run.LeaseUntil != nil && !run.LeaseUntil.IsZero() {
+		return runStart, timeout, now.After(run.LeaseUntil.UTC().Add(staleRunGrace))
+	}
+	return runStart, timeout, now.After(runStart.Add(timeout).Add(staleRunGrace))
+}
+
+func failedRunCopy(run *schrun.RunView, reason string, now time.Time) *schrun.RunView {
+	if run == nil {
+		return nil
+	}
+	copyValue := *run
+	copyValue.Status = "failed"
+	copyValue.CompletedAt = timePtrUTC(now)
+	if strings.TrimSpace(reason) != "" {
+		msg := strings.TrimSpace(reason)
+		copyValue.ErrorMessage = &msg
+	}
+	return &copyValue
+}
+
+func (s *Service) failStaleRun(ctx context.Context, row *schedulepkg.ScheduleView, run *schrun.RunView, reason string, now time.Time) error {
+	if run == nil {
+		return nil
+	}
+	errs := make([]error, 0, 3)
+
+	runPatch := &agrunwrite.MutableRunView{}
+	runPatch.SetId(strings.TrimSpace(run.Id))
+	runPatch.SetStatus("failed")
+	runPatch.SetErrorMessage(strings.TrimSpace(reason))
+	runPatch.SetCompletedAt(now)
+	if err := s.store.PatchRuns(ctx, []*agrunwrite.MutableRunView{runPatch}); err != nil {
+		errs = append(errs, fmt.Errorf("patch stale run %s: %w", strings.TrimSpace(run.Id), err))
+	}
+
+	if row != nil {
+		if err := s.patchScheduleResult(ctx, row, "failed", strings.TrimSpace(reason), timePtrUTC(now), false, now); err != nil {
+			errs = append(errs, fmt.Errorf("patch schedule result %s: %w", strings.TrimSpace(row.Id), err))
+		}
+	}
+
+	if conversationID := strings.TrimSpace(valueOrEmpty(run.ConversationId)); conversationID != "" {
+		if err := s.cancelConversationAndMark(ctx, conversationID, "canceled"); err != nil {
+			errs = append(errs, fmt.Errorf("cancel conversation %s: %w", conversationID, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func (s *Service) cancelConversationAndMark(ctx context.Context, conversationID, status string) error {
+	if s == nil || s.conversation == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	return s.cancelConversationTreeAndMark(ctx, conversationID, strings.TrimSpace(status), map[string]struct{}{})
+}
+
+func (s *Service) cancelConversationTreeAndMark(ctx context.Context, conversationID, status string, visited map[string]struct{}) error {
+	if s == nil || s.conversation == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	if _, ok := visited[conversationID]; ok {
+		return nil
+	}
+	visited[conversationID] = struct{}{}
+
+	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+
+	conv, err := s.conversation.GetConversation(
+		patchCtx,
+		conversationID,
+		convcli.WithIncludeTranscript(true),
+		convcli.WithIncludeToolCall(true),
+		convcli.WithIncludeModelCall(true),
+	)
+	if err != nil || conv == nil {
+		return err
+	}
+
+	errs := make([]error, 0, 4)
+	convPatch := convcli.NewConversation()
+	convPatch.SetId(conversationID)
+	convPatch.SetStatus(status)
+	if err := s.conversation.PatchConversations(patchCtx, convPatch); err != nil {
+		errs = append(errs, fmt.Errorf("patch conversation status: %w", err))
+	}
+	if err := s.markConversationTermination(patchCtx, conv, status); err != nil {
+		errs = append(errs, err)
+	}
+
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil || msg.LinkedConversationId == nil {
+				continue
+			}
+			childID := strings.TrimSpace(*msg.LinkedConversationId)
+			if childID == "" {
+				continue
+			}
+			if err := s.cancelConversationTreeAndMark(patchCtx, childID, status, visited); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Service) markConversationTermination(ctx context.Context, conv *convcli.Conversation, status string) error {
+	if s == nil || s.conversation == nil || conv == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	errs := make([]error, 0)
+
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil {
+			continue
+		}
+		if !isTerminalExecutionStatus(turn.Status) {
+			upd := convcli.NewTurn()
+			upd.SetId(strings.TrimSpace(turn.Id))
+			upd.SetStatus(status)
+			if err := s.conversation.PatchTurn(ctx, upd); err != nil {
+				errs = append(errs, fmt.Errorf("patch turn %s: %w", strings.TrimSpace(turn.Id), err))
+			}
+		}
+
+		if assistant := lastAssistantMessage(turn); assistant != nil {
+			if assistant.Status == nil || !isTerminalExecutionStatus(*assistant.Status) {
+				upd := convcli.NewMessage()
+				upd.SetId(strings.TrimSpace(assistant.Id))
+				upd.SetConversationID(strings.TrimSpace(assistant.ConversationId))
+				if assistant.TurnId != nil && strings.TrimSpace(*assistant.TurnId) != "" {
+					upd.SetTurnID(strings.TrimSpace(*assistant.TurnId))
+				}
+				upd.SetStatus(status)
+				if err := s.conversation.PatchMessage(ctx, upd); err != nil {
+					errs = append(errs, fmt.Errorf("patch message %s: %w", strings.TrimSpace(assistant.Id), err))
+				}
+			}
+		}
+
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			if msg.ModelCall != nil && (msg.ModelCall.CompletedAt == nil || msg.ModelCall.CompletedAt.IsZero()) {
+				upd := convcli.NewModelCall()
+				upd.SetMessageID(strings.TrimSpace(msg.ModelCall.MessageId))
+				if msg.ModelCall.TurnId != nil && strings.TrimSpace(*msg.ModelCall.TurnId) != "" {
+					upd.SetTurnID(strings.TrimSpace(*msg.ModelCall.TurnId))
+				}
+				upd.SetStatus(modelCallFinalStatus(msg.ModelCall.Status))
+				upd.SetCompletedAt(now)
+				if err := s.conversation.PatchModelCall(ctx, upd); err != nil {
+					errs = append(errs, fmt.Errorf("patch model call %s: %w", strings.TrimSpace(msg.ModelCall.MessageId), err))
+				}
+			}
+			for _, toolMsg := range msg.ToolMessage {
+				if toolMsg == nil || toolMsg.ToolCall == nil {
+					continue
+				}
+				if toolMsg.ToolCall.CompletedAt != nil && !toolMsg.ToolCall.CompletedAt.IsZero() {
+					continue
+				}
+				upd := convcli.NewToolCall()
+				upd.SetMessageID(strings.TrimSpace(toolMsg.ToolCall.MessageId))
+				upd.SetOpID(strings.TrimSpace(toolMsg.ToolCall.OpId))
+				if toolMsg.ToolCall.TurnId != nil && strings.TrimSpace(*toolMsg.ToolCall.TurnId) != "" {
+					upd.SetTurnID(strings.TrimSpace(*toolMsg.ToolCall.TurnId))
+				}
+				upd.SetStatus(toolCallFinalStatus(toolMsg.ToolCall.Status))
+				upd.CompletedAt = timePtrUTC(now)
+				upd.Has.CompletedAt = true
+				if err := s.conversation.PatchToolCall(ctx, upd); err != nil {
+					errs = append(errs, fmt.Errorf("patch tool call %s: %w", strings.TrimSpace(toolMsg.ToolCall.MessageId), err))
+				}
+			}
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func lastAssistantMessage(turn *convcli.Turn) *convcli.Message {
+	if turn == nil || len(turn.Message) == 0 {
+		return nil
+	}
+	for i := len(turn.Message) - 1; i >= 0; i-- {
+		msg := turn.Message[i]
+		if msg == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+			return (*convcli.Message)(msg)
+		}
+	}
+	return nil
+}
+
+func modelCallFinalStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "error":
+		return "failed"
+	case "succeeded", "success", "completed", "done":
+		return "succeeded"
+	default:
+		return "canceled"
+	}
+}
+
+func toolCallFinalStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "error":
+		return "failed"
+	case "succeeded", "success", "completed", "done":
+		return "succeeded"
+	default:
+		return "canceled"
+	}
+}
+
+func isTerminalExecutionStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "canceled", "cancel", "failed", "error", "succeeded", "success", "completed", "done", "rejected":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) patchScheduleResult(ctx context.Context, row *schedulepkg.ScheduleView, lastStatus string, lastError string, lastRunAt *time.Time, updateNext bool, now time.Time) error {

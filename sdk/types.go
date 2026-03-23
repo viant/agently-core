@@ -36,12 +36,13 @@ type GetMessagesInput struct {
 
 // ListConversationsInput controls the conversation listing query.
 type ListConversationsInput struct {
-	AgentID      string
-	ParentID     string
-	ParentTurnID string
-	Query        string
-	Status       string
-	Page         *PageInput
+	AgentID          string
+	ParentID         string
+	ParentTurnID     string
+	ExcludeScheduled bool
+	Query            string
+	Status           string
+	Page             *PageInput
 }
 
 type ListLinkedConversationsInput struct {

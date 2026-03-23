@@ -46,4 +46,16 @@ func TestFilterCompute(t *testing.T) {
 		require.Equal(t, "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)", criteria.Expression)
 		require.Equal(t, []interface{}{"private", "u1"}, criteria.Placeholders)
 	})
+
+	t.Run("exclude scheduled adds schedule filter", func(t *testing.T) {
+		input := &ConversationRowsInput{
+			ExcludeScheduled: true,
+			Has:              &ConversationRowsInputHas{ExcludeScheduled: true},
+		}
+		ctx := context.WithValue(context.Background(), inputKey, input)
+		criteria, err := filter.Compute(ctx, nil)
+		require.NoError(t, err)
+		require.Equal(t, "COALESCE(c.visibility, '') <> ? AND c.conversation_parent_id IS NULL AND c.schedule_id IS NULL", criteria.Expression)
+		require.Equal(t, []interface{}{"private"}, criteria.Placeholders)
+	})
 }
