@@ -658,6 +658,8 @@ export interface LinkedConversationEntry {
     conversationId: string;
     parentConversationId: string;
     parentTurnId: string;
+    agentId?: string;
+    title?: string;
     status?: string;
     response?: string;
     createdAt: string;

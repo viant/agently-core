@@ -69,8 +69,8 @@ func expectedListOutput(items []ListItem) *ListOutput {
 	return &ListOutput{
 		Items:      items,
 		ReuseNote:  "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed.",
-		RunUsage:   "To delegate next, call llm/agents:run with {agentId, objective} and include context.workdir when repo scope matters.",
-		NextAction: "If you already know the target agent from items or the injected agent directory document, skip llm/agents:list and call llm/agents:run directly.",
+		RunUsage:   "To delegate next, call llm/agents:run with {agentId, objective} and include context.workdir when repo scope matters. The agentId must come from llm/agents:list or an equivalent agent directory source.",
+		NextAction: "If you do not already have a valid agentId from llm/agents:list or an equivalent agent directory source, call llm/agents:list before using llm/agents:run.",
 	}
 }
 
