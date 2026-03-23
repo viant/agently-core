@@ -312,7 +312,10 @@ func TestService_Run_Internal_RepoAnalysisUsesBoundedToolAllowList(t *testing.T)
 		AgentID:   "coder",
 		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
 		Streaming: &streaming,
-		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+		Context: map[string]interface{}{
+			"workdir":      "/Users/awitas/go/src/github.com/viant/xdatly",
+			"repoAnalysis": true,
+		},
 	}
 
 	fake := &fakeAgentRuntime{
@@ -414,7 +417,10 @@ func TestService_Run_Internal_ChildFailureReturnsToolResult(t *testing.T) {
 	err := svc.run(runCtx, &RunInput{
 		AgentID:   "coder",
 		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
-		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+		Context: map[string]interface{}{
+			"workdir":      "/Users/awitas/go/src/github.com/viant/xdatly",
+			"repoAnalysis": true,
+		},
 	}, &out)
 
 	require.NoError(t, err)

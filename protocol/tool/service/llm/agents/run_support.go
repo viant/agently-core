@@ -200,7 +200,7 @@ func delegatedToolAllowList(ri *RunInput) []string {
 	if ri == nil {
 		return []string{}
 	}
-	if !looksLikeRepoAnalysisObjective(strings.TrimSpace(ri.Objective)) {
+	if !shouldUseRepoAnalysisRewrite(ri) {
 		return []string{}
 	}
 	return []string{
@@ -262,7 +262,7 @@ func normalizedDelegatedObjective(ri *RunInput) string {
 		return ""
 	}
 	objective := strings.TrimSpace(ri.Objective)
-	if !looksLikeRepoAnalysisObjective(objective) {
+	if !shouldUseRepoAnalysisRewrite(ri) {
 		return objective
 	}
 	workdir := strings.TrimSpace(stringValue(ri.Context, "resolvedWorkdir"))
@@ -282,6 +282,15 @@ func normalizedDelegatedObjective(ri *RunInput) string {
 	)
 }
 
+func shouldUseRepoAnalysisRewrite(ri *RunInput) bool {
+	if ri == nil || ri.Context == nil {
+		return false
+	}
+	return boolValue(ri.Context, "repoAnalysis") ||
+		boolValue(ri.Context, "repo_analysis") ||
+		strings.EqualFold(strings.TrimSpace(stringValue(ri.Context, "delegatedMode")), "repo_analysis")
+}
+
 func stringValue(values map[string]interface{}, key string) string {
 	if values == nil {
 		return ""
@@ -291,6 +300,24 @@ func stringValue(values map[string]interface{}, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func boolValue(values map[string]interface{}, key string) bool {
+	if values == nil {
+		return false
+	}
+	value, ok := values[key]
+	if !ok || value == nil {
+		return false
+	}
+	switch actual := value.(type) {
+	case bool:
+		return actual
+	case string:
+		return strings.EqualFold(strings.TrimSpace(actual), "true")
+	default:
+		return false
+	}
 }
 
 func (s *Service) isCanceledConversation(ctx context.Context, conversationID string) bool {
