@@ -661,6 +661,16 @@ export class AgentlyClient {
                 },
             };
         }
+        if (Array.isArray(out?.rows)) {
+            return {
+                data: out.rows,
+                page: {
+                    cursor: out.nextCursor ?? out.cursor,
+                    prevCursor: out.prevCursor,
+                    hasMore: out.hasMore,
+                },
+            };
+        }
         return out;
     }
 

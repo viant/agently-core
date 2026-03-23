@@ -128,6 +128,18 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
 		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || s.isCanceledConversation(ctx, runCtx.childConversationID) {
+			if answer, ok := s.succeededChildRunResult(ctx, runCtx.childConversationID); ok {
+				ro.Answer = answer
+				ro.Status = "succeeded"
+				if strings.TrimSpace(qo.ConversationID) != "" {
+					ro.ConversationID = qo.ConversationID
+				}
+				if ro.ConversationID == "" {
+					ro.ConversationID = strings.TrimSpace(runCtx.childConversationID)
+				}
+				s.finalizeRunStatus(ctx, runCtx, "succeeded")
+				return nil
+			}
 			s.finalizeRunStatus(ctx, runCtx, "canceled")
 			return context.Canceled
 		}
@@ -307,6 +319,35 @@ func (s *Service) failedChildRunSummary(ctx context.Context, conversationID stri
 		parts = append(parts, "Last assistant content: "+summary)
 	}
 	return strings.Join(parts, "\n"), true
+}
+
+func (s *Service) succeededChildRunResult(ctx context.Context, conversationID string) (string, bool) {
+	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" {
+		return "", false
+	}
+	conv, err := s.conv.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
+	if err != nil || conv == nil {
+		return "", false
+	}
+	transcript := conv.GetTranscript()
+	if len(transcript) == 0 {
+		return "", false
+	}
+	lastTurns := transcript.Last()
+	if len(lastTurns) == 0 || lastTurns[0] == nil {
+		return "", false
+	}
+	convStatus := strings.ToLower(strings.TrimSpace(ptrString(conv.Status)))
+	turnStatus := strings.ToLower(strings.TrimSpace(lastTurns[0].Status))
+	successful := convStatus == "succeeded" || convStatus == "completed" || convStatus == "success" || convStatus == "done" ||
+		turnStatus == "succeeded" || turnStatus == "completed" || turnStatus == "success" || turnStatus == "done"
+	if !successful {
+		return "", false
+	}
+	if summary := strings.TrimSpace(lastAssistantContent(lastTurns[0])); summary != "" {
+		return summary, true
+	}
+	return "", false
 }
 
 func lastAssistantContent(turn *apiconv.Turn) string {
