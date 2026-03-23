@@ -22,6 +22,28 @@ type linkedRun struct {
 	statusMessageID     string
 }
 
+type childRunResult struct {
+	answer         string
+	status         string
+	conversationID string
+	messageID      string
+	err            error
+}
+
+type childConversationState struct {
+	conversationID        string
+	parentConversationID  string
+	parentTurnID          string
+	agentID               string
+	status                string
+	createdAt             string
+	updatedAt             string
+	lastAssistantPreamble string
+	lastAssistantResponse string
+	hasFinalResponse      bool
+	lastMessageAt         string
+}
+
 func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutput, intended string) (bool, error) {
 	runCtx, err := s.prepareLinkedRun(ctx, ri, "external", false)
 	if err != nil {
@@ -109,6 +131,25 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		ro.ConversationID = runCtx.childConversationID
 	}
 	qo := &agentsvc.QueryOutput{}
+	result := s.executeChildRun(ctx, qi, qo, runCtx)
+	if result.err != nil {
+		return result.err
+	}
+	ro.Answer = result.answer
+	ro.Status = result.status
+	if strings.TrimSpace(result.conversationID) != "" {
+		ro.ConversationID = result.conversationID
+	}
+	if ro.ConversationID == "" {
+		ro.ConversationID = convID
+	}
+	ro.MessageID = result.messageID
+	s.finalizeRunStatus(ctx, runCtx, result.status)
+	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
+	return nil
+}
+
+func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, qo *agentsvc.QueryOutput, runCtx linkedRun) childRunResult {
 	// Detach from parent's tool-execution deadline so the child agent
 	// runs with its own independent timeout. Apply a hard deadline so a
 	// hung child doesn't block the parent forever.
@@ -124,58 +165,35 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	}
 	childCtx, childCancel := context.WithTimeout(childCtx, childTimeout)
 	defer childCancel()
-	debugf("agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), childTimeout)
+	debugf("agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), childTimeout)
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
-		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || s.isCanceledConversation(ctx, runCtx.childConversationID) {
-			if answer, ok := s.succeededChildRunResult(ctx, runCtx.childConversationID); ok {
-				ro.Answer = answer
-				ro.Status = "succeeded"
-				if strings.TrimSpace(qo.ConversationID) != "" {
-					ro.ConversationID = qo.ConversationID
-				}
-				if ro.ConversationID == "" {
-					ro.ConversationID = strings.TrimSpace(runCtx.childConversationID)
-				}
-				s.finalizeRunStatus(ctx, runCtx, "succeeded")
-				return nil
-			}
-			s.finalizeRunStatus(ctx, runCtx, "canceled")
-			return context.Canceled
+		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
+		return s.resolveChildRunError(ctx, runCtx, qo, err)
+	}
+	debugf("agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
+	return childRunResult{
+		answer:         qo.Content,
+		status:         "succeeded",
+		conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
+		messageID:      qo.MessageID,
+	}
+}
+
+func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo *agentsvc.QueryOutput, runErr error) childRunResult {
+	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) || s.isCanceledConversation(ctx, runCtx.childConversationID) {
+		if outcome, ok := s.completedChildRunOutcome(ctx, runCtx.childConversationID); ok {
+			return outcome
 		}
-		if summary, ok := s.failedChildRunSummary(ctx, runCtx.childConversationID, err); ok {
-			ro.Answer = summary
-			ro.Status = "failed"
-			ro.Error = strings.TrimSpace(err.Error())
-			if strings.TrimSpace(qo.ConversationID) != "" {
-				ro.ConversationID = qo.ConversationID
-			}
-			if ro.ConversationID == "" {
-				ro.ConversationID = strings.TrimSpace(runCtx.childConversationID)
-			}
-			s.finalizeRunStatus(ctx, runCtx, "failed")
-			// Return nil: the tool call completed (with a failure summary as the
-			// result). The LLM receives ro.Answer and can react to the failure.
-			// Callers must check ro.Status == "failed" for the tool-level outcome;
-			// a Go error here would abort the parent turn entirely.
-			return nil
+		return childRunResult{err: context.Canceled}
+	}
+	if summary, ok := s.failedChildRunSummary(ctx, runCtx.childConversationID, runErr); ok {
+		return childRunResult{
+			answer:         summary,
+			status:         "failed",
+			conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
 		}
-		s.finalizeRunStatus(ctx, runCtx, "failed")
-		return err
 	}
-	debugf("agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
-	ro.Answer = qo.Content
-	ro.Status = "succeeded"
-	if strings.TrimSpace(qo.ConversationID) != "" {
-		ro.ConversationID = qo.ConversationID
-	}
-	if ro.ConversationID == "" {
-		ro.ConversationID = convID
-	}
-	ro.MessageID = qo.MessageID
-	s.finalizeRunStatus(ctx, runCtx, "succeeded")
-	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
-	return nil
+	return childRunResult{err: runErr}
 }
 
 func delegatedToolAllowList(ri *RunInput) []string {
@@ -321,33 +339,80 @@ func (s *Service) failedChildRunSummary(ctx context.Context, conversationID stri
 	return strings.Join(parts, "\n"), true
 }
 
-func (s *Service) succeededChildRunResult(ctx context.Context, conversationID string) (string, bool) {
+func isSuccessfulStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "completed", "success", "done":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) completedChildRunOutcome(ctx context.Context, conversationID string) (childRunResult, bool) {
+	state, ok := s.childConversationState(ctx, conversationID)
+	if !ok || !isSuccessfulStatus(state.status) || strings.TrimSpace(state.lastAssistantResponse) == "" {
+		return childRunResult{}, false
+	}
+	return childRunResult{
+		answer:         state.lastAssistantResponse,
+		status:         "succeeded",
+		conversationID: state.conversationID,
+	}, true
+}
+
+func (s *Service) childConversationState(ctx context.Context, conversationID string) (childConversationState, bool) {
 	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" {
-		return "", false
+		return childConversationState{}, false
 	}
 	conv, err := s.conv.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
 	if err != nil || conv == nil {
-		return "", false
+		return childConversationState{}, false
 	}
-	transcript := conv.GetTranscript()
-	if len(transcript) == 0 {
-		return "", false
+	state := childConversationState{
+		conversationID:       strings.TrimSpace(conv.Id),
+		parentConversationID: strings.TrimSpace(ptrString(conv.ConversationParentId)),
+		parentTurnID:         strings.TrimSpace(ptrString(conv.ConversationParentTurnId)),
+		agentID:              strings.TrimSpace(ptrString(conv.AgentId)),
+		status:               strings.TrimSpace(ptrString(conv.Status)),
 	}
-	lastTurns := transcript.Last()
-	if len(lastTurns) == 0 || lastTurns[0] == nil {
-		return "", false
+	if !conv.CreatedAt.IsZero() {
+		state.createdAt = conv.CreatedAt.Format(time.RFC3339Nano)
 	}
-	convStatus := strings.ToLower(strings.TrimSpace(ptrString(conv.Status)))
-	turnStatus := strings.ToLower(strings.TrimSpace(lastTurns[0].Status))
-	successful := convStatus == "succeeded" || convStatus == "completed" || convStatus == "success" || convStatus == "done" ||
-		turnStatus == "succeeded" || turnStatus == "completed" || turnStatus == "success" || turnStatus == "done"
-	if !successful {
-		return "", false
+	if conv.UpdatedAt != nil && !conv.UpdatedAt.IsZero() {
+		state.updatedAt = conv.UpdatedAt.Format(time.RFC3339Nano)
 	}
-	if summary := strings.TrimSpace(lastAssistantContent(lastTurns[0])); summary != "" {
-		return summary, true
+	preamble, response, hasFinal, lastMessageAt, lastTurnStatus := lastAssistantState(conv.GetTranscript())
+	if state.status == "" {
+		state.status = lastTurnStatus
 	}
-	return "", false
+	state.lastAssistantPreamble = preamble
+	state.lastAssistantResponse = response
+	state.hasFinalResponse = hasFinal
+	state.lastMessageAt = lastMessageAt
+	return state, true
+}
+
+func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusItem {
+	if conv == nil {
+		return StatusItem{}
+	}
+	state, ok := s.childConversationState(context.Background(), strings.TrimSpace(conv.Id))
+	if !ok {
+		return StatusItem{}
+	}
+	return StatusItem{
+		ConversationID:        state.conversationID,
+		ParentConversationID:  state.parentConversationID,
+		ParentTurnID:          state.parentTurnID,
+		AgentID:               state.agentID,
+		Status:                state.status,
+		CreatedAt:             state.createdAt,
+		UpdatedAt:             state.updatedAt,
+		LastAssistantPreamble: state.lastAssistantPreamble,
+		LastAssistantResponse: state.lastAssistantResponse,
+		HasFinalResponse:      state.hasFinalResponse,
+		LastMessageAt:         state.lastMessageAt,
+	}
 }
 
 func lastAssistantContent(turn *apiconv.Turn) string {
@@ -374,6 +439,115 @@ func ptrString(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
+	si, ok := in.(*StatusInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	so, ok := out.(*StatusOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	items, err := s.collectStatusItems(ctx, si)
+	if err != nil {
+		return err
+	}
+	so.Items = items
+	return nil
+}
+
+func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]StatusItem, error) {
+	if s == nil || s.conv == nil || in == nil {
+		return nil, nil
+	}
+	if convID := strings.TrimSpace(in.ConversationID); convID != "" {
+		conv, err := s.conv.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
+		if err != nil {
+			return nil, err
+		}
+		if conv == nil {
+			return nil, nil
+		}
+		return []StatusItem{s.statusItemFromConversation(conv)}, nil
+	}
+	parentID := strings.TrimSpace(in.ParentConversationID)
+	if parentID == "" {
+		return nil, nil
+	}
+	query := &agconv.ConversationInput{
+		ParentId: parentID,
+		Has: &agconv.ConversationInputHas{
+			ParentId:          true,
+			IncludeTranscript: true,
+		},
+		IncludeTranscript: true,
+	}
+	if parentTurnID := strings.TrimSpace(in.ParentTurnID); parentTurnID != "" {
+		query.ParentTurnId = parentTurnID
+		query.Has.ParentTurnId = true
+	}
+	items, err := s.conv.GetConversations(ctx, (*apiconv.Input)(query))
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	result := make([]StatusItem, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		result = append(result, s.statusItemFromConversation(item))
+	}
+	return result, nil
+}
+
+func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, string, string) {
+	var lastPreamble string
+	var lastResponse string
+	var hasFinal bool
+	var lastMessageAt string
+	var lastTurnStatus string
+	for _, turn := range transcript {
+		if turn == nil {
+			continue
+		}
+		lastTurnStatus = strings.TrimSpace(turn.Status)
+		for _, msg := range turn.Message {
+			if msg == nil || strings.ToLower(strings.TrimSpace(msg.Role)) != "assistant" {
+				continue
+			}
+			if !msg.CreatedAt.IsZero() {
+				lastMessageAt = msg.CreatedAt.Format(time.RFC3339Nano)
+			}
+			if text := strings.TrimSpace(ptrString(msg.Preamble)); text != "" {
+				lastPreamble = text
+			} else if msg.Interim != 0 {
+				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
+					lastPreamble = text
+				}
+			}
+			if msg.Interim == 0 {
+				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
+					lastResponse = text
+					hasFinal = true
+				}
+			}
+		}
+	}
+	return lastPreamble, lastResponse, hasFinal, lastMessageAt, lastTurnStatus
 }
 
 func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route string, waitForConversation bool) (linkedRun, error) {

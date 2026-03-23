@@ -985,6 +985,10 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 			"conversationId": conversationID,
 			"status":         "running",
 		}
+		agentIDUsed := strings.TrimSpace(valueOrEmptyStr(turn.AgentIDUsed))
+		if agentIDUsed != "" {
+			patch["agentIdUsed"] = agentIDUsed
+		}
 		if turn.Has.CreatedAt && turn.CreatedAt != nil && !turn.CreatedAt.IsZero() {
 			patch["createdAt"] = turn.CreatedAt.Format(time.RFC3339Nano)
 		}
@@ -1006,6 +1010,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 			ConversationID: conversationID,
 			Type:           streaming.EventTypeTurnStarted,
 			TurnID:         strings.TrimSpace(turn.Id),
+			AgentIDUsed:    agentIDUsed,
 			Status:         "running",
 			CreatedAt:      createdAt,
 		}, "PatchTurn publish turn_started")

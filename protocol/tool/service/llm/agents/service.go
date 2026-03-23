@@ -120,6 +120,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&MeOutput{}),
 		},
 		{
+			Name:        "status",
+			Description: "Return linked child conversation statuses and latest assistant output for a child or parent conversation",
+			Input:       reflect.TypeOf(&StatusInput{}),
+			Output:      reflect.TypeOf(&StatusOutput{}),
+		},
+		{
 			Name:        "run",
 			Description: "Run an agent by id with an objective and optional context",
 			Input:       reflect.TypeOf(&RunInput{}),
@@ -135,6 +141,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.list, nil
 	case "me":
 		return s.me, nil
+	case "status":
+		return s.statusMethod, nil
 	case "run":
 		return s.run, nil
 	default:
