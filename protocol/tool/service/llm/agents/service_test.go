@@ -424,6 +424,72 @@ func TestService_Run_Internal_ChildFailureReturnsToolResult(t *testing.T) {
 	assert.Contains(t, out.Answer, "partial child summary")
 }
 
+func TestService_Run_Internal_CanceledParentButSucceededChildReturnsSuccess(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			childConvID := in.ConversationID
+			require.NotEmpty(t, childConvID)
+
+			childPatch := convcli.NewConversation()
+			childPatch.SetId(childConvID)
+			childPatch.SetStatus("succeeded")
+			require.NoError(t, conv.PatchConversations(ctx, childPatch))
+
+			childTurn := convcli.NewTurn()
+			childTurn.SetId("child-turn-1")
+			childTurn.SetConversationID(childConvID)
+			childTurn.SetStatus("succeeded")
+			require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+			childMsg := convcli.NewMessage()
+			childMsg.SetId("child-msg-1")
+			childMsg.SetConversationID(childConvID)
+			childMsg.SetTurnID("child-turn-1")
+			childMsg.SetRole("assistant")
+			childMsg.SetType("text")
+			childMsg.SetContent("child completed successfully")
+			require.NoError(t, conv.PatchMessage(ctx, childMsg))
+
+			return context.Canceled
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
+		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+	}, &out)
+
+	require.NoError(t, err)
+	assert.Equal(t, "succeeded", out.Status)
+	assert.Equal(t, "child completed successfully", out.Answer)
+	assert.NotEmpty(t, out.ConversationID)
+}
+
 type fakeFinder struct {
 	agents map[string]*agentmdl.Agent
 }

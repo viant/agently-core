@@ -149,3 +149,42 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"openai_gpt-5.2", "vertexai_gemini-2.5-flash"}, response.Models)
 }
+
+func TestMetadataHandler_SortsAgentAndModelInfosByLabel(t *testing.T) {
+	store := &metadataTestStore{
+		items: map[string]map[string][]byte{
+			ws.KindAgent: {
+				"zebra_agent": []byte("id: zebra\nname: Zebra\nmodelRef: openai_gpt-5.2\n"),
+				"alpha_agent": []byte("id: alpha\nname: Alpha\nmodelRef: openai_gpt-5-mini\n"),
+			},
+			ws.KindModel: {
+				"z_model": []byte("id: z-model\nname: Zebra Model\n"),
+				"a_model": []byte("id: a-model\nname: Alpha Model\n"),
+			},
+		},
+	}
+	handler := NewMetadataHandler(&config.Defaults{}, store, "test-version")
+
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response MetadataResponse
+	err := json.Unmarshal(rec.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	if assert.Len(t, response.AgentInfos, 2) {
+		assert.Equal(t, "alpha", response.AgentInfos[0].ID)
+		assert.Equal(t, "zebra", response.AgentInfos[1].ID)
+	}
+	assert.Equal(t, []string{"alpha", "zebra"}, response.Agents)
+	if assert.Len(t, response.ModelInfos, 2) {
+		assert.Equal(t, "a-model", response.ModelInfos[0].ID)
+		assert.Equal(t, "z-model", response.ModelInfos[1].ID)
+	}
+	assert.Equal(t, []string{"a-model", "z-model"}, response.Models)
+}

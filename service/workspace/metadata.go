@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/viant/agently-core/app/executor/config"
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
@@ -133,6 +135,8 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 	if h == nil || h.store == nil || len(names) == 0 {
 		return nil
 	}
+	names = append([]string(nil), names...)
+	sort.Strings(names)
 	var result []AgentInfo
 	for _, name := range names {
 		raw, err := h.store.Load(ctx, ws.KindAgent, name)
@@ -165,6 +169,14 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 			StarterTasks: append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
 		})
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		left := strings.ToLower(strings.TrimSpace(firstNonEmpty(result[i].Name, result[i].ID)))
+		right := strings.ToLower(strings.TrimSpace(firstNonEmpty(result[j].Name, result[j].ID)))
+		if left != right {
+			return left < right
+		}
+		return strings.TrimSpace(result[i].ID) < strings.TrimSpace(result[j].ID)
+	})
 	return result
 }
 
@@ -192,6 +204,8 @@ func (h *MetadataHandler) loadModelInfos(ctx context.Context, names []string) []
 	if h == nil || h.store == nil || len(names) == 0 {
 		return nil
 	}
+	names = append([]string(nil), names...)
+	sort.Strings(names)
 	var result []ModelInfo
 	for _, name := range names {
 		raw, err := h.store.Load(ctx, ws.KindModel, name)
@@ -214,6 +228,14 @@ func (h *MetadataHandler) loadModelInfos(ctx context.Context, names []string) []
 		}
 		result = append(result, ModelInfo{ID: id, Name: label})
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		left := strings.ToLower(strings.TrimSpace(firstNonEmpty(result[i].Name, result[i].ID)))
+		right := strings.ToLower(strings.TrimSpace(firstNonEmpty(result[j].Name, result[j].ID)))
+		if left != right {
+			return left < right
+		}
+		return strings.TrimSpace(result[i].ID) < strings.TrimSpace(result[j].ID)
+	})
 	return result
 }
 

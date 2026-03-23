@@ -849,6 +849,21 @@ describe('Linked Conversations', () => {
         expect(call.url).toContain('parentId=conv_1');
     });
 
+    it('listLinkedConversations accepts lowercase rows payloads', async () => {
+        const f = mockFetch(200, {
+            rows: [{ conversationId: 'child_2', parentConversationId: 'conv_1', parentTurnId: 't1', createdAt: '2025-01-01', status: 'running' }],
+            hasMore: false,
+            cursor: '',
+            prevCursor: '',
+        });
+        const c = client(f);
+        const res = await c.listLinkedConversations({ parentConversationId: 'conv_1' });
+
+        expect(res.data).toHaveLength(1);
+        expect(res.data[0].conversationId).toBe('child_2');
+        expect(res.data[0].status).toBe('running');
+    });
+
     it('listLinkedConversations with parentTurnId and pagination', async () => {
         const f = mockFetch(200, {
             Rows: [],
