@@ -790,6 +790,8 @@ func (c *EmbeddedClient) ListLinkedConversations(ctx context.Context, input *Lis
 		}
 		entry := &LinkedConversationEntry{
 			ConversationID: row.Id,
+			AgentID:        strings.TrimSpace(valueOrEmpty(row.AgentId)),
+			Title:          strings.TrimSpace(valueOrEmpty(row.Title)),
 			CreatedAt:      row.CreatedAt,
 			UpdatedAt:      row.UpdatedAt,
 		}
