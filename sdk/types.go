@@ -54,6 +54,8 @@ type LinkedConversationEntry struct {
 	ConversationID       string     `json:"conversationId"`
 	ParentConversationID string     `json:"parentConversationId,omitempty"`
 	ParentTurnID         string     `json:"parentTurnId,omitempty"`
+	AgentID              string     `json:"agentId,omitempty"`
+	Title                string     `json:"title,omitempty"`
 	Status               string     `json:"status,omitempty"`
 	Response             string     `json:"response,omitempty"`
 	CreatedAt            time.Time  `json:"createdAt"`
