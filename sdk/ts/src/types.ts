@@ -61,6 +61,7 @@ export interface UpdateConversationInput {
 
 export interface ListConversationsInput {
     agentId?: string;
+    excludeScheduled?: boolean;
     query?: string;
     status?: string;
     page?: PageInput;

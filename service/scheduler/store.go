@@ -24,6 +24,7 @@ import (
 type Store interface {
 	Get(ctx context.Context, id string) (*schedulepkg.ScheduleView, error)
 	List(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
+	ListRuns(ctx context.Context, in *schrun.RunListInput) ([]*schrun.RunView, error)
 	ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
 	PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error
 	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error
@@ -72,6 +73,9 @@ func (s *datlyStore) init(ctx context.Context) error {
 	if err := schrun.DefineRunComponent(ctx, s.dao); err != nil {
 		return err
 	}
+	if err := schrun.DefineRunListComponent(ctx, s.dao); err != nil {
+		return err
+	}
 	if err := schrun.DefineRunDueComponent(ctx, s.dao); err != nil {
 		return err
 	}
@@ -117,6 +121,29 @@ func (s *datlyStore) List(ctx context.Context) ([]*schedulepkg.ScheduleView, err
 	if _, err := s.dao.Operate(ctx,
 		datly.WithURI(schedulepkg.SchedulePathListURI),
 		datly.WithInput(&schedulepkg.ScheduleListInput{}),
+		datly.WithOutput(out),
+	); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func (s *datlyStore) ListRuns(ctx context.Context, in *schrun.RunListInput) ([]*schrun.RunView, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	input := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
+	if in != nil {
+		copyValue := *in
+		if copyValue.Has == nil {
+			copyValue.Has = &schrun.RunListInputHas{}
+		}
+		input = &copyValue
+	}
+	out := &schrun.RunListOutput{}
+	if _, err := s.dao.Operate(ctx,
+		datly.WithURI(schrun.RunListPathURI),
+		datly.WithInput(input),
 		datly.WithOutput(out),
 	); err != nil {
 		return nil, err

@@ -30,6 +30,7 @@ type ConversationRowsInput struct {
 	AgentId          string                    `parameter:",kind=query,in=agentId" predicate:"equal,group=0,c,agent_id"`
 	ParentId         string                    `parameter:",kind=query,in=parentId" predicate:"equal,group=0,c,conversation_parent_id"`
 	ParentTurnId     string                    `parameter:",kind=query,in=parentTurnId" predicate:"equal,group=0,c,conversation_parent_turn_id"`
+	ExcludeScheduled bool                      `parameter:",kind=query,in=excludeScheduled" predicate:"expr,group=0,c.schedule_id IS NULL"`
 	ScheduleId       string                    `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,c,schedule_id"`
 	ScheduleRunId    string                    `parameter:",kind=query,in=scheduleRunId" predicate:"equal,group=0,c,schedule_run_id"`
 	Query            string                    `parameter:",kind=query,in=q" predicate:"expr,group=0,LOWER(c.id || ' ' || (CASE WHEN c.title IS NULL THEN '' ELSE c.title END) || ' ' || (CASE WHEN c.summary IS NULL THEN '' ELSE c.summary END)) LIKE '%' || LOWER(?) || '%'"`
@@ -46,6 +47,7 @@ type ConversationRowsInputHas struct {
 	AgentId          bool
 	ParentId         bool
 	ParentTurnId     bool
+	ExcludeScheduled bool
 	ScheduleId       bool
 	ScheduleRunId    bool
 	Query            bool

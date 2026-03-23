@@ -540,11 +540,12 @@ func handleListConversations(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		input := &ListConversationsInput{
-			AgentID:      strings.TrimSpace(q.Get("agentId")),
-			ParentID:     strings.TrimSpace(q.Get("parentId")),
-			ParentTurnID: strings.TrimSpace(q.Get("parentTurnId")),
-			Query:        strings.TrimSpace(q.Get("q")),
-			Status:       strings.TrimSpace(q.Get("status")),
+			AgentID:          strings.TrimSpace(q.Get("agentId")),
+			ParentID:         strings.TrimSpace(q.Get("parentId")),
+			ParentTurnID:     strings.TrimSpace(q.Get("parentTurnId")),
+			ExcludeScheduled: queryBool(r, "excludeScheduled", false),
+			Query:            strings.TrimSpace(q.Get("q")),
+			Status:           strings.TrimSpace(q.Get("status")),
 		}
 		if limitRaw := strings.TrimSpace(q.Get("limit")); limitRaw != "" {
 			limit, err := strconv.Atoi(limitRaw)

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+
+	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 )
 
 // Handler serves scheduler HTTP endpoints.
@@ -18,6 +21,7 @@ func NewHandler(svc *Service) *Handler {
 
 // Register mounts all scheduler routes on the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/api/agently/scheduler/run", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
 	mux.HandleFunc("PATCH /v1/api/agently/scheduler/", h.handleBatchUpdate())
@@ -26,6 +30,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 // RegisterWithoutRunNow mounts scheduler routes except the run-now endpoint.
 func (h *Handler) RegisterWithoutRunNow(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/api/agently/scheduler/run", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
 	mux.HandleFunc("PATCH /v1/api/agently/scheduler/", h.handleBatchUpdate())
@@ -67,6 +72,56 @@ func (h *Handler) handleListSchedules() http.HandlerFunc {
 				"schedules": list,
 			},
 		})
+	}
+}
+
+func (h *Handler) handleListRuns() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scheduleID := strings.TrimSpace(r.URL.Query().Get("scheduleId"))
+		status := strings.TrimSpace(r.URL.Query().Get("status"))
+		requireScheduleID := isTruthy(r.URL.Query().Get("requireScheduleId"))
+		if requireScheduleID && scheduleID == "" {
+			httpJSON(w, http.StatusOK, map[string]interface{}{
+				"status": "ok",
+				"data": map[string]interface{}{
+					"runs":       []*schrun.RunView{},
+					"pageCount":  1,
+					"totalCount": 0,
+				},
+			})
+			return
+		}
+		input := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
+		if scheduleID != "" {
+			input.ScheduleId = scheduleID
+			input.Has.ScheduleId = true
+		}
+		if status != "" {
+			input.RunStatus = status
+			input.Has.RunStatus = true
+		}
+		list, err := h.svc.store.ListRuns(r.Context(), input)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "ok",
+			"data": map[string]interface{}{
+				"runs":       list,
+				"pageCount":  1,
+				"totalCount": len(list),
+			},
+		})
+	}
+}
+
+func isTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
 	}
 }
 
