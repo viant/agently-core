@@ -150,6 +150,40 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 	assert.ElementsMatch(t, []string{"openai_gpt-5.2", "vertexai_gemini-2.5-flash"}, response.Models)
 }
 
+func TestMetadataHandler_IncludesInternalFlagForAgents(t *testing.T) {
+	store := &metadataTestStore{
+		items: map[string]map[string][]byte{
+			ws.KindAgent: {
+				"public_agent":   []byte("id: public-agent\nname: Public Agent\n"),
+				"internal_agent": []byte("id: internal-agent\nname: Internal Agent\ninternal: true\n"),
+			},
+		},
+	}
+	handler := NewMetadataHandler(&config.Defaults{}, store, "test-version")
+
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response MetadataResponse
+	err := json.Unmarshal(rec.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	if assert.Len(t, response.AgentInfos, 2) {
+		agents := map[string]AgentInfo{}
+		for _, item := range response.AgentInfos {
+			agents[item.ID] = item
+		}
+		assert.False(t, agents["public-agent"].Internal)
+		assert.True(t, agents["internal-agent"].Internal)
+	}
+	assert.ElementsMatch(t, []string{"public-agent", "internal-agent"}, response.Agents)
+}
+
 func TestMetadataHandler_SortsAgentAndModelInfosByLabel(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
