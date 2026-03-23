@@ -39,30 +39,34 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 			if ex == "" {
 				continue
 			}
-			for _, d := range matchFn(ex) {
+			for _, pattern := range patternVariants(ex) {
+				for _, d := range matchFn(pattern) {
+					if d == nil {
+						continue
+					}
+					excluded[canonicalKey(d.Name)] = struct{}{}
+				}
+			}
+		}
+		for _, pattern := range patternVariants(namePattern) {
+			for _, d := range matchFn(pattern) {
 				if d == nil {
 					continue
 				}
-				excluded[canonicalKey(d.Name)] = struct{}{}
-			}
-		}
-		for _, d := range matchFn(namePattern) {
-			if d == nil {
-				continue
-			}
-			key := canonicalKey(d.Name)
-			if _, ok := excluded[key]; ok {
-				continue
-			}
-			if _, ok := selected[key]; ok {
+				key := canonicalKey(d.Name)
+				if _, ok := excluded[key]; ok {
+					continue
+				}
+				if _, ok := selected[key]; ok {
+					if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
+						queueByKey[key] = r.ApprovalQueue
+					}
+					continue
+				}
+				selected[key] = *d
 				if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
 					queueByKey[key] = r.ApprovalQueue
 				}
-				continue
-			}
-			selected[key] = *d
-			if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
-				queueByKey[key] = r.ApprovalQueue
 			}
 		}
 	}
@@ -82,4 +86,32 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 
 func canonicalKey(name string) string {
 	return mcpname.Canonical(strings.TrimSpace(name))
+}
+
+func patternVariants(name string) []string {
+	raw := strings.TrimSpace(name)
+	if raw == "" {
+		return nil
+	}
+	variants := map[string]struct{}{
+		raw: {},
+	}
+	canonical := canonicalKey(raw)
+	if canonical != "" {
+		variants[canonical] = struct{}{}
+		n := mcpname.Name(canonical)
+		service := strings.TrimSpace(n.Service())
+		method := strings.TrimSpace(n.Method())
+		if service != "" && method != "" {
+			variants[service+":"+method] = struct{}{}
+			variants[service+"."+method] = struct{}{}
+			variants[service+"/"+method] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(variants))
+	for variant := range variants {
+		result = append(result, variant)
+	}
+	sort.Strings(result)
+	return result
 }
