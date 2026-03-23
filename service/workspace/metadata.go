@@ -55,6 +55,7 @@ type Capabilities struct {
 type AgentInfo struct {
 	ID           string                 `json:"id,omitempty"`
 	Name         string                 `json:"name,omitempty"`
+	Internal     bool                   `json:"internal,omitempty"`
 	ModelRef     string                 `json:"modelRef,omitempty"`
 	StarterTasks []agentmdl.StarterTask `json:"starterTasks,omitempty"`
 }
@@ -165,6 +166,7 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 		result = append(result, AgentInfo{
 			ID:           id,
 			Name:         label,
+			Internal:     cfg.Internal,
 			ModelRef:     firstNonEmpty(cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
 			StarterTasks: append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
 		})
