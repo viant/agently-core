@@ -32,6 +32,8 @@ func (f *fakeClient) ListTools(ctx context.Context, cursor *string, options ...m
 		return nil, errServerDown
 	case "empty":
 		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{}}, nil
+	case "qualified":
+		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "steward:AdHierarchy"}}}, nil
 	default:
 		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "ping"}}}, nil
 	}
@@ -119,4 +121,21 @@ func TestDefinitions_UsesCacheOnFailure(t *testing.T) {
 			assert.EqualValues(t, tc.expected, names)
 		})
 	}
+}
+
+func TestMatchDefinitionWithContext_SupportsFullyQualifiedMCPToolNames(t *testing.T) {
+	mgr, _ := manager.New(nil)
+	reg, err := NewWithManager(mgr)
+	if err != nil {
+		t.Fatalf("registry init failed: %v", err)
+	}
+	reg.internal = map[string]mcpclient.Interface{
+		"steward": &fakeClient{mode: "qualified"},
+	}
+
+	defs := reg.MatchDefinitionWithContext(context.Background(), "steward-AdHierarchy")
+	if len(defs) != 1 {
+		t.Fatalf("expected 1 matched tool, got %d", len(defs))
+	}
+	assert.Equal(t, "steward:AdHierarchy", defs[0].Name)
 }
