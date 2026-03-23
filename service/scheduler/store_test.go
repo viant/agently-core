@@ -498,6 +498,45 @@ func TestHandler_ListRunsIgnoresInteractiveRunsWithoutScheduleID(t *testing.T) {
 	}
 }
 
+func TestHandler_ListRunsIncludesScheduledRunsWhileKindIsStillInteractive(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertConversationRow(t, db, "conv-scheduled", "public")
+	insertConversationRow(t, db, "conv-interactive", "public")
+	startedAt := time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC)
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, created_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, "run-scheduled-live", "sched-1", "conv-scheduled", "interactive", "running", startedAt.Add(-1*time.Minute), startedAt); err != nil {
+		t.Fatalf("insert run error: %v", err)
+	}
+	insertInteractiveRunRow(t, db, "run-interactive", "conv-interactive", "running", startedAt.Add(2*time.Minute))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Runs []*schrun.RunView `json:"runs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if len(payload.Data.Runs) != 1 || payload.Data.Runs[0].Id != "run-scheduled-live" {
+		t.Fatalf("expected only in-flight scheduled run, got %#v", payload.Data.Runs)
+	}
+}
+
 func insertScheduleRow(t *testing.T, db *sql.DB, id, name string) {
 	t.Helper()
 	if _, err := db.ExecContext(context.Background(), `INSERT INTO schedule (id, name, visibility, agent_ref, enabled, schedule_type, timezone) VALUES (?, ?, ?, ?, ?, ?, ?)`, id, name, "public", "simple", 1, "adhoc", "UTC"); err != nil {

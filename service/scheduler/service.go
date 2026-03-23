@@ -304,8 +304,8 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	output := &agentsvc.QueryOutput{}
 	err := s.agent.Query(runCtx, input, output)
 
-	// Restore scheduler-specific run metadata because the interactive run path
-	// currently defaults conversation_kind to "interactive".
+	// Re-assert scheduler metadata after agent execution and persist the
+	// conversation ID produced during the run.
 	runPatch := &agrunwrite.MutableRunView{}
 	runPatch.SetId(runID)
 	runPatch.SetScheduleID(row.Id)

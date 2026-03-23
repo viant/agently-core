@@ -20,15 +20,15 @@ func init() {
 }
 
 type RunListInput struct {
-	ScheduledKind    string           `parameter:",kind=const,in=value" predicate:"equal,group=0,t,conversation_kind" value:"scheduled"`
-	ScheduleId       string           `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,t,schedule_id"`
+	HasScheduleID    bool             `parameter:",kind=const,in=value" predicate:"expr,group=0,t.schedule_id IS NOT NULL" value:"true"`
+	ScheduleId       string           `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
 	RunStatus        string           `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
 	DefaultPredicate string           `parameter:",kind=const,in=value" predicate:"handler,group=0,*run.Filter" value:"0"`
 	Has              *RunListInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type RunListInputHas struct {
-	ScheduledKind    bool
+	HasScheduleID    bool
 	ScheduleId       bool
 	RunStatus        bool
 	DefaultPredicate bool
