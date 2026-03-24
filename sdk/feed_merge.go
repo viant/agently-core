@@ -5,11 +5,33 @@ import (
 	"strings"
 )
 
-// mergeFeedPayloads merges multiple tool call response payloads into a single
-// root object with "input" and "output" keys. This supports feeds that match
-// multiple tool calls (e.g., explorer matching resources/roots, resources/list, etc.)
-func mergeFeedPayloads(payloads []string) map[string]interface{} {
-	var mergedOutput interface{}
+func buildFeedData(feedID string, requestPayloads, responsePayloads []string) map[string]interface{} {
+	requests := parsePayloadList(requestPayloads)
+	responses := parsePayloadList(responsePayloads)
+
+	rootData := map[string]interface{}{
+		"input":  lastPayloadObject(requests),
+		"output": map[string]interface{}{},
+	}
+	switch strings.ToLower(strings.TrimSpace(feedID)) {
+	case "explorer":
+		rootData["output"] = buildExplorerOutput(responses)
+		enrichExplorerData(rootData)
+	case "terminal":
+		rootData["output"] = buildTerminalOutput(responses)
+	case "changes":
+		rootData["output"] = buildLastOutput(responses)
+	case "plan":
+		rootData["output"] = buildLastOutput(responses)
+		enrichPlanData(rootData)
+	default:
+		rootData["output"] = buildLastOutput(responses)
+	}
+	return rootData
+}
+
+func parsePayloadList(payloads []string) []interface{} {
+	var result []interface{}
 	for _, payload := range payloads {
 		payload = strings.TrimSpace(payload)
 		if payload == "" {
@@ -19,63 +41,100 @@ func mergeFeedPayloads(payloads []string) map[string]interface{} {
 		if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
 			continue
 		}
-		mergedOutput = mergeJSONLike(mergedOutput, parsed)
+		result = append(result, parsed)
 	}
-	if mergedOutput == nil {
-		mergedOutput = map[string]interface{}{}
-	}
-	return map[string]interface{}{
-		"output": mergedOutput,
-	}
+	return result
 }
 
-// mergeJSONLike recursively merges two JSON-like values.
-// Maps are merged key-by-key. Slices are appended. Scalars: b wins.
-func mergeJSONLike(a, b interface{}) interface{} {
-	if a == nil {
-		return b
+func lastPayloadObject(values []interface{}) map[string]interface{} {
+	for i := len(values) - 1; i >= 0; i-- {
+		if obj, ok := values[i].(map[string]interface{}); ok {
+			return cloneMap(obj)
+		}
 	}
-	if b == nil {
-		return a
+	return map[string]interface{}{}
+}
+
+func buildLastOutput(values []interface{}) map[string]interface{} {
+	return lastPayloadObject(values)
+}
+
+func buildExplorerOutput(values []interface{}) map[string]interface{} {
+	output := map[string]interface{}{}
+	var files []interface{}
+	var items []interface{}
+	var roots []interface{}
+	for _, raw := range values {
+		obj, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if list, ok := obj["files"].([]interface{}); ok {
+			files = append(files, list...)
+		}
+		if list, ok := obj["items"].([]interface{}); ok {
+			items = append(items, list...)
+		}
+		if list, ok := obj["roots"].([]interface{}); ok {
+			roots = append(roots, list...)
+		}
+		if list, ok := obj["Roots"].([]interface{}); ok {
+			roots = append(roots, list...)
+		}
+		if _, ok := output["stats"]; !ok && obj["stats"] != nil {
+			output["stats"] = obj["stats"]
+		}
+		if _, ok := output["path"]; !ok && obj["path"] != nil {
+			output["path"] = obj["path"]
+		}
+		if _, ok := output["modeApplied"]; !ok && obj["modeApplied"] != nil {
+			output["modeApplied"] = obj["modeApplied"]
+		}
 	}
-	aMap, aOK := toMap(a)
-	bMap, bOK := toMap(b)
-	if aOK && bOK {
-		for k, v := range bMap {
-			if existing, ok := aMap[k]; ok {
-				aMap[k] = mergeJSONLike(existing, v)
-			} else {
-				aMap[k] = v
+	if len(files) > 0 {
+		output["files"] = files
+	}
+	if len(items) > 0 {
+		output["items"] = items
+	}
+	if len(roots) > 0 {
+		output["roots"] = roots
+	}
+	return output
+}
+
+func buildTerminalOutput(values []interface{}) map[string]interface{} {
+	output := map[string]interface{}{}
+	var commands []interface{}
+	for _, raw := range values {
+		obj, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if list, ok := obj["commands"].([]interface{}); ok {
+			commands = append(commands, list...)
+		}
+		for _, key := range []string{"stdout", "stderr", "status", "error"} {
+			if _, exists := output[key]; !exists && obj[key] != nil {
+				output[key] = obj[key]
 			}
 		}
-		return aMap
 	}
-	aSlice, aIsSlice := toSlice(a)
-	bSlice, bIsSlice := toSlice(b)
-	if aIsSlice && bIsSlice {
-		return append(aSlice, bSlice...)
+	if len(commands) > 0 {
+		output["commands"] = commands
 	}
-	if aIsSlice {
-		return append(aSlice, b)
-	}
-	if bIsSlice {
-		return append([]interface{}{a}, bSlice...)
-	}
-	return b
+	return output
 }
 
-func toMap(v interface{}) (map[string]interface{}, bool) {
-	if m, ok := v.(map[string]interface{}); ok {
-		return m, true
+func cloneMap(src map[string]interface{}) map[string]interface{} {
+	if src == nil {
+		return map[string]interface{}{}
 	}
-	return nil, false
-}
-
-func toSlice(v interface{}) ([]interface{}, bool) {
-	if s, ok := v.([]interface{}); ok {
-		return s, true
+	out := make(map[string]interface{}, len(src))
+	for key, value := range src {
+		out[key] = value
 	}
-	return nil, false
+	return out
 }
 
 // enrichExplorerData derives entries from merged output for the explorer feed.
@@ -85,7 +144,6 @@ func enrichExplorerData(rootData map[string]interface{}) {
 		return
 	}
 	var entries []interface{}
-	// Collect from various output formats.
 	if items, ok := output["items"].([]interface{}); ok {
 		entries = append(entries, items...)
 	}

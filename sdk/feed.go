@@ -31,8 +31,10 @@ type FeedMatch struct {
 
 // FeedActivation controls how feed data is gathered.
 type FeedActivation struct {
-	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty"`   // "history" (default) or "tool_call"
-	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"` // "last" (default) or "all"
+	Kind    string `yaml:"kind,omitempty" json:"kind,omitempty"`       // "history" (default) or "tool_call"
+	Scope   string `yaml:"scope,omitempty" json:"scope,omitempty"`     // "last" (default) or "all"
+	Service string `yaml:"service,omitempty" json:"service,omitempty"` // optional data-source service for tool_call activation
+	Method  string `yaml:"method,omitempty" json:"method,omitempty"`   // optional data-source method for tool_call activation
 }
 
 // FeedState tracks active feeds for a conversation.
@@ -147,15 +149,19 @@ func matchesRule(m FeedMatch, service, method string) bool {
 
 func parseToolName(name string) (string, string) {
 	normalized := strings.ToLower(strings.TrimSpace(name))
-	// Normalize: some stores use underscores/hyphens instead of slashes.
-	// Convert "system_exec-execute" → "system/exec/execute" before splitting.
-	// Replace underscore with slash first (service separator), then split on last slash.
 	normalized = strings.ReplaceAll(normalized, "_", "/")
-	// Handle "service/method" — split on last slash.
-	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
+	if idx := strings.Index(normalized, ":"); idx >= 0 {
 		return normalized[:idx], normalized[idx+1:]
 	}
-	if idx := strings.Index(normalized, ":"); idx >= 0 {
+	// Handle names like "system_patch-apply" and "system/patch-apply" where the
+	// final hyphen separates service path from method.
+	if slash := strings.LastIndex(normalized, "/"); slash >= 0 {
+		if dash := strings.LastIndex(normalized, "-"); dash > slash {
+			return normalized[:dash], normalized[dash+1:]
+		}
+	}
+	// Handle "service/method" — split on last slash.
+	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
 		return normalized[:idx], normalized[idx+1:]
 	}
 	// Try splitting on hyphen for "prefix-method" pattern.
