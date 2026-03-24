@@ -761,7 +761,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		return nil
 	}
 	eventType := streaming.EventTypeToolCallStarted
-	if status != "running" && status != "thinking" {
+	if status != "running" && status != "thinking" && status != "waiting_for_user" {
 		eventType = streaming.EventTypeToolCallCompleted
 	}
 	event := &streaming.Event{

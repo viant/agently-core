@@ -120,9 +120,11 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 		updTC.SetTurnID(turn.TurnID)
 	}
 	updTC.SetStatus(status)
-	done := completedAt
-	updTC.CompletedAt = &done
-	updTC.Has.CompletedAt = true
+	if status == "completed" || status == "failed" || status == "canceled" || status == "cancelled" || status == "queued" {
+		done := completedAt
+		updTC.CompletedAt = &done
+		updTC.Has.CompletedAt = true
+	}
 	if respPayloadID != "" {
 		updTC.ResponsePayloadID = &respPayloadID
 		updTC.Has.ResponsePayloadID = true
@@ -134,5 +136,9 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 	if err := conv.PatchToolCall(ctx, updTC); err != nil {
 		return err
 	}
-	return updateToolMessageStatus(ctx, conv, toolMsgID, status)
+	msgStatus := status
+	if status == "waiting_for_user" {
+		msgStatus = "pending"
+	}
+	return updateToolMessageStatus(ctx, conv, toolMsgID, msgStatus)
 }
