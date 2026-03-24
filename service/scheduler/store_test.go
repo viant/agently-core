@@ -471,8 +471,8 @@ func TestHandler_ListRunsIncludesPrivateRunsForOwner(t *testing.T) {
 	svc := New(store, nil)
 	h := NewHandler(svc)
 
-	insertScheduleRow(t, db, "sched-1", "Nightly")
-	insertConversationRowWithOwner(t, db, "conv-1", "private", "devuser")
+	insertScheduleRowWithOwner(t, db, "sched-1", "Nightly", "private", "devuser")
+	insertConversationRow(t, db, "conv-1", "public")
 	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run", nil)
@@ -496,6 +496,73 @@ func TestHandler_ListRunsIncludesPrivateRunsForOwner(t *testing.T) {
 	}
 	if len(payload.Data) != 1 || payload.Data[0].Id != "run-1" {
 		t.Fatalf("expected owner to see private run, got %#v", payload.Data)
+	}
+}
+
+func TestHandler_ListRunsExcludesPrivateRunsFromOtherUsers(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRowWithOwner(t, db, "sched-1", "Nightly", "private", "devuser")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "ppoudyal"))
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if len(payload.Data) != 0 {
+		t.Fatalf("expected other users to be denied private runs, got %#v", payload.Data)
+	}
+}
+
+func TestHandler_ListRunsByPrivateScheduleReturnsEmptyForOtherUsers(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRowWithOwner(t, db, "sched-1", "Nightly", "private", "devuser")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run/sched-1", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "ppoudyal"))
+	req.SetPathValue("id", "sched-1")
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if len(payload.Data) != 0 {
+		t.Fatalf("expected schedule-scoped private runs to be denied, got %#v", payload.Data)
 	}
 }
 
@@ -643,7 +710,12 @@ func TestHandler_ListRunsSupportsPathScheduleID(t *testing.T) {
 
 func insertScheduleRow(t *testing.T, db *sql.DB, id, name string) {
 	t.Helper()
-	if _, err := db.ExecContext(context.Background(), `INSERT INTO schedule (id, name, visibility, agent_ref, enabled, schedule_type, timezone) VALUES (?, ?, ?, ?, ?, ?, ?)`, id, name, "public", "simple", 1, "adhoc", "UTC"); err != nil {
+	insertScheduleRowWithOwner(t, db, id, name, "public", "")
+}
+
+func insertScheduleRowWithOwner(t *testing.T, db *sql.DB, id, name, visibility, owner string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO schedule (id, name, visibility, created_by_user_id, agent_ref, enabled, schedule_type, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, name, visibility, nullableString(owner), "simple", 1, "adhoc", "UTC"); err != nil {
 		t.Fatalf("insert schedule error: %v", err)
 	}
 }
@@ -677,4 +749,11 @@ func insertInteractiveRunRow(t *testing.T, db *sql.DB, id, conversationID, statu
 	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, conversation_id, conversation_kind, status, created_at, started_at) VALUES (?, ?, ?, ?, ?, ?)`, id, conversationID, "interactive", status, createdAt, startedAt); err != nil {
 		t.Fatalf("insert run error: %v", err)
 	}
+}
+
+func nullableString(value string) interface{} {
+	if value == "" {
+		return nil
+	}
+	return value
 }
