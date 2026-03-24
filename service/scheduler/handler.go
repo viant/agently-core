@@ -3,7 +3,9 @@ package scheduler
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
@@ -22,6 +24,8 @@ func NewHandler(svc *Service) *Handler {
 // Register mounts all scheduler routes on the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run", h.handleListRuns())
+	mux.HandleFunc("GET /v1/api/agently/scheduler/run/", h.handleListRuns())
+	mux.HandleFunc("GET /v1/api/agently/scheduler/run/{id}", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
 	mux.HandleFunc("PATCH /v1/api/agently/scheduler/", h.handleBatchUpdate())
@@ -31,6 +35,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // RegisterWithoutRunNow mounts scheduler routes except the run-now endpoint.
 func (h *Handler) RegisterWithoutRunNow(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run", h.handleListRuns())
+	mux.HandleFunc("GET /v1/api/agently/scheduler/run/", h.handleListRuns())
+	mux.HandleFunc("GET /v1/api/agently/scheduler/run/{id}", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
 	mux.HandleFunc("PATCH /v1/api/agently/scheduler/", h.handleBatchUpdate())
@@ -61,15 +67,21 @@ func (h *Handler) handleGetSchedule() http.HandlerFunc {
 
 func (h *Handler) handleListSchedules() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		page, size := parsePaging(r, 25)
 		list, err := h.svc.List(r.Context())
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
+		totalCount := len(list)
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "ok",
 			"data": map[string]interface{}{
-				"schedules": list,
+				"schedules": paginateSchedules(list, page, size),
+			},
+			"info": map[string]interface{}{
+				"pageCount":  pageCount(totalCount, size),
+				"totalCount": totalCount,
 			},
 		})
 	}
@@ -77,14 +89,18 @@ func (h *Handler) handleListSchedules() http.HandlerFunc {
 
 func (h *Handler) handleListRuns() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		scheduleID := strings.TrimSpace(r.URL.Query().Get("scheduleId"))
+		scheduleID := strings.TrimSpace(r.PathValue("id"))
+		if scheduleID == "" {
+			scheduleID = strings.TrimSpace(r.URL.Query().Get("scheduleId"))
+		}
 		status := strings.TrimSpace(r.URL.Query().Get("status"))
 		requireScheduleID := isTruthy(r.URL.Query().Get("requireScheduleId"))
+		page, size := parsePaging(r, 25)
 		if requireScheduleID && scheduleID == "" {
 			httpJSON(w, http.StatusOK, map[string]interface{}{
 				"status": "ok",
-				"data": map[string]interface{}{
-					"runs":       []*schrun.RunView{},
+				"data":   []*schrun.RunView{},
+				"info": map[string]interface{}{
 					"pageCount":  1,
 					"totalCount": 0,
 				},
@@ -105,15 +121,72 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
+		totalCount := len(list)
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "ok",
-			"data": map[string]interface{}{
-				"runs":       list,
-				"pageCount":  1,
-				"totalCount": len(list),
+			"data":   paginateRuns(list, page, size),
+			"info": map[string]interface{}{
+				"pageCount":  pageCount(totalCount, size),
+				"totalCount": totalCount,
 			},
 		})
 	}
+}
+
+func parsePaging(r *http.Request, defaultSize int) (int, int) {
+	page := 1
+	size := defaultSize
+	if r == nil || r.URL == nil {
+		return page, size
+	}
+	if rawPage := strings.TrimSpace(r.URL.Query().Get("page")); rawPage != "" {
+		if parsed, err := strconv.Atoi(rawPage); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	if rawSize := strings.TrimSpace(r.URL.Query().Get("size")); rawSize != "" {
+		if parsed, err := strconv.Atoi(rawSize); err == nil && parsed > 0 {
+			size = parsed
+		}
+	}
+	return page, size
+}
+
+func pageCount(totalCount, size int) int {
+	if totalCount <= 0 || size <= 0 {
+		return 1
+	}
+	return int(math.Max(1, math.Ceil(float64(totalCount)/float64(size))))
+}
+
+func paginateRuns(runs []*schrun.RunView, page, size int) []*schrun.RunView {
+	if size <= 0 || page < 1 {
+		return runs
+	}
+	start := (page - 1) * size
+	if start >= len(runs) {
+		return []*schrun.RunView{}
+	}
+	end := start + size
+	if end > len(runs) {
+		end = len(runs)
+	}
+	return runs[start:end]
+}
+
+func paginateSchedules(schedules []*Schedule, page, size int) []*Schedule {
+	if size <= 0 || page < 1 {
+		return schedules
+	}
+	start := (page - 1) * size
+	if start >= len(schedules) {
+		return []*Schedule{}
+	}
+	end := start + size
+	if end > len(schedules) {
+		end = len(schedules)
+	}
+	return schedules[start:end]
 }
 
 func isTruthy(value string) bool {
