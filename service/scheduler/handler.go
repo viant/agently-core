@@ -116,10 +116,53 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 			input.RunStatus = status
 			input.Has.RunStatus = true
 		}
+		if scheduleID != "" {
+			sched, err := h.svc.Get(r.Context(), scheduleID)
+			if err != nil {
+				httpError(w, http.StatusInternalServerError, err)
+				return
+			}
+			if sched == nil {
+				httpJSON(w, http.StatusOK, map[string]interface{}{
+					"status": "ok",
+					"data":   []*schrun.RunView{},
+					"info": map[string]interface{}{
+						"pageCount":  1,
+						"totalCount": 0,
+					},
+				})
+				return
+			}
+		}
 		list, err := h.svc.store.ListRuns(r.Context(), input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
+		}
+		if scheduleID == "" {
+			schedules, err := h.svc.List(r.Context())
+			if err != nil {
+				httpError(w, http.StatusInternalServerError, err)
+				return
+			}
+			allowedScheduleIDs := make(map[string]struct{}, len(schedules))
+			for _, schedule := range schedules {
+				if schedule == nil || strings.TrimSpace(schedule.ID) == "" {
+					continue
+				}
+				allowedScheduleIDs[strings.TrimSpace(schedule.ID)] = struct{}{}
+			}
+			filtered := make([]*schrun.RunView, 0, len(list))
+			for _, row := range list {
+				if row == nil {
+					continue
+				}
+				if _, ok := allowedScheduleIDs[strings.TrimSpace(row.ScheduleId)]; !ok {
+					continue
+				}
+				filtered = append(filtered, row)
+			}
+			list = filtered
 		}
 		totalCount := len(list)
 		httpJSON(w, http.StatusOK, map[string]interface{}{
