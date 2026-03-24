@@ -169,6 +169,8 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("execute tool: %w", execErr))
 		cause := classifyTimeoutCause(ctx, nil, execErr)
 		warnConvf("tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
+	} else if looksLikeAuthElicitation(toolResult) {
+		warnConvf("tool execute auth challenge convo=%q turn=%q op_id=%q tool=%q exec_err=nil result_len=%d result_head=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(toolResult), headString(toolResult, 256))
 	}
 	span.SetEnd(time.Now())
 
@@ -178,7 +180,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		if execErr != nil {
 			errStr = execErr.Error()
 		}
-		status, _ := resolveToolStatus(execErr, ctx)
+		status, _ := resolveToolStatus(execErr, ctx, toolResult)
 		debugtrace.LogToolCall(step.Name, step.ID, status, len(toolResult), toolResult, errStr)
 	}
 
@@ -212,7 +214,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	//}
 
 	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
-	status, errMsg := resolveToolStatus(execErr, ctx)
+	status, errMsg := resolveToolStatus(execErr, ctx, toolResult)
 	forcedStatus = status
 	// Use detached + bounded context for terminal writes.
 	finCtx, cancelFin := detachedFinalizeCtx(ctx)
@@ -391,7 +393,7 @@ func errString(err error) string {
 
 // resolveToolStatus determines the terminal status for a tool call based on execution error and parent context.
 // Returns one of: "completed", "failed", "canceled" and an optional error message.
-func resolveToolStatus(execErr error, parentCtx context.Context) (string, string) {
+func resolveToolStatus(execErr error, parentCtx context.Context, toolResult string) (string, string) {
 	status := "completed"
 	var errMsg string
 	if execErr != nil {
@@ -407,6 +409,8 @@ func resolveToolStatus(execErr error, parentCtx context.Context) (string, string
 		}
 	} else if parentCtx.Err() == context.Canceled {
 		status = "canceled"
+	} else if looksLikeAuthElicitation(toolResult) {
+		status = "waiting_for_user"
 	}
 	return status, errMsg
 }
@@ -416,6 +420,16 @@ func detachedFinalizeCtx(ctx context.Context) (context.Context, context.CancelFu
 		return context.WithTimeout(context.Background(), finalizeWriteTimeout)
 	}
 	return context.WithTimeout(context.WithoutCancel(ctx), finalizeWriteTimeout)
+}
+
+func looksLikeAuthElicitation(result string) bool {
+	text := strings.ToLower(strings.TrimSpace(result))
+	if text == "" {
+		return false
+	}
+	return strings.Contains(text, "mcp server requires authentication") ||
+		strings.Contains(text, "please sign in to continue") ||
+		(strings.Contains(text, "\"type\":\"elicitation\"") && strings.Contains(text, "\"mode\":\"url\""))
 }
 
 type toolApprovalQueueWriter interface {

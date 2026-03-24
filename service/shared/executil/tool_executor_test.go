@@ -36,9 +36,15 @@ func TestResolveToolStatus_DataDriven(t *testing.T) {
 	}
 	for _, tc := range cases {
 		ctx := tc.parentFn()
-		got, _ := resolveToolStatus(tc.err, ctx)
+		got, _ := resolveToolStatus(tc.err, ctx, "")
 		assert.EqualValues(t, tc.expected, got, tc.name)
 	}
+}
+
+func TestResolveToolStatus_AuthChallenge(t *testing.T) {
+	ctx := context.Background()
+	got, _ := resolveToolStatus(nil, ctx, `MCP server requires authentication. Please sign in to continue.`)
+	assert.EqualValues(t, "waiting_for_user", got)
 }
 
 func TestToolExecContext_Timeout(t *testing.T) {

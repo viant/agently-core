@@ -121,6 +121,45 @@ func TestComputeTurnStage_UsesToolMessages(t *testing.T) {
 	assert.EqualValues(t, StageExecuting, tView.Stage)
 }
 
+func TestComputeTurnStage_ToolOriginatedPendingElicitation(t *testing.T) {
+	now := time.Now()
+	status := "pending"
+	elicID := "elic-tool-1"
+	tView := &TranscriptView{
+		CreatedAt: now,
+		Message: []*MessageView{{
+			Id:            "tool-elic",
+			Role:          "tool",
+			Type:          "control",
+			Status:        &status,
+			CreatedAt:     now,
+			ElicitationId: &elicID,
+		}},
+	}
+
+	tView.OnRelation(nil)
+	assert.EqualValues(t, StageEliciting, tView.Stage)
+}
+
+func TestComputeConversationStage_ToolOriginatedPendingElicitation(t *testing.T) {
+	now := time.Now()
+	status := "pending"
+	elicID := "elic-tool-1"
+	c := &ConversationView{Transcript: []*TranscriptView{{
+		CreatedAt: now,
+		Message: []*MessageView{{
+			Id:            "tool-elic",
+			Role:          "tool",
+			Type:          "control",
+			Status:        &status,
+			CreatedAt:     now,
+			ElicitationId: &elicID,
+		}},
+	}}}
+	c.OnRelation(nil)
+	assert.EqualValues(t, StageEliciting, c.Stage)
+}
+
 func TestComputeTurnStage_CanceledAssistantMessage(t *testing.T) {
 	now := time.Now()
 	status := "canceled"
