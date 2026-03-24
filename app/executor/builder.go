@@ -198,7 +198,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			err error
 		)
 		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" {
-			dao, err = data.NewDatlyFromWorkspace(ctx, workspace.Root())
+			dao, err = data.NewDatlyFromWorkspace(ctx, workspace.RuntimeRoot())
 		} else {
 			dao, err = data.NewDatly(ctx)
 		}
