@@ -338,12 +338,12 @@ func TestHandler_ListRunsBySchedule(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string `json:"status"`
-		Data   struct {
-			Runs       []*schrun.RunView `json:"runs"`
-			PageCount  int               `json:"pageCount"`
-			TotalCount int               `json:"totalCount"`
-		} `json:"data"`
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
+		Info   struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -351,11 +351,11 @@ func TestHandler_ListRunsBySchedule(t *testing.T) {
 	if payload.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", payload.Status)
 	}
-	if payload.Data.TotalCount != 1 || len(payload.Data.Runs) != 1 {
-		t.Fatalf("expected 1 run, got count=%d rows=%d", payload.Data.TotalCount, len(payload.Data.Runs))
+	if payload.Info.TotalCount != 1 || len(payload.Data) != 1 {
+		t.Fatalf("expected 1 run, got count=%d rows=%d", payload.Info.TotalCount, len(payload.Data))
 	}
-	if payload.Data.Runs[0].Id != "run-1" {
-		t.Fatalf("unexpected run id: %q", payload.Data.Runs[0].Id)
+	if payload.Data[0].Id != "run-1" {
+		t.Fatalf("unexpected run id: %q", payload.Data[0].Id)
 	}
 }
 
@@ -373,15 +373,13 @@ func TestHandler_ListRunsRequireScheduleIDReturnsEmpty(t *testing.T) {
 	}
 
 	var payload struct {
-		Data struct {
-			Runs []*schrun.RunView `json:"runs"`
-		} `json:"data"`
+		Data []*schrun.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
 	}
-	if len(payload.Data.Runs) != 0 {
-		t.Fatalf("expected empty runs, got %d", len(payload.Data.Runs))
+	if len(payload.Data) != 0 {
+		t.Fatalf("expected empty runs, got %d", len(payload.Data))
 	}
 }
 
@@ -406,12 +404,12 @@ func TestHandler_ListRunsWithoutScheduleIDReturnsAllVisibleRuns(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string `json:"status"`
-		Data   struct {
-			Runs       []*schrun.RunView `json:"runs"`
-			PageCount  int               `json:"pageCount"`
-			TotalCount int               `json:"totalCount"`
-		} `json:"data"`
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
+		Info   struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -419,11 +417,11 @@ func TestHandler_ListRunsWithoutScheduleIDReturnsAllVisibleRuns(t *testing.T) {
 	if payload.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", payload.Status)
 	}
-	if payload.Data.TotalCount != 2 || len(payload.Data.Runs) != 2 {
-		t.Fatalf("expected 2 runs, got count=%d rows=%d", payload.Data.TotalCount, len(payload.Data.Runs))
+	if payload.Info.TotalCount != 2 || len(payload.Data) != 2 {
+		t.Fatalf("expected 2 runs, got count=%d rows=%d", payload.Info.TotalCount, len(payload.Data))
 	}
-	if payload.Data.Runs[0].Id != "run-2" || payload.Data.Runs[1].Id != "run-1" {
-		t.Fatalf("unexpected run order: %#v", payload.Data.Runs)
+	if payload.Data[0].Id != "run-2" || payload.Data[1].Id != "run-1" {
+		t.Fatalf("unexpected run order: %#v", payload.Data)
 	}
 }
 
@@ -446,10 +444,8 @@ func TestHandler_ListRunsIncludesPrivateRunsForOwner(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string `json:"status"`
-		Data   struct {
-			Runs []*schrun.RunView `json:"runs"`
-		} `json:"data"`
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -457,8 +453,8 @@ func TestHandler_ListRunsIncludesPrivateRunsForOwner(t *testing.T) {
 	if payload.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", payload.Status)
 	}
-	if len(payload.Data.Runs) != 1 || payload.Data.Runs[0].Id != "run-1" {
-		t.Fatalf("expected owner to see private run, got %#v", payload.Data.Runs)
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-1" {
+		t.Fatalf("expected owner to see private run, got %#v", payload.Data)
 	}
 }
 
@@ -482,10 +478,8 @@ func TestHandler_ListRunsIgnoresInteractiveRunsWithoutScheduleID(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string `json:"status"`
-		Data   struct {
-			Runs []*schrun.RunView `json:"runs"`
-		} `json:"data"`
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -493,8 +487,8 @@ func TestHandler_ListRunsIgnoresInteractiveRunsWithoutScheduleID(t *testing.T) {
 	if payload.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", payload.Status)
 	}
-	if len(payload.Data.Runs) != 1 || payload.Data.Runs[0].Id != "run-scheduled" {
-		t.Fatalf("expected only scheduled run, got %#v", payload.Data.Runs)
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-scheduled" {
+		t.Fatalf("expected only scheduled run, got %#v", payload.Data)
 	}
 }
 
@@ -521,10 +515,8 @@ func TestHandler_ListRunsIncludesScheduledRunsWhileKindIsStillInteractive(t *tes
 	}
 
 	var payload struct {
-		Status string `json:"status"`
-		Data   struct {
-			Runs []*schrun.RunView `json:"runs"`
-		} `json:"data"`
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -532,8 +524,79 @@ func TestHandler_ListRunsIncludesScheduledRunsWhileKindIsStillInteractive(t *tes
 	if payload.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", payload.Status)
 	}
-	if len(payload.Data.Runs) != 1 || payload.Data.Runs[0].Id != "run-scheduled-live" {
-		t.Fatalf("expected only in-flight scheduled run, got %#v", payload.Data.Runs)
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-scheduled-live" {
+		t.Fatalf("expected only in-flight scheduled run, got %#v", payload.Data)
+	}
+}
+
+func TestHandler_ListRunsSupportsTrailingSlashAndPagination(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertConversationRow(t, db, "conv-2", "public")
+	insertConversationRow(t, db, "conv-3", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+	insertSchedulerRunRow(t, db, "run-2", "sched-1", "conv-2", "failed", time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC))
+	insertSchedulerRunRow(t, db, "run-3", "sched-1", "conv-3", "running", time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run/?page=2&size=2", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Data []*schrun.RunView `json:"data"`
+		Info struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Info.PageCount != 2 || payload.Info.TotalCount != 3 {
+		t.Fatalf("unexpected paging info: %+v", payload.Info)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-1" {
+		t.Fatalf("unexpected page slice: %#v", payload.Data)
+	}
+}
+
+func TestHandler_ListRunsSupportsPathScheduleID(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertScheduleRow(t, db, "sched-2", "Hourly")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertConversationRow(t, db, "conv-2", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+	insertSchedulerRunRow(t, db, "run-2", "sched-2", "conv-2", "running", time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run/sched-1", nil)
+	req.SetPathValue("id", "sched-1")
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Data []*schrun.RunView `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-1" {
+		t.Fatalf("expected schedule-scoped run list, got %#v", payload.Data)
 	}
 }
 
