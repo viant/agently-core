@@ -261,6 +261,47 @@ func TestHandler_BatchUpdateUpdatesDescriptionAndTaskPrompt(t *testing.T) {
 	assertScheduleTextFields(t, db, "sched-http-update-1", "after", "goodbye")
 }
 
+func TestHandler_ListSchedulesSupportsPagination(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertScheduleRow(t, db, "sched-2", "Hourly")
+	insertScheduleRow(t, db, "sched-3", "Weekly")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/?page=2&size=2", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListSchedules()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Schedules []map[string]interface{} `json:"schedules"`
+		} `json:"data"`
+		Info struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if payload.Info.PageCount != 2 || payload.Info.TotalCount != 3 {
+		t.Fatalf("unexpected paging info: %+v", payload.Info)
+	}
+	if len(payload.Data.Schedules) != 1 {
+		t.Fatalf("expected one schedule on page 2, got %d", len(payload.Data.Schedules))
+	}
+}
+
 func newTestStore(t *testing.T) (Store, *sql.DB) {
 	t.Helper()
 	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-core-scheduler-store")

@@ -67,15 +67,21 @@ func (h *Handler) handleGetSchedule() http.HandlerFunc {
 
 func (h *Handler) handleListSchedules() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		page, size := parsePaging(r, 25)
 		list, err := h.svc.List(r.Context())
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
+		totalCount := len(list)
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "ok",
 			"data": map[string]interface{}{
-				"schedules": list,
+				"schedules": paginateSchedules(list, page, size),
+			},
+			"info": map[string]interface{}{
+				"pageCount":  pageCount(totalCount, size),
+				"totalCount": totalCount,
 			},
 		})
 	}
@@ -166,6 +172,21 @@ func paginateRuns(runs []*schrun.RunView, page, size int) []*schrun.RunView {
 		end = len(runs)
 	}
 	return runs[start:end]
+}
+
+func paginateSchedules(schedules []*Schedule, page, size int) []*Schedule {
+	if size <= 0 || page < 1 {
+		return schedules
+	}
+	start := (page - 1) * size
+	if start >= len(schedules) {
+		return []*Schedule{}
+	}
+	end := start + size
+	if end > len(schedules) {
+		end = len(schedules)
+	}
+	return schedules[start:end]
 }
 
 func isTruthy(value string) bool {
