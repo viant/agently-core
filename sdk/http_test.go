@@ -8,13 +8,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/viant/agently-core/app/store/conversation"
+	iauth "github.com/viant/agently-core/internal/auth"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/scheduler"
 )
 
@@ -651,5 +654,140 @@ func TestHTTPClient_RunScheduleNow(t *testing.T) {
 	}
 	if gotPath != "/v1/api/agently/scheduler/run-now/sched-1" {
 		t.Fatalf("unexpected path: %s", gotPath)
+	}
+}
+
+func TestResolveQueryUserID_AuthDisabled_AssignsAnonymousCookie(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+
+	got := resolveQueryUserID(rec, req, "", nil)
+	if got == "" {
+		t.Fatal("expected anonymous user id, got empty")
+	}
+	if !strings.HasPrefix(got, "anonymous:") {
+		t.Fatalf("expected anonymous: prefix, got %q", got)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != anonymousUserCookieName {
+		t.Fatalf("expected anonymous cookie, got %#v", cookies)
+	}
+}
+
+func TestResolveQueryUserID_AuthEnabled_ReturnsEmpty(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	cfg := &iauth.Config{Enabled: true}
+
+	got := resolveQueryUserID(rec, req, "", cfg)
+	if got != "" {
+		t.Fatalf("expected empty user id when auth enabled, got %q", got)
+	}
+	if cookies := rec.Result().Cookies(); len(cookies) > 0 {
+		t.Fatalf("expected no cookies when auth enabled, got %#v", cookies)
+	}
+}
+
+func TestResolveQueryUserID_AuthEnabled_UsesContextUser(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	ctx := iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "oauth-user-42"})
+	req = req.WithContext(ctx)
+	cfg := &iauth.Config{Enabled: true}
+
+	got := resolveQueryUserID(rec, req, "", cfg)
+	if got != "oauth-user-42" {
+		t.Fatalf("expected context user, got %q", got)
+	}
+}
+
+func TestResolveQueryUserID_ExplicitUserAlwaysWins(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	ctx := iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "ctx-user"})
+	req = req.WithContext(ctx)
+	cfg := &iauth.Config{Enabled: true}
+
+	got := resolveQueryUserID(rec, req, "explicit-user", cfg)
+	if got != "explicit-user" {
+		t.Fatalf("expected explicit user, got %q", got)
+	}
+}
+
+func TestHandler_Query_Returns401_WhenAuthEnabledAndNoUser(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyQueryClient{HTTPClient: base}
+	sessions := svcauth.NewManager(time.Hour, nil)
+	handler, err := NewHandlerWithContext(
+		context.Background(),
+		spy,
+		WithAuth(&iauth.Config{Enabled: true, IpHashKey: "test-key", CookieName: "sess"}, sessions),
+	)
+	if err != nil {
+		t.Fatalf("NewHandlerWithContext: %v", err)
+	}
+
+	body := []byte(`{"query":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotInput != nil {
+		t.Fatal("expected Query NOT to be called when unauthorized")
+	}
+}
+
+func TestHandler_Query_Succeeds_WhenAuthEnabledAndUserInContext(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyQueryClient{HTTPClient: base}
+	authCfg := &iauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-key",
+		CookieName: "sess",
+		Local:      &iauth.Local{Enabled: true},
+	}
+	sessions := svcauth.NewManager(time.Hour, nil)
+
+	// Create a session so the Protect middleware can find it.
+	sess := &svcauth.Session{
+		ID:        "test-session",
+		Username:  "testuser",
+		Subject:   "testuser",
+		CreatedAt: time.Now(),
+	}
+	sessions.Put(context.Background(), sess)
+
+	handler, err := NewHandlerWithContext(
+		context.Background(),
+		spy,
+		WithAuth(authCfg, sessions),
+	)
+	if err != nil {
+		t.Fatalf("NewHandlerWithContext: %v", err)
+	}
+
+	body := []byte(`{"query":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", bytes.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotInput == nil {
+		t.Fatal("expected Query to be called")
+	}
+	if spy.gotInput.UserId != "testuser" {
+		t.Fatalf("expected userId=testuser, got %q", spy.gotInput.UserId)
 	}
 }

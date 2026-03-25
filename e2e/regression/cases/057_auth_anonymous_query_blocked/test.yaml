@@ -1,0 +1,23 @@
+pipeline:
+  anonymousQuery:
+    action: http/runner:send
+    description: "auth - anonymous query without auth should be blocked"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: simple
+          Query: "Hello"
+        Expect:
+          Code: 401
+
+  malformedToken:
+    action: http/runner:send
+    description: "auth - malformed Bearer token should return 401"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations
+        Header:
+          Authorization: ["Bearer not-a-valid-jwt"]
+        Expect:
+          Code: 401

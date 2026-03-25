@@ -1,0 +1,18 @@
+pipeline:
+  providersPublic:
+    action: http/runner:send
+    description: "auth - /v1/api/auth/providers should be accessible without auth"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/auth/providers
+        Expect:
+          Code: 200
+
+  optionsCORS:
+    action: http/runner:send
+    description: "auth - OPTIONS request should skip auth (CORS preflight)"
+    requests:
+      - Method: OPTIONS
+        URL: ${serverURL}/v1/conversations
+        Expect:
+          Code: "!/401/"

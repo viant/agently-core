@@ -143,7 +143,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth())
 
-	mux.HandleFunc("POST /v1/agent/query", handleQuery(client))
+	mux.HandleFunc("POST /v1/agent/query", handleQuery(client, cfg.authCfg))
 
 	mux.HandleFunc("POST /v1/conversations", handleCreateConversation(client))
 	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client))
@@ -170,6 +170,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 	mux.HandleFunc("PATCH /v1/conversations/{id}/turns/{turnId}", handleEditQueuedTurn(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/force-steer", handleForceSteerQueuedTurn(client))
 
+	mux.HandleFunc("GET /v1/tools", handleListToolDefinitions(client))
 	mux.HandleFunc("POST /v1/tools/{name}/execute", handleExecuteTool(client))
 	mux.HandleFunc("POST /v1/tools/execute", handleExecuteToolByName(client))
 	mux.HandleFunc("GET /v1/tool-approvals/pending", handleListPendingToolApprovals(client))
@@ -392,14 +393,18 @@ func handleHealth() http.HandlerFunc {
 	}
 }
 
-func handleQuery(client Client) http.HandlerFunc {
+func handleQuery(client Client, authCfg *iauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input agentsvc.QueryInput
 		if err := decodeJSON(r, &input); err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		input.UserId = resolveQueryUserID(w, r, input.UserId)
+		input.UserId = resolveQueryUserID(w, r, input.UserId, authCfg)
+		if input.UserId == "" {
+			httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
+			return
+		}
 		out, err := client.Query(r.Context(), &input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -411,13 +416,18 @@ func handleQuery(client Client) http.HandlerFunc {
 
 const anonymousUserCookieName = "agently_anonymous_user"
 
-func resolveQueryUserID(w http.ResponseWriter, r *http.Request, explicit string) string {
+func resolveQueryUserID(w http.ResponseWriter, r *http.Request, explicit string, authCfg *iauth.Config) string {
 	userID := strings.TrimSpace(explicit)
 	if userID != "" {
 		return userID
 	}
 	if derived := strings.TrimSpace(iauth.EffectiveUserID(r.Context())); derived != "" {
 		return derived
+	}
+	// When auth is enabled, do not fall back to anonymous cookie —
+	// the caller should return 401 instead.
+	if authCfg != nil && authCfg.Enabled {
+		return ""
 	}
 	if cookie, err := r.Cookie(anonymousUserCookieName); err == nil {
 		if existing := strings.TrimSpace(cookie.Value); existing != "" {
@@ -902,6 +912,17 @@ func handleResolveElicitation(client Client) http.HandlerFunc {
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func handleListToolDefinitions(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defs, err := client.ListToolDefinitions(r.Context())
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, defs)
 	}
 }
 

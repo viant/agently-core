@@ -455,7 +455,7 @@ CREATE TABLE `tool_call` (
   CONSTRAINT `fk_tool_call_res_payload` FOREIGN KEY (`response_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_tool_call_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tool_call_chk_1` CHECK ((`tool_kind` in (_utf8mb4'general',_utf8mb4'resource'))),
-  CONSTRAINT `tool_call_chk_2` CHECK ((`status` in (_utf8mb4'queued',_utf8mb4'running',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'skipped',_utf8mb4'canceled'))),
+  CONSTRAINT `tool_call_chk_2` CHECK ((`status` in (_utf8mb4'queued',_utf8mb4'running',_utf8mb4'waiting_for_user',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'skipped',_utf8mb4'canceled'))),
   CONSTRAINT `tool_call_chk_3` CHECK ((`retriable` in (0,1)))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
