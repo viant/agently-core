@@ -10,14 +10,16 @@ own Go services or exposed as a standalone HTTP API.
 
 ## Features
 
-- **Agent query execution** with multi-turn conversation, tool calling, and streaming
-- **Multi-LLM support** — OpenAI, Vertex AI, Bedrock Claude, Ollama, and more
-- **MCP integration** — connect MCP servers as tool providers with secure auth injection
-- **A2A protocol** — agent-to-agent communication endpoints
-- **Workspace-driven config** — agents, models, embedders, MCP clients, and tools live as YAML files
-- **Persistent conversations** — SQL-backed (SQLite/MySQL) via Datly with cursor pagination
+- **Agent query execution** — multi-turn conversation, tool calling, streaming, and elicitation
+- **Multi-LLM support** — OpenAI, Vertex AI (Gemini + Claude), Bedrock Claude, Grok, InceptionLabs, Ollama
+- **MCP integration** — connect MCP servers as tool providers with secure BFF/bearer auth injection
+- **A2A protocol** — agent-to-agent communication endpoints (`/.well-known/agent.json`, `/v1/api/a2a/*`)
+- **MCP tool exposure** — expose workspace tools as an MCP HTTP server (`protocol/mcp/expose`)
+- **Authentication** — JWT (RSA/HMAC), OAuth BFF/SPA/bearer/mixed, local sessions, distributed token refresh
+- **Workspace-driven config** — agents, models, embedders, MCP clients, tools and policies as YAML files
+- **Persistent conversations** — SQL-backed (SQLite/MySQL) via Datly; auto-creates workspace SQLite DB
 - **Scheduler** — cron/interval/adhoc schedule execution with distributed lease coordination
-- **Distributed token refresh** — CAS-based OAuth token refresh safe for multi-pod deployments
+- **Parallel tool calls** — enabled by default for models that support it
 - **Embedded and HTTP SDKs** — use in-process or as a remote HTTP client
 
 ## Installation
@@ -26,7 +28,7 @@ own Go services or exposed as a standalone HTTP API.
 go get github.com/viant/agently-core
 ```
 
-Requires Go 1.25.5+.
+Requires Go 1.25+.
 
 ## Quick Start (Embedded Runtime)
 
@@ -55,65 +57,11 @@ out, err := client.Query(ctx, &agentsvc.QueryInput{
 ## Quick Start (HTTP Server)
 
 ```go
-handler := sdk.NewHandler(client)
+handler, _ := sdk.NewHandlerWithContext(ctx, client)
 log.Fatal(http.ListenAndServe(":8090", handler))
 ```
 
-Health check: `GET /healthz` returns `{"status":"ok"}`.
-
-## Package Layout
-
-```
-agently-core/
-  sdk/                      Public SDK surface (Client, Handler, HTTP, Embedded)
-  app/                      Application plumbing
-    executor/               Runtime builder (Builder, Runtime, config)
-    store/
-      conversation/         Conversation domain types and helpers
-        cancel/             Turn cancellation registry
-      data/                 Datly-backed persistence facade
-        memory/             In-memory client for tests
-    workspace/              Bootstrap re-exports for workspace paths
-  service/                  Business logic services
-    agent/                  Agent query orchestration and watchdog
-    auth/                   OAuth token store, session management
-    augmenter/              Knowledge augmentation (embeddings, RAG)
-    core/                   LLM call execution, streaming, model calls
-    scheduler/              Schedule CRUD, watchdog, execution
-    elicitation/            Assistant elicitation routing
-    a2a/                    Agent-to-agent protocol handler
-    speech/                 Speech transcription
-    workflow/               Workflow execution
-    workspace/              Workspace metadata and file browser
-  protocol/                 Domain models
-    agent/                  Agent definition, finder, loader
-    mcp/                    MCP client config, manager, session
-    tool/                   Tool registry, bundles, policies
-    prompt/                 Prompt/system template types
-  genai/                    LLM and embedder providers
-    llm/                    LLM provider abstraction and implementations
-    embedder/               Embedder provider abstraction
-  workspace/                Workspace domain (reusable across services)
-    repository/             Generic + typed YAML resource repositories
-    loader/                 Model and embedder config loaders
-    hotswap/                Live-reload watcher for workspace changes
-    store/                  Filesystem-backed workspace store
-    service/                Metadata/YAML parsing services
-  runtime/                  Runtime primitives
-    memory/                 Conversation memory management
-    streaming/              SSE event streaming bus
-    usage/                  Token usage tracking
-  internal/                 Private implementation details
-    auth/                   Auth context helpers, token manager
-    finder/                 Model/embedder finder implementations
-    script/                 DDL schemas (SQLite, MySQL)
-    service/                Internal service factories
-  pkg/                      Datly-generated DAO layer
-    agently/                Read/write components for all DB entities
-    mcpname/                MCP name normalization
-  dql/                      SQL query files for Datly operations
-  e2e/                      End-to-end test infrastructure
-```
+Health check: `GET /healthz` → `{"status":"ok"}`.
 
 ## HTTP API
 
@@ -125,8 +73,8 @@ Core endpoints mounted by `sdk.NewHandler`:
 | POST | `/v1/conversations` | Create conversation |
 | GET | `/v1/conversations` | List conversations |
 | GET | `/v1/conversations/{id}` | Get conversation |
-| PATCH | `/v1/conversations/{id}` | Update conversation (visibility, shareable) |
-| GET | `/v1/conversations/{id}/transcript` | Get transcript |
+| PATCH | `/v1/conversations/{id}` | Update conversation |
+| GET | `/v1/conversations/{id}/transcript` | Get canonical transcript |
 | POST | `/v1/conversations/{id}/terminate` | Terminate conversation |
 | POST | `/v1/conversations/{id}/compact` | Compact conversation |
 | POST | `/v1/conversations/{id}/prune` | Prune conversation |
@@ -135,10 +83,11 @@ Core endpoints mounted by `sdk.NewHandler`:
 | POST | `/v1/elicitations/{conversationId}/{elicitationId}/resolve` | Resolve elicitation |
 | GET | `/v1/stream` | SSE event stream |
 | POST | `/v1/turns/{id}/cancel` | Cancel turn |
+| GET | `/v1/tools` | List tool definitions |
 | POST | `/v1/tools/{name}/execute` | Execute tool |
-| POST | `/v1/tools/execute` | Execute tool (name in JSON body) |
+| POST | `/v1/tools/execute` | Execute tool (name in body) |
 | GET | `/v1/tool-approvals/pending` | List pending tool approvals |
-| POST | `/v1/tool-approvals/{id}/decision` | Approve/reject queued tool |
+| POST | `/v1/tool-approvals/{id}/decision` | Approve/reject tool |
 | GET | `/v1/workspace/resources` | List resources |
 | GET | `/v1/workspace/resources/{kind}/{name}` | Get resource |
 | PUT | `/v1/workspace/resources/{kind}/{name}` | Save resource |
@@ -148,78 +97,118 @@ Core endpoints mounted by `sdk.NewHandler`:
 
 Optional handlers add auth, scheduler, speech, workflow, metadata, file browser, and A2A endpoints.
 
-### Workspace Metadata
+### Auth Endpoints
 
-When `service/workspace.MetadataHandler` is mounted, `GET /v1/workspace/metadata`
-returns UI-facing bootstrap data for workspace browsers, chat shells, and SDK clients.
+When `WithAuth` is configured:
 
-High-level shape:
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/api/auth/providers` | List configured auth providers (public) |
+| GET | `/v1/api/auth/me` | Current user identity |
+| POST | `/v1/api/auth/local/login` | Local username login |
+| POST | `/v1/api/auth/logout` | Logout |
+| GET | `/v1/api/auth/idp/login` | Redirect to IDP (OAuth BFF) |
+| GET | `/v1/api/auth/oauth/callback` | OAuth callback |
+| POST | `/v1/api/auth/jwt/keypair` | Generate RSA keypair |
+| POST | `/v1/api/auth/jwt/mint` | Mint JWT |
 
-- `defaults`: runtime defaults for agent, model, embedder, and `autoSelectTools`
-- `capabilities`: backend-supported UX contracts such as `agentAutoSelection`,
-  `toolAutoSelection`, `compactConversation`, `messageCursor`, and
-  `structuredElicitation`
-- `agentInfos`: enriched agent entries including `id`, `name`, `modelRef`, and
-  agent-specific `starterTasks`
-- `modelInfos`: enriched model entries including `id` and display `name`
+### A2A Endpoints
 
-Example response:
+When `WithA2AHandler` is configured:
 
-```json
-{
-  "workspaceRoot": "/workspace/.agently",
-  "defaults": {
-    "agent": "coder",
-    "model": "openai_gpt-5.2",
-    "embedder": "openai_text",
-    "autoSelectTools": true
-  },
-  "capabilities": {
-    "agentAutoSelection": true,
-    "modelAutoSelection": false,
-    "toolAutoSelection": true,
-    "compactConversation": true,
-    "pruneConversation": true,
-    "anonymousSession": true,
-    "messageCursor": true,
-    "structuredElicitation": true,
-    "turnStartedEvent": true
-  },
-  "agentInfos": [
-    {
-      "id": "coder",
-      "name": "Coder",
-      "modelRef": "openai_gpt-5.2",
-      "starterTasks": [
-        {
-          "id": "analyze-repo",
-          "title": "Analyze this repo",
-          "prompt": "Analyze this repository.",
-          "description": "Architecture summary and next steps.",
-          "icon": "tree-structure"
-        }
-      ]
-    }
-  ],
-  "modelInfos": [
-    {
-      "id": "openai_gpt-5.2",
-      "name": "GPT-5.2"
-    }
-  ]
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/.well-known/agent.json` | Well-known agent card |
+| GET | `/v1/api/a2a/agents` | List A2A-enabled agents |
+| GET | `/v1/api/a2a/agents/{id}/card` | Get agent card |
+| POST | `/v1/api/a2a/agents/{id}/message` | Send message to agent |
+
+## Authentication
+
+Configure JWT or OAuth BFF via `WithAuth`:
+
+```go
+authCfg := &iauth.Config{
+    Enabled:    true,
+    CookieName: "agently_session",
+    IpHashKey:  "your-hmac-salt",
+    Local:      &iauth.Local{Enabled: true},
+    JWT: &iauth.JWT{
+        Enabled:       true,
+        RSA:           []string{"/path/to/public.pem"},
+        RSAPrivateKey: "/path/to/private.pem",
+    },
 }
+sessions := svcauth.NewManager(7*24*time.Hour, nil)
+jwtSvc := svcauth.NewJWTService(authCfg.JWT)
+jwtSvc.Init(ctx)
+
+handler, _ := sdk.NewHandlerWithContext(ctx, client, sdk.WithAuth(authCfg, sessions))
+protected := svcauth.Protect(authCfg, sessions, svcauth.WithJWTService(jwtSvc))(handler)
 ```
 
-Starter task guidance:
+Supported auth modes: `local`, `bff`, `spa`, `bearer`, `mixed`, `jwt`.
 
-- Starter tasks are agent-level metadata, not workspace-global metadata.
-- Define them on the agent resource as `starterTasks`.
-- Clients should read them from `agentInfos[].starterTasks`.
+When `JWTService` is provided, valid JWT Bearer tokens are always accepted regardless of the primary auth mode.
 
-Migration note:
+## Parallel Tool Calls
 
-- Older integrations that expected top-level `starterTasks` on workspace metadata
-  should switch to `agentInfos[].starterTasks`.
+Parallel tool calls are **enabled by default** for models that support it (e.g. OpenAI).
+To disable for a specific agent, set `parallelToolCalls: false` in the agent YAML:
+
+```yaml
+# my-agent.yaml
+parallelToolCalls: false  # disable parallel, use sequential
+```
+
+When omitted, the agent inherits the default (true).
+
+## Workspace
+
+Workspace root defaults to `.agently` under the current directory unless overridden
+by `AGENTLY_WORKSPACE`.
+
+Predefined resource kinds: `agents`, `models`, `embedders`, `mcp`, `workflows`,
+`tools` (bundles, hints), `oauth`, `feeds`, `a2a`.
+
+| Env var | Purpose |
+|---------|---------|
+| `AGENTLY_WORKSPACE` | Workspace root path |
+| `AGENTLY_RUNTIME_ROOT` | Runtime root (defaults to workspace root) |
+| `AGENTLY_STATE_PATH` | Runtime state root |
+| `AGENTLY_WORKSPACE_NO_DEFAULTS` | Skip default bootstrapping |
+
+## Persistence
+
+SQL-backed persistence via Datly. Falls back to workspace SQLite when `AGENTLY_DB_*` not set.
+Schema is auto-applied on startup — supports incremental migrations via `CREATE IF NOT EXISTS`.
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `AGENTLY_DB_DRIVER` | `sqlite` | Database driver |
+| `AGENTLY_DB_DSN` | (auto, workspace SQLite) | Connection string |
+
+SQLite DB location: `$AGENTLY_WORKSPACE/db/agently-core.db`
+
+## Scheduler
+
+Supports cron, interval, and adhoc schedules with distributed lease coordination.
+
+**Serverless deployment** (suppress scheduler):
+```bash
+AGENTLY_SCHEDULER_API=false AGENTLY_SCHEDULER_RUNNER=false ./agently serve
+```
+
+**Dedicated scheduler runner** (watchdog only):
+```bash
+AGENTLY_SCHEDULER_RUNNER=true AGENTLY_SCHEDULER_API=false ./agently serve
+```
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler CRUD endpoints |
+| `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
+| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable watchdog in-process |
 
 ## SDK Modes
 
@@ -230,106 +219,58 @@ Migration note:
 
 Both implement `sdk.Client`.
 
-## SDK Conversation Architecture
+## Package Layout
 
-Execution model used by SDK and HTTP API:
-
-```text
-conversation
-  -> turn (user request lifecycle)
-    <-> run (LLM/tool execution cycle, retries, usage, status)
-      -> messages
-        -> tool calls
-        -> elicitations (pending/resolved)
-        -> attachments
-        -> downloads/files
-        -> linked conversations
 ```
-
-How to query this model via API:
-
-- Conversation shell: `GET /v1/conversations/{id}`
-- Turn+message timeline: `GET /v1/conversations/{id}/transcript`
-- Include tool/model activity in transcript: `?includeToolCalls=true&includeModelCalls=true`
-- Pending elicitation state: `GET /v1/elicitations?conversationId={id}`
-- Resolve elicitation: `POST /v1/elicitations/{conversationId}/{elicitationId}/resolve`
-- Tool approval queue (if enabled): `GET /v1/tool-approvals/pending`
-
-## Workspace
-
-Workspace root defaults to `.agently` under the current directory unless overridden.
-
-Predefined kinds: `agents`, `models`, `embedders`, `mcp`, `workflows`, `tools` (bundles, hints), `oauth`, `feeds`, `a2a`.
-
-| Env var | Purpose |
-|---------|---------|
-| `AGENTLY_WORKSPACE` | Workspace root path |
-| `AGENTLY_RUNTIME_ROOT` | Runtime root (defaults to workspace) |
-| `AGENTLY_STATE_PATH` | Runtime state root |
-| `AGENTLY_WORKSPACE_NO_DEFAULTS` | Skip default bootstrapping |
-
-## Persistence
-
-`app/store/data` provides the Datly-backed persistence facade supporting conversations,
-messages, turns, runs, tool calls, payloads, and generated files.
-
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `AGENTLY_DB_DRIVER` | `sqlite` | Database driver |
-| `AGENTLY_DB_DSN` | (auto) | Database connection string |
-
-Falls back to `$AGENTLY_WORKSPACE/db/agently.db` when DSN/driver are unset.
-
-## Scheduler
-
-The scheduler supports cron, interval, and adhoc schedule execution with a background
-watchdog loop.
-
-### Deployment Modes
-
-**Single-node** (API + watchdog in one process):
-```go
-h, _ := sdk.NewHandlerWithContext(ctx, client,
-    sdk.WithScheduler(svc, handler, &sdk.SchedulerOptions{
-        EnableAPI: true, EnableRunNow: true, EnableWatchdog: true,
-    }),
-)
+agently-core/
+  sdk/                      Public SDK surface (Client, Handler, HTTP, Embedded)
+  app/                      Application plumbing
+    executor/               Runtime builder (Builder, Runtime, Defaults config)
+    store/
+      conversation/         Conversation domain types and helpers
+      data/                 Datly-backed persistence facade
+  service/                  Business logic services
+    agent/                  Agent query orchestration
+    auth/                   OAuth/JWT auth, sessions, token refresh, chatgpt provider
+    a2a/                    Agent-to-agent protocol
+    scheduler/              Schedule CRUD, watchdog, execution
+    workspace/              Workspace metadata and file browser
+  protocol/                 Domain models
+    agent/                  Agent definition, finder, loader
+    mcp/
+      auth/integrate/       MCP OAuth round-tripper factory (BFF/bearer)
+      config/               MCP client config
+      cookies/              Per-user cookie jar provider
+      expose/               Expose workspace tools as MCP HTTP server
+      manager/              MCP client lifecycle manager
+    tool/                   Tool registry, bundles, policies, system tools
+    prompt/                 Prompt/system template types
+  genai/                    LLM and embedder providers
+    llm/                    OpenAI, Vertex AI, Bedrock, Grok, Ollama, InceptionLabs
+    embedder/               Embedder provider abstraction
+  workspace/                Workspace domain
+    repository/             YAML resource repositories (agents, models, mcp, ...)
+    loader/                 Config loaders
+    service/                Metadata/YAML parsing
+  internal/                 Private implementation details
+    auth/                   Auth context helpers, JWT token manager
+    script/                 DDL schemas (SQLite, MySQL)
+  pkg/                      Datly DAO layer
+    agently/                Read/write components for conversations, turns, messages, sessions, tokens
+  e2e/                      End-to-end test infrastructure
 ```
-
-**Multi-pod** (separate API and scheduler processes):
-```go
-// API pods — CRUD endpoints only, no execution
-sdk.WithScheduler(svc, handler, &sdk.SchedulerOptions{EnableAPI: true})
-
-// Scheduler pod — watchdog only, no HTTP endpoints
-sdk.WithScheduler(svc, nil, &sdk.SchedulerOptions{EnableWatchdog: true})
-```
-
-### Distributed Token Refresh
-
-When a `TokenStore` is configured, the token `Manager` automatically enables distributed
-refresh coordination using SQL-based CAS (Compare-And-Swap) with lease acquisition.
-This prevents token corruption when multiple pods attempt to refresh the same OAuth token simultaneously.
-
-- Lease acquisition is atomic via SQL `UPDATE ... WHERE refresh_status='idle' OR lease_until < NOW()`
-- CAS writes use version checks to prevent stale overwrites
-- Dead pod leases expire after configurable TTL (default 30s)
-- All timestamps use DB server time to avoid clock skew
-- Falls back to local-only refresh on DB errors
 
 ## LLM Providers
 
-Provider stack under `genai/llm/provider/*`:
-
-- OpenAI (GPT-4, GPT-4o, o1, o3, etc.)
-- Vertex AI (Gemini)
-- Vertex AI Claude
-- Bedrock Claude
-- InceptionLabs (Mercury)
-- Grok (xAI)
-- Ollama (local models)
-
-Common env: `OPENAI_API_KEY`, `VERTEX_PROJECT`, `AWS_REGION`, `INCEPTIONLABS_API_KEY`, `XAI_API_KEY`, etc.
+| Provider | Models |
+|----------|--------|
+| OpenAI | GPT-4, GPT-4o, o1, o3, o4-mini, GPT-5.x series |
+| Vertex AI (Gemini) | Gemini 2.0+, Gemini Flash |
+| Vertex AI (Claude) | Claude 3.x, 4.x |
+| Bedrock (Claude) | Claude via AWS Bedrock |
+| InceptionLabs | Mercury series |
+| Grok (xAI) | Grok 4+ |
+| Ollama | Local open-source models |
 
 ## Testing
 
@@ -337,29 +278,22 @@ Common env: `OPENAI_API_KEY`, `VERTEX_PROJECT`, `AWS_REGION`, `INCEPTIONLABS_API
 # Unit and integration tests
 go test ./...
 
-# Token refresh distributed coordination tests
-go test ./internal/auth/token/... -v
-
 # E2E tests (Endly-driven)
-cd e2e
-endly -t=build
-endly -t=test
+cd e2e && endly -t=build && endly -t=test
 
-# Targeted E2E case
-endly -t=test -i=test_<case_folder>
+# Auth E2E tests
+go test ./e2e/auth/ -v
+
+# SDK unit tests (including auth guard)
+go test ./sdk/ -v
 ```
-
-Async E2E cases (notably MCP round-trip and tool-approval queue flows) use `process:start`
-with `curl --data-binary @<payload-file>` to avoid shell JSON quoting/expansion issues.
-Request payload files are stored under:
-
-- `/Users/awitas/go/src/github.com/viant/agently-core/e2e/build/payloads`
 
 ## Related Projects
 
-- [agently](https://github.com/viant/agently) — Full-featured CLI and HTTP host application built on agently-core
+- [agently](https://github.com/viant/agently) — CLI and HTTP server built on agently-core
 - [mcp-sqlkit](https://github.com/viant/mcp-sqlkit) — MCP server for database operations
-- [datly](https://github.com/viant/datly) — Data access layer used for persistence
+- [datly](https://github.com/viant/datly) — Data access layer for persistence
+- [forge](https://github.com/viant/forge) — React UI framework used by the embedded web UI
 
 ## License
 

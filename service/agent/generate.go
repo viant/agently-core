@@ -22,7 +22,13 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	}
 	// Carry agent-level parallel tool-calls preference; capability gating
 	// happens later in core.updateFlags based on provider/model support.
-	i.Options.ParallelToolCalls = agent.ParallelToolCalls
+	// When the agent doesn't explicitly set it (nil), default to true so
+	// models that support parallel tool calls use it by default.
+	if agent.ParallelToolCalls != nil {
+		i.Options.ParallelToolCalls = *agent.ParallelToolCalls
+	} else {
+		i.Options.ParallelToolCalls = true // default: enable parallel tool calls
+	}
 	// Pass attach mode as metadata so providers can honor ref vs inline.
 	if i.Options.Metadata == nil {
 		i.Options.Metadata = map[string]interface{}{}
