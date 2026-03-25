@@ -523,6 +523,14 @@ func (c *HTTPClient) DecideToolApproval(ctx context.Context, input *DecideToolAp
 	return &out, nil
 }
 
+func (c *HTTPClient) ListToolDefinitions(ctx context.Context) ([]ToolDefinitionInfo, error) {
+	var out []ToolDefinitionInfo
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/tools", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *HTTPClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	path := strings.TrimRight(c.toolsPath, "/") + "/" + url.PathEscape(name) + "/execute"
 	var out struct {

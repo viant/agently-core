@@ -255,6 +255,25 @@ func TestEmitCanonicalModelEvent_ToolCallOnlyResponse_StillEmits(t *testing.T) {
 	}
 }
 
+func TestToolCallEvent_WaitingForUserIsNonTerminal(t *testing.T) {
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:          "turn-1",
+		ConversationID:  "conv-parent",
+		ParentMessageID: "assistant-1",
+	})
+	tc := convcli.NewToolCall()
+	tc.SetMessageID("tool-msg-1")
+	tc.SetOpID("op-1")
+	tc.SetToolName("resources/grepFiles")
+	tc.SetStatus("waiting_for_user")
+	tc.SetTurnID("turn-1")
+
+	ev := toolCallEvent(ctx, tc)
+	require.NotNil(t, ev)
+	require.Equal(t, streaming.EventTypeToolCallStarted, ev.Type)
+	require.Equal(t, "waiting_for_user", ev.Status)
+}
+
 func TestEmitCanonicalModelEvent_NoConversationID_Skips(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}

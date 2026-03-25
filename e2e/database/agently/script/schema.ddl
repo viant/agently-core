@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS tool_call
     tool_name           VARCHAR(255) NOT NULL,
     tool_kind           VARCHAR(255) NOT NULL CHECK (tool_kind IN ('general', 'resource')),
     status              VARCHAR(255) NOT NULL CHECK (status IN
-                                                      ('queued', 'running', 'completed', 'failed', 'skipped',
+                                                      ('queued', 'running', 'waiting_for_user', 'completed', 'failed', 'skipped',
                                                        'canceled')),
     request_hash        TEXT,
     error_code          TEXT,

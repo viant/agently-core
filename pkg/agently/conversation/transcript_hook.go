@@ -117,6 +117,7 @@ func computeTurnStage(t *TranscriptView) string {
 	lastRole := ""
 	lastAssistantElic := false
 	lastAssistantElicStopped := false
+	lastPendingElic := false
 	lastToolRunning := false
 	lastToolFailed := false
 	lastModelRunning := false
@@ -164,13 +165,16 @@ func computeTurnStage(t *TranscriptView) string {
 				lastModelRunning = true
 			}
 		}
-		if r == "assistant" && m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
+		if m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != "" {
 			msgStatus := ""
 			if m.Status != nil {
 				msgStatus = strings.ToLower(strings.TrimSpace(*m.Status))
 			}
 			if msgStatus == "" || msgStatus == "pending" || msgStatus == "open" {
-				lastAssistantElic = true
+				lastPendingElic = true
+				if r == "assistant" {
+					lastAssistantElic = true
+				}
 			}
 			if msgStatus == "rejected" || msgStatus == "cancel" || msgStatus == "failed" {
 				lastAssistantElicStopped = true
@@ -189,6 +193,8 @@ func computeTurnStage(t *TranscriptView) string {
 	switch {
 	case lastAssistantCanceled:
 		return StageCanceled
+	case lastPendingElic:
+		return StageEliciting
 	case lastToolRunning:
 		return StageExecuting
 	case lastAssistantElic:

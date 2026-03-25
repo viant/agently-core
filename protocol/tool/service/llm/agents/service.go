@@ -159,8 +159,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	lo.ReuseNote = "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed."
-	lo.RunUsage = "To delegate next, call llm/agents:run with {agentId, objective} and include context.workdir when repo scope matters. The agentId must come from llm/agents:list or an equivalent agent directory source."
-	lo.NextAction = "If you do not already have a valid agentId from llm/agents:list or an equivalent agent directory source, call llm/agents:list before using llm/agents:run."
+	lo.RunUsage = "To delegate, call llm/agents:run with {agentId, objective}. You may call multiple llm/agents:run in parallel within the same response to run agents concurrently."
 	if s.dirProvider != nil {
 		lo.Items = s.dirProvider()
 		return nil

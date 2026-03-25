@@ -8,12 +8,14 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	authctx "github.com/viant/agently-core/internal/auth"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	coreauth "github.com/viant/agently-core/service/auth"
 )
 
 type linkedRun struct {
@@ -159,6 +161,7 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 		toolpol.WithPolicy(context.WithoutCancel(ctx), nil),
 		memory.ModelMessageIDKey, "",
 	)
+	childCtx = inheritDelegatedAuthContext(childCtx, ctx)
 	childTimeout := s.ChildTimeout
 	if childTimeout <= 0 {
 		childTimeout = DefaultChildAgentTimeout
@@ -177,6 +180,25 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 		conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
 		messageID:      qo.MessageID,
 	}
+}
+
+func inheritDelegatedAuthContext(target, parent context.Context) context.Context {
+	if target == nil {
+		target = context.Background()
+	}
+	if parent == nil {
+		return target
+	}
+	if subject := strings.TrimSpace(coreauth.EffectiveUserID(parent)); subject != "" {
+		target = coreauth.InjectUser(target, subject)
+	}
+	if user := authctx.User(parent); user != nil {
+		target = authctx.WithUserInfo(target, user)
+	}
+	if tok := authctx.TokensFromContext(parent); tok != nil {
+		target = coreauth.InjectTokens(target, tok)
+	}
+	return target
 }
 
 func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo *agentsvc.QueryOutput, runErr error) childRunResult {

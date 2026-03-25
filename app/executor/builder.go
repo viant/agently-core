@@ -246,7 +246,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.Registry = reg
 	}
-	out.Registry.Initialize(ctx)
+	if !shouldSkipRegistryInitialize() {
+		out.Registry.Initialize(ctx)
+	}
 
 	out.Core = b.core
 	if out.Core == nil {
@@ -317,6 +319,14 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.HotSwap = mgr
 	}
 	return out, nil
+}
+
+func shouldSkipRegistryInitialize() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_SKIP_REGISTRY_INIT"))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
+	return false
 }
 
 func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *elicsvc.Service) (*mcpmgr.Manager, error) {

@@ -10,12 +10,16 @@ import (
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	coreauth "github.com/viant/agently-core/service/auth"
 	executil "github.com/viant/agently-core/service/shared/executil"
+	scyauth "github.com/viant/scy/auth"
+	"golang.org/x/oauth2"
 )
 
 func TestService_List_DataDriven(t *testing.T) {
@@ -258,6 +262,50 @@ func TestService_Run_Internal_InheritsParentWorkdir(t *testing.T) {
 		assert.Equal(t, "/tmp/poly", fake.lastInput.Context["workdir"])
 		assert.Equal(t, "/tmp/poly", fake.lastInput.Context["resolvedWorkdir"])
 	}
+}
+
+func TestService_Run_Internal_InheritsParentAuthUserAndTokens(t *testing.T) {
+	base := context.Background()
+	base = coreauth.InjectUser(base, "oauth-user-42")
+	base = authctx.WithUserInfo(base, &authctx.UserInfo{
+		Subject: "oauth-user-42",
+		Email:   "user@example.com",
+	})
+	base = coreauth.InjectTokens(base, &scyauth.Token{
+		Token: oauth2.Token{
+			AccessToken:  "access-token-123",
+			RefreshToken: "refresh-token-123",
+		},
+		IDToken: "id-token-123",
+	})
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"child": {Identity: agentmdl.Identity{ID: "child"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			assert.Equal(t, "oauth-user-42", coreauth.EffectiveUserID(ctx))
+			if ui := authctx.User(ctx); assert.NotNil(t, ui) {
+				assert.Equal(t, "oauth-user-42", ui.Subject)
+				assert.Equal(t, "user@example.com", ui.Email)
+			}
+			if tok := authctx.TokensFromContext(ctx); assert.NotNil(t, tok) {
+				assert.Equal(t, "access-token-123", tok.AccessToken)
+				assert.Equal(t, "id-token-123", tok.IDToken)
+				assert.Equal(t, "refresh-token-123", tok.RefreshToken)
+			}
+			if out != nil {
+				out.Content = "ok"
+			}
+			return nil
+		},
+	}
+
+	s := &Service{agent: fake}
+	var out RunOutput
+	err := s.run(base, &RunInput{AgentID: "child", Objective: "verify child auth inheritance"}, &out)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", out.Answer)
 }
 
 func TestService_Run_Internal_DoesNotInheritParentToolAllowList(t *testing.T) {

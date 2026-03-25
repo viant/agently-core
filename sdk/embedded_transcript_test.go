@@ -371,6 +371,57 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
+func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
+	iteration1 := 1
+	iteration2 := 2
+	preamble := "Let me check."
+	final := "Here is the answer."
+	summary := "Title: Summary\n\n- key point"
+	summaryMode := "summary"
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   &preamble,
+				Iteration: &iteration1,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+			},
+			{
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &final,
+				Iteration: &iteration2,
+				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+			},
+			{
+				Id:        "m3",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &summary,
+				Mode:      &summaryMode,
+				ModelCall: &agconv.ModelCallView{MessageId: "m3", Status: "completed"},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Assistant)
+	require.NotNil(t, ts.Assistant.Final)
+	require.Equal(t, "m2", ts.Assistant.Final.MessageID)
+	require.Equal(t, final, ts.Assistant.Final.Content)
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 3)
+	require.Equal(t, "m3", ts.Execution.Pages[2].AssistantMessageID)
+}
+
 func TestBuildTranscriptSelectors(t *testing.T) {
 	selectors := buildTranscriptQuerySelectors(map[string]*QuerySelector{
 		TranscriptSelectorTurn:    {Limit: 1},

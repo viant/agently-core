@@ -192,6 +192,9 @@ func buildExecutionPages(turn *convstore.Turn) []*ExecutionPageState {
 				if msg == nil {
 					continue
 				}
+				if isSummaryAssistantMessage(msg) {
+					continue
+				}
 				role := strings.ToLower(strings.TrimSpace(msg.Role))
 				if role != "assistant" || msg.Interim != 0 {
 					continue
@@ -226,7 +229,7 @@ func buildPageFromMessage(turn *convstore.Turn, message *agconv.MessageView, ind
 		Iteration:          iteration,
 		Preamble:           executionPreamble(message),
 		Content:            strings.TrimSpace(stringValue(message.Content)),
-		FinalResponse:      isFinalExecutionMessage(message),
+		FinalResponse:      isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message),
 		Status:             pageStatus(message),
 	}
 
@@ -403,6 +406,9 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 	// Last page with final content becomes the final
 	for i := len(pages) - 1; i >= 0; i-- {
 		p := pages[i]
+		if p == nil || p.Iteration == 0 {
+			continue
+		}
 		if p.FinalResponse && p.Content != "" {
 			as.Final = &AssistantMessageState{
 				MessageID: p.FinalAssistantMessageID,
@@ -415,6 +421,22 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 		return nil
 	}
 	return as
+}
+
+func isSummaryAssistantMessage(message *agconv.MessageView) bool {
+	if message == nil {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(message.Role)) != "assistant" {
+		return false
+	}
+	if message.Mode != nil && strings.EqualFold(strings.TrimSpace(*message.Mode), "summary") {
+		return true
+	}
+	if message.Status != nil && strings.EqualFold(strings.TrimSpace(*message.Status), "summary") {
+		return true
+	}
+	return false
 }
 
 func calcTotalElapsed(pages []*ExecutionPageState) int64 {

@@ -5,6 +5,8 @@ init:
   serverURL: http://127.0.0.1:${serverPort}
   workspacePath: /tmp/agently-core-e2e-workspace/.agently
   sdkKey: ${env.OPENAI_API_KEY}
+  jwtPubKey: '${repoPath}/e2e/jwt/public.enc|blowfish://default'
+  jwtPrivKey: '${repoPath}/e2e/jwt/private.enc|blowfish://default'
 
 pipeline:
   enforceNo8080:
@@ -135,7 +137,7 @@ pipeline:
               fi
               sleep 0.5
             done
-            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
+            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} --jwt-pub '${jwtPubKey}' --jwt-priv '${jwtPrivKey}' >/tmp/agently-core-app.log 2>&1 &)
           else
             pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
             if [ -n "$pids" ]; then
@@ -196,5 +198,6 @@ pipeline:
           repoPath: $repoPath
           serverURL: $serverURL
           sdkKey: $sdkKey
+          jwtPrivKey: $jwtPrivKey
           tag: $tag
         request: '@test'

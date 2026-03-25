@@ -1,0 +1,11 @@
+Case: 052_conversation_stage_tool_elicitation
+
+Test:
+- create conversation
+- start async `mcp_oob_probe` agent turn for that conversation
+- verify pending elicitation exists
+- verify conversation stage is elicitation while the tool-originated elicitation is unresolved
+
+Why:
+- Protects the auth/OOB tool lifecycle from regressing into a misleading completed/executing state.
+- Makes the tool-originated elicitation stage explicit for UI consumers.
