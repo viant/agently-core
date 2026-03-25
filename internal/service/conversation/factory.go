@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/viant/agently-core/internal/dbconfig"
 	sqlitesvc "github.com/viant/agently-core/internal/service/sqlite"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	"github.com/viant/scy"
-	"github.com/viant/scy/cred"
 )
 
 const (
@@ -55,9 +55,21 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 			}
 			driver = "sqlite"
 		}
+		secretResource, err := func() (*scy.Resource, error) {
+			expanded, resource, err := dbconfig.ExpandDSN(ctx, dsn, secrets)
+			if err != nil {
+				return nil, err
+			}
+			dsn = expanded
+			return resource, nil
+		}()
+		if err != nil {
+			initErr = err
+			return
+		}
 		conn := view.NewConnector("agently", driver, dsn)
-		if secrets != "" {
-			conn.Secret = scy.EncodedResource(secrets).Decode(ctx, &cred.Basic{})
+		if secretResource != nil {
+			conn.Secret = secretResource
 		}
 		if strings.EqualFold(driver, "mysql") {
 			if conn.ConnMaxLifetimeMs == 0 {
