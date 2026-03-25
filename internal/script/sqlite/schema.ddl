@@ -395,3 +395,15 @@ CREATE TABLE IF NOT EXISTS workspace_resources (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (kind, name)
 );
+
+CREATE TABLE IF NOT EXISTS session (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'local',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    expires_at DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id);
+CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at);
