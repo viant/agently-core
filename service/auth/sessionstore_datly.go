@@ -43,8 +43,8 @@ func (s *SessionStoreDAO) Get(ctx context.Context, id string) (*SessionRecord, e
 	row := out.Data[0]
 	return &SessionRecord{
 		ID:        row.Id,
-		Username:  row.UserId,
-		Subject:   row.UserId,
+		Subject:   row.UserId, // Subject is the canonical identity (stored as user_id)
+		Username:  row.UserId, // Username as display fallback
 		CreatedAt: row.CreatedAt,
 		ExpiresAt: row.ExpiresAt,
 	}, nil
@@ -55,9 +55,12 @@ func (s *SessionStoreDAO) Upsert(ctx context.Context, rec *SessionRecord) error 
 	if s == nil || s.dao == nil || rec == nil {
 		return nil
 	}
-	userID := rec.Username
+	// Prefer Subject (stable OAuth sub claim) over Username (display name)
+	// so that after restart, EffectiveUserID resolves to the same value that
+	// was stored on conversations as created_by_user_id.
+	userID := rec.Subject
 	if userID == "" {
-		userID = rec.Subject
+		userID = rec.Username
 	}
 	if strings.TrimSpace(rec.ID) == "" || strings.TrimSpace(userID) == "" {
 		return nil
