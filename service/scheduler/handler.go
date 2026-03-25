@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 // Handler serves scheduler HTTP endpoints.
@@ -67,7 +68,7 @@ func (h *Handler) handleGetSchedule() http.HandlerFunc {
 
 func (h *Handler) handleListSchedules() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		page, size := parsePaging(r, 25)
+		page, size := parsePaging(r, 10)
 		list, err := h.svc.List(r.Context())
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -95,7 +96,7 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 		}
 		status := strings.TrimSpace(r.URL.Query().Get("status"))
 		requireScheduleID := isTruthy(r.URL.Query().Get("requireScheduleId"))
-		page, size := parsePaging(r, 25)
+		page, size := parsePaging(r, 10)
 		if requireScheduleID && scheduleID == "" {
 			httpJSON(w, http.StatusOK, map[string]interface{}{
 				"status": "ok",
@@ -108,6 +109,10 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 			return
 		}
 		input := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
+		if userID := strings.TrimSpace(svcauth.EffectiveUserID(r.Context())); userID != "" {
+			input.EffectiveUserID = userID
+			input.Has.EffectiveUserID = true
+		}
 		if scheduleID != "" {
 			input.ScheduleId = scheduleID
 			input.Has.ScheduleId = true
@@ -116,61 +121,17 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 			input.RunStatus = status
 			input.Has.RunStatus = true
 		}
-		if scheduleID != "" {
-			sched, err := h.svc.Get(r.Context(), scheduleID)
-			if err != nil {
-				httpError(w, http.StatusInternalServerError, err)
-				return
-			}
-			if sched == nil {
-				httpJSON(w, http.StatusOK, map[string]interface{}{
-					"status": "ok",
-					"data":   []*schrun.RunView{},
-					"info": map[string]interface{}{
-						"pageCount":  1,
-						"totalCount": 0,
-					},
-				})
-				return
-			}
-		}
-		list, err := h.svc.store.ListRuns(r.Context(), input)
+		result, err := h.svc.store.ListRuns(r.Context(), input, page, size)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		if scheduleID == "" {
-			schedules, err := h.svc.List(r.Context())
-			if err != nil {
-				httpError(w, http.StatusInternalServerError, err)
-				return
-			}
-			allowedScheduleIDs := make(map[string]struct{}, len(schedules))
-			for _, schedule := range schedules {
-				if schedule == nil || strings.TrimSpace(schedule.ID) == "" {
-					continue
-				}
-				allowedScheduleIDs[strings.TrimSpace(schedule.ID)] = struct{}{}
-			}
-			filtered := make([]*schrun.RunView, 0, len(list))
-			for _, row := range list {
-				if row == nil {
-					continue
-				}
-				if _, ok := allowedScheduleIDs[strings.TrimSpace(row.ScheduleId)]; !ok {
-					continue
-				}
-				filtered = append(filtered, row)
-			}
-			list = filtered
-		}
-		totalCount := len(list)
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "ok",
-			"data":   paginateRuns(list, page, size),
+			"data":   result.Rows,
 			"info": map[string]interface{}{
-				"pageCount":  pageCount(totalCount, size),
-				"totalCount": totalCount,
+				"pageCount":  result.PageCount,
+				"totalCount": result.TotalCount,
 			},
 		})
 	}
@@ -200,21 +161,6 @@ func pageCount(totalCount, size int) int {
 		return 1
 	}
 	return int(math.Max(1, math.Ceil(float64(totalCount)/float64(size))))
-}
-
-func paginateRuns(runs []*schrun.RunView, page, size int) []*schrun.RunView {
-	if size <= 0 || page < 1 {
-		return runs
-	}
-	start := (page - 1) * size
-	if start >= len(runs) {
-		return []*schrun.RunView{}
-	}
-	end := start + size
-	if end > len(runs) {
-		end = len(runs)
-	}
-	return runs[start:end]
 }
 
 func paginateSchedules(schedules []*Schedule, page, size int) []*Schedule {

@@ -566,6 +566,47 @@ func TestHandler_ListRunsByPrivateScheduleReturnsEmptyForOtherUsers(t *testing.T
 	}
 }
 
+func TestHandler_ListRunsByPrivateScheduleIncludesOwner(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRowWithOwner(t, db, "sched-1", "Nightly", "private", "devuser")
+	insertConversationRow(t, db, "conv-1", "public")
+	insertSchedulerRunRow(t, db, "run-1", "sched-1", "conv-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run/sched-1", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "devuser"))
+	req.SetPathValue("id", "sched-1")
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
+		Info   struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if payload.Info.PageCount != 1 || payload.Info.TotalCount != 1 {
+		t.Fatalf("unexpected paging info: %+v", payload.Info)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-1" {
+		t.Fatalf("expected owner to see private schedule run, got %#v", payload.Data)
+	}
+}
+
 func TestHandler_ListRunsIgnoresInteractiveRunsWithoutScheduleID(t *testing.T) {
 	store, db := newTestStore(t)
 	svc := New(store, nil)

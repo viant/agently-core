@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"reflect"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/store/data"
+	authctx "github.com/viant/agently-core/internal/auth"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	runlease "github.com/viant/agently-core/pkg/agently/scheduler/run/lease"
@@ -24,7 +26,7 @@ import (
 type Store interface {
 	Get(ctx context.Context, id string) (*schedulepkg.ScheduleView, error)
 	List(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
-	ListRuns(ctx context.Context, in *schrun.RunListInput) ([]*schrun.RunView, error)
+	ListRuns(ctx context.Context, in *schrun.RunListInput, page, size int) (*RunListPage, error)
 	ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
 	PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error
 	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error
@@ -38,6 +40,12 @@ type Store interface {
 type datlyStore struct {
 	dao  *datly.Service
 	data data.Service
+}
+
+type RunListPage struct {
+	Rows       []*schrun.RunView
+	PageCount  int
+	TotalCount int
 }
 
 var schedulerComponentsByDAO sync.Map
@@ -74,6 +82,9 @@ func (s *datlyStore) init(ctx context.Context) error {
 		return err
 	}
 	if err := schrun.DefineRunListComponent(ctx, s.dao); err != nil {
+		return err
+	}
+	if err := schrun.DefineRunTotalComponent(ctx, s.dao); err != nil {
 		return err
 	}
 	if err := schrun.DefineRunDueComponent(ctx, s.dao); err != nil {
@@ -128,66 +139,87 @@ func (s *datlyStore) List(ctx context.Context) ([]*schedulepkg.ScheduleView, err
 	return out.Data, nil
 }
 
-func (s *datlyStore) ListRuns(ctx context.Context, in *schrun.RunListInput) ([]*schrun.RunView, error) {
+func (s *datlyStore) ListRuns(ctx context.Context, in *schrun.RunListInput, page, size int) (*RunListPage, error) {
 	if s == nil || s.dao == nil {
-		return nil, nil
+		return &RunListPage{}, nil
 	}
-	input := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
-	if in != nil {
-		copyValue := *in
-		if copyValue.Has == nil {
-			copyValue.Has = &schrun.RunListInputHas{}
-		}
-		input = &copyValue
+	if page < 1 {
+		page = 1
 	}
-	operateInput := *input
-	if input.Has != nil {
-		hasCopy := *input.Has
-		hasCopy.ScheduleId = false
-		hasCopy.RunStatus = false
-		operateInput.Has = &hasCopy
+	if size <= 0 {
+		size = 10
 	}
+	input, totalInput := cloneRunInputs(ctx, in, page, size)
 	out := &schrun.RunListOutput{}
 	if _, err := s.dao.Operate(ctx,
 		datly.WithURI(schrun.RunListPathURI),
-		datly.WithInput(&operateInput),
+		datly.WithInput(input),
 		datly.WithOutput(out),
 	); err != nil {
 		return nil, err
 	}
-	rows := out.Data
-	if input.Has == nil {
-		return rows, nil
+	totalOut := &schrun.RunTotalOutput{}
+	if _, err := s.dao.Operate(ctx,
+		datly.WithURI(schrun.RunTotalPathURI),
+		datly.WithInput(totalInput),
+		datly.WithOutput(totalOut),
+	); err != nil {
+		return nil, err
 	}
-	if input.Has.ScheduleId {
-		expected := strings.TrimSpace(input.ScheduleId)
-		filtered := make([]*schrun.RunView, 0, len(rows))
-		for _, row := range rows {
-			if row == nil {
-				continue
-			}
-			if strings.TrimSpace(row.ScheduleId) != expected {
-				continue
-			}
-			filtered = append(filtered, row)
+	result := &RunListPage{
+		Rows: out.Data,
+	}
+	if len(totalOut.Data) > 0 && totalOut.Data[0] != nil {
+		result.TotalCount = totalOut.Data[0].RecordCount
+	}
+	if result.TotalCount < 0 {
+		result.TotalCount = 0
+	}
+	if result.PageCount <= 0 {
+		result.PageCount = computePageCount(result.TotalCount, size)
+	}
+	return result, nil
+}
+
+func cloneRunInputs(ctx context.Context, in *schrun.RunListInput, page, size int) (*schrun.RunListInput, *schrun.RunTotalInput) {
+	listInput := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
+	totalInput := &schrun.RunTotalInput{Has: &schrun.RunTotalInputHas{}}
+	effectiveUserID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if in != nil {
+		if incomingUserID := strings.TrimSpace(in.EffectiveUserID); incomingUserID != "" {
+			effectiveUserID = incomingUserID
 		}
-		rows = filtered
 	}
-	if input.Has.RunStatus {
-		expected := strings.TrimSpace(input.RunStatus)
-		filtered := make([]*schrun.RunView, 0, len(rows))
-		for _, row := range rows {
-			if row == nil {
-				continue
-			}
-			if strings.TrimSpace(row.Status) != expected {
-				continue
-			}
-			filtered = append(filtered, row)
+	listInput.EffectiveUserID = effectiveUserID
+	listInput.Has.EffectiveUserID = true
+	listInput.Limit = size
+	listInput.Has.Limit = true
+	listInput.Offset = (page - 1) * size
+	listInput.Has.Offset = true
+	totalInput.EffectiveUserID = effectiveUserID
+	totalInput.Has.EffectiveUserID = true
+	if in != nil {
+		if scheduleID := strings.TrimSpace(in.ScheduleId); scheduleID != "" {
+			listInput.ScheduleId = scheduleID
+			listInput.Has.ScheduleId = true
+			totalInput.ScheduleId = scheduleID
+			totalInput.Has.ScheduleId = true
 		}
-		rows = filtered
+		if status := strings.TrimSpace(in.RunStatus); status != "" {
+			listInput.RunStatus = status
+			listInput.Has.RunStatus = true
+			totalInput.RunStatus = status
+			totalInput.Has.RunStatus = true
+		}
 	}
-	return rows, nil
+	return listInput, totalInput
+}
+
+func computePageCount(totalCount, size int) int {
+	if totalCount <= 0 || size <= 0 {
+		return 1
+	}
+	return int(math.Max(1, math.Ceil(float64(totalCount)/float64(size))))
 }
 
 func (s *datlyStore) ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error) {
