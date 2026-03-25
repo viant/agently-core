@@ -39,6 +39,8 @@ const (
 	defaultRunStartTimeout = 2 * time.Minute
 	defaultStaleRunTimeout = 20 * time.Minute
 	staleRunGrace          = 15 * time.Second
+	runLeaseCallTimeout    = 5 * time.Second
+	minRunHeartbeatEvery   = 3 * time.Second
 )
 
 // New creates a scheduler service.
@@ -242,6 +244,7 @@ func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulepkg.Schedul
 	if row == nil {
 		return fmt.Errorf("schedule is required")
 	}
+	s.ensureLeaseConfig()
 	runID := uuid.NewString()
 	now := time.Now().UTC()
 	userID := scheduleUserID(ctx, row)
@@ -278,6 +281,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if s == nil || row == nil || s.agent == nil {
 		return
 	}
+	s.ensureLeaseConfig()
 
 	runCtx := ctx
 	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
@@ -291,6 +295,15 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	userID := scheduleUserID(runCtx, row)
 	if userID != "" && strings.TrimSpace(iauth.EffectiveUserID(runCtx)) == "" {
 		runCtx = iauth.WithUserInfo(runCtx, &iauth.UserInfo{Subject: userID})
+	}
+
+	stopHeartbeat := func() {}
+	defer s.releaseRunLease(context.Background(), runID)
+	defer func() { stopHeartbeat() }()
+	if claimed, claimErr := s.tryClaimRunLease(runCtx, runID, time.Now().UTC()); claimErr != nil {
+		log.Printf("scheduler: claim run lease schedule=%s run=%s owner=%s: %v", row.Id, runID, strings.TrimSpace(s.leaseOwner), claimErr)
+	} else if claimed {
+		stopHeartbeat = s.startRunLeaseHeartbeat(runCtx, runID)
 	}
 
 	input := &agentsvc.QueryInput{
@@ -349,7 +362,6 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if patchErr := s.patchScheduleResult(context.Background(), row, status, errMsg, timePtrUTC(time.Now().UTC()), false, time.Now().UTC()); patchErr != nil {
 		log.Printf("scheduler: patch schedule result schedule=%s run=%s: %v", row.Id, runID, patchErr)
 	}
-	_, _ = s.store.ReleaseRunLease(context.Background(), runID, s.leaseOwner)
 }
 
 func scheduleExecutionTimeout(row *schedulepkg.ScheduleView) time.Duration {
@@ -601,15 +613,29 @@ func (s *Service) failStaleRun(ctx context.Context, row *schedulepkg.ScheduleVie
 	if run == nil {
 		return nil
 	}
+	runID := strings.TrimSpace(run.Id)
+	if runID == "" {
+		return nil
+	}
 	errs := make([]error, 0, 3)
+	claimed, claimErr := s.tryClaimRunLease(ctx, runID, now)
+	if claimErr != nil {
+		errs = append(errs, fmt.Errorf("claim stale run lease %s: %w", runID, claimErr))
+	}
+	if claimErr == nil && !claimed {
+		return nil
+	}
+	if claimErr == nil && claimed {
+		defer s.releaseRunLease(context.WithoutCancel(ctx), runID)
+	}
 
 	runPatch := &agrunwrite.MutableRunView{}
-	runPatch.SetId(strings.TrimSpace(run.Id))
+	runPatch.SetId(runID)
 	runPatch.SetStatus("failed")
 	runPatch.SetErrorMessage(strings.TrimSpace(reason))
 	runPatch.SetCompletedAt(now)
 	if err := s.store.PatchRuns(ctx, []*agrunwrite.MutableRunView{runPatch}); err != nil {
-		errs = append(errs, fmt.Errorf("patch stale run %s: %w", strings.TrimSpace(run.Id), err))
+		errs = append(errs, fmt.Errorf("patch stale run %s: %w", runID, err))
 	}
 
 	if row != nil {
@@ -625,6 +651,79 @@ func (s *Service) failStaleRun(ctx context.Context, row *schedulepkg.ScheduleVie
 	}
 
 	return errors.Join(errs...)
+}
+
+func (s *Service) tryClaimRunLease(ctx context.Context, runID string, now time.Time) (bool, error) {
+	if s == nil || s.store == nil {
+		return false, nil
+	}
+	runID = strings.TrimSpace(runID)
+	owner := strings.TrimSpace(s.leaseOwner)
+	if runID == "" || owner == "" {
+		return false, nil
+	}
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runLeaseCallTimeout)
+	defer cancel()
+	return s.store.TryClaimRun(callCtx, runID, owner, now.Add(s.leaseTTL))
+}
+
+func (s *Service) releaseRunLease(ctx context.Context, runID string) {
+	if s == nil || s.store == nil {
+		return
+	}
+	runID = strings.TrimSpace(runID)
+	owner := strings.TrimSpace(s.leaseOwner)
+	if runID == "" || owner == "" {
+		return
+	}
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runLeaseCallTimeout)
+	defer cancel()
+	if _, err := s.store.ReleaseRunLease(callCtx, runID, owner); err != nil {
+		log.Printf("scheduler: release run lease run=%s owner=%s: %v", runID, owner, err)
+	}
+}
+
+func (s *Service) startRunLeaseHeartbeat(ctx context.Context, runID string) func() {
+	if s == nil || s.store == nil {
+		return func() {}
+	}
+	runID = strings.TrimSpace(runID)
+	owner := strings.TrimSpace(s.leaseOwner)
+	if runID == "" || owner == "" {
+		return func() {}
+	}
+	interval := s.leaseTTL / 2
+	if interval < minRunHeartbeatEvery {
+		interval = minRunHeartbeatEvery
+	}
+	heartbeatCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now().UTC()
+				claimed, err := s.tryClaimRunLease(heartbeatCtx, runID, now)
+				if err != nil {
+					log.Printf("scheduler: heartbeat run lease run=%s owner=%s: %v", runID, owner, err)
+					continue
+				}
+				if !claimed {
+					log.Printf("scheduler: heartbeat lost run lease run=%s owner=%s", runID, owner)
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func (s *Service) cancelConversationAndMark(ctx context.Context, conversationID, status string) error {
