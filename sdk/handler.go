@@ -142,6 +142,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth())
+	mux.HandleFunc("GET /health", handleHealth())
 
 	mux.HandleFunc("POST /v1/agent/query", handleQuery(client, cfg.authCfg))
 

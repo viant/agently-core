@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/viant/agently-core/internal/dbconfig"
 	sqlitesvc "github.com/viant/agently-core/internal/service/sqlite"
 	conversation "github.com/viant/agently-core/pkg/agently/conversation"
 	conversationlist "github.com/viant/agently-core/pkg/agently/conversation/list"
@@ -40,6 +41,7 @@ import (
 	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
+	"github.com/viant/scy"
 )
 
 const (
@@ -69,12 +71,28 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 			driver = "sqlite"
 		}
 		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+		secrets := strings.TrimSpace(os.Getenv("AGENTLY_DB_SECRETS"))
 		if dsn == "" {
 			initErr = fmt.Errorf("AGENTLY_DB_DSN is required")
 			return
 		}
+		secretResource, err := func() (*scy.Resource, error) {
+			expanded, resource, err := dbconfig.ExpandDSN(ctx, dsn, secrets)
+			if err != nil {
+				return nil, err
+			}
+			dsn = expanded
+			return resource, nil
+		}()
+		if err != nil {
+			initErr = err
+			return
+		}
 
 		conn := view.NewConnector("agently", driver, dsn)
+		if secretResource != nil {
+			conn.Secret = secretResource
+		}
 		if strings.EqualFold(driver, "mysql") {
 			if conn.ConnMaxLifetimeMs == 0 {
 				conn.ConnMaxLifetimeMs = int(defaultConnMaxLifetime / time.Millisecond)
