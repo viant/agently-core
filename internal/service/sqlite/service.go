@@ -77,12 +77,8 @@ func (s *Service) ensureSchema(ctx context.Context, dsn string) (string, error) 
 	_, _ = db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
 	_, _ = db.ExecContext(ctx, "PRAGMA busy_timeout=5000")
 
-	var name string
-	err = db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation'").Scan(&name)
-	if err == nil && name == "conversation" {
-		return dsn, nil
-	}
-
+	// Always run schema — all statements use CREATE TABLE/INDEX IF NOT EXISTS
+	// so this is idempotent and handles upgrades when new tables are added.
 	if err := loadSchema(ctx, db, iscript.SqlListScript); err != nil {
 		return "", err
 	}
@@ -107,11 +103,6 @@ func (s *Service) ensureSchemaInMemory(ctx context.Context, dsn string) (string,
 	_, _ = db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
 	_, _ = db.ExecContext(ctx, "PRAGMA busy_timeout=5000")
 
-	var name string
-	err := db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation'").Scan(&name)
-	if err == nil && name == "conversation" {
-		return dsn, nil
-	}
 	if err := loadSchema(ctx, db, iscript.SqlListScript); err != nil {
 		return "", err
 	}
