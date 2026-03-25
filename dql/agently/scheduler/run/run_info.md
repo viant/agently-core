@@ -1,9 +1,10 @@
 # Scheduler run visibility
 
-Scheduler run reads are still filtered through `*run.Filter`.
+Scheduler run reads are filtered directly in the query.
 
-- Only runs linked to public conversations are visible to anonymous callers.
-- Authenticated callers can also see runs for their own private conversations.
-- Runs without a linked conversation are excluded from public listing.
+- Only runs linked to schedules are listed.
+- Runs on public schedules are visible to all callers.
+- Runs on private schedules are visible only to the schedule owner.
+- Pagination is applied at the Datly view level, and total count comes from a matching filtered Datly count query.
 
 Runtime reads now come from the unified `run` table rather than legacy `schedule_run`.

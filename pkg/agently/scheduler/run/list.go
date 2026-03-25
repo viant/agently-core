@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"reflect"
 
@@ -19,24 +20,29 @@ func init() {
 	core.RegisterType("run", "RunListOutput", reflect.TypeOf(RunListOutput{}), checksum.GeneratedTime)
 }
 
+//go:embed list/*.sql
+var RunListFS embed.FS
+
 type RunListInput struct {
-	HasScheduleID    bool             `parameter:",kind=const,in=value" predicate:"expr,group=0,t.schedule_id IS NOT NULL" value:"true"`
-	ScheduleId       string           `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
-	RunStatus        string           `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
-	DefaultPredicate string           `parameter:",kind=const,in=value" predicate:"handler,group=0,*run.Filter" value:"0"`
-	Has              *RunListInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	EffectiveUserID string           `parameter:",kind=query,in=effectiveUserId"`
+	Limit           int              `parameter:",kind=query,in=limit"`
+	Offset          int              `parameter:",kind=query,in=offset"`
+	ScheduleId      string           `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
+	RunStatus       string           `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
+	Has             *RunListInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type RunListInputHas struct {
-	HasScheduleID    bool
-	ScheduleId       bool
-	RunStatus        bool
-	DefaultPredicate bool
+	EffectiveUserID bool
+	Limit           bool
+	Offset          bool
+	ScheduleId      bool
+	RunStatus       bool
 }
 
 type RunListOutput struct {
 	response.Status `parameter:",kind=output,in=status" json:",omitempty"`
-	Data            []*RunView       `parameter:",kind=output,in=view" view:"run,batch=10000,relationalConcurrency=1" sql:"uri=run/run.sql"`
+	Data            []*RunView       `parameter:",kind=output,in=view" view:"run,batch=10000,relationalConcurrency=1" sql:"uri=list/list.sql"`
 	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
 }
 
@@ -48,7 +54,7 @@ func DefineRunListComponent(ctx context.Context, srv *datly.Service) error {
 		repository.WithResource(srv.Resource()),
 		repository.WithContract(
 			reflect.TypeOf(RunListInput{}),
-			reflect.TypeOf(RunListOutput{}), &RunFS, view.WithConnectorRef("agently")))
+			reflect.TypeOf(RunListOutput{}), &RunListFS, view.WithConnectorRef("agently")))
 
 	if err != nil {
 		return fmt.Errorf("failed to create RunList component: %w", err)
@@ -57,4 +63,8 @@ func DefineRunListComponent(ctx context.Context, srv *datly.Service) error {
 		return fmt.Errorf("failed to add RunList component: %w", err)
 	}
 	return nil
+}
+
+func (i *RunListInput) EmbedFS() *embed.FS {
+	return &RunListFS
 }
