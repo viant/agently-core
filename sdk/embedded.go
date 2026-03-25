@@ -1389,6 +1389,24 @@ func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideTo
 	return &DecideToolApprovalOutput{Status: "ok"}, nil
 }
 
+func (c *EmbeddedClient) ListToolDefinitions(_ context.Context) ([]ToolDefinitionInfo, error) {
+	if c.registry == nil {
+		return nil, nil
+	}
+	defs := c.registry.Definitions()
+	out := make([]ToolDefinitionInfo, len(defs))
+	for i, d := range defs {
+		out[i] = ToolDefinitionInfo{
+			Name:         d.Name,
+			Description:  d.Description,
+			Parameters:   d.Parameters,
+			Required:     d.Required,
+			OutputSchema: d.OutputSchema,
+		}
+	}
+	return out, nil
+}
+
 func (c *EmbeddedClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	if c.registry == nil {
 		return "", errors.New("tool registry not configured")

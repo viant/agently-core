@@ -77,6 +77,9 @@ type Client interface {
 	// ExecuteTool invokes a registered tool by name and returns its textual result.
 	ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error)
 
+	// ListToolDefinitions returns the set of tool definitions available in the workspace.
+	ListToolDefinitions(ctx context.Context) ([]ToolDefinitionInfo, error)
+
 	// UploadFile stores a file associated with a conversation.
 	UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error)
 

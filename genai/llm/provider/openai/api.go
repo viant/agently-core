@@ -17,7 +17,7 @@ import (
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
 
-// logPayload is a no-op debug helper (replaces removed logPayload).
+// logPayload is a no-op debug helper.
 func logPayload(_ []byte, _, _ string) {}
 
 // Scanner buffer sizes for SSE processing

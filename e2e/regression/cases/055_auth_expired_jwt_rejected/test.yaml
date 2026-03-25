@@ -1,0 +1,42 @@
+pipeline:
+  mintExpired:
+    action: secret:signJWT
+    description: "auth - mint an already-expired JWT"
+    expiryInSec: 1
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claims:
+      sub: expired-user
+      email: expired@test.com
+
+  waitExpiry:
+    action: exec:run
+    description: "wait for token to expire"
+    commands:
+      - sleep 2
+
+  conversationsExpiredJWT:
+    action: http/runner:send
+    description: "auth - expired JWT should return 401"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations
+        Header:
+          Authorization: ["Bearer ${mintExpired.TokenString}"]
+        Expect:
+          Code: 401
+
+  queryExpiredJWT:
+    action: http/runner:send
+    description: "auth - expired JWT query should return 401"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Authorization: ["Bearer ${mintExpired.TokenString}"]
+        JSONBody:
+          AgentID: simple
+          Query: "Hello"
+          UserId: "e2e-test"
+        Expect:
+          Code: 401

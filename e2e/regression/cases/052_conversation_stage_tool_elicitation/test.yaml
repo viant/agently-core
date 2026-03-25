@@ -1,0 +1,72 @@
+pipeline:
+  init:
+    turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
+
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool elicitation stage - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: mcp_oob_probe
+          Title: tool-elicitation-stage
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startToolTurn:
+    when: $sdkKey != ''
+    action: http/runner:send
+    Async: true
+    description: "tool elicitation stage - start async oob probe turn"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: mcp_oob_probe
+          MessageID: e2e-stage-tool-elic-${turnSuffix}
+          UserId: e2e-stage-tool
+          Query: run the oob probe
+
+  waitForElicitation:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  pendingElicitation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool elicitation stage - pending elicitation should be listed"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            rows:
+              "@indexBy@": elicitationId
+              mcp-oob-e2e-elicitation:
+                "@exists@messageId": true
+
+  verifyConversationStage:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool elicitation stage - conversation should be elicitation"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${createConversation.Responses[0].JSONBody.Id}
+            Stage: elicitation
+            Transcript:
+              - Id: e2e-stage-tool-elic-${turnSuffix}
+                Stage: elicitation
+                Status: running

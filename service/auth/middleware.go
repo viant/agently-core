@@ -78,10 +78,13 @@ func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(h
 			authenticated := false
 
 			// Try Bearer token first.
-			if cfg.IsBearerAccepted() {
+			// Always accept a valid JWT when a JWTService is configured,
+			// even if the primary auth mode is cookie/local/BFF.
+			bearerAccepted := cfg.IsBearerAccepted() || pc.jwtService != nil
+			if bearerAccepted {
 				if bearerTok := extractBearer(r); bearerTok != "" {
-					// When JWT auth is configured, verify the token cryptographically.
-					if cfg.IsJWTAuth() && pc.jwtService != nil {
+					// When a JWTService is available, verify the token cryptographically.
+					if pc.jwtService != nil {
 						ui, err := pc.jwtService.Verify(ctx, bearerTok)
 						if err != nil {
 							if !isAuthPath {
@@ -107,8 +110,10 @@ func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(h
 				}
 			}
 
-			// For JWT-only mode, reject unauthenticated requests (but not auth endpoints).
-			if !authenticated && !isAuthPath && cfg.IsJWTAuth() {
+			// For JWT-only mode (no cookies accepted), reject unauthenticated
+			// requests immediately. When cookies are also accepted, fall through
+			// to the session cookie check below.
+			if !authenticated && !isAuthPath && cfg.IsJWTAuth() && !cfg.IsCookieAccepted() {
 				http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
 				return
 			}
@@ -117,22 +122,37 @@ func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(h
 			if !authenticated && cfg.IsCookieAccepted() && sessions != nil && cfg.CookieName != "" {
 				if c, err := r.Cookie(cfg.CookieName); err == nil && c.Value != "" {
 					if sess := sessions.Get(ctx, c.Value); sess != nil {
-						ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{
-							Subject: sess.Username,
-							Email:   sess.Email,
-						})
-						if sess.Tokens != nil {
-							ctx = iauth.WithTokens(ctx, sess.Tokens)
-							if sess.Tokens.AccessToken != "" {
-								ctx = iauth.WithBearer(ctx, sess.Tokens.AccessToken)
+						if requiresTokenBackedCookie(cfg) && (sess.Tokens == nil || strings.TrimSpace(sess.Tokens.AccessToken) == "" && strings.TrimSpace(sess.Tokens.IDToken) == "") {
+							if !isAuthPath {
+								http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
+								return
 							}
-							if sess.Tokens.IDToken != "" {
-								ctx = iauth.WithIDToken(ctx, sess.Tokens.IDToken)
+						} else {
+							subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
+							email := strings.TrimSpace(sess.Email)
+							ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{
+								Subject: subject,
+								Email:   email,
+							})
+							if sess.Tokens != nil {
+								ctx = iauth.WithTokens(ctx, sess.Tokens)
+								if sess.Tokens.AccessToken != "" {
+									ctx = iauth.WithBearer(ctx, sess.Tokens.AccessToken)
+								}
+								if sess.Tokens.IDToken != "" {
+									ctx = iauth.WithIDToken(ctx, sess.Tokens.IDToken)
+								}
 							}
+							authenticated = true
 						}
-						authenticated = true
 					}
 				}
+			}
+
+			// Reject unauthenticated non-auth requests when auth is enabled.
+			if !authenticated && !isAuthPath {
+				http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
+				return
 			}
 
 			// Ensure fallback user identity from config.
@@ -141,6 +161,26 @@ func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(h
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func requiresTokenBackedCookie(cfg *iauth.Config) bool {
+	if cfg == nil || !cfg.Enabled || cfg.OAuth == nil {
+		return false
+	}
+	if cfg.Local != nil && cfg.Local.Enabled {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(cfg.OAuth.Mode))
+	return mode == "bff"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // extractBearer extracts a Bearer token from the Authorization header.
