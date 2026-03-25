@@ -8,10 +8,25 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
+	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	mem "github.com/viant/agently-core/app/store/data/memory"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
+
+type testCancelRegistry struct {
+	cancelConversationCalls []string
+}
+
+func (t *testCancelRegistry) Register(string, string, context.CancelFunc) {}
+func (t *testCancelRegistry) Complete(string, string, context.CancelFunc) {}
+func (t *testCancelRegistry) CancelTurn(string) bool                      { return false }
+func (t *testCancelRegistry) CancelConversation(conversationID string) bool {
+	t.cancelConversationCalls = append(t.cancelConversationCalls, strings.TrimSpace(conversationID))
+	return true
+}
+
+var _ cancels.Registry = (*testCancelRegistry)(nil)
 
 func TestService_RunDue_ReapsStaleActiveRunWhenScheduleNotDue(t *testing.T) {
 	store, db := newTestStore(t)
@@ -135,13 +150,18 @@ func TestService_RunDue_ReapsStaleActiveRunWhenScheduleNotDue(t *testing.T) {
 
 func TestService_cancelConversationAndMark_TerminatesRunningExecutions(t *testing.T) {
 	conv := mem.New()
-	svc := New(nil, &agentsvc.Service{}, WithConversationClient(conv))
+	reg := &testCancelRegistry{}
+	agentSvc := agentsvc.New(nil, nil, nil, nil, nil, conv, agentsvc.WithCancelRegistry(reg))
+	svc := New(nil, agentSvc, WithConversationClient(conv))
 	startedAt := time.Now().UTC().Add(-1 * time.Minute)
 
 	seedRunningConversation(t, conv, "conv-direct", "turn-direct", startedAt)
 
 	if err := svc.cancelConversationAndMark(context.Background(), "conv-direct", "canceled"); err != nil {
 		t.Fatalf("cancelConversationAndMark() error: %v", err)
+	}
+	if len(reg.cancelConversationCalls) != 1 || reg.cancelConversationCalls[0] != "conv-direct" {
+		t.Fatalf("expected live cancel for conv-direct, got %#v", reg.cancelConversationCalls)
 	}
 
 	got, err := conv.GetConversation(

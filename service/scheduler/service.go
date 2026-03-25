@@ -302,7 +302,9 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		ScheduleId:    strings.TrimSpace(row.Id),
 	}
 	output := &agentsvc.QueryOutput{}
-	err := s.agent.Query(runCtx, input, output)
+	queryCtx, queryCancel := context.WithTimeout(runCtx, scheduleExecutionTimeout(row))
+	err := s.agent.Query(queryCtx, input, output)
+	queryCancel()
 
 	// Re-assert scheduler metadata after agent execution and persist the
 	// conversation ID produced during the run.
@@ -348,6 +350,13 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		log.Printf("scheduler: patch schedule result schedule=%s run=%s: %v", row.Id, runID, patchErr)
 	}
 	_, _ = s.store.ReleaseRunLease(context.Background(), runID, s.leaseOwner)
+}
+
+func scheduleExecutionTimeout(row *schedulepkg.ScheduleView) time.Duration {
+	if row != nil && row.TimeoutSeconds > 0 {
+		return time.Duration(row.TimeoutSeconds) * time.Second
+	}
+	return defaultStaleRunTimeout
 }
 
 func (s *Service) annotateConversation(ctx context.Context, row *schedulepkg.ScheduleView, conversationID, runID string) {
@@ -619,14 +628,25 @@ func (s *Service) failStaleRun(ctx context.Context, row *schedulepkg.ScheduleVie
 }
 
 func (s *Service) cancelConversationAndMark(ctx context.Context, conversationID, status string) error {
-	if s == nil || s.conversation == nil {
+	if s == nil {
 		return nil
 	}
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		return nil
 	}
-	return s.cancelConversationTreeAndMark(ctx, conversationID, strings.TrimSpace(status), map[string]struct{}{})
+	errs := make([]error, 0, 2)
+	if s.agent != nil {
+		if err := s.agent.Terminate(context.WithoutCancel(ctx), conversationID); err != nil {
+			errs = append(errs, fmt.Errorf("terminate conversation %s: %w", conversationID, err))
+		}
+	}
+	if s.conversation != nil {
+		if err := s.cancelConversationTreeAndMark(ctx, conversationID, strings.TrimSpace(status), map[string]struct{}{}); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Service) cancelConversationTreeAndMark(ctx context.Context, conversationID, status string, visited map[string]struct{}) error {
