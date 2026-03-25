@@ -208,6 +208,112 @@ func TestService_cancelConversationAndMark_TerminatesRunningExecutions(t *testin
 	}
 }
 
+func TestService_RunDue_DoesNotFailLongRunningRunWhenLeaseIsFresh(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	now := time.Now().UTC()
+	nextRunAt := now.Add(30 * time.Minute)
+	createdAt := now.Add(-2 * time.Hour)
+	startedAt := now.Add(-40 * time.Minute)
+	scheduledFor := now.Add(-41 * time.Minute)
+	leaseUntil := now.Add(2 * time.Minute)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO schedule (
+			id, name, visibility, agent_ref, enabled, schedule_type, timezone,
+			next_run_at, timeout_seconds, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "sched-lease-fresh", "Lease Fresh", "public", "simple", 1, "adhoc", "UTC", nextRunAt, 1, createdAt, createdAt); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO run (
+			id, schedule_id, conversation_kind, status, created_at, started_at, scheduled_for, lease_owner, lease_until
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "run-lease-fresh", "sched-lease-fresh", "scheduled", "running", startedAt.Add(-10*time.Second), startedAt, scheduledFor, "other-owner", leaseUntil); err != nil {
+		t.Fatalf("insert run error: %v", err)
+	}
+
+	started, err := svc.RunDue(context.Background())
+	if err != nil {
+		t.Fatalf("RunDue() error: %v", err)
+	}
+	if started != 0 {
+		t.Fatalf("expected no new runs to start, got %d", started)
+	}
+
+	var status string
+	var errorMessage sql.NullString
+	var completedAt sql.NullTime
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT status, error_message, completed_at
+		FROM run
+		WHERE id = ?
+	`, "run-lease-fresh").Scan(&status, &errorMessage, &completedAt); err != nil {
+		t.Fatalf("query run error: %v", err)
+	}
+	if status != "running" {
+		t.Fatalf("expected running run, got %q (error=%q)", status, errorMessage.String)
+	}
+	if completedAt.Valid {
+		t.Fatalf("expected completed_at to be null for a live leased run")
+	}
+}
+
+func TestService_tryClaimRunLeaseAndRelease(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+	svc.ensureLeaseConfig()
+
+	now := time.Now().UTC()
+	insertScheduleRow(t, db, "sched-lease-1", "Lease Schedule")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO run (
+			id, schedule_id, conversation_kind, status, created_at
+		) VALUES (?, ?, ?, ?, ?)
+	`, "run-lease-1", "sched-lease-1", "scheduled", "pending", now); err != nil {
+		t.Fatalf("insert run error: %v", err)
+	}
+
+	claimed, err := svc.tryClaimRunLease(context.Background(), "run-lease-1", now)
+	if err != nil {
+		t.Fatalf("tryClaimRunLease() error: %v", err)
+	}
+	if !claimed {
+		t.Fatalf("expected lease to be claimed")
+	}
+
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullTime
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT lease_owner, lease_until FROM run WHERE id = ?
+	`, "run-lease-1").Scan(&leaseOwner, &leaseUntil); err != nil {
+		t.Fatalf("query claimed lease error: %v", err)
+	}
+	if !leaseOwner.Valid || strings.TrimSpace(leaseOwner.String) == "" {
+		t.Fatalf("expected lease_owner to be populated")
+	}
+	if !leaseUntil.Valid || !leaseUntil.Time.After(now) {
+		t.Fatalf("expected lease_until to be in the future, got %v", leaseUntil)
+	}
+
+	svc.releaseRunLease(context.Background(), "run-lease-1")
+
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT lease_owner, lease_until FROM run WHERE id = ?
+	`, "run-lease-1").Scan(&leaseOwner, &leaseUntil); err != nil {
+		t.Fatalf("query released lease error: %v", err)
+	}
+	if leaseOwner.Valid {
+		t.Fatalf("expected lease_owner to be cleared, got %q", leaseOwner.String)
+	}
+	if leaseUntil.Valid {
+		t.Fatalf("expected lease_until to be cleared, got %v", leaseUntil.Time)
+	}
+}
+
 func seedRunningConversation(t *testing.T, client convcli.Client, conversationID, turnID string, startedAt time.Time) {
 	t.Helper()
 
