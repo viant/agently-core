@@ -1,0 +1,31 @@
+pipeline:
+  conversationsNoAuth:
+    action: http/runner:send
+    description: "auth - unauthenticated GET /v1/conversations should return 401"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations
+        Expect:
+          Code: 401
+
+  queryNoAuth:
+    action: http/runner:send
+    description: "auth - unauthenticated POST /v1/agent/query should return 401"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        JSONBody:
+          AgentID: simple
+          Query: "Hello"
+          UserId: "e2e-test"
+        Expect:
+          Code: 401
+
+  transcriptNoAuth:
+    action: http/runner:send
+    description: "auth - unauthenticated GET /v1/conversations/x/transcript should return 401"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/nonexistent/transcript
+        Expect:
+          Code: 401

@@ -1,0 +1,48 @@
+pipeline:
+  mintToken:
+    action: secret:signJWT
+    description: "auth - mint a valid JWT for e2e"
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claims:
+      sub: e2e-jwt-user
+      email: e2e@test.com
+
+  conversationsWithJWT:
+    action: http/runner:send
+    description: "auth - GET /v1/conversations with valid JWT should succeed"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations
+        Header:
+          Authorization: ["Bearer ${mintToken.TokenString}"]
+        Expect:
+          Code: 200
+
+  healthWithJWT:
+    action: http/runner:send
+    description: "auth - GET /healthz with valid JWT should succeed"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/healthz
+        Header:
+          Authorization: ["Bearer ${mintToken.TokenString}"]
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  meWithJWT:
+    action: http/runner:send
+    description: "auth - GET /v1/api/auth/me with valid JWT returns claims"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/auth/me
+        Header:
+          Authorization: ["Bearer ${mintToken.TokenString}"]
+        Expect:
+          Code: 200
+          JSONBody:
+            subject: e2e-jwt-user
+            email: e2e@test.com

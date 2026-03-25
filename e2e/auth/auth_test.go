@@ -598,3 +598,346 @@ func TestJWTAuth_MultipleEndpoints(t *testing.T) {
 		})
 	}
 }
+
+// --- OAuth/Cookie Workspace E2E Tests ---
+//
+// These tests simulate a workspace with cookie-based auth (local/BFF) and RSA
+// keys for JWT verification. They verify that:
+//   - Cookie sessions work
+//   - JWT Bearer tokens are also accepted (even in cookie mode)
+//   - Unauthenticated requests are rejected
+//   - The anonymous cookie fallback is blocked
+
+// setupOAuthCookieServer creates an httptest.Server with local cookie auth
+// enabled AND RSA JWT keys configured, simulating an OAuth workspace that
+// also accepts JWT tokens.
+func setupOAuthCookieServer(t *testing.T, pubPath, privPath string) *httptest.Server {
+	t.Helper()
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	testdataDir, err := filepath.Abs("../query/testdata")
+	require.NoError(t, err)
+
+	fs := afs.New()
+	wsMeta := meta.New(fs, testdataDir)
+	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
+	agentFndr := agentfinder.New(agentfinder.WithLoader(agentLdr))
+	modelLdr := modelloader.New(wsfs.WithMetaService[provider.Config](wsMeta))
+	modelFndr := modelfinder.New(modelfinder.WithConfigLoader(modelLdr))
+	mcpMgr, err := mcpmgr.New(&stubMCPProvider{})
+	require.NoError(t, err)
+	registry, err := tool.NewDefaultRegistry(mcpMgr)
+	require.NoError(t, err)
+
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(agentFndr).
+		WithModelFinder(modelFndr).
+		WithRegistry(registry).
+		WithMCPManager(mcpMgr).
+		WithDefaults(&config.Defaults{Model: "openai_gpt4o_mini"}).
+		Build(ctx)
+	require.NoError(t, err)
+
+	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	require.NoError(t, err)
+
+	// Cookie-based local auth with JWT keys also configured.
+	authCfg := &iauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-ip-hash-key",
+		CookieName: "agently_session",
+		Local:      &iauth.Local{Enabled: true},
+		JWT: &iauth.JWT{
+			Enabled:       true,
+			RSA:           []string{pubPath},
+			RSAPrivateKey: privPath,
+		},
+	}
+
+	sessions := svcauth.NewManager(7*24*time.Hour, nil)
+	jwtSvc := svcauth.NewJWTService(authCfg.JWT)
+	require.NoError(t, jwtSvc.Init(ctx))
+
+	handler := sdk.NewHandler(client, sdk.WithAuth(authCfg, sessions))
+	protected := svcauth.Protect(authCfg, sessions, svcauth.WithJWTService(jwtSvc))(handler)
+	return httptest.NewServer(protected)
+}
+
+func TestOAuthCookie_UnauthenticatedRequest_Returns401(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", nil)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"unauthenticated request should return 401 in OAuth+cookie workspace")
+}
+
+func TestOAuthCookie_CookieSession_Succeeds(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	// Login via local auth
+	resp := doRequest(t, "POST", srv.URL+"/v1/api/auth/local/login", `{"username":"oauth-cookie-user"}`, nil)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "local login should succeed")
+
+	var sessionCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "agently_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	require.NotNil(t, sessionCookie, "login should set session cookie")
+
+	// Access protected endpoint with cookie
+	req, err := http.NewRequest("GET", srv.URL+"/v1/conversations", nil)
+	require.NoError(t, err)
+	req.AddCookie(sessionCookie)
+	resp2, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusOK, resp2.StatusCode,
+		"cookie-authenticated request should succeed in OAuth+cookie workspace")
+}
+
+func TestOAuthCookie_JWTBearer_AlsoAccepted(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	// Sign a JWT and use Bearer token (no cookie)
+	token := signTestJWT(t, privPath, map[string]interface{}{
+		"sub":   "jwt-user-in-cookie-mode",
+		"email": "jwt-user@example.com",
+	}, 1*time.Hour)
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode,
+		"JWT Bearer token should be accepted even in cookie-based workspace")
+}
+
+func TestOAuthCookie_JWTBearer_ClaimsExtracted(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	token := signTestJWT(t, privPath, map[string]interface{}{
+		"sub":   "jwt-claims-user",
+		"email": "claims@example.com",
+	}, 1*time.Hour)
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/api/auth/me", "", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var me map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&me))
+	assert.Equal(t, "jwt-claims-user", me["subject"], "subject should match JWT claim")
+	assert.Equal(t, "claims@example.com", me["email"], "email should match JWT claim")
+}
+
+func TestOAuthCookie_InvalidJWT_Returns401(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	// Sign with a different key
+	otherDir := t.TempDir()
+	otherPriv, _ := generateRSAKeyPair(t, otherDir)
+	badToken := signTestJWT(t, otherPriv, map[string]interface{}{
+		"sub": "attacker",
+	}, 1*time.Hour)
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
+		"Authorization": "Bearer " + badToken,
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"JWT signed with wrong key should be rejected in cookie workspace")
+}
+
+func TestOAuthCookie_ExpiredJWT_Returns401(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	token := signTestJWT(t, privPath, map[string]interface{}{
+		"sub": "expired-user",
+	}, 1*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"expired JWT should be rejected in cookie workspace")
+}
+
+func TestOAuthCookie_AnonymousCookie_Blocked(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupOAuthCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	// Try to query without any auth — the anonymous cookie fallback should
+	// not grant access when auth is enabled.
+	body := `{"query":"hello","agentId":"simple"}`
+	resp := doRequest(t, "POST", srv.URL+"/v1/agent/query", body, nil)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"anonymous query should be blocked when auth is enabled")
+}
+
+// setupBFFCookieServer creates an httptest.Server simulating a BFF OAuth
+// workspace (cookie-only, no JWT.Enabled) but with RSA keys injected via
+// the JWTService ProtectOption. This verifies that Bearer tokens are still
+// accepted when a JWTService is provided even without JWT.Enabled.
+func setupBFFCookieServer(t *testing.T, pubPath, privPath string) *httptest.Server {
+	t.Helper()
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	testdataDir, err := filepath.Abs("../query/testdata")
+	require.NoError(t, err)
+
+	fs := afs.New()
+	wsMeta := meta.New(fs, testdataDir)
+	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
+	agentFndr := agentfinder.New(agentfinder.WithLoader(agentLdr))
+	modelLdr := modelloader.New(wsfs.WithMetaService[provider.Config](wsMeta))
+	modelFndr := modelfinder.New(modelfinder.WithConfigLoader(modelLdr))
+	mcpMgr, err := mcpmgr.New(&stubMCPProvider{})
+	require.NoError(t, err)
+	registry, err := tool.NewDefaultRegistry(mcpMgr)
+	require.NoError(t, err)
+
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(agentFndr).
+		WithModelFinder(modelFndr).
+		WithRegistry(registry).
+		WithMCPManager(mcpMgr).
+		WithDefaults(&config.Defaults{Model: "openai_gpt4o_mini"}).
+		Build(ctx)
+	require.NoError(t, err)
+
+	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	require.NoError(t, err)
+
+	// BFF cookie mode with JWT keys also configured — both cookie and Bearer
+	// tokens should be accepted.
+	authCfg := &iauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-ip-hash-key",
+		CookieName: "agently_session",
+		Local:      &iauth.Local{Enabled: true},
+		JWT: &iauth.JWT{
+			Enabled:       true,
+			RSA:           []string{pubPath},
+			RSAPrivateKey: privPath,
+		},
+	}
+
+	sessions := svcauth.NewManager(7*24*time.Hour, nil)
+	jwtSvc := svcauth.NewJWTService(authCfg.JWT)
+	require.NoError(t, jwtSvc.Init(ctx))
+
+	handler := sdk.NewHandler(client, sdk.WithAuth(authCfg, sessions))
+	protected := svcauth.Protect(authCfg, sessions, svcauth.WithJWTService(jwtSvc))(handler)
+	return httptest.NewServer(protected)
+}
+
+func TestBFFCookie_JWTBearer_AcceptedViaJWTService(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupBFFCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	token := signTestJWT(t, privPath, map[string]interface{}{
+		"sub":   "bff-jwt-user",
+		"email": "bff@example.com",
+	}, 1*time.Hour)
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode,
+		"JWT Bearer should be accepted in BFF mode when JWTService is provided")
+}
+
+func TestBFFCookie_Unauthenticated_Returns401(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupBFFCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", nil)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"unauthenticated request should return 401 in BFF workspace")
+}
+
+func TestBFFCookie_CookieSession_StillWorks(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	srv := setupBFFCookieServer(t, pubPath, privPath)
+	defer srv.Close()
+
+	// Login
+	resp := doRequest(t, "POST", srv.URL+"/v1/api/auth/local/login", `{"username":"bff-cookie-user"}`, nil)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var sessionCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "agently_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	require.NotNil(t, sessionCookie)
+
+	req, err := http.NewRequest("GET", srv.URL+"/v1/conversations", nil)
+	require.NoError(t, err)
+	req.AddCookie(sessionCookie)
+	resp2, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusOK, resp2.StatusCode,
+		"cookie session should still work alongside JWT in BFF mode")
+}

@@ -287,6 +287,15 @@ type ListFilesOutput struct {
 	Files []*FileEntry
 }
 
+// ToolDefinitionInfo is a tool definition returned by ListToolDefinitions.
+type ToolDefinitionInfo struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty"`
+	Required     []string               `json:"required,omitempty"`
+	OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
+}
+
 // ResourceRef identifies a workspace resource by kind and name.
 type ResourceRef struct {
 	Kind string `json:"kind"`
