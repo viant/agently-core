@@ -367,10 +367,12 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				val := valueNode.Interface()
 				switch actual := val.(type) {
 				case bool:
-					agent.ParallelToolCalls = actual
+					boolVal := actual
+					agent.ParallelToolCalls = &boolVal
 				case string:
 					lv := strings.ToLower(strings.TrimSpace(actual))
-					agent.ParallelToolCalls = lv == "true"
+					boolVal2 := lv == "true"
+					agent.ParallelToolCalls = &boolVal2
 				}
 			}
 		case "autosummarize", "autosumarize":
@@ -653,10 +655,12 @@ func (s *Service) parseAgentBasicScalar(agent *agentmdl.Agent, key string, value
 			val := valueNode.Interface()
 			switch actual := val.(type) {
 			case bool:
-				agent.ParallelToolCalls = actual
+				boolVal := actual
+				agent.ParallelToolCalls = &boolVal
 			case string:
 				lv := strings.ToLower(strings.TrimSpace(actual))
-				agent.ParallelToolCalls = lv == "true"
+				boolVal2 := lv == "true"
+				agent.ParallelToolCalls = &boolVal2
 			}
 		}
 		return true, nil

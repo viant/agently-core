@@ -90,7 +90,8 @@ type (
 		// ParallelToolCalls requests providers that support it to execute
 		// multiple tool calls in parallel within a single reasoning step.
 		// Honored only when the selected model implements the feature.
-		ParallelToolCalls bool `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
+		// When nil the runtime default is used (true when not specified).
+		ParallelToolCalls *bool `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
 
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".
