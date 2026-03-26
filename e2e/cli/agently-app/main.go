@@ -72,29 +72,6 @@ func serve(args []string) {
 	}
 	defer workspace.SetBootstrapHook(nil)
 
-	schedStore, err := scheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
-	if err != nil {
-		log.Fatalf("failed to initialize scheduler store: %v", err)
-	}
-	schedSvc := scheduler.New(schedStore, rt.Agent,
-		scheduler.WithConversationClient(rt.Conversation),
-		scheduler.WithTokenProvider(rt.TokenProvider),
-	)
-	if embedded, ok := client.(*sdk.EmbeddedClient); ok {
-		embedded.SetScheduler(schedSvc)
-	}
-	schedHandler := scheduler.NewHandler(schedSvc)
-	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-core-e2e")
-
-	handlerOpts := []sdk.HandlerOption{
-		sdk.WithMetadataHandler(metadataHandler),
-		sdk.WithScheduler(schedSvc, schedHandler, &sdk.SchedulerOptions{
-			EnableAPI:      true,
-			EnableRunNow:   true,
-			EnableWatchdog: true,
-		}),
-	}
-
 	// Configure auth when JWT keys are provided.
 	var authCfg *iauth.Config
 	var sessions *svcauth.Manager
@@ -116,8 +93,35 @@ func serve(args []string) {
 		if err := jwtSvc.Init(ctx); err != nil {
 			log.Fatalf("failed to initialize JWT service: %v", err)
 		}
-		handlerOpts = append(handlerOpts, sdk.WithAuth(authCfg, sessions))
 		log.Printf("auth enabled: JWT (pub=%s)", pubKey)
+	}
+
+	schedStore, err := scheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
+	if err != nil {
+		log.Fatalf("failed to initialize scheduler store: %v", err)
+	}
+	schedSvc := scheduler.New(schedStore, rt.Agent,
+		scheduler.WithConversationClient(rt.Conversation),
+		scheduler.WithTokenProvider(rt.TokenProvider),
+		scheduler.WithAuthConfig(authCfg),
+	)
+	if embedded, ok := client.(*sdk.EmbeddedClient); ok {
+		embedded.SetScheduler(schedSvc)
+	}
+	schedHandler := scheduler.NewHandler(schedSvc)
+	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-core-e2e")
+
+	handlerOpts := []sdk.HandlerOption{
+		sdk.WithMetadataHandler(metadataHandler),
+		sdk.WithScheduler(schedSvc, schedHandler, &sdk.SchedulerOptions{
+			EnableAPI:      true,
+			EnableRunNow:   true,
+			EnableWatchdog: true,
+		}),
+	}
+
+	if authCfg != nil {
+		handlerOpts = append(handlerOpts, sdk.WithAuth(authCfg, sessions))
 	}
 
 	sdkHandler, err := sdk.NewHandlerWithContext(ctx, client, handlerOpts...)

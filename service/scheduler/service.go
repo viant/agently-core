@@ -20,8 +20,13 @@ import (
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
+	"github.com/viant/scy/auth/authorizer"
 	"golang.org/x/oauth2"
 )
+
+type oauthAuthorizer interface {
+	Authorize(ctx context.Context, command *authorizer.Command) (*oauth2.Token, error)
+}
 
 // Service manages persisted scheduler CRUD and execution of due schedules.
 type Service struct {
@@ -31,6 +36,8 @@ type Service struct {
 	interval      time.Duration
 	tokenProvider token.Provider
 	scyService    *scy.Service
+	authCfg       *iauth.Config
+	oauthAuthz    oauthAuthorizer
 	leaseOwner    string
 	leaseTTL      time.Duration
 }
@@ -80,6 +87,11 @@ func WithTokenProvider(p token.Provider) Option {
 // WithScyService sets the scy service for loading encrypted secrets.
 func WithScyService(sv *scy.Service) Option {
 	return func(s *Service) { s.scyService = sv }
+}
+
+// WithAuthConfig sets auth configuration used by scheduler OOB user_cred flow.
+func WithAuthConfig(cfg *iauth.Config) Option {
+	return func(s *Service) { s.authCfg = cfg }
 }
 
 // Get returns a schedule by ID.
@@ -1008,44 +1020,76 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 	if credRef == "" {
 		return ctx, nil
 	}
+	return s.applyUserCredLegacyOOB(ctx, credRef)
+}
 
-	if s.scyService == nil {
-		s.scyService = scy.New()
+func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (context.Context, error) {
+	if s.authCfg == nil || s.authCfg.OAuth == nil || s.authCfg.OAuth.Client == nil {
+		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth configuration")
 	}
-	resource := scy.NewResource("", credRef, "")
-	secret, err := s.scyService.Load(ctx, resource)
+	mode := strings.ToLower(strings.TrimSpace(s.authCfg.OAuth.Mode))
+	if mode != "bff" {
+		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.mode=bff")
+	}
+	cfgURL := strings.TrimSpace(s.authCfg.OAuth.Client.ConfigURL)
+	if cfgURL == "" {
+		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.client.configURL")
+	}
+
+	cmd := &authorizer.Command{
+		AuthFlow:   "OOB",
+		UsePKCE:    true,
+		SecretsURL: strings.TrimSpace(credRef),
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: cfgURL,
+		},
+	}
+	if scopes := s.authCfg.OAuth.Client.Scopes; len(scopes) > 0 {
+		cmd.Scopes = scopes
+	} else {
+		cmd.Scopes = []string{"openid"}
+	}
+
+	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 1*time.Minute)
+	defer cancel()
+	oa := s.oauthAuthz
+	if oa == nil {
+		oa = authorizer.New()
+	}
+	oauthTok, err := oa.Authorize(authCtx, cmd)
 	if err != nil {
-		return ctx, fmt.Errorf("load user cred from %s: %w", credRef, err)
+		return ctx, fmt.Errorf("schedule user_cred authorize failed: %w", err)
+	}
+	if oauthTok == nil {
+		return ctx, fmt.Errorf("schedule user_cred authorize returned empty token")
 	}
 
-	var refreshToken, accessToken, idToken string
-	if secret != nil {
-		if tok, ok := secret.Target.(*scyauth.Token); ok && tok != nil {
-			refreshToken = tok.RefreshToken
-			accessToken = tok.AccessToken
-			idToken = tok.IDToken
-		}
-	}
-
-	if s.tokenProvider != nil && refreshToken != "" {
+	st := &scyauth.Token{Token: *oauthTok}
+	st.PopulateIDToken()
+	if s.tokenProvider != nil && strings.TrimSpace(st.RefreshToken) != "" {
 		key := token.Key{Subject: credRef, Provider: "default"}
-		_ = s.tokenProvider.Store(ctx, key, &scyauth.Token{
-			Token: oauth2.Token{
-				AccessToken:  accessToken,
-				RefreshToken: refreshToken,
-			},
-			IDToken: idToken,
-		})
-		return s.tokenProvider.EnsureTokens(ctx, key)
+		_ = s.tokenProvider.Store(ctx, key, st)
+		next, ensureErr := s.tokenProvider.EnsureTokens(ctx, key)
+		if ensureErr == nil {
+			return next, nil
+		}
+		log.Printf("scheduler: ensure tokens after oob auth failed, using oauth token directly: %v", ensureErr)
 	}
+	return s.withAuthTokens(ctx, st), nil
+}
 
-	if accessToken != "" {
-		ctx = iauth.WithBearer(ctx, accessToken)
+func (s *Service) withAuthTokens(ctx context.Context, tok *scyauth.Token) context.Context {
+	if tok == nil {
+		return ctx
 	}
-	if idToken != "" {
-		ctx = iauth.WithIDToken(ctx, idToken)
+	ctx = iauth.WithTokens(ctx, tok)
+	if v := strings.TrimSpace(tok.AccessToken); v != "" {
+		ctx = iauth.WithBearer(ctx, v)
 	}
-	return ctx, nil
+	if v := strings.TrimSpace(tok.IDToken); v != "" {
+		ctx = iauth.WithIDToken(ctx, v)
+	}
+	return ctx
 }
 
 func toPublicSchedule(row *schedulepkg.ScheduleView) *Schedule {
