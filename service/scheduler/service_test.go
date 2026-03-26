@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +11,14 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	mem "github.com/viant/agently-core/app/store/data/memory"
+	iauth "github.com/viant/agently-core/internal/auth"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	"github.com/viant/scy"
+	"github.com/viant/scy/auth/authorizer"
+	"github.com/viant/scy/cred"
+	_ "github.com/viant/scy/kms/blowfish"
+	"golang.org/x/oauth2"
 )
 
 type testCancelRegistry struct {
@@ -27,6 +34,22 @@ func (t *testCancelRegistry) CancelConversation(conversationID string) bool {
 }
 
 var _ cancels.Registry = (*testCancelRegistry)(nil)
+
+type fakeOAuthAuthorizer struct {
+	tok       *oauth2.Token
+	err       error
+	lastCmd   *authorizer.Command
+	callCount int
+}
+
+func (f *fakeOAuthAuthorizer) Authorize(_ context.Context, command *authorizer.Command) (*oauth2.Token, error) {
+	f.callCount++
+	f.lastCmd = command
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.tok, nil
+}
 
 func TestService_RunDue_ReapsStaleActiveRunWhenScheduleNotDue(t *testing.T) {
 	store, db := newTestStore(t)
@@ -311,6 +334,64 @@ func TestService_tryClaimRunLeaseAndRelease(t *testing.T) {
 	}
 	if leaseUntil.Valid {
 		t.Fatalf("expected lease_until to be cleared, got %v", leaseUntil.Time)
+	}
+}
+
+func TestService_applyUserCred_LegacyBasicSecretUsesOOB(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	secretFile := filepath.Join(dir, "user_cred.enc.json")
+
+	basicSecret := scy.NewSecret(&cred.Basic{
+		Username: "agently_scheduler",
+		Password: "viant12345678",
+	}, scy.NewResource(&cred.Basic{}, secretFile, "blowfish://default"))
+	if err := scy.New().Store(ctx, basicSecret); err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: &oauth2.Token{
+			AccessToken:  "oob-access",
+			RefreshToken: "oob-refresh",
+			Expiry:       time.Now().Add(30 * time.Minute),
+		},
+	}
+	fakeAuthz.tok = fakeAuthz.tok.WithExtra(map[string]interface{}{"id_token": "oob-id"})
+
+	svc := New(nil, &agentsvc.Service{}, WithAuthConfig(&iauth.Config{
+		OAuth: &iauth.OAuth{
+			Mode: "bff",
+			Client: &iauth.OAuthClient{
+				ConfigURL: "file:///tmp/oauth.client.json",
+				Scopes:    []string{"openid", "profile"},
+			},
+		},
+	}))
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(ctx, secretFile+"|blowfish://default")
+	if err != nil {
+		t.Fatalf("applyUserCred() error: %v", err)
+	}
+	if fakeAuthz.callCount != 1 {
+		t.Fatalf("expected one authorize call, got %d", fakeAuthz.callCount)
+	}
+	if fakeAuthz.lastCmd == nil {
+		t.Fatalf("expected authorize command")
+	}
+	if got := strings.TrimSpace(fakeAuthz.lastCmd.SecretsURL); got != secretFile+"|blowfish://default" {
+		t.Fatalf("SecretsURL = %q, want %q", got, secretFile+"|blowfish://default")
+	}
+	if got := strings.TrimSpace(fakeAuthz.lastCmd.OAuthConfig.ConfigURL); got != "file:///tmp/oauth.client.json" {
+		t.Fatalf("ConfigURL = %q, want %q", got, "file:///tmp/oauth.client.json")
+	}
+
+	if got := iauth.Bearer(gotCtx); got != "oob-access" {
+		t.Fatalf("Bearer() = %q, want %q", got, "oob-access")
+	}
+	if got := iauth.IDToken(gotCtx); got != "oob-id" {
+		t.Fatalf("IDToken() = %q, want %q", got, "oob-id")
 	}
 }
 
