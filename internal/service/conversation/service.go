@@ -631,6 +631,9 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.Role && strings.TrimSpace(message.Role) != "" {
 		out["role"] = strings.TrimSpace(message.Role)
 	}
+	if message.Has.Mode && strings.TrimSpace(valueOrEmptyStr(message.Mode)) != "" {
+		out["mode"] = strings.TrimSpace(valueOrEmptyStr(message.Mode))
+	}
 	if message.Has.Type && strings.TrimSpace(message.Type) != "" {
 		out["messageType"] = strings.TrimSpace(message.Type)
 	}
