@@ -135,6 +135,18 @@ func reduceModelStarted(state *ConversationState, event *streaming.Event) *Conve
 	for _, ms := range page.ModelSteps {
 		if ms.ModelCallID == modelCallID {
 			ms.Status = strings.TrimSpace(event.Status)
+			if event.RequestPayloadID != "" {
+				ms.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
+			}
+			if event.ProviderRequestPayloadID != "" {
+				ms.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
+			}
+			if event.ProviderResponsePayloadID != "" {
+				ms.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
+			}
+			if event.StreamPayloadID != "" {
+				ms.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
+			}
 			return state
 		}
 	}
@@ -150,6 +162,15 @@ func reduceModelStarted(state *ConversationState, event *streaming.Event) *Conve
 	}
 	if event.RequestPayloadID != "" {
 		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
+	}
+	if event.ProviderRequestPayloadID != "" {
+		step.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
+	}
+	if event.ProviderResponsePayloadID != "" {
+		step.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
+	}
+	if event.StreamPayloadID != "" {
+		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
 	}
 	page.ModelSteps = append(page.ModelSteps, step)
 	return state
@@ -167,6 +188,15 @@ func reduceModelCompleted(state *ConversationState, event *streaming.Event) *Con
 			ms.Status = strings.TrimSpace(event.Status)
 			if event.ResponsePayloadID != "" {
 				ms.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
+			}
+			if event.ProviderRequestPayloadID != "" {
+				ms.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
+			}
+			if event.ProviderResponsePayloadID != "" {
+				ms.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
+			}
+			if event.StreamPayloadID != "" {
+				ms.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
 			}
 			if event.CompletedAt != nil {
 				ms.CompletedAt = event.CompletedAt

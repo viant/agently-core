@@ -723,8 +723,24 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 					log.Printf("[SSE] channel closed convo=%q", convID)
 					return
 				}
-				log.Printf("[SSE] sending type=%q convo=%q stream_id=%q turn=%q tool=%q toolCallId=%q toolMsgId=%q status=%q final=%v",
-					string(ev.Type), ev.ConversationID, ev.StreamID, ev.TurnID, ev.ToolName, ev.ToolCallID, ev.ToolMessageID, ev.Status, ev.FinalResponse)
+				log.Printf("[SSE] sending type=%q convo=%q stream_id=%q turn=%q tool=%q toolCallId=%q toolMsgId=%q status=%q final=%v created_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q",
+					string(ev.Type),
+					ev.ConversationID,
+					ev.StreamID,
+					ev.TurnID,
+					ev.ToolName,
+					ev.ToolCallID,
+					ev.ToolMessageID,
+					ev.Status,
+					ev.FinalResponse,
+					ev.CreatedAt.Format(time.RFC3339Nano),
+					time.Now().Format(time.RFC3339Nano),
+					ev.RequestPayloadID,
+					ev.ResponsePayloadID,
+					ev.ProviderRequestPayloadID,
+					ev.ProviderResponsePayloadID,
+					ev.StreamPayloadID,
+				)
 				data, _ := json.Marshal(ev)
 				fmt.Fprintf(w, "data:%s\n\n", data)
 				if ok {
