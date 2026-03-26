@@ -226,7 +226,7 @@ func (s *Service) tryResolveCapabilityAgent(ctx context.Context) string {
 	return "agent_selector"
 }
 
-func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, requestedAgent string, query string) (string, bool, string, error) {
+func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, requestedAgent string, query string, preferredTurnID string) (string, bool, string, error) {
 	providedQuery := strings.TrimSpace(query)
 	if strings.TrimSpace(query) == "" {
 		query = lastUserQueryText(conv)
@@ -293,7 +293,7 @@ func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apico
 	// This avoids extra LLM calls during internal operations such as summarization,
 	// where the routing should rely on continuity (last used agent).
 	if providedQuery != "" {
-		if selected, err := s.classifyAgentIDWithLLM(ctx, conv, query, candidates); err != nil {
+		if selected, err := s.classifyAgentIDWithLLM(ctx, conv, query, preferredTurnID, candidates); err != nil {
 			return "", true, "", err
 		} else if selected != "" {
 			trimmed := strings.TrimSpace(selected)

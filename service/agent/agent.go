@@ -26,7 +26,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				}
 				conv = loaded
 			}
-			selectedID, autoSelected, routingReason, err := s.resolveAgentIDForConversation(ctx, conv, agentID, qi.Query)
+			selectedID, autoSelected, routingReason, err := s.resolveAgentIDForConversation(ctx, conv, agentID, qi.Query, qi.MessageID)
 			if err != nil {
 				return fmt.Errorf("failed to resolve agent: %w", err)
 			}
