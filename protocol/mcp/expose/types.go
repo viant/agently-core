@@ -19,8 +19,8 @@ type Executor interface {
 
 // ServerConfig defines MCP server exposure options.
 type ServerConfig struct {
-	Port      int
-	ToolItems []string
+	Port      int      `yaml:"port"`
+	ToolItems []string `yaml:"toolItems"`
 }
 
 func (c *ServerConfig) ToolPatterns() []string {

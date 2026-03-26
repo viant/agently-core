@@ -13,6 +13,7 @@ import (
 	iauth "github.com/viant/agently-core/internal/auth"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 // ServerConfig holds configuration for the A2A server launcher.
@@ -27,6 +28,8 @@ type ServerConfig struct {
 	// into the context for agents with UserCredURL configured.
 	// Signature: func(ctx context.Context, credURL string) (context.Context, error)
 	ApplyUserCred func(ctx context.Context, credURL string) (context.Context, error)
+	// JWTService verifies inbound bearer tokens for protected A2A endpoints.
+	JWTService *svcauth.JWTService
 }
 
 // A2AAuthConfig is a runtime-agnostic auth configuration for exposing an A2A endpoint.
@@ -68,6 +71,7 @@ type GenericServerConfig struct {
 	ResolveAgent  func(ctx context.Context, agentID string) (*ExposedAgent, error)
 	Query         func(ctx context.Context, agentID, query, conversationID string) (*QueryResult, error)
 	ApplyUserCred func(ctx context.Context, credURL string) (context.Context, error)
+	JWTService    *svcauth.JWTService
 }
 
 // StartServers iterates agents with A2A enabled and launches a dedicated
@@ -200,7 +204,7 @@ func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Age
 			_ = json.NewEncoder(w).Encode(meta)
 		})
 		// Wrap inner routes with auth middleware.
-		outer.Handle("/", AuthMiddleware(a2aCfg.Auth)(inner))
+		outer.Handle("/", AuthMiddleware(a2aCfg.Auth, cfg.JWTService)(inner))
 	} else {
 		outer.Handle("/", inner)
 	}
@@ -262,7 +266,7 @@ func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *
 			Scopes:        append([]string(nil), ag.Auth.Scopes...),
 			UseIDToken:    ag.Auth.UseIDToken,
 			ExcludePrefix: ag.Auth.ExcludePrefix,
-		})(inner))
+		}, cfg.JWTService)(inner))
 	} else {
 		outer.Handle("/", inner)
 	}

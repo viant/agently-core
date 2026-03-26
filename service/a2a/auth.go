@@ -1,17 +1,19 @@
 package a2a
 
 import (
+	"log"
 	"net/http"
 	"strings"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 // AuthMiddleware returns HTTP middleware that enforces A2A authentication
 // based on the agent's A2AAuth configuration. It validates Bearer tokens
 // and checks required scopes.
-func AuthMiddleware(authCfg *agentmodel.A2AAuth) func(http.Handler) http.Handler {
+func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if authCfg == nil || !authCfg.Enabled {
@@ -38,12 +40,26 @@ func AuthMiddleware(authCfg *agentmodel.A2AAuth) func(http.Handler) http.Handler
 				return
 			}
 
-			// Store token in context for downstream use.
 			ctx := iauth.WithBearer(r.Context(), token)
-
-			// Parse user info from JWT if available.
-			if ui := parseJWTUserInfo(token); ui != nil {
+			if jwtSvc != nil {
+				ui, err := jwtSvc.Verify(ctx, token)
+				if err != nil {
+					log.Printf("[a2a-auth] reject path=%q reason=jwt_verify_failed", r.URL.Path)
+					http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+					return
+				}
+				if ui != nil {
+					ctx = iauth.WithUserInfo(ctx, ui)
+					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v", r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken)
+				} else {
+					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v", r.URL.Path, "", authCfg.UseIDToken)
+				}
+			} else if ui := parseJWTUserInfo(token); ui != nil {
+				// Fallback for deployments that rely on upstream verification.
 				ctx = iauth.WithUserInfo(ctx, ui)
+				log.Printf("[a2a-auth] accept path=%q user=%q mode=best_effort use_id_token=%v", r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken)
+			} else {
+				log.Printf("[a2a-auth] accept path=%q user=%q mode=unverified use_id_token=%v", r.URL.Path, "", authCfg.UseIDToken)
 			}
 
 			// If useIDToken is set, also store as ID token for MCP auth propagation.
@@ -54,6 +70,15 @@ func AuthMiddleware(authCfg *agentmodel.A2AAuth) func(http.Handler) http.Handler
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // extractBearer extracts a Bearer token from the Authorization header.

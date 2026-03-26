@@ -28,6 +28,18 @@ func NewJWTService(cfg *iauth.JWT) *JWTService {
 	return &JWTService{cfg: cfg}
 }
 
+// NewJWTServiceFromConfigValues creates a JWT service from raw config values
+// for callers outside agently-core that cannot import the internal auth package.
+func NewJWTServiceFromConfigValues(enabled bool, rsa []string, hmac, certURL, rsaPrivateKey string) *JWTService {
+	return NewJWTService(&iauth.JWT{
+		Enabled:       enabled,
+		RSA:           append([]string(nil), rsa...),
+		HMAC:          hmac,
+		CertURL:       certURL,
+		RSAPrivateKey: rsaPrivateKey,
+	})
+}
+
 // Init loads keys from scy resources. Safe to call multiple times.
 func (j *JWTService) Init(ctx context.Context) error {
 	j.mu.Lock()
