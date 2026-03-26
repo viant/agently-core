@@ -53,6 +53,50 @@ type pendingFuncCall struct {
 	ArgsBuf strings.Builder
 }
 
+func firstResponseText(items ...string) string {
+	for _, item := range items {
+		if strings.TrimSpace(item) != "" {
+			return item
+		}
+	}
+	return ""
+}
+
+func extractOutputTextFromContentItems(items []struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}) string {
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Type), "output_text") && strings.TrimSpace(item.Text) != "" {
+			return item.Text
+		}
+	}
+	return ""
+}
+
+func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
+	if strings.TrimSpace(delta) == "" {
+		return true
+	}
+	if p.observer != nil {
+		if err := p.observer.OnStreamDelta(p.ctx, []byte(delta)); err != nil {
+			p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
+			return false
+		}
+	}
+	p.markAssistantTextEmitted(delta)
+	p.events <- llm.StreamEvent{
+		Kind:       llm.StreamEventTextDelta,
+		ResponseID: p.state.lastResponseID,
+		ItemID:     strings.TrimSpace(itemID),
+		Delta:      delta,
+		Role:       llm.RoleAssistant,
+	}
+	ch := StreamChoice{Index: 0, Delta: DeltaMessage{Content: &delta}}
+	p.agg.updateDelta(ch)
+	return true
+}
+
 // recordEmittedToolCall marks a tool call as emitted.
 func (p *streamProcessor) recordEmittedToolCall(callID string) {
 	id := strings.TrimSpace(callID)
@@ -217,10 +261,15 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				Item struct {
 					ID        string `json:"id"`
 					Type      string `json:"type"`
+					Role      string `json:"role"`
 					Name      string `json:"name"`
 					CallID    string `json:"call_id"`
 					Arguments string `json:"arguments"`
 					Status    string `json:"status"`
+					Content   []struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					} `json:"content"`
 				} `json:"item"`
 				OutputIndex int `json:"output_index"`
 			}
@@ -271,14 +320,25 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				Item struct {
 					ID        string `json:"id"`
 					Type      string `json:"type"`
+					Role      string `json:"role"`
 					Name      string `json:"name"`
 					CallID    string `json:"call_id"`
 					Arguments string `json:"arguments"`
 					Status    string `json:"status"`
+					Content   []struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					} `json:"content"`
 				} `json:"item"`
 				OutputIndex int `json:"output_index"`
 			}
 			if err := json.Unmarshal([]byte(data), &e); err == nil {
+				if strings.EqualFold(e.Item.Type, "message") {
+					if delta := extractOutputTextFromContentItems(e.Item.Content); delta != "" {
+						return p.emitAssistantTextDelta(e.Item.ID, delta)
+					}
+					return true
+				}
 				if strings.EqualFold(e.Item.Type, "function_call") {
 					var fargs string
 					if p.fcPending != nil {
@@ -320,27 +380,97 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				OutputIndex int    `json:"output_index"`
 			}
 			if err := json.Unmarshal([]byte(data), &d); err == nil && d.Delta != "" {
-				if p.observer != nil {
-					if err := p.observer.OnStreamDelta(p.ctx, []byte(d.Delta)); err != nil {
-						p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
-						return false
-					}
-				}
-				// Emit typed text delta with stable IDs.
-				p.markAssistantTextEmitted(d.Delta)
-				p.events <- llm.StreamEvent{
-					Kind:       llm.StreamEventTextDelta,
-					ResponseID: p.state.lastResponseID,
-					ItemID:     strings.TrimSpace(d.ItemID),
-					Delta:      d.Delta,
-					Role:       llm.RoleAssistant,
-				}
-				// aggregate content on choice 0
-				ch := StreamChoice{Index: 0, Delta: DeltaMessage{Content: &d.Delta}}
-				p.agg.updateDelta(ch)
-				return true
+				return p.emitAssistantTextDelta(d.ItemID, d.Delta)
 			}
 			// tolerate shape variances
+			return true
+		case "response.output_item.delta":
+			var e struct {
+				Item struct {
+					ID      string `json:"id"`
+					Type    string `json:"type"`
+					Role    string `json:"role"`
+					Content []struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"item"`
+			}
+			if err := json.Unmarshal([]byte(data), &e); err == nil {
+				if strings.EqualFold(strings.TrimSpace(e.Item.Type), "message") {
+					if delta := extractOutputTextFromContentItems(e.Item.Content); delta != "" {
+						return p.emitAssistantTextDelta(e.Item.ID, delta)
+					}
+				}
+			}
+			return true
+		case "response.content_part.added", "response.content_part.done":
+			var e struct {
+				ItemID string `json:"item_id"`
+				Part   *struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"part"`
+				ContentPart *struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content_part"`
+			}
+			if err := json.Unmarshal([]byte(data), &e); err == nil {
+				partType := firstResponseText(
+					func() string {
+						if e.Part != nil {
+							return e.Part.Type
+						}
+						return ""
+					}(),
+					func() string {
+						if e.ContentPart != nil {
+							return e.ContentPart.Type
+						}
+						return ""
+					}(),
+				)
+				if strings.EqualFold(strings.TrimSpace(partType), "output_text") {
+					delta := firstResponseText(
+						func() string {
+							if e.Part != nil {
+								return e.Part.Text
+							}
+							return ""
+						}(),
+						func() string {
+							if e.ContentPart != nil {
+								return e.ContentPart.Text
+							}
+							return ""
+						}(),
+					)
+					if delta != "" {
+						return p.emitAssistantTextDelta(e.ItemID, delta)
+					}
+				}
+			}
+			return true
+		case "response.refusal.delta":
+			var e struct {
+				ItemID string `json:"item_id"`
+				Delta  string `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(data), &e); err == nil && e.Delta != "" {
+				return p.emitAssistantTextDelta(e.ItemID, e.Delta)
+			}
+			return true
+		case "response.message.delta":
+			var e struct {
+				ItemID string `json:"item_id"`
+				Delta  struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(data), &e); err == nil && e.Delta.Content != "" {
+				return p.emitAssistantTextDelta(e.ItemID, e.Delta.Content)
+			}
 			return true
 		case "response.message.tool_call.delta", "response.tool_call.delta":
 			// Attempt to parse commonly observed tool_call delta shapes
