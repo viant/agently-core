@@ -213,6 +213,13 @@ func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo
 		if outcome, ok := s.completedChildRunOutcome(ctx, runCtx.childConversationID); ok {
 			return outcome
 		}
+		if summary, ok := s.failedChildRunSummary(ctx, runCtx.childConversationID, runErr); ok {
+			return childRunResult{
+				answer:         summary,
+				status:         "failed",
+				conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
+			}
+		}
 		return childRunResult{err: context.Canceled}
 	}
 	if summary, ok := s.failedChildRunSummary(ctx, runCtx.childConversationID, runErr); ok {
