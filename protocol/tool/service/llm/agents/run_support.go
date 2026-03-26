@@ -161,6 +161,13 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 		toolpol.WithPolicy(context.WithoutCancel(ctx), nil),
 		memory.ModelMessageIDKey, "",
 	)
+	// Child runs must not inherit the parent's conversation/turn context.
+	// Agent.Query performs pre-turn work before it seeds a new turn, so bind
+	// the child conversation id here and reset turn metadata up front.
+	if strings.TrimSpace(runCtx.childConversationID) != "" {
+		childCtx = memory.WithConversationID(childCtx, strings.TrimSpace(runCtx.childConversationID))
+	}
+	childCtx = memory.WithTurnMeta(childCtx, memory.TurnMeta{})
 	childCtx = inheritDelegatedAuthContext(childCtx, ctx)
 	childTimeout := s.ChildTimeout
 	if childTimeout <= 0 {

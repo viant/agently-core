@@ -240,6 +240,55 @@ func TestService_Run_Internal_ThreadsModelPrefsAndReasoning(t *testing.T) {
 	}
 }
 
+func TestService_Run_Internal_RebindsChildConversationContext(t *testing.T) {
+	ctx := memory.WithConversationID(context.Background(), "parent-conv")
+	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID:  "parent-conv",
+		TurnID:          "parent-turn",
+		ParentMessageID: "parent-msg",
+		Assistant:       "parent-agent",
+	})
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"child-agent": {Identity: agentmdl.Identity{ID: "child-agent"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			assert.Equal(t, "child-conv", memory.ConversationIDFromContext(ctx), "child run should not inherit parent conversation id")
+			turnMeta, ok := memory.TurnMetaFromContext(ctx)
+			require.True(t, ok, "child run should have turn metadata seeded")
+			assert.Equal(t, "child-conv", turnMeta.ConversationID)
+			assert.NotEqual(t, "parent-turn", turnMeta.TurnID)
+			if out != nil {
+				out.Content = "done"
+				out.ConversationID = "child-conv"
+			}
+			return nil
+		},
+	}
+
+	s := &Service{agent: fake}
+	runCtx := linkedRun{
+		parent: memory.TurnMeta{
+			ConversationID:  "parent-conv",
+			TurnID:          "parent-turn",
+			ParentMessageID: "parent-msg",
+		},
+		childConversationID: "child-conv",
+	}
+	qi := &agentsvc.QueryInput{
+		AgentID:        "child-agent",
+		ConversationID: "child-conv",
+		Query:          "delegate",
+	}
+	qo := &agentsvc.QueryOutput{}
+
+	result := s.executeChildRun(ctx, qi, qo, runCtx)
+	require.NoError(t, result.err)
+	assert.Equal(t, "child-conv", result.conversationID)
+	assert.Equal(t, "done", result.answer)
+}
+
 func TestService_Run_Internal_InheritsParentWorkdir(t *testing.T) {
 	ctx := executil.WithWorkdir(context.Background(), "/tmp/poly")
 	streaming := false
