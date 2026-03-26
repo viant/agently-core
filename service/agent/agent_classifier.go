@@ -22,7 +22,7 @@ type agentSelection struct {
 	Agent   string `json:"agent"`
 }
 
-func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query string, candidates []*agentmdl.Agent) (string, error) {
+func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query, preferredTurnID string, candidates []*agentmdl.Agent) (string, error) {
 	started := time.Now()
 	query = strings.TrimSpace(query)
 	candidates = filterAutoSelectableAgents(candidates)
@@ -124,12 +124,13 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	if conv != nil {
 		convID = conv.Id
 	}
+	runCtx := s.ensureRunTrackedLLMContext(ctx, convID, "agent_selector", preferredTurnID)
 	timeoutSec := 20
 	if s.defaults != nil && s.defaults.AgentAutoSelection.TimeoutSec > 0 {
 		timeoutSec = s.defaults.AgentAutoSelection.TimeoutSec
 	}
 	var cancel func()
-	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	runCtx, cancel = context.WithTimeout(runCtx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 	infof("agent.selector start convo=%q model=%q timeout_sec=%d candidates=%d query_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), timeoutSec, len(candidateLines), len(query))
 	in := &core.GenerateInput{

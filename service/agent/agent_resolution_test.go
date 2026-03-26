@@ -28,7 +28,7 @@ func TestResolveAgentIDForConversation_AutoCapabilityFallback(t *testing.T) {
 		}},
 	}
 
-	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "", "what can you do agent?")
+	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "", "what can you do agent?", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestResolveAgentIDForConversation_AutoCapabilityFallbackSkipsInternal(t *te
 		}},
 	}
 
-	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "", "what can you do agent?")
+	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "", "what can you do agent?", "")
 	if err != nil {
 		t.Fatalf("unexpected error when synthetic selector fallback should be used: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestResolveAgentIDForConversation_ExplicitAutoSelectsCoderFromPublishedCata
 		},
 	}
 
-	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "auto", "repository analysis debugging build fixes")
+	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "auto", "repository analysis debugging build fixes", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestResolveAgentIDForConversation_ExplicitAutoSelectsChatterFromPublishedCa
 		},
 	}
 
-	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "auto", "general conversation casual guidance")
+	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "auto", "general conversation casual guidance", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
