@@ -121,6 +121,7 @@ func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
 		c.SetScheduler(scheduler.New(store, rt.Agent,
 			scheduler.WithConversationClient(rt.Conversation),
 			scheduler.WithTokenProvider(rt.TokenProvider),
+			scheduler.WithAuthConfig(rt.AuthConfig),
 		))
 	}
 	return c, nil
