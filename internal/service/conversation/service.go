@@ -733,8 +733,24 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
-	log.Printf("[emitTimelineEvent] %s type=%q stream_id=%q convo=%q turn=%q tool=%q id=%q status=%q final=%v",
-		action, string(event.Type), event.StreamID, event.ConversationID, event.TurnID, event.ToolName, event.ID, event.Status, event.FinalResponse)
+	log.Printf("[emitTimelineEvent] %s type=%q stream_id=%q convo=%q turn=%q tool=%q id=%q status=%q final=%v created_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q",
+		action,
+		string(event.Type),
+		event.StreamID,
+		event.ConversationID,
+		event.TurnID,
+		event.ToolName,
+		event.ID,
+		event.Status,
+		event.FinalResponse,
+		event.CreatedAt.Format(time.RFC3339Nano),
+		time.Now().Format(time.RFC3339Nano),
+		event.RequestPayloadID,
+		event.ResponsePayloadID,
+		event.ProviderRequestPayloadID,
+		event.ProviderResponsePayloadID,
+		event.StreamPayloadID,
+	)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("%s error type=%q id=%q convo=%q err=%v", action, strings.TrimSpace(string(event.Type)), strings.TrimSpace(event.ID), strings.TrimSpace(event.ConversationID), err)
 		return
@@ -1152,6 +1168,12 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		if modelCall.Has != nil && modelCall.Has.RequestPayloadID && modelCall.RequestPayloadID != nil {
 			event.RequestPayloadID = strings.TrimSpace(*modelCall.RequestPayloadID)
 		}
+		if modelCall.Has != nil && modelCall.Has.ProviderRequestPayloadID && modelCall.ProviderRequestPayloadID != nil {
+			event.ProviderRequestPayloadID = strings.TrimSpace(*modelCall.ProviderRequestPayloadID)
+		}
+		if modelCall.Has != nil && modelCall.Has.StreamPayloadID && modelCall.StreamPayloadID != nil {
+			event.StreamPayloadID = strings.TrimSpace(*modelCall.StreamPayloadID)
+		}
 		applyIterationPage(event, modelCall.Iteration)
 		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_started")
 	} else if status == "completed" || status == "succeeded" || status == "failed" {
@@ -1186,6 +1208,15 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		}
 		if modelCall.Has != nil && modelCall.Has.ResponsePayloadID && modelCall.ResponsePayloadID != nil {
 			event.ResponsePayloadID = strings.TrimSpace(*modelCall.ResponsePayloadID)
+		}
+		if modelCall.Has != nil && modelCall.Has.ProviderRequestPayloadID && modelCall.ProviderRequestPayloadID != nil {
+			event.ProviderRequestPayloadID = strings.TrimSpace(*modelCall.ProviderRequestPayloadID)
+		}
+		if modelCall.Has != nil && modelCall.Has.ProviderResponsePayloadID && modelCall.ProviderResponsePayloadID != nil {
+			event.ProviderResponsePayloadID = strings.TrimSpace(*modelCall.ProviderResponsePayloadID)
+		}
+		if modelCall.Has != nil && modelCall.Has.StreamPayloadID && modelCall.StreamPayloadID != nil {
+			event.StreamPayloadID = strings.TrimSpace(*modelCall.StreamPayloadID)
 		}
 		// Include LLM response data (content, preamble, finalResponse) when
 		// available via context — makes model_completed self-sufficient.
