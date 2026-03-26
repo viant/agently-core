@@ -173,7 +173,7 @@ func buildExecutionPages(turn *convstore.Turn) []*ExecutionPageState {
 	parentToolMessages := indexToolMessagesByParentAndIteration(turn)
 	var pages []*ExecutionPageState
 	for _, message := range turn.Message {
-		if message == nil || message.ModelCall == nil {
+		if message == nil || message.ModelCall == nil || isSummaryAssistantMessage(message) {
 			continue
 		}
 		page := buildPageFromMessage(turn, message, parentToolMessages, len(pages))
