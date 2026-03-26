@@ -418,8 +418,8 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	require.Equal(t, "m2", ts.Assistant.Final.MessageID)
 	require.Equal(t, final, ts.Assistant.Final.Content)
 	require.NotNil(t, ts.Execution)
-	require.Len(t, ts.Execution.Pages, 3)
-	require.Equal(t, "m3", ts.Execution.Pages[2].AssistantMessageID)
+	require.Len(t, ts.Execution.Pages, 2)
+	require.Equal(t, "m2", ts.Execution.Pages[1].AssistantMessageID)
 }
 
 func TestBuildTranscriptSelectors(t *testing.T) {
