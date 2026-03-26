@@ -15,7 +15,7 @@ func ExpandDSN(ctx context.Context, dsn string, secretsRef string) (string, *scy
 	if secretsRef == "" {
 		return dsn, nil, nil
 	}
-	resource := scy.NewResource("", secretsRef, "")
+	resource := scy.EncodedResource(secretsRef).Decode(ctx, nil)
 	secret, err := scy.New().Load(ctx, resource)
 	if err != nil {
 		return "", nil, err
