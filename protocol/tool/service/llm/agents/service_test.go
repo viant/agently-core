@@ -593,6 +593,75 @@ func TestService_Run_Internal_CanceledParentButSucceededChildReturnsSuccess(t *t
 	assert.NotEmpty(t, out.ConversationID)
 }
 
+func TestService_Run_Internal_CanceledChildReturnsFailedToolResult(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			childConvID := in.ConversationID
+			require.NotEmpty(t, childConvID)
+
+			childPatch := convcli.NewConversation()
+			childPatch.SetId(childConvID)
+			childPatch.SetStatus("canceled")
+			require.NoError(t, conv.PatchConversations(ctx, childPatch))
+
+			childTurn := convcli.NewTurn()
+			childTurn.SetId("child-turn-1")
+			childTurn.SetConversationID(childConvID)
+			childTurn.SetStatus("canceled")
+			errMsg := "child execution canceled after downstream error"
+			childTurn.SetErrorMessage(errMsg)
+			require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+			childMsg := convcli.NewMessage()
+			childMsg.SetId("child-msg-1")
+			childMsg.SetConversationID(childConvID)
+			childMsg.SetTurnID("child-turn-1")
+			childMsg.SetRole("assistant")
+			childMsg.SetType("text")
+			childMsg.SetContent("partial child output")
+			require.NoError(t, conv.PatchMessage(ctx, childMsg))
+
+			return context.Canceled
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
+		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+	}, &out)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
+	assert.Contains(t, out.Answer, "ended with status canceled")
+	assert.Contains(t, out.Answer, "partial child output")
+}
+
 func TestService_Status_ByConversationID(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()
