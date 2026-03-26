@@ -27,6 +27,9 @@ type streamState struct {
 	emittedToolCallIDs map[string]struct{}
 	// Track arguments for emitted tool calls (for duplicate diagnostics)
 	emittedToolCallArgs map[string]string // id -> raw args
+	// Track emitted assistant text per item so cumulative fallback events can be
+	// reduced to only the unseen suffix instead of replaying the whole message.
+	emittedAssistantTextByItem map[string]string
 }
 
 type streamProcessor struct {
@@ -84,7 +87,7 @@ func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
 			return false
 		}
 	}
-	p.markAssistantTextEmitted(delta)
+	p.markAssistantTextEmittedForItem(itemID, delta)
 	p.events <- llm.StreamEvent{
 		Kind:       llm.StreamEventTextDelta,
 		ResponseID: p.state.lastResponseID,
@@ -95,6 +98,41 @@ func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
 	ch := StreamChoice{Index: 0, Delta: DeltaMessage{Content: &delta}}
 	p.agg.updateDelta(ch)
 	return true
+}
+
+func (p *streamProcessor) normalizeAlternativeAssistantDelta(itemID, text string) string {
+	value := text
+	if value == "" {
+		return ""
+	}
+	id := strings.TrimSpace(itemID)
+	if id == "" {
+		id = "_default"
+	}
+	if p.state.emittedAssistantTextByItem == nil {
+		p.state.emittedAssistantTextByItem = map[string]string{}
+	}
+	prev := p.state.emittedAssistantTextByItem[id]
+	switch {
+	case prev == "":
+		return value
+	case value == prev:
+		return ""
+	case strings.HasPrefix(value, prev):
+		return value[len(prev):]
+	case strings.Contains(prev, value):
+		return ""
+	default:
+		return value
+	}
+}
+
+func (p *streamProcessor) emitAssistantTextAlternative(itemID, text string) bool {
+	delta := p.normalizeAlternativeAssistantDelta(itemID, text)
+	if delta == "" {
+		return true
+	}
+	return p.emitAssistantTextDelta(itemID, delta)
 }
 
 // recordEmittedToolCall marks a tool call as emitted.
@@ -199,10 +237,22 @@ func cloneGenerateResponse(lr *llm.GenerateResponse) *llm.GenerateResponse {
 }
 
 func (p *streamProcessor) markAssistantTextEmitted(txt string) {
+	p.markAssistantTextEmittedForItem("", txt)
+}
+
+func (p *streamProcessor) markAssistantTextEmittedForItem(itemID, txt string) {
 	if strings.TrimSpace(txt) == "" {
 		return
 	}
 	p.state.emittedAssistantText = true
+	id := strings.TrimSpace(itemID)
+	if id == "" {
+		id = "_default"
+	}
+	if p.state.emittedAssistantTextByItem == nil {
+		p.state.emittedAssistantTextByItem = map[string]string{}
+	}
+	p.state.emittedAssistantTextByItem[id] = p.state.emittedAssistantTextByItem[id] + txt
 }
 
 func (p *streamProcessor) shouldEmitTerminalResponse(lr *llm.GenerateResponse) bool {
@@ -335,7 +385,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			if err := json.Unmarshal([]byte(data), &e); err == nil {
 				if strings.EqualFold(e.Item.Type, "message") {
 					if delta := extractOutputTextFromContentItems(e.Item.Content); delta != "" {
-						return p.emitAssistantTextDelta(e.Item.ID, delta)
+						return p.emitAssistantTextAlternative(e.Item.ID, delta)
 					}
 					return true
 				}
@@ -399,7 +449,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			if err := json.Unmarshal([]byte(data), &e); err == nil {
 				if strings.EqualFold(strings.TrimSpace(e.Item.Type), "message") {
 					if delta := extractOutputTextFromContentItems(e.Item.Content); delta != "" {
-						return p.emitAssistantTextDelta(e.Item.ID, delta)
+						return p.emitAssistantTextAlternative(e.Item.ID, delta)
 					}
 				}
 			}
@@ -447,7 +497,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 						}(),
 					)
 					if delta != "" {
-						return p.emitAssistantTextDelta(e.ItemID, delta)
+						return p.emitAssistantTextAlternative(e.ItemID, delta)
 					}
 				}
 			}
@@ -469,7 +519,7 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				} `json:"delta"`
 			}
 			if err := json.Unmarshal([]byte(data), &e); err == nil && e.Delta.Content != "" {
-				return p.emitAssistantTextDelta(e.ItemID, e.Delta.Content)
+				return p.emitAssistantTextAlternative(e.ItemID, e.Delta.Content)
 			}
 			return true
 		case "response.message.tool_call.delta", "response.tool_call.delta":

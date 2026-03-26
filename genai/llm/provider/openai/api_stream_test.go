@@ -185,6 +185,65 @@ func TestStream_ResponseCompleted_PreservesToolCallsForObserver(t *testing.T) {
 	}
 }
 
+func TestStream_ResponseAlternativeTextEventsDoNotReplayAfterOutputTextDelta(t *testing.T) {
+	lines := []string{
+		"event: response.output_text.delta",
+		`data: {"item_id":"msg_1","delta":"Hi"}`,
+		"event: response.output_text.delta",
+		`data: {"item_id":"msg_1","delta":" there"}`,
+		"event: response.output_item.done",
+		`data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"Hi there"}]}}`,
+		"event: response.message.delta",
+		`data: {"item_id":"msg_1","delta":{"content":"Hi there"}}`,
+		"event: response.completed",
+		`data: {"response":{"id":"resp_1","status":"completed","model":"gpt-5.4","output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hi there"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	observer := &recordingObserver{}
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-5.4"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ctx = mcbuf.WithObserver(ctx, observer)
+	ch, err := c.Stream(ctx, &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}})
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotTextDeltas []string
+	var final *llm.GenerateResponse
+	for ev := range ch {
+		if ev.Err != nil {
+			t.Fatalf("streaming error: %v", ev.Err)
+		}
+		if ev.Kind == llm.StreamEventTextDelta {
+			gotTextDeltas = append(gotTextDeltas, ev.Delta)
+		}
+		if ev.Response != nil {
+			final = ev.Response
+		}
+	}
+
+	assert.Equal(t, []string{"Hi", " there"}, gotTextDeltas)
+	assert.Equal(t, []string{"Hi", " there"}, observer.deltas)
+	if assert.NotNil(t, final) {
+		assert.Equal(t, "Hi there", llm.MessageText(final.Choices[0].Message))
+	}
+}
+
 func TestStream_ResponseFailed_ErrorMessage(t *testing.T) {
 	lines := []string{
 		"event: response.created",
