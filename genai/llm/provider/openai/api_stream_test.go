@@ -529,6 +529,114 @@ func TestStream_ResponseMessageDelta(t *testing.T) {
 	}
 }
 
+func TestStream_ResponseAlternativeTextEventsEmitTypedDeltas(t *testing.T) {
+	testCases := []struct {
+		name           string
+		lines          []string
+		expectedDeltas []string
+	}{
+		{
+			name: "response.output_item.delta message content",
+			lines: []string{
+				"event: response.output_item.delta",
+				`data: {"item":{"id":"item-1","type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}`,
+				"event: response.completed",
+				`data: {"id":"resp_item_delta","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
+			},
+			expectedDeltas: []string{"Hello"},
+		},
+		{
+			name: "response.output_item.done message content",
+			lines: []string{
+				"event: response.output_item.done",
+				`data: {"item":{"id":"item-2","type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}`,
+				"event: response.completed",
+				`data: {"id":"resp_item_done","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
+			},
+			expectedDeltas: []string{"Hello"},
+		},
+		{
+			name: "response.content_part events",
+			lines: []string{
+				"event: response.content_part.added",
+				`data: {"item_id":"item-3","part":{"type":"output_text","text":"Hello"}}`,
+				"event: response.content_part.done",
+				`data: {"item_id":"item-3","content_part":{"type":"output_text","text":" world"}}`,
+				"event: response.completed",
+				`data: {"id":"resp_parts","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello world"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
+			},
+			expectedDeltas: []string{"Hello", " world"},
+		},
+		{
+			name: "response.refusal.delta",
+			lines: []string{
+				"event: response.refusal.delta",
+				`data: {"item_id":"item-4","delta":"I can't help with that."}`,
+				"event: response.completed",
+				`data: {"id":"resp_refusal","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I can't help with that."}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
+			},
+			expectedDeltas: []string{"I can't help with that."},
+		},
+		{
+			name: "response.message.delta",
+			lines: []string{
+				"event: response.message.delta",
+				`data: {"item_id":"item-5","delta":{"content":"Hello"}}`,
+				"event: response.completed",
+				`data: {"id":"resp_msg_delta","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
+			},
+			expectedDeltas: []string{"Hello"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Join(tc.lines, "\n")
+			srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/responses" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, body)
+			}))
+			defer srv.Close()
+
+			c := &Client{APIKey: "test"}
+			c.BaseURL = srv.URL
+			c.HTTPClient = srv.Client()
+			c.Model = "o4-mini-2025-04-16"
+
+			req := &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("say hi")}}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			ch, err := c.Stream(ctx, req)
+			if err != nil {
+				t.Fatalf("Stream error: %v", err)
+			}
+
+			var deltas []string
+			var final *llm.GenerateResponse
+			for ev := range ch {
+				if ev.Err != nil {
+					t.Fatalf("streaming error: %v", ev.Err)
+				}
+				if ev.Kind == llm.StreamEventTextDelta {
+					deltas = append(deltas, ev.Delta)
+				}
+				if ev.Response != nil {
+					final = ev.Response
+				}
+			}
+
+			assert.Equal(t, tc.expectedDeltas, deltas)
+			if assert.NotNil(t, final) {
+				assert.NotEmpty(t, final.Choices)
+			}
+		})
+	}
+}
+
 // Data-driven test: usage in final completed event should be captured.
 func TestStream_UsageOnlyFinalChunk_NoEmptyChoicesEmission(t *testing.T) {
 	testCases := []struct {
