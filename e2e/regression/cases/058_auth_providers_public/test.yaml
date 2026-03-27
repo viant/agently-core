@@ -4,7 +4,7 @@ pipeline:
     description: "auth - /v1/api/auth/providers should be accessible without auth"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/api/auth/providers
+        URL: ${authServerURL}/v1/api/auth/providers
         Expect:
           Code: 200
 
@@ -13,6 +13,6 @@ pipeline:
     description: "auth - OPTIONS request should skip auth (CORS preflight)"
     requests:
       - Method: OPTIONS
-        URL: ${serverURL}/v1/conversations
+        URL: ${authServerURL}/v1/conversations
         Expect:
           Code: "!/401/"

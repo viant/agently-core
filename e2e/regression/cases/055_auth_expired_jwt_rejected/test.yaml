@@ -20,7 +20,7 @@ pipeline:
     description: "auth - expired JWT should return 401"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/conversations
+        URL: ${authServerURL}/v1/conversations
         Header:
           Authorization: ["Bearer ${mintExpired.TokenString}"]
         Expect:
@@ -31,7 +31,7 @@ pipeline:
     description: "auth - expired JWT query should return 401"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/agent/query
+        URL: ${authServerURL}/v1/agent/query
         Header:
           Authorization: ["Bearer ${mintExpired.TokenString}"]
         JSONBody:
