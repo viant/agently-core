@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -16,9 +17,10 @@ type authExtension struct {
 	sessions   *Manager
 	jwtSignKey string
 	tokenStore TokenStore
+	users      UserService
 }
 
-func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenStore TokenStore) *authExtension {
+func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenStore TokenStore, users UserService) *authExtension {
 	if cfg == nil || sessions == nil {
 		return nil
 	}
@@ -27,6 +29,7 @@ func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenSt
 		sessions:   sessions,
 		jwtSignKey: strings.TrimSpace(jwtSignKey),
 		tokenStore: tokenStore,
+		users:      users,
 	}
 }
 
@@ -72,6 +75,86 @@ func (a *authExtension) oauthProviderName() string {
 	return "oauth"
 }
 
+func (a *authExtension) persistOAuthToken(ctx context.Context, source, username, email, subject, provider, accessToken, idToken, refreshToken string, expiresAt time.Time) {
+	if a == nil {
+		return
+	}
+	storeUser := strings.TrimSpace(firstNonEmpty(subject, username))
+	if provider == "" {
+		provider = a.oauthProviderName()
+	}
+	if a.users != nil {
+		log.Printf("[auth-oauth] source=%s ensure user start subject=%q username=%q email=%q provider=%q",
+			source,
+			strings.TrimSpace(subject),
+			strings.TrimSpace(username),
+			strings.TrimSpace(email),
+			strings.TrimSpace(provider),
+		)
+		userID, err := a.users.UpsertWithProvider(ctx, strings.TrimSpace(username), strings.TrimSpace(username), strings.TrimSpace(email), strings.TrimSpace(provider), strings.TrimSpace(subject))
+		if err != nil {
+			log.Printf("[auth-oauth] source=%s ensure user failed subject=%q username=%q provider=%q err=%v",
+				source,
+				strings.TrimSpace(subject),
+				strings.TrimSpace(username),
+				strings.TrimSpace(provider),
+				err,
+			)
+			return
+		}
+		if strings.TrimSpace(userID) != "" {
+			storeUser = strings.TrimSpace(userID)
+		}
+		log.Printf("[auth-oauth] source=%s ensure user ok subject=%q username=%q user_id=%q provider=%q",
+			source,
+			strings.TrimSpace(subject),
+			strings.TrimSpace(username),
+			storeUser,
+			strings.TrimSpace(provider),
+		)
+	}
+	log.Printf("[auth-oauth] source=%s persist token start subject=%q username=%q store_user=%q provider=%q has_access=%t has_refresh=%t has_id=%t",
+		source,
+		strings.TrimSpace(subject),
+		strings.TrimSpace(username),
+		storeUser,
+		strings.TrimSpace(provider),
+		strings.TrimSpace(accessToken) != "",
+		strings.TrimSpace(refreshToken) != "",
+		strings.TrimSpace(idToken) != "",
+	)
+	if a.tokenStore == nil {
+		log.Printf("[auth-oauth] source=%s persist token skipped store_user=%q provider=%q reason=%q",
+			source,
+			storeUser,
+			strings.TrimSpace(provider),
+			"token store unavailable",
+		)
+		return
+	}
+	if err := a.tokenStore.Put(ctx, &OAuthToken{
+		Username:     storeUser,
+		Provider:     provider,
+		AccessToken:  strings.TrimSpace(accessToken),
+		IDToken:      strings.TrimSpace(idToken),
+		RefreshToken: strings.TrimSpace(refreshToken),
+		ExpiresAt:    expiresAt,
+	}); err != nil {
+		log.Printf("[auth-oauth] source=%s persist token failed store_user=%q provider=%q err=%v",
+			source,
+			storeUser,
+			strings.TrimSpace(provider),
+			err,
+		)
+		return
+	}
+	log.Printf("[auth-oauth] source=%s persist token ok store_user=%q provider=%q",
+		source,
+		storeUser,
+		strings.TrimSpace(provider),
+	)
+}
+
 func (a *authExtension) currentSession(r *http.Request) *Session {
 	if a == nil || a.sessions == nil || a.cfg == nil {
 		return nil
@@ -109,12 +192,17 @@ func (a *authExtension) ensureSessionOAuthTokens(ctx context.Context, sess *Sess
 	if a == nil || a.tokenStore == nil {
 		return false
 	}
-	username := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
-	if username == "" {
+	lookupID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
+	if a.users != nil {
+		if user, err := a.users.GetByUsername(ctx, strings.TrimSpace(firstNonEmpty(sess.Username, sess.Subject))); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
+			lookupID = strings.TrimSpace(user.ID)
+		}
+	}
+	if lookupID == "" {
 		return false
 	}
 	provider := a.oauthProviderName()
-	dbTok, err := a.tokenStore.Get(ctx, username, provider)
+	dbTok, err := a.tokenStore.Get(ctx, lookupID, provider)
 	if err != nil || dbTok == nil {
 		return false
 	}

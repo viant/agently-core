@@ -37,8 +37,10 @@ import (
 	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	userread "github.com/viant/agently-core/pkg/agently/user"
 	oauthread "github.com/viant/agently-core/pkg/agently/user/oauth"
 	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
+	userwrite "github.com/viant/agently-core/pkg/agently/user/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
 	"github.com/viant/scy"
@@ -285,6 +287,12 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 		return err
 	}
 	if _, err := runwrite.DefineDeleteComponent(ctx, svc); err != nil {
+		return err
+	}
+	if err := userread.DefineUserComponent(ctx, svc); err != nil {
+		return err
+	}
+	if _, err := userwrite.DefineComponent(ctx, svc); err != nil {
 		return err
 	}
 	if err := oauthread.DefineTokenComponent(ctx, svc); err != nil {
