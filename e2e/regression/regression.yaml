@@ -3,10 +3,12 @@ init:
   testdataPath: ${repoPath}/e2e/query/testdata
   serverPort: '$serverPort ? $serverPort : 9001'
   serverURL: http://127.0.0.1:${serverPort}
+  authServerPort: '$authServerPort ? $authServerPort : 9002'
+  authServerURL: http://127.0.0.1:${authServerPort}
   workspacePath: /tmp/agently-core-e2e-workspace/.agently
   sdkKey: ${env.OPENAI_API_KEY}
-  jwtPubKey: '${repoPath}/e2e/jwt/public.enc|blowfish://default'
-  jwtPrivKey: '${repoPath}/e2e/jwt/private.enc|blowfish://default'
+  jwtPubKey: /tmp/agently-core-e2e-jwt-public.pem
+  jwtPrivKey: /tmp/agently-core-e2e-jwt-private.pem
 
 pipeline:
   enforceNo8080:
@@ -65,6 +67,15 @@ pipeline:
     checkError: true
     commands:
       - ${repoPath}/e2e/scripts/prepare_workspace.sh ${repoPath} ${workspacePath} ${testdataPath}
+
+  prepareJWT:
+    action: exec:run
+    description: generate plain RSA keys for e2e auth host
+    checkError: true
+    commands:
+      - rm -f ${jwtPrivKey} ${jwtPubKey}
+      - openssl genrsa -out ${jwtPrivKey} 2048
+      - openssl rsa -in ${jwtPrivKey} -pubout -out ${jwtPubKey}
 
   mcpResources:
     start:
@@ -137,7 +148,19 @@ pipeline:
               fi
               sleep 0.5
             done
-            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} --jwt-pub '${jwtPubKey}' --jwt-priv '${jwtPrivKey}' >/tmp/agently-core-app.log 2>&1 &)
+            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
+
+            auth_pids=$(lsof -tiTCP:${authServerPort} -sTCP:LISTEN || true)
+            if [ -n "$auth_pids" ]; then
+              kill $auth_pids || true
+            fi
+            for i in $(seq 1 20); do
+              if ! lsof -nP -iTCP:${authServerPort} -sTCP:LISTEN | grep -q LISTEN; then
+                break
+              fi
+              sleep 0.5
+            done
+            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${authServerPort} --jwt-pub ${jwtPubKey} --jwt-priv ${jwtPrivKey} >/tmp/agently-core-auth-app.log 2>&1 &)
           else
             pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
             if [ -n "$pids" ]; then
@@ -162,6 +185,14 @@ pipeline:
           tail -n 80 /tmp/agently-core-app.log || true
           tail -n 80 /tmp/agently-core-e2e-server.log || true
           exit 1
+
+  appAuth:
+    start:
+      when: false
+      action: exec:run
+      checkError: true
+      commands:
+        - ${repoPath}/e2e/scripts/start_auth_app.sh ${authServerPort} ${authServerURL} ${workspacePath} ${repoPath}/e2e/bin/agently-app ${jwtPubKey} ${jwtPrivKey} /tmp/agently-core-auth-app.log
 
   health:
     action: http/runner:send
@@ -197,6 +228,7 @@ pipeline:
           parentPath: $path
           repoPath: $repoPath
           serverURL: $serverURL
+          authServerURL: $authServerURL
           sdkKey: $sdkKey
           jwtPrivKey: $jwtPrivKey
           tag: $tag

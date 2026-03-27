@@ -186,7 +186,7 @@ func TestHTTPClient_ListLinkedConversations_QueryParams(t *testing.T) {
 	if gotPath != "/v1/conversations/linked" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
-	if gotQuery.Get("parentId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" {
+	if gotQuery.Get("parentConversationId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" {
 		t.Fatalf("unexpected query values: %#v", gotQuery)
 	}
 	if gotQuery.Get("limit") != "3" || gotQuery.Get("cursor") != "c-9" || gotQuery.Get("direction") != "before" {

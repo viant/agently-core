@@ -65,6 +65,10 @@ func Protect(cfg *Config, sessions *Manager, opts ...ProtectOption) func(http.Ha
 				next.ServeHTTP(w, r)
 				return
 			}
+			if r.URL.Path == "/healthz" || r.URL.Path == "/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if cfg == nil || !cfg.Enabled {
 				next.ServeHTTP(w, r)
 				return

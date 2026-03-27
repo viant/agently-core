@@ -4,7 +4,7 @@ pipeline:
     description: "auth - unauthenticated GET /v1/conversations should return 401"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/conversations
+        URL: ${authServerURL}/v1/conversations
         Expect:
           Code: 401
 
@@ -13,7 +13,7 @@ pipeline:
     description: "auth - unauthenticated POST /v1/agent/query should return 401"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/agent/query
+        URL: ${authServerURL}/v1/agent/query
         JSONBody:
           AgentID: simple
           Query: "Hello"
@@ -26,6 +26,6 @@ pipeline:
     description: "auth - unauthenticated GET /v1/conversations/x/transcript should return 401"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/conversations/nonexistent/transcript
+        URL: ${authServerURL}/v1/conversations/nonexistent/transcript
         Expect:
           Code: 401

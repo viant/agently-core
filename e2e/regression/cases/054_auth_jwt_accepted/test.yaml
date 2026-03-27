@@ -14,7 +14,7 @@ pipeline:
     description: "auth - GET /v1/conversations with valid JWT should succeed"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/conversations
+        URL: ${authServerURL}/v1/conversations
         Header:
           Authorization: ["Bearer ${mintToken.TokenString}"]
         Expect:
@@ -25,7 +25,7 @@ pipeline:
     description: "auth - GET /healthz with valid JWT should succeed"
     requests:
       - Method: GET
-        URL: ${serverURL}/healthz
+        URL: ${authServerURL}/healthz
         Header:
           Authorization: ["Bearer ${mintToken.TokenString}"]
         Expect:
@@ -38,7 +38,7 @@ pipeline:
     description: "auth - GET /v1/api/auth/me with valid JWT returns claims"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/api/auth/me
+        URL: ${authServerURL}/v1/api/auth/me
         Header:
           Authorization: ["Bearer ${mintToken.TokenString}"]
         Expect:
