@@ -296,7 +296,7 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	if payload == nil {
 		return errors.New("invalid payload: nil")
 	}
-	logPayloadDebug := payload.SizeBytes%256 == 0
+	logPayloadDebug := payload.SizeBytes%512 == 0
 	if logPayloadDebug {
 		debugf("PatchPayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(payload.Id), strings.TrimSpace(payload.Kind), strings.TrimSpace(payload.MimeType), payload.SizeBytes)
 	}

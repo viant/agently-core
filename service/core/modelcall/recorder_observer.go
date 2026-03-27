@@ -806,7 +806,7 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 		id = uuid.New().String()
 	}
 	sizeBytes := len(body)
-	logPayloadDebug := sizeBytes%256 == 0
+	logPayloadDebug := sizeBytes%512 == 0
 	if logPayloadDebug {
 		debugf("upsertInlinePayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(id), strings.TrimSpace(kind), strings.TrimSpace(mime), sizeBytes)
 	}
