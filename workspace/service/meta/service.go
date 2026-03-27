@@ -2,14 +2,13 @@ package meta
 
 import (
 	"context"
-	"encoding/json"
 	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/storage"
-	"gopkg.in/yaml.v3"
+	wscfg "github.com/viant/agently-core/workspace/config"
 )
 
 // Service provides minimal meta loading and listing with a base directory.
@@ -49,22 +48,7 @@ func (s *Service) resolve(p string) string {
 // Load reads URL and unmarshals into v. Supports *yaml.Node or a struct pointer.
 func (s *Service) Load(ctx context.Context, URL string, v interface{}) error {
 	URL = s.resolve(URL)
-	data, err := s.fs.DownloadWithURL(ctx, URL, s.options...)
-	if err != nil {
-		return err
-	}
-	switch out := v.(type) {
-	case *yaml.Node:
-		return yaml.Unmarshal(data, out)
-	default:
-		// Choose by extension; default to YAML
-		switch strings.ToLower(path.Ext(URL)) {
-		case ".json":
-			return json.Unmarshal(data, v)
-		default:
-			return yaml.Unmarshal(data, v)
-		}
-	}
+	return wscfg.DecodeURL(ctx, s.fs, URL, v, s.options...)
 }
 
 // List returns YAML candidates under a directory or the file itself when URL points to a file.

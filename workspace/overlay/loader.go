@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/viant/agently-core/workspace"
-	"gopkg.in/yaml.v3"
+	wscfg "github.com/viant/agently-core/workspace/config"
 )
 
 var (
@@ -45,20 +45,19 @@ func load() []*Overlay {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(root, name))
-		if err != nil {
-			continue
-		}
-
 		var ov Overlay
 		if ext == ".json" {
+			data, err := os.ReadFile(filepath.Join(root, name))
+			if err != nil {
+				continue
+			}
 			if err := json.Unmarshal(data, &ov); err != nil {
 				continue
 			}
 		} else {
-			// try YAML, fallback to JSON as some .yaml may actually be json
-			if err := yaml.Unmarshal(data, &ov); err != nil {
-				if json.Unmarshal(data, &ov) != nil {
+			if err := wscfg.DecodeFile(filepath.Join(root, name), &ov); err != nil {
+				data, readErr := os.ReadFile(filepath.Join(root, name))
+				if readErr != nil || json.Unmarshal(data, &ov) != nil {
 					continue
 				}
 			}

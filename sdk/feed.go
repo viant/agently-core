@@ -10,7 +10,7 @@ import (
 
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/workspace"
-	"gopkg.in/yaml.v3"
+	wscfg "github.com/viant/agently-core/workspace/config"
 )
 
 // FeedSpec describes a tool feed loaded from workspace YAML.
@@ -69,12 +69,8 @@ func (r *FeedRegistry) loadFromWorkspace() {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(feedsDir, entry.Name()))
-		if err != nil {
-			continue
-		}
 		var spec FeedSpec
-		if err := yaml.Unmarshal(data, &spec); err != nil {
+		if err := wscfg.DecodeFile(filepath.Join(feedsDir, entry.Name()), &spec); err != nil {
 			continue
 		}
 		if spec.ID == "" {
