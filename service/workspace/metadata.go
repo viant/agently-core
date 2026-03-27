@@ -11,7 +11,7 @@ import (
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	ws "github.com/viant/agently-core/workspace"
-	"gopkg.in/yaml.v3"
+	wscfg "github.com/viant/agently-core/workspace/config"
 )
 
 // MetadataResponse is the response for the workspace metadata endpoint.
@@ -147,11 +147,11 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 		}
 		cfg := &agentmdl.Agent{}
 		rawMap := map[string]interface{}{}
-		if err := yaml.Unmarshal(raw, cfg); err != nil {
+		if err := wscfg.DecodeData(name+".yaml", raw, cfg); err != nil {
 			result = append(result, AgentInfo{ID: name, Name: name})
 			continue
 		}
-		_ = yaml.Unmarshal(raw, &rawMap)
+		_ = wscfg.DecodeData(name+".yaml", raw, &rawMap)
 		id := cfg.ID
 		if id == "" {
 			id = name
@@ -216,7 +216,7 @@ func (h *MetadataHandler) loadModelInfos(ctx context.Context, names []string) []
 			continue
 		}
 		cfg := &llmprovider.Config{}
-		if err := yaml.Unmarshal(raw, cfg); err != nil {
+		if err := wscfg.DecodeData(name+".yaml", raw, cfg); err != nil {
 			result = append(result, ModelInfo{ID: name, Name: name})
 			continue
 		}
