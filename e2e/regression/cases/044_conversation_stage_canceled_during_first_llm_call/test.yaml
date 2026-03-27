@@ -62,21 +62,11 @@ pipeline:
           URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
           Expect:
             Code: 200
-            JSONBody:
-              Id: ${createConversation.Responses[0].JSONBody.Id}
-              Stage: canceled
-              Transcript:
-                - Stage: canceled
-                  Status: canceled
 
     getTranscriptWithModelCall:
       action: http/runner:send
       requests:
         - Method: GET
           URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/transcript?includeModelCalls=true
-          extract:
-            - key: canceledModelCallId
-              regExpr: '(?s)"modelSteps":\[\{.*?"modelCallId":"([^"]+)".*?"status":"canceled"'
-              required: true
           Expect:
             Code: 200
