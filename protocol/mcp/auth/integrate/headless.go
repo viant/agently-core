@@ -101,7 +101,7 @@ func logHeadlessAuth(ctx context.Context, origin, reason string) {
 	mode, _ := memory.DiscoveryModeFromContext(ctx)
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if mode.Scheduler {
-		log.Printf("scheduler auth headless fallback schedule=%q run=%q user=%q server=%q reason=%q",
+		log.Printf("[scheduler-auth] schedule=%q run=%q user=%q scheduler auth headless fallback server=%q reason=%q",
 			strings.TrimSpace(mode.ScheduleID),
 			strings.TrimSpace(mode.ScheduleRunID),
 			userID,
@@ -110,5 +110,5 @@ func logHeadlessAuth(ctx context.Context, origin, reason string) {
 		)
 		return
 	}
-	log.Printf("mcp unauthorized headless user=%q server=%q reason=%q", userID, strings.TrimSpace(origin), strings.TrimSpace(reason))
+	log.Printf("[mcp-auth] mcp unauthorized headless user=%q server=%q reason=%q", userID, strings.TrimSpace(origin), strings.TrimSpace(reason))
 }

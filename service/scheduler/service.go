@@ -17,6 +17,7 @@ import (
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	"github.com/viant/agently-core/runtime/memory"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
@@ -296,12 +297,17 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	}
 	s.ensureLeaseConfig()
 
-	runCtx := ctx
+	runCtx := memory.MergeDiscoveryMode(ctx, memory.DiscoveryMode{
+		Scheduler:     true,
+		ScheduleID:    strings.TrimSpace(row.Id),
+		ScheduleRunID: strings.TrimSpace(runID),
+	})
 	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred detected ref_kind=%q", userCredRefKind(cred))
 		var err error
 		runCtx, err = s.applyUserCred(runCtx, cred)
 		if err != nil {
-			log.Printf("scheduler: apply user cred schedule=%s run=%s: %v", row.Id, runID, err)
+			logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred apply failed err=%v", err)
 		}
 	}
 
@@ -309,6 +315,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if userID != "" && strings.TrimSpace(iauth.EffectiveUserID(runCtx)) == "" {
 		runCtx = iauth.WithUserInfo(runCtx, &iauth.UserInfo{Subject: userID})
 	}
+	logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "using effective user")
 
 	stopHeartbeat := func() {}
 	defer s.releaseRunLease(context.Background(), runID)
@@ -1051,6 +1058,14 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 	} else {
 		cmd.Scopes = []string{"openid"}
 	}
+	meta, userID := schedulerAuthMeta(ctx)
+	logAuthf("schedule=%q run=%q user=%q user_cred authorize start ref_kind=%q scopes=%d",
+		strings.TrimSpace(meta.ScheduleID),
+		strings.TrimSpace(meta.ScheduleRunID),
+		userID,
+		userCredRefKind(credRef),
+		len(cmd.Scopes),
+	)
 
 	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 1*time.Minute)
 	defer cancel()
@@ -1060,6 +1075,13 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 	}
 	oauthTok, err := oa.Authorize(authCtx, cmd)
 	if err != nil {
+		logAuthf("schedule=%q run=%q user=%q user_cred authorize failed ref_kind=%q err=%v",
+			strings.TrimSpace(meta.ScheduleID),
+			strings.TrimSpace(meta.ScheduleRunID),
+			userID,
+			userCredRefKind(credRef),
+			err,
+		)
 		return ctx, fmt.Errorf("schedule user_cred authorize failed: %w", err)
 	}
 	if oauthTok == nil {
@@ -1073,10 +1095,28 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 		_ = s.tokenProvider.Store(ctx, key, st)
 		next, ensureErr := s.tokenProvider.EnsureTokens(ctx, key)
 		if ensureErr == nil {
+			logAuthf("schedule=%q run=%q user=%q user_cred authorize ok ref_kind=%q has_access=%t has_refresh=%t has_id=%t",
+				strings.TrimSpace(meta.ScheduleID),
+				strings.TrimSpace(meta.ScheduleRunID),
+				userID,
+				userCredRefKind(credRef),
+				strings.TrimSpace(st.AccessToken) != "",
+				strings.TrimSpace(st.RefreshToken) != "",
+				strings.TrimSpace(st.IDToken) != "",
+			)
 			return next, nil
 		}
 		log.Printf("scheduler: ensure tokens after oob auth failed, using oauth token directly: %v", ensureErr)
 	}
+	logAuthf("schedule=%q run=%q user=%q user_cred authorize ok ref_kind=%q has_access=%t has_refresh=%t has_id=%t",
+		strings.TrimSpace(meta.ScheduleID),
+		strings.TrimSpace(meta.ScheduleRunID),
+		userID,
+		userCredRefKind(credRef),
+		strings.TrimSpace(st.AccessToken) != "",
+		strings.TrimSpace(st.RefreshToken) != "",
+		strings.TrimSpace(st.IDToken) != "",
+	)
 	return s.withAuthTokens(ctx, st), nil
 }
 
