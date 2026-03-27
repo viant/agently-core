@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/viant/agently-core/workspace"
-	wscfg "github.com/viant/agently-core/workspace/config"
+	wscodec "github.com/viant/agently-core/workspace/codec"
 )
 
 var (
@@ -55,7 +55,7 @@ func load() []*Overlay {
 				continue
 			}
 		} else {
-			if err := wscfg.DecodeFile(filepath.Join(root, name), &ov); err != nil {
+			if err := wscodec.DecodeFile(filepath.Join(root, name), &ov); err != nil {
 				data, readErr := os.ReadFile(filepath.Join(root, name))
 				if readErr != nil || json.Unmarshal(data, &ov) != nil {
 					continue

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"path"
 	"strings"
 	"time"
@@ -262,7 +261,7 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 				continue
 			}
 			if elicitation.DebugEnabled() {
-				log.Printf("[debug][elicitation] merge payloadKeys=%v", elicitation.PayloadKeys(payload))
+				infof("[elicitation] merge payloadKeys=%v", elicitation.PayloadKeys(payload))
 			}
 			for k, v := range payload {
 				ctx[k] = v
@@ -300,7 +299,7 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 				}
 			}
 			if elicitation.DebugEnabled() {
-				log.Printf("[debug][elicitation] ctxKeys=%v", elicitation.PayloadKeys(ctx))
+				infof("[elicitation] ctxKeys=%v", elicitation.PayloadKeys(ctx))
 			}
 		}
 	}

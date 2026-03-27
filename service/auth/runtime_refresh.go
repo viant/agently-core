@@ -3,11 +3,11 @@ package auth
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/viant/agently-core/internal/logx"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -56,7 +56,7 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 	}
 	sess.Tokens = result
 	r.sessions.Put(ctx, sess)
-	log.Printf("[token-refresh] loaded fresh token from DB user=%q expiry=%v", username, dbTok.ExpiresAt.Format(time.RFC3339))
+	logx.Debugf("token-refresh", "loaded fresh token from DB user=%q expiry=%v", username, dbTok.ExpiresAt.Format(time.RFC3339))
 	return result
 }
 
@@ -77,7 +77,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	if tokenStore != nil {
 		_, acquired, err := tokenStore.TryAcquireRefreshLease(ctx, username, provider, runtimeWorkerID, 30*time.Second)
 		if err != nil {
-			log.Printf("[token-refresh] lease acquire error user=%q err=%v", username, err)
+			logx.Warnf("token-refresh", "lease acquire error user=%q err=%v", username, err)
 			return nil
 		}
 		if !acquired {
@@ -96,7 +96,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	ts := oauthCfg.TokenSource(ctx, &sess.Tokens.Token)
 	refreshed, err := ts.Token()
 	if err != nil {
-		log.Printf("[token-refresh] failed user=%q err=%v", username, err)
+		logx.Warnf("token-refresh", "refresh failed user=%q err=%v", username, err)
 		return nil
 	}
 	if refreshed.RefreshToken == "" {
@@ -115,7 +115,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 			ExpiresAt:    refreshed.Expiry,
 		})
 	}
-	log.Printf("[token-refresh] ok user=%q newExpiry=%v", username, refreshed.Expiry.Format(time.RFC3339))
+	logx.Debugf("token-refresh", "refresh ok user=%q newExpiry=%v", username, refreshed.Expiry.Format(time.RFC3339))
 	return result
 }
 
@@ -170,6 +170,6 @@ func (r *Runtime) refreshExpiringSessions(ctx context.Context) {
 		}
 	}
 	if checked > 0 {
-		log.Printf("[token-watcher] sessions=%d checked=%d refreshed=%d", len(sessions), checked, refreshed)
+		logx.Debugf("token-watcher", "sessions=%d checked=%d refreshed=%d", len(sessions), checked, refreshed)
 	}
 }

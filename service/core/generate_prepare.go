@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/runtime/memory"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
@@ -48,7 +49,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 				}
 			}
 		}
-		fmt.Printf("[debug][core][request] model=%q tool_choice=%+v tools=%q messages=%d\n",
+		logx.Debugf("core", "request model=%q tool_choice=%+v tools=%q messages=%d",
 			strings.TrimSpace(input.Model),
 			func() interface{} {
 				if request.Options == nil {

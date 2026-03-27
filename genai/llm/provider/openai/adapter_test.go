@@ -201,7 +201,12 @@ func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Mini(t *testing.T) 
 }
 
 func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
+	const minimalPDFBase64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAzMDAgMTQ0XSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCAzNyA+PgpzdHJlYW0KQlQgL0YxIDI0IFRmIDcyIDcyIFRkIChIZWxsbyBQREYpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzMwIDAwMDAwIG4gCnRyYWlsZXIKPDwgL1Jvb3QgMSAwIFIgL1NpemUgNiA+PgpzdGFydHhyZWYKNDAwCiUlRU9GCg=="
 	newReq := func(attachMode, mime string) *llm.GenerateRequest {
+		data := "AA=="
+		if mime == "application/pdf" {
+			data = minimalPDFBase64
+		}
 		return &llm.GenerateRequest{
 			Messages: []llm.Message{
 				{
@@ -210,7 +215,7 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 						{
 							Type:     llm.ContentTypeBinary,
 							MimeType: mime,
-							Data:     "AA==",
+							Data:     data,
 							Name:     "sample.bin",
 						},
 					},
@@ -246,10 +251,9 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		assert.Len(t, got.Messages, 1)
 		items, ok := got.Messages[0].Content.([]ContentItem)
 		if assert.True(t, ok) && assert.Len(t, items, 1) {
-			assert.Equal(t, "file", items[0].Type)
-			if assert.NotNil(t, items[0].File) {
-				assert.Contains(t, items[0].File.FileData, "data:application/pdf;base64,")
-			}
+			assert.Equal(t, "input_text", items[0].Type)
+			assert.Contains(t, items[0].Text, "PDF attachment sample.bin:")
+			assert.Contains(t, items[0].Text, "Hello PDF")
 		}
 	})
 

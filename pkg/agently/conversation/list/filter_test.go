@@ -33,7 +33,7 @@ func TestFilterCompute(t *testing.T) {
 		ctx := context.WithValue(context.Background(), inputKey, input)
 		criteria, err := filter.Compute(ctx, nil)
 		require.NoError(t, err)
-		require.Equal(t, "COALESCE(c.visibility, '') <> ?", criteria.Expression)
+		require.Equal(t, "COALESCE(c.visibility, '') <> ? AND c.conversation_parent_id IS NULL", criteria.Expression)
 		require.Equal(t, []interface{}{"private"}, criteria.Placeholders)
 	})
 
@@ -43,7 +43,7 @@ func TestFilterCompute(t *testing.T) {
 		ctx = authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: "u1"})
 		criteria, err := filter.Compute(ctx, nil)
 		require.NoError(t, err)
-		require.Equal(t, "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)", criteria.Expression)
+		require.Equal(t, "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?) AND c.conversation_parent_id IS NULL", criteria.Expression)
 		require.Equal(t, []interface{}{"private", "u1"}, criteria.Placeholders)
 	})
 

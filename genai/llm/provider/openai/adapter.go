@@ -156,7 +156,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 			req.ToolChoice = map[string]interface{}{"type": "code_interpreter"}
 		}
 		if v, ok := request.Options.Metadata["forceImageGeneration"].(bool); ok && v {
-			req.ToolChoice = map[string]interface{}{"type": "image_generation"}
+			req.ToolChoice = nil
 			req.EnableImageGeneration = true
 		}
 	}

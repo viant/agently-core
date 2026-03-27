@@ -3,7 +3,6 @@ package linking
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -41,7 +40,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 	if s == nil || s.streamPub == nil {
 		return
 	}
-	log.Printf("[emitLinkedConversationAttached] parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
+	debugf("emitLinkedConversationAttached parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
 	event := &streaming.Event{
 		StreamID:             strings.TrimSpace(parent.ConversationID),
 		ConversationID:       strings.TrimSpace(parent.ConversationID),
@@ -63,7 +62,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 // conversation for context.
 func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.TurnMeta, cloneTranscript bool, transcript apiconv.Transcript) (string, error) {
 	childID := uuid.New().String()
-	log.Printf("[CreateLinkedConversation] parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
+	debugf("CreateLinkedConversation parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
 	debugf("CreateLinkedConversation start parent_convo=%q parent_turn=%q child_convo=%q clone=%v transcript_len=%d", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), cloneTranscript, len(transcript))
 	// Create child conversation and set parent ids
 	w := convw.Conversation{Has: &convw.ConversationHas{}}

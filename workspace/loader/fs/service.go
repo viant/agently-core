@@ -8,7 +8,7 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/agently-core/workspace"
-	wscfg "github.com/viant/agently-core/workspace/config"
+	wscodec "github.com/viant/agently-core/workspace/codec"
 	meta "github.com/viant/agently-core/workspace/service/meta"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 	"gopkg.in/yaml.v3"
@@ -53,7 +53,7 @@ func (s *Service[T]) Load(ctx context.Context, URL string) (*T, error) {
 			return nil, fmt.Errorf("failed to load configuration %s/%s: %w", s.storeKind, name, err)
 		}
 		var node yaml.Node
-		if err := wscfg.DecodeData(name+s.defaultExtension, data, &node); err != nil {
+		if err := wscodec.DecodeData(name+s.defaultExtension, data, &node); err != nil {
 			return nil, fmt.Errorf("failed to parse configuration %s/%s: %w", s.storeKind, name, err)
 		}
 		var t T

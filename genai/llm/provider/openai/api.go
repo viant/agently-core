@@ -247,14 +247,23 @@ func isContextContinuationEnabled(model llm.Model) bool {
 	return model.Implements(base.SupportsContextContinuation)
 }
 
+func shouldUseResponsesAPI(model llm.Model, req *Request) bool {
+	if isContextContinuationEnabled(model) {
+		return true
+	}
+	if req == nil {
+		return false
+	}
+	return req.EnableImageGeneration || req.EnableCodeInterpreter
+}
+
 // Generate sends a chat request to the OpenAI API and returns the response
 func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
-	continuationEnabled := false
-	if request != nil {
-		continuationEnabled = isContextContinuationEnabled(c)
+	req, err := c.prepareChatRequest(request)
+	if err != nil {
+		return nil, err
 	}
-
-	if continuationEnabled {
+	if shouldUseResponsesAPI(c, req) {
 		return c.generateViaResponses(ctx, request)
 	}
 
@@ -394,7 +403,7 @@ func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, err
 
 // marshalRequestBody builds the request body for the OpenAI Responses API or legacy chat/completions API.
 func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
-	if isContextContinuationEnabled(c) {
+	if shouldUseResponsesAPI(c, req) {
 		return c.marshalResponsesApiRequestBody(req)
 	}
 
@@ -805,7 +814,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	c.applyBackendSessionDefaults(ctx, req)
 	req.Stream = true
-	req.EnableCodeInterpreter = true
 	// Ask OpenAI to include usage in the final stream event if supported
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 
@@ -825,7 +833,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	////
 
 	var httpReq *http.Request
-	if isContextContinuationEnabled(c) {
+	if shouldUseResponsesAPI(c, req) {
 		httpReq, err = c.createHTTPResponsesApiRequest(ctx, payload)
 	} else {
 		httpReq, err = c.createHTTPChatCompletionsApiRequest(ctx, payload)

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -411,9 +410,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 		return fmt.Errorf("elicitation message not found")
 	}
 	raw, _ := json.Marshal(payload)
-	if DebugEnabled() {
-		log.Printf("[debug][elicitation] store conv=%s id=%s payload=%s", convID, elicitationID, string(raw))
-	}
+	debugf("[elicitation] store conv=%s id=%s payload=%s", convID, elicitationID, string(raw))
 	debugf("elicitation store payload convo=%q elicitation_id=%q payload_len=%d payload_head=%q payload_tail=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), len(raw), headString(string(raw), 512), tailString(string(raw), 512))
 	pid := uuid.New().String()
 	p := apiconv.NewPayload()
@@ -475,9 +472,7 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 		return fmt.Errorf("conversation and elicitation id required")
 	}
 	act := elact.Normalize(action)
-	if DebugEnabled() {
-		log.Printf("[debug][elicitation] resolve conv=%s id=%s action=%s payloadKeys=%v", convID, elicitationID, act, PayloadKeys(payload))
-	}
+	debugf("[elicitation] resolve conv=%s id=%s action=%s payloadKeys=%v", convID, elicitationID, act, PayloadKeys(payload))
 	debugf("elicitation resolve convo=%q elicitation_id=%q action=%q payload_keys=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(act), PayloadKeys(payload))
 	// No logging; caller/UI can inspect status via DAO and router.
 	if err := s.UpdateStatus(ctx, convID, elicitationID, act); err != nil {

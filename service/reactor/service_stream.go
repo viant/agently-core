@@ -3,7 +3,6 @@ package reactor
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +11,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	debugtrace "github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
@@ -281,13 +281,13 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 	if len(assistantMsgID) > 0 {
 		if id := strings.TrimSpace(assistantMsgID[0]); id != "" {
 			toolCtx = context.WithValue(ctx, memory.ModelMessageIDKey, id)
-			log.Printf("[launchPendingSteps] enriched context with assistant_msg_id=%s", id)
+			logx.Debugf("reactor", "launchPendingSteps enriched context with assistant_msg_id=%s", id)
 		} else {
-			log.Printf("[launchPendingSteps] assistantMsgID param is empty")
+			logx.Debugf("reactor", "launchPendingSteps assistantMsgID param is empty")
 		}
 	} else {
 		existing := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
-		log.Printf("[launchPendingSteps] no assistantMsgID param, ctx has ModelMessageID=%q", existing)
+		logx.Debugf("reactor", "launchPendingSteps no assistantMsgID param; ctx has ModelMessageID=%q", existing)
 	}
 	for *nextStepIdx < len(aPlan.Steps) {
 		st := aPlan.Steps[*nextStepIdx]
@@ -333,7 +333,7 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 			}
 			call, _, err := executil.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
 			if err != nil {
-				fmt.Printf("error: tool step %s execution failed: %v\n", step.Name, err)
+				logx.Warnf("reactor", "tool step %s execution failed: %v", step.Name, err)
 			}
 			if debugtrace.Enabled() {
 				debugtrace.Write("reactor", "tool_step_executed", map[string]any{

@@ -334,7 +334,7 @@ func (c *HTTPClient) ListLinkedConversations(ctx context.Context, input *ListLin
 	q := url.Values{}
 	if input != nil {
 		if strings.TrimSpace(input.ParentConversationID) != "" {
-			q.Set("parentId", input.ParentConversationID)
+			q.Set("parentConversationId", input.ParentConversationID)
 		}
 		if strings.TrimSpace(input.ParentTurnID) != "" {
 			q.Set("parentTurnId", input.ParentTurnID)
