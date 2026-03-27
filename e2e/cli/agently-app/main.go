@@ -20,7 +20,6 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	embedprovider "github.com/viant/agently-core/genai/embedder/provider"
 	provider "github.com/viant/agently-core/genai/llm/provider"
-	iauth "github.com/viant/agently-core/internal/auth"
 	embedderfinder "github.com/viant/agently-core/internal/finder/embedder"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
@@ -73,16 +72,16 @@ func serve(args []string) {
 	defer workspace.SetBootstrapHook(nil)
 
 	// Configure auth when JWT keys are provided.
-	var authCfg *iauth.Config
+	var authCfg *svcauth.Config
 	var sessions *svcauth.Manager
 	var jwtSvc *svcauth.JWTService
 	if pubKey := strings.TrimSpace(*jwtPub); pubKey != "" {
-		authCfg = &iauth.Config{
+		authCfg = &svcauth.Config{
 			Enabled:    true,
 			IpHashKey:  "e2e-test-hash-key",
 			CookieName: "agently_session",
-			Local:      &iauth.Local{Enabled: true},
-			JWT: &iauth.JWT{
+			Local:      &svcauth.Local{Enabled: true},
+			JWT: &svcauth.JWT{
 				Enabled:       true,
 				RSA:           []string{pubKey},
 				RSAPrivateKey: strings.TrimSpace(*jwtPriv),

@@ -1,0 +1,125 @@
+package sdk
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func handleGetMessages(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		input := &GetMessagesInput{
+			ConversationID: strings.TrimSpace(q.Get("conversationId")),
+			ID:             strings.TrimSpace(q.Get("id")),
+			TurnID:         strings.TrimSpace(q.Get("turnId")),
+		}
+		if input.ConversationID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
+			return
+		}
+		if roles := strings.TrimSpace(q.Get("roles")); roles != "" {
+			input.Roles = strings.Split(roles, ",")
+		}
+		if types := strings.TrimSpace(q.Get("types")); types != "" {
+			input.Types = strings.Split(types, ",")
+		}
+		if limitRaw := strings.TrimSpace(q.Get("limit")); limitRaw != "" {
+			limit, err := strconv.Atoi(limitRaw)
+			if err != nil || limit <= 0 {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit"))
+				return
+			}
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Limit = limit
+		}
+		if cursor := strings.TrimSpace(q.Get("cursor")); cursor != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Cursor = cursor
+		}
+		if direction := strings.TrimSpace(q.Get("direction")); direction != "" {
+			if input.Page == nil {
+				input.Page = &PageInput{}
+			}
+			input.Page.Direction = Direction(direction)
+		}
+		out, err := client.GetMessages(r.Context(), input)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleListPendingElicitations(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conversationID := strings.TrimSpace(r.URL.Query().Get("conversationId"))
+		if conversationID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
+			return
+		}
+		rows, err := client.ListPendingElicitations(r.Context(), &ListPendingElicitationsInput{
+			ConversationID: conversationID,
+		})
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, map[string]interface{}{"rows": rows})
+	}
+}
+
+func handleStreamEvents(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		convID := r.URL.Query().Get("conversationId")
+		log.Printf("[SSE] client connected convo=%q", convID)
+		input := &StreamEventsInput{ConversationID: convID}
+		sub, err := client.StreamEvents(r.Context(), input)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		defer sub.Close()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, ok := w.(http.Flusher)
+		if ok {
+			flusher.Flush()
+		}
+
+		ctx := r.Context()
+		for {
+			select {
+			case ev, open := <-sub.C():
+				if !open {
+					log.Printf("[SSE] channel closed convo=%q", convID)
+					return
+				}
+				log.Printf("[SSE] sending type=%q convo=%q stream_id=%q turn=%q tool=%q toolCallId=%q toolMsgId=%q status=%q final=%v created_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q",
+					string(ev.Type), ev.ConversationID, ev.StreamID, ev.TurnID, ev.ToolName, ev.ToolCallID, ev.ToolMessageID, ev.Status, ev.FinalResponse,
+					ev.CreatedAt.Format(time.RFC3339Nano), time.Now().Format(time.RFC3339Nano), ev.RequestPayloadID, ev.ResponsePayloadID, ev.ProviderRequestPayloadID, ev.ProviderResponsePayloadID, ev.StreamPayloadID)
+				data, _ := json.Marshal(ev)
+				fmt.Fprintf(w, "data:%s\n\n", data)
+				if ok {
+					flusher.Flush()
+				}
+			case <-ctx.Done():
+				log.Printf("[SSE] client disconnected convo=%q", convID)
+				return
+			}
+		}
+	}
+}

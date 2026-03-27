@@ -23,7 +23,6 @@ import (
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm/provider"
-	iauth "github.com/viant/agently-core/internal/auth"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
@@ -123,11 +122,11 @@ func setupAuthServer(t *testing.T, pubPath string, privPath string) *httptest.Se
 	require.NoError(t, err)
 
 	// Auth configuration with JWT
-	authCfg := &iauth.Config{
+	authCfg := &svcauth.Config{
 		Enabled:         true,
 		IpHashKey:       "test-ip-hash-key",
 		DefaultUsername: "",
-		JWT: &iauth.JWT{
+		JWT: &svcauth.JWT{
 			Enabled:       true,
 			RSA:           []string{pubPath},
 			RSAPrivateKey: privPath,
@@ -393,11 +392,11 @@ func TestLocalAuth_SessionCookie(t *testing.T) {
 	client, err := sdk.NewEmbeddedFromRuntime(rt)
 	require.NoError(t, err)
 
-	authCfg := &iauth.Config{
+	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-ip-hash-key",
 		CookieName: "agently_session",
-		Local:      &iauth.Local{Enabled: true},
+		Local:      &svcauth.Local{Enabled: true},
 	}
 
 	sessions := svcauth.NewManager(7*24*time.Hour, nil)
@@ -647,12 +646,12 @@ func setupOAuthCookieServer(t *testing.T, pubPath, privPath string) *httptest.Se
 	require.NoError(t, err)
 
 	// Cookie-based local auth with JWT keys also configured.
-	authCfg := &iauth.Config{
+	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-ip-hash-key",
 		CookieName: "agently_session",
-		Local:      &iauth.Local{Enabled: true},
-		JWT: &iauth.JWT{
+		Local:      &svcauth.Local{Enabled: true},
+		JWT: &svcauth.JWT{
 			Enabled:       true,
 			RSA:           []string{pubPath},
 			RSAPrivateKey: privPath,
@@ -857,12 +856,12 @@ func setupBFFCookieServer(t *testing.T, pubPath, privPath string) *httptest.Serv
 
 	// BFF cookie mode with JWT keys also configured — both cookie and Bearer
 	// tokens should be accepted.
-	authCfg := &iauth.Config{
+	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-ip-hash-key",
 		CookieName: "agently_session",
-		Local:      &iauth.Local{Enabled: true},
-		JWT: &iauth.JWT{
+		Local:      &svcauth.Local{Enabled: true},
+		JWT: &svcauth.JWT{
 			Enabled:       true,
 			RSA:           []string{pubPath},
 			RSAPrivateKey: privPath,

@@ -14,14 +14,14 @@ import (
 
 // Protect returns middleware that extracts auth credentials from the request
 // (Bearer token or session cookie) and populates the request context with
-// identity information via the internal/auth context helpers.
+// authenticated user identity and tokens.
 //
 // Requests to /v1/api/auth/* and OPTIONS are passed through without auth.
 // When JWT auth is configured, Bearer tokens are cryptographically verified.
 //
 // ProtectWithTokenProvider is like Protect but also stores session tokens in the
 // given token.Provider so they are available for subsequent requests from that user.
-func ProtectWithTokenProvider(cfg *iauth.Config, sessions *Manager, tp token.Provider, opts ...ProtectOption) func(http.Handler) http.Handler {
+func ProtectWithTokenProvider(cfg *Config, sessions *Manager, tp token.Provider, opts ...ProtectOption) func(http.Handler) http.Handler {
 	inner := Protect(cfg, sessions, opts...)
 	if tp == nil {
 		return inner
@@ -53,7 +53,7 @@ func WithJWTService(j *JWTService) ProtectOption {
 	return func(c *protectConfig) { c.jwtService = j }
 }
 
-func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(http.Handler) http.Handler {
+func Protect(cfg *Config, sessions *Manager, opts ...ProtectOption) func(http.Handler) http.Handler {
 	pc := &protectConfig{}
 	for _, o := range opts {
 		o(pc)
@@ -95,7 +95,7 @@ func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(h
 						} else {
 							ctx = iauth.WithBearer(ctx, bearerTok)
 							if ui != nil {
-								ctx = iauth.WithUserInfo(ctx, ui)
+								ctx = iauth.WithUserInfo(ctx, toInternalUserInfo(ui))
 							}
 							authenticated = true
 						}
@@ -156,14 +156,18 @@ func Protect(cfg *iauth.Config, sessions *Manager, opts ...ProtectOption) func(h
 			}
 
 			// Ensure fallback user identity from config.
-			ctx = iauth.EnsureUser(ctx, cfg)
+			if iauth.User(ctx) == nil && cfg != nil && cfg.IsLocalAuth() {
+				if u := strings.TrimSpace(cfg.DefaultUsername); u != "" {
+					ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: u})
+				}
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func requiresTokenBackedCookie(cfg *iauth.Config) bool {
+func requiresTokenBackedCookie(cfg *Config) bool {
 	if cfg == nil || !cfg.Enabled || cfg.OAuth == nil {
 		return false
 	}
