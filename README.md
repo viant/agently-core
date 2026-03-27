@@ -125,15 +125,15 @@ When `WithA2AHandler` is configured:
 
 ## Authentication
 
-Configure JWT or OAuth BFF via `WithAuth`:
+Configure JWT or OAuth BFF via `WithAuth` using the public [`service/auth`](./service/auth) types:
 
 ```go
-authCfg := &iauth.Config{
+authCfg := &auth.Config{
     Enabled:    true,
     CookieName: "agently_session",
     IpHashKey:  "your-hmac-salt",
-    Local:      &iauth.Local{Enabled: true},
-    JWT: &iauth.JWT{
+    Local:      &auth.Local{Enabled: true},
+    JWT: &auth.JWT{
         Enabled:       true,
         RSA:           []string{"/path/to/public.pem"},
         RSAPrivateKey: "/path/to/private.pem",

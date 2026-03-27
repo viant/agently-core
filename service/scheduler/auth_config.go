@@ -13,8 +13,7 @@ type UserCredAuthConfig struct {
 }
 
 // WithUserCredAuthConfig sets public scheduler auth configuration used by
-// legacy user_cred_url OOB authorization. This is intended for host modules
-// that cannot import agently-core/internal/auth.
+// legacy user_cred_url OOB authorization.
 func WithUserCredAuthConfig(cfg *UserCredAuthConfig) Option {
 	cloned := cloneUserCredAuthConfig(cfg)
 	return func(s *Service) { s.userCredAuthCfg = cloned }

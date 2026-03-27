@@ -7,16 +7,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	iauth "github.com/viant/agently-core/internal/auth"
 )
 
 func TestProtect_BFFOAuthRejectsBareLocalSessionCookie(t *testing.T) {
-	cfg := &iauth.Config{
+	cfg := &Config{
 		Enabled:         true,
 		CookieName:      "agently_session",
 		DefaultUsername: "devuser",
 		IpHashKey:       "dev-hmac-salt",
-		OAuth: &iauth.OAuth{
+		OAuth: &OAuth{
 			Mode: "bff",
 		},
 	}
@@ -28,7 +27,7 @@ func TestProtect_BFFOAuthRejectsBareLocalSessionCookie(t *testing.T) {
 
 	handler := Protect(cfg, sessions)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"userId": iauth.EffectiveUserID(r.Context()),
+			"userId": EffectiveUserID(r.Context()),
 		})
 	}))
 
@@ -41,11 +40,11 @@ func TestProtect_BFFOAuthRejectsBareLocalSessionCookie(t *testing.T) {
 }
 
 func TestProtect_BFFOAuthAcceptsTokenBackedSessionCookie(t *testing.T) {
-	cfg := &iauth.Config{
+	cfg := &Config{
 		Enabled:    true,
 		CookieName: "agently_session",
 		IpHashKey:  "dev-hmac-salt",
-		OAuth: &iauth.OAuth{
+		OAuth: &OAuth{
 			Mode: "bff",
 		},
 	}
@@ -59,7 +58,7 @@ func TestProtect_BFFOAuthAcceptsTokenBackedSessionCookie(t *testing.T) {
 
 	handler := Protect(cfg, sessions)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"userId": iauth.EffectiveUserID(r.Context()),
+			"userId": EffectiveUserID(r.Context()),
 		})
 	}))
 

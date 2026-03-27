@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/scy"
 	"github.com/viant/scy/auth/jwt/signer"
 	"github.com/viant/scy/auth/jwt/verifier"
@@ -19,19 +18,19 @@ type JWTService struct {
 	signer   *signer.Service
 	mu       sync.Mutex
 	inited   bool
-	cfg      *iauth.JWT
+	cfg      *JWT
 }
 
 // NewJWTService creates a JWT service from the given config.
 // Call Init() before use to load keys.
-func NewJWTService(cfg *iauth.JWT) *JWTService {
+func NewJWTService(cfg *JWT) *JWTService {
 	return &JWTService{cfg: cfg}
 }
 
 // NewJWTServiceFromConfigValues creates a JWT service from raw config values
 // for callers outside agently-core that cannot import the internal auth package.
 func NewJWTServiceFromConfigValues(enabled bool, rsa []string, hmac, certURL, rsaPrivateKey string) *JWTService {
-	return NewJWTService(&iauth.JWT{
+	return NewJWTService(&JWT{
 		Enabled:       enabled,
 		RSA:           append([]string(nil), rsa...),
 		HMAC:          hmac,
@@ -88,7 +87,7 @@ func (j *JWTService) Init(ctx context.Context) error {
 
 // Verify validates a JWT token string and returns the parsed claims.
 // Returns an error if the token is invalid, expired, or signature verification fails.
-func (j *JWTService) Verify(ctx context.Context, tokenString string) (*iauth.UserInfo, error) {
+func (j *JWTService) Verify(ctx context.Context, tokenString string) (*UserInfo, error) {
 	if j.verifier == nil {
 		return nil, fmt.Errorf("jwt verifier not initialized")
 	}
@@ -96,7 +95,7 @@ func (j *JWTService) Verify(ctx context.Context, tokenString string) (*iauth.Use
 	if err != nil {
 		return nil, fmt.Errorf("jwt verify: %w", err)
 	}
-	ui := &iauth.UserInfo{}
+	ui := &UserInfo{}
 	if claims.Subject != "" {
 		ui.Subject = claims.Subject
 	}

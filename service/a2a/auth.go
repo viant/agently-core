@@ -49,7 +49,10 @@ func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService) fun
 					return
 				}
 				if ui != nil {
-					ctx = iauth.WithUserInfo(ctx, ui)
+					ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{
+						Subject: ui.Subject,
+						Email:   ui.Email,
+					})
 					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v", r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken)
 				} else {
 					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v", r.URL.Path, "", authCfg.UseIDToken)

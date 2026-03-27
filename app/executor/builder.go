@@ -14,7 +14,6 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/embedder"
 	"github.com/viant/agently-core/genai/llm"
-	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convsvc "github.com/viant/agently-core/internal/service/conversation"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
@@ -24,6 +23,7 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
+	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
@@ -56,7 +56,7 @@ type Runtime struct {
 	StateStore        workspace.StateStore
 
 	// AuthConfig holds the auth configuration when auth is enabled.
-	AuthConfig *iauth.Config
+	AuthConfig *svcauth.Config
 	// AuthMiddleware is the HTTP middleware that extracts auth from requests.
 	AuthMiddleware func(http.Handler) http.Handler
 

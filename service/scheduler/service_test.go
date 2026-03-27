@@ -14,6 +14,7 @@ import (
 	iauth "github.com/viant/agently-core/internal/auth"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/scy"
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/cred"
@@ -359,10 +360,10 @@ func TestService_applyUserCred_LegacyBasicSecretUsesOOB(t *testing.T) {
 	}
 	fakeAuthz.tok = fakeAuthz.tok.WithExtra(map[string]interface{}{"id_token": "oob-id"})
 
-	svc := New(nil, &agentsvc.Service{}, WithAuthConfig(&iauth.Config{
-		OAuth: &iauth.OAuth{
+	svc := New(nil, &agentsvc.Service{}, WithAuthConfig(&svcauth.Config{
+		OAuth: &svcauth.OAuth{
 			Mode: "bff",
-			Client: &iauth.OAuthClient{
+			Client: &svcauth.OAuthClient{
 				ConfigURL: "file:///tmp/oauth.client.json",
 				Scopes:    []string{"openid", "profile"},
 			},

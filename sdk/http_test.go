@@ -677,7 +677,7 @@ func TestResolveQueryUserID_AuthDisabled_AssignsAnonymousCookie(t *testing.T) {
 func TestResolveQueryUserID_AuthEnabled_ReturnsEmpty(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
-	cfg := &iauth.Config{Enabled: true}
+	cfg := &svcauth.Config{Enabled: true}
 
 	got := resolveQueryUserID(rec, req, "", cfg)
 	if got != "" {
@@ -693,7 +693,7 @@ func TestResolveQueryUserID_AuthEnabled_UsesContextUser(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
 	ctx := iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "oauth-user-42"})
 	req = req.WithContext(ctx)
-	cfg := &iauth.Config{Enabled: true}
+	cfg := &svcauth.Config{Enabled: true}
 
 	got := resolveQueryUserID(rec, req, "", cfg)
 	if got != "oauth-user-42" {
@@ -706,7 +706,7 @@ func TestResolveQueryUserID_ExplicitUserAlwaysWins(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
 	ctx := iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "ctx-user"})
 	req = req.WithContext(ctx)
-	cfg := &iauth.Config{Enabled: true}
+	cfg := &svcauth.Config{Enabled: true}
 
 	got := resolveQueryUserID(rec, req, "explicit-user", cfg)
 	if got != "explicit-user" {
@@ -724,7 +724,7 @@ func TestHandler_Query_Returns401_WhenAuthEnabledAndNoUser(t *testing.T) {
 	handler, err := NewHandlerWithContext(
 		context.Background(),
 		spy,
-		WithAuth(&iauth.Config{Enabled: true, IpHashKey: "test-key", CookieName: "sess"}, sessions),
+		WithAuth(&svcauth.Config{Enabled: true, IpHashKey: "test-key", CookieName: "sess"}, sessions),
 	)
 	if err != nil {
 		t.Fatalf("NewHandlerWithContext: %v", err)
@@ -749,11 +749,11 @@ func TestHandler_Query_Succeeds_WhenAuthEnabledAndUserInContext(t *testing.T) {
 		t.Fatalf("NewHTTP: %v", err)
 	}
 	spy := &spyQueryClient{HTTPClient: base}
-	authCfg := &iauth.Config{
+	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-key",
 		CookieName: "sess",
-		Local:      &iauth.Local{Enabled: true},
+		Local:      &svcauth.Local{Enabled: true},
 	}
 	sessions := svcauth.NewManager(time.Hour, nil)
 

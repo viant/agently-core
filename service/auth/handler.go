@@ -15,7 +15,7 @@ import (
 // Handler serves auth-related HTTP endpoints. It is designed to be mounted
 // under /v1/api/auth/* on the application router.
 type Handler struct {
-	cfg           *iauth.Config
+	cfg           *Config
 	sessions      *Manager
 	users         UserService    // optional
 	tokens        TokenStore     // optional
@@ -23,7 +23,7 @@ type Handler struct {
 }
 
 // NewHandler creates an auth HTTP handler.
-func NewHandler(cfg *iauth.Config, sessions *Manager, opts ...HandlerOption) *Handler {
+func NewHandler(cfg *Config, sessions *Manager, opts ...HandlerOption) *Handler {
 	h := &Handler{cfg: cfg, sessions: sessions}
 	for _, o := range opts {
 		o(h)
