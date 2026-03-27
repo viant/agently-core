@@ -8,7 +8,7 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/storage"
-	wscfg "github.com/viant/agently-core/workspace/config"
+	wscodec "github.com/viant/agently-core/workspace/codec"
 )
 
 // Service provides minimal meta loading and listing with a base directory.
@@ -48,7 +48,7 @@ func (s *Service) resolve(p string) string {
 // Load reads URL and unmarshals into v. Supports *yaml.Node or a struct pointer.
 func (s *Service) Load(ctx context.Context, URL string, v interface{}) error {
 	URL = s.resolve(URL)
-	return wscfg.DecodeURL(ctx, s.fs, URL, v, s.options...)
+	return wscodec.DecodeURL(ctx, s.fs, URL, v, s.options...)
 }
 
 // List returns YAML candidates under a directory or the file itself when URL points to a file.

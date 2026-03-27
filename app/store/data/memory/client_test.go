@@ -115,9 +115,10 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 		Title:      ptrS("A title"),
 		Visibility: "private",
 		CreatedAt:  t0,
+		Stage:      "done",
 		Transcript: []*agconv.TranscriptView{
-			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
-			{Id: "t2", ConversationId: "c1", CreatedAt: t2, Status: "ok", Message: []*agconv.MessageView{
+			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Stage: "thinking", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
+			{Id: "t2", ConversationId: "c1", CreatedAt: t2, Status: "ok", Stage: "done", Message: []*agconv.MessageView{
 				{Id: "m2", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "text", Content: ptrS("world"), CreatedAt: t2},
 				{Id: "m3", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "tool", Content: ptrS("call:toolX"), CreatedAt: t2},
 			}},
@@ -128,10 +129,13 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	// Expected with model included
 	withModel := toClient(cloneAg(agBase))
 	withModel.Transcript[1].Message[0].ModelCall = &agconv.ModelCallView{MessageId: "m2", Provider: "openai", Model: "gpt-4o", ModelKind: "chat", Status: "ok"}
+	withModel.Transcript[1].Message[0].Status = ptrS("ok")
 
 	// Expected with tool included
 	withTool := toClient(cloneAg(agBase))
-	withTool.Transcript[1].Message[1].ToolMessage = []*agconv.ToolMessageView{
+	withTool.Transcript[1].Message = []*agconv.MessageView{withTool.Transcript[1].Message[1], withTool.Transcript[1].Message[0]}
+	withTool.Transcript[1].Message[0].Status = ptrS("ok")
+	withTool.Transcript[1].Message[0].ToolMessage = []*agconv.ToolMessageView{
 		{
 			Id:        "m3",
 			CreatedAt: t2,

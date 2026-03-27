@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -213,7 +212,7 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 
 func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, msgID string, info Info) (bool, error) {
 	if strings.TrimSpace(msgID) == "" {
-		log.Printf("[patchAssistant] SKIP empty msgID")
+		debugf("patchAssistant skip empty msgID")
 		return false, nil
 	}
 	resp := info.LLMResponse
@@ -230,15 +229,15 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	content, hasToolCalls := AssistantContentFromResponse(resp)
 	content = strings.TrimSpace(content)
 	streamTxt := strings.TrimSpace(info.StreamText)
-	log.Printf("[patchAssistant] msg=%s respChoices=%d contentFromResp=%d streamText=%d hasToolCalls=%v finishReason=%q",
+	debugf("patchAssistant msg=%s respChoices=%d contentFromResp=%d streamText=%d hasToolCalls=%v finishReason=%q",
 		msgID, respChoices, len(content), len(streamTxt), hasToolCalls, info.FinishReason)
 	// Fall back to accumulated stream text when LLMResponse has no content
 	if content == "" && streamTxt != "" {
 		content = streamTxt
-		log.Printf("[patchAssistant] msg=%s using streamText fallback contentLen=%d", msgID, len(content))
+		debugf("patchAssistant msg=%s using streamText fallback contentLen=%d", msgID, len(content))
 	}
 	if !hasToolCalls && looksLikeElicitationContent(content) {
-		log.Printf("[patchAssistant] msg=%s SKIP elicitation content", msgID)
+		debugf("patchAssistant msg=%s skip elicitation content", msgID)
 		return false, nil
 	}
 	if hasToolCalls && o.isLikelyUserEcho(ctx, content) {
@@ -249,7 +248,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 		content = preamble
 	}
 	if content == "" && !hasToolCalls {
-		log.Printf("[patchAssistant] msg=%s SKIP empty content after all fallbacks", msgID)
+		debugf("patchAssistant msg=%s skip empty content after all fallbacks", msgID)
 		return false, nil
 	}
 	// When the model response has tool calls but no text content, synthesize
@@ -259,7 +258,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	// correct model-call iteration.
 	if content == "" && hasToolCalls {
 		content = synthesizeToolPreamble(resp)
-		log.Printf("[patchAssistant] msg=%s synthesized preamble for tool-only response: %q", msgID, content)
+		debugf("patchAssistant msg=%s synthesized preamble for tool-only response: %q", msgID, content)
 	}
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
@@ -285,7 +284,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	finishLower := strings.ToLower(finishReason)
 	isToolCallResponse := hasToolCalls || strings.Contains(finishLower, "tool")
-	log.Printf("[patchAssistant] msg=%s finishReason=%q isToolCall=%v -> interim=%d contentHead=%q",
+	debugf("patchAssistant msg=%s finishReason=%q isToolCall=%v -> interim=%d contentHead=%q",
 		msgID, finishReason, isToolCallResponse, func() int {
 			if isToolCallResponse {
 				return 1

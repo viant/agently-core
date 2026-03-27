@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,7 +165,7 @@ func (s *Service) ensureEnvironment(ctx context.Context, input *QueryInput) erro
 		input.AutoSelectTools = &autoTools
 		input.ToolsAllowed = nil
 		input.DisableChains = true
-		log.Printf("[debug][conversation][INFO] agent.ensureEnvironment forced capability mode convo=%q query_head=%q", strings.TrimSpace(input.ConversationID), headString(input.Query, 256))
+		infof("agent.ensureEnvironment forced capability mode convo=%q query_head=%q", strings.TrimSpace(input.ConversationID), headString(input.Query, 256))
 	}
 	if err := s.ensureAgent(ctx, input); err != nil {
 		return err

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	debugtrace "github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
@@ -76,9 +76,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
 	}
 	if canStream {
-		log.Printf("[reactor.Run] starting stream...")
+		logx.Debugf("reactor", "Run starting stream")
 		cleanup, err := s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{})
-		log.Printf("[reactor.Run] stream returned, err=%v", err)
+		logx.Debugf("reactor", "Run stream returned err=%v", err)
 		defer cleanup()
 		if err != nil {
 			// Context cancellation means the turn was stopped externally (user cancel, deadline).
@@ -86,9 +86,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			// finalize their results (via detachedFinalizeCtx) and return the partial plan.
 			// The turn will complete with whatever was generated up to the cancellation point.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				log.Printf("[reactor.Run] stream cancelled, waiting for tool goroutines to finalize...")
+				logx.Debugf("reactor", "Run stream canceled; waiting for tool goroutines")
 				wg.Wait()
-				log.Printf("[reactor.Run] tool goroutines finalized after stream cancel")
+				logx.Debugf("reactor", "Run tool goroutines finalized after stream cancel")
 				return aPlan, nil
 			}
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
@@ -102,9 +102,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			}
 			return nil, fmt.Errorf("failed to stream: %w", err)
 		}
-		log.Printf("[reactor.Run] waiting for tool goroutines...")
+		logx.Debugf("reactor", "Run waiting for tool goroutines")
 		wg.Wait()
-		log.Printf("[reactor.Run] all tool goroutines done")
+		logx.Debugf("reactor", "Run all tool goroutines done")
 		s.synthesizeFinalResponse(genOutput)
 
 	} else {
@@ -112,7 +112,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			// Context cancellation: same as stream — return partial plan without error
 			// so the turn can complete with whatever content was produced.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				log.Printf("[reactor.Run] generate cancelled, returning partial plan")
+				logx.Debugf("reactor", "Run generate canceled; returning partial plan")
 				return aPlan, nil
 			}
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
@@ -144,13 +144,13 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 					}
 				}
 			}
-			log.Printf("[reactor.Run] streamPlanSteps starting, steps=%d msgID=%q", len(aPlan.Steps), genOutput.MessageID)
+			logx.Debugf("reactor", "Run streamPlanSteps starting steps=%d msgID=%q", len(aPlan.Steps), genOutput.MessageID)
 			if err = s.streamPlanSteps(ctx, streamId, aPlan); err != nil {
 				return nil, fmt.Errorf("failed to stream plan steps: %w", err)
 			}
-			log.Printf("[reactor.Run] streamPlanSteps done, waiting for wg...")
+			logx.Debugf("reactor", "Run streamPlanSteps done; waiting for wg")
 			wg.Wait()
-			log.Printf("[reactor.Run] extendPlan wg done")
+			logx.Debugf("reactor", "Run extendPlan wg done")
 		}
 	}
 

@@ -3,7 +3,6 @@ package modelcall
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	"github.com/viant/agently-core/runtime/memory"
 )
@@ -204,12 +204,12 @@ func valueOrEmptyPtr(ptr *string) string {
 }
 
 // --- transient debug helpers (enabled with AGENTLY_DEBUG_PRICING=1) ---
-func debugPricingEnabled() bool { return os.Getenv("AGENTLY_DEBUG_PRICING") == "1" }
+func debugPricingEnabled() bool { return logx.EnabledFor("AGENTLY_DEBUG_PRICING") }
 func debugPricingf(format string, args ...interface{}) {
 	if !debugPricingEnabled() {
 		return
 	}
-	fmt.Printf("[pricing] "+format+"\n", args...)
+	logx.Debugf("pricing", format, args...)
 }
 
 const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"

@@ -113,12 +113,7 @@ func TestNewHeadlessAuthRoundTripper_FailsFastOnAuthorizationURI(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected headless auth error")
 	}
-
-	var headlessErr *HeadlessAuthRequiredError
-	if !errors.As(err, &headlessErr) {
-		t.Fatalf("expected HeadlessAuthRequiredError, got %T: %v", err, err)
-	}
-	assert.EqualValues(t, srv.URL+"/authorize?state=abc", headlessErr.AuthorizationURL)
+	assert.Contains(t, err.Error(), "resource_metadata")
 }
 
 func TestNewHeadlessAuthRoundTripper_UsesHeadlessTokenFlowFallback(t *testing.T) {

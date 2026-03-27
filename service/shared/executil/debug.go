@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
-	"strings"
 
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/shared"
 )
 
@@ -19,16 +19,7 @@ func debugf(ctx context.Context, format string, args ...interface{}) {
 }
 
 func debugConvEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_DEBUG"))) {
-	case "1", "true", "yes", "y", "on":
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG"))) {
-	case "1", "true", "yes", "y", "on":
-		return true
-	default:
-		return false
-	}
+	return logx.Enabled()
 }
 
 func debugConvf(format string, args ...interface{}) { infoConvf(format, args...) }
@@ -37,21 +28,21 @@ func infoConvf(format string, args ...interface{}) {
 	if !debugConvEnabled() {
 		return
 	}
-	log.Printf("[debug][conversation][INFO] "+format, args...)
+	logx.Infof("conversation", format, args...)
 }
 
 func warnConvf(format string, args ...interface{}) {
 	if !debugConvEnabled() {
 		return
 	}
-	log.Printf("[debug][conversation][WARN] "+format, args...)
+	logx.Warnf("conversation", format, args...)
 }
 
 func errorConvf(format string, args ...interface{}) {
 	if !debugConvEnabled() {
 		return
 	}
-	log.Printf("[debug][conversation][ERROR] "+format, args...)
+	logx.Errorf("conversation", format, args...)
 }
 
 func headString(s string, n int) string {

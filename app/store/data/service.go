@@ -34,7 +34,6 @@ import (
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
-	hstate "github.com/viant/xdatly/handler/state"
 )
 
 var ErrPermissionDenied = errors.New("permission denied")
@@ -85,102 +84,6 @@ type Service interface {
 
 type datlyService struct {
 	dao *datly.Service
-}
-
-type Direction string
-
-const (
-	DirectionBefore Direction = "before"
-	DirectionAfter  Direction = "after"
-	DirectionLatest Direction = "latest"
-)
-
-type PageInput struct {
-	Limit     int
-	Cursor    string
-	Direction Direction
-}
-
-type ConversationPage struct {
-	Rows       []*agconvlist.ConversationRowsView
-	NextCursor string
-	PrevCursor string
-	HasMore    bool
-}
-
-type MessagePage struct {
-	Rows       []*agmessagelist.MessageRowsView
-	NextCursor string
-	PrevCursor string
-	HasMore    bool
-}
-
-type TurnPage struct {
-	Rows       []*agturnlistall.TurnRowsView
-	NextCursor string
-	PrevCursor string
-	HasMore    bool
-}
-
-type RunStepPage struct {
-	Rows       []*agrunsteps.RunStepsView
-	NextCursor string
-	PrevCursor string
-	HasMore    bool
-}
-
-type options struct {
-	selectors []*hstate.NamedQuerySelector
-	principal string
-	isAdmin   bool
-}
-
-// Option customizes read execution without changing generated input DTOs.
-type Option func(*options)
-
-// WithQuerySelector delegates pagination/projection/order constraints to Datly selectors.
-func WithQuerySelector(selectors ...*hstate.NamedQuerySelector) Option {
-	return func(o *options) {
-		o.selectors = append(o.selectors, selectors...)
-	}
-}
-
-// WithPrincipal enforces conversation visibility rules for reads.
-func WithPrincipal(userID string) Option {
-	return func(o *options) {
-		o.principal = userID
-	}
-}
-
-// WithAdminPrincipal bypasses visibility restrictions.
-func WithAdminPrincipal(userID string) Option {
-	return func(o *options) {
-		o.principal = userID
-		o.isAdmin = true
-	}
-}
-
-func toOperateOptions(opts []Option) []datly.OperateOption {
-	callOpts := collectOptions(opts)
-	if len(callOpts.selectors) == 0 {
-		return nil
-	}
-	return []datly.OperateOption{
-		datly.WithSessionOptions(datly.WithQuerySelectors(callOpts.selectors...)),
-	}
-}
-
-func collectOptions(opts []Option) *options {
-	if len(opts) == 0 {
-		return &options{}
-	}
-	callOpts := &options{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(callOpts)
-		}
-	}
-	return callOpts
 }
 
 // NewService creates a thin data service on top of a Datly DAO.
@@ -730,68 +633,4 @@ func (s *datlyService) ListGeneratedFiles(ctx context.Context, conversationID st
 		return nil, err
 	}
 	return out.Data, nil
-}
-
-func authorizeConversation(item *agconv.ConversationView, opts *options) error {
-	if item == nil || opts == nil || opts.principal == "" || opts.isAdmin {
-		return nil
-	}
-	if strings.EqualFold(item.Visibility, "public") {
-		return nil
-	}
-	if item.Shareable == 1 {
-		return nil
-	}
-	if item.CreatedByUserId != nil && *item.CreatedByUserId == opts.principal {
-		return nil
-	}
-	return ErrPermissionDenied
-}
-
-type authCache struct {
-	byConversationID map[string]error
-}
-
-func newAuthCache() *authCache {
-	return &authCache{byConversationID: map[string]error{}}
-}
-
-func (s *datlyService) authorizeConversationID(ctx context.Context, conversationID string, opts *options, cache *authCache) error {
-	if opts == nil || opts.principal == "" || opts.isAdmin {
-		return nil
-	}
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
-		return ErrPermissionDenied
-	}
-	if cache != nil {
-		if err, ok := cache.byConversationID[conversationID]; ok {
-			return err
-		}
-	}
-	conv, err := s.loadConversationForAuth(ctx, conversationID)
-	if err != nil {
-		if cache != nil {
-			cache.byConversationID[conversationID] = err
-		}
-		return err
-	}
-	err = authorizeConversation(conv, opts)
-	if cache != nil {
-		cache.byConversationID[conversationID] = err
-	}
-	return err
-}
-
-func (s *datlyService) loadConversationForAuth(ctx context.Context, id string) (*agconv.ConversationView, error) {
-	input := &agconv.ConversationInput{Id: id, Has: &agconv.ConversationInputHas{Id: true}}
-	out := &agconv.ConversationOutput{}
-	uri := strings.ReplaceAll(agconv.ConversationPathURI, "{id}", id)
-	if _, err := s.dao.Operate(ctx, datly.WithURI(uri), datly.WithInput(input), datly.WithOutput(out)); err != nil {
-		return nil, err
-	}
-	if len(out.Data) == 0 {
-		return nil, ErrPermissionDenied
-	}
-	return out.Data[0], nil
 }

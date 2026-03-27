@@ -13,6 +13,48 @@ import (
 	hstate "github.com/viant/xdatly/handler/state"
 )
 
+type Direction string
+
+const (
+	DirectionBefore Direction = "before"
+	DirectionAfter  Direction = "after"
+	DirectionLatest Direction = "latest"
+)
+
+type PageInput struct {
+	Limit     int
+	Cursor    string
+	Direction Direction
+}
+
+type ConversationPage struct {
+	Rows       []*agconvlist.ConversationRowsView
+	NextCursor string
+	PrevCursor string
+	HasMore    bool
+}
+
+type MessagePage struct {
+	Rows       []*agmessagelist.MessageRowsView
+	NextCursor string
+	PrevCursor string
+	HasMore    bool
+}
+
+type TurnPage struct {
+	Rows       []*agturnlistall.TurnRowsView
+	NextCursor string
+	PrevCursor string
+	HasMore    bool
+}
+
+type RunStepPage struct {
+	Rows       []*agrunsteps.RunStepsView
+	NextCursor string
+	PrevCursor string
+	HasMore    bool
+}
+
 func normalizePageInput(page *PageInput) (int, Direction, string) {
 	if page == nil {
 		return 50, DirectionBefore, ""

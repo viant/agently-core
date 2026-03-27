@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -169,6 +170,13 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 	}
 	childCtx = memory.WithTurnMeta(childCtx, memory.TurnMeta{})
 	childCtx = inheritDelegatedAuthContext(childCtx, ctx)
+	if childConversationID := strings.TrimSpace(runCtx.childConversationID); childConversationID != "" {
+		childCtx = memory.WithConversationID(childCtx, childConversationID)
+		childCtx = memory.WithTurnMeta(childCtx, memory.TurnMeta{
+			ConversationID: childConversationID,
+			TurnID:         uuid.NewString(),
+		})
+	}
 	childTimeout := s.ChildTimeout
 	if childTimeout <= 0 {
 		childTimeout = DefaultChildAgentTimeout

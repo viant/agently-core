@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/runtime/memory"
@@ -35,7 +36,7 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *
 	overlimit := 0
 	if v, ok := extractOverlimitTokens(errMessage); ok {
 		overlimit = v
-		fmt.Printf("[debug] overlimit tokens: %d\n", overlimit)
+		logx.Debugf("reactor", "context limit overlimit tokens=%d", overlimit)
 	}
 	mode := memory.ContextRecoveryPruneCompact
 	if v, ok := memory.ContextRecoveryModeFromContext(ctx); ok && strings.TrimSpace(v) != "" {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/workspace"
-	wscfg "github.com/viant/agently-core/workspace/config"
+	wscodec "github.com/viant/agently-core/workspace/codec"
 )
 
 // FeedSpec describes a tool feed loaded from workspace YAML.
@@ -70,7 +70,7 @@ func (r *FeedRegistry) loadFromWorkspace() {
 			continue
 		}
 		var spec FeedSpec
-		if err := wscfg.DecodeFile(filepath.Join(feedsDir, entry.Name()), &spec); err != nil {
+		if err := wscodec.DecodeFile(filepath.Join(feedsDir, entry.Name()), &spec); err != nil {
 			continue
 		}
 		if spec.ID == "" {

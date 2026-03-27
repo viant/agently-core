@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"path"
 	"sort"
 	"strings"
@@ -611,7 +610,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if msgID == "" {
 					msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
 				}
-				log.Printf("[runPlan-final] patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
+				debugf("runPlan-final patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
 					msgID, turn.ConversationID, turn.TurnID, len(genOutput.Content))
 				if msgID != "" {
 					msg := apiconv.NewMessage()
@@ -620,7 +619,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					msg.SetContent(strings.TrimSpace(genOutput.Content))
 					msg.SetInterim(0)
 					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
-						log.Printf("[runPlan-final] ERROR patching msg=%q err=%v", msgID, err)
+						errorf("runPlan-final patching msg=%q err=%v", msgID, err)
 					}
 				}
 			}
