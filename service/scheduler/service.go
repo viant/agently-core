@@ -30,16 +30,17 @@ type oauthAuthorizer interface {
 
 // Service manages persisted scheduler CRUD and execution of due schedules.
 type Service struct {
-	store         Store
-	agent         *agentsvc.Service
-	conversation  convcli.Client
-	interval      time.Duration
-	tokenProvider token.Provider
-	scyService    *scy.Service
-	authCfg       *iauth.Config
-	oauthAuthz    oauthAuthorizer
-	leaseOwner    string
-	leaseTTL      time.Duration
+	store           Store
+	agent           *agentsvc.Service
+	conversation    convcli.Client
+	interval        time.Duration
+	tokenProvider   token.Provider
+	scyService      *scy.Service
+	authCfg         *iauth.Config
+	userCredAuthCfg *UserCredAuthConfig
+	oauthAuthz      oauthAuthorizer
+	leaseOwner      string
+	leaseTTL        time.Duration
 }
 
 const (
@@ -1024,14 +1025,15 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 }
 
 func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (context.Context, error) {
-	if s.authCfg == nil || s.authCfg.OAuth == nil || s.authCfg.OAuth.Client == nil {
+	cfg := s.resolveUserCredAuthConfig()
+	if cfg == nil {
 		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth configuration")
 	}
-	mode := strings.ToLower(strings.TrimSpace(s.authCfg.OAuth.Mode))
+	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
 	if mode != "bff" {
 		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.mode=bff")
 	}
-	cfgURL := strings.TrimSpace(s.authCfg.OAuth.Client.ConfigURL)
+	cfgURL := strings.TrimSpace(cfg.ClientConfigURL)
 	if cfgURL == "" {
 		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.client.configURL")
 	}
@@ -1044,8 +1046,8 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 			ConfigURL: cfgURL,
 		},
 	}
-	if scopes := s.authCfg.OAuth.Client.Scopes; len(scopes) > 0 {
-		cmd.Scopes = scopes
+	if scopes := cfg.Scopes; len(scopes) > 0 {
+		cmd.Scopes = append([]string(nil), scopes...)
 	} else {
 		cmd.Scopes = []string{"openid"}
 	}
