@@ -159,7 +159,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	// Binding registry to current conversation (if any) so tool.Execute receives ctx with convID.
 	reg := tool.WithConversation(s.registry, memory.ConversationIDFromContext(ctx))
 	// Do not create child cancels here; errors must not cancel context.
-	streamId, stepErrCh := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput, priorResults)
+	streamId := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput, priorResults)
 	canStream, err := s.canStream(ctx, genInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
@@ -170,6 +170,16 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		log.Printf("[reactor.Run] stream returned, err=%v", err)
 		defer cleanup()
 		if err != nil {
+			// Context cancellation means the turn was stopped externally (user cancel, deadline).
+			// Do not propagate as a turn error — wait for any in-flight tool goroutines to
+			// finalize their results (via detachedFinalizeCtx) and return the partial plan.
+			// The turn will complete with whatever was generated up to the cancellation point.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("[reactor.Run] stream cancelled, waiting for tool goroutines to finalize...")
+				wg.Wait()
+				log.Printf("[reactor.Run] tool goroutines finalized after stream cancel")
+				return aPlan, nil
+			}
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
 				// One-shot guard: present only once per Run
 				if ctx.Value(ctxKeyLimitRecoveryAttempted) == nil {
@@ -183,19 +193,17 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		}
 		log.Printf("[reactor.Run] waiting for tool goroutines...")
 		wg.Wait()
-		log.Printf("[reactor.Run] all tool goroutines done, checking errors")
-		// propagate first tool error if any
-		select {
-		case toolErr := <-stepErrCh:
-			if toolErr != nil {
-				return nil, fmt.Errorf("tool execution failed: %w", toolErr)
-			}
-		default:
-		}
+		log.Printf("[reactor.Run] all tool goroutines done")
 		s.synthesizeFinalResponse(genOutput)
 
 	} else {
 		if err := s.llm.Generate(ctx, genInput, genOutput); err != nil {
+			// Context cancellation: same as stream — return partial plan without error
+			// so the turn can complete with whatever content was produced.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("[reactor.Run] generate cancelled, returning partial plan")
+				return aPlan, nil
+			}
 			if errors.Is(err, core2.ErrContextLimitExceeded) {
 				// One-shot guard: present only once per Run
 				if ctx.Value(ctxKeyLimitRecoveryAttempted) == nil {
@@ -232,14 +240,6 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			log.Printf("[reactor.Run] streamPlanSteps done, waiting for wg...")
 			wg.Wait()
 			log.Printf("[reactor.Run] extendPlan wg done")
-			// propagate first tool error if any
-			select {
-			case toolErr := <-stepErrCh:
-				if toolErr != nil {
-					return nil, fmt.Errorf("tool execution failed: %w", toolErr)
-				}
-			default:
-			}
 		}
 	}
 
@@ -560,12 +560,11 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return doStream, nil
 }
 
-func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput, prior []llm.ToolCall) (string, <-chan error) {
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput, prior []llm.ToolCall) string {
 	// Use the orchestrator.Run context for executing tools so auth (e.g. MCP/BFF tokens)
 	// propagates into tool execution. The stream callback context may not carry it.
 	runCtx := ctx
 	var mux sync.Mutex
-	stepErrCh := make(chan error, 1)
 	// No deduplication guard — each tool call executes independently.
 	// The model is responsible for avoiding redundant calls.
 	var guard *DuplicateGuard
@@ -629,7 +628,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, guard, reg, genOutput.MessageID)
 		return nil
 	})
-	return id, stepErrCh
+	return id
 }
 
 func truncStr(s string, n int) string {

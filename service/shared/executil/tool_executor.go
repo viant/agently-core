@@ -162,7 +162,12 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	if execErr != nil && strings.TrimSpace(toolResult) == "" {
 		// Provide the error text as response payload so the LLM can reason over it.
-		toolResult = execErr.Error()
+		// Use a clear cancellation message instead of the raw context error string.
+		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
+			toolResult = "tool execution was cancelled"
+		} else {
+			toolResult = execErr.Error()
+		}
 		out.Result = toolResult
 	}
 	if execErr != nil {
@@ -190,11 +195,20 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 
 	// 5) Persist side effects + response payload.
+	// When the parent context is already cancelled (e.g. user cancelled the turn),
+	// fall back to a detached context so the tool result is still persisted for
+	// the conversation history and the LLM can reason over it in the next turn.
+	persistCtx := ctx
+	if ctx.Err() != nil {
+		var cancelPersist func()
+		persistCtx, cancelPersist = detachedFinalizeCtx(ctx)
+		defer cancelPersist()
+	}
 	if strings.TrimSpace(toolResult) != "" {
-		if err := persistDocumentsIfNeeded(ctx, reg, conv, turn, step.Name, toolResult); err != nil {
+		if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("emit system content: %w", err))
 		}
-		if err := persistToolImageAttachmentIfNeeded(ctx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
+		if err := persistToolImageAttachmentIfNeeded(persistCtx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("persist tool attachments: %w", err))
 		}
 		if redacted, ok := redactToolResultIfNeeded(step.Name, toolResult); ok {
@@ -203,7 +217,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		}
 	}
 
-	respID, respErr := persistResponsePayload(ctx, conv, toolResult)
+	respID, respErr := persistResponsePayload(persistCtx, conv, toolResult)
 	if respErr != nil {
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
 	}

@@ -30,7 +30,7 @@ require (
 	github.com/viant/mcp v0.14.0
 	github.com/viant/mcp-protocol v0.11.0
 	github.com/viant/parsly v0.3.3
-	github.com/viant/scy v0.29.0
+	github.com/viant/scy v0.30.0
 	github.com/viant/velty v0.4.0
 	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
 	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
