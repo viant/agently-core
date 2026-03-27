@@ -3,6 +3,7 @@ package cookies
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/viant/afs"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	authtransport "github.com/viant/mcp/client/auth/transport"
@@ -86,6 +88,7 @@ func (p *Provider) Jar(ctx context.Context) (http.CookieJar, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if existing := p.byUser[user]; existing != nil {
+		p.logSchedulerJarResolved(ctx, user, true)
 		return existing, nil
 	}
 
@@ -113,6 +116,7 @@ func (p *Provider) Jar(ctx context.Context) (http.CookieJar, error) {
 	}
 
 	p.byUser[user] = jar
+	p.logSchedulerJarResolved(ctx, user, false)
 	return jar, nil
 }
 
@@ -189,4 +193,17 @@ func mirrorDevAliasCookies(dst http.CookieJar, u *neturl.URL, cs []*http.Cookie)
 
 func (p *Provider) String() string {
 	return fmt.Sprintf("cookies.Provider(anonymousScope=%v)", p.includeAnonymousScope)
+}
+
+func (p *Provider) logSchedulerJarResolved(ctx context.Context, user string, cached bool) {
+	mode, ok := memory.DiscoveryModeFromContext(ctx)
+	if !ok || !mode.Scheduler {
+		return
+	}
+	log.Printf("[scheduler-auth] schedule=%q run=%q user=%q mcp cookie jar resolved cached=%t",
+		strings.TrimSpace(mode.ScheduleID),
+		strings.TrimSpace(mode.ScheduleRunID),
+		strings.TrimSpace(user),
+		cached,
+	)
 }
