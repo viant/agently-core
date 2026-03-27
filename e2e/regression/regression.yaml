@@ -148,7 +148,7 @@ pipeline:
               fi
               sleep 0.5
             done
-            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
+            (nohup env GODEBUG=netdns=cgo AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
 
             auth_pids=$(lsof -tiTCP:${authServerPort} -sTCP:LISTEN || true)
             if [ -n "$auth_pids" ]; then
@@ -160,7 +160,7 @@ pipeline:
               fi
               sleep 0.5
             done
-            (nohup env AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${authServerPort} --jwt-pub ${jwtPubKey} --jwt-priv ${jwtPrivKey} >/tmp/agently-core-auth-app.log 2>&1 &)
+            (nohup env GODEBUG=netdns=cgo AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${authServerPort} --jwt-pub ${jwtPubKey} --jwt-priv ${jwtPrivKey} >/tmp/agently-core-auth-app.log 2>&1 &)
           else
             pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
             if [ -n "$pids" ]; then

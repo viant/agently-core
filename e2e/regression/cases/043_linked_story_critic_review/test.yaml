@@ -36,7 +36,9 @@ pipeline:
     description: "linked story review - child conversation is listed with status and reviewed response"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/conversations/linked?parentId=${query.Responses[0].JSONBody.conversationId}
+        URL: ${serverURL}/v1/conversations/linked?parentConversationId=${query.Responses[0].JSONBody.conversationId}
         Expect:
           Code: 200
-          Body: /rows:[]/
+          JSONBody:
+            rows: []
+            hasMore: false
