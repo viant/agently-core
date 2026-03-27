@@ -34,6 +34,24 @@ func NewAuthRoundTripperWithPrompt(jar http.CookieJar, base http.RoundTripper, r
 	return NewAuthRoundTripper(jar, base, rejectTTL)
 }
 
+// NewHeadlessAuthRoundTripper builds an auth RoundTripper for non-interactive
+// runtimes such as scheduler/watchdog processes. It reuses cookies and context
+// tokens but refuses to enter browser/OOB/BFF authentication flows.
+func NewHeadlessAuthRoundTripper(jar http.CookieJar, base http.RoundTripper, rejectTTL time.Duration) (*authtransport.RoundTripper, error) {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	base = NewHeadlessFailureRoundTripper(base)
+	opts := []authtransport.Option{
+		authtransport.WithAuthFlow(headlessAuthFlow{}),
+	}
+	if jar != nil {
+		opts = append(opts, authtransport.WithCookieJar(jar))
+	}
+	opts = append(opts, authtransport.WithTransport(base))
+	return authtransport.New(opts...)
+}
+
 // NewAuthRoundTripperWithElicitation builds an auth RoundTripper that surfaces
 // OAuth authorization URLs via a callback instead of opening a CLI browser.
 func NewAuthRoundTripperWithElicitation(jar http.CookieJar, base http.RoundTripper, rejectTTL time.Duration, urlHandler authtransport.AuthURLHandler) (*authtransport.RoundTripper, error) {

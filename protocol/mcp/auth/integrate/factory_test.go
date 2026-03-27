@@ -1,6 +1,9 @@
 package integrate
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -87,6 +90,86 @@ func TestNewAuthRoundTripper_WrapBaseTransport_AddsCookies(t *testing.T) {
 	// Assert base transport observed cookie header
 	assert.EqualValues(t, true, len(rec.sawCookie) > 0, "expected Cookie header at base transport")
 	assert.EqualValues(t, true, containsCookie(rec.sawCookie, "token", "abc"))
+}
+
+func TestNewHeadlessAuthRoundTripper_FailsFastOnAuthorizationURI(t *testing.T) {
+	var srv *httptest.Server
+	srv = newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/protected" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer authorization_uri="%s/authorize?state=abc"`, srv.URL))
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	rt, err := NewHeadlessAuthRoundTripper(jar, http.DefaultTransport, 0)
+	assert.NoError(t, err)
+
+	client := &http.Client{Transport: rt}
+	_, err = client.Get(srv.URL + "/protected")
+	if err == nil {
+		t.Fatalf("expected headless auth error")
+	}
+
+	var headlessErr *HeadlessAuthRequiredError
+	if !errors.As(err, &headlessErr) {
+		t.Fatalf("expected HeadlessAuthRequiredError, got %T: %v", err, err)
+	}
+	assert.EqualValues(t, srv.URL+"/authorize?state=abc", headlessErr.AuthorizationURL)
+}
+
+func TestNewHeadlessAuthRoundTripper_UsesHeadlessTokenFlowFallback(t *testing.T) {
+	var srv *httptest.Server
+	srv = newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/protected":
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/resource-metadata"`, srv.URL))
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/resource-metadata":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":              srv.URL + "/protected",
+				"authorization_servers": []string{srv.URL},
+			})
+		case "/.well-known/oauth-authorization-server":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 srv.URL,
+				"authorization_endpoint": srv.URL + "/authorize",
+				"token_endpoint":         srv.URL + "/token",
+				"registration_endpoint":  srv.URL + "/register",
+				"scopes_supported":       []string{"openid"},
+			})
+		case "/register":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"client_id": "test-client",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	jar, _ := cookiejar.New(nil)
+	rt, err := NewHeadlessAuthRoundTripper(jar, http.DefaultTransport, 0)
+	assert.NoError(t, err)
+
+	client := &http.Client{Transport: rt}
+	_, err = client.Get(srv.URL + "/protected")
+	if err == nil {
+		t.Fatalf("expected headless auth error")
+	}
+
+	assert.ErrorIs(t, err, ErrHeadlessAuthRequired)
+	var headlessErr *HeadlessAuthRequiredError
+	if !errors.As(err, &headlessErr) {
+		t.Fatalf("expected HeadlessAuthRequiredError, got %T: %v", err, err)
+	}
+	assert.EqualValues(t, strings.TrimPrefix(srv.URL, "http://"), headlessErr.Origin)
 }
 
 // containsCookie checks header string contains name=value pair.

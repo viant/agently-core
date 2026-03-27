@@ -805,19 +805,25 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	if strings.TrimSpace(id) == "" {
 		id = uuid.New().String()
 	}
-	debugf("upsertInlinePayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(id), strings.TrimSpace(kind), strings.TrimSpace(mime), len(body))
+	sizeBytes := len(body)
+	logPayloadDebug := sizeBytes%512 == 0
+	if logPayloadDebug {
+		debugf("upsertInlinePayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(id), strings.TrimSpace(kind), strings.TrimSpace(mime), sizeBytes)
+	}
 	pw := apiconv.NewPayload()
 	pw.SetId(id)
 	pw.SetKind(kind)
 	pw.SetMimeType(mime)
-	pw.SetSizeBytes(len(body))
+	pw.SetSizeBytes(sizeBytes)
 	pw.SetStorage("inline")
 	pw.SetInlineBody(body)
 	if err := o.client.PatchPayload(ctx, pw); err != nil {
 		errorf("upsertInlinePayload error id=%q err=%v", strings.TrimSpace(id), err)
 		return "", err
 	}
-	debugf("upsertInlinePayload ok id=%q", strings.TrimSpace(id))
+	if logPayloadDebug {
+		debugf("upsertInlinePayload ok id=%q", strings.TrimSpace(id))
+	}
 	return id, nil
 }
 
