@@ -1,7 +1,20 @@
 pipeline:
   metadataAgentStarter:
-    action: exec:run
+    action: http/runner:send
     description: "metadata - backend exposes agent starter tasks under agentInfos"
-    checkError: true
-    commands:
-      - ${repoPath}/e2e/scripts/check_metadata_agent_starter.py ${serverURL}
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/workspace/metadata
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@agentInfos[0]": true
+            agentInfos:
+              "@indexBy@": id
+              starter_probe:
+                starterTasks:
+                  - id: analyze-repo
+                    title: Analyze this repo
+                    prompt: Analyze this repository.
+                    description: Architecture summary and next steps.
+                    icon: tree-structure
