@@ -40,6 +40,12 @@ type OOBRequest struct {
 	Scopes     []string `json:"scopes,omitempty"`
 }
 
+type LocalOOBSessionOptions struct {
+	ConfigURL  string
+	SecretsURL string
+	Scopes     []string
+}
+
 func (c *HTTPClient) AuthProviders(ctx context.Context) ([]AuthProvider, error) {
 	var out []AuthProvider
 	if err := c.doJSON(ctx, "GET", "/v1/api/auth/providers", nil, &out); err != nil {
@@ -112,6 +118,54 @@ func (c *HTTPClient) AuthCreateSession(ctx context.Context, req *CreateSessionRe
 		return fmt.Errorf("access token or id token is required")
 	}
 	return c.doJSON(ctx, "POST", "/v1/api/auth/session", req, nil)
+}
+
+func (c *HTTPClient) AuthLocalOOBSession(ctx context.Context, opts *LocalOOBSessionOptions) error {
+	if opts == nil {
+		return fmt.Errorf("options are required")
+	}
+	configURL := strings.TrimSpace(opts.ConfigURL)
+	scopes := append([]string(nil), opts.Scopes...)
+	if configURL == "" {
+		cfg, err := c.AuthOAuthConfig(ctx)
+		if err != nil {
+			return fmt.Errorf("load oauth config: %w", err)
+		}
+		configURL = strings.TrimSpace(cfg.ConfigURL)
+		if len(scopes) == 0 {
+			scopes = append([]string(nil), cfg.Scopes...)
+		}
+	}
+	if configURL == "" {
+		return fmt.Errorf("oauth configURL is required for local OOB login")
+	}
+	payload, err := authorizer.New().AuthorizeSessionTokenPayload(ctx, &authorizer.Command{
+		AuthFlow:   "OOB",
+		UsePKCE:    true,
+		SecretsURL: strings.TrimSpace(opts.SecretsURL),
+		Scopes:     scopes,
+		OAuthConfig: authorizer.OAuthConfig{
+			ConfigURL: configURL,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if payload == nil {
+		return fmt.Errorf("oauth login returned no token payload")
+	}
+	if err := c.AuthCreateSession(ctx, &CreateSessionRequest{
+		AccessToken:  payload.AccessToken,
+		IDToken:      payload.IDToken,
+		RefreshToken: payload.RefreshToken,
+		ExpiresAt:    payload.ExpiresAt,
+	}); err != nil {
+		return err
+	}
+	if _, err := c.AuthMe(ctx); err != nil {
+		return fmt.Errorf("oauth login succeeded, but session was not established")
+	}
+	return nil
 }
 
 func (c *HTTPClient) AuthBrowserSession(ctx context.Context) error {

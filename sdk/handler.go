@@ -406,7 +406,11 @@ func handleQuery(client Client, authCfg *iauth.Config) http.HandlerFunc {
 			httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
 			return
 		}
-		out, err := client.Query(r.Context(), &input)
+		// Decouple turn execution from the HTTP request lifecycle.
+		// A long-running turn must not be cancelled because the client
+		// disconnected or the server's write-timeout fired; all context
+		// values (auth tokens, etc.) are still inherited.
+		out, err := client.Query(context.WithoutCancel(r.Context()), &input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -781,7 +785,7 @@ func handleSteerTurn(client Client) http.HandlerFunc {
 		}
 		input.ConversationID = conversationID
 		input.TurnID = turnID
-		out, err := client.SteerTurn(r.Context(), &input)
+		out, err := client.SteerTurn(context.WithoutCancel(r.Context()), &input)
 		if err != nil {
 			if isConflictError(err) {
 				httpError(w, http.StatusConflict, err)
