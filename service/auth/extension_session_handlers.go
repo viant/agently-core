@@ -73,6 +73,9 @@ func (a *authExtension) handleLocalLogin() http.HandlerFunc {
 		}
 		sess := &Session{ID: uuid.New().String(), Username: username, Subject: username, CreatedAt: time.Now()}
 		a.sessions.Put(r.Context(), sess)
+		if a.users != nil {
+			_ = a.users.Upsert(r.Context(), &User{Username: username, DisplayName: username, Provider: "local"})
+		}
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username, "provider": "local"})
 	}
@@ -200,15 +203,8 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			}
 		}
 		a.sessions.Put(r.Context(), sess)
-		if a.tokenStore != nil && sess.Tokens != nil {
-			_ = a.tokenStore.Put(r.Context(), &OAuthToken{
-				Username:     firstNonEmpty(subject, username),
-				Provider:     a.oauthProviderName(),
-				AccessToken:  strings.TrimSpace(in.AccessToken),
-				IDToken:      strings.TrimSpace(in.IDToken),
-				RefreshToken: strings.TrimSpace(in.RefreshToken),
-				ExpiresAt:    sess.Tokens.Expiry,
-			})
+		if sess.Tokens != nil {
+			a.persistOAuthToken(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry)
 		}
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username})

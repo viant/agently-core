@@ -32,6 +32,8 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		if err != nil {
 			logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred apply failed err=%v", err)
 		}
+	} else {
+		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "no user_cred_url; using created_by_user_id auth path")
 	}
 
 	userID := scheduleUserID(runCtx, row)

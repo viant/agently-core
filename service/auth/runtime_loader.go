@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -61,7 +62,12 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 		if configURL := strings.TrimSpace(cfg.OAuth.Client.ConfigURL); configURL != "" {
 			tokenStore = NewTokenStoreDAO(dao, configURL)
 			opts = append(opts, WithTokenStore(tokenStore))
+			log.Printf("[auth-oauth] runtime token store enabled provider=%q config_url_set=%t dao=%t", firstNonEmpty(strings.TrimSpace(cfg.OAuth.Name), "oauth"), true, dao != nil)
 		}
+	}
+	var users UserService
+	if dao != nil {
+		users = NewDatlyUserService(dao)
 	}
 
 	var jwtVerifier *vcfg.Service
@@ -96,7 +102,7 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 		jwtVerifier: jwtVerifier,
 		jwtService:  jwtService,
 		handlerOpts: opts,
-		ext:         newAuthExtension(cfg, sessions, strings.TrimSpace(jwtPrivateKeyPath(cfg)), tokenStore),
+		ext:         newAuthExtension(cfg, sessions, strings.TrimSpace(jwtPrivateKeyPath(cfg)), tokenStore, users),
 	}
 	runtime.stopRefresh = runtime.startTokenRefreshWatcher(ctx)
 	return runtime, nil

@@ -118,16 +118,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 		}
 		a.sessions.Put(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
-		if a.tokenStore != nil {
-			_ = a.tokenStore.Put(r.Context(), &OAuthToken{
-				Username:     firstNonEmpty(subject, username),
-				Provider:     provider,
-				AccessToken:  token.AccessToken,
-				IDToken:      idToken,
-				RefreshToken: token.RefreshToken,
-				ExpiresAt:    token.Expiry,
-			})
-		}
+		a.persistOAuthToken(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
 		runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "username": username, "provider": provider})
 	}
 }
@@ -243,16 +234,7 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 		}
 		a.sessions.Put(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
-		if a.tokenStore != nil {
-			_ = a.tokenStore.Put(r.Context(), &OAuthToken{
-				Username:     firstNonEmpty(subject, username),
-				Provider:     provider,
-				AccessToken:  token.AccessToken,
-				IDToken:      idToken,
-				RefreshToken: token.RefreshToken,
-				ExpiresAt:    token.Expiry,
-			})
-		}
+		a.persistOAuthToken(r.Context(), "oauth_callback", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
 		if wantsJSON(r) {
 			runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "username": username, "provider": provider})
 			return
