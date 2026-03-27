@@ -341,7 +341,9 @@ func handleGenericMessageSend(cfg *GenericServerConfig, ag *ExposedAgent) http.H
 			}
 		}
 
-		out, err := cfg.Query(reqCtx, ag.ID, query, req.ContextID)
+		// Decouple turn execution from the HTTP request lifecycle so a client
+		// disconnect or server write-timeout does not cancel the running turn.
+		out, err := cfg.Query(context.WithoutCancel(reqCtx), ag.ID, query, req.ContextID)
 		if err != nil {
 			errMsg := err.Error()
 			task := Task{
@@ -455,7 +457,9 @@ func handleGenericMessageStream(cfg *GenericServerConfig, ag *ExposedAgent) http
 			}
 		}
 
-		out, err := cfg.Query(reqCtx, ag.ID, query, req.ContextID)
+		// Decouple turn execution from the HTTP request lifecycle so a client
+		// disconnect or server write-timeout does not cancel the running turn.
+		out, err := cfg.Query(context.WithoutCancel(reqCtx), ag.ID, query, req.ContextID)
 		if err != nil {
 			errMsg := err.Error()
 			task.Touch(TaskStateFailed)
@@ -565,7 +569,9 @@ func handleMessageSend(cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentmod
 			ConversationID: req.ContextID,
 		}
 		out := &agentsvc.QueryOutput{}
-		if err := cfg.AgentService.Query(reqCtx, input, out); err != nil {
+		// Decouple turn execution from the HTTP request lifecycle so a client
+		// disconnect or server write-timeout does not cancel the running turn.
+		if err := cfg.AgentService.Query(context.WithoutCancel(reqCtx), input, out); err != nil {
 			errMsg := err.Error()
 			task := Task{
 				ID:        fmt.Sprintf("t-%s", req.ContextID),
