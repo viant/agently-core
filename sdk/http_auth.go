@@ -22,6 +22,14 @@ type LocalLoginRequest struct {
 	Name string `json:"name"`
 }
 
+type CreateSessionRequest struct {
+	Username     string `json:"username,omitempty"`
+	AccessToken  string `json:"accessToken,omitempty"`
+	IDToken      string `json:"idToken,omitempty"`
+	RefreshToken string `json:"refreshToken,omitempty"`
+	ExpiresAt    string `json:"expiresAt,omitempty"`
+}
+
 type OAuthConfigResponse struct {
 	ConfigURL string   `json:"configURL"`
 	Scopes    []string `json:"scopes,omitempty"`
@@ -94,6 +102,16 @@ func (c *HTTPClient) AuthSessionExchange(ctx context.Context, idToken string) er
 		return fmt.Errorf("session exchange failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+func (c *HTTPClient) AuthCreateSession(ctx context.Context, req *CreateSessionRequest) error {
+	if req == nil {
+		return fmt.Errorf("request is required")
+	}
+	if strings.TrimSpace(req.AccessToken) == "" && strings.TrimSpace(req.IDToken) == "" {
+		return fmt.Errorf("access token or id token is required")
+	}
+	return c.doJSON(ctx, "POST", "/v1/api/auth/session", req, nil)
 }
 
 func (c *HTTPClient) AuthBrowserSession(ctx context.Context) error {

@@ -120,6 +120,7 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 		expectedAttempts  int
 		expectError       bool
 		thresholdOverride time.Duration
+		expectedResult    string // when set, overrides the default derivation from the last script entry
 	}{
 		{
 			name: "retry-on-context-canceled",
@@ -146,6 +147,8 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 			expectedAttempts:  1,
 			expectError:       true,
 			thresholdOverride: 10 * time.Millisecond,
+			// context.Canceled produces the canonical cancellation message, not the raw error string.
+			expectedResult: "tool execution was cancelled",
 		},
 	}
 	for _, tc := range cases {
@@ -172,9 +175,12 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 				if attemptIdx >= len(tc.script) {
 					attemptIdx = len(tc.script) - 1
 				}
-				expectedResult := tc.script[attemptIdx].result
-				if strings.TrimSpace(expectedResult) == "" && tc.script[attemptIdx].err != nil {
-					expectedResult = tc.script[attemptIdx].err.Error()
+				expectedResult := tc.expectedResult
+				if strings.TrimSpace(expectedResult) == "" {
+					expectedResult = tc.script[attemptIdx].result
+					if strings.TrimSpace(expectedResult) == "" && tc.script[attemptIdx].err != nil {
+						expectedResult = tc.script[attemptIdx].err.Error()
+					}
 				}
 				assert.EqualValues(t, expectedResult, call.Result)
 			}
