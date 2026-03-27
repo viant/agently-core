@@ -90,7 +90,7 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 // DefaultChildAgentTimeout is the maximum duration a child agent run is
 // allowed before its context is cancelled. This prevents hung tool calls
 // inside the child from blocking the parent agent forever.
-const DefaultChildAgentTimeout = 10 * time.Minute
+const DefaultChildAgentTimeout = 15 * time.Minute
 
 func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, convID string, depth int) error {
 	if s.agent == nil {
