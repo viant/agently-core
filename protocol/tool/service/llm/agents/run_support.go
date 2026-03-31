@@ -626,9 +626,14 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 	if s.linker == nil || strings.TrimSpace(runCtx.parent.ConversationID) == "" {
 		return runCtx, nil
 	}
-	scope := s.agentConversationScope(ctx, strings.TrimSpace(ri.AgentID))
+	scope := "new"
+	if strings.EqualFold(strings.TrimSpace(route), "internal") {
+		scope = s.agentConversationScope(ctx, strings.TrimSpace(ri.AgentID))
+	}
 	debugf("agents.run %s scope agent_id=%q scope=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
-	runCtx.childConversationID = s.resolveReusableChildConversation(ctx, ri.AgentID, runCtx.parent, scope, route)
+	if strings.EqualFold(strings.TrimSpace(route), "internal") {
+		runCtx.childConversationID = s.resolveReusableChildConversation(ctx, ri.AgentID, runCtx.parent, scope, route)
+	}
 	if strings.TrimSpace(runCtx.childConversationID) == "" {
 		childConversationID, err := s.createChildConversation(ctx, ri.AgentID, ri.Objective, runCtx.parent, route, waitForConversation)
 		if err != nil {
@@ -692,7 +697,9 @@ func (s *Service) createChildConversation(ctx context.Context, agentID, objectiv
 		return "", nil
 	}
 	debugf("agents.run %s created child_convo=%q parent_convo=%q", route, strings.TrimSpace(cid), strings.TrimSpace(parent.ConversationID))
-	s.assignConversationAgent(ctx, cid, agentID, route)
+	if strings.EqualFold(strings.TrimSpace(route), "internal") {
+		s.assignConversationAgent(ctx, cid, agentID, route)
+	}
 	if waitForConversation {
 		if err := s.waitForConversation(ctx, cid); err != nil {
 			errorf("agents.run %s wait child error child_convo=%q err=%v", route, strings.TrimSpace(cid), err)
