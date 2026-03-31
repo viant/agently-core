@@ -5,15 +5,14 @@ pipeline:
     expiryInSec: 1
     PrivateKey:
       URL: ${jwtPrivKey}
-    claims:
+    claimsMap:
       sub: expired-user
       email: expired@test.com
 
   waitExpiry:
-    action: exec:run
+    action: nop
     description: "wait for token to expire"
-    commands:
-      - sleep 2
+    sleepTimeMs: 2000
 
   conversationsExpiredJWT:
     action: http/runner:send
