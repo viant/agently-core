@@ -496,8 +496,11 @@ func (s *Service) collectNormalizedMessages(
 			if baseMsg == nil {
 				baseMsg = m
 			}
-			if baseMsg.Mode != nil && strings.EqualFold(strings.TrimSpace(*baseMsg.Mode), "chain") {
-				continue
+			if baseMsg.Mode != nil {
+				switch strings.ToLower(strings.TrimSpace(*baseMsg.Mode)) {
+				case "chain", "router":
+					continue
+				}
 			}
 			if applyPreview && baseMsg.Status != nil && strings.EqualFold(strings.TrimSpace(*baseMsg.Status), "error") {
 				if baseMsg.IsArchived() {

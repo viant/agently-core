@@ -188,3 +188,94 @@ func TestBuildHistory_SkipsCanceledTurns(t *testing.T) {
 	}
 	require.Equal(t, []string{"prompt-01", "prompt-04"}, userMsgs)
 }
+
+func TestBuildHistory_SkipsRouterModeMessages(t *testing.T) {
+	now := time.Now().UTC()
+	routerMode := "router"
+
+	tr := apiconv.Transcript{
+		{
+			Id:     "turn-1",
+			Status: "succeeded",
+			Message: []*agconv.MessageView{
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "user-1",
+					Role:      "user",
+					Type:      "text",
+					Content:   strPtr("hello"),
+					CreatedAt: now,
+				}),
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "router-1",
+					Role:      "assistant",
+					Type:      "text",
+					Mode:      &routerMode,
+					Content:   strPtr(`{"agentId":"chatter"}`),
+					CreatedAt: now.Add(time.Second),
+				}),
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "assistant-1",
+					Role:      "assistant",
+					Type:      "text",
+					Content:   strPtr("Hi there."),
+					CreatedAt: now.Add(2 * time.Second),
+				}),
+			},
+		},
+	}
+
+	svc := &Service{}
+	hist, err := svc.buildHistory(context.Background(), tr)
+	require.NoError(t, err)
+	require.Len(t, hist.Past, 1)
+	require.Len(t, hist.Past[0].Messages, 2)
+	require.Equal(t, "hello", hist.Past[0].Messages[0].Content)
+	require.Equal(t, "Hi there.", hist.Past[0].Messages[1].Content)
+}
+
+func TestBuildTraces_SkipsRouterAssistantMessages(t *testing.T) {
+	now := time.Now().UTC()
+	routerMode := "router"
+	routerTrace := "resp-router"
+	assistantTrace := "resp-assistant"
+
+	tr := apiconv.Transcript{
+		{
+			Id:     "turn-1",
+			Status: "succeeded",
+			Message: []*agconv.MessageView{
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "user-1",
+					Role:      "user",
+					Type:      "text",
+					Content:   strPtr("hello"),
+					CreatedAt: now,
+				}),
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "router-1",
+					Role:      "assistant",
+					Type:      "text",
+					Mode:      &routerMode,
+					Content:   strPtr(`{"agentId":"chatter"}`),
+					CreatedAt: now.Add(time.Second),
+					ModelCall: &agconv.ModelCallView{TraceId: &routerTrace},
+				}),
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "assistant-1",
+					Role:      "assistant",
+					Type:      "text",
+					Content:   strPtr("Hi there."),
+					CreatedAt: now.Add(2 * time.Second),
+					ModelCall: &agconv.ModelCallView{TraceId: &assistantTrace},
+				}),
+			},
+		},
+	}
+
+	svc := &Service{}
+	traces := svc.buildTraces(tr)
+	require.NotContains(t, traces, prompt.KindResponse.Key(routerTrace))
+	require.NotContains(t, traces, prompt.KindContent.Key(`{"agentId":"chatter"}`))
+	require.Contains(t, traces, prompt.KindResponse.Key(assistantTrace))
+	require.Contains(t, traces, prompt.KindContent.Key("Hi there."))
+}

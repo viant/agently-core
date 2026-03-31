@@ -139,8 +139,11 @@ func (t *Transcript) LastAssistantMessageWithModelCall() *Message {
 			if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {
 				continue
 			}
-			if m.Mode != nil && strings.EqualFold(strings.TrimSpace(*m.Mode), "summary") {
-				continue
+			if m.Mode != nil {
+				switch strings.ToLower(strings.TrimSpace(*m.Mode)) {
+				case "summary", "router":
+					continue
+				}
 			}
 			if m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "summary") {
 				continue
