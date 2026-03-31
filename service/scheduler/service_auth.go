@@ -89,11 +89,8 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 	return s.withAuthTokens(ctx, st), nil
 }
 
-func effectiveSchedulerTokenProvider(cfg *scheduleAuthConfig) string {
+func effectiveSchedulerTokenProvider(cfg *UserCredAuthConfig) string {
 	if cfg != nil {
-		if provider := strings.TrimSpace(cfg.Name); provider != "" {
-			return provider
-		}
 		return "oauth"
 	}
 	return "default"
