@@ -26,7 +26,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/api/a2a/agents/{agentId}/message", h.handleSendMessage())
 	// List A2A-enabled agents.
 	mux.HandleFunc("GET /v1/api/a2a/agents", h.handleListAgents())
-	// Well-known agent card (per A2A spec, agentId as query param).
+	// Direct protocol entrypoint on the shared app port. When only one A2A agent
+	// is enabled, agentId can be omitted and that sole agent is used.
+	mux.Handle("POST /v1/message:send", h.handleDirectSend())
+	mux.Handle("POST /v1/message:stream", h.handleDirectStream())
+	// Well-known agent card.
 	mux.HandleFunc("GET /.well-known/agent.json", h.handleWellKnown())
 }
 
@@ -92,17 +96,60 @@ func (h *Handler) handleListAgents() http.HandlerFunc {
 func (h *Handler) handleWellKnown() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		agentID := r.URL.Query().Get("agentId")
-		if agentID == "" {
-			respondError(w, http.StatusBadRequest, fmt.Errorf("agentId query parameter is required"))
+		ag, _, err := h.svc.resolveSharedAgent(r.Context(), agentID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err)
 			return
 		}
-		card, err := h.svc.GetAgentCard(r.Context(), agentID)
+		card, err := h.svc.GetAgentCard(r.Context(), ag.ID)
 		if err != nil {
 			respondError(w, http.StatusNotFound, err)
 			return
 		}
 		respondJSON(w, http.StatusOK, card)
 	}
+}
+
+func (h *Handler) handleDirectSend() http.Handler {
+	core := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.URL.Query().Get("agentId")
+		ag, a2aCfg, err := h.svc.resolveSharedAgent(r.Context(), agentID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err)
+			return
+		}
+		handleMessageSend(&ServerConfig{AgentService: h.svc.agent}, ag, a2aCfg).ServeHTTP(w, r)
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.URL.Query().Get("agentId")
+		_, a2aCfg, err := h.svc.resolveSharedAgent(r.Context(), agentID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err)
+			return
+		}
+		AuthMiddleware(a2aCfg.Auth, nil)(core).ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) handleDirectStream() http.Handler {
+	core := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.URL.Query().Get("agentId")
+		ag, a2aCfg, err := h.svc.resolveSharedAgent(r.Context(), agentID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err)
+			return
+		}
+		handleMessageStream(&ServerConfig{AgentService: h.svc.agent}, ag, a2aCfg).ServeHTTP(w, r)
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agentID := r.URL.Query().Get("agentId")
+		_, a2aCfg, err := h.svc.resolveSharedAgent(r.Context(), agentID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, err)
+			return
+		}
+		AuthMiddleware(a2aCfg.Auth, nil)(core).ServeHTTP(w, r)
+	})
 }
 
 func respondJSON(w http.ResponseWriter, code int, v interface{}) {
