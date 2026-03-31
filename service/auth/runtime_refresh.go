@@ -30,12 +30,56 @@ func (r *Runtime) ensureSessionOAuthTokens(ctx context.Context, sess *Session) b
 	return r.tryLoadFreshTokenFromStore(ctx, sess) != nil
 }
 
+func (r *Runtime) resolveRuntimeOAuthTokenOwner(ctx context.Context, sess *Session) (string, string) {
+	if r == nil || r.ext == nil || sess == nil {
+		return "", ""
+	}
+	subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
+	if subject == "" {
+		return "", ""
+	}
+	providers := []string{}
+	if sessionProvider := strings.TrimSpace(sess.Provider); sessionProvider != "" {
+		providers = append(providers, sessionProvider)
+	}
+	if oauthProvider := strings.TrimSpace(r.ext.oauthProviderName()); oauthProvider != "" {
+		seen := false
+		for _, provider := range providers {
+			if provider == oauthProvider {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			providers = append(providers, oauthProvider)
+		}
+	}
+	for _, provider := range providers {
+		if r.ext.users == nil {
+			return subject, provider
+		}
+		user, err := r.ext.users.GetBySubjectAndProvider(ctx, subject, provider)
+		if err != nil {
+			logx.Warnf("token-refresh", "canonical user lookup failed session_user=%q provider=%q err=%v", subject, provider, err)
+			continue
+		}
+		if user != nil && strings.TrimSpace(user.ID) != "" {
+			logx.Debugf("token-refresh", "canonical user resolved session_user=%q provider=%q canonical_user=%q", subject, provider, user.ID)
+			return strings.TrimSpace(user.ID), provider
+		}
+		logx.Debugf("token-refresh", "canonical user not found session_user=%q provider=%q", subject, provider)
+	}
+	return "", ""
+}
+
 func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session) *scyauth.Token {
 	if r.ext == nil || r.ext.tokenStore == nil || sess == nil {
 		return nil
 	}
-	username := strings.TrimSpace(sess.Subject)
-	provider := r.ext.oauthProviderName()
+	username, provider := r.resolveRuntimeOAuthTokenOwner(ctx, sess)
+	if username == "" || provider == "" {
+		return nil
+	}
 	dbTok, err := r.ext.tokenStore.Get(ctx, username, provider)
 	if err != nil || dbTok == nil {
 		return nil
@@ -55,8 +99,9 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		IDToken: dbTok.IDToken,
 	}
 	sess.Tokens = result
+	sess.Provider = provider
 	r.sessions.Put(ctx, sess)
-	logx.Debugf("token-refresh", "loaded fresh token from DB user=%q expiry=%v", username, dbTok.ExpiresAt.Format(time.RFC3339))
+	logx.Debugf("token-refresh", "loaded fresh token from DB user=%q provider=%q expiry=%v", username, provider, dbTok.ExpiresAt.Format(time.RFC3339))
 	return result
 }
 
@@ -71,8 +116,10 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 		return fresh
 	}
 
-	username := strings.TrimSpace(sess.Subject)
-	provider := r.ext.oauthProviderName()
+	username, provider := r.resolveRuntimeOAuthTokenOwner(ctx, sess)
+	if username == "" || provider == "" {
+		return nil
+	}
 	tokenStore := r.ext.tokenStore
 	if tokenStore != nil {
 		_, acquired, err := tokenStore.TryAcquireRefreshLease(ctx, username, provider, runtimeWorkerID, 30*time.Second)
@@ -104,6 +151,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	}
 	result := &scyauth.Token{Token: *refreshed, IDToken: sess.Tokens.IDToken}
 	sess.Tokens = result
+	sess.Provider = provider
 	r.sessions.Put(ctx, sess)
 	if tokenStore != nil {
 		_ = tokenStore.Put(ctx, &OAuthToken{

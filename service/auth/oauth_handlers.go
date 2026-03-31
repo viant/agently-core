@@ -106,6 +106,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			Username:  username,
 			Email:     email,
 			Subject:   subject,
+			Provider:  provider,
 			CreatedAt: time.Now(),
 			Tokens: &scyauth.Token{
 				Token: oauth2.Token{
@@ -222,6 +223,7 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 			Username:  username,
 			Email:     email,
 			Subject:   subject,
+			Provider:  provider,
 			CreatedAt: time.Now(),
 			Tokens: &scyauth.Token{
 				Token: oauth2.Token{

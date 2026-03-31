@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -33,6 +34,46 @@ func (s *DatlyUserService) GetByUsername(ctx context.Context, username string) (
 		return user, err
 	}
 	return s.lookupByID(ctx, username)
+}
+
+func (s *DatlyUserService) GetBySubjectAndProvider(ctx context.Context, subject, provider string) (*User, error) {
+	if s == nil || s.dao == nil || strings.TrimSpace(subject) == "" || strings.TrimSpace(provider) == "" {
+		return nil, nil
+	}
+	conn, err := s.dao.Resource().Connector("agently")
+	if err != nil {
+		return nil, err
+	}
+	db, err := conn.DB()
+	if err != nil {
+		return nil, err
+	}
+	const query = `SELECT id, username, display_name, email, provider, subject, settings
+FROM users
+WHERE subject = ? AND provider = ?
+LIMIT 1`
+	row := db.QueryRowContext(ctx, query, strings.TrimSpace(subject), strings.TrimSpace(provider))
+	var (
+		user       User
+		display    sql.NullString
+		emailVal   sql.NullString
+		subjectVal sql.NullString
+		settings   sql.NullString
+	)
+	if err := row.Scan(&user.ID, &user.Username, &display, &emailVal, &user.Provider, &subjectVal, &settings); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	user.DisplayName = strings.TrimSpace(firstNonEmpty(display.String, user.Username))
+	user.Email = strings.TrimSpace(emailVal.String)
+	user.Subject = strings.TrimSpace(subjectVal.String)
+	if strings.TrimSpace(settings.String) != "" {
+		user.Preferences = map[string]interface{}{}
+		_ = json.Unmarshal([]byte(strings.TrimSpace(settings.String)), &user.Preferences)
+	}
+	return &user, nil
 }
 
 func (s *DatlyUserService) Upsert(ctx context.Context, user *User) error {

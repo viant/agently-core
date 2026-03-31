@@ -71,7 +71,7 @@ func (a *authExtension) handleLocalLogin() http.HandlerFunc {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("username is required"))
 			return
 		}
-		sess := &Session{ID: uuid.New().String(), Username: username, Subject: username, CreatedAt: time.Now()}
+		sess := &Session{ID: uuid.New().String(), Username: username, Subject: username, Provider: "local", CreatedAt: time.Now()}
 		a.sessions.Put(r.Context(), sess)
 		if a.users != nil {
 			_ = a.users.Upsert(r.Context(), &User{Username: username, DisplayName: username, Provider: "local"})
@@ -186,6 +186,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			Username:  username,
 			Email:     email,
 			Subject:   subject,
+			Provider:  a.oauthProviderName(),
 			CreatedAt: time.Now(),
 		}
 		if strings.TrimSpace(in.AccessToken) != "" || strings.TrimSpace(in.IDToken) != "" || strings.TrimSpace(in.RefreshToken) != "" {

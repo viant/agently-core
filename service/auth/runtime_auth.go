@@ -143,6 +143,7 @@ func (r *Runtime) ensureDefaultUser(w http.ResponseWriter, req *http.Request) *r
 		ID:        fmt.Sprintf("auto-%d", time.Now().UnixNano()),
 		Username:  username,
 		Subject:   username,
+		Provider:  "local",
 		CreatedAt: time.Now(),
 	}
 	r.sessions.Put(req.Context(), session)
