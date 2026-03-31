@@ -72,7 +72,7 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 	st := &scyauth.Token{Token: *oauthTok}
 	st.PopulateIDToken()
 	if s.tokenProvider != nil && strings.TrimSpace(st.RefreshToken) != "" {
-		key := token.Key{Subject: credRef, Provider: "default"}
+		key := token.Key{Subject: credRef, Provider: effectiveSchedulerTokenProvider(cfg)}
 		_ = s.tokenProvider.Store(ctx, key, st)
 		next, ensureErr := s.tokenProvider.EnsureTokens(ctx, key)
 		if ensureErr == nil {
@@ -87,6 +87,16 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 		strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef),
 		strings.TrimSpace(st.AccessToken) != "", strings.TrimSpace(st.RefreshToken) != "", strings.TrimSpace(st.IDToken) != "")
 	return s.withAuthTokens(ctx, st), nil
+}
+
+func effectiveSchedulerTokenProvider(cfg *scheduleAuthConfig) string {
+	if cfg != nil {
+		if provider := strings.TrimSpace(cfg.Name); provider != "" {
+			return provider
+		}
+		return "oauth"
+	}
+	return "default"
 }
 
 func (s *Service) withAuthTokens(ctx context.Context, tok *scyauth.Token) context.Context {

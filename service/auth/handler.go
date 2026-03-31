@@ -137,7 +137,7 @@ func (h *Handler) handleLogout() http.HandlerFunc {
 		if h.tokenProvider != nil {
 			userID := iauth.EffectiveUserID(r.Context())
 			if userID != "" {
-				if err := h.tokenProvider.Invalidate(r.Context(), token.Key{Subject: userID, Provider: "default"}); err != nil {
+				if err := h.tokenProvider.Invalidate(r.Context(), token.Key{Subject: userID, Provider: effectiveTokenProvider(h.cfg)}); err != nil {
 					httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to invalidate token: %w", err))
 					return
 				}
@@ -242,7 +242,7 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 		if h.tokenProvider != nil && sess.Username != "" && sess.Tokens != nil {
 			if err := h.tokenProvider.Store(r.Context(), token.Key{
 				Subject:  sess.Username,
-				Provider: "default",
+				Provider: effectiveTokenProvider(h.cfg),
 			}, sess.Tokens); err != nil {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))
 				return
@@ -316,7 +316,7 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 		if h.tokenProvider != nil && sess.Username != "" && sess.Tokens != nil {
 			if err := h.tokenProvider.Store(r.Context(), token.Key{
 				Subject:  sess.Username,
-				Provider: "default",
+				Provider: effectiveTokenProvider(h.cfg),
 			}, sess.Tokens); err != nil {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))
 				return
