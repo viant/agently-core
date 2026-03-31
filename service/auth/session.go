@@ -15,6 +15,7 @@ type Session struct {
 	Username  string         `json:"username"`
 	Email     string         `json:"email,omitempty"`
 	Subject   string         `json:"subject,omitempty"`
+	Provider  string         `json:"provider,omitempty"`
 	Tokens    *scyauth.Token `json:"-"`
 	CreatedAt time.Time      `json:"createdAt"`
 	ExpiresAt time.Time      `json:"expiresAt"`
@@ -31,6 +32,7 @@ type SessionRecord struct {
 	Username     string    `json:"username"`
 	Email        string    `json:"email,omitempty"`
 	Subject      string    `json:"subject,omitempty"`
+	Provider     string    `json:"provider,omitempty"`
 	AccessToken  string    `json:"accessToken,omitempty"`
 	IDToken      string    `json:"idToken,omitempty"`
 	RefreshToken string    `json:"refreshToken,omitempty"`
@@ -142,6 +144,7 @@ func recordToSession(r *SessionRecord) *Session {
 		Username:  r.Username,
 		Email:     r.Email,
 		Subject:   r.Subject,
+		Provider:  r.Provider,
 		CreatedAt: r.CreatedAt,
 		ExpiresAt: r.ExpiresAt,
 	}
@@ -163,6 +166,7 @@ func sessionToRecord(s *Session) *SessionRecord {
 		Username:  s.Username,
 		Email:     s.Email,
 		Subject:   s.Subject,
+		Provider:  s.Provider,
 		CreatedAt: s.CreatedAt,
 		ExpiresAt: s.ExpiresAt,
 	}

@@ -45,6 +45,7 @@ func (s *SessionStoreDAO) Get(ctx context.Context, id string) (*SessionRecord, e
 		ID:        row.Id,
 		Subject:   row.UserId, // Subject is the canonical identity (stored as user_id)
 		Username:  row.UserId, // Username as display fallback
+		Provider:  row.Provider,
 		CreatedAt: row.CreatedAt,
 		ExpiresAt: row.ExpiresAt,
 	}, nil
@@ -65,7 +66,10 @@ func (s *SessionStoreDAO) Upsert(ctx context.Context, rec *SessionRecord) error 
 	if strings.TrimSpace(rec.ID) == "" || strings.TrimSpace(userID) == "" {
 		return nil
 	}
-	provider := "local"
+	provider := strings.TrimSpace(rec.Provider)
+	if provider == "" {
+		provider = "local"
+	}
 	in := &sessionwrite.Input{Session: &sessionwrite.Session{}}
 	in.Session.SetID(rec.ID)
 	in.Session.SetUserID(userID)

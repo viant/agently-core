@@ -84,6 +84,7 @@ func (h *Handler) handleLocalLogin() http.HandlerFunc {
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
+			Provider:  "local",
 			CreatedAt: time.Now(),
 		}
 		h.sessions.Put(r.Context(), sess)
@@ -231,6 +232,7 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  body.Username,
+			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
 			CreatedAt: time.Now(),
 		}
 		sess.Tokens = newTokenBundle(body.AccessToken, body.IDToken, body.RefreshToken)
@@ -302,6 +304,7 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
+			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
 			CreatedAt: time.Now(),
 		}
 		if body.AccessToken != "" {

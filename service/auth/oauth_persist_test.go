@@ -7,8 +7,11 @@ import (
 )
 
 type testUserService struct {
-	userID      string
-	lastGetName string
+	userID                string
+	lastGetName           string
+	lastSubject           string
+	lastProvider          string
+	userBySubjectProvider map[string]*User
 }
 
 func (t *testUserService) GetByUsername(_ context.Context, username string) (*User, error) {
@@ -17,6 +20,15 @@ func (t *testUserService) GetByUsername(_ context.Context, username string) (*Us
 		return nil, nil
 	}
 	return &User{ID: t.userID, Username: username}, nil
+}
+
+func (t *testUserService) GetBySubjectAndProvider(_ context.Context, subject, provider string) (*User, error) {
+	t.lastSubject = subject
+	t.lastProvider = provider
+	if t.userBySubjectProvider == nil {
+		return nil, nil
+	}
+	return t.userBySubjectProvider[subject+"|"+provider], nil
 }
 
 func (t *testUserService) Upsert(_ context.Context, _ *User) error { return nil }
@@ -105,6 +117,93 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesProvisionedUserIDLookup(t *te
 	}
 
 	ok := ext.ensureSessionOAuthTokens(context.Background(), sess)
+	if !ok {
+		t.Fatalf("ensureSessionOAuthTokens() = false, want true")
+	}
+	if store.getUser != "user-42" {
+		t.Fatalf("token lookup user = %q, want %q", store.getUser, "user-42")
+	}
+	if sess.Tokens == nil || sess.Tokens.AccessToken != "access" {
+		t.Fatalf("expected session tokens to be rehydrated")
+	}
+	if sess.Provider != "oauth" {
+		t.Fatalf("session provider = %q, want %q", sess.Provider, "oauth")
+	}
+}
+
+func TestRuntimeResolveRuntimeOAuthTokenOwner_FallsBackToOAuthProvider(t *testing.T) {
+	users := &testUserService{
+		userBySubjectProvider: map[string]*User{
+			"agently_scheduler|oauth": {
+				ID:       "user-42",
+				Username: "ppoudyal",
+				Subject:  "agently_scheduler",
+				Provider: "oauth",
+			},
+		},
+	}
+	rt := &Runtime{
+		ext: &authExtension{
+			cfg:   &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
+			users: users,
+		},
+	}
+	sess := &Session{
+		ID:       "sess-1",
+		Username: "ppoudyal",
+		Subject:  "agently_scheduler",
+		Provider: "local",
+	}
+
+	userID, provider := rt.resolveRuntimeOAuthTokenOwner(context.Background(), sess)
+	if userID != "user-42" {
+		t.Fatalf("resolved userID = %q, want %q", userID, "user-42")
+	}
+	if provider != "oauth" {
+		t.Fatalf("resolved provider = %q, want %q", provider, "oauth")
+	}
+}
+
+func TestRuntimeEnsureSessionOAuthTokens_UsesResolvedCanonicalUserID(t *testing.T) {
+	store := &testTokenStore{
+		token: &OAuthToken{
+			Username:     "user-42",
+			Provider:     "oauth",
+			AccessToken:  "access",
+			RefreshToken: "refresh",
+			IDToken:      "id",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
+	users := &testUserService{
+		userBySubjectProvider: map[string]*User{
+			"agently_scheduler|oauth": {
+				ID:       "user-42",
+				Username: "ppoudyal",
+				Subject:  "agently_scheduler",
+				Provider: "oauth",
+			},
+		},
+	}
+	rt := &Runtime{
+		sessions: NewManager(0, nil),
+		cfg:      &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
+		ext: &authExtension{
+			cfg:        &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
+			sessions:   NewManager(0, nil),
+			tokenStore: store,
+			users:      users,
+		},
+	}
+	sess := &Session{
+		ID:        "sess-1",
+		Username:  "ppoudyal",
+		Subject:   "agently_scheduler",
+		Provider:  "local",
+		CreatedAt: time.Now(),
+	}
+
+	ok := rt.ensureSessionOAuthTokens(context.Background(), sess)
 	if !ok {
 		t.Fatalf("ensureSessionOAuthTokens() = false, want true")
 	}

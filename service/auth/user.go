@@ -17,6 +17,7 @@ type User struct {
 // in-memory store.
 type UserService interface {
 	GetByUsername(ctx context.Context, username string) (*User, error)
+	GetBySubjectAndProvider(ctx context.Context, subject, provider string) (*User, error)
 	Upsert(ctx context.Context, user *User) error
 	UpsertWithProvider(ctx context.Context, username, displayName, email, provider, subject string) (string, error)
 	UpdateHashIPByID(ctx context.Context, id, hash string) error
