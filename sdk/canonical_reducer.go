@@ -207,12 +207,13 @@ func reduceModelCompleted(state *ConversationState, event *streaming.Event) *Con
 			break
 		}
 	}
-	// Update page content from the event
-	if content := strings.TrimSpace(event.Content); content != "" {
-		page.Content = content
+	// Preserve assistant-visible whitespace so markdown headings, tables, and
+	// fences keep their intended line boundaries.
+	if event.Content != "" {
+		page.Content = event.Content
 	}
-	if preamble := strings.TrimSpace(event.Preamble); preamble != "" {
-		page.Preamble = preamble
+	if event.Preamble != "" {
+		page.Preamble = event.Preamble
 	}
 	if event.FinalResponse {
 		page.FinalResponse = true
@@ -229,11 +230,11 @@ func reduceToolCallsPlanned(state *ConversationState, event *streaming.Event) *C
 		return state
 	}
 	page := ensureCurrentPage(turn, event)
-	if content := strings.TrimSpace(event.Content); content != "" {
-		page.Content = content
+	if event.Content != "" {
+		page.Content = event.Content
 	}
-	if preamble := strings.TrimSpace(event.Preamble); preamble != "" {
-		page.Preamble = preamble
+	if event.Preamble != "" {
+		page.Preamble = event.Preamble
 	}
 	// Seed preliminary tool steps so SDK consumers can show planned tools
 	// immediately, before tool_call_started arrives from the database.
@@ -274,11 +275,11 @@ func reduceAssistantPreamble(state *ConversationState, event *streaming.Event) *
 	}
 	turn.Assistant.Preamble = &AssistantMessageState{
 		MessageID: strings.TrimSpace(event.AssistantMessageID),
-		Content:   strings.TrimSpace(event.Content),
+		Content:   event.Content,
 	}
 	// Also set on current page
 	page := ensureCurrentPage(turn, event)
-	page.Preamble = strings.TrimSpace(event.Content)
+	page.Preamble = event.Content
 	page.PreambleMessageID = strings.TrimSpace(event.AssistantMessageID)
 	return state
 }
@@ -293,11 +294,11 @@ func reduceAssistantFinal(state *ConversationState, event *streaming.Event) *Con
 	}
 	turn.Assistant.Final = &AssistantMessageState{
 		MessageID: strings.TrimSpace(event.AssistantMessageID),
-		Content:   strings.TrimSpace(event.Content),
+		Content:   event.Content,
 	}
 	// Also set on current page
 	page := ensureCurrentPage(turn, event)
-	page.Content = strings.TrimSpace(event.Content)
+	page.Content = event.Content
 	page.FinalResponse = true
 	page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
 	return state
