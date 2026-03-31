@@ -151,6 +151,7 @@ CREATE TABLE call_payload
 
 CREATE INDEX idx_payload_tenant_kind ON call_payload (tenant_id, kind, created_at);
 CREATE INDEX idx_payload_digest ON call_payload (digest);
+CREATE INDEX idx_call_payload_created_at ON call_payload (created_at);
 
 
 CREATE TABLE `message`
@@ -1798,5 +1799,25 @@ END $$
 
 CALL schema_upgrade_19() $$
 DROP PROCEDURE schema_upgrade_19 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_20 $$
+CREATE PROCEDURE schema_upgrade_20()
+BEGIN
+    IF get_schema_version() = 20 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'call_payload'
+              AND INDEX_NAME = 'idx_call_payload_created_at'
+        ) THEN
+            CREATE INDEX idx_call_payload_created_at ON call_payload (created_at);
+        END IF;
+
+        CALL set_schema_version(21);
+    END IF;
+END $$
+
+CALL schema_upgrade_20() $$
+DROP PROCEDURE schema_upgrade_20 $$
 
 DELIMITER ;
