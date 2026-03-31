@@ -33,7 +33,7 @@ func ProtectWithTokenProvider(cfg *Config, sessions *Manager, tp token.Provider,
 			if tok := iauth.TokensFromContext(ctx); tok != nil {
 				userID := iauth.EffectiveUserID(ctx)
 				if userID != "" {
-					_ = tp.Store(ctx, token.Key{Subject: userID, Provider: "default"}, tok)
+					_ = tp.Store(ctx, token.Key{Subject: userID, Provider: effectiveTokenProvider(cfg)}, tok)
 				}
 			}
 			next.ServeHTTP(w, r)
@@ -180,6 +180,18 @@ func requiresTokenBackedCookie(cfg *Config) bool {
 	}
 	mode := strings.ToLower(strings.TrimSpace(cfg.OAuth.Mode))
 	return mode == "bff"
+}
+
+func effectiveTokenProvider(cfg *Config) string {
+	if cfg != nil && cfg.OAuth != nil {
+		if provider := strings.TrimSpace(cfg.OAuth.Name); provider != "" {
+			return provider
+		}
+		if cfg.OAuth != nil {
+			return "oauth"
+		}
+	}
+	return "default"
 }
 
 func firstNonEmpty(values ...string) string {
