@@ -1,6 +1,8 @@
 package a2a
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -36,15 +38,23 @@ func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService) fun
 			// Extract Bearer token.
 			token := extractBearer(r)
 			if token == "" {
+				setAuthDebugHeaders(w, authDebugInfo{Reason: "missing_bearer_token"})
 				http.Error(w, `{"error":"missing bearer token"}`, http.StatusUnauthorized)
 				return
 			}
 
 			ctx := iauth.WithBearer(r.Context(), token)
+			dbg := parseJWTDebugInfo(token)
+			dbg.UseIDToken = authCfg.UseIDToken
+			dbg.Path = r.URL.Path
 			if jwtSvc != nil {
 				ui, err := jwtSvc.Verify(ctx, token)
 				if err != nil {
-					log.Printf("[a2a-auth] reject path=%q reason=jwt_verify_failed", r.URL.Path)
+					dbg.Reason = "jwt_verify_failed"
+					dbg.VerifyError = err.Error()
+					setAuthDebugHeaders(w, dbg)
+					log.Printf("[a2a-auth] reject path=%q reason=%s use_id_token=%v sub=%q iss=%q aud=%q azp=%q err=%v",
+						r.URL.Path, dbg.Reason, dbg.UseIDToken, dbg.Subject, dbg.Issuer, dbg.Audience, dbg.AuthorizedParty, err)
 					http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
 					return
 				}
@@ -53,16 +63,20 @@ func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService) fun
 						Subject: ui.Subject,
 						Email:   ui.Email,
 					})
-					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v", r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken)
+					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v sub=%q iss=%q aud=%q azp=%q",
+						r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken, dbg.Subject, dbg.Issuer, dbg.Audience, dbg.AuthorizedParty)
 				} else {
-					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v", r.URL.Path, "", authCfg.UseIDToken)
+					log.Printf("[a2a-auth] accept path=%q user=%q mode=verified use_id_token=%v sub=%q iss=%q aud=%q azp=%q",
+						r.URL.Path, "", authCfg.UseIDToken, dbg.Subject, dbg.Issuer, dbg.Audience, dbg.AuthorizedParty)
 				}
 			} else if ui := parseJWTUserInfo(token); ui != nil {
 				// Fallback for deployments that rely on upstream verification.
 				ctx = iauth.WithUserInfo(ctx, ui)
-				log.Printf("[a2a-auth] accept path=%q user=%q mode=best_effort use_id_token=%v", r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken)
+				log.Printf("[a2a-auth] accept path=%q user=%q mode=best_effort use_id_token=%v sub=%q iss=%q aud=%q azp=%q",
+					r.URL.Path, firstNonEmpty(ui.Subject, ui.Email), authCfg.UseIDToken, dbg.Subject, dbg.Issuer, dbg.Audience, dbg.AuthorizedParty)
 			} else {
-				log.Printf("[a2a-auth] accept path=%q user=%q mode=unverified use_id_token=%v", r.URL.Path, "", authCfg.UseIDToken)
+				log.Printf("[a2a-auth] accept path=%q user=%q mode=unverified use_id_token=%v sub=%q iss=%q aud=%q azp=%q",
+					r.URL.Path, "", authCfg.UseIDToken, dbg.Subject, dbg.Issuer, dbg.Audience, dbg.AuthorizedParty)
 			}
 
 			// If useIDToken is set, also store as ID token for MCP auth propagation.
@@ -114,4 +128,110 @@ func parseJWTUserInfo(token string) *iauth.UserInfo {
 		return nil
 	}
 	return ui
+}
+
+type authDebugInfo struct {
+	Path            string
+	Reason          string
+	VerifyError     string
+	Subject         string
+	Email           string
+	Issuer          string
+	Audience        string
+	AuthorizedParty string
+	UseIDToken      bool
+}
+
+func setAuthDebugHeaders(w http.ResponseWriter, info authDebugInfo) {
+	if w == nil {
+		return
+	}
+	if info.Reason != "" {
+		w.Header().Set("X-A2A-Auth-Reason", info.Reason)
+	}
+	if info.Subject != "" {
+		w.Header().Set("X-A2A-Token-Sub", info.Subject)
+	}
+	if info.Issuer != "" {
+		w.Header().Set("X-A2A-Token-Iss", info.Issuer)
+	}
+	if info.Audience != "" {
+		w.Header().Set("X-A2A-Token-Aud", info.Audience)
+	}
+	if info.AuthorizedParty != "" {
+		w.Header().Set("X-A2A-Token-Azp", info.AuthorizedParty)
+	}
+	if info.VerifyError != "" {
+		w.Header().Set("X-A2A-Auth-Verify-Error", truncateHeaderValue(info.VerifyError, 180))
+	}
+}
+
+func truncateHeaderValue(value string, max int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= max || max <= 0 {
+		return value
+	}
+	return value[:max]
+}
+
+func parseJWTDebugInfo(token string) authDebugInfo {
+	info := authDebugInfo{}
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return info
+	}
+	payload, err := decodeJWTSegment(parts[1])
+	if err != nil {
+		info.VerifyError = "decode_jwt_payload_failed: " + err.Error()
+		return info
+	}
+	if sub, ok := payload["sub"].(string); ok {
+		info.Subject = strings.TrimSpace(sub)
+	}
+	if email, ok := payload["email"].(string); ok {
+		info.Email = strings.TrimSpace(email)
+	}
+	if iss, ok := payload["iss"].(string); ok {
+		info.Issuer = strings.TrimSpace(iss)
+	}
+	info.Audience = stringifyJWTClaim(payload["aud"])
+	if azp, ok := payload["azp"].(string); ok {
+		info.AuthorizedParty = strings.TrimSpace(azp)
+	}
+	return info
+}
+
+func stringifyJWTClaim(value interface{}) string {
+	switch actual := value.(type) {
+	case string:
+		return strings.TrimSpace(actual)
+	case []interface{}:
+		parts := make([]string, 0, len(actual))
+		for _, item := range actual {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				parts = append(parts, strings.TrimSpace(s))
+			}
+		}
+		return strings.Join(parts, ",")
+	default:
+		return ""
+	}
+}
+
+func decodeJWTSegment(seg string) (map[string]interface{}, error) {
+	switch len(seg) % 4 {
+	case 2:
+		seg += "=="
+	case 3:
+		seg += "="
+	}
+	data, err := base64.URLEncoding.DecodeString(seg)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
