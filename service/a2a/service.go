@@ -20,6 +20,10 @@ type Service struct {
 	agentFinder agentmodel.Finder
 }
 
+type agentCatalog interface {
+	All() []*agentmodel.Agent
+}
+
 // New creates an A2A service.
 func New(agent *agentsvc.Service, finder agentmodel.Finder) *Service {
 	return &Service{
@@ -153,6 +157,43 @@ func EffectiveA2A(ag *agentmodel.Agent) *agentmodel.ServeA2A {
 		}
 	}
 	return nil
+}
+
+func (s *Service) resolveSharedAgent(ctx context.Context, requested string) (*agentmodel.Agent, *agentmodel.ServeA2A, error) {
+	requested = strings.TrimSpace(requested)
+	if requested != "" {
+		ag, err := s.agentFinder.Find(ctx, requested)
+		if err != nil {
+			return nil, nil, err
+		}
+		cfg := EffectiveA2A(ag)
+		if cfg == nil || !cfg.Enabled {
+			return nil, nil, fmt.Errorf("agent %s is not A2A-enabled", requested)
+		}
+		return ag, cfg, nil
+	}
+	catalog, ok := s.agentFinder.(agentCatalog)
+	if !ok {
+		return nil, nil, fmt.Errorf("agentId is required")
+	}
+	var match *agentmodel.Agent
+	for _, ag := range catalog.All() {
+		if ag == nil {
+			continue
+		}
+		cfg := EffectiveA2A(ag)
+		if cfg == nil || !cfg.Enabled {
+			continue
+		}
+		if match != nil {
+			return nil, nil, fmt.Errorf("agentId is required when multiple A2A agents are enabled")
+		}
+		match = ag
+	}
+	if match == nil {
+		return nil, nil, fmt.Errorf("no A2A-enabled agent found")
+	}
+	return match, EffectiveA2A(match), nil
 }
 
 // extractText concatenates all text parts from messages.

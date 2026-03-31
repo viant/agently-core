@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"strings"
 	"time"
@@ -55,14 +56,16 @@ var cipher = blowfish.Cipher{}
 
 func main() {
 	var (
-		dbPath     = flag.String("db", "", "path to agently-core.db")
-		userID     = flag.String("user", "awitas_viant_devtest", "user_id to inspect")
-		provider   = flag.String("provider", "oauth", "provider to inspect")
-		salt       = flag.String("salt", "idp_viant.enc|blowfish://default", "token encryption salt/configURL")
-		callURL    = flag.String("call-url", "", "optional JSON-RPC endpoint to call")
-		callMethod = flag.String("call-method", "message/send", "JSON-RPC method")
-		callParams = flag.String("call-params", "", "JSON string for JSON-RPC params")
-		tokenKind  = flag.String("token-kind", "id", "token kind to use for call: id|access")
+		dbPath         = flag.String("db", "", "path to agently-core.db")
+		userID         = flag.String("user", "awitas_viant_devtest", "user_id to inspect")
+		provider       = flag.String("provider", "oauth", "provider to inspect")
+		salt           = flag.String("salt", "idp_viant.enc|blowfish://default", "token encryption salt/configURL")
+		callURL        = flag.String("call-url", "", "optional JSON-RPC endpoint to call")
+		callMethod     = flag.String("call-method", "message/send", "JSON-RPC method")
+		callParams     = flag.String("call-params", "", "JSON string for JSON-RPC params")
+		tokenKind      = flag.String("token-kind", "id", "token kind to use for call: id|access")
+		sessionBaseURL = flag.String("session-base-url", "", "optional app base URL for session bootstrap before shared A2A call")
+		a2aAgentID     = flag.String("a2a-agent-id", "", "agent id for shared A2A call when using session-base-url")
 	)
 	flag.Parse()
 
@@ -128,6 +131,31 @@ func main() {
 			fail(fmt.Errorf("call params are not valid json"))
 		}
 		if err := issueJSONRPC(strings.TrimSpace(*callURL), strings.TrimSpace(*callMethod), params, bearer); err != nil {
+			fail(err)
+		}
+	}
+	if strings.TrimSpace(*sessionBaseURL) != "" {
+		var bearer string
+		switch strings.ToLower(strings.TrimSpace(*tokenKind)) {
+		case "access":
+			bearer = strings.TrimSpace(token.AccessToken)
+		default:
+			bearer = strings.TrimSpace(token.IDToken)
+		}
+		if bearer == "" {
+			fail(fmt.Errorf("selected %s token is empty", *tokenKind))
+		}
+		if strings.TrimSpace(*a2aAgentID) == "" {
+			fail(fmt.Errorf("--a2a-agent-id is required when --session-base-url is set"))
+		}
+		params := json.RawMessage([]byte(`{}`))
+		if strings.TrimSpace(*callParams) != "" {
+			params = json.RawMessage([]byte(strings.TrimSpace(*callParams)))
+		}
+		if !json.Valid(params) {
+			fail(fmt.Errorf("call params are not valid json"))
+		}
+		if err := issueSessionA2A(strings.TrimSpace(*sessionBaseURL), strings.TrimSpace(*a2aAgentID), params, bearer); err != nil {
 			fail(err)
 		}
 	}
@@ -345,6 +373,69 @@ func issueJSONRPC(url, method string, params json.RawMessage, bearer string) err
 	fmt.Println(string(respBody))
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("request failed with status %s", resp.Status)
+	}
+	return nil
+}
+
+func issueSessionA2A(baseURL, agentID string, params json.RawMessage, bearer string) error {
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+
+	sessionReq, err := http.NewRequest(http.MethodPost, strings.TrimRight(baseURL, "/")+"/v1/api/auth/session", strings.NewReader(`{}`))
+	if err != nil {
+		return err
+	}
+	sessionReq.Header.Set("Content-Type", "application/json")
+	sessionReq.Header.Set("Authorization", "Bearer "+bearer)
+	sessionResp, err := client.Do(sessionReq)
+	if err != nil {
+		return err
+	}
+	defer sessionResp.Body.Close()
+	sessionBody, _ := io.ReadAll(sessionResp.Body)
+	fmt.Println()
+	fmt.Printf("Session HTTP Status: %s\n", sessionResp.Status)
+	fmt.Printf("Session Response Headers:\n")
+	for k, values := range sessionResp.Header {
+		fmt.Printf("  %s: %s\n", k, strings.Join(values, ", "))
+	}
+	fmt.Println("Session Response Body:")
+	fmt.Println(string(sessionBody))
+	if sessionResp.StatusCode >= 400 {
+		return fmt.Errorf("session bootstrap failed with status %s", sessionResp.Status)
+	}
+
+	reqBody := map[string]interface{}{}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &reqBody); err != nil {
+			return err
+		}
+	}
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(baseURL, "/")+"/v1/api/a2a/agents/"+agentID+"/message", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println()
+	fmt.Printf("Shared A2A HTTP Status: %s\n", resp.Status)
+	fmt.Printf("Shared A2A Response Headers:\n")
+	for k, values := range resp.Header {
+		fmt.Printf("  %s: %s\n", k, strings.Join(values, ", "))
+	}
+	fmt.Println("Shared A2A Response Body:")
+	fmt.Println(string(respBody))
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("shared a2a call failed with status %s", resp.Status)
 	}
 	return nil
 }
