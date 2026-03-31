@@ -217,6 +217,7 @@ func (a *authExtension) ensureSessionOAuthTokens(ctx context.Context, sess *Sess
 		},
 		IDToken: dbTok.IDToken,
 	}
+	sess.Provider = provider
 	a.sessions.Put(ctx, sess)
 	return true
 }
