@@ -1,8 +1,6 @@
 package a2a
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -216,22 +214,4 @@ func stringifyJWTClaim(value interface{}) string {
 	default:
 		return ""
 	}
-}
-
-func decodeJWTSegment(seg string) (map[string]interface{}, error) {
-	switch len(seg) % 4 {
-	case 2:
-		seg += "=="
-	case 3:
-		seg += "="
-	}
-	data, err := base64.URLEncoding.DecodeString(seg)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]interface{}{}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
