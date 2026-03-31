@@ -3,6 +3,7 @@ package token
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
@@ -42,7 +43,10 @@ func MarshalSecurityContext(ctx context.Context) (string, error) {
 			sd.Subject = ui.Email
 		}
 	}
-	sd.Provider = "default"
+	sd.Provider = strings.TrimSpace(iauth.Provider(ctx))
+	if sd.Provider == "" {
+		sd.Provider = "default"
+	}
 
 	// Only marshal if we have at least one token.
 	if sd.AccessToken == "" && sd.IDToken == "" {
@@ -79,6 +83,9 @@ func RestoreSecurityContext(ctx context.Context, data string) (context.Context, 
 
 	if sd.Subject != "" {
 		ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: sd.Subject})
+	}
+	if strings.TrimSpace(sd.Provider) != "" {
+		ctx = iauth.WithProvider(ctx, sd.Provider)
 	}
 
 	return ctx, &sd, nil

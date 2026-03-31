@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -149,7 +151,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	if refreshed.RefreshToken == "" {
 		refreshed.RefreshToken = sess.Tokens.RefreshToken
 	}
-	result := &scyauth.Token{Token: *refreshed, IDToken: sess.Tokens.IDToken}
+	previousIDToken := strings.TrimSpace(sess.Tokens.IDToken)
+	refreshedIDToken := refreshedOAuthIDToken(refreshed, previousIDToken)
+	result := &scyauth.Token{Token: *refreshed, IDToken: refreshedIDToken}
 	sess.Tokens = result
 	sess.Provider = provider
 	r.sessions.Put(ctx, sess)
@@ -158,13 +162,40 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 			Username:     username,
 			Provider:     provider,
 			AccessToken:  refreshed.AccessToken,
-			IDToken:      sess.Tokens.IDToken,
+			IDToken:      refreshedIDToken,
 			RefreshToken: refreshed.RefreshToken,
 			ExpiresAt:    refreshed.Expiry,
 		})
 	}
-	logx.Debugf("token-refresh", "refresh ok user=%q newExpiry=%v", username, refreshed.Expiry.Format(time.RFC3339))
+	logx.Debugf("token-refresh", "refresh ok user=%q newExpiry=%v access_fp=%s id_fp=%s id_rotated=%v",
+		username,
+		refreshed.Expiry.Format(time.RFC3339),
+		tokenFingerprint(refreshed.AccessToken),
+		tokenFingerprint(refreshedIDToken),
+		strings.TrimSpace(refreshedIDToken) != previousIDToken,
+	)
 	return result
+}
+
+func refreshedOAuthIDToken(refreshed *oauth2.Token, current string) string {
+	if refreshed == nil {
+		return strings.TrimSpace(current)
+	}
+	if raw := refreshed.Extra("id_token"); raw != nil {
+		if token, ok := raw.(string); ok && strings.TrimSpace(token) != "" {
+			return strings.TrimSpace(token)
+		}
+	}
+	return strings.TrimSpace(current)
+}
+
+func tokenFingerprint(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "none"
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:6])
 }
 
 func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {

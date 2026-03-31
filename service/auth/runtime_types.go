@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strings"
 
+	iauth "github.com/viant/agently-core/internal/auth"
 	scyauth "github.com/viant/scy/auth"
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
 )
@@ -20,9 +22,10 @@ type Runtime struct {
 }
 
 type runtimeAuthUser struct {
-	Subject string
-	Email   string
-	Tokens  *scyauth.Token
+	Subject  string
+	Email    string
+	Provider string
+	Tokens   *scyauth.Token
 }
 
 type runtimeAuthContextKey struct{}
@@ -50,6 +53,9 @@ func withRuntimeAuthUser(ctx context.Context, user *runtimeAuthUser) context.Con
 	}
 	ctx = context.WithValue(ctx, runtimeAuthContextKey{}, *user)
 	ctx = InjectUser(ctx, user.Subject)
+	if strings.TrimSpace(user.Provider) != "" {
+		ctx = iauth.WithProvider(ctx, user.Provider)
+	}
 	if user.Tokens != nil {
 		ctx = InjectTokens(ctx, user.Tokens)
 	}

@@ -13,6 +13,7 @@ type (
 	userInfoKey struct{}
 	idTokenKey  struct{}
 	tokensKey   struct{}
+	providerKey struct{}
 )
 
 // UserInfo carries minimal identity extracted from a bearer token.
@@ -91,6 +92,25 @@ func WithIDToken(ctx context.Context, token string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, idTokenKey{}, token)
+}
+
+// WithProvider stores an auth provider name in context.
+func WithProvider(ctx context.Context, provider string) context.Context {
+	if ctx == nil || strings.TrimSpace(provider) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, providerKey{}, strings.TrimSpace(provider))
+}
+
+// Provider returns the auth provider name from context, if present.
+func Provider(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(providerKey{}).(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
 }
 
 // IDToken returns a raw ID token from context, if present.

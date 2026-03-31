@@ -78,9 +78,10 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
 				return &runtimeAuthUser{
-					Subject: strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Username)),
-					Email:   strings.TrimSpace(claims.Email),
-					Tokens:  tok,
+					Subject:  strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Username)),
+					Email:    strings.TrimSpace(claims.Email),
+					Provider: "jwt",
+					Tokens:   tok,
 				}
 			}
 		}
@@ -104,9 +105,10 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 					}
 				}
 				return &runtimeAuthUser{
-					Subject: strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username)),
-					Email:   strings.TrimSpace(sess.Email),
-					Tokens:  sess.Tokens,
+					Subject:  strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username)),
+					Email:    strings.TrimSpace(sess.Email),
+					Provider: strings.TrimSpace(sess.Provider),
+					Tokens:   sess.Tokens,
 				}
 			}
 		}
@@ -148,7 +150,7 @@ func (r *Runtime) ensureDefaultUser(w http.ResponseWriter, req *http.Request) *r
 	}
 	r.sessions.Put(req.Context(), session)
 	writeSessionCookie(w, r.cfg, r.sessions, session.ID)
-	return &runtimeAuthUser{Subject: username}
+	return &runtimeAuthUser{Subject: username, Provider: "local"}
 }
 
 func runtimeUserInfo(ctx context.Context) *UserInfo {
