@@ -18,7 +18,7 @@ pipeline:
         URL: ${authServerURL}/v1/conversations
         Cookies:
           - Name: agently_session
-            Value: ${localLogin.Responses[0].Cookies.agently_session}
+            Value: ${localLogin.Responses[0].Cookies.agently_session.Value}
         Expect:
           Code: 200
 
@@ -30,7 +30,7 @@ pipeline:
         URL: ${authServerURL}/v1/api/auth/me
         Cookies:
           - Name: agently_session
-            Value: ${localLogin.Responses[0].Cookies.agently_session}
+            Value: ${localLogin.Responses[0].Cookies.agently_session.Value}
         Expect:
           Code: 200
           JSONBody:

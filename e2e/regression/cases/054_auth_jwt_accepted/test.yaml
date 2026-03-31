@@ -5,7 +5,7 @@ pipeline:
     expiryInSec: 3600
     PrivateKey:
       URL: ${jwtPrivKey}
-    claims:
+    claimsMap:
       sub: e2e-jwt-user
       email: e2e@test.com
 
