@@ -181,8 +181,13 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 			if m == nil {
 				continue
 			}
+			mode := ""
+			if m.Mode != nil {
+				mode = strings.ToLower(strings.TrimSpace(*m.Mode))
+			}
+			isInternalAssistant := strings.EqualFold(strings.TrimSpace(m.Role), "assistant") && (mode == "router" || mode == "summary")
 			// Assistant model-call response
-			if m.ModelCall != nil && m.ModelCall.TraceId != nil {
+			if !isInternalAssistant && m.ModelCall != nil && m.ModelCall.TraceId != nil {
 				id := strings.TrimSpace(*m.ModelCall.TraceId)
 				if id != "" {
 					key := prompt.KindResponse.Key(id)
@@ -215,7 +220,7 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 			}
 
 			// User/assistant text message
-			if strings.ToLower(strings.TrimSpace(m.Type)) == "text" && m.Content != nil && *m.Content != "" {
+			if !isInternalAssistant && strings.ToLower(strings.TrimSpace(m.Type)) == "text" && m.Content != nil && *m.Content != "" {
 				ckey := prompt.KindContent.Key(*m.Content)
 				// Use a stable "effective at" timestamp for queued turns:
 				// queued user messages may be persisted before the prior assistant

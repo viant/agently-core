@@ -46,6 +46,42 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryMode(t *testin
 	require.Equal(t, respMain, *got.ModelCall.TraceId)
 }
 
+func TestTranscript_LastAssistantMessageWithModelCall_SkipsRouterMode(t *testing.T) {
+	now := time.Now().UTC()
+
+	respMain := "resp-main"
+	respRouter := "resp-router"
+	payloadMain := "payload-main"
+	payloadRouter := "payload-router"
+	modeRouter := "router"
+
+	main := &Message{
+		Id:        "msg-main",
+		Role:      "assistant",
+		Type:      "text",
+		CreatedAt: now.Add(-1 * time.Second),
+		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
+	}
+
+	router := &Message{
+		Id:        "msg-router",
+		Role:      "assistant",
+		Type:      "text",
+		CreatedAt: now,
+		Mode:      &modeRouter,
+		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadRouter, TraceId: &respRouter},
+	}
+
+	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(main), (*agconv.MessageView)(router)}}
+	tr := Transcript{turn}
+
+	got := (&tr).LastAssistantMessageWithModelCall()
+	require.NotNil(t, got)
+	require.NotNil(t, got.ModelCall)
+	require.NotNil(t, got.ModelCall.TraceId)
+	require.Equal(t, respMain, *got.ModelCall.TraceId)
+}
+
 func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryStatus(t *testing.T) {
 	now := time.Now().UTC()
 
