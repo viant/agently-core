@@ -237,20 +237,54 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			intended = v
 		}
 	}
+	if intended == "" {
+		intended = s.directorySource(strings.TrimSpace(ri.AgentID))
+	}
 	debugf("agents.run routing agent_id=%q intended=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(intended))
 
-	// Default to internal when the agent is resolvable locally; only fall back to
-	// external when explicitly routed or when the agent id is not found internally.
+	// Directory/source routing is authoritative. External/A2A agents must fail
+	// explicitly when external execution is unavailable; they must never fall
+	// back to local agent loading.
 	internalKnown := s.isInternalAgent(ctx, strings.TrimSpace(ri.AgentID))
 	debugf("agents.run route check agent_id=%q internal_known=%v external_enabled=%v", strings.TrimSpace(ri.AgentID), internalKnown, s.runExternal != nil)
-	if s.runExternal != nil && (intended == "external" || (intended == "" && !internalKnown)) {
+	if intended == "external" {
+		if s.runExternal == nil {
+			return svc.NewMethodNotFoundError("external agent route unavailable for: " + strings.TrimSpace(ri.AgentID))
+		}
 		handled, err := s.tryExternalRun(ctx, ri, ro, intended)
 		if handled || err != nil {
 			return err
 		}
-		// If we reach here: route was unknown and external execution failed; fall back to internal.
+		return svc.NewMethodNotFoundError("external agent route did not handle: " + strings.TrimSpace(ri.AgentID))
+	}
+	if intended == "internal" {
+		return s.runInternal(ctx, ri, ro, convID, depth)
+	}
+	if !internalKnown {
+		if s.runExternal != nil {
+			handled, err := s.tryExternalRun(ctx, ri, ro, intended)
+			if handled || err != nil {
+				return err
+			}
+		}
+		if s.dirProvider != nil {
+			return svc.NewMethodNotFoundError("agent not resolvable internally or externally: " + strings.TrimSpace(ri.AgentID))
+		}
 	}
 	return s.runInternal(ctx, ri, ro, convID, depth)
+}
+
+func (s *Service) directorySource(agentID string) string {
+	if s == nil || s.dirProvider == nil || strings.TrimSpace(agentID) == "" {
+		return ""
+	}
+	for _, item := range s.dirProvider() {
+		if strings.TrimSpace(item.ID) != strings.TrimSpace(agentID) {
+			continue
+		}
+		return strings.ToLower(strings.TrimSpace(item.Source))
+	}
+	return ""
 }
 
 func (s *Service) waitForConversation(ctx context.Context, conversationID string) error {
