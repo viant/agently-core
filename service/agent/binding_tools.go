@@ -131,6 +131,29 @@ func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *prompt.Doc
 	return filtered
 }
 
+func dedupeToolDefinitions(defs []*llm.ToolDefinition) []*llm.ToolDefinition {
+	if len(defs) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	filtered := make([]*llm.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(mcpname.Canonical(def.Name)))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		filtered = append(filtered, def)
+	}
+	return filtered
+}
+
 func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
 	if ctx == nil {
 		return map[string]interface{}{}
@@ -433,6 +456,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, err
 	}
 	out := padapter.ToToolDefinitions(tools)
+	out = dedupeToolDefinitions(out)
 	if DebugEnabled() {
 		names := make([]string, 0, len(out))
 		for _, item := range out {

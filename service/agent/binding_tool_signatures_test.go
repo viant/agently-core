@@ -85,6 +85,25 @@ func TestService_BuildToolSignatures_WithBundles(t *testing.T) {
 	}
 }
 
+func TestDedupeToolDefinitions_DedupesCanonicalAliases(t *testing.T) {
+	input := []*llm.ToolDefinition{
+		{Name: "llm_agents-run"},
+		{Name: "llm/agents:run"},
+		{Name: "system_exec-execute"},
+	}
+
+	actual := dedupeToolDefinitions(input)
+	var got []string
+	for _, item := range actual {
+		if item == nil {
+			continue
+		}
+		got = append(got, item.Name)
+	}
+
+	assert.EqualValues(t, []string{"llm_agents-run", "system_exec-execute"}, got)
+}
+
 func TestFilterDelegationDiscoveryTools_RemovesAgentsListWhenDirectoryDocPresent(t *testing.T) {
 	defs := []*llm.ToolDefinition{
 		{Name: "llm/agents:list"},
