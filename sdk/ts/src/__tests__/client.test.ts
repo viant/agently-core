@@ -155,7 +155,7 @@ describe('Messages', () => {
 
 describe('Transcript', () => {
     it('getTranscript with tool and model calls', async () => {
-        const f = mockFetch(200, { turns: [] });
+        const f = mockFetch(200, { schemaVersion: '2', conversation: { turns: [] } });
         const c = client(f);
         await c.getTranscript({
             conversationId: 'conv_1',
@@ -172,7 +172,7 @@ describe('Transcript', () => {
     });
 
     it('getTranscript serializes execution-group selector helpers', async () => {
-        const f = mockFetch(200, { turns: [] });
+        const f = mockFetch(200, { schemaVersion: '2', conversation: { turns: [] } });
         const c = client(f);
         await c.getTranscript(
             { conversationId: 'conv_1' },
@@ -856,7 +856,7 @@ describe('File Browser', () => {
 // ─── Linked Conversations ─────────────────────────────────────────────────────
 
 describe('Linked Conversations', () => {
-    it('listLinkedConversations sends GET with parentId', async () => {
+    it('listLinkedConversations sends GET with parentConversationId', async () => {
         const f = mockFetch(200, {
             Rows: [{ conversationId: 'child_1', parentConversationId: 'conv_1', parentTurnId: 't1', createdAt: '2025-01-01' }],
             HasMore: false,
@@ -871,7 +871,7 @@ describe('Linked Conversations', () => {
         const call = lastCall(f);
         expect(call.method).toBe('GET');
         expect(call.url).toContain('/conversations/linked');
-        expect(call.url).toContain('parentId=conv_1');
+        expect(call.url).toContain('parentConversationId=conv_1');
     });
 
     it('listLinkedConversations accepts lowercase rows payloads', async () => {

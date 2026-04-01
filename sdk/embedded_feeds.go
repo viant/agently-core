@@ -108,7 +108,7 @@ func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*Ac
 				FeedID:    spec.ID,
 				Title:     spec.Title,
 				ItemCount: itemCount,
-				Data:      data,
+				Data:      marshalToRawJSON(data),
 			}
 		}
 	}
@@ -184,4 +184,28 @@ func (c *EmbeddedClient) GetPayload(ctx context.Context, id string) (*conversati
 		return nil, errors.New("payload ID is required")
 	}
 	return c.conv.GetPayload(ctx, payloadID)
+}
+
+// GetPayloads fetches multiple payloads by ID in one call.
+// IDs that are empty or not found are silently omitted from the result.
+func (c *EmbeddedClient) GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error) {
+	if c.conv == nil {
+		return nil, errors.New("conversation client not configured")
+	}
+	result := make(map[string]*conversation.Payload, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, already := result[id]; already {
+			continue
+		}
+		p, err := c.conv.GetPayload(ctx, id)
+		if err != nil || p == nil {
+			continue
+		}
+		result[id] = p
+	}
+	return result, nil
 }

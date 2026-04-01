@@ -117,7 +117,17 @@ type Client interface {
 	PruneConversation(ctx context.Context, conversationID string) error
 
 	// GetTranscript returns the canonical conversation state for rendering.
-	GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error)
+	GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error)
+
+	// GetLiveState returns the current canonical state snapshot with an EventCursor.
+	// On SSE connect or reconnect the client should call GetLiveState first, then
+	// consume the event stream starting at EventCursor to avoid replaying history
+	// and to avoid missing events that arrived between page load and SSE connect.
+	GetLiveState(ctx context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error)
+
+	// GetPayloads returns a map of payload ID → payload for the given IDs.
+	// Used for batch payload resolution in feed rendering, replacing per-step fetches.
+	GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error)
 
 	// GetA2AAgentCard returns the A2A agent card for the given agent.
 	GetA2AAgentCard(ctx context.Context, agentID string) (*a2a.AgentCard, error)

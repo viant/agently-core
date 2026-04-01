@@ -10,8 +10,10 @@
 #define($_ = $IncludeModelCal<bool>(query/includeModelCall).Value('false').WithPredicate(2, 'expr', '?'))
 #define($_ = $IncludeToolCall<bool>(query/includeToolCall).Value('false').WithPredicate(3, 'expr', '?'))
 
-SELECT message.*
+SELECT message.*,
+       CAST(message.elicitation as map[string]interface{})
 FROM (
-    SELECT m.* FROM `message` m
+    SELECT m.*, '' elicitation,  COALESCE(p.inline_body, '') elicitation_body FROM `message` m
+    LEFT JOIN call_payload p ON m.elicitation_payload_id = p.id
     ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
 ) message

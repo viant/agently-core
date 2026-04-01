@@ -196,6 +196,27 @@ func handleListLinkedConversations(client Client) http.HandlerFunc {
 	}
 }
 
+func handleGetLiveState(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
+			return
+		}
+		q := r.URL.Query()
+		var opts []TranscriptOption
+		if q.Get("includeFeeds") == "true" {
+			opts = append(opts, WithIncludeFeeds())
+		}
+		out, err := client.GetLiveState(r.Context(), id, opts...)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
 func handleTerminate(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")

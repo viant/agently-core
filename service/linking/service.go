@@ -36,24 +36,30 @@ func (s *Service) SetStreamPublisher(p streaming.Publisher) {
 	s.streamPub = p
 }
 
-func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent memory.TurnMeta, childConversationID, toolCallID string) {
+func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent memory.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
 	if s == nil || s.streamPub == nil {
 		return
 	}
 	debugf("emitLinkedConversationAttached parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
 	event := &streaming.Event{
-		StreamID:             strings.TrimSpace(parent.ConversationID),
-		ConversationID:       strings.TrimSpace(parent.ConversationID),
-		TurnID:               strings.TrimSpace(parent.TurnID),
-		Type:                 streaming.EventTypeLinkedConversationAttached,
-		LinkedConversationID: strings.TrimSpace(childConversationID),
-		ToolCallID:           strings.TrimSpace(toolCallID),
-		CreatedAt:            time.Now(),
+		StreamID:                  strings.TrimSpace(parent.ConversationID),
+		ConversationID:            strings.TrimSpace(parent.ConversationID),
+		TurnID:                    strings.TrimSpace(parent.TurnID),
+		Type:                      streaming.EventTypeLinkedConversationAttached,
+		LinkedConversationID:      strings.TrimSpace(childConversationID),
+		LinkedConversationAgentID: strings.TrimSpace(childAgentID),
+		LinkedConversationTitle:   strings.TrimSpace(childTitle),
+		ToolCallID:                strings.TrimSpace(toolCallID),
+		CreatedAt:                 time.Now(),
 	}
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("linked_conversation_attached publish error parent_convo=%q child_convo=%q err=%v", parent.ConversationID, childConversationID, err)
 	}
 	debugf("emitLinkedConversationAttached ok parent_convo=%q child_convo=%q", parent.ConversationID, childConversationID)
+}
+
+func (s *Service) EmitLinkedConversationAttached(ctx context.Context, parent memory.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
+	s.emitLinkedConversationAttached(ctx, parent, childConversationID, toolCallID, childAgentID, childTitle)
 }
 
 // CreateLinkedConversation creates a new conversation linked to the provided
@@ -91,8 +97,6 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.Tu
 	debugf("CreateLinkedConversation ok parent_convo=%q parent_turn=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID))
 	// ToolMessageID is used as the toolCallId in the SSE event — the UI matches
 	// against both toolCallId and toolMessageId on the step, so this works.
-	toolMessageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
-	s.emitLinkedConversationAttached(ctx, parent, childID, toolMessageID)
 	return childID, nil
 }
 
@@ -126,7 +130,7 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, ch
 		return fmt.Errorf("linking: add link message failed: %w", err)
 	}
 	debugf("AddLinkMessage ok parent_convo=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(childConversationID))
-	s.emitLinkedConversationAttached(ctx, parent, childConversationID, "")
+	s.emitLinkedConversationAttached(ctx, parent, childConversationID, "", "", "")
 	return nil
 }
 

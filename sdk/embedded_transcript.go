@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
@@ -14,12 +15,12 @@ import (
 )
 
 func (c *EmbeddedClient) latestAssistantResponse(ctx context.Context, conversationID string) string {
-	state, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
-	if err != nil || state == nil {
+	resp, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
+	if err != nil || resp == nil || resp.Conversation == nil {
 		return ""
 	}
-	for i := len(state.Turns) - 1; i >= 0; i-- {
-		turn := state.Turns[i]
+	for i := len(resp.Conversation.Turns) - 1; i >= 0; i-- {
+		turn := resp.Conversation.Turns[i]
 		if turn == nil || turn.Assistant == nil {
 			continue
 		}
@@ -37,7 +38,7 @@ func (c *EmbeddedClient) latestAssistantResponse(ctx context.Context, conversati
 	return ""
 }
 
-func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error) {
+func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -61,7 +62,10 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 		return nil, err
 	}
 	if conv == nil {
-		return &ConversationState{ConversationID: input.ConversationID}, nil
+		return &ConversationStateResponse{
+			SchemaVersion: "2",
+			Conversation:  &ConversationState{ConversationID: input.ConversationID},
+		}, nil
 	}
 	turns := conv.GetTranscript()
 	c.enrichTranscriptElicitations(ctx, turns)
@@ -70,10 +74,33 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
 	state := BuildCanonicalState(input.ConversationID, turns)
-	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
-		state.Feeds = c.resolveActiveFeedsFromState(context.Background(), state)
+	resp := &ConversationStateResponse{
+		SchemaVersion: "2",
+		Conversation:  state,
 	}
-	return state, nil
+	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
+		resp.Feeds = c.resolveActiveFeedsFromState(context.Background(), state)
+	}
+	return resp, nil
+}
+
+// GetLiveState returns the current canonical state snapshot together with an
+// EventCursor for SSE reconnection. On connect or reconnect the caller should:
+//  1. Call GetLiveState to get the snapshot and cursor.
+//  2. Begin consuming the event stream.
+//  3. Discard events whose CreatedAt is before the cursor timestamp.
+//  4. Apply subsequent events via Reduce() against the snapshot.
+//
+// The cursor is an RFC3339Nano timestamp captured just before the snapshot fetch,
+// so any event published concurrently will be at or after the cursor.
+func (c *EmbeddedClient) GetLiveState(ctx context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
+	cursor := time.Now().UTC().Format(time.RFC3339Nano)
+	resp, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID}, options...)
+	if err != nil {
+		return nil, err
+	}
+	resp.EventCursor = cursor
+	return resp, nil
 }
 
 func (c *EmbeddedClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {
@@ -152,6 +179,12 @@ func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns
 				continue
 			}
 			if elicitation := c.resolveMessageElicitation(ctx, msg); len(elicitation) > 0 {
+				// Populate the full elicitation map so buildElicitationState
+				// can read requestedSchema and callbackUrl from it directly,
+				// without parsing embedded content JSON.
+				if msg.Elicitation == nil {
+					msg.Elicitation = elicitation
+				}
 				if content, ok := elicitation["message"].(string); ok {
 					content = strings.TrimSpace(content)
 					if content != "" && shouldNormalizeElicitationContent(valueOrEmpty(msg.Content)) {

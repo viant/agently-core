@@ -523,8 +523,10 @@ func TestJWTAuth_Transcript_ValidToken_Returns200(t *testing.T) {
 
 	var result map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	_, hasTurns := result["turns"]
-	assert.True(t, hasTurns, "response should contain a 'turns' field")
+	conversation, ok := result["conversation"].(map[string]interface{})
+	require.True(t, ok, "response should contain a 'conversation' object")
+	_, hasTurns := conversation["turns"]
+	assert.True(t, hasTurns, "response should contain conversation.turns")
 }
 
 func TestJWTAuth_Transcript_FreshConversation_EmptyTurns(t *testing.T) {
@@ -549,10 +551,12 @@ func TestJWTAuth_Transcript_FreshConversation_EmptyTurns(t *testing.T) {
 	// We check that a valid response structure is returned when 200.
 	if resp.StatusCode == http.StatusOK {
 		var result struct {
-			Turns []interface{} `json:"turns"`
+			Conversation struct {
+				Turns []interface{} `json:"turns"`
+			} `json:"conversation"`
 		}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-		assert.Empty(t, result.Turns, "fresh/nonexistent conversation should have empty turns")
+		assert.Empty(t, result.Conversation.Turns, "fresh/nonexistent conversation should have empty conversation.turns")
 	}
 }
 

@@ -418,8 +418,12 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	require.Equal(t, "m2", ts.Assistant.Final.MessageID)
 	require.Equal(t, final, ts.Assistant.Final.Content)
 	require.NotNil(t, ts.Execution)
-	require.Len(t, ts.Execution.Pages, 2)
+	// Summary page is now included in execution pages with Mode="summary" so UI can render it.
+	// Total: page for m1 (iteration 1), page for m2 (iteration 2), page for m3 (summary).
+	require.Len(t, ts.Execution.Pages, 3)
 	require.Equal(t, "m2", ts.Execution.Pages[1].AssistantMessageID)
+	require.Equal(t, "summary", ts.Execution.Pages[2].Mode)
+	require.Equal(t, "m3", ts.Execution.Pages[2].AssistantMessageID)
 }
 
 func TestBuildTranscriptSelectors(t *testing.T) {

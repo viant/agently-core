@@ -667,7 +667,7 @@ export class AgentlyClient {
     /** List child conversations linked to a parent conversation/turn. */
     async listLinkedConversations(input: ListLinkedConversationsInput): Promise<LinkedConversationPage> {
         const q = new URLSearchParams();
-        q.set('parentId', input.parentConversationId);
+        q.set('parentConversationId', input.parentConversationId);
         if (input.parentTurnId) q.set('parentTurnId', input.parentTurnId);
         this.applyPage(q, input.page);
         const out = await this.get('/conversations/linked', q);

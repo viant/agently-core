@@ -33,6 +33,8 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 		return reduceTurnTerminal(state, event, TurnStatusFailed)
 	case streaming.EventTypeTurnCanceled:
 		return reduceTurnTerminal(state, event, TurnStatusCanceled)
+	case streaming.EventTypeTurnQueued:
+		return reduceTurnQueued(state, event)
 
 	// Model lifecycle
 	case streaming.EventTypeModelStarted:
@@ -120,11 +122,40 @@ func reduceTurnTerminal(state *ConversationState, event *streaming.Event, status
 	if turn == nil {
 		return state
 	}
-	// Don't downgrade a terminal status
-	if turn.Status == TurnStatusFailed || turn.Status == TurnStatusCanceled {
+	finalizeTurn(turn, status)
+	return state
+}
+
+func reduceTurnQueued(state *ConversationState, event *streaming.Event) *ConversationState {
+	turnID := strings.TrimSpace(event.TurnID)
+	if turnID == "" {
 		return state
 	}
-	turn.Status = status
+	// If the turn already exists (e.g. arrived via transcript snapshot), update it.
+	for _, t := range state.Turns {
+		if t.TurnID == turnID {
+			if t.Status != TurnStatusRunning && t.Status != TurnStatusCompleted &&
+				t.Status != TurnStatusFailed && t.Status != TurnStatusCanceled {
+				t.Status = TurnStatusQueued
+			}
+			return state
+		}
+	}
+	turn := &TurnState{
+		TurnID:    turnID,
+		Status:    TurnStatusQueued,
+		CreatedAt: event.CreatedAt,
+		QueueSeq:  event.QueueSeq,
+	}
+	if event.StartedByMessageID != "" {
+		turn.StartedByMessageID = strings.TrimSpace(event.StartedByMessageID)
+	}
+	if event.UserMessageID != "" {
+		turn.User = &UserMessageState{
+			MessageID: strings.TrimSpace(event.UserMessageID),
+		}
+	}
+	state.Turns = append(state.Turns, turn)
 	return state
 }
 
@@ -276,17 +307,8 @@ func reduceAssistantPreamble(state *ConversationState, event *streaming.Event) *
 	if turn == nil {
 		return state
 	}
-	if turn.Assistant == nil {
-		turn.Assistant = &AssistantState{}
-	}
-	turn.Assistant.Preamble = &AssistantMessageState{
-		MessageID: strings.TrimSpace(event.AssistantMessageID),
-		Content:   event.Content,
-	}
-	// Also set on current page
 	page := ensureCurrentPage(turn, event)
-	page.Preamble = event.Content
-	page.PreambleMessageID = strings.TrimSpace(event.AssistantMessageID)
+	setAssistantPreamble(turn, page, strings.TrimSpace(event.AssistantMessageID), event.Content)
 	return state
 }
 
@@ -295,18 +317,8 @@ func reduceAssistantFinal(state *ConversationState, event *streaming.Event) *Con
 	if turn == nil {
 		return state
 	}
-	if turn.Assistant == nil {
-		turn.Assistant = &AssistantState{}
-	}
-	turn.Assistant.Final = &AssistantMessageState{
-		MessageID: strings.TrimSpace(event.AssistantMessageID),
-		Content:   event.Content,
-	}
-	// Also set on current page
 	page := ensureCurrentPage(turn, event)
-	page.Content = event.Content
-	page.FinalResponse = true
-	page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
+	setAssistantFinal(turn, page, strings.TrimSpace(event.AssistantMessageID), event.Content)
 	return state
 }
 
@@ -429,7 +441,7 @@ func reduceElicitationRequested(state *ConversationState, event *streaming.Event
 		ElicitationID:   strings.TrimSpace(event.ElicitationID),
 		Status:          ElicitationStatusPending,
 		Message:         strings.TrimSpace(event.Content),
-		RequestedSchema: event.ElicitationData,
+		RequestedSchema: marshalToRawJSON(event.ElicitationData),
 		CallbackURL:     strings.TrimSpace(event.CallbackURL),
 	}
 	return state
@@ -455,7 +467,7 @@ func reduceElicitationResolved(state *ConversationState, event *streaming.Event)
 	default:
 		turn.Elicitation.Status = ElicitationStatusDeclined
 	}
-	turn.Elicitation.ResponsePayload = event.ResponsePayload
+	turn.Elicitation.ResponsePayload = marshalToRawJSON(event.ResponsePayload)
 	// Resume the turn
 	if turn.Status == TurnStatusWaitingForUser {
 		turn.Status = TurnStatusRunning
@@ -474,17 +486,13 @@ func reduceLinkedConversation(state *ConversationState, event *streaming.Event) 
 	if linkedID == "" {
 		return state
 	}
-	// Deduplicate
-	for _, lc := range turn.LinkedConversations {
-		if lc.ConversationID == linkedID {
-			return state
-		}
-	}
-	turn.LinkedConversations = append(turn.LinkedConversations, &LinkedConversationState{
+	attachLinkedConversation(turn, &LinkedConversationState{
 		ConversationID:       linkedID,
 		ParentConversationID: strings.TrimSpace(event.ConversationID),
 		ParentTurnID:         strings.TrimSpace(event.TurnID),
 		ToolCallID:           strings.TrimSpace(event.ToolCallID),
+		AgentID:              strings.TrimSpace(event.LinkedConversationAgentID),
+		Title:                strings.TrimSpace(event.LinkedConversationTitle),
 		CreatedAt:            event.CreatedAt,
 	})
 	// Also attach to the matching tool step if possible
@@ -493,6 +501,8 @@ func reduceLinkedConversation(state *ConversationState, event *streaming.Event) 
 			for _, ts := range p.ToolSteps {
 				if ts.ToolCallID == toolCallID {
 					ts.LinkedConversationID = linkedID
+					ts.LinkedConversationAgentID = strings.TrimSpace(event.LinkedConversationAgentID)
+					ts.LinkedConversationTitle = strings.TrimSpace(event.LinkedConversationTitle)
 				}
 			}
 		}
@@ -510,95 +520,16 @@ func reduceFeedActive(state *ConversationState, event *streaming.Event) *Convers
 	if feedID == "" {
 		return state
 	}
-	for _, feed := range state.Feeds {
-		if feed != nil && feed.FeedID == feedID {
-			if title := strings.TrimSpace(event.FeedTitle); title != "" {
-				feed.Title = title
-			}
-			if event.FeedItemCount > 0 || feed.ItemCount == 0 {
-				feed.ItemCount = event.FeedItemCount
-			}
-			if event.FeedData != nil {
-				feed.Data = event.FeedData
-			}
-			return state
-		}
-	}
-	state.Feeds = append(state.Feeds, &ActiveFeedState{
+	activateFeed(state, &ActiveFeedState{
 		FeedID:    feedID,
 		Title:     strings.TrimSpace(event.FeedTitle),
 		ItemCount: event.FeedItemCount,
-		Data:      event.FeedData,
+		Data:      marshalToRawJSON(event.FeedData),
 	})
 	return state
 }
 
 func reduceFeedInactive(state *ConversationState, event *streaming.Event) *ConversationState {
-	if state == nil || event == nil || len(state.Feeds) == 0 {
-		return state
-	}
-	feedID := strings.TrimSpace(event.FeedID)
-	if feedID == "" {
-		return state
-	}
-	filtered := state.Feeds[:0]
-	for _, feed := range state.Feeds {
-		if feed == nil || feed.FeedID == feedID {
-			continue
-		}
-		filtered = append(filtered, feed)
-	}
-	state.Feeds = filtered
+	deactivateFeed(state, event.FeedID)
 	return state
-}
-
-// --- helpers ---
-
-func findOrCreateTurn(state *ConversationState, turnID string) *TurnState {
-	turnID = strings.TrimSpace(turnID)
-	if turnID == "" {
-		return nil
-	}
-	for _, t := range state.Turns {
-		if t.TurnID == turnID {
-			return t
-		}
-	}
-	turn := &TurnState{
-		TurnID: turnID,
-		Status: TurnStatusRunning,
-	}
-	state.Turns = append(state.Turns, turn)
-	return turn
-}
-
-func findOrCreateTurnWithTime(state *ConversationState, event *streaming.Event) *TurnState {
-	turn := findOrCreateTurn(state, event.TurnID)
-	if turn != nil && turn.CreatedAt.IsZero() {
-		turn.CreatedAt = event.CreatedAt
-	}
-	return turn
-}
-
-func ensureCurrentPage(turn *TurnState, event *streaming.Event) *ExecutionPageState {
-	if turn.Execution == nil {
-		turn.Execution = &ExecutionState{}
-	}
-	iteration := event.Iteration
-	// Try to find an existing page for this iteration
-	for _, p := range turn.Execution.Pages {
-		if p.Iteration == iteration {
-			return p
-		}
-	}
-	page := &ExecutionPageState{
-		PageID:             strings.TrimSpace(event.AssistantMessageID),
-		AssistantMessageID: strings.TrimSpace(event.AssistantMessageID),
-		ParentMessageID:    strings.TrimSpace(event.ParentMessageID),
-		TurnID:             strings.TrimSpace(event.TurnID),
-		Iteration:          iteration,
-	}
-	turn.Execution.Pages = append(turn.Execution.Pages, page)
-	turn.Execution.ActivePageIdx = len(turn.Execution.Pages) - 1
-	return page
 }

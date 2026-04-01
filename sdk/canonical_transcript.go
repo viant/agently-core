@@ -32,13 +32,15 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 	if turn == nil {
 		return nil
 	}
-	ts := &TurnState{
-		TurnID:    strings.TrimSpace(turn.Id),
-		Status:    canonicalTurnStatus(turn),
-		CreatedAt: turn.CreatedAt,
+	tmpState := &ConversationState{}
+	ts := findOrCreateTurn(tmpState, strings.TrimSpace(turn.Id), canonicalTurnStatus(turn), turn.CreatedAt)
+	if ts == nil {
+		return nil
 	}
-	linkedSeen := map[string]struct{}{}
-
+	// Queue metadata
+	if turn.StartedByMessageId != nil {
+		ts.StartedByMessageID = strings.TrimSpace(*turn.StartedByMessageId)
+	}
 	// Extract user message, assistant messages, elicitation, linked conversations
 	for _, msg := range turn.Message {
 		if msg == nil {
@@ -62,11 +64,11 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		}
 		// Collect elicitation state
 		if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
-			ts.Elicitation = buildElicitationState(msg)
+			setElicitationState(ts, buildElicitationState(msg))
 		}
 		// Collect linked conversations from messages
 		if msg.LinkedConversationId != nil && strings.TrimSpace(*msg.LinkedConversationId) != "" {
-			appendLinkedConversationState(ts, linkedSeen, &LinkedConversationState{
+			attachLinkedConversation(ts, &LinkedConversationState{
 				ConversationID: strings.TrimSpace(*msg.LinkedConversationId),
 				CreatedAt:      msg.CreatedAt,
 				ParentTurnID:   stringValue(msg.TurnId),
@@ -77,7 +79,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 			if tm == nil || tm.LinkedConversationId == nil || strings.TrimSpace(*tm.LinkedConversationId) == "" {
 				continue
 			}
-			appendLinkedConversationState(ts, linkedSeen, &LinkedConversationState{
+			attachLinkedConversation(ts, &LinkedConversationState{
 				ConversationID: strings.TrimSpace(*tm.LinkedConversationId),
 				CreatedAt:      tm.CreatedAt,
 				ParentTurnID:   stringValue(msg.TurnId),
@@ -87,13 +89,13 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 	}
 
 	// Build execution state from messages with model calls
-	pages := buildExecutionPages(turn)
+	pages := buildExecutionPages(ts, turn)
 	if len(pages) > 0 {
-		ts.Execution = &ExecutionState{
-			Pages:         pages,
-			ActivePageIdx: len(pages) - 1,
+		if ts.Execution == nil {
+			ts.Execution = &ExecutionState{}
 		}
-		// Calculate total elapsed from first page start to last page end
+		ts.Execution.Pages = pages
+		ts.Execution.ActivePageIdx = len(pages) - 1
 		ts.Execution.TotalElapsedMs = calcTotalElapsed(pages)
 
 		// Extract assistant preamble and final from execution pages
@@ -108,6 +110,8 @@ func canonicalTurnStatus(turn *convstore.Turn) TurnStatus {
 		return TurnStatusCompleted
 	}
 	switch strings.ToLower(strings.TrimSpace(turn.Status)) {
+	case "queued":
+		return TurnStatusQueued
 	case "running":
 		return TurnStatusRunning
 	case "waiting_for_user":
@@ -129,8 +133,10 @@ func buildElicitationState(msg *agconv.MessageView) *ElicitationState {
 	}
 	es := &ElicitationState{
 		ElicitationID: strings.TrimSpace(*msg.ElicitationId),
-		Message:       stringValue(msg.Content),
 	}
+	// Resolve elicitation message text. Prefer RawContent, fall back to Content.
+	es.Message = stringValue(msg.Content)
+
 	// Map message status to elicitation status
 	if msg.Status != nil {
 		switch strings.ToLower(strings.TrimSpace(*msg.Status)) {
@@ -148,39 +154,62 @@ func buildElicitationState(msg *agconv.MessageView) *ElicitationState {
 	} else {
 		es.Status = ElicitationStatusPending
 	}
-	// Extract requestedSchema and callbackUrl from the assistant message content,
-	// which is where the elicitation request payload is stored. The
-	// UserElicitationData field (elicitation_payload_id) holds the user's
-	// response payload, not the original request.
+
+	// Use enriched elicitation map if available (populated by enrichTranscriptElicitations).
+	// This avoids parsing requestedSchema from embedded content JSON.
+	if msg.Elicitation != nil {
+		if schema, ok := msg.Elicitation["requestedSchema"]; ok {
+			es.RequestedSchema = marshalToRawJSON(schema)
+		}
+		if cb, ok := msg.Elicitation["callbackUrl"].(string); ok {
+			es.CallbackURL = strings.TrimSpace(cb)
+		}
+		// Use the human-readable message from the elicitation map if available
+		if message, ok := msg.Elicitation["message"].(string); ok {
+			if m := strings.TrimSpace(message); m != "" {
+				es.Message = m
+			}
+		}
+		return es
+	}
+
+	// Fall back: extract requestedSchema and callbackUrl from embedded JSON in content.
+	// This path handles legacy records where elicitation payload was stored in content.
 	if content := stringValue(msg.Content); content != "" {
 		var payload map[string]interface{}
 		if json.Unmarshal([]byte(content), &payload) == nil {
-			if schema, ok := payload["requestedSchema"].(map[string]interface{}); ok {
-				es.RequestedSchema = schema
+			if schema, ok := payload["requestedSchema"]; ok {
+				es.RequestedSchema = marshalToRawJSON(schema)
 			}
 			if cb, ok := payload["callbackUrl"].(string); ok {
 				es.CallbackURL = strings.TrimSpace(cb)
+			}
+			// Use message from payload if content looks like raw JSON
+			if message, ok := payload["message"].(string); ok {
+				if m := strings.TrimSpace(message); m != "" {
+					es.Message = m
+				}
 			}
 		}
 	}
 	return es
 }
 
-func buildExecutionPages(turn *convstore.Turn) []*ExecutionPageState {
-	if turn == nil || len(turn.Message) == 0 {
+func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageState {
+	if ts == nil || turn == nil || len(turn.Message) == 0 {
 		return nil
 	}
 	parentToolMessages := indexToolMessagesByParentAndIteration(turn)
-	var pages []*ExecutionPageState
 	for _, message := range turn.Message {
-		if message == nil || message.ModelCall == nil || isSummaryAssistantMessage(message) {
+		if message == nil || message.ModelCall == nil {
 			continue
 		}
-		page := buildPageFromMessage(turn, message, parentToolMessages, len(pages))
-		if page != nil {
-			pages = append(pages, page)
-		}
+		_ = buildPageFromMessage(ts, turn, message, parentToolMessages)
 	}
+	if ts.Execution == nil {
+		return nil
+	}
+	pages := ts.Execution.Pages
 	// Scan for a final assistant message that may not have a ModelCall
 	// (e.g., created by the agent run loop's addMessage after model call completion).
 	// Attach its content to the last page.
@@ -213,7 +242,7 @@ func buildExecutionPages(turn *convstore.Turn) []*ExecutionPageState {
 	return pages
 }
 
-func buildPageFromMessage(turn *convstore.Turn, message *agconv.MessageView, indexed map[string][]*agconv.ToolMessageView, pageIdx int) *ExecutionPageState {
+func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.MessageView, indexed map[string][]*agconv.ToolMessageView) *ExecutionPageState {
 	if message == nil || message.ModelCall == nil {
 		return nil
 	}
@@ -221,23 +250,36 @@ func buildPageFromMessage(turn *convstore.Turn, message *agconv.MessageView, ind
 	if message.Iteration != nil {
 		iteration = *message.Iteration
 	}
-	page := &ExecutionPageState{
-		PageID:             message.Id,
-		AssistantMessageID: message.Id,
-		ParentMessageID:    message.Id,
-		TurnID:             stringValue(message.TurnId),
-		Iteration:          iteration,
-		Preamble:           executionPreamble(message),
-		Content:            strings.TrimSpace(stringValue(message.Content)),
-		FinalResponse:      isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message),
-		Status:             pageStatus(message),
+	mode := ""
+	// Set mode for summary passes so UI can style them distinctly.
+	if isSummaryAssistantMessage(message) {
+		mode = "summary"
+	}
+	page := findOrCreatePage(ts, message.Id, iteration, mode)
+	if page == nil {
+		return nil
+	}
+	page.PageID = message.Id
+	page.AssistantMessageID = message.Id
+	page.ParentMessageID = message.Id
+	page.TurnID = stringValue(message.TurnId)
+	page.Iteration = iteration
+	page.Preamble = executionPreamble(message)
+	page.Content = strings.TrimSpace(stringValue(message.Content))
+	page.FinalResponse = isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message)
+	page.Status = pageStatus(message)
+	if mode != "" {
+		page.Mode = mode
+		page.FinalResponse = false // summary is not the final user-facing response
 	}
 
-	// Build model step from ModelCall
-	page.ModelSteps = []*ModelStepState{buildModelStep(message)}
+	// Build model step using shared upsert helper (enforces dedup semantics)
+	if ms := buildModelStep(message); ms != nil {
+		existing := upsertModelStep(page, ms.ModelCallID)
+		*existing = *ms
+	}
 
-	// Build tool steps from tool messages. Pass the parent message's
-	// linked conversation ID so tool steps can inherit it.
+	// Build tool steps using shared upsert helper
 	parentLinkedConvID := ""
 	if message.LinkedConversationId != nil {
 		parentLinkedConvID = strings.TrimSpace(*message.LinkedConversationId)
@@ -248,13 +290,14 @@ func buildPageFromMessage(turn *convstore.Turn, message *agconv.MessageView, ind
 			continue
 		}
 		ts := buildToolStep(tm)
-		if ts != nil {
-			// Attach linked conversation from parent assistant message
-			if parentLinkedConvID != "" && ts.LinkedConversationID == "" {
-				ts.LinkedConversationID = parentLinkedConvID
-			}
-			page.ToolSteps = append(page.ToolSteps, ts)
+		if ts == nil {
+			continue
 		}
+		if parentLinkedConvID != "" && ts.LinkedConversationID == "" {
+			ts.LinkedConversationID = parentLinkedConvID
+		}
+		existing := upsertToolStep(page, ts.ToolCallID)
+		*existing = *ts
 	}
 
 	// Set preamble/final message IDs
@@ -309,19 +352,19 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 		step.StreamPayloadID = strings.TrimSpace(*mc.StreamPayloadId)
 	}
 	if mc.ModelCallRequestPayload != nil {
-		step.RequestPayload = mc.ModelCallRequestPayload
+		step.RequestPayload = marshalToRawJSON(mc.ModelCallRequestPayload)
 	}
 	if mc.ModelCallResponsePayload != nil {
-		step.ResponsePayload = mc.ModelCallResponsePayload
+		step.ResponsePayload = marshalToRawJSON(mc.ModelCallResponsePayload)
 	}
 	if mc.ModelCallProviderRequestPayload != nil {
-		step.ProviderRequestPayload = mc.ModelCallProviderRequestPayload
+		step.ProviderRequestPayload = marshalToRawJSON(mc.ModelCallProviderRequestPayload)
 	}
 	if mc.ModelCallProviderResponsePayload != nil {
-		step.ProviderResponsePayload = mc.ModelCallProviderResponsePayload
+		step.ProviderResponsePayload = marshalToRawJSON(mc.ModelCallProviderResponsePayload)
 	}
 	if mc.ModelCallStreamPayload != nil {
-		step.StreamPayload = mc.ModelCallStreamPayload
+		step.StreamPayload = marshalToRawJSON(mc.ModelCallStreamPayload)
 	}
 	return step
 }
@@ -346,30 +389,15 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 		step.ResponsePayloadID = strings.TrimSpace(*tc.ResponsePayloadId)
 	}
 	if tc.RequestPayload != nil {
-		step.RequestPayload = tc.RequestPayload
+		step.RequestPayload = marshalToRawJSON(tc.RequestPayload)
 	}
 	if tc.ResponsePayload != nil {
-		step.ResponsePayload = tc.ResponsePayload
+		step.ResponsePayload = marshalToRawJSON(tc.ResponsePayload)
 	}
 	if tm.LinkedConversationId != nil {
 		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
 	}
 	return step
-}
-
-func appendLinkedConversationState(turn *TurnState, seen map[string]struct{}, linked *LinkedConversationState) {
-	if turn == nil || linked == nil {
-		return
-	}
-	id := strings.TrimSpace(linked.ConversationID)
-	if id == "" {
-		return
-	}
-	if _, ok := seen[id]; ok {
-		return
-	}
-	seen[id] = struct{}{}
-	turn.LinkedConversations = append(turn.LinkedConversations, linked)
 }
 
 func toolCallIDFromToolMessage(tm *agconv.ToolMessageView) string {
@@ -406,7 +434,7 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 	// Last page with final content becomes the final
 	for i := len(pages) - 1; i >= 0; i-- {
 		p := pages[i]
-		if p == nil || p.Iteration == 0 {
+		if p == nil || p.Mode == "summary" {
 			continue
 		}
 		if p.FinalResponse && p.Content != "" {

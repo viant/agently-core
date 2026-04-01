@@ -25,6 +25,8 @@ const (
 	EventTypeTurnCompleted EventType = "turn_completed"
 	EventTypeTurnFailed    EventType = "turn_failed"
 	EventTypeTurnCanceled  EventType = "turn_canceled"
+	// EventTypeTurnQueued is emitted when a new turn is enqueued behind an active turn.
+	EventTypeTurnQueued EventType = "turn_queued"
 
 	// Model lifecycle.
 	EventTypeModelStarted   EventType = "model_started"
@@ -86,6 +88,8 @@ type Event struct {
 	ProviderResponsePayloadID string                 `json:"providerResponsePayloadId,omitempty"`
 	StreamPayloadID           string                 `json:"streamPayloadId,omitempty"`
 	LinkedConversationID      string                 `json:"linkedConversationId,omitempty"`
+	LinkedConversationAgentID string                 `json:"linkedConversationAgentId,omitempty"`
+	LinkedConversationTitle   string                 `json:"linkedConversationTitle,omitempty"`
 	Mode                      string                 `json:"mode,omitempty"`
 	Type                      EventType              `json:"type"`
 	Op                        string                 `json:"op,omitempty"`
@@ -111,9 +115,12 @@ type Event struct {
 	CompletedAt               *time.Time             `json:"completedAt,omitempty"`
 	StartedAt                 *time.Time             `json:"startedAt,omitempty"`
 	UserMessageID             string                 `json:"userMessageId,omitempty"`
-	ModelCallID               string                 `json:"modelCallId,omitempty"`
-	Provider                  string                 `json:"provider,omitempty"`
-	ModelName                 string                 `json:"modelName,omitempty"`
+	// Queue fields — present on turn_queued events.
+	QueueSeq           int    `json:"queueSeq,omitempty"`
+	StartedByMessageID string `json:"startedByMessageId,omitempty"`
+	ModelCallID        string `json:"modelCallId,omitempty"`
+	Provider           string `json:"provider,omitempty"`
+	ModelName          string `json:"modelName,omitempty"`
 	// Tool feed fields.
 	FeedID        string      `json:"feedId,omitempty"`
 	FeedTitle     string      `json:"feedTitle,omitempty"`

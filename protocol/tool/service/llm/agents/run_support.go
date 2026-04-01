@@ -641,7 +641,7 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 		}
 		runCtx.childConversationID = childConversationID
 	}
-	runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, route)
+	runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, strings.TrimSpace(ri.AgentID), route)
 	return runCtx, nil
 }
 
@@ -721,7 +721,7 @@ func (s *Service) assignConversationAgent(ctx context.Context, conversationID, a
 	}
 }
 
-func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, childConversationID, route string) string {
+func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, childConversationID, childAgentID, route string) string {
 	if s == nil || s.status == nil || strings.TrimSpace(parent.ConversationID) == "" {
 		return ""
 	}
@@ -731,6 +731,9 @@ func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, ch
 		return ""
 	}
 	attachLinkedConversation(ctx, s.conv, parent, mid, childConversationID)
+	if s.linker != nil {
+		s.linker.EmitLinkedConversationAttached(ctx, parent, childConversationID, mid, childAgentID, "")
+	}
 	debugf("agents.run %s status start parent_convo=%q message_id=%q", route, strings.TrimSpace(parent.ConversationID), strings.TrimSpace(mid))
 	return mid
 }

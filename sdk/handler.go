@@ -116,6 +116,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Client, cfg *handlerConfig) {
 	mux.HandleFunc("GET /v1/conversations", handleListConversations(client))
 	mux.HandleFunc("GET /v1/conversations/linked", handleListLinkedConversations(client))
 	mux.HandleFunc("GET /v1/conversations/{id}/transcript", handleGetTranscript(client))
+	mux.HandleFunc("GET /v1/conversations/{id}/live-state", handleGetLiveState(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/terminate", handleTerminate(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/compact", handleCompact(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/prune", handlePrune(client))
