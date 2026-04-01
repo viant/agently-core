@@ -224,6 +224,8 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			return nil
 		}
 		switch lowerKey {
+		case "capabilities":
+			return s.parseCapabilitiesBlock(valueNode, agent)
 		case "internal":
 			if valueNode.Kind == yaml.ScalarNode {
 				v := valueNode.Interface()

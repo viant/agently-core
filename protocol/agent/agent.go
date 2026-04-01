@@ -77,6 +77,9 @@ type (
 		// contract: tool: { items: [], callExposure }.
 		// This preserves backward compatibility while enabling richer config.
 		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+		// Capabilities declares generic agent requirements that can later be
+		// mapped to provider-specific features based on the selected model.
+		Capabilities *Capabilities `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 
 		// ToolCallExposure is a legacy top-level mirror of Tool.CallExposure
 		// retained for backward compatibility with older metadata and loaders.
@@ -250,6 +253,13 @@ type Tool struct {
 	CallExposure ToolCallExposure `yaml:"callExposure,omitempty" json:"callExposure,omitempty"`
 }
 
+// Capabilities declares optional generic agent capabilities/requirements.
+// These are intentionally provider-agnostic so a runtime can map them to
+// provider-native implementations based on the selected model.
+type Capabilities struct {
+	ModelArtifactGeneration bool `yaml:"modelArtifactGeneration,omitempty" json:"modelArtifactGeneration,omitempty"`
+}
+
 // Elicitation describes a JSON-Schema based input request associated with an agent.
 // It embeds the MCP protocol ElicitRequestParams for consistent wire format with
 // tool- and assistant-originated elicitations.
@@ -409,6 +419,10 @@ func (a *Agent) Validate() error {
 
 func (a *Agent) HasAutoSummarizeDefinition() bool {
 	return a.AutoSummarize != nil
+}
+
+func (a *Agent) WantsModelArtifactGeneration() bool {
+	return a != nil && a.Capabilities != nil && a.Capabilities.ModelArtifactGeneration
 }
 
 func (a *Agent) ShallAutoSummarize() bool {

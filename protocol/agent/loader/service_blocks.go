@@ -159,6 +159,33 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 	return nil
 }
 
+func (s *Service) parseCapabilitiesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("capabilities must be a mapping")
+	}
+	cfg := &agentmdl.Capabilities{}
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "modelartifactgeneration":
+			if v.Kind != yaml.ScalarNode {
+				return fmt.Errorf("capabilities.modelArtifactGeneration must be a scalar")
+			}
+			cfg.ModelArtifactGeneration = toBool(v.Value)
+		default:
+			return fmt.Errorf("unsupported capabilities key: %s", k)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if !cfg.ModelArtifactGeneration {
+		agent.Capabilities = nil
+		return nil
+	}
+	agent.Capabilities = cfg
+	return nil
+}
+
 func normalizeStrings(in []string) []string {
 	if len(in) == 0 {
 		return nil
