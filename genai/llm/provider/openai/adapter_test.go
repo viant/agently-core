@@ -171,6 +171,23 @@ func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
 	})
 }
 
+func TestToRequest_ModelArtifactGenerationEnablesCodeInterpreter(t *testing.T) {
+	in := llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("generate a pdf")},
+		Options: &llm.Options{
+			Model: "gpt-5.2",
+			Metadata: map[string]interface{}{
+				"modelArtifactGeneration": true,
+			},
+		},
+	}
+
+	got := ToRequest(&in)
+	assert.Equal(t, "gpt-5.2", got.Model)
+	assert.True(t, got.EnableCodeInterpreter)
+	assert.EqualValues(t, map[string]interface{}{"type": "code_interpreter"}, got.ToolChoice)
+}
+
 func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
 	in := llm.GenerateRequest{
 		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},

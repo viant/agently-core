@@ -193,6 +193,26 @@ func TestService_Load_ToolBundles(t *testing.T) {
 	}
 }
 
+func TestService_Load_Capabilities(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	t.Run("top-level capabilities are parsed", func(t *testing.T) {
+		got, err := service.Load(ctx, "capabilities_model_artifact_generation.yaml")
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Capabilities)
+		assert.True(t, got.Capabilities.ModelArtifactGeneration)
+	})
+
+	t.Run("unsupported capability keys fail fast", func(t *testing.T) {
+		got, err := service.Load(ctx, "capabilities_invalid.yaml")
+		require.Error(t, err)
+		assert.Nil(t, got)
+		assert.Contains(t, err.Error(), "unsupported capabilities key")
+	})
+}
+
 func TestService_Load_InstructionPrompt(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))

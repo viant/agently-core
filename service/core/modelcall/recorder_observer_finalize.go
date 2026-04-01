@@ -3,7 +3,6 @@ package modelcall
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"regexp"
 	"strings"
 	"unicode"
@@ -210,16 +209,4 @@ func debugPricingf(format string, args ...interface{}) {
 		return
 	}
 	logx.Debugf("pricing", format, args...)
-}
-
-const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
-
-func streamPersistFinalOnly() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(streamPersistModeEnv)))
-	switch v {
-	case "final", "finish", "onfinish":
-		return true
-	default:
-		return false
-	}
 }

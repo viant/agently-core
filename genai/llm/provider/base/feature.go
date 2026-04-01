@@ -12,4 +12,8 @@ const (
 	// SupportsInstructions indicates the provider supports top-level
 	// instructions/system guidance outside the message list.
 	SupportsInstructions string = "supports-instructions"
+	// SupportsModelArtifactGeneration indicates the provider supports
+	// model-native artifact generation (for example OpenAI Responses
+	// built-in tools such as code_interpreter).
+	SupportsModelArtifactGeneration string = "supports-model-artifact-generation"
 )

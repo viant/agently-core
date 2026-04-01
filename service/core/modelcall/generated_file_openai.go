@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	envOpenAIGeneratedFileEnabled  = "AGENTLY_OPENAI_GENERATED_FILE_ENABLED"
 	envOpenAIGeneratedFileCopyMode = "AGENTLY_OPENAI_GENERATED_FILE_COPY_MODE"
 )
 
@@ -38,9 +37,6 @@ type openAIGeneratedFileRef struct {
 }
 
 func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgID string, turn memory.TurnMeta, info Info) error {
-	if !openAIGeneratedFilesEnabled() {
-		return nil
-	}
 	if !strings.EqualFold(strings.TrimSpace(info.Provider), "openai") {
 		return nil
 	}
@@ -413,16 +409,6 @@ func generatedFileDedupKey(mode, containerID, providerFileID, checksum, filename
 		return strings.Join([]string{"inline", filename}, "|")
 	}
 	return ""
-}
-
-func openAIGeneratedFilesEnabled() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv(envOpenAIGeneratedFileEnabled)))
-	switch v {
-	case "", "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }
 
 func openAIGeneratedFileCopyMode() string {

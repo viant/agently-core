@@ -376,6 +376,161 @@ func TestRecorderObserver_OnStreamDelta_IgnoresCanceledPersistenceAndFinalizesAc
 	assert.Equal(t, "Hello world", string(*payload.InlineBody))
 }
 
+func TestRecorderObserver_OnStreamDelta_DefaultBufferedFlushesOnInterval(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+	recorder, ok := ob.(*recorderObserver)
+	require.True(t, ok)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("Hello")))
+	require.NotEmpty(t, recorder.streamPayloadID)
+
+	payload, err := client.GetPayload(context.Background(), recorder.streamPayloadID)
+	require.NoError(t, err)
+	assert.Nil(t, payload)
+
+	recorder.lastFlushAt = time.Now().Add(-streamPersistBufferedInterval)
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte(" world")))
+
+	payload, err = client.GetPayload(context.Background(), recorder.streamPayloadID)
+	require.NoError(t, err)
+	require.NotNil(t, payload)
+	require.NotNil(t, payload.InlineBody)
+	assert.Equal(t, "Hello world", string(*payload.InlineBody))
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+	msg, err := client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.NotNil(t, msg.ModelCall)
+	require.NotNil(t, msg.ModelCall.StreamPayloadId)
+	assert.Equal(t, recorder.streamPayloadID, strings.TrimSpace(*msg.ModelCall.StreamPayloadId))
+}
+
+func TestRecorderObserver_OnStreamDelta_ImmediateModePersistsEachDelta(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "immediate")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+	recorder, ok := ob.(*recorderObserver)
+	require.True(t, ok)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("Hello")))
+	require.NotEmpty(t, recorder.streamPayloadID)
+
+	payload, err := client.GetPayload(context.Background(), recorder.streamPayloadID)
+	require.NoError(t, err)
+	require.NotNil(t, payload)
+	require.NotNil(t, payload.InlineBody)
+	assert.Equal(t, "Hello", string(*payload.InlineBody))
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte(" world")))
+	payload, err = client.GetPayload(context.Background(), recorder.streamPayloadID)
+	require.NoError(t, err)
+	require.NotNil(t, payload)
+	require.NotNil(t, payload.InlineBody)
+	assert.Equal(t, "Hello world", string(*payload.InlineBody))
+}
+
+func TestRecorderObserver_OnStreamDelta_FinalModePersistsOnlyOnFinalize(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "final")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("Hello")))
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte(" world")))
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+	msg, err := client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.NotNil(t, msg.ModelCall)
+	assert.Nil(t, msg.ModelCall.StreamPayloadId)
+
+	require.NoError(t, ob.OnCallEnd(ctx2, Info{Model: "test-model", StreamText: "Hello world"}))
+
+	msg, err = client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.NotNil(t, msg.ModelCall)
+	require.NotNil(t, msg.ModelCall.StreamPayloadId)
+
+	payload, err := client.GetPayload(context.Background(), strings.TrimSpace(*msg.ModelCall.StreamPayloadId))
+	require.NoError(t, err)
+	require.NotNil(t, payload)
+	require.NotNil(t, payload.InlineBody)
+	assert.Equal(t, "Hello world", string(*payload.InlineBody))
+}
+
+func TestRecorderObserver_OnStreamDelta_InvalidModeFallsBackToBuffered(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "not-a-mode")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+	recorder, ok := ob.(*recorderObserver)
+	require.True(t, ok)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("Hello")))
+	require.NotEmpty(t, recorder.streamPayloadID)
+
+	payload, err := client.GetPayload(context.Background(), recorder.streamPayloadID)
+	require.NoError(t, err)
+	assert.Nil(t, payload)
+}
+
 func TestCloseIfOpen_CanceledBeforeFirstDeltaDoesNotPersistStreamPayload(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
