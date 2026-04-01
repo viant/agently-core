@@ -400,7 +400,8 @@ func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
 	require.NoError(t, err)
 	require.NotNil(t, transcript)
-	require.NotEmpty(t, transcript.Turns)
+	require.NotNil(t, transcript.Conversation)
+	require.NotEmpty(t, transcript.Conversation.Turns)
 	msgs, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: out.ConversationID, Roles: []string{"user"}})
 	require.NoError(t, err)
 	require.NotNil(t, msgs)
@@ -561,11 +562,11 @@ func compactText(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), ""))
 }
 
-func firstLinkedConversationID(state *sdk.ConversationState) string {
-	if state == nil {
+func firstLinkedConversationID(resp *sdk.ConversationStateResponse) string {
+	if resp == nil || resp.Conversation == nil {
 		return ""
 	}
-	for _, turn := range state.Turns {
+	for _, turn := range resp.Conversation.Turns {
 		if turn == nil {
 			continue
 		}
@@ -578,12 +579,12 @@ func firstLinkedConversationID(state *sdk.ConversationState) string {
 	return ""
 }
 
-func collectTranscriptText(state *sdk.ConversationState) string {
+func collectTranscriptText(resp *sdk.ConversationStateResponse) string {
 	var parts []string
-	if state == nil {
+	if resp == nil || resp.Conversation == nil {
 		return ""
 	}
-	for _, turn := range state.Turns {
+	for _, turn := range resp.Conversation.Turns {
 		if turn == nil {
 			continue
 		}
@@ -599,12 +600,12 @@ func collectTranscriptText(state *sdk.ConversationState) string {
 	return strings.Join(parts, "\n")
 }
 
-func collectExecutionPages(state *sdk.ConversationState) []*sdk.ExecutionPageState {
+func collectExecutionPages(resp *sdk.ConversationStateResponse) []*sdk.ExecutionPageState {
 	var pages []*sdk.ExecutionPageState
-	if state == nil {
+	if resp == nil || resp.Conversation == nil {
 		return nil
 	}
-	for _, turn := range state.Turns {
+	for _, turn := range resp.Conversation.Turns {
 		if turn == nil || turn.Execution == nil {
 			continue
 		}

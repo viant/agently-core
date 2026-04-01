@@ -662,7 +662,7 @@ func (c *HTTPClient) ImportResources(ctx context.Context, input *ImportResources
 	return &out, nil
 }
 
-func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error) {
+func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -696,11 +696,38 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	var out ConversationState
+	var out ConversationStateResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *HTTPClient) GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error) {
+	result := make(map[string]*conversation.Payload, len(ids))
+	for _, id := range ids {
+		payloadID := strings.TrimSpace(id)
+		if payloadID == "" {
+			continue
+		}
+		if _, exists := result[payloadID]; exists {
+			continue
+		}
+		var out conversation.Payload
+		path := "/v1/api/payload/" + url.PathEscape(payloadID)
+		if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+			continue
+		}
+		result[payloadID] = &out
+	}
+	return result, nil
+}
+
+// GetLiveState returns the canonical state snapshot with an EventCursor by
+// delegating to GetTranscript. HTTP clients should prefer a dedicated
+// /live-state endpoint when available; this implementation is a safe fallback.
+func (c *HTTPClient) GetLiveState(ctx context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
+	return c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID}, options...)
 }
 
 func (c *HTTPClient) TerminateConversation(ctx context.Context, conversationID string) error {

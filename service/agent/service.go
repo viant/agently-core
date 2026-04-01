@@ -70,6 +70,10 @@ type Service struct {
 
 	// Optional data service for run record management (SecurityContext, resume).
 	dataService data.Service
+
+	// streamPub is the SSE bus publisher used to emit agent-level lifecycle
+	// events such as turn_queued. Wired via SetElicitationStreamPublisher.
+	streamPub streaming.Publisher
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -219,10 +223,13 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 // internal elicitation service so that LLM-generated elicitation events reach
 // the SSE bus.
 func (s *Service) SetElicitationStreamPublisher(p streaming.Publisher) {
-	if s == nil || s.elicitation == nil {
+	if s == nil {
 		return
 	}
-	s.elicitation.SetStreamPublisher(p)
+	s.streamPub = p
+	if s.elicitation != nil {
+		s.elicitation.SetStreamPublisher(p)
+	}
 }
 
 // Name returns the service name

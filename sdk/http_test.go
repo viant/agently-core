@@ -62,6 +62,40 @@ func TestHTTPClient_GetConversation(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_GetPayloads_FallbacksPerID(t *testing.T) {
+	var gotPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/v1/api/payload/p1":
+			_ = json.NewEncoder(w).Encode(&conversation.Payload{Id: "p1"})
+		case "/v1/api/payload/p2":
+			_ = json.NewEncoder(w).Encode(&conversation.Payload{Id: "p2"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	out, err := c.GetPayloads(context.Background(), []string{"p1", "p2", "missing", "p1", ""})
+	if err != nil {
+		t.Fatalf("GetPayloads: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("unexpected payload count: %d", len(out))
+	}
+	if out["p1"] == nil || out["p1"].Id != "p1" {
+		t.Fatalf("missing p1: %#v", out["p1"])
+	}
+	if out["p2"] == nil || out["p2"].Id != "p2" {
+		t.Fatalf("missing p2: %#v", out["p2"])
+	}
+}
+
 func TestHTTPClient_UpdateConversation(t *testing.T) {
 	var gotMethod string
 	var gotPath string
@@ -423,10 +457,18 @@ type spyTranscriptClient struct {
 	gotOptions []TranscriptOption
 }
 
-func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationState, error) {
+func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
 	s.gotInput = input
 	s.gotOptions = options
-	return &ConversationState{}, nil
+	return &ConversationStateResponse{SchemaVersion: "2", Conversation: &ConversationState{}}, nil
+}
+
+func (s *spyTranscriptClient) GetPayloads(_ context.Context, ids []string) (map[string]*conversation.Payload, error) {
+	return nil, nil
+}
+
+func (s *spyTranscriptClient) GetLiveState(_ context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
+	return &ConversationStateResponse{SchemaVersion: "2", Conversation: &ConversationState{ConversationID: conversationID}}, nil
 }
 
 func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {

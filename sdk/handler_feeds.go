@@ -66,6 +66,14 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 					break
 				}
 			}
+			if feedData == nil && transcript.Conversation != nil {
+				for _, f := range transcript.Conversation.Feeds {
+					if f != nil && f.FeedID == feedID {
+						feedData = f.Data
+						break
+					}
+				}
+			}
 		}
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"feedId":      spec.ID,

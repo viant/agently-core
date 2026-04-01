@@ -1,5 +1,7 @@
 package sdk
 
+import "encoding/json"
+
 // Selectors derive renderable state from the canonical ConversationState.
 // UI layers should only render what these selectors return — never synthesize
 // execution structure from raw transcript or stream data.
@@ -98,9 +100,9 @@ type ElicitationDialog struct {
 	ElicitationID   string
 	Status          ElicitationStatus
 	Message         string
-	RequestedSchema map[string]interface{}
+	RequestedSchema json.RawMessage
 	CallbackURL     string
-	ResponsePayload map[string]interface{}
+	ResponsePayload json.RawMessage
 	// IsPending is true when the user needs to respond.
 	IsPending bool
 }

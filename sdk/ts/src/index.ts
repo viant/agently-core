@@ -91,6 +91,21 @@ export type { MessageBuffer } from './reconcile';
 export { ConversationStreamTracker } from './conversationStream';
 export type { ConversationStreamSnapshot, CanonicalConversationSnapshot } from './conversationStream';
 
+// Canonical execution group helpers
+export {
+    normalizeExecutionPageSize,
+    plannedToolCalls as plannedExecutionToolCalls,
+    isPresentableExecutionGroup,
+    selectExecutionPages,
+    selectExecutionSteps,
+    findExecutionStepById,
+    findExecutionStepByPayloadId,
+    applyExecutionStreamEventToGroups,
+    mergeLatestTranscriptAndLiveExecutionGroups,
+    describeExecutionTimelineEvent,
+} from './executionGroups';
+export type { ExecutionStepLike } from './executionGroups';
+
 // Stream identity helpers
 export {
     resolveEventConversationId,

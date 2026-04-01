@@ -13,6 +13,7 @@ import (
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/shared"
 )
 
@@ -89,7 +90,27 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 		}
 	}
 	infof("agent.Query queued convo=%q turn_id=%q active_turn=%q queue_seq=%d", conversationID, turnID, strings.TrimSpace(active.Id), queueSeq)
+	s.emitTurnQueued(ctx, conversationID, turnID, queueSeq, now, strings.TrimSpace(input.Query))
 	return true, nil
+}
+
+func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID string, queueSeq int64, createdAt time.Time, query string) {
+	if s.streamPub == nil {
+		return
+	}
+	event := &streaming.Event{
+		Type:               streaming.EventTypeTurnQueued,
+		StreamID:           conversationID,
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		QueueSeq:           int(queueSeq),
+		StartedByMessageID: turnID,
+		UserMessageID:      turnID,
+		CreatedAt:          createdAt,
+	}
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		warnf("turn_queued publish error convo=%q turn=%q err=%v", conversationID, turnID, err)
+	}
 }
 
 func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) (context.Context, func()) {

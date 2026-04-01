@@ -1,5 +1,3 @@
-//go:build ignore
-
 package write
 
 import (
@@ -25,6 +23,7 @@ import (
 )
 
 func TestHandler_Exec_AssignsSequence(t *testing.T) {
+	resetTurnSequencer()
 	db, _, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-message-write")
 	t.Cleanup(cleanup)
 	dbtest.LoadSQLiteSchema(t, db)
@@ -32,8 +31,8 @@ func TestHandler_Exec_AssignsSequence(t *testing.T) {
 	seedConversationTurn(t, db, "c1", "t1")
 
 	in := &Input{Messages: []*Message{
-		{Id: "m1", ConversationID: "c1", TurnID: strPtr("t1"), Role: "assistant", Type: "text", Content: "hello"},
-		{Id: "m2", ConversationID: "c1", TurnID: strPtr("t1"), Role: "assistant", Type: "text", Content: "world"},
+		{Id: "m1", ConversationID: "c1", TurnID: strPtr("t1"), Role: "assistant", Type: "text", Content: strPtr("hello")},
+		{Id: "m2", ConversationID: "c1", TurnID: strPtr("t1"), Role: "assistant", Type: "text", Content: strPtr("world")},
 	}}
 
 	sqlxSvc := sqlx.New(&sqliteMessageSQLX{db: db})
@@ -52,6 +51,7 @@ func TestHandler_Exec_AssignsSequence(t *testing.T) {
 }
 
 func TestHandler_Exec_AssignsSequenceAfterExisting(t *testing.T) {
+	resetTurnSequencer()
 	db, _, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-message-write")
 	t.Cleanup(cleanup)
 	dbtest.LoadSQLiteSchema(t, db)
@@ -60,7 +60,7 @@ func TestHandler_Exec_AssignsSequenceAfterExisting(t *testing.T) {
 	seedMessage(t, db, "m0", "c2", "t2", 7)
 
 	in := &Input{Messages: []*Message{
-		{Id: "m3", ConversationID: "c2", TurnID: strPtr("t2"), Role: "assistant", Type: "text", Content: "next"},
+		{Id: "m3", ConversationID: "c2", TurnID: strPtr("t2"), Role: "assistant", Type: "text", Content: strPtr("next")},
 	}}
 
 	sqlxSvc := sqlx.New(&sqliteMessageSQLX{db: db})
@@ -74,6 +74,7 @@ func TestHandler_Exec_AssignsSequenceAfterExisting(t *testing.T) {
 }
 
 func TestHandler_Exec_PreservesSequence(t *testing.T) {
+	resetTurnSequencer()
 	db, _, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-message-write")
 	t.Cleanup(cleanup)
 	dbtest.LoadSQLiteSchema(t, db)
@@ -81,7 +82,7 @@ func TestHandler_Exec_PreservesSequence(t *testing.T) {
 	seedConversationTurn(t, db, "c3", "t3")
 
 	in := &Input{Messages: []*Message{
-		{Id: "m4", ConversationID: "c3", TurnID: strPtr("t3"), Role: "assistant", Type: "text", Content: "fixed", Sequence: intPtr(42)},
+		{Id: "m4", ConversationID: "c3", TurnID: strPtr("t3"), Role: "assistant", Type: "text", Content: strPtr("fixed"), Sequence: intPtr(42)},
 	}}
 
 	sqlxSvc := sqlx.New(&sqliteMessageSQLX{db: db})
@@ -95,6 +96,7 @@ func TestHandler_Exec_PreservesSequence(t *testing.T) {
 }
 
 func TestHandler_Exec_AssignsSequence_ConcurrentInserts(t *testing.T) {
+	resetTurnSequencer()
 	db, _, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-message-write")
 	t.Cleanup(cleanup)
 	dbtest.LoadSQLiteSchema(t, db)
@@ -105,11 +107,11 @@ func TestHandler_Exec_AssignsSequence_ConcurrentInserts(t *testing.T) {
 	sqlxSvc := sqlx.New(&sqliteMessageSQLX{db: db, insertBarrier: barrier})
 
 	sess1 := newSQLiteSession(&Input{Messages: []*Message{
-		{Id: "m5", ConversationID: "c4", TurnID: strPtr("t4"), Role: "assistant", Type: "text", Content: "a"},
+		{Id: "m5", ConversationID: "c4", TurnID: strPtr("t4"), Role: "assistant", Type: "text", Content: strPtr("a")},
 	}}, sqlxSvc, validator.New(&fakeValidator{}))
 
 	sess2 := newSQLiteSession(&Input{Messages: []*Message{
-		{Id: "m6", ConversationID: "c4", TurnID: strPtr("t4"), Role: "assistant", Type: "text", Content: "b"},
+		{Id: "m6", ConversationID: "c4", TurnID: strPtr("t4"), Role: "assistant", Type: "text", Content: strPtr("b")},
 	}}, sqlxSvc, validator.New(&fakeValidator{}))
 
 	h := &Handler{}
@@ -297,6 +299,10 @@ func fetchMessageSequence(t *testing.T, db *sql.DB, msgID string) int64 {
 		return 0
 	}
 	return seq.Int64
+}
+
+func resetTurnSequencer() {
+	globalTurnSeq = &turnSequencer{}
 }
 
 func strPtr(v string) *string { return &v }
