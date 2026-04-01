@@ -10,4 +10,6 @@ prompt:
   uri: prompt/user.tmpl
 systemPrompt:
   uri: prompt/system.tmpl
+capabilities:
+  modelArtifactGeneration: true
 tool: {}
