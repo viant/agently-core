@@ -1,0 +1,5 @@
+id: file-generator
+name: File Generator
+modelRef: openai_gpt-5.2_responses
+capabilities:
+  modelArtifactGeneration: true

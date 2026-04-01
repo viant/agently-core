@@ -23,6 +23,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find model: %w", err)
 	}
+	normalizeModelNativeCapabilities(input.Options, model, input.Model)
 	s.updateFlags(input, model)
 	if err := input.Init(ctx); err != nil {
 		return nil, nil, fmt.Errorf("failed to init generate input: %w", err)
@@ -109,6 +110,18 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		})
 	}
 	return request, model, nil
+}
+
+func normalizeModelNativeCapabilities(options *llm.Options, model llm.Model, modelName string) {
+	if options == nil || options.Metadata == nil {
+		return
+	}
+	if v, ok := options.Metadata["modelArtifactGeneration"].(bool); ok && v {
+		if model == nil || !model.Implements(base.SupportsModelArtifactGeneration) {
+			delete(options.Metadata, "modelArtifactGeneration")
+			logx.Warnf("core", "model=%q does not support modelArtifactGeneration; continuing without native artifact generation", strings.TrimSpace(modelName))
+		}
+	}
 }
 
 func applyInstructionsDefaults(request *llm.GenerateRequest, model llm.Model) {

@@ -207,6 +207,12 @@ func (c *Client) Implements(feature string) bool {
 			return true
 		}
 		return *c.ContextContinuation
+	case base.SupportsModelArtifactGeneration:
+		// Native artifact generation currently maps to Responses API built-ins.
+		if c.ContextContinuation == nil {
+			return true
+		}
+		return *c.ContextContinuation
 	}
 	return false
 }

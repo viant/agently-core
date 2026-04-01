@@ -1,0 +1,5 @@
+id: invalid-capabilities
+name: Invalid Capabilities
+modelRef: openai_gpt-5.2_responses
+capabilities:
+  blabla: true
