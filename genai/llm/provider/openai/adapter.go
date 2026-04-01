@@ -153,6 +153,11 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
 		}
 		if v, ok := request.Options.Metadata["forceCodeInterpreter"].(bool); ok && v {
+			req.EnableCodeInterpreter = true
+			req.ToolChoice = map[string]interface{}{"type": "code_interpreter"}
+		}
+		if v, ok := request.Options.Metadata["modelArtifactGeneration"].(bool); ok && v {
+			req.EnableCodeInterpreter = true
 			req.ToolChoice = map[string]interface{}{"type": "code_interpreter"}
 		}
 		if v, ok := request.Options.Metadata["forceImageGeneration"].(bool); ok && v {

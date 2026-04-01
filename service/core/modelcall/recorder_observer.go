@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,8 +14,26 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/runtime/memory"
 )
+
+const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
+
+type streamPersistMode int
+
+const (
+	streamPersistBuffered streamPersistMode = iota
+	streamPersistImmediate
+	streamPersistFinal
+)
+
+const (
+	streamPersistBufferedInterval = 300 * time.Millisecond
+	streamPersistBufferedMinBytes = 10 * 1024
+)
+
+var invalidStreamPersistModes sync.Map
 
 // recorderObserver writes model-call data directly using conversation client.
 type recorderObserver struct {
@@ -28,6 +47,8 @@ type recorderObserver struct {
 	streamPayloadID string
 	streamLinked    bool
 	streamStatusSet bool
+	lastFlushAt     time.Time
+	lastFlushSize   int
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -41,6 +62,8 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	o.streamPayloadID = ""
 	o.streamLinked = false
 	o.streamStatusSet = false
+	o.lastFlushAt = time.Time{}
+	o.lastFlushSize = 0
 	if info.StartedAt.IsZero() {
 		o.start.StartedAt = time.Now()
 	}
@@ -318,7 +341,8 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 
 // OnStreamDelta aggregates streamed chunks. Persistence strategy is controlled
 // by AGENTLY_STREAM_PERSIST_MODE:
-//   - legacy (default): append+upsert on every delta
+//   - buffered (default): periodic full flush from in-memory buffer
+//   - immediate: append+upsert on every delta
 //   - final: persist only once on FinishModelCall
 func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error {
 	if len(data) == 0 {
@@ -327,6 +351,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	o.publishStreamDelta(ctx, data)
 	o.acc.Write(data)
 	msgID := memory.ModelMessageIDFromContext(ctx)
+	mode := streamPersistModeFromEnv()
 
 	// Attempt to detect provider response id early from OpenAI Responses events.
 	// We look for {"type":"response.created|response.completed","response":{"id":"..."}}.
@@ -355,8 +380,8 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 						})
 					}
 				}
-				// In legacy mode, also persist trace id early (one DB write).
-				if !streamPersistFinalOnly() && strings.TrimSpace(msgID) != "" {
+				// In non-final modes, also persist trace id early (one DB write).
+				if mode != streamPersistFinal && strings.TrimSpace(msgID) != "" {
 					upd := apiconv.NewModelCall()
 					upd.SetMessageID(msgID)
 					upd.SetTraceID(strings.TrimSpace(probe.Response.ID))
@@ -386,47 +411,96 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			}
 		}
 	}
-	if streamPersistFinalOnly() {
+	switch mode {
+	case streamPersistFinal:
 		return nil
+	case streamPersistBuffered:
+		return o.handleStreamDeltaBuffered(ctx, msgID)
+	default:
+		return o.handleStreamDeltaImmediate(ctx, msgID)
 	}
+}
 
-	// Legacy mode: per-delta persistence still happens, but we now rebuild from
-	// the in-memory accumulator instead of read-append-rewrite via GetPayload.
-	// This avoids extra DB reads and keeps the full partial stream available
-	// even when an intermediate write is skipped or fails.
-
-	// (3) Resolve stream payload id (message id or new UUID).
-	id := strings.TrimSpace(o.streamPayloadID)
-	if id == "" {
-		if msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); msgID != "" {
-			id = msgID
-		} else {
-			id = uuid.New().String()
-		}
-		o.streamPayloadID = id
-	}
-
-	// (4) Upsert the full accumulated stream body. Failures are logged and
-	// ignored so persistence issues do not abort the provider stream.
+func (o *recorderObserver) handleStreamDeltaImmediate(ctx context.Context, msgID string) error {
+	id := o.resolveStreamPayloadID(ctx, msgID)
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", []byte(o.acc.String())); err != nil {
 		warnf("stream delta payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
 		return nil
 	}
-
-	// (5) Link stream payload to model call once. This is also best-effort.
-	if !o.streamLinked {
-		if strings.TrimSpace(msgID) != "" {
-			upd := apiconv.NewModelCall()
-			upd.SetMessageID(msgID)
-			upd.SetStreamPayloadID(id)
-			if err := o.client.PatchModelCall(ctx, upd); err != nil {
-				warnf("stream payload link failed message=%q payload=%q err=%v", strings.TrimSpace(msgID), strings.TrimSpace(id), err)
-				return nil
-			}
-			o.streamLinked = true
-		}
-	}
+	o.linkStreamPayload(ctx, msgID, id)
 	return nil
+}
+
+func (o *recorderObserver) handleStreamDeltaBuffered(ctx context.Context, msgID string) error {
+	id := o.resolveStreamPayloadID(ctx, msgID)
+	now := time.Now()
+	accSize := o.acc.Len()
+	if o.lastFlushAt.IsZero() {
+		o.lastFlushAt = now
+		o.lastFlushSize = accSize
+		return nil
+	}
+	if now.Sub(o.lastFlushAt) < streamPersistBufferedInterval && accSize-o.lastFlushSize < streamPersistBufferedMinBytes {
+		return nil
+	}
+	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", []byte(o.acc.String())); err != nil {
+		warnf("buffered stream payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		return nil
+	}
+	o.lastFlushAt = now
+	o.lastFlushSize = accSize
+	o.linkStreamPayload(ctx, msgID, id)
+	return nil
+}
+
+func (o *recorderObserver) resolveStreamPayloadID(ctx context.Context, msgID string) string {
+	id := strings.TrimSpace(o.streamPayloadID)
+	if id != "" {
+		return id
+	}
+	if trimmed := strings.TrimSpace(msgID); trimmed != "" {
+		id = trimmed
+	} else if fromCtx := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); fromCtx != "" {
+		id = fromCtx
+	} else {
+		id = uuid.New().String()
+	}
+	o.streamPayloadID = id
+	return id
+}
+
+func (o *recorderObserver) linkStreamPayload(ctx context.Context, msgID, payloadID string) {
+	if o.streamLinked || strings.TrimSpace(msgID) == "" || strings.TrimSpace(payloadID) == "" {
+		return
+	}
+	upd := apiconv.NewModelCall()
+	upd.SetMessageID(msgID)
+	upd.SetStreamPayloadID(payloadID)
+	if err := o.client.PatchModelCall(ctx, upd); err != nil {
+		warnf("stream payload link failed message=%q payload=%q err=%v", strings.TrimSpace(msgID), strings.TrimSpace(payloadID), err)
+		return
+	}
+	o.streamLinked = true
+}
+
+func streamPersistModeFromEnv() streamPersistMode {
+	raw := strings.TrimSpace(os.Getenv(streamPersistModeEnv))
+	if raw == "" {
+		return streamPersistBuffered
+	}
+	switch strings.ToLower(raw) {
+	case "buffered":
+		return streamPersistBuffered
+	case "immediate":
+		return streamPersistImmediate
+	case "final":
+		return streamPersistFinal
+	default:
+		if _, loaded := invalidStreamPersistModes.LoadOrStore(strings.ToLower(raw), struct{}{}); !loaded {
+			logx.Warnf("conversation", "invalid %s=%q; using buffered", streamPersistModeEnv, raw)
+		}
+		return streamPersistBuffered
+	}
 }
 
 // WithRecorderObserver injects a recorder-backed Observer into context.

@@ -43,3 +43,25 @@ func TestEnsureGenerateOptions_DoesNotOverrideRequestTemperature(t *testing.T) {
 		t.Fatalf("expected existing request temperature to win, got: %v", got)
 	}
 }
+
+func TestEnsureGenerateOptions_ModelArtifactGeneration(t *testing.T) {
+	in := &core.GenerateInput{}
+	a := &ag.Agent{
+		Capabilities: &ag.Capabilities{
+			ModelArtifactGeneration: true,
+		},
+	}
+
+	EnsureGenerateOptions(context.Background(), in, a)
+
+	if in.Options == nil || in.Options.Metadata == nil {
+		t.Fatalf("expected metadata to be initialized")
+	}
+	got, ok := in.Options.Metadata["modelArtifactGeneration"].(bool)
+	if !ok {
+		t.Fatalf("expected modelArtifactGeneration metadata flag")
+	}
+	if !got {
+		t.Fatalf("expected modelArtifactGeneration metadata to be true")
+	}
+}
