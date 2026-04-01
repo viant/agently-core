@@ -15,9 +15,12 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
+	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	coreauth "github.com/viant/agently-core/service/auth"
+	linksvc "github.com/viant/agently-core/service/linking"
 	executil "github.com/viant/agently-core/service/shared/executil"
+	statussvc "github.com/viant/agently-core/service/toolstatus"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -798,6 +801,47 @@ func TestService_Run_PrefersInternalWhenResolvable(t *testing.T) {
 	}
 }
 
+func TestService_Run_ExternalDirectoryEntry_NeverFallsBackToLocal(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("external directory entry uses external runner", func(t *testing.T) {
+		calledExternal := false
+		s := New(nil,
+			WithDirectoryProvider(func() []ListItem {
+				return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+			}),
+			WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
+				calledExternal = true
+				return "remote-answer", "completed", "task-1", "ctx-1", false, nil, nil
+			}),
+		)
+		s.agent = &fakeAgentRuntime{
+			finder: &fakeFinder{agents: map[string]*agentmdl.Agent{}},
+		}
+
+		var out RunOutput
+		err := s.run(ctx, &RunInput{AgentID: "guardian", Objective: "diagnose"}, &out)
+		require.NoError(t, err)
+		assert.True(t, calledExternal)
+		assert.Equal(t, "remote-answer", out.Answer)
+		assert.Equal(t, "completed", out.Status)
+	})
+
+	t.Run("external directory entry fails explicitly when external route unavailable", func(t *testing.T) {
+		s := New(nil, WithDirectoryProvider(func() []ListItem {
+			return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+		}))
+		s.agent = &fakeAgentRuntime{
+			finder: &fakeFinder{agents: map[string]*agentmdl.Agent{}},
+		}
+
+		var out RunOutput
+		err := s.run(ctx, &RunInput{AgentID: "guardian", Objective: "diagnose"}, &out)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "external agent route unavailable")
+	})
+}
+
 func TestService_Run_Strict_AllowsInternalNotListedInDirectory(t *testing.T) {
 	ctx := context.Background()
 	in := &RunInput{AgentID: "internal-only", Objective: "do work"}
@@ -949,6 +993,54 @@ func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
 
 	assert.False(t, foundObjectiveEcho, "parent conversation should not persist an assistant echo preview for delegation objective")
 	assert.True(t, foundLinkedStatus, "linked status message should still be present")
+}
+
+func TestStartRunStatus_EmitsLinkedConversationAttachedForToolMessageID(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+	bus := streaming.NewMemoryBus(8)
+	sub, err := bus.Subscribe(ctx, nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	svc := &Service{
+		conv:   conv,
+		status: statussvc.New(conv),
+		linker: linksvc.New(conv),
+	}
+	svc.linker.SetStreamPublisher(bus)
+
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-123")
+	parent := memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"}
+	statusMsgID := svc.startRunStatus(ctx, parent, "child-conv", "guardian", "external")
+	require.NotEmpty(t, statusMsgID)
+
+	var linkedEvent *streaming.Event
+	timeout := time.After(2 * time.Second)
+	for linkedEvent == nil {
+		select {
+		case ev := <-sub.C():
+			if ev != nil && ev.Type == streaming.EventTypeLinkedConversationAttached {
+				linkedEvent = ev
+			}
+		case <-timeout:
+			t.Fatalf("timed out waiting for linked conversation event")
+		}
+	}
+
+	require.NotNil(t, linkedEvent)
+	assert.Equal(t, "tool-msg-123", linkedEvent.ToolCallID)
+	assert.Equal(t, "child-conv", linkedEvent.LinkedConversationID)
+	assert.Equal(t, "guardian", linkedEvent.LinkedConversationAgentID)
 }
 
 // TestService_Run_Internal_InheritsParentModel verifies that the child agent

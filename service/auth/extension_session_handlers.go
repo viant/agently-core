@@ -163,6 +163,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			return
 		}
 		bearerToken := bearerTokenFromRequest(r)
+		bearerBootstrap := strings.TrimSpace(in.IDToken) == "" && strings.TrimSpace(in.AccessToken) == "" && strings.TrimSpace(in.RefreshToken) == "" && bearerToken != ""
 		if strings.TrimSpace(in.IDToken) == "" && strings.TrimSpace(in.AccessToken) == "" && bearerToken != "" {
 			in.IDToken = bearerToken
 			in.AccessToken = bearerToken
@@ -204,7 +205,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			}
 		}
 		a.sessions.Put(r.Context(), sess)
-		if sess.Tokens != nil {
+		if sess.Tokens != nil && !bearerBootstrap {
 			a.persistOAuthToken(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry)
 		}
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)

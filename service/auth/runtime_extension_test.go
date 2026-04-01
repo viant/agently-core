@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRuntimeHandleCreateSession_UsesBearerTokenIdentityWhenBodyTokensMissing(t *testing.T) {
@@ -57,6 +58,34 @@ func TestRuntimeHandleCreateSession_UsesBearerTokenIdentityWhenBodyTokensMissing
 	}
 	if sess.Tokens == nil || strings.TrimSpace(sess.Tokens.IDToken) != token {
 		t.Fatalf("expected ID token to be captured from bearer token")
+	}
+}
+
+func TestRuntimeHandleCreateSession_BearerBootstrapDoesNotPersistOAuthToken(t *testing.T) {
+	store := &testTokenStore{}
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions:   NewManager(time.Hour, nil),
+		tokenStore: store,
+	}
+
+	claims := `{"sub":"user-123","email":"dev@example.com","preferred_username":"devuser"}`
+	token := "x." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".y"
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	ext.handleCreateSession().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if store.putUser != "" {
+		t.Fatalf("expected bearer bootstrap not to persist oauth token, got putUser=%q", store.putUser)
 	}
 }
 

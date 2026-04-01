@@ -732,7 +732,11 @@ func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, ch
 	}
 	attachLinkedConversation(ctx, s.conv, parent, mid, childConversationID)
 	if s.linker != nil {
-		s.linker.EmitLinkedConversationAttached(ctx, parent, childConversationID, mid, childAgentID, "")
+		eventToolCallID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+		if eventToolCallID == "" {
+			eventToolCallID = mid
+		}
+		s.linker.EmitLinkedConversationAttached(ctx, parent, childConversationID, eventToolCallID, childAgentID, "")
 	}
 	debugf("agents.run %s status start parent_convo=%q message_id=%q", route, strings.TrimSpace(parent.ConversationID), strings.TrimSpace(mid))
 	return mid
