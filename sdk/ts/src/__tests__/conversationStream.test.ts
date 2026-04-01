@@ -16,6 +16,7 @@ describe('ConversationStreamTracker', () => {
         } as SSEEvent);
         expect(delta).toEqual({ id: 'msg-1', content: 'Hello', final: false });
         expect(tracker.activeTurnId).toBe('turn-1');
+        expect(tracker.conversationId).toBe('conv-1');
 
         tracker.applyEvent({
             type: 'tool_feed_active',
@@ -42,7 +43,18 @@ describe('ConversationStreamTracker', () => {
             turnId: 'turn-1',
             message: 'Need input',
         });
-        expect(tracker.state.activeTurnId).toBe('turn-1');
+        expect(tracker.state).toMatchObject({
+            conversationId: 'conv-1',
+            activeTurnId: 'turn-1',
+        });
+        expect(tracker.compositeState).toMatchObject({
+            conversationId: 'conv-1',
+            activeTurnId: 'turn-1',
+        });
+        expect(tracker.canonicalState).toMatchObject({
+            conversationId: 'conv-1',
+            activeTurnId: 'turn-1',
+        });
     });
 
     it('reconciles transcript and server messages through one facade', () => {
@@ -84,7 +96,20 @@ describe('ConversationStreamTracker', () => {
         expect(merged).toHaveLength(1);
         expect(merged[0].content).toBe('Hello world');
         expect(tracker.snapshot().bufferedMessages).toHaveLength(1);
+        expect(tracker.snapshotCanonical()).toMatchObject({
+            conversationId: 'conv-1',
+            activeTurnId: 'turn-1',
+        });
+        expect(tracker.snapshotComposite()).toMatchObject({
+            conversationId: 'conv-1',
+        });
         tracker.reset();
         expect(tracker.state.bufferedMessages).toHaveLength(0);
+        expect(tracker.canonicalState).toMatchObject({
+            conversationId: '',
+            activeTurnId: null,
+            feeds: [],
+            pendingElicitation: null,
+        });
     });
 });

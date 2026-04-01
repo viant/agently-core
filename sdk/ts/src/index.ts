@@ -89,7 +89,7 @@ export type { MessageBuffer } from './reconcile';
 
 // High-level stream tracker
 export { ConversationStreamTracker } from './conversationStream';
-export type { ConversationStreamSnapshot } from './conversationStream';
+export type { ConversationStreamSnapshot, CanonicalConversationSnapshot } from './conversationStream';
 
 // Stream identity helpers
 export {
