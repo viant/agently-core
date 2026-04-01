@@ -530,6 +530,50 @@ func TestRecorderObserver_WritesProviderPayloadFiles(t *testing.T) {
 	require.NotEmpty(t, debugtrace.PayloadDir())
 }
 
+func TestRecorderObserver_PatchesAssistantRoleTypeAndMode(t *testing.T) {
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-assistant-meta")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-assistant-meta", "")))
+
+	ctx := memory.WithTurnMeta(base, memory.TurnMeta{
+		ConversationID:  "conv-assistant-meta",
+		TurnID:          "turn-1",
+		ParentMessageID: "user-1",
+		Assistant:       "agent-1",
+	})
+	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: "turn-1", Iteration: 1})
+	ctx = WithRecorderObserver(ctx, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	resp := &llm.GenerateResponse{
+		Choices: []llm.Choice{{
+			Message: llm.Message{
+				Role:    llm.RoleAssistant,
+				Content: "Final answer",
+			},
+		}},
+	}
+	require.NoError(t, ob.OnCallEnd(ctx2, Info{Model: "test-model", LLMResponse: resp}))
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+	msg, err := client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.Equal(t, "assistant", msg.Role)
+	require.Equal(t, "text", msg.Type)
+	require.NotNil(t, msg.Content)
+	require.Equal(t, "Final answer", *msg.Content)
+}
+
 type failingPayloadClient struct {
 	apiconv.Client
 	failAtCount            int

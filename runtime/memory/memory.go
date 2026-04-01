@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"strings"
 	"sync"
 )
 
@@ -173,6 +174,37 @@ func ModelCompletionMetaFromContext(ctx context.Context) (ModelCompletionMeta, b
 		}
 	}
 	return ModelCompletionMeta{}, false
+}
+
+type requestModeKeyT string
+
+var requestModeKey = requestModeKeyT("requestMode")
+
+// WithRequestMode stores the current generate/stream mode (chat/plan/summary/chain).
+func WithRequestMode(ctx context.Context, mode string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, requestModeKey, mode)
+}
+
+// RequestModeFromContext returns the current generate/stream mode when present.
+func RequestModeFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value := ctx.Value(requestModeKey)
+	if value == nil {
+		return ""
+	}
+	if mode, ok := value.(string); ok {
+		return mode
+	}
+	return ""
 }
 
 // EmbedFunc defines a function that creates embeddings for given texts.

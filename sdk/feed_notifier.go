@@ -19,14 +19,14 @@ type feedNotifier struct {
 	bus      streaming.Bus
 
 	mu          sync.Mutex
-	activeFeeds map[string]bool // feedID → active in current turn
+	activeFeeds map[string]map[string]bool // conversationID -> feedID -> active in current turn
 }
 
 func newFeedNotifier(registry *FeedRegistry, bus streaming.Bus) *feedNotifier {
 	return &feedNotifier{
 		registry:    registry,
 		bus:         bus,
-		activeFeeds: map[string]bool{},
+		activeFeeds: map[string]map[string]bool{},
 	}
 }
 
@@ -66,7 +66,12 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	}
 	for _, spec := range matched {
 		n.mu.Lock()
-		n.activeFeeds[spec.ID] = true
+		feedsByConversation := n.activeFeeds[convID]
+		if feedsByConversation == nil {
+			feedsByConversation = map[string]bool{}
+			n.activeFeeds[convID] = feedsByConversation
+		}
+		feedsByConversation[spec.ID] = true
 		n.mu.Unlock()
 		EmitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
 	}
@@ -87,11 +92,15 @@ func (n *feedNotifier) EmitInactiveForMissing(ctx context.Context, convID string
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	for feedID := range n.activeFeeds {
+	feedsByConversation := n.activeFeeds[convID]
+	for feedID := range feedsByConversation {
 		if !currentFeedIDs[feedID] {
 			EmitFeedInactive(ctx, n.bus, convID, feedID)
-			delete(n.activeFeeds, feedID)
+			delete(feedsByConversation, feedID)
 		}
+	}
+	if len(feedsByConversation) == 0 {
+		delete(n.activeFeeds, convID)
 	}
 }
 

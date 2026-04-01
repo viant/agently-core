@@ -71,6 +71,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 	turn.SetStatus("running")
 	turn.SetRunID("run-1")
 	turn.SetAgentIDUsed("steward-performance")
+	turn.SetStartedByMessageID("user-1")
 	turn.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
 	svc.publishTurnEvent(context.Background(), turn)
@@ -86,6 +87,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.EqualValues(t, "running", ev.Patch["status"])
 		require.EqualValues(t, "run-1", ev.Patch["runId"])
 		require.EqualValues(t, "steward-performance", ev.Patch["agentIdUsed"])
+		require.EqualValues(t, "user-1", ev.Patch["userMessageId"])
 		require.EqualValues(t, "2026-01-02T03:04:05Z", ev.Patch["createdAt"])
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected turn_started event")
@@ -97,6 +99,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.Equal(t, streaming.EventTypeTurnStarted, ev.Type)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "user-1", ev.UserMessageID)
 		require.Equal(t, "steward-performance", ev.AgentIDUsed)
 		require.Equal(t, "running", ev.Status)
 	case <-time.After(2 * time.Second):
@@ -115,6 +118,7 @@ func TestPublishTurnEvent_SucceededTurnPublishesCompleted(t *testing.T) {
 	turn.SetId("turn-1")
 	turn.SetConversationID("conv-1")
 	turn.SetStatus("succeeded")
+	turn.SetStartedByMessageID("user-1")
 	turn.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
 	svc.publishTurnEvent(context.Background(), turn)
@@ -125,6 +129,7 @@ func TestPublishTurnEvent_SucceededTurnPublishesCompleted(t *testing.T) {
 		require.Equal(t, streaming.EventTypeTurnCompleted, ev.Type)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "user-1", ev.UserMessageID)
 		require.Equal(t, "succeeded", ev.Status)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected turn_completed event")
@@ -165,6 +170,125 @@ func TestEmitCanonicalModelEvent_ThinkingPublishesModelStarted(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected model_started event")
 	}
+}
+
+func TestEmitCanonicalModelEvent_CarriesModeFromContext(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-parent",
+	})
+	ctx = memory.WithRequestMode(ctx, "summary")
+
+	mc := convcli.NewModelCall()
+	mc.SetMessageID("mc-1")
+	mc.SetTurnID("turn-1")
+	mc.SetProvider("openai")
+	mc.SetModel("gpt-5.2")
+	mc.SetStatus("thinking")
+
+	svc.emitCanonicalModelEvent(ctx, mc)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeModelStarted, ev.Type)
+		require.Equal(t, "summary", ev.Mode)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected model_started event")
+	}
+}
+
+func TestEmitCanonicalModelEvent_CarriesModeFromStreamingContext(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-parent",
+	})
+	ctx = memory.WithRequestMode(ctx, "chain")
+
+	mc := convcli.NewModelCall()
+	mc.SetMessageID("mc-1")
+	mc.SetTurnID("turn-1")
+	mc.SetProvider("openai")
+	mc.SetModel("gpt-5.2")
+	mc.SetStatus("completed")
+
+	svc.emitCanonicalModelEvent(ctx, mc)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeModelCompleted, ev.Type)
+		require.Equal(t, "chain", ev.Mode)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected model_completed event")
+	}
+}
+
+func TestTimelineDebugFields_ExposeIdentityAndTimingFields(t *testing.T) {
+	startedAt := time.Date(2026, 3, 31, 17, 46, 46, 0, time.UTC)
+	completedAt := startedAt.Add(5 * time.Second)
+	fields := timelineDebugFields(&streaming.Event{
+		Type:                      streaming.EventTypeModelCompleted,
+		Op:                        "message_patch",
+		StreamID:                  "conv-1",
+		ConversationID:            "conv-1",
+		TurnID:                    "turn-1",
+		AgentIDUsed:               "steward",
+		AgentName:                 "Steward",
+		AssistantMessageID:        "msg-1",
+		ParentMessageID:           "parent-1",
+		UserMessageID:             "user-1",
+		ModelCallID:               "msg-1",
+		ToolCallID:                "call-1",
+		ToolMessageID:             "tool-msg-1",
+		RequestPayloadID:          "req-1",
+		ResponsePayloadID:         "resp-1",
+		ProviderRequestPayloadID:  "preq-1",
+		ProviderResponsePayloadID: "presp-1",
+		StreamPayloadID:           "stream-1",
+		LinkedConversationID:      "child-1",
+		Mode:                      "chain",
+		Status:                    "completed",
+		Iteration:                 2,
+		PageIndex:                 2,
+		PageCount:                 3,
+		LatestPage:                true,
+		FinalResponse:             true,
+		ToolName:                  "llm_agents-run",
+		Provider:                  "openai",
+		ModelName:                 "gpt-5.4",
+		FeedID:                    "feed-1",
+		CreatedAt:                 startedAt,
+		StartedAt:                 &startedAt,
+		CompletedAt:               &completedAt,
+		Content:                   "hello",
+	})
+
+	require.EqualValues(t, "conv-1", fields["streamID"])
+	require.EqualValues(t, "steward", fields["agentIDUsed"])
+	require.EqualValues(t, "user-1", fields["userMessageID"])
+	require.EqualValues(t, "msg-1", fields["modelCallID"])
+	require.EqualValues(t, "call-1", fields["toolCallID"])
+	require.EqualValues(t, "req-1", fields["requestPayloadID"])
+	require.EqualValues(t, "preq-1", fields["providerRequestPayloadID"])
+	require.EqualValues(t, "child-1", fields["linkedConversationID"])
+	require.EqualValues(t, "chain", fields["mode"])
+	require.EqualValues(t, "gpt-5.4", fields["modelName"])
+	require.EqualValues(t, "feed-1", fields["feedID"])
+	require.EqualValues(t, startedAt.UTC().Format(time.RFC3339Nano), fields["startedAt"])
+	require.EqualValues(t, completedAt.UTC().Format(time.RFC3339Nano), fields["completedAt"])
 }
 
 func TestEmitCanonicalModelEvent_CompletedPublishesModelCompleted(t *testing.T) {

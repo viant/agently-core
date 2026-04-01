@@ -21,6 +21,12 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta, scheduleI
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
 	rec.SetStatus("running")
+	if starterID := strings.TrimSpace(turn.TurnID); starterID != "" {
+		rec.SetStartedByMessageID(starterID)
+	}
+	if agentID := strings.TrimSpace(turn.Assistant); agentID != "" {
+		rec.SetAgentIDUsed(agentID)
+	}
 	rec.SetRunID(turn.TurnID)
 	rec.SetCreatedAt(time.Now())
 	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))

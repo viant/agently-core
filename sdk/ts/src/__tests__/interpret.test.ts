@@ -85,6 +85,9 @@ describe('isArchived / isSummary / isSummarized', () => {
     it('isSummary true for status=summary', () => {
         expect(isSummary(msg({ status: 'summary' }))).toBe(true);
     });
+    it('isSummary true for mode=summary', () => {
+        expect(isSummary(msg({ mode: 'summary' }))).toBe(true);
+    });
     it('isSummarized true for status=summarized', () => {
         expect(isSummarized(msg({ status: 'summarized' }))).toBe(true);
     });
@@ -178,6 +181,9 @@ describe('messageUIType', () => {
     });
     it('classifies summary', () => {
         expect(messageUIType(msg({ status: 'summary' }))).toBe('summary');
+    });
+    it('classifies summary from mode=summary', () => {
+        expect(messageUIType(msg({ mode: 'summary' }))).toBe('summary');
     });
     it('classifies summarized (hidden)', () => {
         expect(messageUIType(msg({ status: 'summarized' }))).toBe('summarized');

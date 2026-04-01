@@ -9,6 +9,8 @@
  * elicitation forms can't be overwritten by transcript fetches.
  */
 
+import { resolveEventConversationId, resolveEventTurnId } from './streamIdentity';
+
 export interface PendingElicitation {
     elicitationId: string;
     conversationId: string;
@@ -63,8 +65,8 @@ export class ElicitationTracker {
             const requestedSchema = data?.requestedSchema ?? data?.schema ?? data ?? null;
             this.setPending({
                 elicitationId: event.elicitationId,
-                conversationId: event.conversationId || event.streamId || '',
-                turnId: event.turnId || '',
+                conversationId: resolveEventConversationId(event),
+                turnId: resolveEventTurnId(event),
                 message: event.content || '',
                 requestedSchema,
                 callbackURL: event.callbackUrl || '',

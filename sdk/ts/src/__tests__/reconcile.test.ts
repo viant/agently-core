@@ -96,6 +96,54 @@ describe('applyEvent', () => {
         expect(buf.byId.get('msg_1')?.preamble).toBe('Thinking...');
     });
 
+    it('applies assistant_preamble semantically', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'assistant_preamble',
+            content: 'Calling run.',
+            status: 'running',
+        } as SSEEvent);
+        expect(buf.byId.get('msg_1')).toMatchObject({
+            id: 'msg_1',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            preamble: 'Calling run.',
+            status: 'running',
+            interim: 1,
+        });
+        expect(buf.activeTurnId).toBe('turn_1');
+    });
+
+    it('applies assistant_final semantically', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'assistant_preamble',
+            content: 'Thinking...',
+        } as SSEEvent);
+        const result = applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'assistant_final',
+            content: 'Final answer',
+            status: 'completed',
+            finalResponse: true,
+        } as SSEEvent);
+        expect(result).toEqual({ id: 'msg_1', content: 'Final answer', final: true });
+        expect(buf.byId.get('msg_1')).toMatchObject({
+            content: 'Final answer',
+            status: 'completed',
+            interim: 0,
+            preamble: 'Thinking...',
+        });
+    });
+
     it('marks turn_completed as final', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {

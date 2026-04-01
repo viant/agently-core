@@ -119,3 +119,50 @@ func TestReduce_ModelCompletedPreservesMarkdownBoundaries(t *testing.T) {
 		t.Fatalf("expected content to preserve whitespace boundaries\nwant: %q\ngot:  %q", content, page.Content)
 	}
 }
+
+func TestReduce_FeedLifecycle(t *testing.T) {
+	state := Reduce(nil, &streaming.Event{
+		Type:           streaming.EventTypeToolFeedActive,
+		ConversationID: "conv-1",
+		FeedID:         "plan",
+		FeedTitle:      "Plan",
+		FeedItemCount:  3,
+		FeedData: map[string]any{
+			"foo": "bar",
+		},
+	})
+	if state == nil || len(state.Feeds) != 1 {
+		t.Fatalf("expected one feed, got %#v", state)
+	}
+	if state.Feeds[0].FeedID != "plan" {
+		t.Fatalf("expected feed id plan, got %q", state.Feeds[0].FeedID)
+	}
+	if state.Feeds[0].Title != "Plan" {
+		t.Fatalf("expected feed title Plan, got %q", state.Feeds[0].Title)
+	}
+	if state.Feeds[0].ItemCount != 3 {
+		t.Fatalf("expected feed item count 3, got %d", state.Feeds[0].ItemCount)
+	}
+
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolFeedActive,
+		ConversationID: "conv-1",
+		FeedID:         "plan",
+		FeedItemCount:  5,
+	})
+	if len(state.Feeds) != 1 {
+		t.Fatalf("expected one feed after update, got %#v", state.Feeds)
+	}
+	if state.Feeds[0].ItemCount != 5 {
+		t.Fatalf("expected updated item count 5, got %d", state.Feeds[0].ItemCount)
+	}
+
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolFeedInactive,
+		ConversationID: "conv-1",
+		FeedID:         "plan",
+	})
+	if len(state.Feeds) != 0 {
+		t.Fatalf("expected no feeds after inactive, got %#v", state.Feeds)
+	}
+}

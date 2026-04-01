@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -22,7 +23,15 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 		t.Fatalf("adapter should not be nil")
 	}
 
-	err = adapter.Publish(context.Background(), &modelcallctx.StreamEvent{
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:          "turn-1",
+		Assistant:       "steward",
+		ConversationID:  "c1",
+		ParentMessageID: "user-1",
+	})
+	ctx = memory.WithRequestMode(ctx, "chat")
+
+	err = adapter.Publish(ctx, &modelcallctx.StreamEvent{
 		ConversationID: "c1",
 		Message:        &agconv.MessageView{Id: "m1"},
 		Content:        map[string]interface{}{"delta": "hello"},
@@ -38,8 +47,29 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 	if ev.StreamID != "c1" {
 		t.Fatalf("unexpected stream id: %s", ev.StreamID)
 	}
+	if ev.ConversationID != "c1" {
+		t.Fatalf("unexpected conversation id: %s", ev.ConversationID)
+	}
 	if ev.Type != streaming.EventTypeTextDelta {
 		t.Fatalf("unexpected event type: %s", ev.Type)
+	}
+	if ev.TurnID != "turn-1" {
+		t.Fatalf("unexpected turn id: %s", ev.TurnID)
+	}
+	if ev.AgentIDUsed != "steward" {
+		t.Fatalf("unexpected agent id: %s", ev.AgentIDUsed)
+	}
+	if ev.UserMessageID != "user-1" {
+		t.Fatalf("unexpected user message id: %s", ev.UserMessageID)
+	}
+	if ev.ParentMessageID != "user-1" {
+		t.Fatalf("unexpected parent message id: %s", ev.ParentMessageID)
+	}
+	if ev.ModelCallID != "m1" {
+		t.Fatalf("unexpected model call id: %s", ev.ModelCallID)
+	}
+	if ev.Mode != "chat" {
+		t.Fatalf("unexpected mode: %s", ev.Mode)
 	}
 	if ev.Content != "hello" {
 		t.Fatalf("unexpected content: %q", ev.Content)

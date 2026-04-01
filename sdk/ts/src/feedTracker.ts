@@ -7,6 +7,7 @@
  */
 
 import type { ActiveFeed, SSEEvent } from './types';
+import { resolveEventConversationId, resolveEventTurnId } from './streamIdentity';
 
 export type FeedListener = (feeds: ActiveFeed[]) => void;
 
@@ -63,8 +64,8 @@ export class FeedTracker {
                 feedId: event.feedId,
                 title: event.feedTitle || event.feedId,
                 itemCount: event.feedItemCount || 0,
-                conversationId: event.conversationId || event.streamId || '',
-                turnId: event.turnId || '',
+                conversationId: resolveEventConversationId(event),
+                turnId: resolveEventTurnId(event),
                 updatedAt: Date.now(),
             });
         } else if (event.type === 'tool_feed_inactive' && event.feedId) {
