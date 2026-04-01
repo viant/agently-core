@@ -86,6 +86,7 @@ type Event struct {
 	ProviderResponsePayloadID string                 `json:"providerResponsePayloadId,omitempty"`
 	StreamPayloadID           string                 `json:"streamPayloadId,omitempty"`
 	LinkedConversationID      string                 `json:"linkedConversationId,omitempty"`
+	Mode                      string                 `json:"mode,omitempty"`
 	Type                      EventType              `json:"type"`
 	Op                        string                 `json:"op,omitempty"`
 	Patch                     map[string]interface{} `json:"patch,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -73,13 +74,20 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 	if ev.Message != nil {
 		messageID = strings.TrimSpace(ev.Message.Id)
 	}
+	turnMeta, _ := memory.TurnMetaFromContext(ctx)
 
 	out := &streaming.Event{
 		ID:                 messageID,
 		StreamID:           convID,
 		ConversationID:     convID,
+		TurnID:             strings.TrimSpace(turnMeta.TurnID),
+		AgentIDUsed:        strings.TrimSpace(turnMeta.Assistant),
+		UserMessageID:      strings.TrimSpace(turnMeta.ParentMessageID),
 		Type:               streaming.EventTypeTextDelta,
+		Mode:               strings.TrimSpace(memory.RequestModeFromContext(ctx)),
 		AssistantMessageID: messageID,
+		ParentMessageID:    strings.TrimSpace(turnMeta.ParentMessageID),
+		ModelCallID:        messageID,
 		Content:            content,
 		CreatedAt:          time.Now(),
 	}
@@ -90,7 +98,9 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 		debugtrace.Write("executor", "timeline", map[string]any{
 			"type":           string(out.Type),
 			"conversationID": strings.TrimSpace(out.ConversationID),
+			"turnID":         strings.TrimSpace(out.TurnID),
 			"assistantID":    strings.TrimSpace(out.AssistantMessageID),
+			"mode":           strings.TrimSpace(out.Mode),
 			"contentPreview": out.Content,
 			"createdAt":      out.CreatedAt.UTC().Format(time.RFC3339Nano),
 		})

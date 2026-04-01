@@ -36,6 +36,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if err != nil {
 		return nop, err
 	}
+	if input != nil && input.GenerateInput != nil && input.GenerateInput.Options != nil {
+		ctx = memory.WithRequestMode(ctx, input.GenerateInput.Options.Mode)
+	}
 	// StreamOutput is an accumulator for this invocation only. Reject reused
 	// outputs to keep retry behavior deterministic and avoid mixing old events.
 	if len(output.Events) > 0 {
@@ -305,7 +308,7 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 			continue
 		}
 
-		if err := s.appendStreamEvent(&event, output); err != nil {
+		if err := s.appendStreamEvent(ctx, &event, output); err != nil {
 			resErr = err
 			ignore = true
 			continue
@@ -332,10 +335,22 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 
 // appendStreamEvent converts provider event to canonical streaming.Event(s).
 // When the event carries typed Kind fields, those take precedence.
-func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput) error {
+func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent, output *StreamOutput) error {
 	now := time.Now()
+	streamID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	turnMeta, _ := memory.TurnMetaFromContext(ctx)
+	mode := strings.TrimSpace(memory.RequestModeFromContext(ctx))
+	if streamID == "" {
+		streamID = strings.TrimSpace(turnMeta.ConversationID)
+	}
 	if event.Err != nil {
-		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeError, Error: event.Err.Error(), CreatedAt: now})
+		output.Events = append(output.Events, streaming.Event{
+			Type:           streaming.EventTypeError,
+			StreamID:       streamID,
+			ConversationID: streamID,
+			Error:          event.Err.Error(),
+			CreatedAt:      now,
+		})
 		if isContextLimitError(event.Err) {
 			return fmt.Errorf("%w: %v", ErrContextLimitExceeded, event.Err)
 		}
@@ -346,27 +361,41 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 	// All events are preserved in StreamOutput (no dropping).
 	if event.Kind != "" {
 		ev := streaming.Event{
-			ID:         event.ItemID,
-			ResponseID: event.ResponseID,
-			ToolCallID: event.ToolCallID,
-			CreatedAt:  now,
+			ID:              event.ItemID,
+			StreamID:        streamID,
+			ConversationID:  streamID,
+			TurnID:          strings.TrimSpace(turnMeta.TurnID),
+			AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
+			UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
+			ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),
+			Mode:            mode,
+			ResponseID:      event.ResponseID,
+			ToolCallID:      event.ToolCallID,
+			CreatedAt:       now,
 		}
 		switch event.Kind {
 		case llm.StreamEventTextDelta:
 			ev.Type = streaming.EventTypeTextDelta
+			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
+			ev.ModelCallID = strings.TrimSpace(event.ItemID)
 			ev.Content = event.Delta
 		case llm.StreamEventReasoningDelta:
 			ev.Type = streaming.EventTypeReasoningDelta
+			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
+			ev.ModelCallID = strings.TrimSpace(event.ItemID)
 			ev.Content = event.Delta
 		case llm.StreamEventToolCallStarted:
 			ev.Type = streaming.EventTypeToolCallStarted
+			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
 			ev.ToolName = event.ToolName
 		case llm.StreamEventToolCallDelta:
 			ev.Type = streaming.EventTypeToolCallDelta
+			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
 			ev.ToolName = event.ToolName
 			ev.Content = event.Delta
 		case llm.StreamEventToolCallCompleted:
 			ev.Type = streaming.EventTypeToolCallCompleted
+			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
 			ev.ToolName = event.ToolName
 			ev.Arguments = event.Arguments
 		case llm.StreamEventUsage:
@@ -394,20 +423,37 @@ func (s *Service) appendStreamEvent(event *llm.StreamEvent, output *StreamOutput
 	choice := resp.Choices[0]
 	// Tool calls → tool_call_completed
 	if len(choice.Message.ToolCalls) > 0 {
-		output.Events = append(output.Events, s.toolCallEvents(resp.ResponseID, &choice)...)
+		output.Events = append(output.Events, s.toolCallEvents(streamID, resp.ResponseID, &choice)...)
 	}
 	// Text → text_delta
 	if content := choice.Message.Content; content != "" {
-		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeTextDelta, Content: content, CreatedAt: now})
+		output.Events = append(output.Events, streaming.Event{
+			Type:            streaming.EventTypeTextDelta,
+			StreamID:        streamID,
+			ConversationID:  streamID,
+			TurnID:          strings.TrimSpace(turnMeta.TurnID),
+			AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
+			UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
+			ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),
+			Mode:            mode,
+			Content:         content,
+			CreatedAt:       now,
+		})
 	}
 	// Finish → turn_completed
 	if choice.FinishReason != "" {
-		output.Events = append(output.Events, streaming.Event{Type: streaming.EventTypeTurnCompleted, Status: choice.FinishReason, CreatedAt: now})
+		output.Events = append(output.Events, streaming.Event{
+			Type:           streaming.EventTypeTurnCompleted,
+			StreamID:       streamID,
+			ConversationID: streamID,
+			Status:         choice.FinishReason,
+			CreatedAt:      now,
+		})
 	}
 	return nil
 }
 
-func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []streaming.Event {
+func (s *Service) toolCallEvents(streamID, responseID string, choice *llm.Choice) []streaming.Event {
 	out := make([]streaming.Event, 0, len(choice.Message.ToolCalls))
 	now := time.Now()
 	for _, tc := range choice.Message.ToolCalls {
@@ -423,12 +469,14 @@ func (s *Service) toolCallEvents(responseID string, choice *llm.Choice) []stream
 			}
 		}
 		out = append(out, streaming.Event{
-			ID:         tc.ID,
-			Type:       streaming.EventTypeToolCallCompleted,
-			ToolName:   name,
-			Arguments:  args,
-			ResponseID: strings.TrimSpace(responseID),
-			CreatedAt:  now,
+			ID:             tc.ID,
+			Type:           streaming.EventTypeToolCallCompleted,
+			StreamID:       strings.TrimSpace(streamID),
+			ConversationID: strings.TrimSpace(streamID),
+			ToolName:       name,
+			Arguments:      args,
+			ResponseID:     strings.TrimSpace(responseID),
+			CreatedAt:      now,
 		})
 	}
 	return out

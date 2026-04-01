@@ -78,6 +78,9 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
+	if input != nil && input.Options != nil {
+		ctx = memory.WithRequestMode(ctx, input.Options.Mode)
+	}
 	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
 		declared := strings.TrimSpace(input.Model)
 		if declared != "" {

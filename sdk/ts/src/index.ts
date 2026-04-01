@@ -71,11 +71,32 @@ export type { PendingElicitation as TrackedElicitation, ElicitationListener } fr
 export { FeedTracker } from './feedTracker';
 export type { FeedListener } from './feedTracker';
 
+// Linked conversation preview helpers
+export {
+    summarizeLinkedConversationTranscript,
+    reduceLinkedConversationPreviewEvent,
+} from './linkedConversations';
+export type {
+    LinkedConversationPreviewGroup,
+    LinkedConversationPreviewSummary,
+} from './linkedConversations';
+
 // Streaming reconciliation
 export {
     newMessageBuffer, applyEvent, reconcileMessages, reconcileFromTranscript,
 } from './reconcile';
 export type { MessageBuffer } from './reconcile';
+
+// High-level stream tracker
+export { ConversationStreamTracker } from './conversationStream';
+export type { ConversationStreamSnapshot } from './conversationStream';
+
+// Stream identity helpers
+export {
+    resolveEventConversationId,
+    resolveEventTurnId,
+    resolveEventMessageId,
+} from './streamIdentity';
 
 // Rich content rendering (pluggable fence registry, markdown, charts, tables)
 export {

@@ -7,13 +7,14 @@
  */
 
 import type { SSEEvent, Message, Turn } from './types';
+import { resolveEventConversationId, resolveEventMessageId, resolveEventTurnId } from './streamIdentity';
 
 // ─── Buffer ────────────────────────────────────────────────────────────────────
 
 export interface MessageBuffer {
-    /** Accumulated text keyed by message ID (or stream ID as fallback). */
+    /** Accumulated text keyed by the best available assistant/message identity. */
     byId: Map<string, Partial<Message>>;
-    /** Currently active turn/stream ID (null when idle). */
+    /** Currently active turn ID (null when idle). */
     activeTurnId: string | null;
 }
 
@@ -33,13 +34,25 @@ export function applyEvent(
     buf: MessageBuffer,
     event: SSEEvent,
 ): { id: string; content: string; final: boolean } | null {
-    const key = event.id || event.streamId || '';
+    const key = resolveEventMessageId(event);
+    const conversationId = resolveEventConversationId(event);
+    const turnId = resolveEventTurnId(event);
     if (!key) return null;
 
     const ensureEntry = (): Partial<Message> => {
-        return buf.byId.get(key) || {
+        const existing = buf.byId.get(key);
+        if (existing) {
+            if (turnId && !existing.turnId) existing.turnId = turnId;
+            if (conversationId && !existing.conversationId) existing.conversationId = conversationId;
+            if (event.createdAt && !existing.createdAt) existing.createdAt = event.createdAt;
+            return existing;
+        }
+        return {
             id: key,
+            conversationId,
+            turnId,
             role: 'assistant',
+            type: 'text',
             content: '',
             interim: 1,
             createdAt: event.createdAt || new Date().toISOString(),
@@ -51,7 +64,7 @@ export function applyEvent(
             const existing = ensureEntry();
             existing.content = (existing.content || '') + (event.content || '');
             buf.byId.set(key, existing);
-            buf.activeTurnId = event.streamId || null;
+            buf.activeTurnId = turnId || buf.activeTurnId;
             return { id: key, content: existing.content!, final: false };
         }
 
@@ -59,25 +72,57 @@ export function applyEvent(
             const existing = ensureEntry();
             existing.preamble = (existing.preamble || '') + (event.content || '');
             buf.byId.set(key, existing);
-            buf.activeTurnId = event.streamId || null;
+            buf.activeTurnId = turnId || buf.activeTurnId;
             return null;
         }
 
         case 'tool_call_started':
         case 'tool_call_delta':
         case 'tool_call_completed': {
-            buf.activeTurnId = event.streamId || null;
+            buf.activeTurnId = turnId || buf.activeTurnId;
             return null;
         }
 
-        case 'model_started':
-        case 'model_completed':
-        case 'assistant_preamble':
-        case 'assistant_final':
+        case 'model_started': {
+            const existing = ensureEntry();
+            existing.status = String(event.status || existing.status || 'running');
+            buf.byId.set(key, existing);
+            buf.activeTurnId = turnId || buf.activeTurnId;
+            return null;
+        }
+
+        case 'model_completed': {
+            const existing = ensureEntry();
+            existing.status = String(event.status || existing.status || 'completed');
+            buf.byId.set(key, existing);
+            buf.activeTurnId = turnId || buf.activeTurnId;
+            return null;
+        }
+
+        case 'assistant_preamble': {
+            const existing = ensureEntry();
+            existing.preamble = String(event.content || event.preamble || existing.preamble || '');
+            existing.status = String(event.status || existing.status || 'running');
+            buf.byId.set(key, existing);
+            buf.activeTurnId = turnId || buf.activeTurnId;
+            return null;
+        }
+
+        case 'assistant_final': {
+            const existing = ensureEntry();
+            existing.content = String(event.content || existing.content || '');
+            existing.preamble = String(event.preamble || existing.preamble || '');
+            existing.status = String(event.status || existing.status || 'completed');
+            existing.interim = 0;
+            buf.byId.set(key, existing);
+            buf.activeTurnId = turnId || buf.activeTurnId;
+            return { id: key, content: String(existing.content || ''), final: true };
+        }
+
         case 'elicitation_requested':
         case 'elicitation_resolved':
         case 'linked_conversation_attached': {
-            buf.activeTurnId = event.streamId || null;
+            buf.activeTurnId = turnId || buf.activeTurnId;
             return null;
         }
 
@@ -107,6 +152,9 @@ export function applyEvent(
                 if (Number.isFinite(n)) {
                     (existing as any).interim = n;
                 }
+            }
+            if (patch.content != null) {
+                (existing as any).content = String(patch.content);
             }
             buf.byId.set(key, existing);
             return null;

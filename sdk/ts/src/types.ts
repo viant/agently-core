@@ -332,6 +332,7 @@ export interface SSEEvent {
     streamId?: string;
     conversationId?: string;
     turnId?: string;
+    mode?: string;
     agentIdUsed?: string;
     agentName?: string;
     assistantMessageId?: string;
@@ -342,6 +343,9 @@ export interface SSEEvent {
     toolMessageId?: string;
     requestPayloadId?: string;
     responsePayloadId?: string;
+    providerRequestPayloadId?: string;
+    providerResponsePayloadId?: string;
+    streamPayloadId?: string;
     linkedConversationId?: string;
     type: SSEEventType;
     op?: string;
@@ -360,6 +364,16 @@ export interface SSEEvent {
     model?: EventModel;
     toolCallsPlanned?: PlannedToolCall[];
     createdAt?: string;
+    completedAt?: string;
+    startedAt?: string;
+    userMessageId?: string;
+    modelCallId?: string;
+    provider?: string;
+    modelName?: string;
+    elicitationId?: string;
+    elicitationData?: Record<string, any>;
+    callbackUrl?: string;
+    responsePayload?: Record<string, any>;
     // Tool feed fields
     feedId?: string;
     feedTitle?: string;

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
 	stream "github.com/viant/agently-core/service/core/stream"
 )
@@ -166,7 +167,13 @@ func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
 	svc := &Service{}
 	out := &StreamOutput{}
 
-	err := svc.appendStreamEvent(&llm.StreamEvent{
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:          "turn-1",
+		ConversationID:  "conv-1",
+		ParentMessageID: "user-1",
+	})
+
+	err := svc.appendStreamEvent(ctx, &llm.StreamEvent{
 		Response: &llm.GenerateResponse{
 			Choices: []llm.Choice{
 				{
@@ -178,6 +185,10 @@ func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.Events, 1)
 	assert.Equal(t, streaming.EventTypeTextDelta, out.Events[0].Type)
+	assert.Equal(t, "conv-1", out.Events[0].ConversationID)
+	assert.Equal(t, "conv-1", out.Events[0].StreamID)
+	assert.Equal(t, "turn-1", out.Events[0].TurnID)
+	assert.Equal(t, "user-1", out.Events[0].UserMessageID)
 	assert.Equal(t, " ", out.Events[0].Content)
 }
 

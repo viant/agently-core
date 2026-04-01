@@ -41,7 +41,7 @@ export function isArchived(msg: Message): boolean {
 
 /** Is this a summary message? */
 export function isSummary(msg: Message): boolean {
-    return msg.status === 'summary';
+    return msg.mode === 'summary' || msg.status === 'summary';
 }
 
 /** Is this message summarized (replaced by a summary, should be hidden)? */

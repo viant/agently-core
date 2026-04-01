@@ -74,6 +74,12 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 	case streaming.EventTypeLinkedConversationAttached:
 		return reduceLinkedConversation(state, event)
 
+	// Tool feed lifecycle
+	case streaming.EventTypeToolFeedActive:
+		return reduceFeedActive(state, event)
+	case streaming.EventTypeToolFeedInactive:
+		return reduceFeedInactive(state, event)
+
 	// Metadata — usage, item_completed are no-ops for state
 	case streaming.EventTypeUsage, streaming.EventTypeItemCompleted:
 		return state
@@ -491,6 +497,58 @@ func reduceLinkedConversation(state *ConversationState, event *streaming.Event) 
 			}
 		}
 	}
+	return state
+}
+
+// --- tool feeds ---
+
+func reduceFeedActive(state *ConversationState, event *streaming.Event) *ConversationState {
+	if state == nil || event == nil {
+		return state
+	}
+	feedID := strings.TrimSpace(event.FeedID)
+	if feedID == "" {
+		return state
+	}
+	for _, feed := range state.Feeds {
+		if feed != nil && feed.FeedID == feedID {
+			if title := strings.TrimSpace(event.FeedTitle); title != "" {
+				feed.Title = title
+			}
+			if event.FeedItemCount > 0 || feed.ItemCount == 0 {
+				feed.ItemCount = event.FeedItemCount
+			}
+			if event.FeedData != nil {
+				feed.Data = event.FeedData
+			}
+			return state
+		}
+	}
+	state.Feeds = append(state.Feeds, &ActiveFeedState{
+		FeedID:    feedID,
+		Title:     strings.TrimSpace(event.FeedTitle),
+		ItemCount: event.FeedItemCount,
+		Data:      event.FeedData,
+	})
+	return state
+}
+
+func reduceFeedInactive(state *ConversationState, event *streaming.Event) *ConversationState {
+	if state == nil || event == nil || len(state.Feeds) == 0 {
+		return state
+	}
+	feedID := strings.TrimSpace(event.FeedID)
+	if feedID == "" {
+		return state
+	}
+	filtered := state.Feeds[:0]
+	for _, feed := range state.Feeds {
+		if feed == nil || feed.FeedID == feedID {
+			continue
+		}
+		filtered = append(filtered, feed)
+	}
+	state.Feeds = filtered
 	return state
 }
 

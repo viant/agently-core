@@ -262,11 +262,20 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
+	msg.SetRole("assistant")
+	msg.SetType("text")
 	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.ConversationID) != "" {
 		msg.SetConversationID(turn.ConversationID)
 		if strings.TrimSpace(turn.TurnID) != "" {
 			msg.SetTurnID(turn.TurnID)
 		}
+	}
+	mode := strings.TrimSpace(memory.RequestModeFromContext(ctx))
+	if mode == "" && info.LLMRequest != nil && info.LLMRequest.Options != nil {
+		mode = strings.TrimSpace(info.LLMRequest.Options.Mode)
+	}
+	if mode != "" {
+		msg.SetMode(mode)
 	}
 	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		msg.SetIteration(runMeta.Iteration)
