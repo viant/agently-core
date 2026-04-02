@@ -1,0 +1,8 @@
+id: mcpapproval_queue
+title: MCP Approval Tool (queue approval)
+description: MCP approval test tool with asynchronous queue approval
+match:
+  - name: "mcpapproval/*"
+    approval:
+      mode: queue
+      titleSelector: input.task

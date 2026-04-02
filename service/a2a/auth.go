@@ -6,14 +6,22 @@ import (
 	"strings"
 
 	iauth "github.com/viant/agently-core/internal/auth"
+	token "github.com/viant/agently-core/internal/auth/token"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
+	scyauth "github.com/viant/scy/auth"
+	"golang.org/x/oauth2"
 )
 
 // AuthMiddleware returns HTTP middleware that enforces A2A authentication
-// based on the agent's A2AAuth configuration. It validates Bearer tokens
-// and checks required scopes.
-func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService) func(http.Handler) http.Handler {
+// based on the agent's A2AAuth configuration. It validates Bearer tokens,
+// checks required scopes, and — when a TokenProvider is supplied — registers
+// the inbound token so mid-turn refresh works via EnsureTokens.
+func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService, tokenProvider ...token.Provider) func(http.Handler) http.Handler {
+	var tp token.Provider
+	if len(tokenProvider) > 0 {
+		tp = tokenProvider[0]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if authCfg == nil || !authCfg.Enabled {
@@ -82,9 +90,64 @@ func AuthMiddleware(authCfg *agentmodel.A2AAuth, jwtSvc *svcauth.JWTService) fun
 				ctx = iauth.WithIDToken(ctx, token)
 			}
 
+			// Register the inbound token in the provider cache so that EnsureTokens
+			// can refresh it mid-turn. Without this, A2A context tokens expire with
+			// no refresh path because they have no local session on this server.
+			if tp != nil {
+				subject := ""
+				if ui := iauth.User(ctx); ui != nil {
+					subject = strings.TrimSpace(ui.Subject)
+				}
+				if subject != "" {
+					provider := authCfg.Resource
+					if provider == "" {
+						provider = "oauth"
+					}
+					tok := &scyauth.Token{
+						Token:   oauth2.Token{AccessToken: token},
+						IDToken: token,
+					}
+					if !authCfg.UseIDToken {
+						tok.IDToken = ""
+					}
+					_ = tp.Store(r.Context(), tokenKey{Subject: subject, Provider: provider}, tok)
+					ctx = iauth.WithProvider(ctx, provider)
+				}
+			}
+
+			// Fix 4: Validate audience when resource is configured.
+			// If the token passes JWT signature verification but has wrong audience,
+			// log a warning. The token is from a trusted IDP so we allow it through
+			// but surface the mismatch for operators to fix IDP configuration.
+			if authCfg.Resource != "" && jwtSvc != nil {
+				if aud := parseJWTDebugInfo(token).Audience; aud != "" {
+					if !audienceContains(aud, authCfg.Resource) {
+						log.Printf("[a2a-auth] warning: token audience %q does not include resource %q — configure IDP to issue tokens with audience %q",
+							aud, authCfg.Resource, authCfg.Resource)
+					}
+				}
+			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// tokenKey is a local alias so auth.go doesn't re-export the internal type.
+type tokenKey = token.Key
+
+// audienceContains reports whether the comma-separated audience string contains target.
+func audienceContains(aud, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return true
+	}
+	for _, part := range strings.Split(aud, ",") {
+		if strings.TrimSpace(part) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {

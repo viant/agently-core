@@ -9,8 +9,8 @@ import (
 )
 
 type ResolveResult struct {
-	Definitions       []llm.ToolDefinition
-	ApprovalQueueByID map[string]*llm.ApprovalQueue
+	Definitions  []llm.ToolDefinition
+	ApprovalByID map[string]*llm.ApprovalConfig
 }
 
 // ResolveDefinitions expands bundle match rules into concrete tool definitions using matchFn.
@@ -21,13 +21,13 @@ func ResolveDefinitions(b *Bundle, matchFn func(pattern string) []*llm.ToolDefin
 }
 
 // ResolveDefinitionsWithOptions expands bundle match rules and returns both
-// definitions and per-tool approval-queue flags.
+// definitions and per-tool approval config.
 func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*llm.ToolDefinition) ResolveResult {
 	if b == nil || matchFn == nil {
 		return ResolveResult{}
 	}
 	selected := map[string]llm.ToolDefinition{}
-	queueByKey := map[string]*llm.ApprovalQueue{}
+	approvalByKey := map[string]*llm.ApprovalConfig{}
 	for _, r := range b.Match {
 		namePattern := strings.TrimSpace(r.Name)
 		if namePattern == "" {
@@ -58,14 +58,14 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 					continue
 				}
 				if _, ok := selected[key]; ok {
-					if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
-						queueByKey[key] = r.ApprovalQueue
+					if r.Approval.IsQueue() {
+						approvalByKey[key] = r.Approval
 					}
 					continue
 				}
 				selected[key] = *d
-				if r.ApprovalQueue != nil && r.ApprovalQueue.Enabled {
-					queueByKey[key] = r.ApprovalQueue
+				if r.Approval.IsQueue() {
+					approvalByKey[key] = r.Approval
 				}
 			}
 		}
@@ -79,8 +79,8 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return ResolveResult{
-		Definitions:       out,
-		ApprovalQueueByID: queueByKey,
+		Definitions:  out,
+		ApprovalByID: approvalByKey,
 	}
 }
 

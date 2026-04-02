@@ -1,0 +1,19 @@
+pipeline:
+  runNoApproval:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval none - direct execution without approval"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: approval_none_probe
+          UserId: e2e-approval-none
+          Query: run the approval test tool now
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@content": true

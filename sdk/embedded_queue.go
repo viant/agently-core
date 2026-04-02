@@ -527,8 +527,21 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
+	case "cancel", "canceled", "cancelled":
+		upd.SetStatus("canceled")
+		upd.SetDecision("cancel")
+		if strings.TrimSpace(input.Reason) != "" {
+			upd.SetErrorMessage(strings.TrimSpace(input.Reason))
+		}
+		if strings.TrimSpace(input.UserID) != "" {
+			upd.SetApprovedByUserId(strings.TrimSpace(input.UserID))
+		}
+		upd.SetApprovedAt(now)
+		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
+			return nil, err
+		}
 	default:
-		return nil, errors.New("action must be approve or reject")
+		return nil, errors.New("action must be approve, reject, or cancel")
 	}
 	return &DecideToolApprovalOutput{Status: "ok"}, nil
 }

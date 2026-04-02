@@ -32,46 +32,20 @@ func (r *Runtime) ensureSessionOAuthTokens(ctx context.Context, sess *Session) b
 	return r.tryLoadFreshTokenFromStore(ctx, sess) != nil
 }
 
-func (r *Runtime) resolveRuntimeOAuthTokenOwner(ctx context.Context, sess *Session) (string, string) {
+func (r *Runtime) resolveRuntimeOAuthTokenOwner(_ context.Context, sess *Session) (string, string) {
 	if r == nil || r.ext == nil || sess == nil {
 		return "", ""
 	}
-	subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
+	// jwt.sub is the token storage key — no DB lookup needed.
+	subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email))
 	if subject == "" {
 		return "", ""
 	}
-	providers := []string{}
-	if sessionProvider := strings.TrimSpace(sess.Provider); sessionProvider != "" {
-		providers = append(providers, sessionProvider)
+	provider := strings.TrimSpace(firstNonEmpty(sess.Provider, r.ext.oauthProviderName()))
+	if provider == "" {
+		return "", ""
 	}
-	if oauthProvider := strings.TrimSpace(r.ext.oauthProviderName()); oauthProvider != "" {
-		seen := false
-		for _, provider := range providers {
-			if provider == oauthProvider {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			providers = append(providers, oauthProvider)
-		}
-	}
-	for _, provider := range providers {
-		if r.ext.users == nil {
-			return subject, provider
-		}
-		user, err := r.ext.users.GetBySubjectAndProvider(ctx, subject, provider)
-		if err != nil {
-			logx.Warnf("token-refresh", "canonical user lookup failed session_user=%q provider=%q err=%v", subject, provider, err)
-			continue
-		}
-		if user != nil && strings.TrimSpace(user.ID) != "" {
-			logx.Debugf("token-refresh", "canonical user resolved session_user=%q provider=%q canonical_user=%q", subject, provider, user.ID)
-			return strings.TrimSpace(user.ID), provider
-		}
-		logx.Debugf("token-refresh", "canonical user not found session_user=%q provider=%q", subject, provider)
-	}
-	return "", ""
+	return subject, provider
 }
 
 func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session) *scyauth.Token {
@@ -216,6 +190,7 @@ func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {
 			select {
 			case <-ticker.C:
 				r.refreshExpiringSessions(ctx)
+				r.refreshTokenStore(ctx)
 			case <-done:
 				return
 			case <-ctx.Done():
@@ -250,5 +225,51 @@ func (r *Runtime) refreshExpiringSessions(ctx context.Context) {
 	}
 	if checked > 0 {
 		logx.Debugf("token-watcher", "sessions=%d checked=%d refreshed=%d", len(sessions), checked, refreshed)
+	}
+}
+
+// refreshTokenStore proactively refreshes tokens stored in the persistent token
+// store that are expiring soon but have no active in-memory session. This covers
+// users who are idle (tab open, no requests) but whose tokens will soon expire.
+func (r *Runtime) refreshTokenStore(ctx context.Context) {
+	if r == nil || r.ext == nil {
+		return
+	}
+	scanner, ok := r.ext.tokenStore.(ExpiringTokenScanner)
+	if !ok || scanner == nil {
+		return
+	}
+	horizon := time.Now().Add(r.cfg.tokenRefreshLead())
+	tokens, err := scanner.ScanExpiring(ctx, horizon)
+	if err != nil || len(tokens) == 0 {
+		return
+	}
+	var refreshed int
+	for _, tok := range tokens {
+		if tok == nil || tok.RefreshToken == "" {
+			continue
+		}
+		// Build a minimal session to drive the existing refresh path.
+		sess := &Session{
+			ID: "store-refresh-" + tok.Username,
+
+			Username: tok.Username,
+			Subject:  tok.Username,
+			Provider: tok.Provider,
+			Tokens: &scyauth.Token{
+				Token: oauth2.Token{
+					AccessToken:  tok.AccessToken,
+					RefreshToken: tok.RefreshToken,
+					Expiry:       tok.ExpiresAt,
+				},
+				IDToken: tok.IDToken,
+			},
+		}
+		if r.tryRefreshToken(ctx, sess) != nil {
+			refreshed++
+		}
+	}
+	if len(tokens) > 0 {
+		logx.Debugf("token-watcher", "store_scan=%d store_refreshed=%d", len(tokens), refreshed)
 	}
 }

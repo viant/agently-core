@@ -112,7 +112,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if s.tokenProvider != nil {
 		userID := authctx.EffectiveUserID(ctx)
 		if userID != "" {
-			provider := "default"
+			provider := authctx.Provider(ctx)
+			if provider == "" {
+				provider = "oauth"
+			}
 			ctx, _ = s.tokenProvider.EnsureTokens(ctx, token.Key{Subject: userID, Provider: provider})
 		}
 	}
@@ -154,6 +157,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 	ctx = tool.WithApprovalQueueState(ctx)
+	if s.elicitation != nil {
+		ctx = executil.WithApprovalElicitor(ctx, &agentToolApprovalElicitor{elicService: s.elicitation})
+	}
 
 	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err

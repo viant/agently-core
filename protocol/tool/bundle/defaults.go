@@ -60,7 +60,7 @@ func DeriveBundles(defs []llm.ToolDefinition) []*Bundle {
 				ID:      service,
 				Title:   service,
 				IconRef: DefaultIconRef(service),
-				Match:   []MatchRule{{Name: service + "/*"}},
+				Match:   []llm.Tool{{Name: service + "/*"}},
 			}
 			byService[service] = b
 		}

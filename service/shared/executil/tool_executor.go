@@ -348,14 +348,35 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
 		return out, "", err
 	}
-	if tool.RequiresApprovalQueue(ctx, step.Name) {
-		msg, err := enqueueToolApproval(ctx, conv, step)
-		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: msg}
-		if err != nil {
-			out.Error = err.Error()
-			return out, "", err
+	if cfg, ok := tool.ApprovalQueueFor(ctx, step.Name); ok && cfg != nil {
+		if cfg.IsQueue() {
+			msg, err := enqueueToolApproval(ctx, conv, step)
+			out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: msg}
+			if err != nil {
+				out.Error = err.Error()
+				return out, "", err
+			}
+			return out, msg, errToolQueued
 		}
-		return out, msg, errToolQueued
+		if cfg.IsPrompt() {
+			action, err := promptToolApproval(ctx, step, cfg)
+			if err != nil {
+				out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
+				return out, "", err
+			}
+			switch strings.ToLower(strings.TrimSpace(action)) {
+			case "accept":
+				// approved — fall through to normal execution below
+			case "cancel":
+				msg := "tool execution canceled by user"
+				out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: msg}
+				return out, msg, errToolPromptCanceled
+			default:
+				msg := "tool execution declined by user"
+				out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: msg}
+				return out, msg, errToolPromptDeclined
+			}
+		}
 	}
 	toolResult, err := reg.Execute(ctx, step.Name, step.Args)
 	out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: toolResult}
@@ -363,6 +384,20 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 		out.Error = err.Error()
 	}
 	return out, toolResult, err
+}
+
+// promptToolApproval creates an inline elicitation for prompt-mode approval and
+// blocks until the user accepts, declines, or cancels.
+func promptToolApproval(ctx context.Context, step StepInfo, cfg *plan.ApprovalConfig) (string, error) {
+	turn, ok := memory.TurnMetaFromContext(ctx)
+	if !ok {
+		return "", fmt.Errorf("turn meta not found for prompt approval")
+	}
+	elicitor := approvalElicitorFromContext(ctx)
+	if elicitor == nil {
+		return "", fmt.Errorf("prompt approval not configured: no elicitor in context")
+	}
+	return elicitor.ElicitToolApproval(ctx, &turn, step.Name, cfg, step.Args)
 }
 
 func applyContextWorkdir(toolName string, args map[string]interface{}, ctx context.Context) {
@@ -413,6 +448,12 @@ func resolveToolStatus(execErr error, parentCtx context.Context, toolResult stri
 	if execErr != nil {
 		if errors.Is(execErr, errToolQueued) {
 			return "queued", ""
+		}
+		if errors.Is(execErr, errToolPromptDeclined) {
+			return "rejected", ""
+		}
+		if errors.Is(execErr, errToolPromptCanceled) {
+			return "canceled", ""
 		}
 		// Treat context cancellation and deadline as cancellations, not failures
 		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) || parentCtx.Err() == context.Canceled {
@@ -503,22 +544,15 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 			}
 		}
 	}
+	cfg, _ := tool.ApprovalQueueFor(ctx, step.Name)
+	view := BuildApprovalView(step.Name, step.Args, cfg)
+
 	rec := &queuew.ToolApprovalQueue{Has: &queuew.ToolApprovalQueueHas{}}
 	rec.SetId(uuid.NewString())
 	rec.SetUserId(userID)
 	rec.SetToolName(queueToolName)
-	title := strings.TrimSpace(step.Name)
-	if cfg, ok := tool.ApprovalQueueFor(ctx, step.Name); ok && cfg != nil {
-		if k := strings.TrimSpace(cfg.TitleSelector); k != "" {
-			if v, has := step.Args[k]; has && v != nil {
-				if vv := strings.TrimSpace(fmt.Sprintf("%v", v)); vv != "" {
-					title = vv
-				}
-			}
-		}
-	}
-	if title != "" {
-		rec.SetTitle(title)
+	if view.Title != "" {
+		rec.SetTitle(view.Title)
 	}
 	rec.SetArguments(arguments)
 	rec.SetStatus("pending")

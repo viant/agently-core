@@ -246,20 +246,18 @@ func TestService_Load_InstructionAliasFallback(t *testing.T) {
 	assert.Equal(t, "Use only alias", got.EffectiveInstructionPrompt().Text)
 }
 
-func TestService_Load_ToolApprovalQueue(t *testing.T) {
+func TestService_Load_ToolApprovalQueueOnItemIgnored(t *testing.T) {
+	// approvalQueue on agent items is no longer supported; use bundle rules instead.
+	// The tool still loads; the approvalQueue key is silently ignored.
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
 
 	got, err := service.Load(ctx, "tool_approval_queue.yaml")
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	require.NotNil(t, got.Tool.Items)
 	require.Len(t, got.Tool.Items, 1)
-	require.NotNil(t, got.Tool.Items[0].ApprovalQueue)
-	assert.True(t, got.Tool.Items[0].ApprovalQueue.Enabled)
-	assert.EqualValues(t, "task", got.Tool.Items[0].ApprovalQueue.TitleSelector)
-	assert.EqualValues(t, "ds", got.Tool.Items[0].ApprovalQueue.DataSourceSelector)
-	assert.EqualValues(t, "/ui/approval", got.Tool.Items[0].ApprovalQueue.UIURI)
+	assert.Equal(t, "mcpform", got.Tool.Items[0].Name)
+	assert.Nil(t, got.Tool.Items[0].Approval)
 }
 
 func TestService_Load_StarterTasks(t *testing.T) {

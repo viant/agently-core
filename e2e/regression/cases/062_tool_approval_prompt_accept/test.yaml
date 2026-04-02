@@ -1,0 +1,60 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt accept - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: approval_prompt_probe
+          Title: prompt-approval-accept-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startPromptQuery:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt accept - start query (elicitation will appear)"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: approval_prompt_probe
+          UserId: e2e-prompt-accept
+          Query: run the approval test tool
+
+  waitForElicitation:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  listPendingElicitations:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt accept - verify tool_approval elicitation appeared"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/elicitations/pending?conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@data[0]": true
+            "@exists@data[0].elicitationId": true
+
+  acceptToolApproval:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt accept - accept the tool approval elicitation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/elicitation/${listPendingElicitations.Responses[0].JSONBody.data[0].elicitationId}/resolve
+        JSONBody:
+          action: accept
+        Expect:
+          Code: 200

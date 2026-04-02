@@ -20,7 +20,7 @@ func TestResolveDefinitions(t *testing.T) {
 			name: "include_only",
 			bundle: &Bundle{
 				ID: "resources",
-				Match: []MatchRule{
+				Match: []llm.Tool{
 					{Name: "resources/*"},
 				},
 			},
@@ -36,7 +36,7 @@ func TestResolveDefinitions(t *testing.T) {
 			name: "exclude_subtracts_from_rule",
 			bundle: &Bundle{
 				ID: "resources",
-				Match: []MatchRule{
+				Match: []llm.Tool{
 					{Name: "resources/*", Exclude: []string{"resources:read"}},
 				},
 			},
@@ -52,7 +52,7 @@ func TestResolveDefinitions(t *testing.T) {
 			name: "dedupe_across_rules",
 			bundle: &Bundle{
 				ID: "mixed",
-				Match: []MatchRule{
+				Match: []llm.Tool{
 					{Name: "resources/*"},
 					{Name: "resources:read"},
 				},
@@ -70,7 +70,7 @@ func TestResolveDefinitions(t *testing.T) {
 			name: "supports_raw_and_canonical_variants_for_include",
 			bundle: &Bundle{
 				ID: "steward",
-				Match: []MatchRule{
+				Match: []llm.Tool{
 					{Name: "steward:AdHierarchy"},
 					{Name: "steward-SaveRecommendation"},
 				},
@@ -89,7 +89,7 @@ func TestResolveDefinitions(t *testing.T) {
 			name: "supports_canonical_bundle_names_against_raw_registry_names",
 			bundle: &Bundle{
 				ID: "steward",
-				Match: []MatchRule{
+				Match: []llm.Tool{
 					{Name: "steward-AdHierarchy"},
 					{Name: "steward-SaveRecommendation"},
 				},
@@ -107,7 +107,7 @@ func TestResolveDefinitions(t *testing.T) {
 			name: "supports_raw_and_canonical_variants_for_exclude",
 			bundle: &Bundle{
 				ID: "steward",
-				Match: []MatchRule{
+				Match: []llm.Tool{
 					{Name: "steward:*", Exclude: []string{"steward-SaveRecommendation"}},
 				},
 			},

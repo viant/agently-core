@@ -1,0 +1,63 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue reject - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: approval_queue_probe
+          Title: queue-reject-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startQueuedQuery:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue reject - start query"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: approval_queue_probe
+          UserId: e2e-queue-reject
+          Query: run the approval test tool
+
+  waitForQueue:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  listPendingApprovals:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue reject - verify pending approval"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-reject&conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@data[0]": true
+
+  rejectToolCall:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue reject - reject the queued tool call"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.data[0].id}/decision
+        JSONBody:
+          action: reject
+          reason: e2e rejection test
+          userId: e2e-queue-reject
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok

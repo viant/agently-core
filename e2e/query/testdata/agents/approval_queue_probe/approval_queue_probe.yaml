@@ -1,0 +1,12 @@
+id: approval_queue_probe
+name: Approval Queue Probe
+description: Agent that routes approvaltest tool through user approval queue.
+modelRef: openai_gpt4o_mini
+temperature: 0
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  bundles:
+    - mcpapproval_queue

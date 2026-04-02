@@ -12,15 +12,13 @@ import (
 	"github.com/viant/agently-core/runtime/memory"
 )
 
-// Small utilities for tool pattern resolution and filtering.
+// Small utilities for tool name resolution and filtering.
 
 type toolSelection struct {
-	pattern       string
-	approvalQueue *toolctx.ApprovalQueueConfig
+	name string
 }
 
-// toolSelections extracts tool selection patterns from the agent configuration.
-// Shared across ensureTools and binding to avoid duplication.
+// toolSelections extracts tool selection names from the agent item configuration.
 func toolSelections(qi *QueryInput) []toolSelection {
 	var out []toolSelection
 	if qi == nil || qi.Agent == nil {
@@ -30,26 +28,14 @@ func toolSelections(qi *QueryInput) []toolSelection {
 		if aTool == nil {
 			continue
 		}
-		pattern := aTool.Pattern
-		if pattern == "" {
-			pattern = aTool.Ref
+		name := aTool.Name
+		if name == "" {
+			name = aTool.Definition.Name
 		}
-		if pattern == "" {
-			pattern = aTool.Definition.Name
-		}
-		if pattern == "" {
+		if name == "" {
 			continue
 		}
-		var aq *toolctx.ApprovalQueueConfig
-		if aTool.ApprovalQueue != nil && aTool.ApprovalQueue.Enabled {
-			aq = &toolctx.ApprovalQueueConfig{
-				Enabled:            true,
-				TitleSelector:      strings.TrimSpace(aTool.ApprovalQueue.TitleSelector),
-				DataSourceSelector: strings.TrimSpace(aTool.ApprovalQueue.DataSourceSelector),
-				UIURI:              strings.TrimSpace(aTool.ApprovalQueue.UIURI),
-			}
-		}
-		out = append(out, toolSelection{pattern: pattern, approvalQueue: aq})
+		out = append(out, toolSelection{name: name})
 	}
 	return out
 }
@@ -105,20 +91,17 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		if err != nil {
 			return nil, err
 		}
-		// Allow agent tool patterns to further extend selection when present.
+		// Allow agent tool items to further extend bundle selection when present.
 		extra := toolSelections(qi)
 		if len(extra) > 0 {
 			for _, sel := range extra {
-				matched := s.matchDefinitions(ctx, sel.pattern)
+				matched := s.matchDefinitions(ctx, sel.name)
 				if strictDiscoveryMode(ctx) && len(matched) == 0 {
-					return nil, strictToolDiscoveryError(ctx, sel.pattern)
+					return nil, strictToolDiscoveryError(ctx, sel.name)
 				}
 				for _, def := range matched {
 					if def == nil {
 						continue
-					}
-					if sel.approvalQueue != nil && sel.approvalQueue.Enabled {
-						toolctx.MarkApprovalQueueTool(ctx, def.Name, sel.approvalQueue)
 					}
 					defs = append(defs, *def)
 				}
@@ -133,21 +116,18 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		return tools, nil
 	}
 
-	// Fall back to agent patterns when no explicit allow-list is provided.
+	// Fall back to agent items when no bundles are configured.
 	selections := toolSelections(qi)
 	if len(selections) == 0 {
 		return nil, nil
 	}
 	var out []llm.Tool
 	for _, sel := range selections {
-		matched := s.matchDefinitions(ctx, sel.pattern)
+		matched := s.matchDefinitions(ctx, sel.name)
 		if strictDiscoveryMode(ctx) && len(matched) == 0 {
-			return nil, strictToolDiscoveryError(ctx, sel.pattern)
+			return nil, strictToolDiscoveryError(ctx, sel.name)
 		}
 		for _, def := range matched {
-			if sel.approvalQueue != nil && sel.approvalQueue.Enabled {
-				toolctx.MarkApprovalQueueTool(ctx, def.Name, sel.approvalQueue)
-			}
 			out = append(out, llm.Tool{Type: "function", Definition: *def})
 		}
 	}
@@ -225,14 +205,9 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 		})
 		for _, d := range res.Definitions {
 			key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
-			cfg := res.ApprovalQueueByID[key]
-			if cfg != nil && cfg.Enabled {
-				toolctx.MarkApprovalQueueTool(ctx, d.Name, &toolctx.ApprovalQueueConfig{
-					Enabled:            true,
-					TitleSelector:      strings.TrimSpace(cfg.TitleSelector),
-					DataSourceSelector: strings.TrimSpace(cfg.DataSourceSelector),
-					UIURI:              strings.TrimSpace(cfg.UIURI),
-				})
+			cfg := res.ApprovalByID[key]
+			if cfg.IsQueue() {
+				toolctx.MarkApprovalQueueTool(ctx, d.Name, cfg)
 			}
 		}
 		defs = append(defs, res.Definitions...)

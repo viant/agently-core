@@ -84,7 +84,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
 				return &runtimeAuthUser{
-					Subject:  strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Username)),
+					Subject:  strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
 					Email:    strings.TrimSpace(claims.Email),
 					Provider: "jwt",
 					Tokens:   tok,
@@ -111,7 +111,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 					}
 				}
 				return &runtimeAuthUser{
-					Subject:  strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username)),
+					Subject:  strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email)),
 					Email:    strings.TrimSpace(sess.Email),
 					Provider: strings.TrimSpace(sess.Provider),
 					Tokens:   sess.Tokens,

@@ -132,7 +132,7 @@ func Protect(cfg *Config, sessions *Manager, opts ...ProtectOption) func(http.Ha
 								return
 							}
 						} else {
-							subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
+							subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email))
 							email := strings.TrimSpace(sess.Email)
 							ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{
 								Subject: subject,

@@ -1,0 +1,12 @@
+id: approval_none_probe
+name: Approval None Probe
+description: Agent that calls approvaltest tool without approval (direct execution).
+modelRef: openai_gpt4o_mini
+temperature: 0
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  bundles:
+    - mcpapproval

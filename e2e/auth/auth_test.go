@@ -176,7 +176,7 @@ func TestJWTAuth_NoToken_Returns401(t *testing.T) {
 	srv := setupAuthServer(t, pubPath, privPath)
 	defer srv.Close()
 
-	resp := doRequest(t, "GET", srv.URL+"/healthz", "", nil)
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "no token should return 401")
 }
@@ -216,7 +216,7 @@ func TestJWTAuth_ExpiredToken_Returns401(t *testing.T) {
 	// Wait for it to expire
 	time.Sleep(50 * time.Millisecond)
 
-	resp := doRequest(t, "GET", srv.URL+"/healthz", "", map[string]string{
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
 		"Authorization": "Bearer " + token,
 	})
 	defer resp.Body.Close()
@@ -239,7 +239,7 @@ func TestJWTAuth_InvalidSignature_Returns401(t *testing.T) {
 		"email": "test@example.com",
 	}, 1*time.Hour)
 
-	resp := doRequest(t, "GET", srv.URL+"/healthz", "", map[string]string{
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
 		"Authorization": "Bearer " + token,
 	})
 	defer resp.Body.Close()
@@ -253,7 +253,7 @@ func TestJWTAuth_MalformedToken_Returns401(t *testing.T) {
 	srv := setupAuthServer(t, pubPath, privPath)
 	defer srv.Close()
 
-	resp := doRequest(t, "GET", srv.URL+"/healthz", "", map[string]string{
+	resp := doRequest(t, "GET", srv.URL+"/v1/conversations", "", map[string]string{
 		"Authorization": "Bearer not-a-valid-jwt-token",
 	})
 	defer resp.Body.Close()
@@ -592,14 +592,29 @@ func TestJWTAuth_MultipleEndpoints(t *testing.T) {
 		})
 	}
 
-	// All should fail without token
-	for _, ep := range endpoints {
+	// /healthz is intentionally exempt from auth (monitoring must reach it).
+	// Only protected endpoints should return 401 without a token.
+	protectedEndpoints := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/v1/conversations"},
+		{"GET", "/v1/workspace/resources?kind=agents"},
+	}
+	for _, ep := range protectedEndpoints {
 		t.Run("notoken "+ep.method+" "+ep.path, func(t *testing.T) {
 			resp := doRequest(t, ep.method, srv.URL+ep.path, "", nil)
 			defer resp.Body.Close()
 			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "%s %s should return 401 without token", ep.method, ep.path)
 		})
 	}
+
+	// /healthz must remain reachable without auth.
+	t.Run("notoken GET /healthz is public", func(t *testing.T) {
+		resp := doRequest(t, "GET", srv.URL+"/healthz", "", nil)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "GET /healthz must be reachable without token")
+	})
 }
 
 // --- OAuth/Cookie Workspace E2E Tests ---

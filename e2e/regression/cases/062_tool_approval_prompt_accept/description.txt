@@ -1,0 +1,5 @@
+Tool approval — prompt mode, accepted
+
+Verifies that a tool requiring prompt-mode approval:
+- Creates a tool_approval elicitation in the active conversation
+- When accepted, executes the tool and completes the turn

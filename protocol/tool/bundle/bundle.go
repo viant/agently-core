@@ -21,16 +21,7 @@ type Bundle struct {
 
 	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
 
-	Match []MatchRule `yaml:"match,omitempty" json:"match,omitempty"`
-}
-
-type MatchRule struct {
-	// Name is a tool match pattern (same semantics as tool pattern matching).
-	Name string `yaml:"name" json:"name"`
-	// ApprovalQueue configures personal approval queue behavior for matched tools.
-	ApprovalQueue *llm.ApprovalQueue `yaml:"approvalQueue,omitempty" json:"approvalQueue,omitempty"`
-	// Exclude subtracts patterns from the rule match set.
-	Exclude []string `yaml:"exclude,omitempty" json:"exclude,omitempty"`
+	Match []llm.Tool `yaml:"match,omitempty" json:"match,omitempty"`
 }
 
 func (b *Bundle) Validate() error {
