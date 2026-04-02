@@ -74,9 +74,12 @@ func (t *testTokenStore) CASPut(_ context.Context, _ *OAuthToken, _ int64, _ str
 	return false, nil
 }
 
-func TestAuthExtensionPersistOAuthToken_UsesProvisionedUserID(t *testing.T) {
+// TestAuthExtensionPersistOAuthToken_UsesJWTSubAsUserID verifies that the token
+// is stored under jwt.sub (not the DB canonical user ID). The users table is
+// updated for display purposes but must not override the storage key.
+func TestAuthExtensionPersistOAuthToken_UsesJWTSubAsUserID(t *testing.T) {
 	store := &testTokenStore{}
-	users := &testUserService{userID: "user-42"}
+	users := &testUserService{userID: "user-42"} // DB canonical ID — must NOT be the storage key
 	ext := &authExtension{
 		cfg:        &Config{OAuth: &OAuth{Name: "oauth"}},
 		sessions:   NewManager(0, nil),
@@ -84,17 +87,20 @@ func TestAuthExtensionPersistOAuthToken_UsesProvisionedUserID(t *testing.T) {
 		users:      users,
 	}
 
-	ext.persistOAuthToken(context.Background(), "oauth_callback", "ppoudyal", "ppoudyal@viantinc.com", "agently_scheduler", "oauth", "access", "id", "refresh", time.Now().Add(time.Hour))
+	ext.persistOAuthToken(context.Background(), "oauth_callback", "ppoudyal", "ppoudyal@viantinc.com", "user-sub-123", "oauth", "access", "id", "refresh", time.Now().Add(time.Hour))
 
-	if store.putUser != "user-42" {
-		t.Fatalf("persisted token user = %q, want %q", store.putUser, "user-42")
+	// Token must be stored under jwt.sub, not the DB canonical ID.
+	if store.putUser != "user-sub-123" {
+		t.Fatalf("persisted token user = %q, want jwt.sub %q", store.putUser, "user-sub-123")
 	}
 }
 
-func TestAuthExtensionEnsureSessionOAuthTokens_UsesProvisionedUserIDLookup(t *testing.T) {
+// TestAuthExtensionEnsureSessionOAuthTokens_UsesJWTSub verifies that session
+// token rehydration uses sess.Subject (jwt.sub) directly as the token store key.
+func TestAuthExtensionEnsureSessionOAuthTokens_UsesJWTSub(t *testing.T) {
 	store := &testTokenStore{
 		token: &OAuthToken{
-			Username:     "user-42",
+			Username:     "user-sub-123", // stored under jwt.sub
 			Provider:     "oauth",
 			AccessToken:  "access",
 			RefreshToken: "refresh",
@@ -102,17 +108,16 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesProvisionedUserIDLookup(t *te
 			ExpiresAt:    time.Now().Add(time.Hour),
 		},
 	}
-	users := &testUserService{userID: "user-42"}
 	ext := &authExtension{
 		cfg:        &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
 		sessions:   NewManager(0, nil),
 		tokenStore: store,
-		users:      users,
 	}
 	sess := &Session{
 		ID:        "sess-1",
 		Username:  "ppoudyal",
-		Subject:   "agently_scheduler",
+		Subject:   "user-sub-123",
+		Provider:  "oauth",
 		CreatedAt: time.Now(),
 	}
 
@@ -120,8 +125,8 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesProvisionedUserIDLookup(t *te
 	if !ok {
 		t.Fatalf("ensureSessionOAuthTokens() = false, want true")
 	}
-	if store.getUser != "user-42" {
-		t.Fatalf("token lookup user = %q, want %q", store.getUser, "user-42")
+	if store.getUser != "user-sub-123" {
+		t.Fatalf("token lookup user = %q, want jwt.sub %q", store.getUser, "user-sub-123")
 	}
 	if sess.Tokens == nil || sess.Tokens.AccessToken != "access" {
 		t.Fatalf("expected session tokens to be rehydrated")
@@ -131,58 +136,41 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesProvisionedUserIDLookup(t *te
 	}
 }
 
-func TestRuntimeResolveRuntimeOAuthTokenOwner_FallsBackToOAuthProvider(t *testing.T) {
-	users := &testUserService{
-		userBySubjectProvider: map[string]*User{
-			"agently_scheduler|oauth": {
-				ID:       "user-42",
-				Username: "ppoudyal",
-				Subject:  "agently_scheduler",
-				Provider: "oauth",
-			},
-		},
-	}
+// TestRuntimeResolveRuntimeOAuthTokenOwner_UsesJWTSub verifies that the token
+// owner is resolved directly from sess.Subject (jwt.sub) without a DB lookup.
+func TestRuntimeResolveRuntimeOAuthTokenOwner_UsesJWTSub(t *testing.T) {
 	rt := &Runtime{
 		ext: &authExtension{
-			cfg:   &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
-			users: users,
+			cfg: &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
 		},
 	}
 	sess := &Session{
 		ID:       "sess-1",
 		Username: "ppoudyal",
-		Subject:  "agently_scheduler",
-		Provider: "local",
+		Subject:  "user-sub-123",
+		Provider: "oauth",
 	}
 
 	userID, provider := rt.resolveRuntimeOAuthTokenOwner(context.Background(), sess)
-	if userID != "user-42" {
-		t.Fatalf("resolved userID = %q, want %q", userID, "user-42")
+	if userID != "user-sub-123" {
+		t.Fatalf("resolved userID = %q, want jwt.sub %q", userID, "user-sub-123")
 	}
 	if provider != "oauth" {
 		t.Fatalf("resolved provider = %q, want %q", provider, "oauth")
 	}
 }
 
-func TestRuntimeEnsureSessionOAuthTokens_UsesResolvedCanonicalUserID(t *testing.T) {
+// TestRuntimeEnsureSessionOAuthTokens_UsesJWTSub verifies end-to-end that
+// runtime session token rehydration uses jwt.sub as the lookup key.
+func TestRuntimeEnsureSessionOAuthTokens_UsesJWTSub(t *testing.T) {
 	store := &testTokenStore{
 		token: &OAuthToken{
-			Username:     "user-42",
+			Username:     "user-sub-123", // stored under jwt.sub
 			Provider:     "oauth",
 			AccessToken:  "access",
 			RefreshToken: "refresh",
 			IDToken:      "id",
 			ExpiresAt:    time.Now().Add(time.Hour),
-		},
-	}
-	users := &testUserService{
-		userBySubjectProvider: map[string]*User{
-			"agently_scheduler|oauth": {
-				ID:       "user-42",
-				Username: "ppoudyal",
-				Subject:  "agently_scheduler",
-				Provider: "oauth",
-			},
 		},
 	}
 	rt := &Runtime{
@@ -192,14 +180,13 @@ func TestRuntimeEnsureSessionOAuthTokens_UsesResolvedCanonicalUserID(t *testing.
 			cfg:        &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
 			sessions:   NewManager(0, nil),
 			tokenStore: store,
-			users:      users,
 		},
 	}
 	sess := &Session{
 		ID:        "sess-1",
 		Username:  "ppoudyal",
-		Subject:   "agently_scheduler",
-		Provider:  "local",
+		Subject:   "user-sub-123",
+		Provider:  "oauth",
 		CreatedAt: time.Now(),
 	}
 
@@ -207,8 +194,8 @@ func TestRuntimeEnsureSessionOAuthTokens_UsesResolvedCanonicalUserID(t *testing.
 	if !ok {
 		t.Fatalf("ensureSessionOAuthTokens() = false, want true")
 	}
-	if store.getUser != "user-42" {
-		t.Fatalf("token lookup user = %q, want %q", store.getUser, "user-42")
+	if store.getUser != "user-sub-123" {
+		t.Fatalf("token lookup user = %q, want jwt.sub %q", store.getUser, "user-sub-123")
 	}
 	if sess.Tokens == nil || sess.Tokens.AccessToken != "access" {
 		t.Fatalf("expected session tokens to be rehydrated")

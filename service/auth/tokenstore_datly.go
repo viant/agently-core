@@ -158,6 +158,49 @@ func (s *TokenStoreDAO) Delete(ctx context.Context, username, provider string) e
 	return err
 }
 
+// ScanExpiring returns all stored tokens expiring before horizon that carry a
+// refresh token. Called by the background watcher to refresh tokens for idle
+// users who have no active in-memory session.
+func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]*OAuthToken, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	db, err := s.db()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT user_id, provider, enc_token FROM user_oauth_token
+		 WHERE enc_token != ''
+		 ORDER BY user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*OAuthToken
+	for rows.Next() {
+		var userID, provider, encTok string
+		if err := rows.Scan(&userID, &provider, &encTok); err != nil {
+			continue
+		}
+		tok, err := s.decrypt(ctx, encTok)
+		if err != nil || tok == nil {
+			continue
+		}
+		// Only include tokens that have a refresh token and are near expiry.
+		if strings.TrimSpace(tok.RefreshToken) == "" {
+			continue
+		}
+		if !tok.ExpiresAt.IsZero() && tok.ExpiresAt.After(horizon) {
+			continue
+		}
+		tok.Username = userID
+		tok.Provider = provider
+		result = append(result, tok)
+	}
+	return result, rows.Err()
+}
+
 // db returns a raw *sql.DB from the datly connector.
 func (s *TokenStoreDAO) db() (*sql.DB, error) {
 	conn, err := s.dao.Resource().Connector("agently")

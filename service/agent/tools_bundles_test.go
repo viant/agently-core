@@ -92,7 +92,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			bundles: []*toolbundle.Bundle{
 				{
 					ID: "resources",
-					Match: []toolbundle.MatchRule{
+					Match: []llm.Tool{
 						{Name: "resources/*", Exclude: []string{"resources:matchDocuments"}},
 					},
 				},
@@ -113,7 +113,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			bundles: []*toolbundle.Bundle{
 				{
 					ID: "system",
-					Match: []toolbundle.MatchRule{
+					Match: []llm.Tool{
 						{Name: "system/*"},
 					},
 				},
@@ -134,7 +134,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			bundles: []*toolbundle.Bundle{
 				{
 					ID: "system",
-					Match: []toolbundle.MatchRule{
+					Match: []llm.Tool{
 						{Name: "system/*"},
 					},
 				},
@@ -153,7 +153,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			bundles: []*toolbundle.Bundle{
 				{
 					ID: "steward-agent",
-					Match: []toolbundle.MatchRule{
+					Match: []llm.Tool{
 						{Name: "steward-AdHierarchy"},
 						{Name: "steward-SaveRecommendation"},
 					},

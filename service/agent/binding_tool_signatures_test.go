@@ -45,7 +45,7 @@ func TestService_BuildToolSignatures_WithBundles(t *testing.T) {
 				},
 			},
 			bundles: []*toolbundle.Bundle{
-				{ID: "system", Match: []toolbundle.MatchRule{{Name: "system/*"}}},
+				{ID: "system", Match: []llm.Tool{{Name: "system/*"}}},
 			},
 			defs: []llm.ToolDefinition{
 				{Name: "system/exec:execute"},

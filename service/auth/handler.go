@@ -84,6 +84,7 @@ func (h *Handler) handleLocalLogin() http.HandlerFunc {
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
+			Subject:   username, // local auth has no JWT sub; use username as stable identity
 			Provider:  "local",
 			CreatedAt: time.Now(),
 		}
@@ -239,9 +240,9 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 		h.sessions.Put(r.Context(), sess)
 
 		// Store tokens in shared provider for downstream use.
-		if h.tokenProvider != nil && sess.Username != "" && sess.Tokens != nil {
+		if h.tokenProvider != nil && sess.EffectiveUserID() != "" && sess.Tokens != nil {
 			if err := h.tokenProvider.Store(r.Context(), token.Key{
-				Subject:  sess.Username,
+				Subject:  sess.EffectiveUserID(),
 				Provider: effectiveTokenProvider(h.cfg),
 			}, sess.Tokens); err != nil {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))
@@ -313,9 +314,9 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 		h.sessions.Put(r.Context(), sess)
 
 		// Store tokens in shared provider for downstream use.
-		if h.tokenProvider != nil && sess.Username != "" && sess.Tokens != nil {
+		if h.tokenProvider != nil && sess.EffectiveUserID() != "" && sess.Tokens != nil {
 			if err := h.tokenProvider.Store(r.Context(), token.Key{
-				Subject:  sess.Username,
+				Subject:  sess.EffectiveUserID(),
 				Provider: effectiveTokenProvider(h.cfg),
 			}, sess.Tokens); err != nil {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))

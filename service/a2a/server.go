@@ -11,6 +11,7 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
+	tokenpkg "github.com/viant/agently-core/internal/auth/token"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -30,6 +31,9 @@ type ServerConfig struct {
 	ApplyUserCred func(ctx context.Context, credURL string) (context.Context, error)
 	// JWTService verifies inbound bearer tokens for protected A2A endpoints.
 	JWTService *svcauth.JWTService
+	// TokenProvider, when set, allows the A2A auth middleware to register
+	// inbound tokens so mid-turn refresh works via EnsureTokens.
+	TokenProvider tokenpkg.Provider
 }
 
 // A2AAuthConfig is a runtime-agnostic auth configuration for exposing an A2A endpoint.
@@ -72,6 +76,9 @@ type GenericServerConfig struct {
 	Query         func(ctx context.Context, agentID, query, conversationID string) (*QueryResult, error)
 	ApplyUserCred func(ctx context.Context, credURL string) (context.Context, error)
 	JWTService    *svcauth.JWTService
+	// TokenProvider, when set, allows the A2A auth middleware to register
+	// inbound tokens so mid-turn refresh works via EnsureTokens.
+	TokenProvider tokenpkg.Provider
 }
 
 // StartServers iterates agents with A2A enabled and launches a dedicated
@@ -204,7 +211,7 @@ func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Age
 			_ = json.NewEncoder(w).Encode(meta)
 		})
 		// Wrap inner routes with auth middleware.
-		outer.Handle("/", AuthMiddleware(a2aCfg.Auth, cfg.JWTService)(inner))
+		outer.Handle("/", AuthMiddleware(a2aCfg.Auth, cfg.JWTService, cfg.TokenProvider)(inner))
 	} else {
 		outer.Handle("/", inner)
 	}
@@ -266,7 +273,7 @@ func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *
 			Scopes:        append([]string(nil), ag.Auth.Scopes...),
 			UseIDToken:    ag.Auth.UseIDToken,
 			ExcludePrefix: ag.Auth.ExcludePrefix,
-		}, cfg.JWTService)(inner))
+		}, cfg.JWTService, cfg.TokenProvider)(inner))
 	} else {
 		outer.Handle("/", inner)
 	}

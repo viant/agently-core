@@ -167,7 +167,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
 		for _, tool := range tools.Signatures {
-			i.Options.Tools = append(i.Options.Tools, llm.Tool{Type: "function", Ref: "", Definition: *tool})
+			i.Options.Tools = append(i.Options.Tools, llm.Tool{Type: "function", Definition: *tool})
 		}
 	}
 

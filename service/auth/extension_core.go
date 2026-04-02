@@ -75,11 +75,14 @@ func (a *authExtension) oauthProviderName() string {
 	return "oauth"
 }
 
+// persistOAuthToken stores the OAuth token and returns the canonical user ID
 func (a *authExtension) persistOAuthToken(ctx context.Context, source, username, email, subject, provider, accessToken, idToken, refreshToken string, expiresAt time.Time) {
 	if a == nil {
 		return
 	}
-	storeUser := strings.TrimSpace(firstNonEmpty(subject, username))
+	// jwt.sub is the stable user identity — use it as the token storage key.
+	// Username and email are display-only and must not be used as identifiers.
+	storeUser := strings.TrimSpace(subject)
 	if provider == "" {
 		provider = a.oauthProviderName()
 	}
@@ -91,8 +94,9 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 			strings.TrimSpace(email),
 			strings.TrimSpace(provider),
 		)
-		userID, err := a.users.UpsertWithProvider(ctx, strings.TrimSpace(username), strings.TrimSpace(username), strings.TrimSpace(email), strings.TrimSpace(provider), strings.TrimSpace(subject))
-		if err != nil {
+		// UpsertWithProvider maintains the users table for display/profile purposes.
+		// The return value (DB user ID) is intentionally ignored — jwt.sub is the identity.
+		if _, err := a.users.UpsertWithProvider(ctx, strings.TrimSpace(username), strings.TrimSpace(username), strings.TrimSpace(email), strings.TrimSpace(provider), strings.TrimSpace(subject)); err != nil {
 			log.Printf("[auth-oauth] source=%s ensure user failed subject=%q username=%q provider=%q err=%v",
 				source,
 				strings.TrimSpace(subject),
@@ -102,10 +106,7 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 			)
 			return
 		}
-		if strings.TrimSpace(userID) != "" {
-			storeUser = strings.TrimSpace(userID)
-		}
-		log.Printf("[auth-oauth] source=%s ensure user ok subject=%q username=%q user_id=%q provider=%q",
+		log.Printf("[auth-oauth] source=%s ensure user ok subject=%q username=%q store_user=%q provider=%q",
 			source,
 			strings.TrimSpace(subject),
 			strings.TrimSpace(username),
@@ -153,6 +154,7 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 		storeUser,
 		strings.TrimSpace(provider),
 	)
+	return
 }
 
 func (a *authExtension) currentSession(r *http.Request) *Session {
@@ -192,12 +194,8 @@ func (a *authExtension) ensureSessionOAuthTokens(ctx context.Context, sess *Sess
 	if a == nil || a.tokenStore == nil {
 		return false
 	}
-	lookupID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
-	if a.users != nil {
-		if user, err := a.users.GetByUsername(ctx, strings.TrimSpace(firstNonEmpty(sess.Username, sess.Subject))); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
-			lookupID = strings.TrimSpace(user.ID)
-		}
-	}
+	// jwt.sub (sess.Subject) is the token storage key — look up directly.
+	lookupID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email))
 	if lookupID == "" {
 		return false
 	}

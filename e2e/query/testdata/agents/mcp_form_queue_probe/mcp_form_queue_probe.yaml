@@ -11,8 +11,5 @@ prompt:
 systemPrompt:
   uri: prompt/system.tmpl
 tool:
-  items:
-    - pattern: "mcpform"
-      type: function
-      approvalQueue:
-        enabled: true
+  bundles:
+    - mcpform_queue

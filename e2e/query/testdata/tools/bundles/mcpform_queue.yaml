@@ -1,0 +1,7 @@
+id: mcpform_queue
+title: MCP Form (queue approval)
+description: MCP form tool bundle with queue approval
+match:
+  - name: "mcpform/*"
+    approval:
+      mode: queue

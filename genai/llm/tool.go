@@ -1,28 +1,118 @@
 package llm
 
-import mcpschema "github.com/viant/mcp-protocol/schema"
+import (
+	"strings"
 
-// Tool represents a tool that can be used by an LLM.
-// It follows the OpenAPI specification for defining tools.
-type Tool struct {
-	Ref     string `json:"ref,omitempty" yaml:"ref"`
-	Pattern string `json:"pattern,omitempty" yaml:"pattern"`
-	// ApprovalQueue configures personal approval queue behavior for this tool assignment.
-	ApprovalQueue *ApprovalQueue `json:"approvalQueue,omitempty" yaml:"approvalQueue,omitempty"`
-	// Type is the type of the tool. Currently, only "function" is supported.
-	Type string `json:"type" yaml:"type"`
+	mcpschema "github.com/viant/mcp-protocol/schema"
+)
 
-	// Function is the function definition for this tool.
-	// This follows the OpenAPI schema specification.
-	Definition ToolDefinition `json:"definition" yaml:"definition"`
+// ApprovalMode defines how a tool's execution approval is handled.
+type ApprovalMode string
+
+const (
+	// ApprovalModeNone means no approval — tool executes directly. This is the default.
+	ApprovalModeNone   ApprovalMode = "none"
+	ApprovalModeQueue  ApprovalMode = "queue"
+	ApprovalModePrompt ApprovalMode = "prompt"
+)
+
+// ApprovalPrompt configures inline prompt-mode labels.
+type ApprovalPrompt struct {
+	Message     string `json:"message,omitempty" yaml:"message,omitempty"`
+	AcceptLabel string `json:"acceptLabel,omitempty" yaml:"acceptLabel,omitempty"`
+	RejectLabel string `json:"rejectLabel,omitempty" yaml:"rejectLabel,omitempty"`
+	CancelLabel string `json:"cancelLabel,omitempty" yaml:"cancelLabel,omitempty"`
 }
 
-// ApprovalQueue configures per-tool approval queue behavior.
-type ApprovalQueue struct {
-	Enabled            bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	TitleSelector      string `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
-	DataSourceSelector string `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
-	UIURI              string `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
+// ApprovalEditableField declares a single user-editable field in the approval UI.
+type ApprovalEditableField struct {
+	Name        string `json:"name" yaml:"name"`
+	Selector    string `json:"selector,omitempty" yaml:"selector,omitempty"`
+	Label       string `json:"label,omitempty" yaml:"label,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Required    bool   `json:"required,omitempty" yaml:"required,omitempty"`
+}
+
+// ApprovalCallback declares a Forge visual element callback.
+type ApprovalCallback struct {
+	ElementID string `json:"elementId,omitempty" yaml:"elementId,omitempty"`
+	Event     string `json:"event,omitempty" yaml:"event,omitempty"`
+	Handler   string `json:"handler,omitempty" yaml:"handler,omitempty"`
+}
+
+// ApprovalForgeView points to a Forge container for approval rendering.
+type ApprovalForgeView struct {
+	WindowRef    string              `json:"windowRef,omitempty" yaml:"windowRef,omitempty"`
+	ContainerRef string              `json:"containerRef,omitempty" yaml:"containerRef,omitempty"`
+	DataSource   string              `json:"dataSource,omitempty" yaml:"dataSource,omitempty"`
+	Callbacks    []*ApprovalCallback `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
+}
+
+// ApprovalUIBinding defines how approval data is extracted from the original tool request.
+type ApprovalUIBinding struct {
+	TitleSelector   string                   `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
+	MessageSelector string                   `json:"messageSelector,omitempty" yaml:"messageSelector,omitempty"`
+	DataSelector    string                   `json:"dataSelector,omitempty" yaml:"dataSelector,omitempty"`
+	Editable        []*ApprovalEditableField `json:"editable,omitempty" yaml:"editable,omitempty"`
+	Forge           *ApprovalForgeView       `json:"forge,omitempty" yaml:"forge,omitempty"`
+}
+
+// ApprovalConfig configures approval behavior for a bundle rule.
+// It replaces the legacy split between llm.ApprovalQueue and protocol/tool.ApprovalQueueConfig.
+type ApprovalConfig struct {
+	Mode               ApprovalMode       `json:"mode,omitempty" yaml:"mode,omitempty"`
+	TitleSelector      string             `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
+	DataSourceSelector string             `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
+	UIURI              string             `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
+	AllowUserAuto      bool               `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
+	Prompt             *ApprovalPrompt    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	UI                 *ApprovalUIBinding `json:"ui,omitempty" yaml:"ui,omitempty"`
+	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+}
+
+// IsQueue reports whether this config requires queue-mode approval.
+func (a *ApprovalConfig) IsQueue() bool {
+	if a == nil {
+		return false
+	}
+	return a.Mode == ApprovalModeQueue || (a.Mode == "" && a.Enabled)
+}
+
+// IsPrompt reports whether this config requires prompt-mode approval.
+func (a *ApprovalConfig) IsPrompt() bool {
+	if a == nil {
+		return false
+	}
+	return a.Mode == ApprovalModePrompt
+}
+
+// EffectiveTitleSelector returns the title selector from UI binding or the top-level field.
+func (a *ApprovalConfig) EffectiveTitleSelector() string {
+	if a == nil {
+		return ""
+	}
+	if a.UI != nil && strings.TrimSpace(a.UI.TitleSelector) != "" {
+		return strings.TrimSpace(a.UI.TitleSelector)
+	}
+	return strings.TrimSpace(a.TitleSelector)
+}
+
+// Tool represents a tool that can be used by an LLM.
+// Name supports exact match or wildcard patterns (e.g. system/exec:*).
+// Approval and Exclude are meaningful in bundle rule context.
+// Definition is meaningful for inline agent item specs.
+type Tool struct {
+	// Name is the tool identifier or match pattern. Replaces the legacy Pattern and Ref fields.
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+	// Approval configures approval behavior for this tool rule. Used in bundle context.
+	Approval *ApprovalConfig `json:"approval,omitempty" yaml:"approval,omitempty"`
+	// Exclude subtracts sub-patterns from the match set. Used in bundle context.
+	Exclude []string `json:"exclude,omitempty" yaml:"exclude,omitempty"`
+	// Type is the tool type. Defaults to "function". Set to "code_interpreter" for OpenAI built-ins.
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+	// Definition is the full function spec. Used for inline tool definitions in agent items.
+	Definition ToolDefinition `json:"definition,omitempty" yaml:"definition,omitempty"`
 }
 
 // ToolDefinition represents a function that can be called by an LLM.

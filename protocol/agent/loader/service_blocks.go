@@ -24,7 +24,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 		case yaml.ScalarNode:
 			v := strings.TrimSpace(item.Value)
 			if v != "" {
-				agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Pattern: v})
+				agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Name: v})
 			}
 		case yaml.MappingNode:
 			var t llm.Tool
@@ -33,13 +33,21 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 			if err := (*yml.Node)(item).Pairs(func(k string, v *yml.Node) error {
 				lk := strings.ToLower(strings.TrimSpace(k))
 				switch lk {
-				case "pattern":
+				case "name":
 					if v.Kind == yaml.ScalarNode {
-						t.Pattern = strings.TrimSpace(v.Value)
+						t.Name = strings.TrimSpace(v.Value)
 					}
-				case "ref":
+				case "pattern": // backward compat: copy to Name
 					if v.Kind == yaml.ScalarNode {
-						t.Ref = strings.TrimSpace(v.Value)
+						if t.Name == "" {
+							t.Name = strings.TrimSpace(v.Value)
+						}
+					}
+				case "ref": // backward compat: copy to Name
+					if v.Kind == yaml.ScalarNode {
+						if t.Name == "" {
+							t.Name = strings.TrimSpace(v.Value)
+						}
 					}
 				case "type":
 					if v.Kind == yaml.ScalarNode {
@@ -50,11 +58,6 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 						if err := (*yaml.Node)(v).Decode(&t.Definition); err != nil {
 							return fmt.Errorf("invalid tool.definition: %w", err)
 						}
-					}
-				case "name":
-					if v.Kind == yaml.ScalarNode {
-						inlineDef.Name = strings.TrimSpace(v.Value)
-						hasInlineDef = true
 					}
 				case "description":
 					if v.Kind == yaml.ScalarNode {
@@ -88,14 +91,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 						inlineDef.OutputSchema = m
 						hasInlineDef = true
 					}
-				case "approvalqueue":
-					if v.Kind == yaml.MappingNode {
-						var aq llm.ApprovalQueue
-						if err := (*yaml.Node)(v).Decode(&aq); err != nil {
-							return fmt.Errorf("invalid tool.approvalQueue: %w", err)
-						}
-						t.ApprovalQueue = &aq
-					}
+				case "approvalqueue": // deprecated: approvalQueue on items is no longer supported; use bundle rules
 				}
 				return nil
 			}); err != nil {
@@ -108,7 +104,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 					t.Type = "function"
 				}
 			}
-			if t.Definition.Name != "" || t.Pattern != "" || t.Ref != "" {
+			if t.Definition.Name != "" || t.Name != "" {
 				agent.Tool.Items = append(agent.Tool.Items, &t)
 			}
 		}

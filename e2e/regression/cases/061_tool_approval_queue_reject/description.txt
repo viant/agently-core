@@ -1,0 +1,4 @@
+Tool approval — queue mode, rejected
+
+Verifies that rejecting a queued tool call results in rejected status
+and no tool execution.

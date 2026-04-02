@@ -1,0 +1,73 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: approval_queue_probe
+          Title: queue-approval-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startQueuedQuery:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue - start query (tool should be queued)"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: approval_queue_probe
+          UserId: e2e-queue-approval
+          Query: run the approval test tool
+
+  waitForQueue:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  listPendingApprovals:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue - verify pending approval appears"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-approval&conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@data[0]": true
+            "@exists@data[0].id": true
+
+  approveToolCall:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue - approve the queued tool call"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.data[0].id}/decision
+        JSONBody:
+          action: approve
+          userId: e2e-queue-approval
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  verifyExecuted:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue - verify queue row transitioned to executed"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-approval&conversationId=${createConversation.Responses[0].JSONBody.Id}&status=executed
+        Expect:
+          Code: 200

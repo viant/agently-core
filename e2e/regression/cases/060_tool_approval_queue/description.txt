@@ -1,0 +1,15 @@
+Tool approval — queue mode
+
+Verifies the full asynchronous queue approval lifecycle:
+- Agent triggers a tool that requires queue approval
+- Turn returns with queued status
+- Pending approval appears in the queue
+- User approves via the decision API
+- Tool executes and queue row transitions to executed
+
+Steps:
+1. Create conversation with approval_queue_probe
+2. Start query (triggers mcpapproval/execute, which gets queued)
+3. Wait and verify pending approval in queue
+4. Approve the queued item
+5. Verify queue row transitions to executed

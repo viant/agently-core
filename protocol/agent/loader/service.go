@@ -471,37 +471,6 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			if err := s.parseExposeA2ABlock(valueNode, agent); err != nil {
 				return err
 			}
-
-			for _, itemNode := range valueNode.Content {
-				switch itemNode.Kind {
-				case yaml.ScalarNode:
-					name := strings.TrimSpace(itemNode.Value)
-					if name == "" {
-						continue
-					}
-					agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Pattern: name, Type: "function"})
-
-				case yaml.MappingNode:
-					var t llm.Tool
-					if err := itemNode.Decode(&t); err != nil {
-						return fmt.Errorf("invalid tool definition: %w", err)
-					}
-					// Normalise & defaults ------------------------------------------------
-					if t.Pattern == "" {
-						t.Pattern = t.Ref // fallback to ref when pattern omitted
-					}
-					if t.Type == "" {
-						t.Type = "function"
-					}
-					if t.Pattern == "" {
-						return fmt.Errorf("tool entry missing pattern/ref")
-					}
-					agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Pattern: t.Pattern, Ref: t.Ref, Type: t.Type, Definition: t.Definition, ApprovalQueue: t.ApprovalQueue})
-
-				default:
-					return fmt.Errorf("unsupported YAML node for tool entry: kind=%d", itemNode.Kind)
-				}
-			}
 		case "persona":
 			if valueNode.Kind == yaml.MappingNode {
 				var p prompt.Persona

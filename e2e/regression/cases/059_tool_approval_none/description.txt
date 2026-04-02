@@ -1,0 +1,8 @@
+Tool approval — no approval (direct execution)
+
+Verifies that a tool assigned via a bundle with no approval config
+executes directly without queuing or prompting.
+
+Steps:
+1. Query agent approval_none_probe (uses mcpapproval bundle, no approval)
+2. Verify the tool result is returned in the response (status executed, not queued)

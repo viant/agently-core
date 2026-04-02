@@ -53,10 +53,11 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		return nil, err
 	}
 	svca2a.StartServers(ctx, &svca2a.ServerConfig{
-		AgentService: opts.Runtime.Agent,
-		AgentFinder:  opts.AgentFinder,
-		AgentIDs:     append([]string(nil), opts.AgentIDs...),
-		JWTService:   opts.AuthRuntime.JWTService(),
+		AgentService:  opts.Runtime.Agent,
+		AgentFinder:   opts.AgentFinder,
+		AgentIDs:      append([]string(nil), opts.AgentIDs...),
+		JWTService:    opts.AuthRuntime.JWTService(),
+		TokenProvider: opts.Runtime.TokenProvider,
 	})
 	return svcauth.WithAuthExtensions(sdkHandler, opts.AuthRuntime), nil
 }

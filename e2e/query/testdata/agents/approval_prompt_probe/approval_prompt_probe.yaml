@@ -1,0 +1,12 @@
+id: approval_prompt_probe
+name: Approval Prompt Probe
+description: Agent that uses inline prompt approval for approvaltest tool.
+modelRef: openai_gpt4o_mini
+temperature: 0
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  bundles:
+    - mcpapproval_prompt

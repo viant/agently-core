@@ -38,3 +38,4 @@ pipeline:
       - cp mcpserver $repoPath/e2e/bin/mcp-resources
       - cp mcpserver $repoPath/e2e/bin/mcp-elicitation-form
       - cp mcpserver $repoPath/e2e/bin/mcp-elicitation-oob
+      - cp mcpserver $repoPath/e2e/bin/mcp-approval-tool

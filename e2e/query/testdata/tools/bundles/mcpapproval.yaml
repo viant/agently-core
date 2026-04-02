@@ -1,0 +1,5 @@
+id: mcpapproval
+title: MCP Approval Tool (no approval)
+description: MCP approval test tool — direct execution, no approval required
+match:
+  - name: "mcpapproval/*"

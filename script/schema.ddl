@@ -250,6 +250,13 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     error_message TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
+    approval_mode TEXT,
+    request_payload BLOB,
+    approval_payload BLOB,
+    result_payload BLOB,
+    status_detail TEXT,
+    started_at DATETIME,
+    completed_at DATETIME,
     FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
     FOREIGN KEY (turn_id) REFERENCES turn(id) ON DELETE SET NULL,
     FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE SET NULL

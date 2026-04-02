@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +11,14 @@ import (
 )
 
 // Session represents an authenticated user session.
+//
+// Identity model:
+//   - Subject  = jwt.sub  — stable unique user identity (used as user_id everywhere)
+//   - Username = jwt.preferred_username or jwt.name — display name only
+//   - Email    = jwt.email — display / contact only
+//
+// Subject is the only field used for conversation ownership, token storage
+// keys, and run attribution. Username and Email are never used as identifiers.
 type Session struct {
 	ID        string         `json:"id"`
 	Username  string         `json:"username"`
@@ -19,6 +28,22 @@ type Session struct {
 	Tokens    *scyauth.Token `json:"-"`
 	CreatedAt time.Time      `json:"createdAt"`
 	ExpiresAt time.Time      `json:"expiresAt"`
+}
+
+// EffectiveUserID returns jwt.sub as the stable user identity.
+// Falls back to Email then Username only for sessions without a Subject
+// (e.g. local/anonymous mode).
+func (s *Session) EffectiveUserID() string {
+	if s == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(s.Subject); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(s.Email); v != "" {
+		return v
+	}
+	return strings.TrimSpace(s.Username)
 }
 
 // IsExpired returns true when the session has passed its expiry time.

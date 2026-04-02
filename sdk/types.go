@@ -231,11 +231,13 @@ type PendingToolApproval struct {
 }
 
 type DecideToolApprovalInput struct {
-	ID      string                 `json:"id"`
-	Action  string                 `json:"action"` // approve|reject
-	UserID  string                 `json:"userId,omitempty"`
-	Reason  string                 `json:"reason,omitempty"`
-	Payload map[string]interface{} `json:"payload,omitempty"`
+	ID           string                 `json:"id"`
+	Action       string                 `json:"action"` // approve|reject|cancel
+	UserID       string                 `json:"userId,omitempty"`
+	Reason       string                 `json:"reason,omitempty"`
+	Note         string                 `json:"note,omitempty"`
+	EditedFields map[string]interface{} `json:"editedFields,omitempty"`
+	Payload      map[string]interface{} `json:"payload,omitempty"`
 }
 
 type DecideToolApprovalOutput struct {

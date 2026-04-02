@@ -122,6 +122,21 @@ pipeline:
         - sleep 1
         - lsof -nP -iTCP:18093 -sTCP:LISTEN | grep LISTEN
 
+  mcpApprovalTool:
+    start:
+      when: $debugger!=on
+      action: exec:run
+      checkError: true
+      commands:
+        - |
+          pids=$(lsof -tiTCP:18094 -sTCP:LISTEN || true)
+          if [ -n "$pids" ]; then
+            kill $pids || true
+          fi
+        - (nohup ${repoPath}/e2e/bin/mcp-approval-tool -port=18094 -mode=approval_tool >/tmp/agently-core-mcp-approval.log 2>&1 &)
+        - sleep 1
+        - lsof -nP -iTCP:18094 -sTCP:LISTEN | grep LISTEN
+
   app:
     start:
       when: $debugger!=on

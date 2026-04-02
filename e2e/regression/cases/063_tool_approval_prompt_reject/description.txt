@@ -1,0 +1,5 @@
+Tool approval — prompt mode, rejected and canceled
+
+Verifies that declining a prompt-mode approval results in a
+structured rejection (tool not executed, turn completes with rejection message).
+Also tests cancel action.

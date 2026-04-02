@@ -28,6 +28,15 @@ type handler struct {
 }
 
 type emptyIn struct{}
+
+type approvalIn struct {
+	Task string `json:"task,omitempty"`
+}
+type approvalOut struct {
+	Mode   string `json:"mode"`
+	Status string `json:"status"`
+	Task   string `json:"task,omitempty"`
+}
 type resourceOut struct {
 	Mode     string `json:"mode"`
 	Status   string `json:"status"`
@@ -48,7 +57,7 @@ const (
 func main() {
 	var (
 		port = flag.Int("port", 18091, "MCP HTTP port")
-		mode = flag.String("mode", "resources", "server mode: resources|elicitation_form|elicitation_oob")
+		mode = flag.String("mode", "resources", "server mode: resources|elicitation_form|elicitation_oob|approval_tool")
 	)
 	flag.Parse()
 
@@ -138,6 +147,20 @@ func (h *handler) register() error {
 					Mode:    "elicitation_oob",
 					Action:  string(result.Action),
 					Content: result.Content,
+				}
+				return success(out)
+			})
+	case "approval_tool":
+		return mcpproto.RegisterTool[*approvalIn, *approvalOut](h.Registry, "execute", "Executes a test approval task and returns deterministic output",
+			func(_ context.Context, in *approvalIn) (*mcpschema.CallToolResult, *jsonrpc.Error) {
+				task := "default"
+				if in != nil && in.Task != "" {
+					task = in.Task
+				}
+				out := &approvalOut{
+					Mode:   "approval_tool",
+					Status: "executed",
+					Task:   task,
 				}
 				return success(out)
 			})

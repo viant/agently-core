@@ -33,3 +33,15 @@ type TokenStore interface {
 	// expectedVersion and the lease is held by owner.
 	CASPut(ctx context.Context, token *OAuthToken, expectedVersion int64, owner string) (swapped bool, err error)
 }
+
+// ExpiringTokenScanner is an optional extension of TokenStore for implementations
+// that can efficiently query the store for tokens expiring before a given horizon.
+// It is used by the background refresh watcher to proactively refresh tokens for
+// users who are idle (no active in-memory session) before they expire.
+// TokenStore implementations that do not embed a queryable DB may omit this.
+type ExpiringTokenScanner interface {
+	// ScanExpiring returns all stored tokens whose expiry is before horizon
+	// and that carry a refresh token. Only tokens that can actually be
+	// refreshed need to be returned.
+	ScanExpiring(ctx context.Context, horizon time.Time) ([]*OAuthToken, error)
+}

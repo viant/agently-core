@@ -1,0 +1,13 @@
+id: mcpapproval_prompt
+title: MCP Approval Tool (prompt approval)
+description: MCP approval test tool with synchronous inline prompt approval
+match:
+  - name: "mcpapproval/*"
+    approval:
+      mode: prompt
+      titleSelector: input.task
+      prompt:
+        message: "Approve test tool execution?"
+        acceptLabel: "Yes, run it"
+        rejectLabel: "No, reject"
+        cancelLabel: "Cancel"

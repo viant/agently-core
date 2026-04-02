@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 )
 
@@ -12,14 +13,7 @@ type approvalQueueKeyT struct{}
 
 type approvalQueueState struct {
 	mu    sync.RWMutex
-	tools map[string]*ApprovalQueueConfig
-}
-
-type ApprovalQueueConfig struct {
-	Enabled            bool
-	TitleSelector      string
-	DataSourceSelector string
-	UIURI              string
+	tools map[string]*llm.ApprovalConfig
 }
 
 var approvalQueueKey = approvalQueueKeyT{}
@@ -29,11 +23,11 @@ func WithApprovalQueueState(ctx context.Context) context.Context {
 	if approvalQueueFromContext(ctx) != nil {
 		return ctx
 	}
-	return context.WithValue(ctx, approvalQueueKey, &approvalQueueState{tools: map[string]*ApprovalQueueConfig{}})
+	return context.WithValue(ctx, approvalQueueKey, &approvalQueueState{tools: map[string]*llm.ApprovalConfig{}})
 }
 
 // MarkApprovalQueueTool marks a tool name to require approval queue.
-func MarkApprovalQueueTool(ctx context.Context, name string, cfg *ApprovalQueueConfig) {
+func MarkApprovalQueueTool(ctx context.Context, name string, cfg *llm.ApprovalConfig) {
 	st := approvalQueueFromContext(ctx)
 	if st == nil {
 		return
@@ -43,9 +37,9 @@ func MarkApprovalQueueTool(ctx context.Context, name string, cfg *ApprovalQueueC
 		return
 	}
 	if cfg == nil {
-		cfg = &ApprovalQueueConfig{Enabled: true}
+		cfg = &llm.ApprovalConfig{Mode: llm.ApprovalModeQueue}
 	}
-	if !cfg.Enabled {
+	if !cfg.IsQueue() {
 		return
 	}
 	st.mu.Lock()
@@ -66,11 +60,17 @@ func RequiresApprovalQueue(ctx context.Context, name string) bool {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 	cfg, ok := st.tools[key]
-	return ok && cfg != nil && cfg.Enabled
+	return ok && cfg.IsQueue()
 }
 
-// ApprovalQueueFor returns the approval queue config for a tool.
-func ApprovalQueueFor(ctx context.Context, name string) (*ApprovalQueueConfig, bool) {
+// RequiresPromptApproval reports whether a tool requires prompt-mode approval.
+func RequiresPromptApproval(ctx context.Context, name string) bool {
+	cfg, ok := ApprovalQueueFor(ctx, name)
+	return ok && cfg.IsPrompt()
+}
+
+// ApprovalQueueFor returns the approval config for a tool.
+func ApprovalQueueFor(ctx context.Context, name string) (*llm.ApprovalConfig, bool) {
 	st := approvalQueueFromContext(ctx)
 	if st == nil {
 		return nil, false
