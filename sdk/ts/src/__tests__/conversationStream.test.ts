@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, ConversationStreamTracker, filterExplicitLiveRowsAgainstTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, overlayLiveAssistantTransientState, projectLiveAssistantRows } from '../conversationStream';
+import { buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, ConversationStreamTracker, filterExplicitLiveRowsAgainstTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, overlayLiveAssistantTransientState, projectLiveAssistantRows, selectLiveAssistantRowsForTurn } from '../conversationStream';
 import type { Message, SSEEvent, Turn } from '../types';
 
 describe('ConversationStreamTracker', () => {
@@ -212,6 +212,30 @@ describe('ConversationStreamTracker', () => {
             id: 'msg-late',
             content: 'Later page',
         });
+    });
+
+    it('selects tracker-backed live assistant rows for a single turn', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'one',
+            status: 'running',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-2',
+            messageId: 'msg-2',
+            assistantMessageId: 'msg-2',
+            content: 'two',
+            status: 'running',
+        } as SSEEvent);
+
+        expect(selectLiveAssistantRowsForTurn(tracker.canonicalState, 'conv-1', 'turn-1').map((row) => row.id)).toEqual(['msg-1']);
     });
 
     it('uses a deterministic createdAt fallback for projected live assistant rows', () => {

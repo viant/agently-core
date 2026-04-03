@@ -35,7 +35,7 @@ mkdir -p \
   "$effective_workspace_path/mcp" \
   "$effective_workspace_path/models" \
   "$effective_workspace_path/tools/bundles" \
-  "$effective_workspace_path/tools/hints" \
+  "$effective_workspace_path/tools/instructions" \
   "$effective_workspace_path/oauth" \
   "$effective_workspace_path/a2a" \
   "$effective_workspace_path/workflows" \

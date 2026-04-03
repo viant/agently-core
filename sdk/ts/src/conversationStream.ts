@@ -10,7 +10,14 @@ import {
     type MessageBuffer,
 } from './reconcile';
 import { resolveEventConversationId } from './streamIdentity';
-import type { ActiveFeed, Message, SSEEvent, Turn } from './types';
+import type { ActiveFeed, ExecutionPage, Message, SSEEvent, Turn } from './types';
+
+export type LiveExecutionGroup = Partial<ExecutionPage> & {
+    sequence?: number;
+    errorMessage?: string;
+};
+
+export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
 
 export interface ConversationStreamSnapshot {
     conversationId: string;
@@ -18,7 +25,7 @@ export interface ConversationStreamSnapshot {
     feeds: ActiveFeed[];
     pendingElicitation: TrackedElicitation | null;
     bufferedMessages: Partial<Message>[];
-    liveExecutionGroupsById: Record<string, any>;
+    liveExecutionGroupsById: LiveExecutionGroupsById;
 }
 
 export type CanonicalConversationSnapshot = ConversationStreamSnapshot;
@@ -36,7 +43,11 @@ export interface CanonicalLiveAssistantRow {
     status: string;
     turnStatus: string;
     sequence: number | null;
-    executionGroups: Record<string, any>[];
+    executionGroups: LiveExecutionGroup[];
+    isStreaming?: boolean;
+    _streamContent?: string;
+    _streamFence?: Record<string, any> | null;
+    rawContent?: string;
 }
 
 export interface LiveAssistantTransientOverlay {
@@ -48,7 +59,21 @@ export interface LiveAssistantTransientOverlay {
     rawContent?: string;
 }
 
-function cloneExecutionGroups(groupsById: Record<string, any> = {}): Record<string, any> {
+function selectExplicitLiveAssistantRowsForTurn(
+    liveRows: LiveAssistantTransientOverlay[] = [],
+    turnId = '',
+): LiveAssistantTransientOverlay[] {
+    const targetTurnId = String(turnId || '').trim();
+    if (!targetTurnId) return [];
+    return (Array.isArray(liveRows) ? liveRows : [])
+        .filter((row) => (
+            String(row?.turnId || '').trim() === targetTurnId
+            && String(row?.role || '').trim().toLowerCase() === 'assistant'
+        ))
+        .sort(compareTemporalEntries);
+}
+
+function cloneExecutionGroups(groupsById: LiveExecutionGroupsById = {}): LiveExecutionGroupsById {
     return { ...groupsById };
 }
 
@@ -58,7 +83,7 @@ function buildSnapshot(
     feeds: ActiveFeed[],
     pendingElicitation: TrackedElicitation | null,
     bufferedMessages: Partial<Message>[],
-    executionGroupsById: Record<string, any>,
+    executionGroupsById: LiveExecutionGroupsById,
 ): ConversationStreamSnapshot {
     return {
         conversationId,
@@ -75,7 +100,7 @@ function collectLiveAssistantMessageIds(
     targetConversationId: string,
 ): string[] {
     const buffered = Array.isArray(snapshot?.bufferedMessages) ? snapshot.bufferedMessages : [];
-    const groupsById = snapshot?.liveExecutionGroupsById || {};
+    const groupsById: LiveExecutionGroupsById = snapshot?.liveExecutionGroupsById || {};
     const messageIds = new Set<string>();
 
     buffered.forEach((entry) => {
@@ -97,7 +122,7 @@ function collectLiveAssistantMessageIds(
 
 function projectLiveAssistantRow(
     bufferedById: Map<string, Partial<Message>>,
-    groupsById: Record<string, any>,
+    groupsById: LiveExecutionGroupsById,
     targetConversationId: string,
     messageId: string,
 ): CanonicalLiveAssistantRow | null {
@@ -142,7 +167,7 @@ function projectLiveAssistantRow(
 
 export class ConversationStreamTracker {
     private readonly _messages: MessageBuffer;
-    private _executionGroupsById: Record<string, any>;
+    private _executionGroupsById: LiveExecutionGroupsById;
     private readonly _feeds: FeedTracker;
     private readonly _elicitation: ElicitationTracker;
     private _conversationId = '';
@@ -345,10 +370,18 @@ export function hasLiveAssistantRowForTurn(
     conversationId = '',
     turnId = '',
 ): boolean {
+    return selectLiveAssistantRowsForTurn(snapshot, conversationId, turnId).length > 0;
+}
+
+export function selectLiveAssistantRowsForTurn(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    conversationId = '',
+    turnId = '',
+): CanonicalLiveAssistantRow[] {
     const targetTurnId = String(turnId || '').trim();
-    if (!targetTurnId) return false;
+    if (!targetTurnId) return [];
     return projectLiveAssistantRows(snapshot, conversationId)
-        .some((row) => String(row?.turnId || '').trim() === targetTurnId);
+        .filter((row) => String(row?.turnId || '').trim() === targetTurnId);
 }
 
 export function latestLiveAssistantRowForTurn(
@@ -356,10 +389,7 @@ export function latestLiveAssistantRowForTurn(
     conversationId = '',
     turnId = '',
 ): CanonicalLiveAssistantRow | null {
-    const targetTurnId = String(turnId || '').trim();
-    if (!targetTurnId) return null;
-    const rows = projectLiveAssistantRows(snapshot, conversationId)
-        .filter((row) => String(row?.turnId || '').trim() === targetTurnId);
+    const rows = selectLiveAssistantRowsForTurn(snapshot, conversationId, turnId);
     return rows.length > 0 ? rows[rows.length - 1] : null;
 }
 
@@ -373,14 +403,8 @@ export function latestLiveAssistantRowForTurnWithTransientState(
     if (!targetTurnId) return null;
     const trackerRow = latestLiveAssistantRowForTurn(snapshot, conversationId, targetTurnId);
     if (!trackerRow) return null;
-    const explicitRows = Array.isArray(liveRows) ? liveRows : [];
     const trackerId = String(trackerRow?.id || '').trim();
-    const sameTurnLiveRows = explicitRows
-        .filter((row) => (
-            String(row?.turnId || '').trim() === targetTurnId
-            && String(row?.role || '').trim().toLowerCase() === 'assistant'
-        ))
-        .sort(compareTemporalEntries);
+    const sameTurnLiveRows = selectExplicitLiveAssistantRowsForTurn(liveRows, targetTurnId);
     const exactLiveRow = trackerId
         ? sameTurnLiveRows.find((row) => String(row?.id || '').trim() === trackerId)
         : null;
@@ -409,11 +433,5 @@ export function latestEffectiveLiveAssistantRow(
         targetTurnId,
     );
     if (trackerBacked) return trackerBacked;
-    return (Array.isArray(liveRows) ? liveRows : [])
-        .filter((row) => (
-            String(row?.turnId || '').trim() === targetTurnId
-            && String(row?.role || '').trim().toLowerCase() === 'assistant'
-        ))
-        .sort(compareTemporalEntries)
-        .at(-1) || null;
+    return selectExplicitLiveAssistantRowsForTurn(liveRows, targetTurnId).at(-1) || null;
 }

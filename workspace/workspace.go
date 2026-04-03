@@ -38,24 +38,24 @@ var (
 // Predefined kinds.  Callers may still supply arbitrary sub-folder names when
 // they need custom separation.
 const (
-	KindAgent      = "agents"
-	KindModel      = "models"
-	KindEmbedder   = "embedders"
-	KindMCP        = "mcp"
-	KindWorkflow   = "workflows"
-	KindTool       = "tools"
-	KindToolBundle = "tools/bundles"
-	KindToolHints  = "tools/hints"
-	KindOAuth      = "oauth"
-	KindFeeds      = "feeds"
-	KindA2A        = "a2a"
+	KindAgent            = "agents"
+	KindModel            = "models"
+	KindEmbedder         = "embedders"
+	KindMCP              = "mcp"
+	KindWorkflow         = "workflows"
+	KindTool             = "tools"
+	KindToolBundle       = "tools/bundles"
+	KindToolInstructions = "tools/instructions"
+	KindOAuth            = "oauth"
+	KindFeeds            = "feeds"
+	KindA2A              = "a2a"
 )
 
 // AllKinds returns all predefined resource kinds.
 func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow,
-		KindTool, KindToolBundle, KindToolHints, KindOAuth, KindFeeds, KindA2A,
+		KindTool, KindToolBundle, KindToolInstructions, KindOAuth, KindFeeds, KindA2A,
 	}
 }
 

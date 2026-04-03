@@ -37,7 +37,7 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 		return nil
 	}
 	doc := &prompt.Document{
-		Title:       "tools/hints/webdriver",
+		Title:       "tools/instructions/webdriver",
 		PageContent: strings.TrimSpace(content),
 		SourceURI:   uri,
 		Score:       1.0,

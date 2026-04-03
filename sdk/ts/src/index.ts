@@ -88,8 +88,8 @@ export {
 export type { MessageBuffer } from './reconcile';
 
 // High-level stream tracker
-export { ConversationStreamTracker, projectLiveAssistantRows, overlayLiveAssistantTransientState, filterExplicitLiveRowsAgainstTracker, buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, hasLiveAssistantRowForTurn, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, latestEffectiveLiveAssistantRow } from './conversationStream';
-export type { ConversationStreamSnapshot, CanonicalConversationSnapshot, CanonicalLiveAssistantRow, LiveAssistantTransientOverlay } from './conversationStream';
+export { ConversationStreamTracker, projectLiveAssistantRows, overlayLiveAssistantTransientState, filterExplicitLiveRowsAgainstTracker, buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, hasLiveAssistantRowForTurn, selectLiveAssistantRowsForTurn, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, latestEffectiveLiveAssistantRow } from './conversationStream';
+export type { ConversationStreamSnapshot, CanonicalConversationSnapshot, CanonicalLiveAssistantRow, LiveAssistantTransientOverlay, LiveExecutionGroup, LiveExecutionGroupsById } from './conversationStream';
 
 // Canonical execution group helpers
 export {
@@ -123,6 +123,15 @@ export {
     compareTemporalEntries,
     compareExecutionGroups,
 } from './ordering';
+
+// Stream event semantics
+export {
+    eventSequenceValue,
+    eventIterationValue,
+    terminalStatusForType,
+    modelStepStatusForEvent,
+    executionGroupStatusForEvent,
+} from './streamEventMeta';
 
 // Rich content rendering (pluggable fence registry, markdown, charts, tables)
 export {
