@@ -97,6 +97,32 @@ describe('executionGroups', () => {
         });
     });
 
+    it('prefers live execution group over transcript group for the same assistant page', () => {
+        const transcript = [{
+            assistantMessageId: 'a1',
+            status: 'completed',
+            content: 'persisted content',
+            toolSteps: [],
+        }] as any;
+        const live = {
+            a1: {
+                assistantMessageId: 'a1',
+                status: 'running',
+                content: 'live content',
+                toolSteps: [{ toolName: 'system/exec', status: 'running' }],
+            },
+        } as any;
+
+        const merged = mergeLatestTranscriptAndLiveExecutionGroups(transcript, live, 'all');
+        expect(merged).toHaveLength(1);
+        expect(merged[0]).toMatchObject({
+            assistantMessageId: 'a1',
+            status: 'running',
+            content: 'live content',
+        });
+        expect(merged[0].toolSteps[0]).toMatchObject({ toolName: 'system/exec' });
+    });
+
     it('describes timeline events with planned tool names', () => {
         const text = describeExecutionTimelineEvent({
             type: 'model_completed',

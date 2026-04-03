@@ -151,20 +151,23 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 		upd.SetErrorMessage(emsg)
 	}
 
-	turnPatchErr := s.conversation.PatchTurn(patchCtx, upd)
-	if turnPatchErr == nil {
-		s.patchStarterMessageTerminalStatus(patchCtx, turn, status)
-	}
 	runPatchErr := s.patchRunTerminalState(patchCtx, turn, status, emsg)
-	if turnPatchErr != nil {
-		errorf("agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)
-	}
 	if runPatchErr != nil {
 		errorf("agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
 	}
 	conversationPatchErr := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
 	if conversationPatchErr != nil {
 		errorf("agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
+	}
+	// Patch the turn last. PatchTurn emits the terminal SSE event, so this ordering
+	// ensures transcript-level state (conversation + run) is already durable when
+	// the client observes turn_completed/turn_failed/turn_canceled.
+	turnPatchErr := s.conversation.PatchTurn(patchCtx, upd)
+	if turnPatchErr == nil {
+		s.patchStarterMessageTerminalStatus(patchCtx, turn, status)
+	}
+	if turnPatchErr != nil {
+		errorf("agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)
 	}
 
 	errs := make([]error, 0, 3)

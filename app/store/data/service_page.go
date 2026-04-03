@@ -2,7 +2,10 @@ package data
 
 import (
 	"context"
+	"reflect"
+	"sort"
 	"strings"
+	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
@@ -102,6 +105,40 @@ func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int) *
 	return page
 }
 
+func conversationPageSortKey(row *agconvlist.ConversationRowsView) time.Time {
+	if row == nil {
+		return time.Time{}
+	}
+	if row.LastActivity != nil && !row.LastActivity.IsZero() {
+		return *row.LastActivity
+	}
+	if row.UpdatedAt != nil && !row.UpdatedAt.IsZero() {
+		return *row.UpdatedAt
+	}
+	return row.CreatedAt
+}
+
+func sortConversationRows(rows []*agconvlist.ConversationRowsView) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		left := rows[i]
+		right := rows[j]
+		leftTime := conversationPageSortKey(left)
+		rightTime := conversationPageSortKey(right)
+		if leftTime.Equal(rightTime) {
+			leftID := ""
+			rightID := ""
+			if left != nil {
+				leftID = left.Id
+			}
+			if right != nil {
+				rightID = right.Id
+			}
+			return leftID > rightID
+		}
+		return leftTime.After(rightTime)
+	})
+}
+
 func buildMessagePage(rows []*agmessagelist.MessageRowsView, limit int) *MessagePage {
 	page := &MessagePage{Rows: rows}
 	if len(rows) > limit {
@@ -195,22 +232,45 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 		input.DefaultPredicate = "1"
 		input.Has.DefaultPredicate = true
 	}
-
-	out := &agconvlist.ConversationRowsOutput{}
-	selectorOpts := append([]Option{buildPageSelector("ConversationRows", limit)}, opts...)
-	operateOpts := append([]datly.OperateOption{
-		datly.WithURI(agconvlist.ConversationRowsPathURI),
-		datly.WithInput(&input),
-		datly.WithOutput(out),
-	}, toOperateOptions(selectorOpts)...)
-	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
-		return nil, err
+	// Make the generated input available to predicate handlers such as
+	// *conversationlist.Filter, which resolve visibility constraints from
+	// InputFromContext(ctx). Without this, principal-aware visibility is applied
+	// only after the SQL page is already truncated, causing underfilled pages
+	// when recent rows belong to other users (for example scheduler traffic).
+	ctx = context.WithValue(ctx, reflect.TypeOf(&agconvlist.ConversationRowsInput{}), &input)
+	queryInput := input
+	if queryInput.Has != nil && queryInput.Has.ExcludeScheduled {
+		hasCopy := *queryInput.Has
+		hasCopy.ExcludeScheduled = false
+		queryInput.Has = &hasCopy
 	}
-	rows := out.Data
-	if callOpts.principal != "" && !callOpts.isAdmin {
+
+	filterVisible := func(rows []*agconvlist.ConversationRowsView) []*agconvlist.ConversationRowsView {
+		if callOpts.principal == "" || callOpts.isAdmin {
+			filtered := make([]*agconvlist.ConversationRowsView, 0, len(rows))
+			for _, row := range rows {
+				if row == nil {
+					continue
+				}
+				if input.ExcludeScheduled && row.ScheduleId != nil && strings.TrimSpace(*row.ScheduleId) != "" {
+					continue
+				}
+				if (in == nil || in.Has == nil || !in.Has.ParentId) && row.ConversationParentId != nil && strings.TrimSpace(*row.ConversationParentId) != "" {
+					continue
+				}
+				filtered = append(filtered, row)
+			}
+			return filtered
+		}
 		filtered := make([]*agconvlist.ConversationRowsView, 0, len(rows))
 		for _, row := range rows {
 			if row == nil {
+				continue
+			}
+			if input.ExcludeScheduled && row.ScheduleId != nil && strings.TrimSpace(*row.ScheduleId) != "" {
+				continue
+			}
+			if (in == nil || in.Has == nil || !in.Has.ParentId) && row.ConversationParentId != nil && strings.TrimSpace(*row.ConversationParentId) != "" {
 				continue
 			}
 			if strings.EqualFold(row.Visibility, "public") {
@@ -221,9 +281,90 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 				filtered = append(filtered, row)
 			}
 		}
-		rows = filtered
+		return filtered
 	}
-	return buildConversationPage(rows, limit), nil
+
+	fetchPage := func(batchInput *agconvlist.ConversationRowsInput) ([]*agconvlist.ConversationRowsView, bool, string, string, error) {
+		out := &agconvlist.ConversationRowsOutput{}
+		selectorOpts := append([]Option{buildPageSelector("ConversationRows", limit)}, opts...)
+		operateOpts := append([]datly.OperateOption{
+			datly.WithURI(agconvlist.ConversationRowsPathURI),
+			datly.WithInput(batchInput),
+			datly.WithOutput(out),
+		}, toOperateOptions(selectorOpts)...)
+		if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+			return nil, false, "", "", err
+		}
+		page := buildConversationPage(out.Data, limit)
+		return out.Data, page.HasMore, page.NextCursor, page.PrevCursor, nil
+	}
+
+	rawRows, rawHasMore, nextCursor, prevCursor, err := fetchPage(&queryInput)
+	if err != nil {
+		return nil, err
+	}
+	rows := filterVisible(rawRows)
+	sortConversationRows(rows)
+	if callOpts.principal == "" || callOpts.isAdmin || len(rows) > limit || !rawHasMore {
+		page := buildConversationPage(rows, limit)
+		if !page.HasMore {
+			page.HasMore = rawHasMore && len(rows) == limit
+		}
+		return page, nil
+	}
+
+	visible := append([]*agconvlist.ConversationRowsView{}, rows...)
+	hasMoreRaw := rawHasMore
+
+	for hasMoreRaw && len(visible) <= limit {
+		nextInput := input
+		if nextInput.Has == nil {
+			nextInput.Has = &agconvlist.ConversationRowsInputHas{}
+		} else {
+			hasCopy := *nextInput.Has
+			nextInput.Has = &hasCopy
+		}
+		switch direction {
+		case DirectionAfter:
+			if prevCursor == "" {
+				hasMoreRaw = false
+				continue
+			}
+			nextInput.CursorAfter = prevCursor
+			nextInput.Has.CursorAfter = true
+			nextInput.CursorBefore = ""
+			nextInput.Has.CursorBefore = false
+		default:
+			if nextCursor == "" {
+				hasMoreRaw = false
+				continue
+			}
+			nextInput.CursorBefore = nextCursor
+			nextInput.Has.CursorBefore = true
+			nextInput.CursorAfter = ""
+			nextInput.Has.CursorAfter = false
+		}
+		nextQueryInput := nextInput
+		if nextQueryInput.Has != nil && nextQueryInput.Has.ExcludeScheduled {
+			hasCopy := *nextQueryInput.Has
+			hasCopy.ExcludeScheduled = false
+			nextQueryInput.Has = &hasCopy
+		}
+		ctx = context.WithValue(ctx, reflect.TypeOf(&agconvlist.ConversationRowsInput{}), &nextInput)
+		rawRows, rawHasMore, nextCursor, prevCursor, err = fetchPage(&nextQueryInput)
+		if err != nil {
+			return nil, err
+		}
+		visible = append(visible, filterVisible(rawRows)...)
+		hasMoreRaw = rawHasMore
+	}
+	sortConversationRows(visible)
+
+	result := buildConversationPage(visible, limit)
+	if len(visible) > limit {
+		result.HasMore = true
+	}
+	return result, nil
 }
 
 func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.MessageRowsInput, page *PageInput, opts ...Option) (*MessagePage, error) {

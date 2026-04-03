@@ -161,6 +161,20 @@ func TestService_RegisterTurnCancel_UpdatesStarterMessageStatus(t *testing.T) {
 	require.Equal(t, "cancel", *gotMsg.Status)
 }
 
+func TestService_FinalizeTurn_PatchesConversationBeforeTurnTerminalEvent(t *testing.T) {
+	ctx := context.Background()
+	rec := &orderingConvClient{}
+	svc := &Service{conversation: rec}
+
+	turn := memory.TurnMeta{
+		ConversationID: "c1",
+		TurnID:         "t1",
+	}
+	err := svc.finalizeTurn(ctx, turn, "succeeded", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"conversation:succeeded", "turn:succeeded"}, rec.calls)
+}
+
 func seedTurnState(t *testing.T, ctx context.Context, client *memconv.Client, conversationID, turnID, messageID, messageStatus string) {
 	t.Helper()
 
@@ -186,4 +200,66 @@ func seedTurnState(t *testing.T, ctx context.Context, client *memconv.Client, co
 		msg.SetStatus(messageStatus)
 	}
 	require.NoError(t, client.PatchMessage(ctx, msg))
+}
+
+type orderingConvClient struct {
+	calls []string
+}
+
+func (o *orderingConvClient) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
+	return nil, nil
+}
+
+func (o *orderingConvClient) GetConversations(ctx context.Context, input *apiconv.Input) ([]*apiconv.Conversation, error) {
+	return nil, nil
+}
+
+func (o *orderingConvClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
+	status := ""
+	if conversations != nil && conversations.Status != nil {
+		status = *conversations.Status
+	}
+	o.calls = append(o.calls, "conversation:"+status)
+	return nil
+}
+
+func (o *orderingConvClient) GetPayload(ctx context.Context, id string) (*apiconv.Payload, error) {
+	return nil, nil
+}
+
+func (o *orderingConvClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
+	return nil
+}
+
+func (o *orderingConvClient) PatchMessage(ctx context.Context, message *apiconv.MutableMessage) error {
+	return nil
+}
+
+func (o *orderingConvClient) GetMessage(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Message, error) {
+	return nil, nil
+}
+
+func (o *orderingConvClient) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string) (*apiconv.Message, error) {
+	return nil, nil
+}
+
+func (o *orderingConvClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
+	return nil
+}
+
+func (o *orderingConvClient) PatchToolCall(ctx context.Context, toolCall *apiconv.MutableToolCall) error {
+	return nil
+}
+
+func (o *orderingConvClient) PatchTurn(ctx context.Context, turn *apiconv.MutableTurn) error {
+	o.calls = append(o.calls, "turn:"+turn.Status)
+	return nil
+}
+
+func (o *orderingConvClient) DeleteConversation(ctx context.Context, id string) error {
+	return nil
+}
+
+func (o *orderingConvClient) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
+	return nil
 }

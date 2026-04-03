@@ -32,29 +32,38 @@ func (a *Filter) Compute(ctx context.Context, value interface{}) (*codec.Criteri
 	if input == nil {
 		return falseCriteria, nil
 	}
-	if input.Has != nil && input.Has.DefaultPredicate && strings.TrimSpace(input.DefaultPredicate) == "1" {
-		return trueCriteria, nil
-	}
-
 	// Exclude child conversations unless explicitly querying by parentId.
 	excludeChildren := ""
 	if input.Has == nil || !input.Has.ParentId {
 		excludeChildren = " AND c.conversation_parent_id IS NULL"
 	}
+	requireValidParent := ""
+	if input.Has != nil && (input.Has.ParentId || input.Has.ParentTurnId) {
+		requireValidParent = " AND EXISTS (SELECT 1 FROM conversation p WHERE p.id = c.conversation_parent_id)"
+		requireValidParent += " AND (c.conversation_parent_turn_id IS NULL OR EXISTS (SELECT 1 FROM turn pt WHERE pt.id = c.conversation_parent_turn_id))"
+	}
 	excludeScheduled := ""
 	if input.Has != nil && input.Has.ExcludeScheduled && input.ExcludeScheduled {
 		excludeScheduled = " AND c.schedule_id IS NULL"
+	}
+	structural := excludeChildren + requireValidParent + excludeScheduled
+
+	if input.Has != nil && input.Has.DefaultPredicate && strings.TrimSpace(input.DefaultPredicate) == "1" {
+		if structural == "" {
+			return trueCriteria, nil
+		}
+		return &codec.Criteria{Expression: "1=1" + structural}, nil
 	}
 
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if userID == "" {
 		return &codec.Criteria{
-			Expression:   "COALESCE(c.visibility, '') <> ?" + excludeChildren + excludeScheduled,
+			Expression:   "COALESCE(c.visibility, '') <> ?" + structural,
 			Placeholders: []interface{}{"private"},
 		}, nil
 	}
 	return &codec.Criteria{
-		Expression:   "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)" + excludeChildren + excludeScheduled,
+		Expression:   "(COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)" + structural,
 		Placeholders: []interface{}{"private", userID},
 	}, nil
 }

@@ -56,6 +56,9 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 	if ev.TurnID != "turn-1" {
 		t.Fatalf("unexpected turn id: %s", ev.TurnID)
 	}
+	if ev.MessageID != "m1" {
+		t.Fatalf("unexpected message id: %s", ev.MessageID)
+	}
 	if ev.AgentIDUsed != "steward" {
 		t.Fatalf("unexpected agent id: %s", ev.AgentIDUsed)
 	}
@@ -108,6 +111,9 @@ func TestStreamPublisherAdapterPublish_TimelineEventPassthrough(t *testing.T) {
 	}
 	if ev.ConversationID != "c1" {
 		t.Fatalf("unexpected conversation id: %s", ev.ConversationID)
+	}
+	if ev.MessageID != "m1" {
+		t.Fatalf("unexpected message id: %s", ev.MessageID)
 	}
 	if len(ev.ToolCallsPlanned) != 1 || ev.ToolCallsPlanned[0].ToolName != "llm/agents/run" {
 		t.Fatalf("unexpected planned tool calls: %#v", ev.ToolCallsPlanned)

@@ -74,6 +74,7 @@ type Event struct {
 	StreamID                  string                 `json:"streamId,omitempty"`
 	ConversationID            string                 `json:"conversationId,omitempty"`
 	TurnID                    string                 `json:"turnId,omitempty"`
+	MessageID                 string                 `json:"messageId,omitempty"`
 	AgentIDUsed               string                 `json:"agentIdUsed,omitempty"`
 	AgentName                 string                 `json:"agentName,omitempty"`
 	AssistantMessageID        string                 `json:"assistantMessageId,omitempty"`
@@ -128,6 +129,51 @@ type Event struct {
 	FeedData      interface{} `json:"feedData,omitempty"`
 }
 
+func canonicalEventMessageID(event *Event) string {
+	if event == nil {
+		return ""
+	}
+	if messageID := strings.TrimSpace(event.MessageID); messageID != "" {
+		return messageID
+	}
+	if messageID := strings.TrimSpace(event.AssistantMessageID); messageID != "" {
+		return messageID
+	}
+	if messageID := strings.TrimSpace(event.ToolMessageID); messageID != "" {
+		return messageID
+	}
+	if messageID := strings.TrimSpace(event.UserMessageID); messageID != "" {
+		return messageID
+	}
+	if strings.EqualFold(strings.TrimSpace(event.Op), "message_patch") {
+		return strings.TrimSpace(event.ID)
+	}
+	return ""
+}
+
+// NormalizeIdentity fills canonical transport identity fields without overwriting
+// explicit values already set by the caller.
+func (e *Event) NormalizeIdentity(fallbackConversationID, fallbackTurnID string) {
+	if e == nil {
+		return
+	}
+	if strings.TrimSpace(e.ConversationID) == "" {
+		e.ConversationID = strings.TrimSpace(fallbackConversationID)
+	}
+	if strings.TrimSpace(e.StreamID) == "" {
+		e.StreamID = strings.TrimSpace(e.ConversationID)
+	}
+	if strings.TrimSpace(e.ConversationID) == "" {
+		e.ConversationID = strings.TrimSpace(e.StreamID)
+	}
+	if strings.TrimSpace(e.TurnID) == "" {
+		e.TurnID = strings.TrimSpace(fallbackTurnID)
+	}
+	if strings.TrimSpace(e.MessageID) == "" {
+		e.MessageID = canonicalEventMessageID(e)
+	}
+}
+
 // FromLLMEvent converts an llm stream event to a generic streaming event.
 // When the event carries typed Kind fields, those take precedence over
 // the legacy Response-based inference.
@@ -141,6 +187,7 @@ func FromLLMEvent(streamID string, in llm.StreamEvent) *Event {
 	// Propagate stable IDs from typed stream deltas.
 	out.ResponseID = strings.TrimSpace(in.ResponseID)
 	out.ID = strings.TrimSpace(in.ItemID)
+	out.MessageID = strings.TrimSpace(in.ItemID)
 	out.ToolCallID = strings.TrimSpace(in.ToolCallID)
 
 	if in.Err != nil {

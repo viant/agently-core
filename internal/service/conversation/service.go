@@ -552,6 +552,7 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 		ID:             strings.TrimSpace(message.Id),
 		StreamID:       conversationID,
 		ConversationID: conversationID,
+		MessageID:      strings.TrimSpace(message.Id),
 		Mode:           strings.TrimSpace(valueOrEmptyStr(message.Mode)),
 		Type:           streaming.EventTypeControl,
 		Op:             "message_patch",
@@ -696,6 +697,7 @@ func timelineDebugFields(event *streaming.Event) map[string]any {
 		"streamID":                  strings.TrimSpace(event.StreamID),
 		"conversationID":            strings.TrimSpace(event.ConversationID),
 		"turnID":                    strings.TrimSpace(event.TurnID),
+		"messageID":                 strings.TrimSpace(event.MessageID),
 		"agentIDUsed":               strings.TrimSpace(event.AgentIDUsed),
 		"agentName":                 strings.TrimSpace(event.AgentName),
 		"assistantID":               strings.TrimSpace(event.AssistantMessageID),
@@ -754,12 +756,13 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	if s == nil || s.streamPub == nil || event == nil {
 		return
 	}
-	if strings.TrimSpace(event.ConversationID) == "" {
-		event.ConversationID = strings.TrimSpace(event.StreamID)
+	fallbackConversationID := ""
+	fallbackTurnID := ""
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		fallbackConversationID = strings.TrimSpace(turn.ConversationID)
+		fallbackTurnID = strings.TrimSpace(turn.TurnID)
 	}
-	if strings.TrimSpace(event.StreamID) == "" {
-		event.StreamID = strings.TrimSpace(event.ConversationID)
-	}
+	event.NormalizeIdentity(fallbackConversationID, fallbackTurnID)
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
@@ -771,13 +774,14 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	if event.CompletedAt != nil && !event.CompletedAt.IsZero() {
 		completedAt = event.CompletedAt.Format(time.RFC3339Nano)
 	}
-	log.Printf("[emitTimelineEvent] %s type=%q op=%q stream_id=%q convo=%q turn=%q mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool_call=%q tool_msg=%q tool=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q id=%q",
+	log.Printf("[emitTimelineEvent] %s type=%q op=%q stream_id=%q convo=%q turn=%q msg=%q mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool_call=%q tool_msg=%q tool=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q id=%q",
 		action,
 		string(event.Type),
 		event.Op,
 		event.StreamID,
 		event.ConversationID,
 		event.TurnID,
+		event.MessageID,
 		event.Mode,
 		event.AgentIDUsed,
 		event.AgentName,
@@ -840,6 +844,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		ID:                 strings.TrimSpace(toolCall.MessageID),
 		StreamID:           conversationID,
 		ConversationID:     conversationID,
+		MessageID:          strings.TrimSpace(toolCall.MessageID),
 		Mode:               strings.TrimSpace(memory.RequestModeFromContext(ctx)),
 		Type:               eventType,
 		TurnID:             resolveTurnID(ctx, valueOrEmptyStr(toolCall.TurnID)),
@@ -1084,6 +1089,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 			ID:             strings.TrimSpace(turn.Id),
 			StreamID:       conversationID,
 			ConversationID: conversationID,
+			MessageID:      userMessageID,
 			Type:           streaming.EventTypeControl,
 			Op:             "turn_started",
 			Patch:          patch,
@@ -1095,6 +1101,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 			ConversationID: conversationID,
 			Type:           streaming.EventTypeTurnStarted,
 			TurnID:         strings.TrimSpace(turn.Id),
+			MessageID:      userMessageID,
 			UserMessageID:  userMessageID,
 			AgentIDUsed:    agentIDUsed,
 			Status:         "running",
@@ -1116,6 +1123,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 			ConversationID: conversationID,
 			Type:           eventType,
 			TurnID:         strings.TrimSpace(turn.Id),
+			MessageID:      userMessageID,
 			UserMessageID:  userMessageID,
 			Status:         status,
 			Error:          strings.TrimSpace(valueOrEmptyStr(turn.ErrorMessage)),
@@ -1165,6 +1173,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 			ID:                 strings.TrimSpace(message.Id),
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
+			MessageID:          strings.TrimSpace(message.Id),
 			Mode:               strings.TrimSpace(valueOrEmptyStr(message.Mode)),
 			Type:               streaming.EventTypeAssistantPreamble,
 			TurnID:             turnID,
@@ -1182,6 +1191,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 			ID:                 strings.TrimSpace(message.Id),
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
+			MessageID:          strings.TrimSpace(message.Id),
 			Mode:               strings.TrimSpace(valueOrEmptyStr(message.Mode)),
 			Type:               streaming.EventTypeAssistantFinal,
 			TurnID:             turnID,
@@ -1218,6 +1228,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			ID:                 strings.TrimSpace(modelCall.MessageID),
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
+			MessageID:          strings.TrimSpace(modelCall.MessageID),
 			Mode:               mode,
 			Type:               streaming.EventTypeModelStarted,
 			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
@@ -1257,6 +1268,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			ID:                 strings.TrimSpace(modelCall.MessageID),
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
+			MessageID:          strings.TrimSpace(modelCall.MessageID),
 			Mode:               mode,
 			Type:               streaming.EventTypeModelCompleted,
 			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
