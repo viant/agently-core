@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ConversationStreamTracker } from '../conversationStream';
+import { buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, ConversationStreamTracker, filterExplicitLiveRowsAgainstTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, overlayLiveAssistantTransientState, projectLiveAssistantRows } from '../conversationStream';
 import type { Message, SSEEvent, Turn } from '../types';
 
 describe('ConversationStreamTracker', () => {
@@ -54,6 +54,17 @@ describe('ConversationStreamTracker', () => {
         expect(tracker.canonicalState).toMatchObject({
             conversationId: 'conv-1',
             activeTurnId: 'turn-1',
+            bufferedMessages: [
+                expect.objectContaining({
+                    id: 'msg-1',
+                    content: 'Hello',
+                }),
+            ],
+            liveExecutionGroupsById: {
+                'msg-1': expect.objectContaining({
+                    assistantMessageId: 'msg-1',
+                }),
+            },
         });
     });
 
@@ -99,6 +110,13 @@ describe('ConversationStreamTracker', () => {
         expect(tracker.snapshotCanonical()).toMatchObject({
             conversationId: 'conv-1',
             activeTurnId: 'turn-1',
+            bufferedMessages: [
+                expect.objectContaining({
+                    id: 'msg-1',
+                    content: 'Hello world',
+                }),
+            ],
+            liveExecutionGroupsById: {},
         });
         expect(tracker.snapshotComposite()).toMatchObject({
             conversationId: 'conv-1',
@@ -110,6 +128,318 @@ describe('ConversationStreamTracker', () => {
             activeTurnId: null,
             feeds: [],
             pendingElicitation: null,
+            bufferedMessages: [],
+            liveExecutionGroupsById: {},
+        });
+    });
+
+    it('projects tracker canonical state into live assistant rows', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'model_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            status: 'running',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'Calling updatePlan.',
+            status: 'running',
+        } as SSEEvent);
+
+        const rows = projectLiveAssistantRows(tracker.canonicalState, 'conv-1');
+        expect(rows).toEqual([
+            expect.objectContaining({
+                id: 'msg-1',
+                conversationId: 'conv-1',
+                turnId: 'turn-1',
+                content: 'Calling updatePlan.',
+                preamble: 'Calling updatePlan.',
+                interim: 1,
+                executionGroups: [
+                    expect.objectContaining({
+                        assistantMessageId: 'msg-1',
+                        turnId: 'turn-1',
+                        preamble: 'Calling updatePlan.',
+                    }),
+                ],
+            }),
+        ]);
+        expect(hasLiveAssistantRowForTurn(tracker.canonicalState, 'conv-1', 'turn-1')).toBe(true);
+        expect(latestLiveAssistantRowForTurn(tracker.canonicalState, 'conv-1', 'turn-1')).toMatchObject({
+            id: 'msg-1',
+            turnId: 'turn-1',
+            preamble: 'Calling updatePlan.',
+        });
+    });
+
+    it('orders projected live assistant rows before selecting the latest row for a turn', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-late',
+            assistantMessageId: 'msg-late',
+            content: 'Later page',
+            createdAt: '2026-01-01T00:00:03Z',
+            iteration: 2,
+            status: 'running',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-early',
+            assistantMessageId: 'msg-early',
+            content: 'Earlier page',
+            createdAt: '2026-01-01T00:00:01Z',
+            iteration: 1,
+            status: 'completed',
+        } as SSEEvent);
+
+        const rows = projectLiveAssistantRows(tracker.canonicalState, 'conv-1');
+        expect(rows.map((row) => row.id)).toEqual(['msg-early', 'msg-late']);
+        expect(latestLiveAssistantRowForTurn(tracker.canonicalState, 'conv-1', 'turn-1')).toMatchObject({
+            id: 'msg-late',
+            content: 'Later page',
+        });
+    });
+
+    it('uses a deterministic createdAt fallback for projected live assistant rows', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyEvent({
+            type: 'model_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            status: 'running',
+        } as SSEEvent);
+
+        const first = projectLiveAssistantRows(tracker.canonicalState, 'conv-1');
+        const second = projectLiveAssistantRows(tracker.canonicalState, 'conv-1');
+
+        expect(first[0]?.createdAt).toBeTruthy();
+        expect(second[0]?.createdAt).toBe(first[0]?.createdAt);
+    });
+
+    it('overlays transient live assistant state onto projected tracker rows', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'Calling updatePlan.',
+            status: 'running',
+        } as SSEEvent);
+
+        const projected = projectLiveAssistantRows(tracker.canonicalState, 'conv-1');
+        const overlaid = overlayLiveAssistantTransientState(projected, [{
+            id: 'msg-1',
+            role: 'assistant',
+            isStreaming: true,
+            _streamContent: 'Calling updatePlan. Then streaming...'
+        }]);
+
+        expect(overlaid[0]).toMatchObject({
+            id: 'msg-1',
+            content: 'Calling updatePlan.',
+            isStreaming: true,
+            _streamContent: 'Calling updatePlan. Then streaming...'
+        });
+    });
+
+    it('filters redundant explicit live assistant rows once tracker rows cover them', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'Calling updatePlan.',
+            status: 'running',
+        } as SSEEvent);
+        const projected = projectLiveAssistantRows(tracker.canonicalState, 'conv-1');
+        const filtered = filterExplicitLiveRowsAgainstTracker(projected, [
+            { id: 'msg-1', role: 'assistant', turnId: 'turn-1', content: 'stale duplicate' },
+            { id: 'assistant-turn-2', role: 'assistant', turnId: 'turn-2', content: 'keep me' },
+            { id: 'user-1', role: 'user', turnId: 'turn-1', content: 'user row' },
+            { id: 'stream-1', _type: 'stream', role: 'assistant', turnId: 'turn-1', content: 'stream row' },
+        ]);
+
+        expect(filtered).toEqual([
+            expect.objectContaining({ id: 'assistant-turn-2', turnId: 'turn-2' }),
+            expect.objectContaining({ id: 'user-1', role: 'user' }),
+        ]);
+    });
+
+    it('builds effective live assistant rows from tracker canonical rows plus remaining explicit live rows', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'Calling updatePlan.',
+            status: 'running',
+        } as SSEEvent);
+
+        const effective = buildEffectiveLiveAssistantRows(tracker.canonicalState, [
+            {
+                id: 'msg-1',
+                role: 'assistant',
+                turnId: 'turn-1',
+                isStreaming: true,
+                _streamContent: 'Calling updatePlan. Then streaming...',
+            },
+            {
+                id: 'assistant-turn-2',
+                role: 'assistant',
+                turnId: 'turn-2',
+                content: 'Second live turn',
+            },
+            {
+                id: 'stream-1',
+                _type: 'stream',
+                role: 'assistant',
+                turnId: 'turn-1',
+                content: 'stream row',
+            },
+        ], 'conv-1');
+
+        expect(effective.map((row) => String(row?.id || ''))).toEqual(['assistant-turn-2', 'msg-1']);
+        expect(effective[0]).toMatchObject({
+            id: 'assistant-turn-2',
+            turnId: 'turn-2',
+            content: 'Second live turn',
+        });
+        expect(effective[1]).toMatchObject({
+            id: 'msg-1',
+            isStreaming: true,
+            _streamContent: 'Calling updatePlan. Then streaming...',
+        });
+    });
+
+    it('builds effective live rows including preserved stream placeholders', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'Calling updatePlan.',
+            status: 'running',
+        } as SSEEvent);
+
+        const effective = buildEffectiveLiveRows(tracker.canonicalState, [
+            {
+                id: 'msg-1',
+                role: 'assistant',
+                turnId: 'turn-1',
+                isStreaming: true,
+                _streamContent: 'Calling updatePlan. Then streaming...',
+            },
+            {
+                id: 'stream-1',
+                _type: 'stream',
+                role: 'assistant',
+                turnId: 'turn-1',
+                content: 'stream row',
+            },
+        ], 'conv-1');
+
+        expect(effective).toEqual([
+            expect.objectContaining({ id: 'msg-1', isStreaming: true }),
+            expect.objectContaining({ id: 'stream-1', _type: 'stream' }),
+        ]);
+    });
+
+    it('returns the latest tracker row overlaid with the latest same-turn transient live state', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_preamble',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-tracker',
+            assistantMessageId: 'msg-tracker',
+            content: 'Tracker canonical row',
+            status: 'running',
+            createdAt: '2026-01-01T00:00:02Z',
+        } as SSEEvent);
+
+        const row = latestLiveAssistantRowForTurnWithTransientState(
+            tracker.canonicalState,
+            [
+                {
+                    id: 'assistant-older',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:01Z',
+                    isStreaming: true,
+                    _streamContent: 'older transient stream',
+                },
+                {
+                    id: 'assistant-newer',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:03Z',
+                    isStreaming: true,
+                    _streamContent: 'newer transient stream',
+                },
+            ],
+            'conv-1',
+            'turn-1',
+        );
+
+        expect(row).toMatchObject({
+            id: 'assistant-newer',
+            content: 'Tracker canonical row',
+            _streamContent: 'newer transient stream',
+            isStreaming: true,
+        });
+    });
+
+    it('falls back to the latest explicit live assistant row when tracker has no row for the turn', () => {
+        const row = latestEffectiveLiveAssistantRow(
+            null,
+            [
+                {
+                    id: 'assistant-older',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:01Z',
+                    content: 'older',
+                },
+                {
+                    id: 'assistant-newer',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:03Z',
+                    content: 'newer',
+                },
+            ],
+            'conv-1',
+            'turn-1',
+        );
+
+        expect(row).toMatchObject({
+            id: 'assistant-newer',
+            content: 'newer',
         });
     });
 });

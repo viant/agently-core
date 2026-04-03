@@ -16,6 +16,7 @@ type MemoryBus struct {
 	closed bool
 	buffer int
 	subs   map[string]*memorySub
+	seq    map[string]int64
 }
 
 type memorySub struct {
@@ -33,6 +34,7 @@ func NewMemoryBus(buffer int) *MemoryBus {
 	return &MemoryBus{
 		buffer: buffer,
 		subs:   map[string]*memorySub{},
+		seq:    map[string]int64{},
 	}
 }
 
@@ -40,16 +42,24 @@ func (b *MemoryBus) Publish(ctx context.Context, event *Event) error {
 	if event == nil {
 		return nil
 	}
-	b.mu.RLock()
+	b.mu.Lock()
 	if b.closed {
-		b.mu.RUnlock()
+		b.mu.Unlock()
 		return ErrClosed
+	}
+	streamID := event.ConversationID
+	if streamID == "" {
+		streamID = event.StreamID
+	}
+	if streamID != "" && event.EventSeq == 0 {
+		b.seq[streamID]++
+		event.EventSeq = b.seq[streamID]
 	}
 	subs := make([]*memorySub, 0, len(b.subs))
 	for _, sub := range b.subs {
 		subs = append(subs, sub)
 	}
-	b.mu.RUnlock()
+	b.mu.Unlock()
 
 	for _, sub := range subs {
 		if sub.filter != nil && !sub.filter(event) {

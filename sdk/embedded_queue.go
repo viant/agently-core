@@ -359,10 +359,7 @@ func listPendingElicitations(c *EmbeddedClient, ctx context.Context, input *List
 		out = append(out, item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].ElicitationID < out[j].ElicitationID
-		}
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
+		return lessPendingElicitation(out[i], out[j])
 	})
 	return out, nil
 }

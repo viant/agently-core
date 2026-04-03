@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	convstore "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -94,18 +93,7 @@ func collectToolChildren(turn *convstore.Turn, message *agconv.MessageView, inde
 		return nil, nil
 	}
 	sort.SliceStable(toolMessages, func(i, j int) bool {
-		left, right := toolMessages[i], toolMessages[j]
-		leftSeq := sequenceValue(left)
-		rightSeq := sequenceValue(right)
-		if leftSeq != rightSeq {
-			return leftSeq < rightSeq
-		}
-		leftAt := createdAtValue(left.CreatedAt)
-		rightAt := createdAtValue(right.CreatedAt)
-		if !leftAt.Equal(rightAt) {
-			return leftAt.Before(rightAt)
-		}
-		return left.Id < right.Id
+		return lessToolMessage(toolMessages[i], toolMessages[j])
 	})
 	toolCalls := make([]*agconv.ToolCallView, 0, len(toolMessages))
 	for _, toolMessage := range toolMessages {
@@ -125,29 +113,6 @@ func iterationKey(iteration *int) string {
 		return ""
 	}
 	return strconv.Itoa(*iteration)
-}
-
-func sequenceValue(message *agconv.ToolMessageView) int {
-	if message == nil {
-		return 0
-	}
-	if message.Sequence != nil {
-		return *message.Sequence
-	}
-	if message.ToolCall != nil && message.ToolCall.MessageSequence != nil {
-		return *message.ToolCall.MessageSequence
-	}
-	if message.Iteration != nil {
-		return *message.Iteration
-	}
-	return 0
-}
-
-func createdAtValue(value time.Time) time.Time {
-	if value.IsZero() {
-		return time.Unix(0, 0).UTC()
-	}
-	return value.UTC()
 }
 
 func stringValue(value *string) string {

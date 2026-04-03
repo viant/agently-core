@@ -571,6 +571,68 @@ func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
 	}
 }
 
+type stubSubscription struct {
+	id string
+	ch chan *streaming.Event
+}
+
+func (s *stubSubscription) ID() string                 { return s.id }
+func (s *stubSubscription) C() <-chan *streaming.Event { return s.ch }
+func (s *stubSubscription) Close() error               { return nil }
+
+type spyStreamClient struct {
+	*HTTPClient
+	sub streaming.Subscription
+}
+
+func (s *spyStreamClient) StreamEvents(_ context.Context, _ *StreamEventsInput) (streaming.Subscription, error) {
+	return s.sub, nil
+}
+
+func TestHandler_StreamEvents_EmitsKeepaliveComments(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	sub := &stubSubscription{
+		id: "sub-1",
+		ch: make(chan *streaming.Event),
+	}
+	spy := &spyStreamClient{HTTPClient: base, sub: sub}
+	handler := NewHandler(spy)
+
+	prevInterval := streamKeepaliveInterval
+	streamKeepaliveInterval = 10 * time.Millisecond
+	defer func() { streamKeepaliveInterval = prevInterval }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/v1/stream?conversationId=c1", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	time.Sleep(25 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("stream handler did not exit after context cancellation")
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); !strings.Contains(got, ": keepalive\n\n") {
+		t.Fatalf("expected keepalive comment in SSE stream, got %q", got)
+	}
+}
+
 func TestHTTPClient_GetSchedule(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

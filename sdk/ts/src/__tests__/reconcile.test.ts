@@ -27,12 +27,12 @@ describe('applyEvent', () => {
         expect(r2).toEqual({ id: 'msg_1', content: 'Hello world', final: false });
     });
 
-    it('sets activeTurnId on chunk', () => {
+    it('sets activeTurnId on chunk when turn identity is explicit', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
-            id: 'msg_1', streamId: 'conv_1', type: 'text_delta', content: 'hi',
+            id: 'msg_1', streamId: 'conv_1', turnId: 'turn_1', type: 'text_delta', content: 'hi',
         } as SSEEvent);
-        expect(buf.activeTurnId).toBe('conv_1');
+        expect(buf.activeTurnId).toBe('turn_1');
     });
 
     it('marks done as final', () => {
@@ -76,6 +76,25 @@ describe('applyEvent', () => {
         expect(r).toBeNull();
     });
 
+    it('tracks turn lifecycle without requiring a message id', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'turn_started',
+        } as SSEEvent);
+        expect(buf.activeTurnId).toBe('turn_1');
+
+        const terminal = applyEvent(buf, {
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'turn_completed',
+            status: 'completed',
+        } as SSEEvent);
+        expect(terminal).toBeNull();
+        expect(buf.activeTurnId).toBeNull();
+    });
+
     it('accumulates text_delta content', () => {
         const buf = newMessageBuffer();
         const r1 = applyEvent(buf, {
@@ -115,6 +134,30 @@ describe('applyEvent', () => {
             interim: 1,
         });
         expect(buf.activeTurnId).toBe('turn_1');
+    });
+
+    it('keeps createdAt deterministic when events omit timestamps', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'assistant_preamble',
+            content: 'Calling run.',
+        } as SSEEvent);
+        const firstCreatedAt = String(buf.byId.get('msg_1')?.createdAt || '');
+
+        applyEvent(buf, {
+            id: 'msg_2',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'assistant_preamble',
+            content: 'Calling run again.',
+        } as SSEEvent);
+        const secondCreatedAt = String(buf.byId.get('msg_2')?.createdAt || '');
+
+        expect(firstCreatedAt).toBe('');
+        expect(secondCreatedAt).toBe('');
     });
 
     it('applies assistant_final semantically', () => {
@@ -164,6 +207,29 @@ describe('applyEvent', () => {
             id: 'msg_1', streamId: 'conv_1', type: 'turn_failed',
         } as SSEEvent);
         expect(buf.byId.get('msg_1')?.status).toBe('failed');
+    });
+
+    it('marks all buffered messages in the turn terminal even when the terminal event has no message id', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'assistant_preamble',
+            content: 'Thinking...',
+        } as SSEEvent);
+
+        applyEvent(buf, {
+            conversationId: 'conv_1',
+            turnId: 'turn_1',
+            type: 'turn_failed',
+            status: 'failed',
+        } as SSEEvent);
+
+        expect(buf.byId.get('msg_1')).toMatchObject({
+            status: 'failed',
+            interim: 0,
+        });
     });
 
     it('returns null for usage and item_completed', () => {
@@ -224,6 +290,53 @@ describe('reconcileMessages', () => {
         const merged = reconcileMessages(buf, serverMsgs);
         expect(merged[0].id).toBe('msg_1');
         expect(merged[1].id).toBe('msg_2');
+    });
+
+    it('uses buffered event sequence as a tie-breaker when createdAt matches', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_2',
+            conversationId: 'c1',
+            turnId: 'turn-1',
+            type: 'assistant_preamble',
+            content: 'second',
+            createdAt: '2026-01-01T00:00:01Z',
+            eventSeq: 2,
+        } as SSEEvent);
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'c1',
+            turnId: 'turn-1',
+            type: 'assistant_preamble',
+            content: 'first',
+            createdAt: '2026-01-01T00:00:01Z',
+            eventSeq: 1,
+        } as SSEEvent);
+
+        const merged = reconcileMessages(buf, []);
+        expect(merged.map((entry) => entry.id)).toEqual(['msg_1', 'msg_2']);
+    });
+
+    it('keeps the highest observed event sequence for one buffered message', () => {
+        const buf = newMessageBuffer();
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'c1',
+            turnId: 'turn-1',
+            type: 'text_delta',
+            content: 'Hello ',
+            eventSeq: 1,
+        } as SSEEvent);
+        applyEvent(buf, {
+            id: 'msg_1',
+            conversationId: 'c1',
+            turnId: 'turn-1',
+            type: 'text_delta',
+            content: 'world',
+            eventSeq: 3,
+        } as SSEEvent);
+
+        expect(buf.byId.get('msg_1')?.sequence).toBe(3);
     });
 });
 

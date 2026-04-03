@@ -75,6 +75,7 @@ type Event struct {
 	ConversationID            string                 `json:"conversationId,omitempty"`
 	TurnID                    string                 `json:"turnId,omitempty"`
 	MessageID                 string                 `json:"messageId,omitempty"`
+	EventSeq                  int64                  `json:"eventSeq,omitempty"`
 	AgentIDUsed               string                 `json:"agentIdUsed,omitempty"`
 	AgentName                 string                 `json:"agentName,omitempty"`
 	AssistantMessageID        string                 `json:"assistantMessageId,omitempty"`
