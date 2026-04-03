@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,6 +13,10 @@ import (
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
+
+// keepaliveInterval is how often the SSE handler emits a comment line to
+// keep the connection alive through load-balancer idle timeouts.
+const keepaliveInterval = 30 * time.Second
 
 // handleMessageStream handles SSE streaming for A2A message/stream.
 // It writes SSE events as the agent processes the query:
@@ -116,21 +121,56 @@ func handleMessageStream(cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentm
 			}
 		}
 
-		// Execute agent query.
+		// Run the agent query in a goroutine so the main goroutine can send
+		// periodic SSE keepalive comments to prevent load-balancer idle timeouts.
+		type queryResult struct {
+			out *agentsvc.QueryOutput
+			err error
+		}
+		done := make(chan queryResult, 1)
+		queryCtx, cancelQuery := context.WithCancel(reqCtx)
+		defer cancelQuery()
+
 		input := &agentsvc.QueryInput{
 			AgentID:        ag.ID,
 			Query:          query,
 			ConversationID: req.ContextID,
 		}
-		out := &agentsvc.QueryOutput{}
-		if err := cfg.AgentService.Query(reqCtx, input, out); err != nil {
-			errMsg := err.Error()
+		go func() {
+			out := &agentsvc.QueryOutput{}
+			err := cfg.AgentService.Query(queryCtx, input, out)
+			done <- queryResult{out: out, err: err}
+		}()
+
+		// Send SSE comment keepalives every 30 s until the query finishes or
+		// the client disconnects. SSE comments (": ...") are ignored by clients
+		// but reset the LB idle timer.
+		ticker := time.NewTicker(keepaliveInterval)
+		defer ticker.Stop()
+		var res queryResult
+	loop:
+		for {
+			select {
+			case res = <-done:
+				break loop
+			case <-ticker.C:
+				fmt.Fprintf(w, ": keepalive\n\n")
+				flusher.Flush()
+			case <-r.Context().Done():
+				cancelQuery()
+				return
+			}
+		}
+
+		if res.err != nil {
+			errMsg := res.err.Error()
 			task.Touch(TaskStateFailed)
 			task.Status.Error = &errMsg
 			sendEvent(NewStatusEvent(task, true))
 			return
 		}
 
+		out := res.out
 		// Update contextID from response.
 		if out.ConversationID != "" {
 			task.ContextID = out.ConversationID
