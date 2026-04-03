@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -174,6 +175,9 @@ func (r *Repository[T]) Add(ctx context.Context, name string, data []byte) error
 	}
 	filename, err := r.filename(ctx, name)
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 		return err
 	}
 	return r.fs.Upload(ctx, filename, file.DefaultFileOsMode, bytes.NewReader(data))

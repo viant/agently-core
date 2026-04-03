@@ -236,9 +236,7 @@ func expandUserHome(v string) string {
 
 // Path returns a sub-path under the root for the given kind (e.g. "agents").
 func Path(kind string) string {
-	dir := filepath.Join(Root(), kind)
-	_ = os.MkdirAll(dir, 0755) // ensure directory exists
-	return dir
+	return filepath.Join(Root(), kind)
 }
 
 // ensureDefaults writes baseline config/model/agent/workflow files to a workspace
