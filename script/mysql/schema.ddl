@@ -493,3 +493,34 @@ CREATE INDEX IF NOT EXISTS idx_shadow_vec_docs_scn
 
 CREATE INDEX IF NOT EXISTS idx_shadow_vec_docs_archived
   ON shadow_vec_docs(dataset_id, archived);
+
+CREATE TABLE IF NOT EXISTS tool_approval_queue (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(36),
+    turn_id VARCHAR(36),
+    message_id VARCHAR(36),
+    tool_name VARCHAR(255) NOT NULL,
+    title TEXT,
+    arguments LONGBLOB NOT NULL,
+    metadata LONGBLOB,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    decision VARCHAR(50),
+    approved_by_user_id VARCHAR(255),
+    approved_at DATETIME,
+    executed_at DATETIME,
+    error_message TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    approval_mode VARCHAR(50),
+    request_payload LONGBLOB,
+    approval_payload LONGBLOB,
+    result_payload LONGBLOB,
+    status_detail TEXT,
+    started_at DATETIME,
+    completed_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -122,6 +123,12 @@ func (c *Client) sendMessageSync(ctx context.Context, messages []Message, contex
 // the HTTP channel open with periodic events, bypassing proxy idle timeouts.
 // It returns the final task from the last status-update event.
 func (c *Client) sendMessageStream(ctx context.Context, messages []Message, contextID *string) (*Task, error) {
+	return c.sendMessageStreamWithRetry(ctx, messages, contextID, 0)
+}
+
+const maxStreamReconnects = 3
+
+func (c *Client) sendMessageStreamWithRetry(ctx context.Context, messages []Message, contextID *string, attempt int) (*Task, error) {
 	params := map[string]interface{}{
 		"messages": messages,
 	}
@@ -205,6 +212,15 @@ func (c *Client) sendMessageStream(ctx context.Context, messages []Message, cont
 	}
 	if lastTask == nil {
 		return nil, fmt.Errorf("stream completed with no task event")
+	}
+	// If the stream was cut before a terminal event (e.g. LB absolute timeout),
+	// reconnect with the contextId Guardian provided. Guardian's turn may still
+	// be running — reconnecting lets us receive the remaining events.
+	// Limit reconnects to avoid infinite loops when the LB always cuts early.
+	if !lastTask.Status.State.IsTerminal() && strings.TrimSpace(lastTask.ContextID) != "" && attempt < maxStreamReconnects {
+		cid := lastTask.ContextID
+		log.Printf("[a2a] stream cut non-terminally (attempt %d/%d), reconnecting contextId=%s", attempt+1, maxStreamReconnects, cid)
+		return c.sendMessageStreamWithRetry(ctx, messages, &cid, attempt+1)
 	}
 	return lastTask, nil
 }
