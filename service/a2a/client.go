@@ -179,6 +179,7 @@ func (c *Client) sendMessageStreamWithRetry(ctx context.Context, messages []Mess
 	// Read SSE events; return the last task seen.
 	var lastTask *Task
 	scanner := bufio.NewScanner(httpResp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {
@@ -194,17 +195,11 @@ func (c *Client) sendMessageStreamWithRetry(ctx context.Context, messages []Mess
 		if err := json.Unmarshal([]byte(data), &rpcResp); err == nil && rpcResp.Result != nil {
 			data = string(rpcResp.Result)
 		}
-		var event struct {
-			Task *Task `json:"task"`
-		}
-		if err := json.Unmarshal([]byte(data), &event); err == nil && event.Task != nil {
-			lastTask = event.Task
-			continue
-		}
-		// The event may be the task directly.
-		var t Task
-		if err := json.Unmarshal([]byte(data), &t); err == nil && t.ID != "" {
-			lastTask = &t
+		if task, done := parseStreamTaskEvent([]byte(data), lastTask); task != nil {
+			lastTask = task
+			if done {
+				return lastTask, nil
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil && ctx.Err() == nil {
@@ -223,6 +218,63 @@ func (c *Client) sendMessageStreamWithRetry(ctx context.Context, messages []Mess
 		return c.sendMessageStreamWithRetry(ctx, messages, &cid, attempt+1)
 	}
 	return lastTask, nil
+}
+
+func parseStreamTaskEvent(data []byte, prior *Task) (*Task, bool) {
+	var event struct {
+		Task *Task `json:"task"`
+	}
+	if err := json.Unmarshal(data, &event); err == nil && event.Task != nil {
+		return event.Task, event.Task.Status.State.IsTerminal()
+	}
+
+	// The payload may be the task directly.
+	var task Task
+	if err := json.Unmarshal(data, &task); err == nil && task.ID != "" {
+		return &task, task.Status.State.IsTerminal()
+	}
+
+	var statusEvent TaskStatusUpdateEvent
+	if err := json.Unmarshal(data, &statusEvent); err == nil && strings.EqualFold(statusEvent.Kind, "status-update") && strings.TrimSpace(statusEvent.TaskID) != "" {
+		task := cloneTask(prior)
+		if task == nil {
+			task = &Task{}
+		}
+		task.ID = statusEvent.TaskID
+		task.ContextID = statusEvent.ContextID
+		task.Status = statusEvent.Status
+		return task, statusEvent.Final && task.Status.State.IsTerminal()
+	}
+
+	var artifactEvent TaskArtifactUpdateEvent
+	if err := json.Unmarshal(data, &artifactEvent); err == nil && strings.EqualFold(artifactEvent.Kind, "artifact-update") && strings.TrimSpace(artifactEvent.TaskID) != "" {
+		task := cloneTask(prior)
+		if task == nil {
+			task = &Task{}
+		}
+		task.ID = artifactEvent.TaskID
+		if strings.TrimSpace(artifactEvent.ContextID) != "" {
+			task.ContextID = artifactEvent.ContextID
+		}
+		if artifactEvent.Append {
+			task.Artifacts = append(task.Artifacts, artifactEvent.Artifact)
+		} else {
+			task.Artifacts = []Artifact{artifactEvent.Artifact}
+		}
+		return task, artifactEvent.LastChunk && task.Status.State.IsTerminal()
+	}
+	return nil, false
+}
+
+func cloneTask(task *Task) *Task {
+	if task == nil {
+		return nil
+	}
+	cloned := *task
+	if len(task.Artifacts) > 0 {
+		cloned.Artifacts = append([]Artifact(nil), task.Artifacts...)
+	}
+	return &cloned
 }
 
 // GetAgentCard fetches the agent card from the well-known endpoint.
