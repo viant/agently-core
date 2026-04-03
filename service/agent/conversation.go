@@ -190,6 +190,22 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		if schedID := strings.TrimSpace(input.ScheduleId); schedID != "" {
 			patch.SetScheduleId(schedID)
 		}
+		// Set an initial title from ConversationTitle or the first line of the
+		// query so A2A and scheduled conversations have a meaningful title
+		// immediately — before autoSummarize runs.
+		if t := strings.TrimSpace(input.ConversationTitle); t != "" {
+			patch.SetTitle(t)
+		} else if q := strings.TrimSpace(input.Query); q != "" {
+			title := q
+			if idx := strings.IndexAny(title, "\n\r"); idx > 0 {
+				title = title[:idx]
+			}
+			const maxTitleLen = 80
+			if len(title) > maxTitleLen {
+				title = title[:maxTitleLen]
+			}
+			patch.SetTitle(strings.TrimSpace(title))
+		}
 		needsPatch = true
 	}
 	if strings.TrimSpace(input.ModelOverride) != "" {

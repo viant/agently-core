@@ -128,23 +128,28 @@ func handleMessageStream(cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentm
 			err error
 		}
 		done := make(chan queryResult, 1)
-		queryCtx, cancelQuery := context.WithCancel(reqCtx)
-		defer cancelQuery()
+		// Detach from the HTTP request context so the agent turn survives
+		// connection drops (LB idle timeout, absolute timeout, client disconnect).
+		// Auth values are inherited via WithoutCancel; cancellation is NOT inherited.
+		// cancelQuery cleans up the derived context when the query finishes naturally.
+		queryCtx, cancelQuery := context.WithCancel(context.WithoutCancel(reqCtx))
 
 		input := &agentsvc.QueryInput{
-			AgentID:        ag.ID,
-			Query:          query,
-			ConversationID: req.ContextID,
+			AgentID:           ag.ID,
+			Query:             query,
+			ConversationID:    req.ContextID,
+			ConversationTitle: query, // use the task objective as the initial title
 		}
 		go func() {
+			defer cancelQuery() // release context resources when query finishes
 			out := &agentsvc.QueryOutput{}
 			err := cfg.AgentService.Query(queryCtx, input, out)
 			done <- queryResult{out: out, err: err}
 		}()
 
-		// Send SSE comment keepalives every 30 s until the query finishes or
-		// the client disconnects. SSE comments (": ...") are ignored by clients
-		// but reset the LB idle timer.
+		// Send SSE comment keepalives every 30 s to reset the LB idle timer.
+		// SSE comments (": ...") are ignored by A2A clients but keep the
+		// connection alive through load-balancer idle timeouts.
 		ticker := time.NewTicker(keepaliveInterval)
 		defer ticker.Stop()
 		var res queryResult
@@ -157,7 +162,10 @@ func handleMessageStream(cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentm
 				fmt.Fprintf(w, ": keepalive\n\n")
 				flusher.Flush()
 			case <-r.Context().Done():
-				cancelQuery()
+				// Client disconnected (LB cut the connection). Do NOT cancel the
+				// query — the agent turn continues running on the server and its
+				// result will be persisted to the conversation. The client should
+				// reconnect with the same contextId to retrieve the result.
 				return
 			}
 		}
