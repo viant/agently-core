@@ -1,13 +1,6 @@
 import type { ExecutionPage, ModelStepState, PlannedToolCall, SSEEvent, ToolStepState, Turn } from './types';
 import { compareExecutionGroups, firstNumber, firstPositiveNumber, firstString } from './ordering';
-
-function eventSequenceValue(event: SSEEvent = {} as SSEEvent, fallback = 1): number {
-    return firstPositiveNumber((event as any)?.pageIndex, (event as any)?.iteration, (event as any)?.eventSeq, fallback);
-}
-
-function eventIterationValue(event: SSEEvent = {} as SSEEvent, fallback = 0): number {
-    return firstPositiveNumber((event as any)?.iteration, (event as any)?.pageIndex, fallback);
-}
+import { eventIterationValue, eventSequenceValue, executionGroupStatusForEvent, modelStepStatusForEvent, terminalStatusForType } from './streamEventMeta';
 
 export function normalizeExecutionPageSize(value: string | number | null | undefined): '1' | '5' | '10' | 'all' {
     const text = String(value || '1').trim().toLowerCase();
@@ -190,14 +183,6 @@ function applyLiveGroupIdentity(current: Record<string, any>, event: SSEEvent) {
     return current;
 }
 
-function nextModelStepStatus(event: SSEEvent, existingStatus = '', fallbackStatus = 'running') {
-    const explicitStatus = firstString(event?.status);
-    if (explicitStatus) return explicitStatus;
-    const type = firstString(event?.type).toLowerCase();
-    if (type === 'text_delta') return 'streaming';
-    return firstString(fallbackStatus, existingStatus, 'running');
-}
-
 function mergePrimaryModelStep(current: Record<string, any>, event: SSEEvent, fallbackStatus = 'running') {
     const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
     const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
@@ -207,7 +192,7 @@ function mergePrimaryModelStep(current: Record<string, any>, event: SSEEvent, fa
         provider: firstString(event?.model?.provider, existMs?.provider),
         model: firstString(event?.model?.model, existMs?.model),
         errorMessage: firstString(event?.error, existMs?.errorMessage),
-        status: nextModelStepStatus(event, firstString(existMs?.status), fallbackStatus),
+        status: modelStepStatusForEvent(event, firstString(existMs?.status), fallbackStatus),
         requestPayloadId: firstString(event?.requestPayloadId, existMs?.requestPayloadId),
         responsePayloadId: firstString(event?.responsePayloadId, existMs?.responsePayloadId),
         providerRequestPayloadId: firstString(event?.providerRequestPayloadId, existMs?.providerRequestPayloadId),
@@ -263,14 +248,6 @@ function applyTerminalState(current: Record<string, any>, terminalStatus: string
     };
 }
 
-function defaultStreamingStatus(currentStatus = '') {
-    const normalized = firstString(currentStatus).toLowerCase();
-    if (['completed', 'done', 'success', 'succeeded', 'failed', 'error', 'canceled', 'cancelled', 'terminated'].includes(normalized)) {
-        return currentStatus;
-    }
-    return 'streaming';
-}
-
 export function applyExecutionStreamEventToGroups(groupsById: Record<string, any> = {}, rawEvent: SSEEvent = {} as SSEEvent) {
     const event = rawEvent || ({} as SSEEvent);
     const type = firstString(event?.type).toLowerCase();
@@ -314,9 +291,7 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
             : firstString(event?.content, current.content);
         current.preamble = firstString(event?.preamble, current.preamble);
         current.errorMessage = firstString(event?.error, current.errorMessage);
-        current.status = type === 'text_delta'
-            ? firstString(event?.status, defaultStreamingStatus(current.status))
-            : firstString(event?.status, current.status);
+        current.status = executionGroupStatusForEvent(event, current.status, current.status || 'running');
         current.finalResponse = Boolean(event?.finalResponse ?? current.finalResponse);
         current.toolCallsPlanned = Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0
             ? event.toolCallsPlanned
@@ -359,10 +334,7 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
     }
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
         const targetTurnId = firstString((event as any)?.turnId);
-        const terminalStatus = firstString(
-            event?.status,
-            type === 'turn_failed' ? 'failed' : type === 'turn_canceled' ? 'canceled' : 'completed',
-        );
+        const terminalStatus = firstString(event?.status, terminalStatusForType(type));
         const terminalError = firstString(event?.error);
         if (assistantMessageId && next[assistantMessageId]) {
             next[assistantMessageId] = applyTerminalState(next[assistantMessageId], terminalStatus, terminalError);

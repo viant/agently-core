@@ -3,17 +3,17 @@ package workspace
 import old "github.com/viant/agently-core/workspace"
 
 const (
-	KindAgent      = old.KindAgent
-	KindModel      = old.KindModel
-	KindEmbedder   = old.KindEmbedder
-	KindMCP        = old.KindMCP
-	KindWorkflow   = old.KindWorkflow
-	KindTool       = old.KindTool
-	KindToolBundle = old.KindToolBundle
-	KindToolHints  = old.KindToolHints
-	KindOAuth      = old.KindOAuth
-	KindFeeds      = old.KindFeeds
-	KindA2A        = old.KindA2A
+	KindAgent            = old.KindAgent
+	KindModel            = old.KindModel
+	KindEmbedder         = old.KindEmbedder
+	KindMCP              = old.KindMCP
+	KindWorkflow         = old.KindWorkflow
+	KindTool             = old.KindTool
+	KindToolBundle       = old.KindToolBundle
+	KindToolInstructions = old.KindToolInstructions
+	KindOAuth            = old.KindOAuth
+	KindFeeds            = old.KindFeeds
+	KindA2A              = old.KindA2A
 )
 
 func AllKinds() []string                      { return old.AllKinds() }

@@ -9,6 +9,7 @@
 import type { SSEEvent, Message, Turn } from './types';
 import { compareTemporalEntries } from './ordering';
 import { resolveEventConversationId, resolveEventMessageId, resolveEventTurnId } from './streamIdentity';
+import { terminalStatusForType } from './streamEventMeta';
 
 // ─── Buffer ────────────────────────────────────────────────────────────────────
 
@@ -21,13 +22,6 @@ export interface MessageBuffer {
 
 export function newMessageBuffer(): MessageBuffer {
     return { byId: new Map(), activeTurnId: null };
-}
-
-function terminalStatusForType(type = ''): string {
-    const normalized = String(type || '').trim().toLowerCase();
-    if (normalized === 'turn_failed') return 'failed';
-    if (normalized === 'turn_canceled') return 'canceled';
-    return 'completed';
 }
 
 function updateEntryIdentity(existing: Partial<Message>, event: SSEEvent, conversationId: string, turnId: string): Partial<Message> {
