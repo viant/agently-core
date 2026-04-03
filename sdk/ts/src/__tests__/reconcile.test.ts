@@ -317,6 +317,29 @@ describe('reconcileMessages', () => {
         expect(merged.map((entry) => entry.id)).toEqual(['msg_1', 'msg_2']);
     });
 
+    it('uses sequence deterministically when createdAt is missing or invalid', () => {
+        const buf = newMessageBuffer();
+        buf.byId.set('msg_2', {
+            id: 'msg_2',
+            role: 'assistant',
+            content: 'second',
+            interim: 1,
+            createdAt: 'not-a-time',
+            sequence: 2,
+        } as Partial<Message>);
+        buf.byId.set('msg_1', {
+            id: 'msg_1',
+            role: 'assistant',
+            content: 'first',
+            interim: 1,
+            createdAt: '',
+            sequence: 1,
+        } as Partial<Message>);
+
+        const merged = reconcileMessages(buf, []);
+        expect(merged.map((entry) => entry.id)).toEqual(['msg_1', 'msg_2']);
+    });
+
     it('keeps the highest observed event sequence for one buffered message', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
