@@ -288,4 +288,30 @@ describe('executionGroups', () => {
         const merged = mergeLatestTranscriptAndLiveExecutionGroups([], live4, 'all');
         expect(merged.map((group) => group.assistantMessageId)).toEqual(['a7', 'a8']);
     });
+
+    it('marks a live model page streaming when text deltas arrive without explicit status', () => {
+        const live1 = applyExecutionStreamEventToGroups({}, {
+            type: 'model_started',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            iteration: 1,
+            pageIndex: 1,
+            status: 'thinking',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        } as any);
+        const live2 = applyExecutionStreamEventToGroups(live1, {
+            type: 'text_delta',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            content: 'Hello',
+        } as any);
+
+        expect(live2.a1).toMatchObject({
+            status: 'streaming',
+            content: 'Hello',
+        });
+        expect(live2.a1.modelSteps[0]).toMatchObject({
+            status: 'streaming',
+        });
+    });
 });

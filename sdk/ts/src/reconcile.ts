@@ -7,6 +7,7 @@
  */
 
 import type { SSEEvent, Message, Turn } from './types';
+import { compareTemporalEntries } from './ordering';
 import { resolveEventConversationId, resolveEventMessageId, resolveEventTurnId } from './streamIdentity';
 
 // ─── Buffer ────────────────────────────────────────────────────────────────────
@@ -265,18 +266,7 @@ export function reconcileMessages(
         }
     }
 
-    // Sort by createdAt, then by best-known sequence when timestamps tie.
-    return Array.from(merged.values()).sort(
-        (a, b) => {
-            const aTime = new Date(a.createdAt).getTime();
-            const bTime = new Date(b.createdAt).getTime();
-            if (aTime !== bTime) return aTime - bTime;
-            const aSeq = Number((a as any)?.sequence || 0) || 0;
-            const bSeq = Number((b as any)?.sequence || 0) || 0;
-            if (aSeq !== bSeq) return aSeq - bSeq;
-            return String(a.id || '').localeCompare(String(b.id || ''));
-        },
-    );
+    return Array.from(merged.values()).sort(compareTemporalEntries);
 }
 
 /**
