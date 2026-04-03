@@ -22,6 +22,10 @@ type QueryInput struct {
 	// If provided, conversation history will be tracked and reused.
 	ConversationID       string `json:"conversationId,omitempty"`
 	ParentConversationID string `json:"parentConversationId,omitempty"`
+	// ConversationTitle is an optional title for new conversations. When empty
+	// the runtime may derive one from the query or leave it unset for
+	// autoSummarize to fill in after the first turn.
+	ConversationTitle string `json:"conversationTitle,omitempty"`
 	// Optional client-supplied identifier for the user message. When empty the
 	// service will generate a UUID.
 	MessageID   string               `json:"messageId,omitempty"`
