@@ -1,19 +1,12 @@
 import type { ExecutionPage, ModelStepState, PlannedToolCall, SSEEvent, ToolStepState, Turn } from './types';
+import { compareExecutionGroups, firstNumber, firstPositiveNumber, firstString } from './ordering';
 
-function firstString(...values: unknown[]): string {
-    for (const value of values) {
-        const text = String(value || '').trim();
-        if (text) return text;
-    }
-    return '';
+function eventSequenceValue(event: SSEEvent = {} as SSEEvent, fallback = 1): number {
+    return firstPositiveNumber((event as any)?.pageIndex, (event as any)?.iteration, (event as any)?.eventSeq, fallback);
 }
 
-function firstNumber(...values: unknown[]): number {
-    for (const value of values) {
-        const num = Number(value);
-        if (Number.isFinite(num)) return num;
-    }
-    return 0;
+function eventIterationValue(event: SSEEvent = {} as SSEEvent, fallback = 0): number {
+    return firstPositiveNumber((event as any)?.iteration, (event as any)?.pageIndex, fallback);
 }
 
 export function normalizeExecutionPageSize(value: string | number | null | undefined): '1' | '5' | '10' | 'all' {
@@ -60,12 +53,7 @@ export function selectExecutionPages(turns: Turn[] = []): ExecutionPage[] {
             } as ExecutionPage);
         }
     }
-    return groups.sort((left: any, right: any) => {
-        const leftSeq = firstNumber((left as any)?.sequence, left?.iteration);
-        const rightSeq = firstNumber((right as any)?.sequence, right?.iteration);
-        if (leftSeq !== rightSeq) return leftSeq - rightSeq;
-        return String(left?.assistantMessageId || '').localeCompare(String(right?.assistantMessageId || ''));
-    });
+    return groups.sort((left: any, right: any) => compareExecutionGroups(left, right));
 }
 
 export type ExecutionStepLike = (ModelStepState | ToolStepState) & {
@@ -166,9 +154,10 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
     return {
         pageId: assistantMessageId,
         assistantMessageId,
+        turnId: firstString((event as any)?.turnId),
         parentMessageId: firstString(event?.parentMessageId),
-        sequence: firstNumber(event?.pageIndex, event?.iteration, 1),
-        iteration: firstNumber(event?.iteration, event?.pageIndex, 1),
+        sequence: eventSequenceValue(event, 1),
+        iteration: eventIterationValue(event, 1),
         preamble: firstString(event?.preamble),
         content: firstString(event?.content),
         errorMessage: firstString(event?.error),
@@ -190,6 +179,82 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
     };
 }
 
+function ensureLiveExecutionGroup(groupsById: Record<string, any>, assistantMessageId: string, event: SSEEvent) {
+    return groupsById[assistantMessageId] || createLiveExecutionGroup(event);
+}
+
+function applyLiveGroupIdentity(current: Record<string, any>, event: SSEEvent) {
+    current.turnId = firstString((event as any)?.turnId, current.turnId);
+    current.sequence = eventSequenceValue(event, current.sequence || 1);
+    current.iteration = eventIterationValue(event, current.iteration || 1);
+    return current;
+}
+
+function mergePrimaryModelStep(current: Record<string, any>, event: SSEEvent, fallbackStatus = 'running') {
+    const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
+    const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
+    current.modelSteps = [{
+        ...existMs,
+        modelCallId: firstString(assistantMessageId, existMs?.modelCallId),
+        provider: firstString(event?.model?.provider, existMs?.provider),
+        model: firstString(event?.model?.model, existMs?.model),
+        errorMessage: firstString(event?.error, existMs?.errorMessage),
+        status: firstString(event?.status, existMs?.status, fallbackStatus),
+        requestPayloadId: firstString(event?.requestPayloadId, existMs?.requestPayloadId),
+        responsePayloadId: firstString(event?.responsePayloadId, existMs?.responsePayloadId),
+        providerRequestPayloadId: firstString(event?.providerRequestPayloadId, existMs?.providerRequestPayloadId),
+        providerResponsePayloadId: firstString(event?.providerResponsePayloadId, existMs?.providerResponsePayloadId),
+        streamPayloadId: firstString(event?.streamPayloadId, existMs?.streamPayloadId),
+    }];
+    return current;
+}
+
+function upsertToolStep(current: Record<string, any>, event: SSEEvent, extra: Record<string, any> = {}) {
+    const toolKey = firstString(event?.toolCallId, event?.toolMessageId, event?.id, event?.toolName);
+    const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
+    const existingIndex = priorList.findIndex((entry: any) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.id, entry?.toolName) === toolKey);
+    const toolEntry = {
+        toolCallId: firstString(event?.toolCallId),
+        toolMessageId: firstString(event?.toolMessageId, event?.id),
+        toolName: firstString(event?.toolName),
+        errorMessage: firstString(event?.error, existingIndex >= 0 ? priorList[existingIndex]?.errorMessage : ''),
+        status: firstString(event?.status, existingIndex >= 0 ? priorList[existingIndex]?.status : ''),
+        requestPayloadId: firstString(event?.requestPayloadId),
+        responsePayloadId: firstString(event?.responsePayloadId),
+        linkedConversationId: firstString(event?.linkedConversationId),
+        linkedConversationAgentId: firstString((event as any)?.linkedConversationAgentId),
+        linkedConversationTitle: firstString((event as any)?.linkedConversationTitle),
+        ...extra,
+    };
+    const nextTools = [...priorList];
+    if (existingIndex >= 0) nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolEntry };
+    else nextTools.push(toolEntry);
+    current.toolSteps = nextTools;
+    return current;
+}
+
+function applyTerminalState(current: Record<string, any>, terminalStatus: string, terminalError: string) {
+    return {
+        ...current,
+        status: firstString(terminalStatus, current?.status),
+        errorMessage: firstString(terminalError, current?.errorMessage),
+        modelSteps: Array.isArray(current?.modelSteps)
+            ? current.modelSteps.map((step: any) => ({
+                ...step,
+                status: firstString(terminalStatus, step?.status),
+                errorMessage: firstString(terminalError, step?.errorMessage),
+            }))
+            : current?.modelSteps,
+        toolSteps: Array.isArray(current?.toolSteps)
+            ? current.toolSteps.map((step: any) => ({
+                ...step,
+                status: firstString(terminalStatus, step?.status),
+                errorMessage: firstString(terminalError, step?.errorMessage),
+            }))
+            : current?.toolSteps,
+    };
+}
+
 export function applyExecutionStreamEventToGroups(groupsById: Record<string, any> = {}, rawEvent: SSEEvent = {} as SSEEvent) {
     const event = rawEvent || ({} as SSEEvent);
     const type = firstString(event?.type).toLowerCase();
@@ -200,9 +265,34 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
         next[assistantMessageId] = mergeExecutionGroup(next[assistantMessageId], createLiveExecutionGroup(event) || {});
         return next;
     }
-    if ((type === 'model_completed' || type === 'text_delta') && assistantMessageId) {
-        const current = next[assistantMessageId] || createLiveExecutionGroup(event);
+    if ((type === 'assistant_preamble' || type === 'reasoning_delta') && assistantMessageId) {
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
+        applyLiveGroupIdentity(current, event);
+        current.preamble = type === 'reasoning_delta'
+            ? `${firstString(current.preamble)}${firstString(event?.content)}`
+            : firstString(event?.content, event?.preamble, current.preamble);
+        current.status = firstString(event?.status, current.status, 'running');
+        mergePrimaryModelStep(current, event, current.status || 'running');
+        next[assistantMessageId] = current;
+        return next;
+    }
+    if (type === 'tool_calls_planned' && assistantMessageId) {
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+        if (!current) return next;
+        applyLiveGroupIdentity(current, event);
+        current.preamble = firstString(event?.content, event?.preamble, current.preamble);
+        current.status = firstString(event?.status, current.status, 'running');
+        current.toolCallsPlanned = Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0
+            ? event.toolCallsPlanned
+            : (Array.isArray(current?.toolCallsPlanned) ? current.toolCallsPlanned : []);
+        next[assistantMessageId] = current;
+        return next;
+    }
+    if ((type === 'model_completed' || type === 'text_delta') && assistantMessageId) {
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+        if (!current) return next;
+        applyLiveGroupIdentity(current, event);
         current.content = type === 'text_delta'
             ? `${firstString(current.content)}${firstString(event?.content)}`
             : firstString(event?.content, current.content);
@@ -213,63 +303,59 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
         current.toolCallsPlanned = Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0
             ? event.toolCallsPlanned
             : (Array.isArray(current?.toolCallsPlanned) ? current.toolCallsPlanned : []);
-        const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
-        current.modelSteps = [{
-            ...existMs,
-            modelCallId: firstString(assistantMessageId, existMs?.modelCallId),
-            provider: firstString(event?.model?.provider, existMs?.provider),
-            model: firstString(event?.model?.model, existMs?.model),
-            errorMessage: firstString(event?.error, existMs?.errorMessage),
-            status: firstString(event?.status, existMs?.status),
-            requestPayloadId: firstString(event?.requestPayloadId, existMs?.requestPayloadId),
-            responsePayloadId: firstString(event?.responsePayloadId, existMs?.responsePayloadId),
-            providerRequestPayloadId: firstString(event?.providerRequestPayloadId, existMs?.providerRequestPayloadId),
-            providerResponsePayloadId: firstString(event?.providerResponsePayloadId, existMs?.providerResponsePayloadId),
-            streamPayloadId: firstString(event?.streamPayloadId, existMs?.streamPayloadId),
-        }];
-        next[assistantMessageId] = current;
-        return next;
-    }
-    if (type === 'reasoning_delta' && assistantMessageId) {
-        const current = next[assistantMessageId] || createLiveExecutionGroup(event);
-        if (!current) return next;
-        current.preamble = `${firstString(current.preamble)}${firstString(event?.content)}`;
+        mergePrimaryModelStep(current, event, current.status || 'running');
         next[assistantMessageId] = current;
         return next;
     }
     if ((type === 'tool_call_started' || type === 'tool_call_completed') && assistantMessageId) {
-        const current = next[assistantMessageId] || createLiveExecutionGroup(event);
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
-        const toolKey = firstString(event?.toolCallId, event?.toolMessageId, event?.id, event?.toolName);
-        const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
-        const existingIndex = priorList.findIndex((entry: any) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.id, entry?.toolName) === toolKey);
-        const toolEntry = {
-            toolCallId: firstString(event?.toolCallId),
-            toolMessageId: firstString(event?.toolMessageId, event?.id),
-            toolName: firstString(event?.toolName),
-            errorMessage: firstString(event?.error, existingIndex >= 0 ? priorList[existingIndex]?.errorMessage : ''),
-            status: firstString(event?.status, existingIndex >= 0 ? priorList[existingIndex]?.status : ''),
-            requestPayloadId: firstString(event?.requestPayloadId),
-            responsePayloadId: firstString(event?.responsePayloadId),
-            linkedConversationId: firstString(event?.linkedConversationId),
-        };
-        const nextTools = [...priorList];
-        if (existingIndex >= 0) nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolEntry };
-        else nextTools.push(toolEntry);
-        current.toolSteps = nextTools;
+        applyLiveGroupIdentity(current, event);
+        upsertToolStep(current, event);
         current.status = firstString(event?.status, current.status);
         next[assistantMessageId] = current;
         return next;
     }
-    if (type === 'turn_completed' && assistantMessageId && next[assistantMessageId]) {
-        next[assistantMessageId] = { ...next[assistantMessageId], status: firstString(event?.status, next[assistantMessageId]?.status) };
+    if (type === 'linked_conversation_attached' && assistantMessageId) {
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+        if (!current) return next;
+        current.turnId = firstString((event as any)?.turnId, current.turnId);
+        const linkedConversationId = firstString(event?.linkedConversationId);
+        if (!linkedConversationId) return next;
+        upsertToolStep(current, event, { linkedConversationId });
+        next[assistantMessageId] = current;
+        return next;
     }
-    if (type === 'turn_failed' && assistantMessageId && next[assistantMessageId]) {
-        next[assistantMessageId] = {
-            ...next[assistantMessageId],
-            status: firstString(event?.status, next[assistantMessageId]?.status, 'failed'),
-            errorMessage: firstString(event?.error, next[assistantMessageId]?.errorMessage),
-        };
+    if (type === 'assistant_final' && assistantMessageId) {
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+        if (!current) return next;
+        applyLiveGroupIdentity(current, event);
+        current.content = firstString(event?.content, current.content);
+        current.preamble = firstString(event?.preamble, current.preamble);
+        current.errorMessage = firstString(event?.error, current.errorMessage);
+        current.status = firstString(event?.status, current.status, 'completed');
+        current.finalResponse = true;
+        mergePrimaryModelStep(current, event, 'completed');
+        next[assistantMessageId] = current;
+        return next;
+    }
+    if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
+        const targetTurnId = firstString((event as any)?.turnId);
+        const terminalStatus = firstString(
+            event?.status,
+            type === 'turn_failed' ? 'failed' : type === 'turn_canceled' ? 'canceled' : 'completed',
+        );
+        const terminalError = firstString(event?.error);
+        if (assistantMessageId && next[assistantMessageId]) {
+            next[assistantMessageId] = applyTerminalState(next[assistantMessageId], terminalStatus, terminalError);
+            return next;
+        }
+        if (targetTurnId) {
+            Object.entries(next).forEach(([id, value]) => {
+                if (firstString((value as any)?.turnId) !== targetTurnId) return;
+                next[id] = applyTerminalState(value, terminalStatus, terminalError);
+            });
+        }
     }
     return next;
 }
@@ -291,10 +377,7 @@ export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: Re
         // active page object between transcript and SSE sources.
         mergedById.set(key, liveGroup as Record<string, any>);
     });
-    const merged = Array.from(mergedById.values()).sort((left, right) => {
-        if ((left as any).sequence !== (right as any).sequence) return firstNumber((left as any).sequence) - firstNumber((right as any).sequence);
-        return String((left as any).assistantMessageId || '').localeCompare(String((right as any).assistantMessageId || ''));
-    });
+    const merged = Array.from(mergedById.values()).sort((left, right) => compareExecutionGroups(left as any, right as any));
     if (normalizedPageSize === 'all') return merged;
     const limit = Math.max(1, Number(normalizedPageSize || 1));
     if (limit === 1) {

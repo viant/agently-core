@@ -220,12 +220,18 @@ describe('Streaming', () => {
         const c = client(f);
         const seen: string[] = [];
         const text: string[] = [];
+        const seenConversationIds: string[] = [];
+        const seenMessageIds: string[] = [];
         const tools: string[] = [];
         const turns: string[] = [];
         const feeds: string[] = [];
 
         const sub = c.streamEvents('conv_1', {
-            onEvent: (event) => seen.push(event.type),
+            onEvent: (event) => {
+                seen.push(event.type);
+                seenConversationIds.push(String(event.conversationId || ''));
+                seenMessageIds.push(String(event.messageId || ''));
+            },
             onTextDelta: (content) => text.push(content),
             onToolEvent: (event) => tools.push(event.type),
             onTurnEnd: (event) => turns.push(event.type),
@@ -241,8 +247,11 @@ describe('Streaming', () => {
         es.emit({ type: 'tool_call_started', streamId: 'conv_1', toolName: 'system/exec' });
         es.emit({ type: 'tool_feed_active', streamId: 'conv_1', feedId: 'feed-1' });
         es.emit({ type: 'turn_completed', streamId: 'conv_1', status: 'completed' });
+        es.emit({ type: 'text_delta', streamId: 'conv_other', content: 'skip me' });
 
         expect(seen).toEqual(['text_delta', 'tool_call_started', 'tool_feed_active', 'turn_completed']);
+        expect(seenConversationIds).toEqual(['conv_1', 'conv_1', 'conv_1', 'conv_1']);
+        expect(seenMessageIds[0]).toBe('conv_1');
         expect(text).toEqual(['hello']);
         expect(tools).toEqual(['tool_call_started']);
         expect(feeds).toEqual(['tool_feed_active']);

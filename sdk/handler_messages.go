@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var streamKeepaliveInterval = 30 * time.Second
+
 func handleGetMessages(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -101,6 +103,8 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+		ticker := time.NewTicker(streamKeepaliveInterval)
+		defer ticker.Stop()
 		for {
 			select {
 			case ev, open := <-sub.C():
@@ -121,6 +125,11 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 					ev.CreatedAt.Format(time.RFC3339Nano), startedAt, completedAt, time.Now().Format(time.RFC3339Nano), ev.RequestPayloadID, ev.ResponsePayloadID, ev.ProviderRequestPayloadID, ev.ProviderResponsePayloadID, ev.StreamPayloadID)
 				data, _ := json.Marshal(ev)
 				fmt.Fprintf(w, "data:%s\n\n", data)
+				if ok {
+					flusher.Flush()
+				}
+			case <-ticker.C:
+				fmt.Fprintf(w, ": keepalive\n\n")
 				if ok {
 					flusher.Flush()
 				}

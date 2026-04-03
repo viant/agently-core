@@ -332,6 +332,8 @@ export interface SSEEvent {
     streamId?: string;
     conversationId?: string;
     turnId?: string;
+    messageId?: string;
+    eventSeq?: number;
     mode?: string;
     agentIdUsed?: string;
     agentName?: string;

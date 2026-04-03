@@ -279,10 +279,7 @@ func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInpu
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].CreatedAt.Equal(rows[j].CreatedAt) {
-			return rows[i].Id < rows[j].Id
-		}
-		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
+		return lessTimeAndID(rows[i].CreatedAt, rows[i].Id, rows[j].CreatedAt, rows[j].Id)
 	})
 	return &MessagePage{Rows: rows}, nil
 }
@@ -433,10 +430,7 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 		})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].CreatedAt.Equal(rows[j].CreatedAt) {
-			return rows[i].Id < rows[j].Id
-		}
-		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
+		return lessTimeAndID(rows[i].CreatedAt, rows[i].Id, rows[j].CreatedAt, rows[j].Id)
 	})
 	return &ConversationPage{Rows: rows, NextCursor: "", PrevCursor: "", HasMore: false}, nil
 }

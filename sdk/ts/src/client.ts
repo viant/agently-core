@@ -32,6 +32,7 @@ import type {
     FeedSpec,
 } from './types';
 import { HttpError } from './errors';
+import { normalizeStreamEventIdentity } from './streamIdentity';
 
 // ─── Options ───────────────────────────────────────────────────────────────────
 
@@ -302,7 +303,9 @@ export class AgentlyClient {
 
         es.onmessage = (ev) => {
             try {
-                const event: SSEEvent = JSON.parse(ev.data);
+                const parsed: SSEEvent = JSON.parse(ev.data);
+                const event = normalizeStreamEventIdentity(parsed, conversationId);
+                if (!event) return;
                 handlers.onEvent?.(event);
                 switch (event.type) {
                     case 'text_delta':

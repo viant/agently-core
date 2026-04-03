@@ -1,5 +1,7 @@
 import { ElicitationTracker, type PendingElicitation as TrackedElicitation } from './elicitation';
+import { applyExecutionStreamEventToGroups } from './executionGroups';
 import { FeedTracker } from './feedTracker';
+import { compareTemporalEntries } from './ordering';
 import {
     applyEvent as applyMessageEvent,
     newMessageBuffer,
@@ -16,23 +18,138 @@ export interface ConversationStreamSnapshot {
     feeds: ActiveFeed[];
     pendingElicitation: TrackedElicitation | null;
     bufferedMessages: Partial<Message>[];
+    liveExecutionGroupsById: Record<string, any>;
 }
 
-export interface CanonicalConversationSnapshot {
+export type CanonicalConversationSnapshot = ConversationStreamSnapshot;
+
+export interface CanonicalLiveAssistantRow {
+    id: string;
     conversationId: string;
-    activeTurnId: string | null;
-    feeds: ActiveFeed[];
-    pendingElicitation: TrackedElicitation | null;
+    turnId: string;
+    role: string;
+    type: string;
+    content: string;
+    preamble: string;
+    createdAt: string;
+    interim: number;
+    status: string;
+    turnStatus: string;
+    sequence: number | null;
+    executionGroups: Record<string, any>[];
+}
+
+export interface LiveAssistantTransientOverlay {
+    id?: string;
+    role?: string;
+    isStreaming?: boolean;
+    _streamContent?: string;
+    _streamFence?: Record<string, any> | null;
+    rawContent?: string;
+}
+
+function cloneExecutionGroups(groupsById: Record<string, any> = {}): Record<string, any> {
+    return { ...groupsById };
+}
+
+function buildSnapshot(
+    conversationId: string,
+    activeTurnId: string | null,
+    feeds: ActiveFeed[],
+    pendingElicitation: TrackedElicitation | null,
+    bufferedMessages: Partial<Message>[],
+    executionGroupsById: Record<string, any>,
+): ConversationStreamSnapshot {
+    return {
+        conversationId,
+        activeTurnId,
+        feeds,
+        pendingElicitation,
+        bufferedMessages,
+        liveExecutionGroupsById: cloneExecutionGroups(executionGroupsById),
+    };
+}
+
+function collectLiveAssistantMessageIds(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    targetConversationId: string,
+): string[] {
+    const buffered = Array.isArray(snapshot?.bufferedMessages) ? snapshot.bufferedMessages : [];
+    const groupsById = snapshot?.liveExecutionGroupsById || {};
+    const messageIds = new Set<string>();
+
+    buffered.forEach((entry) => {
+        const entryConversationId = String(entry?.conversationId || '').trim();
+        if (entryConversationId && entryConversationId === targetConversationId) {
+            const messageId = String(entry?.id || '').trim();
+            if (messageId) messageIds.add(messageId);
+        }
+    });
+    Object.entries(groupsById).forEach(([messageId, group]) => {
+        const groupTurnId = String((group as any)?.turnId || '').trim();
+        if (messageId && groupTurnId) {
+            messageIds.add(String(messageId).trim());
+        }
+    });
+
+    return Array.from(messageIds);
+}
+
+function projectLiveAssistantRow(
+    bufferedById: Map<string, Partial<Message>>,
+    groupsById: Record<string, any>,
+    targetConversationId: string,
+    messageId: string,
+): CanonicalLiveAssistantRow | null {
+    const entry = bufferedById.get(messageId) || {};
+    const group = groupsById[messageId] || null;
+    const entryConversationId = String(entry?.conversationId || '').trim();
+    const rowTurnId = String(entry?.turnId || (group as any)?.turnId || '').trim();
+    if (!rowTurnId) return null;
+    if (entryConversationId && entryConversationId !== targetConversationId) return null;
+    const content = String(
+        entry?.content
+        || (group as any)?.content
+        || entry?.preamble
+        || (group as any)?.preamble
+        || '',
+    ).trim();
+    const preamble = String(entry?.preamble || (group as any)?.preamble || '').trim();
+    const finalResponse = Boolean((group as any)?.finalResponse) || Number(entry?.interim ?? 1) === 0;
+    const createdAt = String(
+        entry?.createdAt
+        || (group as any)?.createdAt
+        || (group as any)?.startedAt
+        || (group as any)?.completedAt
+        || '1970-01-01T00:00:00.000Z',
+    ).trim();
+    return {
+        id: messageId,
+        conversationId: entryConversationId || targetConversationId,
+        turnId: rowTurnId,
+        role: String(entry?.role || 'assistant').trim().toLowerCase(),
+        type: String(entry?.type || 'text').trim().toLowerCase(),
+        content,
+        preamble,
+        createdAt,
+        interim: finalResponse ? 0 : (Number(entry?.interim ?? 1) || 1),
+        status: String(entry?.status || (group as any)?.status || '').trim(),
+        turnStatus: String(entry?.status || (group as any)?.status || '').trim(),
+        sequence: Number(entry?.sequence || (group as any)?.sequence || 0) || null,
+        executionGroups: group ? [group] : [],
+    } satisfies CanonicalLiveAssistantRow;
 }
 
 export class ConversationStreamTracker {
     private readonly _messages: MessageBuffer;
+    private _executionGroupsById: Record<string, any>;
     private readonly _feeds: FeedTracker;
     private readonly _elicitation: ElicitationTracker;
     private _conversationId = '';
 
     constructor(conversationId = '') {
         this._messages = newMessageBuffer();
+        this._executionGroupsById = {};
         this._feeds = new FeedTracker();
         this._elicitation = new ElicitationTracker();
         this._conversationId = String(conversationId || '').trim();
@@ -48,7 +165,7 @@ export class ConversationStreamTracker {
     }
 
     get canonicalState(): CanonicalConversationSnapshot {
-        return this.snapshotCanonical();
+        return this.snapshot();
     }
 
     get conversationId(): string {
@@ -72,13 +189,14 @@ export class ConversationStreamTracker {
     }
 
     snapshot(): ConversationStreamSnapshot {
-        return {
-            conversationId: this.conversationId,
-            activeTurnId: this.activeTurnId,
-            feeds: this.feeds,
-            pendingElicitation: this.pendingElicitation,
-            bufferedMessages: this.bufferedMessages,
-        };
+        return buildSnapshot(
+            this.conversationId,
+            this.activeTurnId,
+            this.feeds,
+            this.pendingElicitation,
+            this.bufferedMessages,
+            this._executionGroupsById,
+        );
     }
 
     snapshotComposite(): ConversationStreamSnapshot {
@@ -86,17 +204,13 @@ export class ConversationStreamTracker {
     }
 
     snapshotCanonical(): CanonicalConversationSnapshot {
-        return {
-            conversationId: this.conversationId,
-            activeTurnId: this.activeTurnId,
-            feeds: this.feeds,
-            pendingElicitation: this.pendingElicitation,
-        };
+        return this.snapshot();
     }
 
     clear(): void {
         this._messages.byId.clear();
         this._messages.activeTurnId = null;
+        this._executionGroupsById = {};
         this._feeds.clear();
         this._elicitation.clear();
         this._conversationId = '';
@@ -111,6 +225,7 @@ export class ConversationStreamTracker {
         if (conversationId) {
             this._conversationId = conversationId;
         }
+        this._executionGroupsById = applyExecutionStreamEventToGroups(this._executionGroupsById, event);
         this._feeds.applyEvent(event);
         this._elicitation.applyEvent(event);
         return applyMessageEvent(this._messages, event);
@@ -131,4 +246,174 @@ export class ConversationStreamTracker {
     reconcile(serverMessages: Message[]): Message[] {
         return reconcileMessages(this._messages, serverMessages);
     }
+}
+
+export function projectLiveAssistantRows(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    conversationId = '',
+): CanonicalLiveAssistantRow[] {
+    const targetConversationId = String(conversationId || snapshot?.conversationId || '').trim();
+    if (!targetConversationId) return [];
+    const buffered = Array.isArray(snapshot?.bufferedMessages) ? snapshot.bufferedMessages : [];
+    const bufferedById = new Map(
+        buffered
+            .map((entry) => [String(entry?.id || '').trim(), entry] as const)
+            .filter(([id]) => id),
+    );
+    const groupsById = snapshot?.liveExecutionGroupsById || {};
+    return collectLiveAssistantMessageIds(snapshot, targetConversationId)
+        .map((messageId) => projectLiveAssistantRow(bufferedById, groupsById, targetConversationId, messageId))
+        .filter(Boolean)
+        .sort(compareTemporalEntries) as CanonicalLiveAssistantRow[];
+}
+
+export function overlayLiveAssistantTransientState(
+    rows: CanonicalLiveAssistantRow[] = [],
+    liveRows: LiveAssistantTransientOverlay[] = [],
+): CanonicalLiveAssistantRow[] {
+    const explicitRows = Array.isArray(liveRows) ? liveRows : [];
+    return (Array.isArray(rows) ? rows : []).map((row) => {
+        const rowId = String(row?.id || '').trim();
+        if (!rowId) return row;
+        const matchingLiveRow = explicitRows.find((entry) => (
+            String(entry?.role || '').trim().toLowerCase() === 'assistant'
+            && String(entry?.id || '').trim() === rowId
+        ));
+        if (!matchingLiveRow) return row;
+        return {
+            ...row,
+            isStreaming: matchingLiveRow?.isStreaming,
+            _streamContent: matchingLiveRow?._streamContent,
+            _streamFence: matchingLiveRow?._streamFence,
+            rawContent: matchingLiveRow?.rawContent ?? row?.rawContent,
+        } as CanonicalLiveAssistantRow;
+    });
+}
+
+export function filterExplicitLiveRowsAgainstTracker(
+    trackerRows: CanonicalLiveAssistantRow[] = [],
+    liveRows: Record<string, any>[] = [],
+): Record<string, any>[] {
+    const explicitRows = Array.isArray(liveRows) ? liveRows : [];
+    const trackerOwnsAssistantRows = trackerRows.length > 0;
+    const trackerTurnIds = new Set(trackerRows.map((row) => String(row?.turnId || '').trim()).filter(Boolean));
+    const trackerRowIds = new Set(trackerRows.map((row) => String(row?.id || '').trim()).filter(Boolean));
+    return explicitRows.filter((row) => {
+        if (String(row?._type || '').trim().toLowerCase() === 'stream') return false;
+        if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return true;
+        if (!trackerOwnsAssistantRows) return true;
+        const rowId = String(row?.id || '').trim();
+        if (rowId && trackerRowIds.has(rowId)) return false;
+        const turnId = String(row?.turnId || '').trim();
+        return !turnId || !trackerTurnIds.has(turnId);
+    });
+}
+
+export function buildEffectiveLiveAssistantRows(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    liveRows: Record<string, any>[] = [],
+    conversationId = '',
+): Record<string, any>[] {
+    const trackerRows = projectLiveAssistantRows(snapshot, conversationId);
+    const trackerRowsWithTransientState = overlayLiveAssistantTransientState(
+        trackerRows,
+        liveRows as LiveAssistantTransientOverlay[],
+    );
+    return [
+        ...trackerRowsWithTransientState,
+        ...filterExplicitLiveRowsAgainstTracker(trackerRows, liveRows),
+    ].sort(compareTemporalEntries);
+}
+
+export function buildEffectiveLiveRows(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    liveRows: Record<string, any>[] = [],
+    conversationId = '',
+): Record<string, any>[] {
+    const explicitRows = Array.isArray(liveRows) ? liveRows : [];
+    const streamRows = explicitRows.filter((row) => (
+        String(row?._type || '').trim().toLowerCase() === 'stream'
+    ));
+    return [
+        ...buildEffectiveLiveAssistantRows(snapshot, explicitRows, conversationId),
+        ...streamRows,
+    ];
+}
+
+export function hasLiveAssistantRowForTurn(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    conversationId = '',
+    turnId = '',
+): boolean {
+    const targetTurnId = String(turnId || '').trim();
+    if (!targetTurnId) return false;
+    return projectLiveAssistantRows(snapshot, conversationId)
+        .some((row) => String(row?.turnId || '').trim() === targetTurnId);
+}
+
+export function latestLiveAssistantRowForTurn(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    conversationId = '',
+    turnId = '',
+): CanonicalLiveAssistantRow | null {
+    const targetTurnId = String(turnId || '').trim();
+    if (!targetTurnId) return null;
+    const rows = projectLiveAssistantRows(snapshot, conversationId)
+        .filter((row) => String(row?.turnId || '').trim() === targetTurnId);
+    return rows.length > 0 ? rows[rows.length - 1] : null;
+}
+
+export function latestLiveAssistantRowForTurnWithTransientState(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    liveRows: LiveAssistantTransientOverlay[] = [],
+    conversationId = '',
+    turnId = '',
+): CanonicalLiveAssistantRow | null {
+    const targetTurnId = String(turnId || '').trim();
+    if (!targetTurnId) return null;
+    const trackerRow = latestLiveAssistantRowForTurn(snapshot, conversationId, targetTurnId);
+    if (!trackerRow) return null;
+    const explicitRows = Array.isArray(liveRows) ? liveRows : [];
+    const trackerId = String(trackerRow?.id || '').trim();
+    const sameTurnLiveRows = explicitRows
+        .filter((row) => (
+            String(row?.turnId || '').trim() === targetTurnId
+            && String(row?.role || '').trim().toLowerCase() === 'assistant'
+        ))
+        .sort(compareTemporalEntries);
+    const exactLiveRow = trackerId
+        ? sameTurnLiveRows.find((row) => String(row?.id || '').trim() === trackerId)
+        : null;
+    const matchingLiveRow = exactLiveRow || sameTurnLiveRows.at(-1) || null;
+    return matchingLiveRow
+        ? ({
+            ...trackerRow,
+            ...matchingLiveRow,
+            executionGroups: trackerRow.executionGroups || (matchingLiveRow as any)?.executionGroups || [],
+        } as CanonicalLiveAssistantRow)
+        : trackerRow;
+}
+
+export function latestEffectiveLiveAssistantRow(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    liveRows: LiveAssistantTransientOverlay[] = [],
+    conversationId = '',
+    turnId = '',
+): CanonicalLiveAssistantRow | Record<string, any> | null {
+    const targetTurnId = String(turnId || '').trim();
+    if (!targetTurnId) return null;
+    const trackerBacked = latestLiveAssistantRowForTurnWithTransientState(
+        snapshot,
+        liveRows,
+        conversationId,
+        targetTurnId,
+    );
+    if (trackerBacked) return trackerBacked;
+    return (Array.isArray(liveRows) ? liveRows : [])
+        .filter((row) => (
+            String(row?.turnId || '').trim() === targetTurnId
+            && String(row?.role || '').trim().toLowerCase() === 'assistant'
+        ))
+        .sort(compareTemporalEntries)
+        .at(-1) || null;
 }

@@ -88,8 +88,8 @@ export {
 export type { MessageBuffer } from './reconcile';
 
 // High-level stream tracker
-export { ConversationStreamTracker } from './conversationStream';
-export type { ConversationStreamSnapshot, CanonicalConversationSnapshot } from './conversationStream';
+export { ConversationStreamTracker, projectLiveAssistantRows, overlayLiveAssistantTransientState, filterExplicitLiveRowsAgainstTracker, buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, hasLiveAssistantRowForTurn, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, latestEffectiveLiveAssistantRow } from './conversationStream';
+export type { ConversationStreamSnapshot, CanonicalConversationSnapshot, CanonicalLiveAssistantRow, LiveAssistantTransientOverlay } from './conversationStream';
 
 // Canonical execution group helpers
 export {
@@ -111,7 +111,18 @@ export {
     resolveEventConversationId,
     resolveEventTurnId,
     resolveEventMessageId,
+    normalizeStreamEventIdentity,
 } from './streamIdentity';
+
+// Conversation status helpers
+export { isLiveConversationState } from './conversationStatus';
+
+// Ordering helpers
+export {
+    temporalSequenceValue,
+    compareTemporalEntries,
+    compareExecutionGroups,
+} from './ordering';
 
 // Rich content rendering (pluggable fence registry, markdown, charts, tables)
 export {

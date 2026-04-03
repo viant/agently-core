@@ -22,6 +22,68 @@ export function newMessageBuffer(): MessageBuffer {
     return { byId: new Map(), activeTurnId: null };
 }
 
+function terminalStatusForType(type = ''): string {
+    const normalized = String(type || '').trim().toLowerCase();
+    if (normalized === 'turn_failed') return 'failed';
+    if (normalized === 'turn_canceled') return 'canceled';
+    return 'completed';
+}
+
+function updateEntryIdentity(existing: Partial<Message>, event: SSEEvent, conversationId: string, turnId: string): Partial<Message> {
+    if (turnId && !existing.turnId) existing.turnId = turnId;
+    if (conversationId && !existing.conversationId) existing.conversationId = conversationId;
+    if (event.createdAt && !existing.createdAt) existing.createdAt = event.createdAt;
+    if (Number.isFinite(Number(event.eventSeq))) {
+        const nextSeq = Number(event.eventSeq);
+        const currentSeq = Number(existing.sequence || 0) || 0;
+        if (nextSeq > currentSeq) {
+            existing.sequence = nextSeq;
+        }
+    }
+    return existing;
+}
+
+function ensureMessageEntry(
+    buf: MessageBuffer,
+    key: string,
+    event: SSEEvent,
+    conversationId: string,
+    turnId: string,
+): Partial<Message> {
+    const existing = buf.byId.get(key);
+    if (existing) {
+        return updateEntryIdentity(existing, event, conversationId, turnId);
+    }
+    return {
+        id: key,
+        conversationId,
+        turnId,
+        role: 'assistant',
+        type: 'text',
+        content: '',
+        interim: 1,
+        createdAt: String(event.createdAt || '').trim(),
+        sequence: Number.isFinite(Number(event.eventSeq)) ? Number(event.eventSeq) : undefined,
+    } as Partial<Message>;
+}
+
+function markTurnTerminal(buf: MessageBuffer, turnId: string, terminalStatus: string): void {
+    if (!turnId) return;
+    for (const entry of buf.byId.values()) {
+        if (String(entry?.turnId || '').trim() !== turnId) continue;
+        entry.interim = 0;
+        entry.status = terminalStatus;
+    }
+}
+
+function setActiveTurn(buf: MessageBuffer, turnId: string): void {
+    buf.activeTurnId = turnId || buf.activeTurnId;
+}
+
+function storeEntry(buf: MessageBuffer, key: string, entry: Partial<Message>): void {
+    buf.byId.set(key, entry);
+}
+
 // ─── Apply streaming event ─────────────────────────────────────────────────────
 
 /**
@@ -34,95 +96,89 @@ export function applyEvent(
     buf: MessageBuffer,
     event: SSEEvent,
 ): { id: string; content: string; final: boolean } | null {
-    const key = resolveEventMessageId(event);
     const conversationId = resolveEventConversationId(event);
     const turnId = resolveEventTurnId(event);
-    if (!key) return null;
+    const type = String(event?.type || '').trim().toLowerCase();
 
-    const ensureEntry = (): Partial<Message> => {
-        const existing = buf.byId.get(key);
-        if (existing) {
-            if (turnId && !existing.turnId) existing.turnId = turnId;
-            if (conversationId && !existing.conversationId) existing.conversationId = conversationId;
-            if (event.createdAt && !existing.createdAt) existing.createdAt = event.createdAt;
-            return existing;
-        }
-        return {
-            id: key,
-            conversationId,
-            turnId,
-            role: 'assistant',
-            type: 'text',
-            content: '',
-            interim: 1,
-            createdAt: event.createdAt || new Date().toISOString(),
-        } as Partial<Message>;
-    };
+    if (type === 'turn_started') {
+        setActiveTurn(buf, turnId);
+        return null;
+    }
+    if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
+        markTurnTerminal(buf, turnId, terminalStatusForType(type));
+        buf.activeTurnId = null;
+    }
+    if (type === 'error') {
+        buf.activeTurnId = null;
+    }
+
+    const key = resolveEventMessageId(event);
+    if (!key) return null;
 
     switch (event.type) {
         case 'text_delta': {
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.content = (existing.content || '') + (event.content || '');
-            buf.byId.set(key, existing);
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            storeEntry(buf, key, existing);
+            setActiveTurn(buf, turnId);
             return { id: key, content: existing.content!, final: false };
         }
 
         case 'reasoning_delta': {
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.preamble = (existing.preamble || '') + (event.content || '');
-            buf.byId.set(key, existing);
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            storeEntry(buf, key, existing);
+            setActiveTurn(buf, turnId);
             return null;
         }
 
         case 'tool_call_started':
         case 'tool_call_delta':
         case 'tool_call_completed': {
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            setActiveTurn(buf, turnId);
             return null;
         }
 
         case 'model_started': {
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.status = String(event.status || existing.status || 'running');
-            buf.byId.set(key, existing);
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            storeEntry(buf, key, existing);
+            setActiveTurn(buf, turnId);
             return null;
         }
 
         case 'model_completed': {
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.status = String(event.status || existing.status || 'completed');
-            buf.byId.set(key, existing);
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            storeEntry(buf, key, existing);
+            setActiveTurn(buf, turnId);
             return null;
         }
 
         case 'assistant_preamble': {
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.preamble = String(event.content || event.preamble || existing.preamble || '');
             existing.status = String(event.status || existing.status || 'running');
-            buf.byId.set(key, existing);
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            storeEntry(buf, key, existing);
+            setActiveTurn(buf, turnId);
             return null;
         }
 
         case 'assistant_final': {
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.content = String(event.content || existing.content || '');
             existing.preamble = String(event.preamble || existing.preamble || '');
             existing.status = String(event.status || existing.status || 'completed');
             existing.interim = 0;
-            buf.byId.set(key, existing);
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            storeEntry(buf, key, existing);
+            setActiveTurn(buf, turnId);
             return { id: key, content: String(existing.content || ''), final: true };
         }
 
         case 'elicitation_requested':
         case 'elicitation_resolved':
         case 'linked_conversation_attached': {
-            buf.activeTurnId = turnId || buf.activeTurnId;
+            setActiveTurn(buf, turnId);
             return null;
         }
 
@@ -133,7 +189,7 @@ export function applyEvent(
 
         case 'control': {
             if (event.op !== 'message_patch') return null;
-            const existing = ensureEntry();
+            const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             const patch = (event.patch || {}) as Record<string, any>;
             if (patch.linkedConversationId != null) {
                 (existing as any).linkedConversationId = String(patch.linkedConversationId);
@@ -156,7 +212,7 @@ export function applyEvent(
             if (patch.content != null) {
                 (existing as any).content = String(patch.content);
             }
-            buf.byId.set(key, existing);
+            storeEntry(buf, key, existing);
             return null;
         }
 
@@ -166,18 +222,14 @@ export function applyEvent(
             const existing = buf.byId.get(key);
             if (existing) {
                 existing.interim = 0;
-                existing.status = event.type === 'turn_failed' ? 'failed'
-                    : event.type === 'turn_canceled' ? 'canceled'
-                    : 'completed';
+                existing.status = terminalStatusForType(event.type);
             }
-            buf.activeTurnId = null;
             return existing
                 ? { id: key, content: existing.content || '', final: true }
                 : null;
         }
 
         case 'error': {
-            buf.activeTurnId = null;
             return null;
         }
 
@@ -213,9 +265,17 @@ export function reconcileMessages(
         }
     }
 
-    // Sort by createdAt
+    // Sort by createdAt, then by best-known sequence when timestamps tie.
     return Array.from(merged.values()).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        (a, b) => {
+            const aTime = new Date(a.createdAt).getTime();
+            const bTime = new Date(b.createdAt).getTime();
+            if (aTime !== bTime) return aTime - bTime;
+            const aSeq = Number((a as any)?.sequence || 0) || 0;
+            const bSeq = Number((b as any)?.sequence || 0) || 0;
+            if (aSeq !== bSeq) return aSeq - bSeq;
+            return String(a.id || '').localeCompare(String(b.id || ''));
+        },
     );
 }
 
