@@ -992,7 +992,10 @@ func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
 	}
 
 	assert.False(t, foundObjectiveEcho, "parent conversation should not persist an assistant echo preview for delegation objective")
-	assert.True(t, foundLinkedStatus, "linked status message should still be present")
+	// External A2A agents host their own conversation on a remote server.
+	// A local linked-conversation stub must NOT be created — it would produce
+	// a dead UI card pointing to an empty local conversation.
+	assert.False(t, foundLinkedStatus, "external run must not set linked_conversation_id — remote conversation cannot be navigated locally")
 }
 
 func TestStartRunStatus_EmitsLinkedConversationAttachedForToolMessageID(t *testing.T) {

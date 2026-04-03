@@ -634,7 +634,10 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 	if strings.EqualFold(strings.TrimSpace(route), "internal") {
 		runCtx.childConversationID = s.resolveReusableChildConversation(ctx, ri.AgentID, runCtx.parent, scope, route)
 	}
-	if strings.TrimSpace(runCtx.childConversationID) == "" {
+	// Only create a local child conversation for internal runs.
+	// External A2A agents host their own conversation on a remote server;
+	// creating a local stub would produce a dead linked-conversation card in the UI.
+	if strings.TrimSpace(runCtx.childConversationID) == "" && strings.EqualFold(strings.TrimSpace(route), "internal") {
 		childConversationID, err := s.createChildConversation(ctx, ri.AgentID, ri.Objective, runCtx.parent, route, waitForConversation)
 		if err != nil {
 			return runCtx, err
