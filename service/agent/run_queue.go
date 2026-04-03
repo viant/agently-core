@@ -103,11 +103,13 @@ func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID str
 		StreamID:           conversationID,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
+		MessageID:          turnID,
 		QueueSeq:           int(queueSeq),
 		StartedByMessageID: turnID,
 		UserMessageID:      turnID,
 		CreatedAt:          createdAt,
 	}
+	event.NormalizeIdentity(conversationID, turnID)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("turn_queued publish error convo=%q turn=%q err=%v", conversationID, turnID, err)
 	}

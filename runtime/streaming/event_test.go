@@ -8,8 +8,9 @@ import (
 
 func TestFromLLMEvent_TextDeltaCarriesConversationID(t *testing.T) {
 	ev := FromLLMEvent("conv-1", llm.StreamEvent{
-		Kind:  llm.StreamEventTextDelta,
-		Delta: "hello",
+		ItemID: "msg-1",
+		Kind:   llm.StreamEventTextDelta,
+		Delta:  "hello",
 	})
 
 	if ev == nil {
@@ -23,6 +24,9 @@ func TestFromLLMEvent_TextDeltaCarriesConversationID(t *testing.T) {
 	}
 	if ev.ConversationID != "conv-1" {
 		t.Fatalf("unexpected conversation id: %s", ev.ConversationID)
+	}
+	if ev.MessageID != "msg-1" {
+		t.Fatalf("unexpected message id: %s", ev.MessageID)
 	}
 	if ev.Content != "hello" {
 		t.Fatalf("unexpected content: %q", ev.Content)

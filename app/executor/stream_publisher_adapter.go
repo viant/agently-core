@@ -31,15 +31,11 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 	if convID == "" {
 		return nil
 	}
+	turnMeta, _ := memory.TurnMetaFromContext(ctx)
 
 	if ev.Event != nil {
 		out := ev.Event
-		if strings.TrimSpace(out.StreamID) == "" {
-			out.StreamID = convID
-		}
-		if strings.TrimSpace(out.ConversationID) == "" {
-			out.ConversationID = convID
-		}
+		out.NormalizeIdentity(convID, strings.TrimSpace(turnMeta.TurnID))
 		if out.CreatedAt.IsZero() {
 			out.CreatedAt = time.Now()
 		}
@@ -50,6 +46,8 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 			debugtrace.Write("executor", "timeline", map[string]any{
 				"type":             string(out.Type),
 				"conversationID":   strings.TrimSpace(out.ConversationID),
+				"turnID":           strings.TrimSpace(out.TurnID),
+				"messageID":        strings.TrimSpace(out.MessageID),
 				"assistantID":      strings.TrimSpace(out.AssistantMessageID),
 				"toolCallsPlanned": out.ToolCallsPlanned,
 				"createdAt":        out.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -74,13 +72,13 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 	if ev.Message != nil {
 		messageID = strings.TrimSpace(ev.Message.Id)
 	}
-	turnMeta, _ := memory.TurnMetaFromContext(ctx)
 
 	out := &streaming.Event{
 		ID:                 messageID,
 		StreamID:           convID,
 		ConversationID:     convID,
 		TurnID:             strings.TrimSpace(turnMeta.TurnID),
+		MessageID:          messageID,
 		AgentIDUsed:        strings.TrimSpace(turnMeta.Assistant),
 		UserMessageID:      strings.TrimSpace(turnMeta.ParentMessageID),
 		Type:               streaming.EventTypeTextDelta,
@@ -91,6 +89,7 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 		Content:            content,
 		CreatedAt:          time.Now(),
 	}
+	out.NormalizeIdentity(convID, strings.TrimSpace(turnMeta.TurnID))
 	if err := a.bus.Publish(ctx, out); err != nil {
 		return err
 	}
@@ -99,6 +98,7 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 			"type":           string(out.Type),
 			"conversationID": strings.TrimSpace(out.ConversationID),
 			"turnID":         strings.TrimSpace(out.TurnID),
+			"messageID":      strings.TrimSpace(out.MessageID),
 			"assistantID":    strings.TrimSpace(out.AssistantMessageID),
 			"mode":           strings.TrimSpace(out.Mode),
 			"contentPreview": out.Content,

@@ -84,6 +84,7 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.Tur
 		StreamID:           strings.TrimSpace(turn.ConversationID),
 		ConversationID:     strings.TrimSpace(turn.ConversationID),
 		TurnID:             strings.TrimSpace(turn.TurnID),
+		MessageID:          strings.TrimSpace(messageID),
 		AssistantMessageID: strings.TrimSpace(messageID),
 		Type:               streaming.EventTypeElicitationRequested,
 		ElicitationID:      strings.TrimSpace(elic.ElicitationId),
@@ -93,6 +94,7 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.Tur
 		Status:             "pending",
 		CreatedAt:          now,
 	}
+	event.NormalizeIdentity(strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("elicitation_requested publish error convo=%q elicitation_id=%q err=%v", turn.ConversationID, elic.ElicitationId, err)
 	}
@@ -104,9 +106,19 @@ func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitati
 		return
 	}
 	now := time.Now()
+	turnID := ""
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(turn.TurnID)
+	}
+	messageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	if messageID == "" {
+		messageID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	}
 	event := &streaming.Event{
 		StreamID:        strings.TrimSpace(convID),
 		ConversationID:  strings.TrimSpace(convID),
+		TurnID:          turnID,
+		MessageID:       messageID,
 		Type:            streaming.EventTypeElicitationResolved,
 		ElicitationID:   strings.TrimSpace(elicitationID),
 		Status:          strings.TrimSpace(status),
@@ -114,10 +126,7 @@ func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitati
 		CreatedAt:       now,
 		CompletedAt:     &now,
 	}
-	// Try to get turn ID from context
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-		event.TurnID = strings.TrimSpace(turn.TurnID)
-	}
+	event.NormalizeIdentity(strings.TrimSpace(convID), turnID)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("elicitation_resolved publish error convo=%q elicitation_id=%q err=%v", convID, elicitationID, err)
 	}

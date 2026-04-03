@@ -2253,6 +2253,105 @@ func TestDataService_ConversationPermissions(t *testing.T) {
 	}
 }
 
+func TestDataService_ConversationPermissions_PagedVisibleRows_DataDriven(t *testing.T) {
+	ctx := context.Background()
+	svc := newSeededService(t, seedForConversationPermissionPaging)
+
+	cases := []struct {
+		name      string
+		principal string
+		page      *PageInput
+		wantIDs   []string
+		wantMore  bool
+	}{
+		{
+			name:      "u1 latest page is filled with visible rows despite newer foreign rows",
+			principal: "u1",
+			page:      &PageInput{Limit: 3, Direction: DirectionLatest},
+			wantIDs:   []string{"c-u1-recent", "c-u2-public", "c-u1-older"},
+			wantMore:  false,
+		},
+		{
+			name:      "u2 latest page sees own newest rows first by activity recency",
+			principal: "u2",
+			page:      &PageInput{Limit: 3, Direction: DirectionLatest},
+			wantIDs:   []string{"c-u2-recent", "c-u2-private", "c-u2-public"},
+			wantMore:  true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := svc.ListConversations(
+				ctx,
+				&agconvlist.ConversationRowsInput{
+					ExcludeScheduled: true,
+					Has:              &agconvlist.ConversationRowsInputHas{ExcludeScheduled: true},
+				},
+				tc.page,
+				WithPrincipal(tc.principal),
+			)
+			if err != nil {
+				t.Fatalf("ListConversations(%s) error: %v", tc.principal, err)
+			}
+			got := make([]string, 0, len(page.Rows))
+			for _, row := range page.Rows {
+				got = append(got, row.Id)
+			}
+			assertIDs(t, got, tc.wantIDs)
+			if page.HasMore != tc.wantMore {
+				t.Fatalf("HasMore = %v, want %v", page.HasMore, tc.wantMore)
+			}
+		})
+	}
+}
+
+func TestDataService_ConversationList_ComputesStageFromStatus(t *testing.T) {
+	ctx := context.Background()
+	svc := newSeededService(t, seedForConversationListStage)
+
+	page, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
+		Has: &agconvlist.ConversationRowsInputHas{},
+	}, &PageInput{Limit: 10, Direction: DirectionLatest})
+	if err != nil {
+		t.Fatalf("ListConversations() error: %v", err)
+	}
+	if len(page.Rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(page.Rows))
+	}
+	got := map[string]string{}
+	for _, row := range page.Rows {
+		got[row.Id] = row.Stage
+	}
+	if got["c-stage-done"] != "done" {
+		t.Fatalf("expected c-stage-done stage=done, got %q", got["c-stage-done"])
+	}
+	if got["c-stage-running"] != "executing" {
+		t.Fatalf("expected c-stage-running stage=executing, got %q", got["c-stage-running"])
+	}
+	if got["c-stage-error"] != "error" {
+		t.Fatalf("expected c-stage-error stage=error, got %q", got["c-stage-error"])
+	}
+}
+
+func TestDataService_LinkedConversationList_ExcludesOrphans(t *testing.T) {
+	ctx := context.Background()
+	svc := newSeededService(t, seedForLinkedConversationOrphans)
+
+	page, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
+		ParentId: "parent-1",
+		Has:      &agconvlist.ConversationRowsInputHas{ParentId: true},
+	}, &PageInput{Limit: 10, Direction: DirectionLatest})
+	if err != nil {
+		t.Fatalf("ListConversations(parent) error: %v", err)
+	}
+	got := make([]string, 0, len(page.Rows))
+	for _, row := range page.Rows {
+		got = append(got, row.Id)
+	}
+	assertIDs(t, got, []string{"child-valid"})
+}
+
 func TestDataService_ReadPermissions_MessageTurnRun(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForPermissionReadArtifacts)
@@ -2551,6 +2650,44 @@ func seedForConversationPermissions(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-private-u2", "2026-01-01T09:01:00Z", "active", "private", "u2"}},
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-public-u2", "2026-01-01T09:02:00Z", "active", "public", "u2"}},
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility, shareable, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-share-u2", "2026-01-01T09:03:00Z", "active", "private", 1, "u2"}},
+	}
+	dbtest.ExecAll(t, db, items)
+}
+
+func seedForConversationPermissionPaging(t *testing.T, db *sql.DB) {
+	t.Helper()
+	items := []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u1-older", "2026-01-01T09:00:00Z", "2026-01-01T09:00:00Z", "succeeded", "private", "u1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u2-public", "2026-01-01T09:10:00Z", "2026-01-01T09:10:00Z", "succeeded", "public", "u2"}},
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u2-private", "2026-01-01T09:20:00Z", "2026-01-01T09:20:00Z", "succeeded", "private", "u2"}},
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u1-recent", "2026-01-01T09:30:00Z", "2026-01-01T09:30:00Z", "succeeded", "private", "u1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u2-recent", "2026-01-01T09:40:00Z", "2026-01-01T09:40:00Z", "succeeded", "private", "u2"}},
+		// A newer scheduled row that should be excluded before paging.
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u2-scheduled", "2026-01-01T09:50:00Z", "2026-01-01T09:50:00Z", "succeeded", "private", "u2", "sched-1"}},
+		// A newer child row that should be excluded before paging.
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility, created_by_user_id, conversation_parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"c-u2-child", "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z", "succeeded", "private", "u2", "parent-1"}},
+	}
+	dbtest.ExecAll(t, db, items)
+}
+
+func seedForConversationListStage(t *testing.T, db *sql.DB) {
+	t.Helper()
+	items := []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-stage-done", "2026-01-01T09:00:00Z", "2026-01-01T09:20:00Z", "succeeded", "private"}},
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-stage-running", "2026-01-01T09:01:00Z", "2026-01-01T09:10:00Z", "running", "private"}},
+		{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, visibility) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"c-stage-error", "2026-01-01T09:02:00Z", "2026-01-01T09:05:00Z", "failed", "private"}},
+	}
+	dbtest.ExecAll(t, db, items)
+}
+
+func seedForLinkedConversationOrphans(t *testing.T, db *sql.DB) {
+	t.Helper()
+	items := []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO conversation (id, created_at, visibility) VALUES (?, ?, ?)`, Params: []interface{}{"parent-1", "2026-01-01T09:00:00Z", "private"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"parent-turn-1", "parent-1", "2026-01-01T09:01:00Z", "completed"}},
+		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-valid", "2026-01-01T09:02:00Z", "private", "parent-1", "parent-turn-1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-orphan-conv", "2026-01-01T09:03:00Z", "private", "missing-parent", "parent-turn-1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-orphan-turn", "2026-01-01T09:04:00Z", "private", "parent-1", "missing-parent-turn"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }

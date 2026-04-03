@@ -286,7 +286,10 @@ export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: Re
         if (!isPresentableExecutionGroup(liveGroup)) return;
         const key = firstString((liveGroup as any)?.assistantMessageId);
         if (!key) return;
-        mergedById.set(key, mergeExecutionGroup(mergedById.get(key), liveGroup));
+        // Keep the active/live execution group authoritative for its page.
+        // Transcript groups remain for older pages, but we avoid blending the
+        // active page object between transcript and SSE sources.
+        mergedById.set(key, liveGroup as Record<string, any>);
     });
     const merged = Array.from(mergedById.values()).sort((left, right) => {
         if ((left as any).sequence !== (right as any).sequence) return firstNumber((left as any).sequence) - firstNumber((right as any).sequence);

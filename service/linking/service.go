@@ -41,17 +41,30 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 		return
 	}
 	debugf("emitLinkedConversationAttached parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
+	toolMessageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	modelMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	messageID := toolMessageID
+	if messageID == "" {
+		messageID = modelMessageID
+	}
+	if messageID == "" {
+		messageID = strings.TrimSpace(parent.ParentMessageID)
+	}
 	event := &streaming.Event{
 		StreamID:                  strings.TrimSpace(parent.ConversationID),
 		ConversationID:            strings.TrimSpace(parent.ConversationID),
 		TurnID:                    strings.TrimSpace(parent.TurnID),
+		MessageID:                 messageID,
 		Type:                      streaming.EventTypeLinkedConversationAttached,
 		LinkedConversationID:      strings.TrimSpace(childConversationID),
 		LinkedConversationAgentID: strings.TrimSpace(childAgentID),
 		LinkedConversationTitle:   strings.TrimSpace(childTitle),
 		ToolCallID:                strings.TrimSpace(toolCallID),
+		ToolMessageID:             toolMessageID,
+		AssistantMessageID:        modelMessageID,
 		CreatedAt:                 time.Now(),
 	}
+	event.NormalizeIdentity(strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		warnf("linked_conversation_attached publish error parent_convo=%q child_convo=%q err=%v", parent.ConversationID, childConversationID, err)
 	}

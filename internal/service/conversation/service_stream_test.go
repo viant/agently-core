@@ -83,6 +83,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.Equal(t, "turn_started", ev.Op)
 		require.Equal(t, "turn-1", ev.ID)
 		require.Equal(t, "conv-1", ev.StreamID)
+		require.Equal(t, "user-1", ev.MessageID)
 		require.EqualValues(t, "turn-1", ev.Patch["turnId"])
 		require.EqualValues(t, "running", ev.Patch["status"])
 		require.EqualValues(t, "run-1", ev.Patch["runId"])
@@ -99,6 +100,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.Equal(t, streaming.EventTypeTurnStarted, ev.Type)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "user-1", ev.MessageID)
 		require.Equal(t, "user-1", ev.UserMessageID)
 		require.Equal(t, "steward-performance", ev.AgentIDUsed)
 		require.Equal(t, "running", ev.Status)
@@ -129,6 +131,7 @@ func TestPublishTurnEvent_SucceededTurnPublishesCompleted(t *testing.T) {
 		require.Equal(t, streaming.EventTypeTurnCompleted, ev.Type)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "user-1", ev.MessageID)
 		require.Equal(t, "user-1", ev.UserMessageID)
 		require.Equal(t, "succeeded", ev.Status)
 	case <-time.After(2 * time.Second):
@@ -164,6 +167,7 @@ func TestEmitCanonicalModelEvent_ThinkingPublishesModelStarted(t *testing.T) {
 		require.Equal(t, "conv-parent", ev.ConversationID)
 		require.Equal(t, "conv-parent", ev.StreamID)
 		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "mc-1", ev.MessageID)
 		require.Equal(t, "mc-1", ev.AssistantMessageID)
 		require.Equal(t, "openai", ev.Model.Provider)
 		require.Equal(t, "gpt-5.2", ev.Model.Model)
@@ -245,6 +249,7 @@ func TestTimelineDebugFields_ExposeIdentityAndTimingFields(t *testing.T) {
 		StreamID:                  "conv-1",
 		ConversationID:            "conv-1",
 		TurnID:                    "turn-1",
+		MessageID:                 "msg-1",
 		AgentIDUsed:               "steward",
 		AgentName:                 "Steward",
 		AssistantMessageID:        "msg-1",
@@ -277,6 +282,7 @@ func TestTimelineDebugFields_ExposeIdentityAndTimingFields(t *testing.T) {
 	})
 
 	require.EqualValues(t, "conv-1", fields["streamID"])
+	require.EqualValues(t, "msg-1", fields["messageID"])
 	require.EqualValues(t, "steward", fields["agentIDUsed"])
 	require.EqualValues(t, "user-1", fields["userMessageID"])
 	require.EqualValues(t, "msg-1", fields["modelCallID"])
@@ -318,6 +324,7 @@ func TestEmitCanonicalModelEvent_CompletedPublishesModelCompleted(t *testing.T) 
 		require.Equal(t, streaming.EventTypeModelCompleted, ev.Type)
 		require.Equal(t, "conv-parent", ev.ConversationID)
 		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "mc-1", ev.MessageID)
 		require.Equal(t, "mc-1", ev.AssistantMessageID)
 		require.NotNil(t, ev.CompletedAt)
 	case <-time.After(2 * time.Second):
@@ -451,6 +458,7 @@ func TestEmitCanonicalAssistantEvents_PreamblePublishesPreamble(t *testing.T) {
 		require.Equal(t, streaming.EventTypeAssistantPreamble, ev.Type)
 		require.Equal(t, "conv-1", ev.ConversationID)
 		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "msg-1", ev.MessageID)
 		require.Equal(t, "msg-1", ev.AssistantMessageID)
 		require.Equal(t, "Let me analyze...", ev.Content)
 	case <-time.After(2 * time.Second):
@@ -484,6 +492,7 @@ func TestEmitCanonicalAssistantEvents_FinalPublishesFinal(t *testing.T) {
 		require.Equal(t, streaming.EventTypeAssistantFinal, ev.Type)
 		require.Equal(t, "conv-1", ev.ConversationID)
 		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "msg-1", ev.MessageID)
 		require.Equal(t, "msg-1", ev.AssistantMessageID)
 		require.Equal(t, "Here is the answer.", ev.Content)
 		require.True(t, ev.FinalResponse)
@@ -549,6 +558,7 @@ func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {
 	got := toolCallEvent(ctx, call)
 	require.NotNil(t, got)
 	require.Equal(t, streaming.EventTypeToolCallStarted, got.Type)
+	require.Equal(t, "tool-msg-1", got.MessageID)
 	require.Equal(t, "assistant-1", got.AssistantMessageID)
 	require.Equal(t, "tool-call-1", got.ToolCallID)
 	require.Equal(t, "tool-msg-1", got.ToolMessageID)

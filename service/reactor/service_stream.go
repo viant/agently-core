@@ -80,6 +80,7 @@ func (s *Service) publishPlannedToolCallsEvent(ctx context.Context, responseID s
 			ID:                 assistantMessageID,
 			ConversationID:     strings.TrimSpace(turn.ConversationID),
 			StreamID:           strings.TrimSpace(turn.ConversationID),
+			MessageID:          assistantMessageID,
 			Type:               streaming.EventTypeToolCallsPlanned,
 			TurnID:             strings.TrimSpace(turn.TurnID),
 			AssistantMessageID: assistantMessageID,

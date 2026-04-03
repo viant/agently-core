@@ -348,6 +348,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			Type:           streaming.EventTypeError,
 			StreamID:       streamID,
 			ConversationID: streamID,
+			TurnID:         strings.TrimSpace(turnMeta.TurnID),
 			Error:          event.Err.Error(),
 			CreatedAt:      now,
 		})
@@ -365,6 +366,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			StreamID:        streamID,
 			ConversationID:  streamID,
 			TurnID:          strings.TrimSpace(turnMeta.TurnID),
+			MessageID:       strings.TrimSpace(event.ItemID),
 			AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
 			UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
 			ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),
@@ -373,6 +375,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			ToolCallID:      event.ToolCallID,
 			CreatedAt:       now,
 		}
+		ev.NormalizeIdentity(streamID, strings.TrimSpace(turnMeta.TurnID))
 		switch event.Kind {
 		case llm.StreamEventTextDelta:
 			ev.Type = streaming.EventTypeTextDelta
@@ -423,7 +426,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 	choice := resp.Choices[0]
 	// Tool calls → tool_call_completed
 	if len(choice.Message.ToolCalls) > 0 {
-		output.Events = append(output.Events, s.toolCallEvents(streamID, resp.ResponseID, &choice)...)
+		output.Events = append(output.Events, s.toolCallEvents(streamID, strings.TrimSpace(turnMeta.TurnID), resp.ResponseID, &choice)...)
 	}
 	// Text → text_delta
 	if content := choice.Message.Content; content != "" {
@@ -432,6 +435,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			StreamID:        streamID,
 			ConversationID:  streamID,
 			TurnID:          strings.TrimSpace(turnMeta.TurnID),
+			MessageID:       strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)),
 			AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
 			UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
 			ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),
@@ -446,6 +450,8 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			Type:           streaming.EventTypeTurnCompleted,
 			StreamID:       streamID,
 			ConversationID: streamID,
+			TurnID:         strings.TrimSpace(turnMeta.TurnID),
+			MessageID:      strings.TrimSpace(turnMeta.ParentMessageID),
 			Status:         choice.FinishReason,
 			CreatedAt:      now,
 		})
@@ -453,7 +459,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 	return nil
 }
 
-func (s *Service) toolCallEvents(streamID, responseID string, choice *llm.Choice) []streaming.Event {
+func (s *Service) toolCallEvents(streamID, turnID, responseID string, choice *llm.Choice) []streaming.Event {
 	out := make([]streaming.Event, 0, len(choice.Message.ToolCalls))
 	now := time.Now()
 	for _, tc := range choice.Message.ToolCalls {
@@ -473,6 +479,8 @@ func (s *Service) toolCallEvents(streamID, responseID string, choice *llm.Choice
 			Type:           streaming.EventTypeToolCallCompleted,
 			StreamID:       strings.TrimSpace(streamID),
 			ConversationID: strings.TrimSpace(streamID),
+			TurnID:         strings.TrimSpace(turnID),
+			MessageID:      strings.TrimSpace(tc.ID),
 			ToolName:       name,
 			Arguments:      args,
 			ResponseID:     strings.TrimSpace(responseID),
