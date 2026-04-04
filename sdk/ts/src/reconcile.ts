@@ -6,7 +6,7 @@
  * reconcileFromTranscript merges it with the authoritative server state.
  */
 
-import type { SSEEvent, Message, Turn } from './types';
+import type { JSONObject, SSEEvent, Message, Turn } from './types';
 import { compareTemporalEntries } from './ordering';
 import { resolveEventConversationId, resolveEventMessageId, resolveEventTurnId } from './streamIdentity';
 import { terminalStatusForType } from './streamEventMeta';
@@ -77,6 +77,30 @@ function setActiveTurn(buf: MessageBuffer, turnId: string): void {
 
 function storeEntry(buf: MessageBuffer, key: string, entry: Partial<Message>): void {
     buf.byId.set(key, entry);
+}
+
+function applyMessagePatch(existing: Partial<Message>, patch: JSONObject): void {
+    if (patch.linkedConversationId != null) {
+        existing.linkedConversationId = String(patch.linkedConversationId);
+    }
+    if (patch.status != null) {
+        existing.status = String(patch.status);
+    }
+    if (patch.toolName != null) {
+        existing.toolName = String(patch.toolName);
+    }
+    if (patch.preamble != null) {
+        existing.preamble = String(patch.preamble);
+    }
+    if (patch.interim != null) {
+        const n = Number(patch.interim);
+        if (Number.isFinite(n)) {
+            existing.interim = n;
+        }
+    }
+    if (patch.content != null) {
+        existing.content = String(patch.content);
+    }
 }
 
 // ─── Apply streaming event ─────────────────────────────────────────────────────
@@ -185,28 +209,7 @@ export function applyEvent(
         case 'control': {
             if (event.op !== 'message_patch') return null;
             const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
-            const patch = (event.patch || {}) as Record<string, any>;
-            if (patch.linkedConversationId != null) {
-                (existing as any).linkedConversationId = String(patch.linkedConversationId);
-            }
-            if (patch.status != null) {
-                (existing as any).status = String(patch.status);
-            }
-            if (patch.toolName != null) {
-                (existing as any).toolName = String(patch.toolName);
-            }
-            if (patch.preamble != null) {
-                (existing as any).preamble = String(patch.preamble);
-            }
-            if (patch.interim != null) {
-                const n = Number(patch.interim);
-                if (Number.isFinite(n)) {
-                    (existing as any).interim = n;
-                }
-            }
-            if (patch.content != null) {
-                (existing as any).content = String(patch.content);
-            }
+            applyMessagePatch(existing, event.patch || {});
             storeEntry(buf, key, existing);
             return null;
         }

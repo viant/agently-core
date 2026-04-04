@@ -36,6 +36,20 @@ export interface ChartSeries {
   series: string[];
 }
 
+interface FieldRef {
+  field?: string;
+}
+
+interface TopLevelChartLike extends Record<string, unknown> {
+  type?: unknown;
+  data?: unknown;
+  title?: unknown;
+  x?: FieldRef;
+  xKey?: unknown;
+  y?: FieldRef;
+  valueKey?: unknown;
+}
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
@@ -76,11 +90,12 @@ export function parseChartSpecFromFence(lang: string, body: string): ChartSpec |
     }
 
     // Shape 2: { type, data: [...], x?, y? }
-    const topType = String((parsed as Record<string, unknown>).type || '').trim().toLowerCase();
+    const topLevel = parsed as TopLevelChartLike;
+    const topType = String(topLevel.type || '').trim().toLowerCase();
     if (topType && Array.isArray(parsed.data)) {
       const firstRow = isObject((parsed.data as unknown[])[0]) ? (parsed.data as Record<string, unknown>[])[0] : {};
-      const xKey = String((parsed as any)?.x?.field || (parsed as any)?.xKey || inferFirstStringKey(firstRow));
-      const yField = String((parsed as any)?.y?.field || '');
+      const xKey = String(topLevel.x?.field || topLevel.xKey || inferFirstStringKey(firstRow));
+      const yField = String(topLevel.y?.field || '');
       const yKey = yField || inferFirstNumericKey(firstRow, [xKey]);
       const result: Record<string, unknown> = {
         chart: { type: topType, x: { key: xKey }, y: [{ key: yKey }] },
@@ -105,11 +120,12 @@ export function normalizeChartSpec(spec: ChartSpec): NormalizedChart {
   const chart = isObject(spec.chart) ? spec.chart : {} as ChartDef;
   const type = String(chart.type || 'line').toLowerCase();
   const data = Array.isArray(spec.data) ? spec.data : [];
-  const xKey = String(chart?.x?.key || (spec as any).xKey || 'x');
+  const specWithFallbacks = spec as ChartSpec & { xKey?: string; valueKey?: string };
+  const xKey = String(chart?.x?.key || specWithFallbacks.xKey || 'x');
   const seriesKey = chart?.series?.key ? String(chart.series.key) : '';
   const yArr = Array.isArray(chart?.y) ? chart.y : [];
   const yKeys = yArr.map((v) => String(v?.key || '')).filter(Boolean);
-  const valueKey = String(chart?.valueKey || (spec as any).valueKey || yKeys[0] || 'value');
+  const valueKey = String(chart?.valueKey || specWithFallbacks.valueKey || yKeys[0] || 'value');
   const palette = Array.isArray(spec?.options?.palette) ? spec.options!.palette! : DEFAULT_PALETTE;
   return { type, data, xKey, seriesKey, yKeys, valueKey, palette, title: String(spec.title || '') };
 }

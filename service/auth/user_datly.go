@@ -152,12 +152,24 @@ func (s *DatlyUserService) upsert(ctx context.Context, explicitID, username, dis
 		return "", nil
 	}
 	id := strings.TrimSpace(explicitID)
-	existing, err := s.lookupByUsername(ctx, username)
-	if err != nil {
-		return "", err
+	normalizedProvider := firstNonEmpty(strings.TrimSpace(provider), "oauth")
+	if id == "" && strings.TrimSpace(subject) != "" {
+		existingBySubject, err := s.GetBySubjectAndProvider(ctx, strings.TrimSpace(subject), normalizedProvider)
+		if err != nil {
+			return "", err
+		}
+		if existingBySubject != nil && strings.TrimSpace(existingBySubject.ID) != "" {
+			id = existingBySubject.ID
+		}
 	}
-	if existing != nil && strings.TrimSpace(existing.ID) != "" {
-		id = existing.ID
+	if id == "" {
+		existing, err := s.lookupByUsername(ctx, username)
+		if err != nil {
+			return "", err
+		}
+		if existing != nil && strings.TrimSpace(existing.ID) != "" {
+			id = existing.ID
+		}
 	}
 	if id == "" {
 		id = uuid.NewString()
@@ -172,7 +184,7 @@ func (s *DatlyUserService) upsert(ctx context.Context, explicitID, username, dis
 	if strings.TrimSpace(email) != "" {
 		user.SetEmail(strings.TrimSpace(email))
 	}
-	user.SetProvider(firstNonEmpty(strings.TrimSpace(provider), "oauth"))
+	user.SetProvider(normalizedProvider)
 	if strings.TrimSpace(subject) != "" {
 		user.SetSubject(strings.TrimSpace(subject))
 	}

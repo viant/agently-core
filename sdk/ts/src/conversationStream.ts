@@ -10,14 +10,7 @@ import {
     type MessageBuffer,
 } from './reconcile';
 import { resolveEventConversationId } from './streamIdentity';
-import type { ActiveFeed, ExecutionPage, Message, SSEEvent, Turn } from './types';
-
-export type LiveExecutionGroup = Partial<ExecutionPage> & {
-    sequence?: number;
-    errorMessage?: string;
-};
-
-export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
+import type { ActiveFeed, JSONObject, LiveExecutionGroup, LiveExecutionGroupsById, Message, SSEEvent, Turn } from './types';
 
 export interface ConversationStreamSnapshot {
     conversationId: string;
@@ -46,16 +39,26 @@ export interface CanonicalLiveAssistantRow {
     executionGroups: LiveExecutionGroup[];
     isStreaming?: boolean;
     _streamContent?: string;
-    _streamFence?: Record<string, any> | null;
+    _streamFence?: JSONObject | null;
     rawContent?: string;
 }
 
 export interface LiveAssistantTransientOverlay {
     id?: string;
+    turnId?: string;
     role?: string;
+    _type?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    sequence?: number | null;
+    eventSeq?: number | null;
+    iteration?: number | null;
+    messageId?: string;
+    assistantMessageId?: string;
+    executionGroups?: LiveExecutionGroup[];
     isStreaming?: boolean;
     _streamContent?: string;
-    _streamFence?: Record<string, any> | null;
+    _streamFence?: JSONObject | null;
     rawContent?: string;
 }
 
@@ -111,7 +114,7 @@ function collectLiveAssistantMessageIds(
         }
     });
     Object.entries(groupsById).forEach(([messageId, group]) => {
-        const groupTurnId = String((group as any)?.turnId || '').trim();
+        const groupTurnId = String(group?.turnId || '').trim();
         if (messageId && groupTurnId) {
             messageIds.add(String(messageId).trim());
         }
@@ -129,23 +132,23 @@ function projectLiveAssistantRow(
     const entry = bufferedById.get(messageId) || {};
     const group = groupsById[messageId] || null;
     const entryConversationId = String(entry?.conversationId || '').trim();
-    const rowTurnId = String(entry?.turnId || (group as any)?.turnId || '').trim();
+    const rowTurnId = String(entry?.turnId || group?.turnId || '').trim();
     if (!rowTurnId) return null;
     if (entryConversationId && entryConversationId !== targetConversationId) return null;
     const content = String(
         entry?.content
-        || (group as any)?.content
+        || group?.content
         || entry?.preamble
-        || (group as any)?.preamble
+        || group?.preamble
         || '',
     ).trim();
-    const preamble = String(entry?.preamble || (group as any)?.preamble || '').trim();
-    const finalResponse = Boolean((group as any)?.finalResponse) || Number(entry?.interim ?? 1) === 0;
+    const preamble = String(entry?.preamble || group?.preamble || '').trim();
+    const finalResponse = Boolean(group?.finalResponse) || Number(entry?.interim ?? 1) === 0;
     const createdAt = String(
         entry?.createdAt
-        || (group as any)?.createdAt
-        || (group as any)?.startedAt
-        || (group as any)?.completedAt
+        || group?.createdAt
+        || group?.startedAt
+        || group?.completedAt
         || '1970-01-01T00:00:00.000Z',
     ).trim();
     return {
@@ -158,9 +161,9 @@ function projectLiveAssistantRow(
         preamble,
         createdAt,
         interim: finalResponse ? 0 : (Number(entry?.interim ?? 1) || 1),
-        status: String(entry?.status || (group as any)?.status || '').trim(),
-        turnStatus: String(entry?.status || (group as any)?.status || '').trim(),
-        sequence: Number(entry?.sequence || (group as any)?.sequence || 0) || null,
+        status: String(entry?.status || group?.status || '').trim(),
+        turnStatus: String(entry?.status || group?.status || '').trim(),
+        sequence: Number(entry?.sequence || group?.sequence || 0) || null,
         executionGroups: group ? [group] : [],
     } satisfies CanonicalLiveAssistantRow;
 }
@@ -317,8 +320,8 @@ export function overlayLiveAssistantTransientState(
 
 export function filterExplicitLiveRowsAgainstTracker(
     trackerRows: CanonicalLiveAssistantRow[] = [],
-    liveRows: Record<string, any>[] = [],
-): Record<string, any>[] {
+    liveRows: LiveAssistantTransientOverlay[] = [],
+): LiveAssistantTransientOverlay[] {
     const explicitRows = Array.isArray(liveRows) ? liveRows : [];
     const trackerOwnsAssistantRows = trackerRows.length > 0;
     const trackerTurnIds = new Set(trackerRows.map((row) => String(row?.turnId || '').trim()).filter(Boolean));
@@ -336,9 +339,9 @@ export function filterExplicitLiveRowsAgainstTracker(
 
 export function buildEffectiveLiveAssistantRows(
     snapshot: CanonicalConversationSnapshot | null | undefined,
-    liveRows: Record<string, any>[] = [],
+    liveRows: LiveAssistantTransientOverlay[] = [],
     conversationId = '',
-): Record<string, any>[] {
+): Array<CanonicalLiveAssistantRow | LiveAssistantTransientOverlay> {
     const trackerRows = projectLiveAssistantRows(snapshot, conversationId);
     const trackerRowsWithTransientState = overlayLiveAssistantTransientState(
         trackerRows,
@@ -352,9 +355,9 @@ export function buildEffectiveLiveAssistantRows(
 
 export function buildEffectiveLiveRows(
     snapshot: CanonicalConversationSnapshot | null | undefined,
-    liveRows: Record<string, any>[] = [],
+    liveRows: LiveAssistantTransientOverlay[] = [],
     conversationId = '',
-): Record<string, any>[] {
+): Array<CanonicalLiveAssistantRow | LiveAssistantTransientOverlay> {
     const explicitRows = Array.isArray(liveRows) ? liveRows : [];
     const streamRows = explicitRows.filter((row) => (
         String(row?._type || '').trim().toLowerCase() === 'stream'
@@ -413,7 +416,7 @@ export function latestLiveAssistantRowForTurnWithTransientState(
         ? ({
             ...trackerRow,
             ...matchingLiveRow,
-            executionGroups: trackerRow.executionGroups || (matchingLiveRow as any)?.executionGroups || [],
+            executionGroups: trackerRow.executionGroups || matchingLiveRow.executionGroups || [],
         } as CanonicalLiveAssistantRow)
         : trackerRow;
 }
@@ -423,7 +426,7 @@ export function latestEffectiveLiveAssistantRow(
     liveRows: LiveAssistantTransientOverlay[] = [],
     conversationId = '',
     turnId = '',
-): CanonicalLiveAssistantRow | Record<string, any> | null {
+): CanonicalLiveAssistantRow | LiveAssistantTransientOverlay | null {
     const targetTurnId = String(turnId || '').trim();
     if (!targetTurnId) return null;
     const trackerBacked = latestLiveAssistantRowForTurnWithTransientState(

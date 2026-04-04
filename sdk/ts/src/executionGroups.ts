@@ -1,4 +1,4 @@
-import type { ExecutionPage, ModelStepState, PlannedToolCall, SSEEvent, ToolStepState, Turn } from './types';
+import type { ExecutionPage, LiveExecutionGroup, LiveExecutionGroupsById, ModelStepState, PlannedToolCall, SSEEvent, ToolStepState, Turn } from './types';
 import { compareExecutionGroups, firstNumber, firstPositiveNumber, firstString } from './ordering';
 import { eventIterationValue, eventSequenceValue, executionGroupStatusForEvent, modelStepStatusForEvent, terminalStatusForType } from './streamEventMeta';
 
@@ -13,10 +13,10 @@ export function plannedToolCalls(group: Partial<ExecutionPage> = {}): PlannedToo
     return Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned : [];
 }
 
-export function isPresentableExecutionGroup(group: Partial<ExecutionPage & { errorMessage?: string }> = {}): boolean {
+export function isPresentableExecutionGroup(group: LiveExecutionGroup = {}): boolean {
     return Boolean(
         firstString(group?.preamble)
-        || firstString((group as any)?.errorMessage)
+        || firstString(group?.errorMessage)
         || (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0)
         || (Array.isArray(group?.toolCallsPlanned) && group.toolCallsPlanned.length > 0)
         || (group?.finalResponse && firstString(group?.content))
@@ -26,27 +26,28 @@ export function isPresentableExecutionGroup(group: Partial<ExecutionPage & { err
 export function selectExecutionPages(turns: Turn[] = []): ExecutionPage[] {
     const groups: ExecutionPage[] = [];
     for (const turn of Array.isArray(turns) ? turns : []) {
-        const turnId = firstString((turn as any)?.turnId, (turn as any)?.id);
-        const turnStatus = firstString((turn as any)?.status);
-        const pages = Array.isArray((turn as any)?.execution?.pages) ? (turn as any).execution.pages : [];
+        const turnId = firstString(turn?.turnId, turn?.id);
+        const turnStatus = firstString(turn?.status);
+        const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
         for (const page of pages) {
+            const normalizedPage = page || {};
             groups.push({
-                ...page,
-                turnId: firstString((page as any)?.turnId, turnId),
-                assistantMessageId: firstString((page as any)?.assistantMessageId, (page as any)?.pageId),
-                parentMessageId: firstString((page as any)?.parentMessageId),
-                iteration: firstNumber((page as any)?.iteration),
-                preamble: firstString((page as any)?.preamble),
-                content: firstString((page as any)?.content),
-                status: firstString((page as any)?.status, turnStatus),
-                finalResponse: Boolean((page as any)?.finalResponse),
-                modelSteps: Array.isArray((page as any)?.modelSteps) ? (page as any).modelSteps : [],
-                toolSteps: Array.isArray((page as any)?.toolSteps) ? (page as any).toolSteps : [],
-                toolCallsPlanned: Array.isArray((page as any)?.toolCallsPlanned) ? (page as any).toolCallsPlanned : [],
+                ...normalizedPage,
+                turnId: firstString(normalizedPage?.turnId, turnId),
+                assistantMessageId: firstString(normalizedPage?.assistantMessageId, normalizedPage?.pageId),
+                parentMessageId: firstString(normalizedPage?.parentMessageId),
+                iteration: firstNumber(normalizedPage?.iteration),
+                preamble: firstString(normalizedPage?.preamble),
+                content: firstString(normalizedPage?.content),
+                status: firstString(normalizedPage?.status, turnStatus),
+                finalResponse: Boolean(normalizedPage?.finalResponse),
+                modelSteps: Array.isArray(normalizedPage?.modelSteps) ? normalizedPage.modelSteps : [],
+                toolSteps: Array.isArray(normalizedPage?.toolSteps) ? normalizedPage.toolSteps : [],
+                toolCallsPlanned: Array.isArray(normalizedPage?.toolCallsPlanned) ? normalizedPage.toolCallsPlanned : [],
             } as ExecutionPage);
         }
     }
-    return groups.sort((left: any, right: any) => compareExecutionGroups(left, right));
+    return groups.sort((left, right) => compareExecutionGroups(left, right));
 }
 
 export type ExecutionStepLike = (ModelStepState | ToolStepState) & {
@@ -64,19 +65,19 @@ export function selectExecutionSteps(groups: Partial<ExecutionPage>[] = []): Exe
         for (const modelStep of Array.isArray(group?.modelSteps) ? group.modelSteps : []) {
             out.push({
                 ...modelStep,
-                id: firstString((modelStep as any)?.assistantMessageId, (modelStep as any)?.modelCallId),
+                id: firstString(modelStep?.assistantMessageId, modelStep?.modelCallId),
                 kind: 'model',
-                toolName: firstString((modelStep as any)?.provider && (modelStep as any)?.model ? `${(modelStep as any).provider}/${(modelStep as any).model}` : '', (modelStep as any)?.model, (modelStep as any)?.provider, 'model'),
-                errorMessage: firstString((modelStep as any)?.errorMessage),
+                toolName: firstString(modelStep?.provider && modelStep?.model ? `${modelStep.provider}/${modelStep.model}` : '', modelStep?.model, modelStep?.provider, 'model'),
+                errorMessage: firstString(modelStep?.errorMessage),
             });
         }
         for (const toolStep of Array.isArray(group?.toolSteps) ? group.toolSteps : []) {
             out.push({
                 ...toolStep,
-                id: firstString((toolStep as any)?.toolMessageId, (toolStep as any)?.toolCallId, (toolStep as any)?.id),
+                id: firstString(toolStep?.toolMessageId, toolStep?.toolCallId),
                 kind: 'tool',
-                toolName: firstString((toolStep as any)?.toolName, 'tool'),
-                errorMessage: firstString((toolStep as any)?.errorMessage),
+                toolName: firstString(toolStep?.toolName, 'tool'),
+                errorMessage: firstString(toolStep?.errorMessage),
             });
         }
     }
@@ -86,13 +87,13 @@ export function selectExecutionSteps(groups: Partial<ExecutionPage>[] = []): Exe
 export function findExecutionStepById(groups: Partial<ExecutionPage>[] = [], id = ''): ExecutionStepLike | null {
     const target = String(id || '').trim();
     if (!target) return null;
-    return selectExecutionSteps(groups).find((step) => String((step as any)?.id || '').trim() === target) || null;
+    return selectExecutionSteps(groups).find((step) => String(step?.id || '').trim() === target) || null;
 }
 
 export function findExecutionStepByPayloadId(groups: Partial<ExecutionPage>[] = [], payloadId = ''): ExecutionStepLike | null {
     const target = String(payloadId || '').trim();
     if (!target) return null;
-    return selectExecutionSteps(groups).find((step: any) => (
+    return selectExecutionSteps(groups).find((step) => (
         String(step?.requestPayloadId || '').trim() === target
         || String(step?.responsePayloadId || '').trim() === target
         || String(step?.providerRequestPayloadId || '').trim() === target
@@ -101,9 +102,9 @@ export function findExecutionStepByPayloadId(groups: Partial<ExecutionPage>[] = 
     )) || null;
 }
 
-function mergeExecutionGroup(existing: Record<string, any> = {}, incoming: Record<string, any> = {}) {
-    const toolStepsByKey = new Map<string, Record<string, any>>();
-    const mergedToolSteps: Record<string, any>[] = [];
+function mergeExecutionGroup(existing: LiveExecutionGroup = {}, incoming: LiveExecutionGroup = {}): LiveExecutionGroup {
+    const toolStepsByKey = new Map<string, ToolStepState>();
+    const mergedToolSteps: ToolStepState[] = [];
     const existToolSteps = existing?.toolSteps || [];
     const incToolSteps = incoming?.toolSteps || [];
     for (const entry of [...existToolSteps, ...incToolSteps]) {
@@ -112,7 +113,7 @@ function mergeExecutionGroup(existing: Record<string, any> = {}, incoming: Recor
             mergedToolSteps.push(entry);
             continue;
         }
-        const prior = toolStepsByKey.get(key) || {};
+        const prior = toolStepsByKey.get(key) || {} as ToolStepState;
         toolStepsByKey.set(key, { ...prior, ...entry });
     }
     for (const entry of toolStepsByKey.values()) {
@@ -120,7 +121,7 @@ function mergeExecutionGroup(existing: Record<string, any> = {}, incoming: Recor
     }
     const existModelSteps = existing?.modelSteps || [];
     const incModelSteps = incoming?.modelSteps || [];
-    const mergedModelSteps = incModelSteps.length > 0 ? incModelSteps.map((ms: any, i: number) => ({ ...(existModelSteps[i] || {}), ...ms })) : existModelSteps;
+    const mergedModelSteps = incModelSteps.length > 0 ? incModelSteps.map((ms, i) => ({ ...(existModelSteps[i] || {}), ...ms })) : existModelSteps;
     return {
         ...existing,
         ...incoming,
@@ -144,10 +145,10 @@ function mergeExecutionGroup(existing: Record<string, any> = {}, incoming: Recor
 function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
     const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
     if (!assistantMessageId) return null;
-    return {
+    const group: LiveExecutionGroup = {
         pageId: assistantMessageId,
         assistantMessageId,
-        turnId: firstString((event as any)?.turnId),
+        turnId: firstString(event?.turnId),
         parentMessageId: firstString(event?.parentMessageId),
         sequence: eventSequenceValue(event, 1),
         iteration: eventIterationValue(event, 1),
@@ -170,20 +171,21 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
         toolSteps: [],
         toolCallsPlanned: Array.isArray(event?.toolCallsPlanned) ? event.toolCallsPlanned : [],
     };
+    return group;
 }
 
-function ensureLiveExecutionGroup(groupsById: Record<string, any>, assistantMessageId: string, event: SSEEvent) {
+function ensureLiveExecutionGroup(groupsById: LiveExecutionGroupsById, assistantMessageId: string, event: SSEEvent): LiveExecutionGroup | null {
     return groupsById[assistantMessageId] || createLiveExecutionGroup(event);
 }
 
-function applyLiveGroupIdentity(current: Record<string, any>, event: SSEEvent) {
-    current.turnId = firstString((event as any)?.turnId, current.turnId);
+function applyLiveGroupIdentity(current: LiveExecutionGroup, event: SSEEvent) {
+    current.turnId = firstString(event?.turnId, current.turnId);
     current.sequence = eventSequenceValue(event, current.sequence || 1);
     current.iteration = eventIterationValue(event, current.iteration || 1);
     return current;
 }
 
-function mergePrimaryModelStep(current: Record<string, any>, event: SSEEvent, fallbackStatus = 'running') {
+function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fallbackStatus = 'running') {
     const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
     const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
     current.modelSteps = [{
@@ -202,11 +204,11 @@ function mergePrimaryModelStep(current: Record<string, any>, event: SSEEvent, fa
     return current;
 }
 
-function upsertToolStep(current: Record<string, any>, event: SSEEvent, extra: Record<string, any> = {}) {
+function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Partial<ToolStepState> = {}) {
     const toolKey = firstString(event?.toolCallId, event?.toolMessageId, event?.id, event?.toolName);
     const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
-    const existingIndex = priorList.findIndex((entry: any) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.id, entry?.toolName) === toolKey);
-    const toolEntry = {
+    const existingIndex = priorList.findIndex((entry) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.toolName) === toolKey);
+    const toolEntry: ToolStepState = {
         toolCallId: firstString(event?.toolCallId),
         toolMessageId: firstString(event?.toolMessageId, event?.id),
         toolName: firstString(event?.toolName),
@@ -215,10 +217,10 @@ function upsertToolStep(current: Record<string, any>, event: SSEEvent, extra: Re
         requestPayloadId: firstString(event?.requestPayloadId),
         responsePayloadId: firstString(event?.responsePayloadId),
         linkedConversationId: firstString(event?.linkedConversationId),
-        linkedConversationAgentId: firstString((event as any)?.linkedConversationAgentId),
-        linkedConversationTitle: firstString((event as any)?.linkedConversationTitle),
+        linkedConversationAgentId: firstString(event?.linkedConversationAgentId),
+        linkedConversationTitle: firstString(event?.linkedConversationTitle),
         ...extra,
-    };
+    } as ToolStepState;
     const nextTools = [...priorList];
     if (existingIndex >= 0) nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolEntry };
     else nextTools.push(toolEntry);
@@ -226,20 +228,20 @@ function upsertToolStep(current: Record<string, any>, event: SSEEvent, extra: Re
     return current;
 }
 
-function applyTerminalState(current: Record<string, any>, terminalStatus: string, terminalError: string) {
+function applyTerminalState(current: LiveExecutionGroup, terminalStatus: string, terminalError: string): LiveExecutionGroup {
     return {
         ...current,
         status: firstString(terminalStatus, current?.status),
         errorMessage: firstString(terminalError, current?.errorMessage),
         modelSteps: Array.isArray(current?.modelSteps)
-            ? current.modelSteps.map((step: any) => ({
+            ? current.modelSteps.map((step) => ({
                 ...step,
                 status: firstString(terminalStatus, step?.status),
                 errorMessage: firstString(terminalError, step?.errorMessage),
             }))
             : current?.modelSteps,
         toolSteps: Array.isArray(current?.toolSteps)
-            ? current.toolSteps.map((step: any) => ({
+            ? current.toolSteps.map((step) => ({
                 ...step,
                 status: firstString(terminalStatus, step?.status),
                 errorMessage: firstString(terminalError, step?.errorMessage),
@@ -248,11 +250,11 @@ function applyTerminalState(current: Record<string, any>, terminalStatus: string
     };
 }
 
-export function applyExecutionStreamEventToGroups(groupsById: Record<string, any> = {}, rawEvent: SSEEvent = {} as SSEEvent) {
+export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroupsById = {}, rawEvent: SSEEvent = {} as SSEEvent) {
     const event = rawEvent || ({} as SSEEvent);
     const type = firstString(event?.type).toLowerCase();
     const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
-    const next = { ...groupsById };
+    const next: LiveExecutionGroupsById = { ...groupsById };
 
     if (type === 'model_started' && assistantMessageId) {
         next[assistantMessageId] = mergeExecutionGroup(next[assistantMessageId], createLiveExecutionGroup(event) || {});
@@ -312,7 +314,7 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
     if (type === 'linked_conversation_attached' && assistantMessageId) {
         const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
-        current.turnId = firstString((event as any)?.turnId, current.turnId);
+        current.turnId = firstString(event?.turnId, current.turnId);
         const linkedConversationId = firstString(event?.linkedConversationId);
         if (!linkedConversationId) return next;
         upsertToolStep(current, event, { linkedConversationId });
@@ -333,7 +335,7 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
         return next;
     }
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
-        const targetTurnId = firstString((event as any)?.turnId);
+        const targetTurnId = firstString(event?.turnId);
         const terminalStatus = firstString(event?.status, terminalStatusForType(type));
         const terminalError = firstString(event?.error);
         if (assistantMessageId && next[assistantMessageId]) {
@@ -342,7 +344,7 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
         }
         if (targetTurnId) {
             Object.entries(next).forEach(([id, value]) => {
-                if (firstString((value as any)?.turnId) !== targetTurnId) return;
+                if (firstString(value?.turnId) !== targetTurnId) return;
                 next[id] = applyTerminalState(value, terminalStatus, terminalError);
             });
         }
@@ -350,9 +352,9 @@ export function applyExecutionStreamEventToGroups(groupsById: Record<string, any
     return next;
 }
 
-export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: Record<string, any>[] = [], liveGroupsById: Record<string, any> = {}, pageSize: string | number = '1') {
+export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: LiveExecutionGroup[] = [], liveGroupsById: LiveExecutionGroupsById = {}, pageSize: string | number = '1') {
     const normalizedPageSize = normalizeExecutionPageSize(pageSize);
-    const mergedById = new Map<string, Record<string, any>>();
+    const mergedById = new Map<string, LiveExecutionGroup>();
     for (const group of transcriptGroups) {
         const key = firstString(group?.assistantMessageId);
         if (!key) continue;
@@ -360,14 +362,14 @@ export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: Re
     }
     Object.values(liveGroupsById || {}).forEach((liveGroup) => {
         if (!isPresentableExecutionGroup(liveGroup)) return;
-        const key = firstString((liveGroup as any)?.assistantMessageId);
+        const key = firstString(liveGroup?.assistantMessageId);
         if (!key) return;
         // Keep the active/live execution group authoritative for its page.
         // Transcript groups remain for older pages, but we avoid blending the
         // active page object between transcript and SSE sources.
-        mergedById.set(key, liveGroup as Record<string, any>);
+        mergedById.set(key, liveGroup);
     });
-    const merged = Array.from(mergedById.values()).sort((left, right) => compareExecutionGroups(left as any, right as any));
+    const merged = Array.from(mergedById.values()).sort((left, right) => compareExecutionGroups(left, right));
     if (normalizedPageSize === 'all') return merged;
     const limit = Math.max(1, Number(normalizedPageSize || 1));
     if (limit === 1) {
@@ -377,7 +379,7 @@ export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: Re
     return merged.slice(Math.max(0, merged.length - limit));
 }
 
-export function describeExecutionTimelineEvent(event: Record<string, any> = {}) {
+export function describeExecutionTimelineEvent(event: LiveExecutionGroup & { type?: string; toolName?: string } = {}) {
     const type = firstString(event?.type, 'event');
     const status = firstString(event?.status);
     const toolName = firstString(event?.toolName);
@@ -386,7 +388,7 @@ export function describeExecutionTimelineEvent(event: Record<string, any> = {}) 
     if (status) parts.push(status);
     if (toolName) parts.push(toolName);
     if (Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0) {
-        parts.push(`planned ${event.toolCallsPlanned.map((item: any) => firstString(item?.toolName, 'tool')).join(', ')}`);
+        parts.push(`planned ${event.toolCallsPlanned.map((item) => firstString(item?.toolName, 'tool')).join(', ')}`);
     }
     if (message) parts.push(message);
     return parts.join(' · ');

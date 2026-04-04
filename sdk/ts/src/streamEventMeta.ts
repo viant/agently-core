@@ -1,12 +1,12 @@
 import type { SSEEvent } from './types';
 import { firstPositiveNumber, firstString } from './ordering';
 
-export function eventSequenceValue(event: SSEEvent = {} as SSEEvent, fallback = 1): number {
-    return firstPositiveNumber((event as any)?.pageIndex, (event as any)?.iteration, (event as any)?.eventSeq, fallback);
+export function eventSequenceValue(event?: SSEEvent, fallback = 1): number {
+    return firstPositiveNumber(event?.pageIndex, event?.iteration, event?.eventSeq, fallback);
 }
 
-export function eventIterationValue(event: SSEEvent = {} as SSEEvent, fallback = 0): number {
-    return firstPositiveNumber((event as any)?.iteration, (event as any)?.pageIndex, fallback);
+export function eventIterationValue(event?: SSEEvent, fallback = 0): number {
+    return firstPositiveNumber(event?.iteration, event?.pageIndex, fallback);
 }
 
 export function terminalStatusForType(type = ''): string {

@@ -23,7 +23,7 @@ export type {
     // Turn / Transcript
     Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     // Execution pages (canonical)
-    ExecutionPage, ModelStepState, ToolStepState,
+    ExecutionPage, LiveExecutionGroup, LiveExecutionGroupsById, ModelStepState, ToolStepState,
     // Message
     Message, MessagePage, GetMessagesInput,
     ToolMessageView, ToolCallView, ModelCallView,
@@ -87,10 +87,6 @@ export {
 } from './reconcile';
 export type { MessageBuffer } from './reconcile';
 
-// High-level stream tracker
-export { ConversationStreamTracker, projectLiveAssistantRows, overlayLiveAssistantTransientState, filterExplicitLiveRowsAgainstTracker, buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, hasLiveAssistantRowForTurn, selectLiveAssistantRowsForTurn, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, latestEffectiveLiveAssistantRow } from './conversationStream';
-export type { ConversationStreamSnapshot, CanonicalConversationSnapshot, CanonicalLiveAssistantRow, LiveAssistantTransientOverlay, LiveExecutionGroup, LiveExecutionGroupsById } from './conversationStream';
-
 // Canonical execution group helpers
 export {
     normalizeExecutionPageSize,
@@ -123,15 +119,6 @@ export {
     compareTemporalEntries,
     compareExecutionGroups,
 } from './ordering';
-
-// Stream event semantics
-export {
-    eventSequenceValue,
-    eventIterationValue,
-    terminalStatusForType,
-    modelStepStatusForEvent,
-    executionGroupStatusForEvent,
-} from './streamEventMeta';
 
 // Rich content rendering (pluggable fence registry, markdown, charts, tables)
 export {

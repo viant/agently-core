@@ -106,25 +106,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 }
 
 func canonicalTurnStatus(turn *convstore.Turn) TurnStatus {
-	if strings.TrimSpace(turn.Status) == "" {
-		return TurnStatusCompleted
-	}
-	switch strings.ToLower(strings.TrimSpace(turn.Status)) {
-	case "queued":
-		return TurnStatusQueued
-	case "running":
-		return TurnStatusRunning
-	case "waiting_for_user":
-		return TurnStatusWaitingForUser
-	case "completed", "succeeded":
-		return TurnStatusCompleted
-	case "failed":
-		return TurnStatusFailed
-	case "canceled", "cancelled":
-		return TurnStatusCanceled
-	default:
-		return TurnStatusCompleted
-	}
+	return turnStatusFromString(turn.Status, TurnStatusCompleted)
 }
 
 func buildElicitationState(msg *agconv.MessageView) *ElicitationState {
@@ -139,18 +121,7 @@ func buildElicitationState(msg *agconv.MessageView) *ElicitationState {
 
 	// Map message status to elicitation status
 	if msg.Status != nil {
-		switch strings.ToLower(strings.TrimSpace(*msg.Status)) {
-		case "pending":
-			es.Status = ElicitationStatusPending
-		case "accepted":
-			es.Status = ElicitationStatusAccepted
-		case "declined", "rejected":
-			es.Status = ElicitationStatusDeclined
-		case "canceled", "cancelled":
-			es.Status = ElicitationStatusCanceled
-		default:
-			es.Status = ElicitationStatusPending
-		}
+		es.Status = elicitationStatusForString(*msg.Status, ElicitationStatusPending)
 	} else {
 		es.Status = ElicitationStatusPending
 	}
@@ -228,7 +199,7 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 				if role != "assistant" || msg.Interim != 0 {
 					continue
 				}
-				content := strings.TrimSpace(stringValue(msg.Content))
+				content := visibleContentOrEmpty(msg.Content)
 				if content == "" {
 					continue
 				}
@@ -264,9 +235,15 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	page.ParentMessageID = message.Id
 	page.TurnID = stringValue(message.TurnId)
 	page.Iteration = iteration
-	page.Preamble = executionPreamble(message)
-	page.Content = strings.TrimSpace(stringValue(message.Content))
-	page.FinalResponse = isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message)
+	if preamble := executionPreamble(message); preamble != "" {
+		page.Preamble = preamble
+	}
+	if content := visibleContentOrEmpty(message.Content); content != "" {
+		page.Content = content
+	}
+	if isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message) {
+		page.FinalResponse = true
+	}
 	page.Status = pageStatus(message)
 	if mode != "" {
 		page.Mode = mode
@@ -319,7 +296,7 @@ func pageStatus(message *agconv.MessageView) string {
 	if status == "" && message.ModelCall != nil {
 		status = strings.TrimSpace(message.ModelCall.Status)
 	}
-	return status
+	return stepStatusFromString(status, "")
 }
 
 func buildModelStep(message *agconv.MessageView) *ModelStepState {
@@ -332,7 +309,7 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 		AssistantMessageID: message.Id,
 		Provider:           strings.TrimSpace(mc.Provider),
 		Model:              strings.TrimSpace(mc.Model),
-		Status:             strings.TrimSpace(mc.Status),
+		Status:             stepStatusFromString(mc.Status, ""),
 		StartedAt:          mc.StartedAt,
 		CompletedAt:        mc.CompletedAt,
 	}
@@ -378,7 +355,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 		ToolCallID:    strings.TrimSpace(tc.OpId),
 		ToolMessageID: strings.TrimSpace(tm.Id),
 		ToolName:      strings.TrimSpace(tc.ToolName),
-		Status:        strings.TrimSpace(tc.Status),
+		Status:        stepStatusFromString(tc.Status, ""),
 		StartedAt:     tc.StartedAt,
 		CompletedAt:   tc.CompletedAt,
 	}

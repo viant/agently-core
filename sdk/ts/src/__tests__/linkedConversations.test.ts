@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { reduceLinkedConversationPreviewEvent, summarizeLinkedConversationTranscript } from '../linkedConversations';
+import type { SSEEvent, TranscriptOutput } from '../types';
+
+function transcript(input: TranscriptOutput): TranscriptOutput {
+    return input;
+}
+
+function event(input: Partial<SSEEvent>): SSEEvent {
+    return input as SSEEvent;
+}
 
 describe('summarizeLinkedConversationTranscript', () => {
     it('summarizes canonical child transcript pages into preview groups', () => {
-        const summary = summarizeLinkedConversationTranscript({
+        const summary = summarizeLinkedConversationTranscript(transcript({
             turns: [
                 {
                     status: 'completed',
@@ -28,7 +37,7 @@ describe('summarizeLinkedConversationTranscript', () => {
                     },
                 },
             ],
-        } as any);
+        }));
 
         expect(summary.agentId).toBe('steward-forecasting');
         expect(summary.status).toBe('completed');
@@ -55,13 +64,13 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             previewGroups: [],
         };
 
-        const afterModelStart = reduceLinkedConversationPreviewEvent(current, {
+        const afterModelStart = reduceLinkedConversationPreviewEvent(current, event({
             type: 'model_started',
             assistantMessageId: 'mc-1',
             modelName: 'gpt-5.4',
             provider: 'openai',
             status: 'thinking',
-        } as any);
+        }));
         expect(afterModelStart.previewGroups).toHaveLength(1);
         expect(afterModelStart.previewGroups[0]).toMatchObject({
             stepKind: 'model',
@@ -69,12 +78,12 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             status: 'thinking',
         });
 
-        const afterTool = reduceLinkedConversationPreviewEvent(afterModelStart, {
+        const afterTool = reduceLinkedConversationPreviewEvent(afterModelStart, event({
             type: 'tool_call_started',
             toolCallId: 'call-1',
             toolName: 'steward/AdHierarchy',
             status: 'running',
-        } as any);
+        }));
         expect(afterTool.previewGroups).toHaveLength(2);
         expect(afterTool.previewGroups[1]).toMatchObject({
             stepKind: 'tool',
@@ -82,11 +91,11 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             status: 'running',
         });
 
-        const afterFinal = reduceLinkedConversationPreviewEvent(afterTool, {
+        const afterFinal = reduceLinkedConversationPreviewEvent(afterTool, event({
             type: 'assistant_final',
             content: 'Child forecast complete.',
             status: 'completed',
-        } as any);
+        }));
         expect(afterFinal.response).toBe('Child forecast complete.');
         expect(afterFinal.status).toBe('completed');
     });
