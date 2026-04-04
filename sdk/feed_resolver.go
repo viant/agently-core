@@ -11,7 +11,6 @@ func (c *EmbeddedClient) resolveActiveFeedsFromState(ctx context.Context, state 
 }
 
 func (c *EmbeddedClient) resolveActiveFeedsWithVisited(ctx context.Context, state *ConversationState, visited map[string]struct{}) []*ActiveFeedState {
-	_ = visited
 	if c.feeds == nil || state == nil || len(state.Turns) == 0 {
 		return nil
 	}
@@ -168,7 +167,6 @@ func (c *EmbeddedClient) resolveActiveFeedsWithVisited(ctx context.Context, stat
 				}
 			}
 		}
-		_ = turnIdx
 	}
 
 	var result []*ActiveFeedState

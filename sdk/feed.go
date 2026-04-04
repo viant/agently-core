@@ -12,6 +12,8 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // FeedSpec describes a tool feed loaded from workspace YAML.
@@ -85,7 +87,7 @@ func (r *FeedRegistry) loadFromWorkspace() {
 				}
 			}
 			if spec.Title == "" {
-				spec.Title = strings.Title(spec.ID)
+				spec.Title = cases.Title(language.English).String(spec.ID)
 			}
 		}
 		specs = append(specs, &spec)

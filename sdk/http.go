@@ -145,7 +145,7 @@ func (c *HTTPClient) GetWorkspaceMetadata(ctx context.Context) (*WorkspaceMetada
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
 		return nil, fmt.Errorf("request failed: %s: %s", resp.Status, strings.TrimSpace(string(data)))
 	}
 	var raw map[string]json.RawMessage
@@ -269,7 +269,7 @@ func (c *HTTPClient) StreamEvents(ctx context.Context, input *StreamEventsInput)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
 		return nil, fmt.Errorf("stream request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	return newSSESubscription(ctx, resp.Body, input), nil
@@ -938,7 +938,7 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path string, in interfa
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
 		return fmt.Errorf("request failed: %s: %s", resp.Status, strings.TrimSpace(string(data)))
 	}
 	if out == nil {
