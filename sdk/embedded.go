@@ -327,6 +327,12 @@ func (c *EmbeddedClient) CreateConversation(ctx context.Context, input *CreateCo
 	if strings.TrimSpace(input.Title) != "" {
 		row.SetTitle(strings.TrimSpace(input.Title))
 	}
+	if strings.TrimSpace(input.ParentConversationID) != "" {
+		row.SetConversationParentId(strings.TrimSpace(input.ParentConversationID))
+	}
+	if strings.TrimSpace(input.ParentTurnID) != "" {
+		row.SetConversationParentTurnId(strings.TrimSpace(input.ParentTurnID))
+	}
 	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
 		row.SetCreatedByUserID(userID)
 	}

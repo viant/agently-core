@@ -458,10 +458,25 @@ export class AgentlyClient {
     async uploadFile(
         conversationId: string, file: File | Blob, name?: string,
     ): Promise<UploadFileOutput> {
-        void conversationId;
-        void file;
-        void name;
-        throw new Error('File upload routes (/v1/files) are not exposed by sdk/handler.go HTTP routes');
+        const headers = await this.authHeaders();
+        delete headers['Content-Type'];
+
+        const fileName = name || (typeof File !== 'undefined' && file instanceof File ? file.name : 'upload.bin');
+        const contentType = ('type' in file && typeof file.type === 'string' && file.type) ? file.type : 'application/octet-stream';
+        const form = new FormData();
+        form.set('conversationId', conversationId);
+        form.set('name', fileName);
+        form.set('contentType', contentType);
+        form.set('file', file, fileName);
+
+        const resp = await this.fetchImpl(`${this.baseURL}/files`, {
+            method: 'POST',
+            headers,
+            body: form,
+            credentials: this.useCookies ? 'include' : 'same-origin',
+        });
+        if (!resp.ok) throw await this.toHttpError(resp);
+        return (await resp.json()) as UploadFileOutput;
     }
 
     /** List files for a conversation. */

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -542,8 +543,61 @@ func (c *HTTPClient) ExecuteTool(ctx context.Context, name string, args map[stri
 	return out.Result, nil
 }
 
-func (c *HTTPClient) UploadFile(_ context.Context, _ *UploadFileInput) (*UploadFileOutput, error) {
-	return nil, errors.New("file operations not yet implemented")
+func (c *HTTPClient) UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if len(input.Data) == 0 {
+		return nil, errors.New("file data is required")
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if err := w.WriteField("conversationId", strings.TrimSpace(input.ConversationID)); err != nil {
+		return nil, err
+	}
+	if name := strings.TrimSpace(input.Name); name != "" {
+		if err := w.WriteField("name", name); err != nil {
+			return nil, err
+		}
+	}
+	if contentType := strings.TrimSpace(input.ContentType); contentType != "" {
+		if err := w.WriteField("contentType", contentType); err != nil {
+			return nil, err
+		}
+	}
+	filename := strings.TrimSpace(input.Name)
+	if filename == "" {
+		filename = "upload.bin"
+	}
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = part.Write(input.Data); err != nil {
+		return nil, err
+	}
+	if err = w.Close(); err != nil {
+		return nil, err
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, c.filesPath, &buf, w.FormDataContentType())
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
+		return nil, fmt.Errorf("upload file: %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	}
+	var out UploadFileOutput
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *HTTPClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {

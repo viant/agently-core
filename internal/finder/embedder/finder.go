@@ -3,6 +3,8 @@ package embedder
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -42,6 +44,10 @@ func (f *Finder) Find(ctx context.Context, id string) (base.Embedder, error) {
 	if err != nil {
 		if f.configLoader != nil {
 			cfg, err = f.configLoader.Load(ctx, id)
+			if err != nil {
+				fallback := filepath.ToSlash(filepath.Join("embedders", strings.TrimSpace(id)))
+				cfg, err = f.configLoader.Load(ctx, fallback)
+			}
 		}
 		if err != nil {
 			return nil, err

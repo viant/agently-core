@@ -98,9 +98,11 @@ type EditQueuedTurnInput struct {
 
 // CreateConversationInput holds fields needed to create a new conversation.
 type CreateConversationInput struct {
-	AgentID  string
-	Title    string
-	Metadata map[string]interface{}
+	AgentID              string                 `json:"agentId,omitempty"`
+	Title                string                 `json:"title,omitempty"`
+	Metadata             map[string]interface{} `json:"metadata,omitempty"`
+	ParentConversationID string                 `json:"parentConversationId,omitempty"`
+	ParentTurnID         string                 `json:"parentTurnId,omitempty"`
 }
 
 // UpdateConversationInput updates mutable conversation fields.

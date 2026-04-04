@@ -192,8 +192,58 @@ func handleListLinkedConversations(client Client) http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
+		if out != nil && len(out.Rows) == 0 {
+			fallback, fallbackErr := client.ListConversations(r.Context(), &ListConversationsInput{
+				ParentID:     parentID,
+				ParentTurnID: parentTurnID,
+				Page:         input.Page,
+			})
+			if fallbackErr == nil && fallback != nil {
+				out = linkedPageFromConversationPage(fallback)
+			}
+		}
 		httpJSON(w, http.StatusOK, out)
 	}
+}
+
+func linkedPageFromConversationPage(page *ConversationPage) *LinkedConversationPage {
+	if page == nil {
+		return &LinkedConversationPage{}
+	}
+	ret := &LinkedConversationPage{
+		Rows:       make([]*LinkedConversationEntry, 0, len(page.Rows)),
+		NextCursor: page.NextCursor,
+		PrevCursor: page.PrevCursor,
+		HasMore:    page.HasMore,
+	}
+	for _, row := range page.Rows {
+		if row == nil {
+			continue
+		}
+		entry := &LinkedConversationEntry{
+			ConversationID: row.Id,
+			AgentID:        strings.TrimSpace(valueOrEmptyString(row.AgentId)),
+			Title:          strings.TrimSpace(valueOrEmptyString(row.Title)),
+			Status:         strings.TrimSpace(valueOrEmptyString(row.Status)),
+			CreatedAt:      row.CreatedAt,
+			UpdatedAt:      row.UpdatedAt,
+		}
+		if row.ConversationParentId != nil {
+			entry.ParentConversationID = strings.TrimSpace(*row.ConversationParentId)
+		}
+		if row.ConversationParentTurnId != nil {
+			entry.ParentTurnID = strings.TrimSpace(*row.ConversationParentTurnId)
+		}
+		ret.Rows = append(ret.Rows, entry)
+	}
+	return ret
+}
+
+func valueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func handleGetLiveState(client Client) http.HandlerFunc {

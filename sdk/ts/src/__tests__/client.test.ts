@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentlyClient } from '../client';
 import { HttpError } from '../errors';
 
+type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type FetchMock = ReturnType<typeof vi.fn<FetchImplementation>>;
+
 class MockEventSource {
     static instances: MockEventSource[] = [];
     url: string;
@@ -31,7 +34,7 @@ function mockResponse(response: Partial<Response>): Response {
     return response as unknown as Response;
 }
 
-function mockFetch(status: number, body: unknown, headers?: Record<string, string>): typeof fetch {
+function mockFetch(status: number, body: unknown, headers?: Record<string, string>): FetchMock {
     const response = {
         ok: status >= 200 && status < 300,
         status,
@@ -41,14 +44,29 @@ function mockFetch(status: number, body: unknown, headers?: Record<string, strin
         headers: new Headers(headers ?? {}),
         arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
     } satisfies Partial<Response>;
-    return vi.fn().mockResolvedValue(mockResponse(response));
+    return vi.fn<FetchImplementation>().mockResolvedValue(mockResponse(response));
 }
 
-function client(fetchImpl: typeof fetch, baseURL = 'http://localhost:8585/v1'): AgentlyClient {
+function client(fetchImpl: FetchImplementation, baseURL = 'http://localhost:8585/v1'): AgentlyClient {
     return new AgentlyClient({ baseURL, fetchImpl, timeoutMs: 0 });
 }
 
-function lastCall(fn: ReturnType<typeof vi.fn>): { url: string; method: string; body?: unknown; headers?: HeadersInit } {
+function normalizeHeaders(headers?: HeadersInit): Record<string, string> | undefined {
+    if (!headers) return undefined;
+    if (headers instanceof Headers) {
+        const out: Record<string, string> = {};
+        headers.forEach((value, key) => {
+            out[key] = value;
+        });
+        return out;
+    }
+    if (Array.isArray(headers)) {
+        return Object.fromEntries(headers);
+    }
+    return headers;
+}
+
+function lastCall(fn: FetchMock): { url: string; method: string; body?: any; headers?: Record<string, string> } {
     const [url, opts] = fn.mock.calls[fn.mock.calls.length - 1];
     let body: unknown = undefined;
     if (opts?.body !== undefined) {
@@ -63,10 +81,10 @@ function lastCall(fn: ReturnType<typeof vi.fn>): { url: string; method: string; 
         }
     }
     return {
-        url,
+        url: String(url),
         method: opts?.method || 'GET',
         body,
-        headers: opts?.headers,
+        headers: normalizeHeaders(opts?.headers),
     };
 }
 
@@ -81,13 +99,23 @@ describe('Conversations', () => {
     it('createConversation sends POST with body', async () => {
         const f = mockFetch(200, { id: 'conv_1', title: 'Test' });
         const c = client(f);
-        const res = await c.createConversation({ agentId: 'coder', title: 'Test' });
+        const res = await c.createConversation({
+            agentId: 'coder',
+            title: 'Test',
+            parentConversationId: 'parent_1',
+            parentTurnId: 'turn_1',
+        });
 
         expect(res.id).toBe('conv_1');
         const call = lastCall(f);
         expect(call.method).toBe('POST');
         expect(call.url).toBe('http://localhost:8585/v1/conversations');
-        expect(call.body).toEqual({ agentId: 'coder', title: 'Test' });
+        expect(call.body).toEqual({
+            agentId: 'coder',
+            title: 'Test',
+            parentConversationId: 'parent_1',
+            parentTurnId: 'turn_1',
+        });
     });
 
     it('listConversations with search query', async () => {
@@ -481,10 +509,16 @@ describe('Workspace Resources', () => {
 });
 
 describe('Files', () => {
-    it('uploadFile throws explicit unsupported-route error', async () => {
-        const f = mockFetch(200, {});
+    it('uploadFile uses the exposed POST /v1/files route', async () => {
+        const f = mockFetch(200, { id: 'file_1', uri: '/v1/files/file_1?conversationId=conv_1' });
         const c = client(f);
-        await expect(c.uploadFile('conv_1', new Blob(['x']))).rejects.toThrow('/v1/files');
+        const res = await c.uploadFile('conv_1', new Blob(['x'], { type: 'text/plain' }), 'note.txt');
+
+        expect(res.id).toBe('file_1');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/files');
+        expect(call.body).toBeInstanceOf(FormData);
     });
 
     it('listFiles uses the exposed GET /v1/files route', async () => {
@@ -820,8 +854,9 @@ describe('Payload', () => {
         const c = client(f);
         const res = await c.getPayload('p1', { raw: true });
 
-        expect(res.contentType).toBe('text/plain');
-        expect(res.data).toBe(buf);
+        const raw = res as unknown as { contentType: string; data: ArrayBuffer };
+        expect(raw.contentType).toBe('text/plain');
+        expect(raw.data).toBe(buf);
         const call = lastCall(f);
         expect(call.url).toContain('raw=1');
     });

@@ -134,6 +134,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Client, cfg *handlerConfig) {
 	mux.HandleFunc("GET /v1/api/payload/{id}", handleGetPayload(client))
 	mux.HandleFunc("GET /v1/api/conversations/{id}/generated-files", handleListGeneratedFiles(client))
 	mux.HandleFunc("GET /v1/api/generated-files/{id}/download", handleDownloadGeneratedFile(client))
+	mux.HandleFunc("POST /v1/files", handleUploadFile(client))
 	mux.HandleFunc("GET /v1/files", handleListFiles(client))
 	mux.HandleFunc("GET /v1/files/{id}", handleDownloadFile(client))
 	mux.HandleFunc("GET /v1/feeds", handleListFeeds(client))
