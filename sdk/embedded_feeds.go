@@ -81,7 +81,7 @@ func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL s
 }
 
 // Deprecated: use resolveActiveFeedsFromState instead.
-func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*ActiveFeedState {
+func (c *EmbeddedClient) resolveActiveFeeds(ctx context.Context, turns conversation.Transcript) []*ActiveFeedState {
 	if c.feeds == nil || len(turns) == 0 {
 		return nil
 	}
@@ -93,7 +93,7 @@ func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*Ac
 			if _, exists := feedResults[spec.ID]; exists {
 				continue
 			}
-			content := c.findLastToolCallPayload(turns, toolName)
+			content := c.findLastToolCallPayload(ctx, turns, toolName)
 			var data interface{}
 			if content != "" {
 				var parsed interface{}
@@ -125,7 +125,7 @@ func (c *EmbeddedClient) resolveActiveFeeds(turns conversation.Transcript) []*Ac
 	return result
 }
 
-func (c *EmbeddedClient) findLastToolCallPayload(turns conversation.Transcript, targetTool string) string {
+func (c *EmbeddedClient) findLastToolCallPayload(ctx context.Context, turns conversation.Transcript, targetTool string) string {
 	target := strings.ToLower(strings.TrimSpace(targetTool))
 	for i := len(turns) - 1; i >= 0; i-- {
 		turn := turns[i]
@@ -144,7 +144,7 @@ func (c *EmbeddedClient) findLastToolCallPayload(turns conversation.Transcript, 
 				return strings.TrimSpace(*msg.Content)
 			}
 			if c.conv != nil {
-				if payloadContent := c.fetchToolCallResponsePayload(msg.Id); payloadContent != "" {
+				if payloadContent := c.fetchToolCallResponsePayload(ctx, msg.Id); payloadContent != "" {
 					return payloadContent
 				}
 			}
@@ -153,11 +153,11 @@ func (c *EmbeddedClient) findLastToolCallPayload(turns conversation.Transcript, 
 	return ""
 }
 
-func (c *EmbeddedClient) fetchToolCallResponsePayload(messageID string) string {
+func (c *EmbeddedClient) fetchToolCallResponsePayload(ctx context.Context, messageID string) string {
 	if c.conv == nil || messageID == "" {
 		return ""
 	}
-	msg, err := c.conv.GetMessage(context.Background(), messageID)
+	msg, err := c.conv.GetMessage(ctx, messageID)
 	if err != nil || msg == nil {
 		return ""
 	}
@@ -169,7 +169,7 @@ func (c *EmbeddedClient) fetchToolCallResponsePayload(messageID string) string {
 		if payloadID == "" {
 			continue
 		}
-		if p, err := c.conv.GetPayload(context.Background(), payloadID); err == nil && p != nil && p.InlineBody != nil {
+		if p, err := c.conv.GetPayload(ctx, payloadID); err == nil && p != nil && p.InlineBody != nil {
 			return strings.TrimSpace(string(*p.InlineBody))
 		}
 	}

@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/http"
 
 	svca2a "github.com/viant/agently-core/service/a2a"
@@ -77,8 +79,14 @@ func WithA2AHandler(h *svca2a.Handler) HandlerOption {
 }
 
 func NewHandler(client Client, opts ...HandlerOption) http.Handler {
-	h, _ := NewHandlerWithContext(context.Background(), client, opts...)
-	return h
+	h, err := NewHandlerWithContext(context.Background(), client, opts...)
+	if err == nil {
+		return h
+	}
+	log.Printf("[sdk] NewHandler failed: %v", err)
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to initialize handler: %w", err))
+	})
 }
 
 func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOption) (http.Handler, error) {

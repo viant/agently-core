@@ -170,8 +170,8 @@ func parseToolName(name string) (string, string) {
 	return normalized, "*"
 }
 
-// EmitFeedActive publishes a tool_feed_active SSE event with the tool result data.
-func EmitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID string, spec *FeedSpec, itemCount int, data interface{}) {
+// emitFeedActive publishes a tool_feed_active SSE event with the tool result data.
+func emitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID string, spec *FeedSpec, itemCount int, data interface{}) {
 	if bus == nil || spec == nil || convID == "" {
 		return
 	}
@@ -195,8 +195,8 @@ func EmitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID strin
 	_ = bus.Publish(ctx, event)
 }
 
-// EmitFeedInactive publishes a tool_feed_inactive SSE event.
-func EmitFeedInactive(ctx context.Context, bus streaming.Bus, convID string, feedID string) {
+// emitFeedInactive publishes a tool_feed_inactive SSE event.
+func emitFeedInactive(ctx context.Context, bus streaming.Bus, convID string, feedID string) {
 	if bus == nil || convID == "" || feedID == "" {
 		return
 	}

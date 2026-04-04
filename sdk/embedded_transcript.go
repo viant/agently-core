@@ -79,7 +79,7 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 		Conversation:  state,
 	}
 	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
-		resp.Feeds = c.resolveActiveFeedsFromState(context.Background(), state)
+		resp.Feeds = c.resolveActiveFeedsFromState(ctx, state)
 	}
 	return resp, nil
 }
