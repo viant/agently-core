@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/viant/agently-core/app/store/conversation"
@@ -202,7 +203,11 @@ func (c *EmbeddedClient) GetPayloads(ctx context.Context, ids []string) (map[str
 			continue
 		}
 		p, err := c.conv.GetPayload(ctx, id)
-		if err != nil || p == nil {
+		if err != nil {
+			log.Printf("[sdk] GetPayloads: failed to fetch payload %q: %v", id, err)
+			continue
+		}
+		if p == nil {
 			continue
 		}
 		result[id] = p

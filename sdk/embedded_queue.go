@@ -76,11 +76,16 @@ func moveQueuedTurn(c *EmbeddedClient, ctx context.Context, input *MoveQueuedTur
 		if err != nil {
 			return err
 		}
-		for _, row := range fallbackRows {
+		for i, row := range fallbackRows {
 			if row == nil {
 				continue
 			}
-			seq := int64(time.Now().UnixNano())
+			// Use the list position as a stable fallback so that rows without a
+			// QueueSeq always have unique, ordered sequence numbers. Using
+			// time.Now().UnixNano() inside the loop risks identical values when
+			// two turns were queued within the same nanosecond, which would make
+			// a move operation swap identical seq values and produce no change.
+			seq := int64(i)
 			if row.QueueSeq != nil {
 				seq = int64(*row.QueueSeq)
 			}

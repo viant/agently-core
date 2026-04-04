@@ -64,15 +64,21 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 			feedData = map[string]interface{}{"output": parsed}
 		}
 	}
+	// Collect all map writes under one lock acquisition to avoid interleaving
+	// with concurrent EmitInactiveForMissing calls between loop iterations.
+	n.mu.Lock()
+	feedsByConversation := n.activeFeeds[convID]
+	if feedsByConversation == nil {
+		feedsByConversation = map[string]bool{}
+		n.activeFeeds[convID] = feedsByConversation
+	}
 	for _, spec := range matched {
-		n.mu.Lock()
-		feedsByConversation := n.activeFeeds[convID]
-		if feedsByConversation == nil {
-			feedsByConversation = map[string]bool{}
-			n.activeFeeds[convID] = feedsByConversation
-		}
 		feedsByConversation[spec.ID] = true
-		n.mu.Unlock()
+	}
+	n.mu.Unlock()
+	// Emit SSE events outside the lock — bus.Publish must not be called under
+	// n.mu to avoid deadlock if the bus callback re-enters the notifier.
+	for _, spec := range matched {
 		EmitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
 	}
 }

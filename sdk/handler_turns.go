@@ -2,8 +2,8 @@ package sdk
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -171,14 +171,12 @@ func handleResolveElicitation(client Client) http.HandlerFunc {
 			Action:         strings.TrimSpace(body.Action),
 			Payload:        body.Payload,
 		}
-		payloadJSON, _ := json.Marshal(body.Payload)
-		fmt.Printf("[resolve-elicitation] convID=%s elicitID=%s action=%s payload=%s\n", conversationID, elicitationID, body.Action, string(payloadJSON))
 		if in.Action == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("action is required"))
 			return
 		}
 		if err := client.ResolveElicitation(r.Context(), in); err != nil {
-			fmt.Printf("[resolve-elicitation] error: %v\n", err)
+			log.Printf("[resolve-elicitation] convID=%s elicitID=%s error: %v", conversationID, elicitationID, err)
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
