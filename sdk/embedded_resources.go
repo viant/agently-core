@@ -3,13 +3,66 @@ package sdk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/workspace"
 )
 
-func (c *EmbeddedClient) UploadFile(_ context.Context, _ *UploadFileInput) (*UploadFileOutput, error) {
-	return nil, errors.New("file operations not yet implemented")
+func (c *EmbeddedClient) UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error) {
+	if c.conv == nil {
+		return nil, errors.New("conversation client not configured")
+	}
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if len(input.Data) == 0 {
+		return nil, errors.New("file data is required")
+	}
+
+	fileID := uuid.New().String()
+	payloadID := uuid.New().String()
+
+	// Store the file content as an inline payload.
+	p := conversation.NewPayload()
+	p.SetId(payloadID)
+	p.SetInlineBody(input.Data)
+	p.SetSizeBytes(len(input.Data))
+	if ct := strings.TrimSpace(input.ContentType); ct != "" {
+		p.SetMimeType(ct)
+	}
+	if err := c.conv.PatchPayload(ctx, p); err != nil {
+		return nil, fmt.Errorf("storing file payload: %w", err)
+	}
+
+	// Register the file in the generated-file index when the conversation
+	// client supports it (datly-backed and memory implementations do).
+	if gfc, ok := c.conv.(conversation.GeneratedFileClient); ok {
+		now := time.Now().UTC()
+		gf := conversation.NewGeneratedFile()
+		gf.SetID(fileID)
+		gf.SetConversationID(strings.TrimSpace(input.ConversationID))
+		gf.SetPayloadID(payloadID)
+		gf.SetStatus("ready")
+		gf.SetProvider("upload")
+		if name := strings.TrimSpace(input.Name); name != "" {
+			gf.SetFilename(name)
+		}
+		if ct := strings.TrimSpace(input.ContentType); ct != "" {
+			gf.SetMimeType(ct)
+		}
+		gf.SetSizeBytes(len(input.Data))
+		gf.SetCreatedAt(now)
+		gf.SetUpdatedAt(now)
+		if err := gfc.PatchGeneratedFile(ctx, gf); err != nil {
+			return nil, fmt.Errorf("registering uploaded file: %w", err)
+		}
+	}
+
+	return &UploadFileOutput{ID: fileID}, nil
 }
 
 func (c *EmbeddedClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {

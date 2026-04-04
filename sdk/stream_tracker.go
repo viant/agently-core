@@ -38,6 +38,8 @@ func NewConversationStreamTracker(conversationID string) *ConversationStreamTrac
 }
 
 // State returns the current canonical state pointer.
+// Returns nil when no events have been applied yet or after Reset/Clear is called.
+// Callers must nil-check the result before dereferencing.
 func (t *ConversationStreamTracker) State() *ConversationState {
 	if t == nil {
 		return nil
