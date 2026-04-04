@@ -59,3 +59,37 @@ func TestEmbeddedClient_ListLinkedConversations_ExcludesOrphans(t *testing.T) {
 	require.Len(t, page.Rows, 1)
 	require.Equal(t, "child-valid", page.Rows[0].ConversationID)
 }
+
+func TestEmbeddedClient_CreateConversation_PreservesParentLink(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	require.NoError(t, err)
+
+	convClient, err := convsvc.New(ctx, dao)
+	require.NoError(t, err)
+
+	client := &EmbeddedClient{
+		conv: convClient,
+		data: data.NewService(dao),
+	}
+
+	parentTurnID := "parent-turn-1"
+	created, err := client.CreateConversation(ctx, &CreateConversationInput{
+		AgentID:              "coder",
+		Title:                "child",
+		ParentConversationID: "parent-1",
+		ParentTurnID:         parentTurnID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	require.Equal(t, "parent-1", ptrValue(created.ConversationParentId))
+	require.Equal(t, parentTurnID, ptrValue(created.ConversationParentTurnId))
+}
+
+func ptrValue[T any](value *T) T {
+	var zero T
+	if value == nil {
+		return zero
+	}
+	return *value
+}

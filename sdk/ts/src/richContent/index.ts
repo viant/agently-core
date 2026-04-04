@@ -56,3 +56,13 @@ export type {
   FenceClassification,
   FenceClassifier,
 } from './registry';
+
+export {
+  describeFence,
+  describeFences,
+  describeContent,
+} from './descriptors';
+export type {
+  FenceDescriptor,
+  RichContentDescriptor,
+} from './descriptors';

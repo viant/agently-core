@@ -65,6 +65,8 @@ export interface CreateConversationInput {
     agentId?: string;
     title?: string;
     metadata?: JSONObject;
+    parentConversationId?: string;
+    parentTurnId?: string;
 }
 
 export interface UpdateConversationInput {
@@ -626,6 +628,7 @@ export interface ModelInfo {
 }
 
 export interface StarterTask {
+    id?: string;
     title?: string;
     prompt?: string;
     agentId?: string;

@@ -27,13 +27,17 @@ func (c *EmbeddedClient) UploadFile(ctx context.Context, input *UploadFileInput)
 	payloadID := uuid.New().String()
 
 	// Store the file content as an inline payload.
+	contentType := strings.TrimSpace(input.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
 	p := conversation.NewPayload()
 	p.SetId(payloadID)
+	p.SetKind("attachment")
+	p.SetStorage("inline")
 	p.SetInlineBody(input.Data)
 	p.SetSizeBytes(len(input.Data))
-	if ct := strings.TrimSpace(input.ContentType); ct != "" {
-		p.SetMimeType(ct)
-	}
+	p.SetMimeType(contentType)
 	if err := c.conv.PatchPayload(ctx, p); err != nil {
 		return nil, fmt.Errorf("storing file payload: %w", err)
 	}
@@ -46,14 +50,14 @@ func (c *EmbeddedClient) UploadFile(ctx context.Context, input *UploadFileInput)
 		gf.SetID(fileID)
 		gf.SetConversationID(strings.TrimSpace(input.ConversationID))
 		gf.SetPayloadID(payloadID)
+		gf.SetMode("inline")
+		gf.SetCopyMode("eager")
 		gf.SetStatus("ready")
 		gf.SetProvider("upload")
 		if name := strings.TrimSpace(input.Name); name != "" {
 			gf.SetFilename(name)
 		}
-		if ct := strings.TrimSpace(input.ContentType); ct != "" {
-			gf.SetMimeType(ct)
-		}
+		gf.SetMimeType(contentType)
 		gf.SetSizeBytes(len(input.Data))
 		gf.SetCreatedAt(now)
 		gf.SetUpdatedAt(now)

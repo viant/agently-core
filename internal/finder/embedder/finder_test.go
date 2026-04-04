@@ -2,10 +2,25 @@ package embedder
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/viant/agently-core/genai/embedder/provider"
 )
+
+type testConfigLoader struct {
+	loads   []string
+	configs map[string]*provider.Config
+}
+
+func (t *testConfigLoader) Load(_ context.Context, name string) (*provider.Config, error) {
+	t.loads = append(t.loads, name)
+	cfg, ok := t.configs[name]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return cfg, nil
+}
 
 func TestFinder_AddConfig_Find(t *testing.T) {
 	f := New()
@@ -96,5 +111,34 @@ func TestFinder_DropEmbedder(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected config to remain after DropEmbedder")
+	}
+}
+
+func TestFinder_Find_FallsBackToEmbeddersPath(t *testing.T) {
+	loader := &testConfigLoader{
+		configs: map[string]*provider.Config{
+			"embedders/openai_text": {
+				ID: "openai_text",
+				Options: provider.Options{
+					Provider: "openai",
+					Model:    "text-embedding-3-small",
+				},
+			},
+		},
+	}
+	f := New(WithConfigLoader(loader))
+
+	got, err := f.Find(context.Background(), "openai_text")
+	if err != nil {
+		t.Fatalf("expected fallback config to load, got error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected embedder, got nil")
+	}
+	if len(loader.loads) != 2 {
+		t.Fatalf("expected two load attempts, got %v", loader.loads)
+	}
+	if loader.loads[0] != "openai_text" || loader.loads[1] != "embedders/openai_text" {
+		t.Fatalf("unexpected load order: %v", loader.loads)
 	}
 }

@@ -2,9 +2,64 @@ package sdk
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
+
+func handleUploadFile(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("parse multipart form: %w", err))
+			return
+		}
+		conversationID := strings.TrimSpace(r.FormValue("conversationId"))
+		if conversationID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("missing file field: %w", err))
+			return
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("read file: %w", err))
+			return
+		}
+
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" && header != nil {
+			name = strings.TrimSpace(header.Filename)
+		}
+		contentType := strings.TrimSpace(r.FormValue("contentType"))
+		if contentType == "" && header != nil {
+			contentType = strings.TrimSpace(header.Header.Get("Content-Type"))
+		}
+
+		out, err := client.UploadFile(r.Context(), &UploadFileInput{
+			ConversationID: conversationID,
+			Name:           name,
+			ContentType:    contentType,
+			Data:           data,
+		})
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if out == nil {
+			httpError(w, http.StatusInternalServerError, fmt.Errorf("upload returned no result"))
+			return
+		}
+		if strings.TrimSpace(out.URI) == "" && strings.TrimSpace(out.ID) != "" {
+			out.URI = "/v1/files/" + strings.TrimSpace(out.ID) + "?conversationId=" + conversationID
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
 
 func handleListFiles(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

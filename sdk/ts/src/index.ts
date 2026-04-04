@@ -123,6 +123,7 @@ export {
 // Rich content rendering (pluggable fence registry, markdown, charts, tables)
 export {
     parseFences, languageHint,
+    describeFence, describeFences, describeContent,
     findNextPipeTableBlock, looksLikePipeTable, parsePipeTable,
     parseChartSpecFromFence, normalizeChartSpec, buildChartSeries,
     escapeHTML, escapeHTMLAttr, resolveHref,
@@ -131,7 +132,7 @@ export {
     registerFenceRenderer, registerFenceClassifier,
 } from './richContent';
 export type {
-    FencePart, TableBlock, ParsedTable,
+    FencePart, TableBlock, ParsedTable, FenceDescriptor, RichContentDescriptor,
     ChartSpec, ChartDef, ChartAxis, NormalizedChart, ChartSeries,
     BuiltinRendererType, FenceClassification, FenceClassifier,
 } from './richContent';
