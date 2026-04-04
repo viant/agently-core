@@ -166,3 +166,114 @@ func TestReduce_FeedLifecycle(t *testing.T) {
 		t.Fatalf("expected no feeds after inactive, got %#v", state.Feeds)
 	}
 }
+
+func TestReduce_TextDeltaMarksModelStepStreaming(t *testing.T) {
+	now := time.Date(2026, 4, 3, 16, 0, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:               streaming.EventTypeModelStarted,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		Status:             "thinking",
+		CreatedAt:          now,
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:               streaming.EventTypeTextDelta,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		Content:            "Hello",
+		CreatedAt:          now.Add(time.Second),
+	})
+
+	page := state.Turns[0].Execution.Pages[0]
+	if page.Content != "Hello" {
+		t.Fatalf("expected text delta content to accumulate, got %q", page.Content)
+	}
+	if len(page.ModelSteps) != 1 {
+		t.Fatalf("expected one model step, got %#v", page.ModelSteps)
+	}
+	if page.ModelSteps[0].Status != "streaming" {
+		t.Fatalf("expected model step status streaming, got %q", page.ModelSteps[0].Status)
+	}
+}
+
+func TestReduce_ToolCompletedFallsBackToCreatedAtForCompletedAt(t *testing.T) {
+	now := time.Date(2026, 4, 3, 16, 1, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:           streaming.EventTypeToolCallStarted,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ToolCallID:     "call-1",
+		ToolMessageID:  "tool-msg-1",
+		ToolName:       "resources/read",
+		Status:         "running",
+		CreatedAt:      now,
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolCallCompleted,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ToolCallID:     "call-1",
+		ToolMessageID:  "tool-msg-1",
+		ToolName:       "resources/read",
+		Status:         "completed",
+		CreatedAt:      now.Add(2 * time.Second),
+	})
+
+	page := state.Turns[0].Execution.Pages[0]
+	if len(page.ToolSteps) != 1 {
+		t.Fatalf("expected one tool step, got %#v", page.ToolSteps)
+	}
+	if page.ToolSteps[0].CompletedAt == nil || !page.ToolSteps[0].CompletedAt.Equal(now.Add(2*time.Second)) {
+		t.Fatalf("expected completedAt fallback to createdAt, got %#v", page.ToolSteps[0].CompletedAt)
+	}
+}
+
+func TestReduce_ElicitationResolvedMapsCanceledStatus(t *testing.T) {
+	now := time.Date(2026, 4, 3, 16, 2, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:           streaming.EventTypeElicitationRequested,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ElicitationID:  "elic-1",
+		Content:        "Need input",
+		CreatedAt:      now,
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeElicitationResolved,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ElicitationID:  "elic-1",
+		Status:         "cancelled",
+		CreatedAt:      now.Add(time.Second),
+	})
+
+	if state.Turns[0].Elicitation == nil {
+		t.Fatalf("expected elicitation state")
+	}
+	if state.Turns[0].Elicitation.Status != ElicitationStatusCanceled {
+		t.Fatalf("expected canceled elicitation status, got %q", state.Turns[0].Elicitation.Status)
+	}
+}
+
+func TestReduce_TurnQueuedDoesNotDowngradeTerminalTurn(t *testing.T) {
+	now := time.Date(2026, 4, 3, 16, 3, 0, 0, time.UTC)
+	state := &ConversationState{
+		ConversationID: "conv-1",
+		Turns: []*TurnState{
+			{TurnID: "turn-1", Status: TurnStatusCompleted, CreatedAt: now},
+		},
+	}
+
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeTurnQueued,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		CreatedAt:      now.Add(time.Second),
+	})
+
+	if state.Turns[0].Status != TurnStatusCompleted {
+		t.Fatalf("expected completed turn to remain completed, got %q", state.Turns[0].Status)
+	}
+}

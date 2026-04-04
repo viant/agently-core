@@ -7,7 +7,7 @@ class MockEventSource {
     url: string;
     withCredentials: boolean;
     onmessage: ((event: MessageEvent) => void) | null = null;
-    onerror: ((event?: any) => void) | null = null;
+    onerror: ((event?: unknown) => void) | null = null;
     closed = false;
 
     constructor(url: string, init?: { withCredentials?: boolean }) {
@@ -20,15 +20,19 @@ class MockEventSource {
         this.closed = true;
     }
 
-    emit(data: any): void {
+    emit(data: unknown): void {
         this.onmessage?.({ data: typeof data === 'string' ? data : JSON.stringify(data) } as MessageEvent);
     }
 }
 
 // ─── Mock fetch ────────────────────────────────────────────────────────────────
 
-function mockFetch(status: number, body: any, headers?: Record<string, string>): typeof fetch {
-    return vi.fn().mockResolvedValue({
+function mockResponse(response: Partial<Response>): Response {
+    return response as unknown as Response;
+}
+
+function mockFetch(status: number, body: unknown, headers?: Record<string, string>): typeof fetch {
+    const response = {
         ok: status >= 200 && status < 300,
         status,
         statusText: status === 200 ? 'OK' : 'Error',
@@ -36,16 +40,17 @@ function mockFetch(status: number, body: any, headers?: Record<string, string>):
         json: () => Promise.resolve(body),
         headers: new Headers(headers ?? {}),
         arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
-    } as any);
+    } satisfies Partial<Response>;
+    return vi.fn().mockResolvedValue(mockResponse(response));
 }
 
 function client(fetchImpl: typeof fetch, baseURL = 'http://localhost:8585/v1'): AgentlyClient {
     return new AgentlyClient({ baseURL, fetchImpl, timeoutMs: 0 });
 }
 
-function lastCall(fn: ReturnType<typeof vi.fn>): { url: string; method: string; body?: any; headers?: any } {
+function lastCall(fn: ReturnType<typeof vi.fn>): { url: string; method: string; body?: unknown; headers?: HeadersInit } {
     const [url, opts] = fn.mock.calls[fn.mock.calls.length - 1];
-    let body: any = undefined;
+    let body: unknown = undefined;
     if (opts?.body !== undefined) {
         if (typeof opts.body === 'string') {
             try {
@@ -67,7 +72,7 @@ function lastCall(fn: ReturnType<typeof vi.fn>): { url: string; method: string; 
 
 beforeEach(() => {
     MockEventSource.instances = [];
-    vi.stubGlobal('EventSource', MockEventSource as any);
+    vi.stubGlobal('EventSource', MockEventSource as unknown as typeof EventSource);
 });
 
 // ─── Conversations ─────────────────────────────────────────────────────────────
@@ -496,7 +501,7 @@ describe('Files', () => {
 
     it('downloadFile uses the exposed GET /v1/files/{id} route in raw mode', async () => {
         const payload = new Uint8Array([1, 2, 3]).buffer;
-        const f = vi.fn().mockResolvedValue({
+        const f = vi.fn().mockResolvedValue(mockResponse({
             ok: true,
             status: 200,
             statusText: 'OK',
@@ -506,7 +511,7 @@ describe('Files', () => {
             }),
             arrayBuffer: () => Promise.resolve(payload),
             text: () => Promise.resolve(''),
-        } as any);
+        }));
         const c = client(f);
         const res = await c.downloadFile('conv_1', 'file_1');
 
@@ -583,10 +588,11 @@ describe('Error Handling', () => {
         try {
             await c.steerTurn('conv_1', 'turn_done', { content: 'test' });
             expect.unreachable();
-        } catch (e: any) {
-            expect(e).toBeInstanceOf(HttpError);
-            expect(e.status).toBe(409);
-            expect(e.body).toContain('not currently running');
+        } catch (e: unknown) {
+            const err = e as HttpError;
+            expect(err).toBeInstanceOf(HttpError);
+            expect(err.status).toBe(409);
+            expect(err.body).toContain('not currently running');
         }
     });
 });
@@ -804,13 +810,13 @@ describe('Payload', () => {
 
     it('getPayload with raw option returns ArrayBuffer', async () => {
         const buf = new ArrayBuffer(4);
-        const f = vi.fn().mockResolvedValue({
+        const f = vi.fn().mockResolvedValue(mockResponse({
             ok: true,
             status: 200,
             statusText: 'OK',
             headers: new Headers({ 'content-type': 'text/plain' }),
             arrayBuffer: () => Promise.resolve(buf),
-        } as any);
+        }));
         const c = client(f);
         const res = await c.getPayload('p1', { raw: true });
 
@@ -834,12 +840,12 @@ describe('Payload', () => {
 
 describe('File Browser', () => {
     it('downloadWorkspaceFile sends GET with uri param', async () => {
-        const f = vi.fn().mockResolvedValue({
+        const f = vi.fn().mockResolvedValue(mockResponse({
             ok: true,
             status: 200,
             statusText: 'OK',
             text: () => Promise.resolve('file content here'),
-        } as any);
+        }));
         const c = client(f);
         const res = await c.downloadWorkspaceFile('/workspace/main.go');
 

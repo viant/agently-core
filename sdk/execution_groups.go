@@ -37,11 +37,11 @@ func executionPreamble(message *agconv.MessageView) string {
 	if message == nil {
 		return ""
 	}
-	if preamble := strings.TrimSpace(stringValue(message.Preamble)); preamble != "" {
+	if preamble := visibleContentOrEmpty(message.Preamble); preamble != "" {
 		return preamble
 	}
 	if message.Interim == 1 {
-		return strings.TrimSpace(stringValue(message.Content))
+		return visibleContentOrEmpty(message.Content)
 	}
 	return ""
 }

@@ -29,7 +29,7 @@ import type {
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
     OOBLoginInput, IDPDelegateOutput,
-    FeedSpec,
+    FeedSpec, JSONObject, JSONValue,
 } from './types';
 import { HttpError } from './errors';
 import { normalizeStreamEventIdentity } from './streamIdentity';
@@ -62,6 +62,9 @@ export interface ClientOptions {
     /** Called on 401 responses (for login redirects, token refresh, etc.) */
     onUnauthorized?: (error: HttpError) => void;
 }
+
+type RequestBody = JSONValue | undefined;
+type APIResponse = JSONValue | undefined;
 
 // ─── Client ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +99,7 @@ export class AgentlyClient {
 
     /** Create a new conversation. */
     async createConversation(input: CreateConversationInput): Promise<Conversation> {
-        return this.post('/conversations', input);
+        return this.post<Conversation>('/conversations', input);
     }
 
     /** List conversations with optional search, filter, and pagination. */
@@ -107,7 +110,7 @@ export class AgentlyClient {
         if (input?.excludeScheduled) q.set('excludeScheduled', 'true');
         if (input?.status) q.set('status', input.status);
         this.applyPage(q, input?.page);
-        const out = await this.get('/conversations', q);
+        const out = await this.get<ConversationPage | { Rows?: Conversation[]; NextCursor?: string; PrevCursor?: string; HasMore?: boolean }>('/conversations', q);
         if (Array.isArray(out?.Rows)) {
             return {
                 data: out.Rows,
@@ -123,14 +126,14 @@ export class AgentlyClient {
 
     /** Get a single conversation by ID. */
     async getConversation(id: string): Promise<Conversation> {
-        return this.get(`/conversations/${enc(id)}`);
+        return this.get<Conversation>(`/conversations/${enc(id)}`);
     }
 
     /** Update mutable conversation fields such as visibility and shareability. */
     async updateConversation(
         id: string, input: UpdateConversationInput,
     ): Promise<Conversation> {
-        return this.patch(`/conversations/${enc(id)}`, input);
+        return this.patch<Conversation>(`/conversations/${enc(id)}`, input);
     }
 
     // ── Messages ─────────────────────────────────────────────────────────────
@@ -143,7 +146,7 @@ export class AgentlyClient {
         if (input.roles?.length) q.set('roles', input.roles.join(','));
         if (input.types?.length) q.set('types', input.types.join(','));
         this.applyPage(q, input.page);
-        const out = await this.get('/messages', q);
+        const out = await this.get<MessagePage | { Rows?: Message[]; NextCursor?: string; HasMore?: boolean }>('/messages', q);
         if (Array.isArray(out?.Rows)) {
             return {
                 data: out.Rows,
@@ -187,7 +190,7 @@ export class AgentlyClient {
         if (Object.keys(selectors).length > 0) {
             q.set('selectors', JSON.stringify(selectors));
         }
-        return this.get(`/conversations/${enc(input.conversationId)}/transcript`, q);
+        return this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/transcript`, q);
     }
 
     // ── Query ────────────────────────────────────────────────────────────────
@@ -197,14 +200,14 @@ export class AgentlyClient {
      * If a turn is already running, the new turn is automatically queued.
      */
     async query(input: QueryInput): Promise<QueryOutput> {
-        return this.post('/agent/query', input);
+        return this.post<QueryOutput>('/agent/query', input);
     }
 
     // ── Turns ────────────────────────────────────────────────────────────────
 
     /** Cancel a running turn. Returns true if a running turn was found. */
     async cancelTurn(turnId: string): Promise<boolean> {
-        const res = await this.post(`/turns/${enc(turnId)}/cancel`, {});
+        const res = await this.post<{ cancelled?: boolean; canceled?: boolean }>(`/turns/${enc(turnId)}/cancel`, {});
         return res?.cancelled ?? res?.canceled ?? true;
     }
 
@@ -221,7 +224,7 @@ export class AgentlyClient {
     async steerTurn(
         conversationId: string, turnId: string, input: SteerTurnInput,
     ): Promise<SteerTurnOutput> {
-        return this.post(
+        return this.post<SteerTurnOutput>(
             `/conversations/${enc(conversationId)}/turns/${enc(turnId)}/steer`,
             { content: input.content, role: input.role || 'user' },
         );
@@ -258,7 +261,7 @@ export class AgentlyClient {
     async forceSteerQueuedTurn(
         conversationId: string, turnId: string,
     ): Promise<SteerTurnOutput> {
-        return this.post(
+        return this.post<SteerTurnOutput>(
             `/conversations/${enc(conversationId)}/turns/${enc(turnId)}/force-steer`,
             {},
         );
@@ -385,7 +388,7 @@ export class AgentlyClient {
     /** List pending elicitation prompts for a conversation. */
     async listPendingElicitations(conversationId: string): Promise<PendingElicitation[]> {
         const q = new URLSearchParams({ conversationId });
-        const out = await this.get('/elicitations', q);
+        const out = await this.get<PendingElicitation[] | { rows?: PendingElicitation[] }>('/elicitations', q);
         if (Array.isArray(out?.rows)) return out.rows;
         if (Array.isArray(out)) return out;
         return [];
@@ -405,14 +408,14 @@ export class AgentlyClient {
 
     /** List available feed specs from workspace. */
     async listFeeds(): Promise<FeedSpec[]> {
-        const out = await this.get('/feeds');
+        const out = await this.get<{ feeds?: FeedSpec[] }>('/feeds');
         return Array.isArray(out?.feeds) ? out.feeds : [];
     }
 
     /** Get resolved feed data for a conversation. */
-    async getFeedData(feedId: string, conversationId: string): Promise<any> {
+    async getFeedData(feedId: string, conversationId: string): Promise<JSONValue | undefined> {
         const q = new URLSearchParams({ conversationId });
-        return this.get(`/feeds/${enc(feedId)}/data`, q);
+        return this.get<JSONValue | undefined>(`/feeds/${enc(feedId)}/data`, q);
     }
 
     // ── Tool Approvals ───────────────────────────────────────────────────────
@@ -427,7 +430,7 @@ export class AgentlyClient {
         if (input?.userId) q.set('userId', input.userId);
         if (input?.conversationId) q.set('conversationId', input.conversationId);
         if (input?.status) q.set('status', input.status);
-        const out = await this.get('/tool-approvals/pending', q);
+        const out = await this.get<PendingToolApproval[] | { data?: PendingToolApproval[]; rows?: PendingToolApproval[] }>('/tool-approvals/pending', q);
         if (Array.isArray(out?.data)) return out.data;
         if (Array.isArray(out?.rows)) return out.rows;
         if (Array.isArray(out)) return out;
@@ -438,14 +441,14 @@ export class AgentlyClient {
     async decideToolApproval(
         id: string, input: DecideToolApprovalInput,
     ): Promise<DecideToolApprovalOutput> {
-        return this.post(`/tool-approvals/${enc(id)}/decision`, input);
+        return this.post<DecideToolApprovalOutput>(`/tool-approvals/${enc(id)}/decision`, input);
     }
 
     // ── Tools ────────────────────────────────────────────────────────────────
 
     /** Execute a registered tool by name. */
-    async executeTool(name: string, args?: Record<string, any>): Promise<string> {
-        const res = await this.post(`/tools/${enc(name)}/execute`, args ?? {});
+    async executeTool(name: string, args?: JSONObject): Promise<string> {
+        const res = await this.post<JSONValue | undefined>(`/tools/${enc(name)}/execute`, args ?? {});
         return typeof res === 'string' ? res : (res?.result ?? JSON.stringify(res));
     }
 
@@ -464,7 +467,7 @@ export class AgentlyClient {
     /** List files for a conversation. */
     async listFiles(conversationId: string): Promise<FileEntry[]> {
         const q = new URLSearchParams({ conversationId });
-        const out = await this.get('/files', q);
+        const out = await this.get<FileEntry[] | { files?: FileEntry[]; Files?: FileEntry[] }>('/files', q);
         if (Array.isArray(out?.files)) return out.files;
         if (Array.isArray(out?.Files)) return out.Files;
         if (Array.isArray(out)) return out;
@@ -477,12 +480,12 @@ export class AgentlyClient {
     async listResources(kind?: string): Promise<{ names: string[] }> {
         const q = new URLSearchParams();
         if (kind) q.set('kind', kind);
-        return this.get('/workspace/resources', q);
+        return this.get<{ names: string[] }>('/workspace/resources', q);
     }
 
     /** Get a single workspace resource content. */
     async getResource(kind: string, name: string): Promise<{ kind: string; name: string; data: string }> {
-        return this.get(`/workspace/resources/${enc(kind)}/${enc(name)}`);
+        return this.get<{ kind: string; name: string; data: string }>(`/workspace/resources/${enc(kind)}/${enc(name)}`);
     }
 
     /** Create or update a workspace resource. */
@@ -504,12 +507,12 @@ export class AgentlyClient {
 
     /** Export resources of given kinds (or all). */
     async exportResources(kinds?: string[]): Promise<{ resources: Resource[] }> {
-        return this.post('/workspace/resources/export', { kinds });
+        return this.post<{ resources: Resource[] }>('/workspace/resources/export', { kinds });
     }
 
     /** Import resources in bulk. */
     async importResources(resources: Resource[], replace?: boolean): Promise<{ imported: number; skipped: number }> {
-        return this.post('/workspace/resources/import', { resources, replace });
+        return this.post<{ imported: number; skipped: number }>('/workspace/resources/import', { resources, replace });
     }
 
     // ── Conversation Maintenance ─────────────────────────────────────────────
@@ -558,20 +561,23 @@ export class AgentlyClient {
     // ── A2A (Agent-to-Agent) ─────────────────────────────────────────────────
 
     /** Get the A2A agent card for a given agent. */
-    async getA2AAgentCard(agentId: string): Promise<any> {
-        return this.get(`/api/a2a/agents/${enc(agentId)}/card`);
+    async getA2AAgentCard(agentId: string): Promise<JSONObject | undefined> {
+        return this.get<JSONObject | undefined>(`/api/a2a/agents/${enc(agentId)}/card`);
     }
 
     /** Send a message to an A2A agent. */
-    async sendA2AMessage(agentId: string, request: any): Promise<any> {
-        return this.post(`/api/a2a/agents/${enc(agentId)}/message`, request);
+    async sendA2AMessage<TResponse extends JSONValue | undefined = JSONObject | undefined>(
+        agentId: string,
+        request: JSONValue,
+    ): Promise<TResponse> {
+        return this.post<TResponse>(`/api/a2a/agents/${enc(agentId)}/message`, request);
     }
 
     /** List agent IDs that have A2A serving enabled. */
     async listA2AAgents(agentIds?: string[]): Promise<string[]> {
         const q = new URLSearchParams();
         if (agentIds?.length) q.set('ids', agentIds.join(','));
-        const out = await this.get('/api/a2a/agents', q);
+        const out = await this.get<string[] | { agents?: string[] }>('/api/a2a/agents', q);
         if (Array.isArray(out?.agents)) return out.agents;
         if (Array.isArray(out)) return out;
         return [];
@@ -581,12 +587,12 @@ export class AgentlyClient {
 
     /** Get a single schedule by ID. */
     async getSchedule(id: string): Promise<Schedule> {
-        return this.get(`/api/agently/scheduler/schedule/${enc(id)}`);
+        return this.get<Schedule>(`/api/agently/scheduler/schedule/${enc(id)}`);
     }
 
     /** List all schedules. */
     async listSchedules(): Promise<ScheduleListOutput> {
-        return this.get('/api/agently/scheduler/');
+        return this.get<ScheduleListOutput>('/api/agently/scheduler/');
     }
 
     /** Batch create or update schedules. */
@@ -603,7 +609,7 @@ export class AgentlyClient {
 
     /** Get workspace metadata (available agents, models, defaults, capabilities). */
     async getWorkspaceMetadata(): Promise<WorkspaceMetadata> {
-        return this.get('/workspace/metadata');
+        return this.get<WorkspaceMetadata>('/workspace/metadata');
     }
 
     // ── Payload ─────────────────────────────────────────────────────────────
@@ -616,7 +622,7 @@ export class AgentlyClient {
      */
     async getPayload(id: string, opts?: GetPayloadOptions): Promise<PayloadView>;
     async getPayload(id: string, opts: GetPayloadOptions & { raw: true }): Promise<{ contentType: string; data: ArrayBuffer }>;
-    async getPayload(id: string, opts?: GetPayloadOptions): Promise<any> {
+    async getPayload(id: string, opts?: GetPayloadOptions): Promise<PayloadView | { contentType: string; data: ArrayBuffer }> {
         const q = new URLSearchParams();
         if (opts?.raw) q.set('raw', '1');
         if (opts?.meta) q.set('meta', '1');
@@ -639,7 +645,7 @@ export class AgentlyClient {
             return { contentType, data };
         }
 
-        return this.request('GET', url);
+        return this.request<PayloadView>('GET', url);
     }
 
     // ── File Browser ────────────────────────────────────────────────────────
@@ -659,10 +665,10 @@ export class AgentlyClient {
     }
 
     /** List workspace files/directories at the given path. */
-    async listWorkspaceFiles(path?: string): Promise<any> {
+    async listWorkspaceFiles(path?: string): Promise<JSONObject | undefined> {
         const q = new URLSearchParams();
         if (path) q.set('path', path);
-        return this.get('/workspace/file-browser/list', q);
+        return this.get<JSONObject | undefined>('/workspace/file-browser/list', q);
     }
 
     // ── Linked Conversations ────────────────────────────────────────────────
@@ -673,7 +679,7 @@ export class AgentlyClient {
         q.set('parentConversationId', input.parentConversationId);
         if (input.parentTurnId) q.set('parentTurnId', input.parentTurnId);
         this.applyPage(q, input.page);
-        const out = await this.get('/conversations/linked', q);
+        const out = await this.get<LinkedConversationPage | { Rows?: LinkedConversationPage['data']; NextCursor?: string; PrevCursor?: string; HasMore?: boolean } | { rows?: LinkedConversationPage['data']; nextCursor?: string; prevCursor?: string; cursor?: string; hasMore?: boolean }>('/conversations/linked', q);
         if (Array.isArray(out?.Rows)) {
             return {
                 data: out.Rows,
@@ -701,7 +707,7 @@ export class AgentlyClient {
 
     /** List available auth providers (local, bff, oidc, jwt). */
     async getAuthProviders(): Promise<AuthProvider[]> {
-        const out = await this.get('/api/auth/providers');
+        const out = await this.get<AuthProvider[] | { providers?: AuthProvider[] }>('/api/auth/providers');
         if (Array.isArray(out?.providers)) return out.providers;
         if (Array.isArray(out)) return out;
         return [];
@@ -710,7 +716,7 @@ export class AgentlyClient {
     /** Get the currently authenticated user. Returns null if not authenticated. */
     async getAuthMe(): Promise<AuthUser | null> {
         try {
-            return await this.get('/api/auth/me');
+            return await this.get<AuthUser>('/api/auth/me');
         } catch (err) {
             if (err instanceof HttpError && err.status === 401) return null;
             throw err;
@@ -719,7 +725,7 @@ export class AgentlyClient {
 
     /** Login with a local username. */
     async localLogin(input: LocalLoginInput): Promise<LocalLoginOutput> {
-        return this.post('/api/auth/local/login', input);
+        return this.post<LocalLoginOutput>('/api/auth/local/login', input);
     }
 
     /** Logout and destroy the current session. */
@@ -729,27 +735,27 @@ export class AgentlyClient {
 
     /** Initiate an OAuth BFF flow (returns authURL + state for redirect). */
     async oauthInitiate(): Promise<OAuthInitiateOutput> {
-        return this.post('/api/auth/oauth/initiate', {});
+        return this.post<OAuthInitiateOutput>('/api/auth/oauth/initiate', {});
     }
 
     /** Complete an OAuth callback with authorization code + state. */
     async oauthCallback(input: OAuthCallbackInput): Promise<OAuthCallbackOutput> {
-        return this.post('/api/auth/oauth/callback', input);
+        return this.post<OAuthCallbackOutput>('/api/auth/oauth/callback', input);
     }
 
     /** Get OAuth client config metadata. */
     async getOAuthConfig(): Promise<OAuthConfigOutput> {
-        return this.get('/api/auth/oauth/config');
+        return this.get<OAuthConfigOutput>('/api/auth/oauth/config');
     }
 
     /** Create a session from tokens (bearer, OOB, or anonymous). */
     async createAuthSession(input: CreateSessionInput): Promise<CreateSessionOutput> {
-        return this.post('/api/auth/session', input);
+        return this.post<CreateSessionOutput>('/api/auth/session', input);
     }
 
     /** Out-of-band login with pre-obtained tokens. */
     async oobLogin(input: OOBLoginInput): Promise<CreateSessionOutput> {
-        return this.post('/api/auth/oob', input);
+        return this.post<CreateSessionOutput>('/api/auth/oob', input);
     }
 
     /**
@@ -757,7 +763,7 @@ export class AgentlyClient {
      * Returns the auth URL + encrypted state for BFF PKCE flow.
      */
     async idpDelegate(): Promise<IDPDelegateOutput> {
-        return this.post('/api/auth/idp/delegate', {});
+        return this.post<IDPDelegateOutput>('/api/auth/idp/delegate', {});
     }
 
     /**
@@ -883,31 +889,31 @@ export class AgentlyClient {
 
     // ── Internal HTTP ────────────────────────────────────────────────────────
 
-    private async get(path: string, params?: URLSearchParams): Promise<any> {
+    private async get<T = APIResponse>(path: string, params?: URLSearchParams): Promise<T> {
         const qs = params?.toString();
         const url = qs ? `${this.baseURL}${path}?${qs}` : `${this.baseURL}${path}`;
-        return this.request('GET', url);
+        return this.request<T>('GET', url);
     }
 
-    private async post(path: string, body: any): Promise<any> {
-        return this.request('POST', `${this.baseURL}${path}`, body);
+    private async post<T = APIResponse>(path: string, body: RequestBody): Promise<T> {
+        return this.request<T>('POST', `${this.baseURL}${path}`, body);
     }
 
-    private async put(path: string, body: any): Promise<any> {
-        return this.request('PUT', `${this.baseURL}${path}`, body);
+    private async put<T = APIResponse>(path: string, body: RequestBody): Promise<T> {
+        return this.request<T>('PUT', `${this.baseURL}${path}`, body);
     }
 
-    private async patch(path: string, body: any): Promise<any> {
-        return this.request('PATCH', `${this.baseURL}${path}`, body);
+    private async patch<T = APIResponse>(path: string, body: RequestBody): Promise<T> {
+        return this.request<T>('PATCH', `${this.baseURL}${path}`, body);
     }
 
     private async del(path: string): Promise<void> {
         await this.request('DELETE', `${this.baseURL}${path}`);
     }
 
-    private async request(method: string, url: string, body?: any): Promise<any> {
+    private async request<T = APIResponse>(method: string, url: string, body?: RequestBody): Promise<T> {
         const maxAttempts = Math.max(1, this.retries);
-        let lastErr: any = null;
+        let lastErr: unknown = null;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             const headers = await this.authHeaders();
@@ -942,7 +948,7 @@ export class AgentlyClient {
                 }
 
                 const text = await resp.text();
-                return text ? JSON.parse(text) : undefined;
+                return (text ? JSON.parse(text) : undefined) as T;
             } catch (err) {
                 if (err instanceof HttpError) throw err;
                 lastErr = err;

@@ -7,13 +7,18 @@ import {
     modelStepStatusForEvent,
     terminalStatusForType,
 } from '../streamEventMeta';
+import type { SSEEvent } from '../types';
+
+function event(input: Partial<SSEEvent>): SSEEvent {
+    return input as SSEEvent;
+}
 
 describe('streamEventMeta', () => {
     it('derives sequence and iteration from streaming page metadata', () => {
-        expect(eventSequenceValue({ pageIndex: 4 } as any, 1)).toBe(4);
-        expect(eventSequenceValue({ iteration: 5 } as any, 1)).toBe(5);
-        expect(eventIterationValue({ iteration: 6 } as any, 0)).toBe(6);
-        expect(eventIterationValue({ pageIndex: 7 } as any, 0)).toBe(7);
+        expect(eventSequenceValue(event({ pageIndex: 4 }), 1)).toBe(4);
+        expect(eventSequenceValue(event({ iteration: 5 }), 1)).toBe(5);
+        expect(eventIterationValue(event({ iteration: 6 }), 0)).toBe(6);
+        expect(eventIterationValue(event({ pageIndex: 7 }), 0)).toBe(7);
     });
 
     it('maps terminal stream types to canonical status values', () => {
@@ -23,10 +28,10 @@ describe('streamEventMeta', () => {
     });
 
     it('marks text deltas as streaming when there is no explicit status', () => {
-        expect(modelStepStatusForEvent({ type: 'text_delta' } as any, 'thinking', 'running')).toBe('streaming');
-        expect(modelStepStatusForEvent({ type: 'model_started', status: 'thinking' } as any, '', 'running')).toBe('thinking');
-        expect(modelStepStatusForEvent({ type: 'assistant_preamble' } as any, 'running', 'running')).toBe('running');
-        expect(executionGroupStatusForEvent({ type: 'text_delta' } as any, 'thinking', 'running')).toBe('streaming');
-        expect(executionGroupStatusForEvent({ type: 'text_delta' } as any, 'completed', 'running')).toBe('completed');
+        expect(modelStepStatusForEvent(event({ type: 'text_delta' }), 'thinking', 'running')).toBe('streaming');
+        expect(modelStepStatusForEvent(event({ type: 'model_started', status: 'thinking' }), '', 'running')).toBe('thinking');
+        expect(modelStepStatusForEvent(event({ type: 'assistant_preamble' }), 'running', 'running')).toBe('running');
+        expect(executionGroupStatusForEvent(event({ type: 'text_delta' }), 'thinking', 'running')).toBe('streaming');
+        expect(executionGroupStatusForEvent(event({ type: 'text_delta' }), 'completed', 'running')).toBe('completed');
     });
 });

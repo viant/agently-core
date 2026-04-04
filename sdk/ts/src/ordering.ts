@@ -1,3 +1,22 @@
+export interface TemporalEntryLike {
+    id?: string;
+    messageId?: string;
+    assistantMessageId?: string;
+    turnId?: string;
+    role?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    sequence?: number | null;
+    eventSeq?: number | null;
+    iteration?: number | null;
+}
+
+export interface ExecutionGroupLike extends TemporalEntryLike {
+    pageId?: string;
+    modelMessageId?: string;
+    parentMessageId?: string;
+}
+
 export function firstString(...values: unknown[]): string {
     for (const value of values) {
         const text = String(value || '').trim();
@@ -22,19 +41,19 @@ export function firstPositiveNumber(...values: unknown[]): number {
     return 0;
 }
 
-export function temporalSequenceValue(item: Record<string, any> = {}): number {
+export function temporalSequenceValue(item: TemporalEntryLike = {}): number {
     const value = Number(item?.sequence ?? item?.eventSeq ?? item?.iteration ?? 0);
     return Number.isFinite(value) ? value : 0;
 }
 
-export function temporalTimeValue(item: Record<string, any> = {}): number {
+export function temporalTimeValue(item: TemporalEntryLike = {}): number {
     const raw = firstString(item?.createdAt, item?.updatedAt);
     if (!raw) return 0;
     const parsed = Date.parse(raw);
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function compareTemporalEntries(left: Record<string, any> = {}, right: Record<string, any> = {}): number {
+export function compareTemporalEntries(left: TemporalEntryLike = {}, right: TemporalEntryLike = {}): number {
     const leftTurnId = firstString(left?.turnId);
     const rightTurnId = firstString(right?.turnId);
     if (leftTurnId && rightTurnId && leftTurnId === rightTurnId) {
@@ -55,7 +74,7 @@ export function compareTemporalEntries(left: Record<string, any> = {}, right: Re
     );
 }
 
-export function compareExecutionGroups(left: Record<string, any> = {}, right: Record<string, any> = {}): number {
+export function compareExecutionGroups(left: ExecutionGroupLike = {}, right: ExecutionGroupLike = {}): number {
     const leftSeq = temporalSequenceValue(left);
     const rightSeq = temporalSequenceValue(right);
     if (leftSeq !== rightSeq) return leftSeq - rightSeq;

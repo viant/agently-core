@@ -12,6 +12,19 @@ import {
     selectExecutionPages,
     selectExecutionSteps,
 } from '../index';
+import type { ExecutionPage, LiveExecutionGroupsById, PlannedToolCall, SSEEvent, Turn } from '../types';
+
+function event(input: Partial<SSEEvent>): SSEEvent {
+    return input as SSEEvent;
+}
+
+function turns(input: Turn[]): Turn[] {
+    return input;
+}
+
+function groupMap(input: LiveExecutionGroupsById): LiveExecutionGroupsById {
+    return input;
+}
 
 describe('executionGroups', () => {
     it('normalizes page size choices', () => {
@@ -21,8 +34,8 @@ describe('executionGroups', () => {
     });
 
     it('reads planned tool calls and presentable groups from canonical pages', () => {
-        const group = {
-            toolCallsPlanned: [{ toolCallId: 'tc1', toolName: 'llm/agents/run' }],
+        const group: Partial<ExecutionPage> = {
+            toolCallsPlanned: [{ toolCallId: 'tc1', toolName: 'llm/agents/run' } as PlannedToolCall],
             preamble: '',
             content: '',
             finalResponse: false,
@@ -32,7 +45,7 @@ describe('executionGroups', () => {
     });
 
     it('selects canonical execution pages and steps', () => {
-        const turns = [{
+        const transcriptTurns = turns([{
             turnId: 'turn-1',
             status: 'completed',
             execution: {
@@ -57,9 +70,9 @@ describe('executionGroups', () => {
                     }],
                 }],
             },
-        }] as any;
+        } as Turn]);
 
-        const pages = selectExecutionPages(turns);
+        const pages = selectExecutionPages(transcriptTurns);
         const steps = selectExecutionSteps(pages);
         expect(pages).toHaveLength(1);
         expect(steps).toHaveLength(2);
@@ -69,21 +82,21 @@ describe('executionGroups', () => {
     });
 
     it('applies live stream events and merges latest visible groups', () => {
-        const live1 = applyExecutionStreamEventToGroups({}, {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             status: 'running',
             model: { provider: 'openai', model: 'gpt-5.4' },
-        } as any);
-        const live2 = applyExecutionStreamEventToGroups(live1, {
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
             type: 'assistant_preamble',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             content: 'Calling updatePlan.',
             status: 'running',
-        } as any);
-        const live3 = applyExecutionStreamEventToGroups(live2, {
+        }));
+        const live3 = applyExecutionStreamEventToGroups(live2, event({
             type: 'tool_call_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
@@ -91,14 +104,14 @@ describe('executionGroups', () => {
             toolMessageId: 'tm1',
             toolName: 'llm/agents/run',
             status: 'running',
-        } as any);
-        const live4 = applyExecutionStreamEventToGroups(live3, {
+        }));
+        const live4 = applyExecutionStreamEventToGroups(live3, event({
             type: 'tool_calls_planned',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             toolCallsPlanned: [{ toolCallId: 'tc2', toolName: 'resources/read' }],
             status: 'running',
-        } as any);
+        }));
         const merged = mergeLatestTranscriptAndLiveExecutionGroups([], live4, '1');
 
         expect(Object.keys(live4)).toContain('a1');
@@ -119,20 +132,20 @@ describe('executionGroups', () => {
     });
 
     it('prefers live execution group over transcript group for the same assistant page', () => {
-        const transcript = [{
+        const transcript: Array<Partial<ExecutionPage>> = [{
             assistantMessageId: 'a1',
             status: 'completed',
             content: 'persisted content',
             toolSteps: [],
-        }] as any;
-        const live = {
+        }];
+        const live = groupMap({
             a1: {
                 assistantMessageId: 'a1',
                 status: 'running',
                 content: 'live content',
                 toolSteps: [{ toolName: 'system/exec', status: 'running' }],
             },
-        } as any;
+        });
 
         const merged = mergeLatestTranscriptAndLiveExecutionGroups(transcript, live, 'all');
         expect(merged).toHaveLength(1);
@@ -157,14 +170,14 @@ describe('executionGroups', () => {
     });
 
     it('marks live execution groups terminal by turn id when the turn event has no assistant message id', () => {
-        const live1 = applyExecutionStreamEventToGroups({}, {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             status: 'running',
             model: { provider: 'openai', model: 'gpt-5.4' },
-        } as any);
-        const live2 = applyExecutionStreamEventToGroups(live1, {
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
             type: 'tool_call_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
@@ -172,13 +185,13 @@ describe('executionGroups', () => {
             toolMessageId: 'tm1',
             toolName: 'resources/read',
             status: 'running',
-        } as any);
-        const live3 = applyExecutionStreamEventToGroups(live2, {
+        }));
+        const live3 = applyExecutionStreamEventToGroups(live2, event({
             type: 'turn_failed',
             turnId: 'turn-1',
             status: 'failed',
             error: 'boom',
-        } as any);
+        }));
 
         expect(live3.a1).toMatchObject({
             status: 'failed',
@@ -195,15 +208,15 @@ describe('executionGroups', () => {
     });
 
     it('propagates linked conversation metadata onto the tool step in live execution groups', () => {
-        const live1 = applyExecutionStreamEventToGroups({}, {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             iteration: 1,
             status: 'running',
             model: { provider: 'openai', model: 'gpt-5.4' },
-        } as any);
-        const live2 = applyExecutionStreamEventToGroups(live1, {
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
             type: 'tool_call_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
@@ -211,8 +224,8 @@ describe('executionGroups', () => {
             toolMessageId: 'tool-msg-1',
             toolName: 'llm/agents/run',
             status: 'running',
-        } as any);
-        const live3 = applyExecutionStreamEventToGroups(live2, {
+        }));
+        const live3 = applyExecutionStreamEventToGroups(live2, event({
             type: 'linked_conversation_attached',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
@@ -220,7 +233,7 @@ describe('executionGroups', () => {
             linkedConversationId: 'child-conv-1',
             linkedConversationAgentId: 'steward-forecasting',
             linkedConversationTitle: 'Forecasting Child',
-        } as any);
+        }));
 
         expect(live3.a1.toolSteps[0]).toMatchObject({
             toolCallId: 'call-agent-1',
@@ -231,7 +244,7 @@ describe('executionGroups', () => {
     });
 
     it('preserves execution page ordering when follow-up events omit iteration/page metadata', () => {
-        const live1 = applyExecutionStreamEventToGroups({}, {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',
             assistantMessageId: 'a7',
             turnId: 'turn-1',
@@ -239,8 +252,8 @@ describe('executionGroups', () => {
             pageIndex: 7,
             status: 'thinking',
             model: { provider: 'openai', model: 'gpt-5.4' },
-        } as any);
-        const live1b = applyExecutionStreamEventToGroups(live1, {
+        }));
+        const live1b = applyExecutionStreamEventToGroups(live1, event({
             type: 'assistant_preamble',
             assistantMessageId: 'a7',
             turnId: 'turn-1',
@@ -248,8 +261,8 @@ describe('executionGroups', () => {
             pageIndex: 7,
             content: 'First presentable preamble.',
             status: 'completed',
-        } as any);
-        const live2 = applyExecutionStreamEventToGroups(live1b, {
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1b, event({
             type: 'model_started',
             assistantMessageId: 'a8',
             turnId: 'turn-1',
@@ -257,8 +270,8 @@ describe('executionGroups', () => {
             pageIndex: 8,
             status: 'thinking',
             model: { provider: 'openai', model: 'gpt-5.4' },
-        } as any);
-        const live3 = applyExecutionStreamEventToGroups(live2, {
+        }));
+        const live3 = applyExecutionStreamEventToGroups(live2, event({
             type: 'tool_call_completed',
             assistantMessageId: 'a8',
             turnId: 'turn-1',
@@ -268,8 +281,8 @@ describe('executionGroups', () => {
             toolMessageId: 'tm8',
             toolName: 'orchestration/updatePlan',
             status: 'completed',
-        } as any);
-        const live4 = applyExecutionStreamEventToGroups(live3, {
+        }));
+        const live4 = applyExecutionStreamEventToGroups(live3, event({
             type: 'assistant_preamble',
             assistantMessageId: 'a8',
             turnId: 'turn-1',
@@ -277,7 +290,7 @@ describe('executionGroups', () => {
             pageIndex: 0,
             content: 'Calling updatePlan.',
             status: 'completed',
-        } as any);
+        }));
 
         expect(live4.a8).toMatchObject({
             sequence: 8,
@@ -290,7 +303,7 @@ describe('executionGroups', () => {
     });
 
     it('marks a live model page streaming when text deltas arrive without explicit status', () => {
-        const live1 = applyExecutionStreamEventToGroups({}, {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
@@ -298,13 +311,13 @@ describe('executionGroups', () => {
             pageIndex: 1,
             status: 'thinking',
             model: { provider: 'openai', model: 'gpt-5.4' },
-        } as any);
-        const live2 = applyExecutionStreamEventToGroups(live1, {
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
             type: 'text_delta',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             content: 'Hello',
-        } as any);
+        }));
 
         expect(live2.a1).toMatchObject({
             status: 'streaming',

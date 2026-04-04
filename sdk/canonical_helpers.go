@@ -34,6 +34,14 @@ func marshalToRawJSON(v interface{}) json.RawMessage {
 	return json.RawMessage(data)
 }
 
+func visibleContentOrEmpty(value *string) string {
+	raw := stringValue(value)
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	return raw
+}
+
 // --- shared semantic mutation helpers ---
 // Both canonical_reducer.go and canonical_transcript.go use these so
 // the two code paths apply identical mutation semantics.
@@ -214,6 +222,184 @@ func setElicitationState(turn *TurnState, elicitation *ElicitationState) {
 	turn.Elicitation = elicitation
 }
 
+func applyElicitationRequested(turn *TurnState, event *streaming.Event) {
+	if turn == nil || event == nil {
+		return
+	}
+	markTurnWaitingForUser(turn)
+	turn.Elicitation = &ElicitationState{
+		ElicitationID:   strings.TrimSpace(event.ElicitationID),
+		Status:          ElicitationStatusPending,
+		Message:         strings.TrimSpace(event.Content),
+		RequestedSchema: marshalToRawJSON(event.ElicitationData),
+		CallbackURL:     strings.TrimSpace(event.CallbackURL),
+	}
+}
+
+func applyElicitationResolved(turn *TurnState, event *streaming.Event) {
+	if turn == nil || event == nil {
+		return
+	}
+	if turn.Elicitation == nil {
+		turn.Elicitation = &ElicitationState{
+			ElicitationID: strings.TrimSpace(event.ElicitationID),
+		}
+	}
+	turn.Elicitation.Status = elicitationStatusForEventStatus(event.Status)
+	turn.Elicitation.ResponsePayload = marshalToRawJSON(event.ResponsePayload)
+	resumeTurnFromWaiting(turn)
+}
+
+func applyLinkedConversationToToolSteps(turn *TurnState, event *streaming.Event) {
+	if turn == nil || event == nil || turn.Execution == nil {
+		return
+	}
+	toolCallID := strings.TrimSpace(event.ToolCallID)
+	if toolCallID == "" {
+		return
+	}
+	linkedID := strings.TrimSpace(event.LinkedConversationID)
+	agentID := strings.TrimSpace(event.LinkedConversationAgentID)
+	title := strings.TrimSpace(event.LinkedConversationTitle)
+	for _, p := range turn.Execution.Pages {
+		for _, ts := range p.ToolSteps {
+			if ts.ToolCallID != toolCallID {
+				continue
+			}
+			ts.LinkedConversationID = linkedID
+			ts.LinkedConversationAgentID = agentID
+			ts.LinkedConversationTitle = title
+		}
+	}
+}
+
+func applyModelResultToPage(page *ExecutionPageState, event *streaming.Event) {
+	if page == nil || event == nil {
+		return
+	}
+	if event.Content != "" {
+		page.Content = event.Content
+	}
+	if event.Preamble != "" {
+		page.Preamble = event.Preamble
+	}
+	if event.FinalResponse {
+		page.FinalResponse = true
+		page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
+	}
+}
+
+func applyModelStart(step *ModelStepState, event *streaming.Event) {
+	if step == nil || event == nil {
+		return
+	}
+	step.Status = modelStepStatusForEvent(event, step.Status, step.Status)
+	if step.StartedAt == nil {
+		step.StartedAt = &event.CreatedAt
+	}
+	if event.Model != nil {
+		if provider := strings.TrimSpace(event.Model.Provider); provider != "" {
+			step.Provider = provider
+		}
+		if model := strings.TrimSpace(event.Model.Model); model != "" {
+			step.Model = model
+		}
+	}
+	if event.RequestPayloadID != "" {
+		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
+	}
+	if event.ProviderRequestPayloadID != "" {
+		step.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
+	}
+	if event.ProviderResponsePayloadID != "" {
+		step.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
+	}
+	if event.StreamPayloadID != "" {
+		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
+	}
+}
+
+func applyPlannedToolStep(step *ToolStepState, toolCallID, toolName string) {
+	if step == nil {
+		return
+	}
+	if step.ToolCallID == "" {
+		step.ToolCallID = strings.TrimSpace(toolCallID)
+	}
+	if name := strings.TrimSpace(toolName); name != "" {
+		step.ToolName = name
+	}
+	step.Status = stepStatusFromString("planned", step.Status)
+}
+
+func applyToolStart(step *ToolStepState, event *streaming.Event) {
+	if step == nil || event == nil {
+		return
+	}
+	step.Status = stepStatusFromString(event.Status, step.Status)
+	if step.ToolMessageID == "" {
+		step.ToolMessageID = strings.TrimSpace(event.ToolMessageID)
+	}
+	if name := strings.TrimSpace(event.ToolName); name != "" {
+		step.ToolName = name
+	}
+	if step.StartedAt == nil {
+		step.StartedAt = &event.CreatedAt
+	}
+	if event.RequestPayloadID != "" {
+		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
+	}
+}
+
+func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
+	if step == nil || event == nil {
+		return
+	}
+	step.Status = stepStatusFromString(event.Status, step.Status)
+	if event.ResponsePayloadID != "" {
+		step.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
+	}
+	if event.ProviderRequestPayloadID != "" {
+		step.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
+	}
+	if event.ProviderResponsePayloadID != "" {
+		step.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
+	}
+	if event.StreamPayloadID != "" {
+		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
+	}
+	step.CompletedAt = completedAtForEvent(event)
+}
+
+func applyToolCompletion(step *ToolStepState, event *streaming.Event) {
+	if step == nil || event == nil {
+		return
+	}
+	step.Status = stepStatusFromString(event.Status, step.Status)
+	if event.ResponsePayloadID != "" {
+		step.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
+	}
+	if event.LinkedConversationID != "" {
+		step.LinkedConversationID = strings.TrimSpace(event.LinkedConversationID)
+	}
+	step.CompletedAt = completedAtForEvent(event)
+}
+
+func ensureToolCompletion(page *ExecutionPageState, event *streaming.Event) *ToolStepState {
+	if page == nil || event == nil {
+		return nil
+	}
+	step := upsertToolStep(page, strings.TrimSpace(event.ToolCallID))
+	applyToolCompletion(step, event)
+	if step.ToolMessageID == "" {
+		step.ToolMessageID = strings.TrimSpace(event.ToolMessageID)
+	}
+	if step.ToolName == "" {
+		step.ToolName = strings.TrimSpace(event.ToolName)
+	}
+	return step
+}
+
 // finalizeTurn sets a terminal status on the turn, refusing to downgrade
 // from an already-terminal status.
 func finalizeTurn(turn *TurnState, status TurnStatus) {
@@ -224,6 +410,40 @@ func finalizeTurn(turn *TurnState, status TurnStatus) {
 		return
 	}
 	turn.Status = status
+}
+
+func markTurnRunning(turn *TurnState) {
+	if turn == nil {
+		return
+	}
+	turn.Status = TurnStatusRunning
+}
+
+func markTurnQueuedIfMutable(turn *TurnState) {
+	if turn == nil {
+		return
+	}
+	if turn.Status == TurnStatusRunning || turn.Status == TurnStatusCompleted ||
+		turn.Status == TurnStatusFailed || turn.Status == TurnStatusCanceled {
+		return
+	}
+	turn.Status = TurnStatusQueued
+}
+
+func markTurnWaitingForUser(turn *TurnState) {
+	if turn == nil {
+		return
+	}
+	turn.Status = TurnStatusWaitingForUser
+}
+
+func resumeTurnFromWaiting(turn *TurnState) {
+	if turn == nil {
+		return
+	}
+	if turn.Status == TurnStatusWaitingForUser {
+		turn.Status = TurnStatusRunning
+	}
 }
 
 // activateFeed adds or updates a feed in state.Feeds.

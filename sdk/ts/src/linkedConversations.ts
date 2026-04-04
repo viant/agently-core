@@ -1,4 +1,46 @@
-import type { SSEEvent, TranscriptOutput } from './types';
+import type { ExecutionPage, ModelStepState, SSEEvent, ToolStepState, TranscriptOutput, Turn } from './types';
+
+type LegacyModelStep = Partial<ModelStepState> & {
+    Provider?: string;
+    Model?: string;
+    Status?: string;
+};
+
+type LegacyToolStep = Partial<ToolStepState> & {
+    ToolName?: string;
+    Status?: string;
+};
+
+type LegacyExecutionPage = Partial<ExecutionPage> & {
+    AssistantMessageId?: string;
+    PageId?: string;
+    Preamble?: string;
+    Content?: string;
+    Status?: string;
+    FinalResponse?: boolean;
+    ToolSteps?: LegacyToolStep[];
+    ModelSteps?: LegacyModelStep[];
+    CompletedAt?: string;
+    CreatedAt?: string;
+};
+
+type LegacyTurn = Partial<Turn> & {
+    Status?: string;
+    AgentIdUsed?: string;
+    AgentId?: string;
+    UpdatedAt?: string;
+    CreatedAt?: string;
+    Response?: { Content?: string };
+    Execution?: { Pages?: LegacyExecutionPage[] };
+};
+
+type TranscriptLike = TranscriptOutput & {
+    Turns?: LegacyTurn[];
+};
+
+export type LinkedConversationPreviewStep =
+    ({ kind: 'model' } & Partial<ModelStepState>)
+    | ({ kind: 'tool' } & Partial<ToolStepState>);
 
 export interface LinkedConversationPreviewGroup {
     id: string;
@@ -8,9 +50,9 @@ export interface LinkedConversationPreviewGroup {
     content: string;
     stepKind: string;
     stepLabel: string;
-    detailStep: Record<string, any> | null;
-    modelStep: Record<string, any> | null;
-    toolSteps: Record<string, any>[];
+    detailStep: LinkedConversationPreviewStep | null;
+    modelStep: ({ kind: 'model' } & Partial<ModelStepState>) | null;
+    toolSteps: ({ kind: 'tool' } & Partial<ToolStepState>)[];
 }
 
 export interface LinkedConversationPreviewSummary {
@@ -21,7 +63,7 @@ export interface LinkedConversationPreviewSummary {
     previewGroups: LinkedConversationPreviewGroup[];
 }
 
-function stepTitle(step: Record<string, any> = {}): string {
+function stepTitle(step: LinkedConversationPreviewStep | LegacyModelStep | LegacyToolStep | null = null): string {
     const kind = String(step?.kind || '').toLowerCase();
     if (kind === 'model') {
         const provider = String(step?.provider || step?.Provider || '').trim();
@@ -31,8 +73,8 @@ function stepTitle(step: Record<string, any> = {}): string {
     return String(step?.toolName || step?.ToolName || 'tool').trim() || 'tool';
 }
 
-export function summarizeLinkedConversationTranscript(payload: TranscriptOutput | Record<string, any> = {}): LinkedConversationPreviewSummary {
-    const turns = Array.isArray((payload as any)?.turns) ? (payload as any).turns : (Array.isArray((payload as any)?.Turns) ? (payload as any).Turns : []);
+export function summarizeLinkedConversationTranscript(payload: TranscriptLike = {}): LinkedConversationPreviewSummary {
+    const turns = Array.isArray(payload?.turns) ? payload.turns : (Array.isArray(payload?.Turns) ? payload.Turns : []);
     const lastTurn = turns[turns.length - 1] || null;
     if (!lastTurn) {
         return { status: '', response: '', updatedAt: '', agentId: '', previewGroups: [] };
@@ -63,19 +105,23 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptOutput 
         const modelSteps = Array.isArray(page?.modelSteps) ? page.modelSteps : (Array.isArray(page?.ModelSteps) ? page.ModelSteps : []);
         const modelStep = modelSteps[0] || null;
         const primaryStep = toolSteps[toolSteps.length - 1] || modelStep || null;
-        const normalizedModelStep = modelStep ? {
-            ...modelStep,
-            kind: 'model',
-            provider: String(modelStep?.provider || modelStep?.Provider || '').trim(),
-            model: String(modelStep?.model || modelStep?.Model || '').trim(),
-            status: String(modelStep?.status || modelStep?.Status || '').trim(),
-        } : null;
-        const normalizedToolSteps = toolSteps.map((step) => ({
-            ...step,
-            kind: 'tool',
-            toolName: String(step?.toolName || step?.ToolName || '').trim(),
-            status: String(step?.status || step?.Status || '').trim(),
-        }));
+        const normalizedModelStep = modelStep
+            ? ({
+                ...modelStep,
+                kind: 'model',
+                provider: String(modelStep?.provider || modelStep?.Provider || '').trim(),
+                model: String(modelStep?.model || modelStep?.Model || '').trim(),
+                status: String(modelStep?.status || modelStep?.Status || '').trim(),
+            } as ({ kind: 'model' } & Partial<ModelStepState>))
+            : null;
+        const normalizedToolSteps = toolSteps.map((step) => (
+            {
+                ...step,
+                kind: 'tool',
+                toolName: String(step?.toolName || step?.ToolName || '').trim(),
+                status: String(step?.status || step?.Status || '').trim(),
+            } as ({ kind: 'tool' } & Partial<ToolStepState>)
+        ));
         const title = String(page?.preamble || page?.Preamble || '').trim()
             || (toolSteps.length > 0 ? `Using ${stepTitle(toolSteps[toolSteps.length - 1])}.` : '')
             || (modelStep ? stepTitle(modelStep) : '')
@@ -88,7 +134,7 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptOutput 
             content: String(page?.content || page?.Content || '').trim(),
             stepKind: String(primaryStep?.kind || (toolSteps.length > 0 ? 'tool' : 'model')).trim(),
             stepLabel: primaryStep ? stepTitle(primaryStep) : '',
-            detailStep: primaryStep ? { ...primaryStep } : null,
+            detailStep: primaryStep ? ({ ...primaryStep } as LinkedConversationPreviewStep) : null,
             modelStep: normalizedModelStep,
             toolSteps: normalizedToolSteps,
         };
@@ -102,16 +148,16 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptOutput 
     };
 }
 
-export function reduceLinkedConversationPreviewEvent(current: Record<string, any> = {}, event: SSEEvent | Record<string, any> = {}) {
+export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConversationPreviewSummary> = {}, event: Partial<SSEEvent> = {}) {
     const next = { ...current };
-    const type = String((event as any)?.type || '').trim().toLowerCase();
-    const content = String((event as any)?.content || (event as any)?.preamble || '').trim();
-    const status = String((event as any)?.status || '').trim();
-    const assistantMessageId = String((event as any)?.assistantMessageId || '').trim();
-    const toolName = String((event as any)?.toolName || '').trim();
+    const type = String(event?.type || '').trim().toLowerCase();
+    const content = String(event?.content || event?.preamble || '').trim();
+    const status = String(event?.status || '').trim();
+    const assistantMessageId = String(event?.assistantMessageId || '').trim();
+    const toolName = String(event?.toolName || '').trim();
 
     if (type === 'text_delta') {
-        next.response = `${String(next.response || '')}${String((event as any)?.content || '')}`.trim();
+        next.response = `${String(next.response || '')}${String(event?.content || '')}`.trim();
         return next;
     }
     if (type === 'assistant_final') {
@@ -131,20 +177,20 @@ export function reduceLinkedConversationPreviewEvent(current: Record<string, any
             id: groupKey,
             title: content || (type === 'model_started' ? 'Thinking…' : 'Model step'),
             status: status || (type === 'model_started' ? 'running' : 'completed'),
-            finalResponse: type === 'model_completed' && !!(event as any)?.finalResponse,
+            finalResponse: type === 'model_completed' && !!event?.finalResponse,
             content: type === 'model_completed' ? content : '',
             stepKind: 'model',
-            stepLabel: String((event as any)?.modelName || (event as any)?.model?.model || '').trim(),
+            stepLabel: String(event?.modelName || event?.model?.model || '').trim(),
             detailStep: {
                 kind: 'model',
-                model: String((event as any)?.modelName || (event as any)?.model?.model || '').trim(),
-                provider: String((event as any)?.provider || (event as any)?.model?.provider || '').trim(),
+                model: String(event?.modelName || event?.model?.model || '').trim(),
+                provider: String(event?.provider || event?.model?.provider || '').trim(),
                 status: status || '',
             },
             modelStep: {
                 kind: 'model',
-                model: String((event as any)?.modelName || (event as any)?.model?.model || '').trim(),
-                provider: String((event as any)?.provider || (event as any)?.model?.provider || '').trim(),
+                model: String(event?.modelName || event?.model?.model || '').trim(),
+                provider: String(event?.provider || event?.model?.provider || '').trim(),
                 status: status || '',
             },
             toolSteps: [],
@@ -158,7 +204,7 @@ export function reduceLinkedConversationPreviewEvent(current: Record<string, any
     }
     if (type === 'tool_call_started' || type === 'tool_call_completed') {
         const previewGroups = Array.isArray(next.previewGroups) ? [...next.previewGroups] : [];
-        const groupKey = String((event as any)?.toolCallId || (event as any)?.toolMessageId || toolName || `tool:${previewGroups.length}`).trim();
+        const groupKey = String(event?.toolCallId || event?.toolMessageId || toolName || `tool:${previewGroups.length}`).trim();
         const merged = {
             id: groupKey,
             title: toolName ? `Using ${toolName}.` : 'Tool step',

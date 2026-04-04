@@ -5,6 +5,20 @@
  * HTTP API. Field names use camelCase as serialised by Go's json tags.
  */
 
+export type JSONPrimitive = string | number | boolean | null;
+export type JSONValue = JSONPrimitive | JSONObject | JSONArray;
+export interface JSONObject {
+    [key: string]: JSONValue;
+}
+export interface JSONArray extends Array<JSONValue> {}
+
+export interface ConversationStateLike {
+    stage?: string;
+    Stage?: string;
+    status?: string;
+    Status?: string;
+}
+
 // ─── Pagination ────────────────────────────────────────────────────────────────
 
 export type Direction = 'before' | 'after' | 'latest';
@@ -50,7 +64,7 @@ export interface ConversationPage {
 export interface CreateConversationInput {
     agentId?: string;
     title?: string;
-    metadata?: Record<string, any>;
+    metadata?: JSONObject;
 }
 
 export interface UpdateConversationInput {
@@ -71,6 +85,7 @@ export interface ListConversationsInput {
 
 export interface Turn {
     id: string;
+    turnId?: string;
     conversationId: string;
     status: string;
     elapsedInSec?: number;
@@ -84,6 +99,9 @@ export interface Turn {
     runId?: string;
     createdAt: string;
     message: Message[];
+    execution?: {
+        pages?: Partial<ExecutionPage>[];
+    };
     executionGroups?: ExecutionGroup[];
     executionGroupsTotal?: number;
     executionGroupsOffset?: number;
@@ -133,12 +151,20 @@ export interface ExecutionPage {
     finalAssistantMessageId?: string;
 }
 
+export type LiveExecutionGroup = Partial<ExecutionPage> & {
+    sequence?: number;
+    errorMessage?: string;
+};
+
+export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
+
 export interface ModelStepState {
     modelCallId: string;
     assistantMessageId?: string;
     provider?: string;
     model?: string;
     status?: string;
+    errorMessage?: string;
     requestPayloadId?: string;
     responsePayloadId?: string;
     providerRequestPayloadId?: string;
@@ -153,9 +179,12 @@ export interface ToolStepState {
     toolMessageId?: string;
     toolName: string;
     status?: string;
+    errorMessage?: string;
     requestPayloadId?: string;
     responsePayloadId?: string;
     linkedConversationId?: string;
+    linkedConversationAgentId?: string;
+    linkedConversationTitle?: string;
     startedAt?: string;
     completedAt?: string;
 }
@@ -349,13 +378,15 @@ export interface SSEEvent {
     providerResponsePayloadId?: string;
     streamPayloadId?: string;
     linkedConversationId?: string;
+    linkedConversationAgentId?: string;
+    linkedConversationTitle?: string;
     type: SSEEventType;
     op?: string;
-    patch?: Record<string, any>;
+    patch?: JSONObject;
     content?: string;
     preamble?: string;
     toolName?: string;
-    arguments?: Record<string, any>;
+    arguments?: JSONObject;
     error?: string;
     status?: string;
     iteration?: number;
@@ -373,14 +404,14 @@ export interface SSEEvent {
     provider?: string;
     modelName?: string;
     elicitationId?: string;
-    elicitationData?: Record<string, any>;
+    elicitationData?: JSONObject;
     callbackUrl?: string;
-    responsePayload?: Record<string, any>;
+    responsePayload?: JSONObject;
     // Tool feed fields
     feedId?: string;
     feedTitle?: string;
     feedItemCount?: number;
-    feedData?: any;
+    feedData?: JSONValue;
 }
 
 export type ExecutionEvent = SSEEvent;
@@ -399,7 +430,7 @@ export interface QueryInput {
     tools?: string[];
     toolBundles?: string[];
     autoSelectTools?: boolean;
-    context?: Record<string, any>;
+    context?: JSONObject;
     attachments?: QueryAttachment[];
     reasoningEffort?: string;
     elicitationMode?: string;
@@ -423,8 +454,8 @@ export interface QueryOutput {
     content: string;
     model?: string;
     messageId?: string;
-    elicitation?: any;
-    plan?: any;
+    elicitation?: JSONObject;
+    plan?: JSONObject;
     usage?: UsageInfo;
     warnings?: string[];
 }
@@ -473,7 +504,7 @@ export interface PendingElicitation {
 
 export interface ResolveElicitationInput {
     action: string;
-    payload?: Record<string, any>;
+    payload?: JSONObject;
 }
 
 // ─── Tool Approvals ────────────────────────────────────────────────────────────
@@ -486,8 +517,8 @@ export interface PendingToolApproval {
     messageId?: string;
     toolName: string;
     title?: string;
-    arguments?: Record<string, any>;
-    metadata?: Record<string, any>;
+    arguments?: JSONObject;
+    metadata?: JSONObject;
     status: string;
     decision?: string;
     createdAt: string;
@@ -499,7 +530,7 @@ export interface DecideToolApprovalInput {
     action: 'approve' | 'reject';
     userId?: string;
     reason?: string;
-    payload?: Record<string, any>;
+    payload?: JSONObject;
 }
 
 export interface DecideToolApprovalOutput {
@@ -710,7 +741,7 @@ export interface AuthUser {
     email?: string;
     displayName?: string;
     provider?: string;
-    preferences?: Record<string, any>;
+    preferences?: JSONObject;
 }
 
 export interface LocalLoginInput {

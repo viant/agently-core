@@ -426,6 +426,134 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	require.Equal(t, "m3", ts.Execution.Pages[2].AssistantMessageID)
 }
 
+func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
+	now := time.Date(2026, 4, 3, 18, 45, 0, 0, time.UTC)
+	iteration := 1
+	waiting := "waiting_for_user"
+	cancelled := "cancelled"
+
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		CreatedAt:      now,
+		Message: []*agconv.MessageView{
+			{
+				Id:            "elic-1",
+				Role:          "assistant",
+				Content:       strPtr("Need input"),
+				Status:        &waiting,
+				ElicitationId: strPtr("elicitation-1"),
+				CreatedAt:     now.Add(time.Second),
+			},
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   strPtr("done"),
+				Iteration: &iteration,
+				CreatedAt: now.Add(2 * time.Second),
+				ModelCall: &agconv.ModelCallView{
+					MessageId: "m1",
+					Status:    "success",
+				},
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:        "tm1",
+						CreatedAt: now.Add(3 * time.Second),
+						ToolCall: &agconv.ToolCallView{
+							MessageId: "tm1",
+							OpId:      "call-1",
+							ToolName:  "resources/read",
+							Status:    "done",
+						},
+					},
+					{
+						Id:                   "tm2",
+						CreatedAt:            now.Add(4 * time.Second),
+						LinkedConversationId: strPtr("child-1"),
+						ToolCall: &agconv.ToolCallView{
+							MessageId: "tm2",
+							OpId:      "call-2",
+							ToolName:  "llm/agents/run",
+							Status:    "terminated",
+						},
+					},
+				},
+			},
+			{
+				Id:            "elic-2",
+				Role:          "assistant",
+				Content:       strPtr("Cancelled input"),
+				Status:        &cancelled,
+				ElicitationId: strPtr("elicitation-2"),
+				CreatedAt:     now.Add(5 * time.Second),
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+
+	ts := state.Turns[0]
+	require.Equal(t, TurnStatusCompleted, ts.Status)
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 1)
+	require.Equal(t, "success", ts.Execution.Pages[0].Status)
+	require.Len(t, ts.Execution.Pages[0].ModelSteps, 1)
+	require.Equal(t, "success", ts.Execution.Pages[0].ModelSteps[0].Status)
+	require.Len(t, ts.Execution.Pages[0].ToolSteps, 2)
+	require.Equal(t, "done", ts.Execution.Pages[0].ToolSteps[0].Status)
+	require.Equal(t, "terminated", ts.Execution.Pages[0].ToolSteps[1].Status)
+
+	require.NotNil(t, ts.Elicitation)
+	require.Equal(t, ElicitationStatusCanceled, ts.Elicitation.Status)
+}
+
+func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T) {
+	iteration := 1
+	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+	preamble := "Working through the request.\n\n"
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Preamble:  &preamble,
+				Content:   &preamble,
+				Iteration: &iteration,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+			},
+			{
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &content,
+				Iteration: &iteration,
+				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+
+	page := state.Turns[0].Execution.Pages[0]
+	require.Equal(t, preamble, page.Preamble)
+	require.Equal(t, content, page.Content)
+	require.NotNil(t, state.Turns[0].Assistant)
+	require.NotNil(t, state.Turns[0].Assistant.Final)
+	require.Equal(t, content, state.Turns[0].Assistant.Final.Content)
+}
+
 func TestBuildTranscriptSelectors(t *testing.T) {
 	selectors := buildTranscriptQuerySelectors(map[string]*QuerySelector{
 		TranscriptSelectorTurn:    {Limit: 1},

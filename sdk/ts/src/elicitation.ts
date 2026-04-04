@@ -9,6 +9,7 @@
  * elicitation forms can't be overwritten by transcript fetches.
  */
 
+import type { JSONObject, SSEEvent } from './types';
 import { resolveEventConversationId, resolveEventTurnId } from './streamIdentity';
 
 export interface PendingElicitation {
@@ -16,7 +17,7 @@ export interface PendingElicitation {
     conversationId: string;
     turnId?: string;
     message?: string;
-    requestedSchema?: Record<string, any> | null;
+    requestedSchema?: JSONObject | null;
     callbackURL?: string;
     /** OOB URL to open in a new browser window. */
     url?: string;
@@ -25,6 +26,26 @@ export interface PendingElicitation {
 }
 
 export type ElicitationListener = (pending: PendingElicitation | null) => void;
+
+interface ElicitationEnvelope {
+    requestedSchema?: JSONObject;
+    schema?: JSONObject;
+    url?: string;
+    mode?: string;
+}
+
+function isJSONObject(value: unknown): value is JSONObject {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveElicitationEnvelope(data: JSONObject | null | undefined): ElicitationEnvelope {
+    return {
+        requestedSchema: isJSONObject(data?.requestedSchema) ? data.requestedSchema : (isJSONObject(data?.schema) ? data.schema : undefined),
+        schema: isJSONObject(data?.schema) ? data.schema : undefined,
+        url: String(data?.url || '').trim(),
+        mode: String(data?.mode || '').trim(),
+    };
+}
 
 export class ElicitationTracker {
     private _pending: PendingElicitation | null = null;
@@ -59,10 +80,11 @@ export class ElicitationTracker {
      * Apply an SSE event. Call this from your streamEvents onEvent handler.
      * Automatically sets/clears pending state based on event type.
      */
-    applyEvent(event: { type?: string; elicitationId?: string; conversationId?: string; streamId?: string; turnId?: string; content?: string; callbackUrl?: string; elicitationData?: Record<string, any> | null }): void {
+    applyEvent(event: Pick<SSEEvent, 'type' | 'elicitationId' | 'conversationId' | 'streamId' | 'turnId' | 'content' | 'callbackUrl' | 'elicitationData'>): void {
         if (event.type === 'elicitation_requested' && event.elicitationId) {
             const data = event.elicitationData;
-            const requestedSchema = data?.requestedSchema ?? data?.schema ?? data ?? null;
+            const envelope = resolveElicitationEnvelope(data);
+            const requestedSchema = envelope.requestedSchema || envelope.schema || data || null;
             this.setPending({
                 elicitationId: event.elicitationId,
                 conversationId: resolveEventConversationId(event),
@@ -70,8 +92,8 @@ export class ElicitationTracker {
                 message: event.content || '',
                 requestedSchema,
                 callbackURL: event.callbackUrl || '',
-                url: (data as any)?.url || '',
-                mode: (data as any)?.mode || '',
+                url: envelope.url,
+                mode: envelope.mode,
             });
         } else if (event.type === 'elicitation_resolved') {
             this.clear();

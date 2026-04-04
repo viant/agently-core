@@ -28,11 +28,11 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 	case streaming.EventTypeTurnStarted:
 		return reduceTurnStarted(state, event)
 	case streaming.EventTypeTurnCompleted:
-		return reduceTurnTerminal(state, event, TurnStatusCompleted)
+		return reduceTurnTerminal(state, event, terminalStatusForEventType(event.Type))
 	case streaming.EventTypeTurnFailed:
-		return reduceTurnTerminal(state, event, TurnStatusFailed)
+		return reduceTurnTerminal(state, event, terminalStatusForEventType(event.Type))
 	case streaming.EventTypeTurnCanceled:
-		return reduceTurnTerminal(state, event, TurnStatusCanceled)
+		return reduceTurnTerminal(state, event, terminalStatusForEventType(event.Type))
 	case streaming.EventTypeTurnQueued:
 		return reduceTurnQueued(state, event)
 
@@ -99,7 +99,7 @@ func reduceTurnStarted(state *ConversationState, event *streaming.Event) *Conver
 	// Avoid duplicate turns
 	for _, t := range state.Turns {
 		if t.TurnID == turnID {
-			t.Status = TurnStatusRunning
+			markTurnRunning(t)
 			return state
 		}
 	}
@@ -134,10 +134,7 @@ func reduceTurnQueued(state *ConversationState, event *streaming.Event) *Convers
 	// If the turn already exists (e.g. arrived via transcript snapshot), update it.
 	for _, t := range state.Turns {
 		if t.TurnID == turnID {
-			if t.Status != TurnStatusRunning && t.Status != TurnStatusCompleted &&
-				t.Status != TurnStatusFailed && t.Status != TurnStatusCanceled {
-				t.Status = TurnStatusQueued
-			}
+			markTurnQueuedIfMutable(t)
 			return state
 		}
 	}
@@ -168,48 +165,8 @@ func reduceModelStarted(state *ConversationState, event *streaming.Event) *Conve
 	}
 	page := ensureCurrentPage(turn, event)
 	modelCallID := strings.TrimSpace(event.AssistantMessageID)
-	// Dedup: don't append if a step with the same ModelCallID already exists
-	for _, ms := range page.ModelSteps {
-		if ms.ModelCallID == modelCallID {
-			ms.Status = strings.TrimSpace(event.Status)
-			if event.RequestPayloadID != "" {
-				ms.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
-			}
-			if event.ProviderRequestPayloadID != "" {
-				ms.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
-			}
-			if event.ProviderResponsePayloadID != "" {
-				ms.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
-			}
-			if event.StreamPayloadID != "" {
-				ms.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
-			}
-			return state
-		}
-	}
-	step := &ModelStepState{
-		ModelCallID:        modelCallID,
-		AssistantMessageID: modelCallID,
-		Status:             strings.TrimSpace(event.Status),
-		StartedAt:          &event.CreatedAt,
-	}
-	if event.Model != nil {
-		step.Provider = strings.TrimSpace(event.Model.Provider)
-		step.Model = strings.TrimSpace(event.Model.Model)
-	}
-	if event.RequestPayloadID != "" {
-		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
-	}
-	if event.ProviderRequestPayloadID != "" {
-		step.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
-	}
-	if event.ProviderResponsePayloadID != "" {
-		step.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
-	}
-	if event.StreamPayloadID != "" {
-		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
-	}
-	page.ModelSteps = append(page.ModelSteps, step)
+	step := upsertModelStep(page, modelCallID)
+	applyModelStart(step, event)
 	return state
 }
 
@@ -222,40 +179,11 @@ func reduceModelCompleted(state *ConversationState, event *streaming.Event) *Con
 	// Find and update the matching model step
 	for _, ms := range page.ModelSteps {
 		if ms.ModelCallID == strings.TrimSpace(event.AssistantMessageID) {
-			ms.Status = strings.TrimSpace(event.Status)
-			if event.ResponsePayloadID != "" {
-				ms.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
-			}
-			if event.ProviderRequestPayloadID != "" {
-				ms.ProviderRequestPayloadID = strings.TrimSpace(event.ProviderRequestPayloadID)
-			}
-			if event.ProviderResponsePayloadID != "" {
-				ms.ProviderResponsePayloadID = strings.TrimSpace(event.ProviderResponsePayloadID)
-			}
-			if event.StreamPayloadID != "" {
-				ms.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
-			}
-			if event.CompletedAt != nil {
-				ms.CompletedAt = event.CompletedAt
-			} else {
-				t := event.CreatedAt
-				ms.CompletedAt = &t
-			}
+			applyModelCompletion(ms, event)
 			break
 		}
 	}
-	// Preserve assistant-visible whitespace so markdown headings, tables, and
-	// fences keep their intended line boundaries.
-	if event.Content != "" {
-		page.Content = event.Content
-	}
-	if event.Preamble != "" {
-		page.Preamble = event.Preamble
-	}
-	if event.FinalResponse {
-		page.FinalResponse = true
-		page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
-	}
+	applyModelResultToPage(page, event)
 	return state
 }
 
@@ -281,21 +209,8 @@ func reduceToolCallsPlanned(state *ConversationState, event *streaming.Event) *C
 		if toolCallID == "" && toolName == "" {
 			continue
 		}
-		// Dedup: skip if already present
-		found := false
-		for _, ts := range page.ToolSteps {
-			if ts.ToolCallID == toolCallID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			page.ToolSteps = append(page.ToolSteps, &ToolStepState{
-				ToolCallID: toolCallID,
-				ToolName:   toolName,
-				Status:     "planned",
-			})
-		}
+		step := upsertToolStep(page, toolCallID)
+		applyPlannedToolStep(step, toolCallID, toolName)
 	}
 	return state
 }
@@ -331,6 +246,9 @@ func reduceTextDelta(state *ConversationState, event *streaming.Event) *Conversa
 	}
 	page := ensureCurrentPage(turn, event)
 	page.Content += event.Content
+	for _, ms := range page.ModelSteps {
+		ms.Status = modelStepStatusForEvent(event, ms.Status, ms.Status)
+	}
 	return state
 }
 
@@ -363,26 +281,8 @@ func reduceToolStarted(state *ConversationState, event *streaming.Event) *Conver
 	}
 	page := ensureCurrentPage(turn, event)
 	toolCallID := strings.TrimSpace(event.ToolCallID)
-	// Dedup: don't append if a step with the same ToolCallID already exists
-	if toolCallID != "" {
-		for _, ts := range page.ToolSteps {
-			if ts.ToolCallID == toolCallID {
-				ts.Status = strings.TrimSpace(event.Status)
-				return state
-			}
-		}
-	}
-	step := &ToolStepState{
-		ToolCallID:    toolCallID,
-		ToolMessageID: strings.TrimSpace(event.ToolMessageID),
-		ToolName:      strings.TrimSpace(event.ToolName),
-		Status:        strings.TrimSpace(event.Status),
-		StartedAt:     &event.CreatedAt,
-	}
-	if event.RequestPayloadID != "" {
-		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
-	}
-	page.ToolSteps = append(page.ToolSteps, step)
+	step := upsertToolStep(page, toolCallID)
+	applyToolStart(step, event)
 	return state
 }
 
@@ -392,40 +292,7 @@ func reduceToolCompleted(state *ConversationState, event *streaming.Event) *Conv
 		return state
 	}
 	page := ensureCurrentPage(turn, event)
-	toolCallID := strings.TrimSpace(event.ToolCallID)
-	completedAt := event.CompletedAt
-	if completedAt == nil {
-		t := event.CreatedAt
-		completedAt = &t
-	}
-	for _, ts := range page.ToolSteps {
-		if ts.ToolCallID == toolCallID {
-			ts.Status = strings.TrimSpace(event.Status)
-			if event.ResponsePayloadID != "" {
-				ts.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
-			}
-			if event.LinkedConversationID != "" {
-				ts.LinkedConversationID = strings.TrimSpace(event.LinkedConversationID)
-			}
-			ts.CompletedAt = completedAt
-			return state
-		}
-	}
-	// Tool step not found — create it (transcript reconciliation case)
-	step := &ToolStepState{
-		ToolCallID:    toolCallID,
-		ToolMessageID: strings.TrimSpace(event.ToolMessageID),
-		ToolName:      strings.TrimSpace(event.ToolName),
-		Status:        strings.TrimSpace(event.Status),
-	}
-	if event.ResponsePayloadID != "" {
-		step.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
-	}
-	if event.LinkedConversationID != "" {
-		step.LinkedConversationID = strings.TrimSpace(event.LinkedConversationID)
-	}
-	step.CompletedAt = completedAt
-	page.ToolSteps = append(page.ToolSteps, step)
+	ensureToolCompletion(page, event)
 	return state
 }
 
@@ -436,14 +303,7 @@ func reduceElicitationRequested(state *ConversationState, event *streaming.Event
 	if turn == nil {
 		return state
 	}
-	turn.Status = TurnStatusWaitingForUser
-	turn.Elicitation = &ElicitationState{
-		ElicitationID:   strings.TrimSpace(event.ElicitationID),
-		Status:          ElicitationStatusPending,
-		Message:         strings.TrimSpace(event.Content),
-		RequestedSchema: marshalToRawJSON(event.ElicitationData),
-		CallbackURL:     strings.TrimSpace(event.CallbackURL),
-	}
+	applyElicitationRequested(turn, event)
 	return state
 }
 
@@ -452,26 +312,7 @@ func reduceElicitationResolved(state *ConversationState, event *streaming.Event)
 	if turn == nil {
 		return state
 	}
-	if turn.Elicitation == nil {
-		turn.Elicitation = &ElicitationState{
-			ElicitationID: strings.TrimSpace(event.ElicitationID),
-		}
-	}
-	switch strings.ToLower(strings.TrimSpace(event.Status)) {
-	case "accepted":
-		turn.Elicitation.Status = ElicitationStatusAccepted
-	case "declined", "rejected":
-		turn.Elicitation.Status = ElicitationStatusDeclined
-	case "canceled", "cancelled":
-		turn.Elicitation.Status = ElicitationStatusCanceled
-	default:
-		turn.Elicitation.Status = ElicitationStatusDeclined
-	}
-	turn.Elicitation.ResponsePayload = marshalToRawJSON(event.ResponsePayload)
-	// Resume the turn
-	if turn.Status == TurnStatusWaitingForUser {
-		turn.Status = TurnStatusRunning
-	}
+	applyElicitationResolved(turn, event)
 	return state
 }
 
@@ -495,18 +336,7 @@ func reduceLinkedConversation(state *ConversationState, event *streaming.Event) 
 		Title:                strings.TrimSpace(event.LinkedConversationTitle),
 		CreatedAt:            event.CreatedAt,
 	})
-	// Also attach to the matching tool step if possible
-	if toolCallID := strings.TrimSpace(event.ToolCallID); toolCallID != "" && turn.Execution != nil {
-		for _, p := range turn.Execution.Pages {
-			for _, ts := range p.ToolSteps {
-				if ts.ToolCallID == toolCallID {
-					ts.LinkedConversationID = linkedID
-					ts.LinkedConversationAgentID = strings.TrimSpace(event.LinkedConversationAgentID)
-					ts.LinkedConversationTitle = strings.TrimSpace(event.LinkedConversationTitle)
-				}
-			}
-		}
-	}
+	applyLinkedConversationToToolSteps(turn, event)
 	return state
 }
 
