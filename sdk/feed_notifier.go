@@ -79,7 +79,7 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	// Emit SSE events outside the lock — bus.Publish must not be called under
 	// n.mu to avoid deadlock if the bus callback re-enters the notifier.
 	for _, spec := range matched {
-		EmitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
+		emitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
 	}
 }
 
@@ -101,7 +101,7 @@ func (n *feedNotifier) EmitInactiveForMissing(ctx context.Context, convID string
 	feedsByConversation := n.activeFeeds[convID]
 	for feedID := range feedsByConversation {
 		if !currentFeedIDs[feedID] {
-			EmitFeedInactive(ctx, n.bus, convID, feedID)
+			emitFeedInactive(ctx, n.bus, convID, feedID)
 			delete(feedsByConversation, feedID)
 		}
 	}

@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+func conversationAndTurnIDs(r *http.Request) (string, string, error) {
+	conversationID := strings.TrimSpace(r.PathValue("id"))
+	turnID := strings.TrimSpace(r.PathValue("turnId"))
+	if conversationID == "" || turnID == "" {
+		return "", "", fmt.Errorf("conversation ID and turn ID are required")
+	}
+	return conversationID, turnID, nil
+}
+
 func handleCancelTurn(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -22,14 +31,13 @@ func handleCancelTurn(client Client) http.HandlerFunc {
 
 func handleSteerTurn(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conversationID := strings.TrimSpace(r.PathValue("id"))
-		turnID := strings.TrimSpace(r.PathValue("turnId"))
-		if conversationID == "" || turnID == "" {
-			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+		conversationID, turnID, err := conversationAndTurnIDs(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		var input SteerTurnInput
-		if err := decodeJSON(r, &input); err != nil {
+		if err = decodeJSON(r, &input); err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -53,13 +61,12 @@ func handleSteerTurn(client Client) http.HandlerFunc {
 
 func handleDeleteQueuedTurn(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conversationID := strings.TrimSpace(r.PathValue("id"))
-		turnID := strings.TrimSpace(r.PathValue("turnId"))
-		if conversationID == "" || turnID == "" {
-			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+		conversationID, turnID, err := conversationAndTurnIDs(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := client.CancelQueuedTurn(r.Context(), conversationID, turnID); err != nil {
+		if err = client.CancelQueuedTurn(r.Context(), conversationID, turnID); err != nil {
 			if isConflictError(err) {
 				httpError(w, http.StatusConflict, err)
 				return
@@ -73,20 +80,19 @@ func handleDeleteQueuedTurn(client Client) http.HandlerFunc {
 
 func handleMoveQueuedTurn(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conversationID := strings.TrimSpace(r.PathValue("id"))
-		turnID := strings.TrimSpace(r.PathValue("turnId"))
-		if conversationID == "" || turnID == "" {
-			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+		conversationID, turnID, err := conversationAndTurnIDs(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		var input MoveQueuedTurnInput
-		if err := decodeJSON(r, &input); err != nil {
+		if err = decodeJSON(r, &input); err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		input.ConversationID = conversationID
 		input.TurnID = turnID
-		if err := client.MoveQueuedTurn(r.Context(), &input); err != nil {
+		if err = client.MoveQueuedTurn(r.Context(), &input); err != nil {
 			if isConflictError(err) {
 				httpError(w, http.StatusConflict, err)
 				return
@@ -100,20 +106,19 @@ func handleMoveQueuedTurn(client Client) http.HandlerFunc {
 
 func handleEditQueuedTurn(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conversationID := strings.TrimSpace(r.PathValue("id"))
-		turnID := strings.TrimSpace(r.PathValue("turnId"))
-		if conversationID == "" || turnID == "" {
-			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+		conversationID, turnID, err := conversationAndTurnIDs(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		var input EditQueuedTurnInput
-		if err := decodeJSON(r, &input); err != nil {
+		if err = decodeJSON(r, &input); err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		input.ConversationID = conversationID
 		input.TurnID = turnID
-		if err := client.EditQueuedTurn(r.Context(), &input); err != nil {
+		if err = client.EditQueuedTurn(r.Context(), &input); err != nil {
 			if isConflictError(err) {
 				httpError(w, http.StatusConflict, err)
 				return
@@ -127,10 +132,9 @@ func handleEditQueuedTurn(client Client) http.HandlerFunc {
 
 func handleForceSteerQueuedTurn(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conversationID := strings.TrimSpace(r.PathValue("id"))
-		turnID := strings.TrimSpace(r.PathValue("turnId"))
-		if conversationID == "" || turnID == "" {
-			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID and turn ID are required"))
+		conversationID, turnID, err := conversationAndTurnIDs(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
 			return
 		}
 		out, err := client.ForceSteerQueuedTurn(r.Context(), conversationID, turnID)
