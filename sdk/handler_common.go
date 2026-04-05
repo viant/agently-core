@@ -73,6 +73,7 @@ func resolveQueryUserID(w http.ResponseWriter, r *http.Request, explicit string,
 		Value:    anonymousID,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
 	})

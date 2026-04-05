@@ -25,6 +25,15 @@ import (
 	"github.com/viant/agently-core/service/scheduler"
 )
 
+func newDefaultHTTPClient() *http.Client {
+	base := http.DefaultClient
+	if base == nil {
+		return &http.Client{}
+	}
+	copy := *base
+	return &copy
+}
+
 type HTTPOption func(*HTTPClient)
 
 func WithHTTPClient(client *http.Client) HTTPOption {
@@ -103,7 +112,7 @@ func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
 	}
 	c := &HTTPClient{
 		baseURL:           strings.TrimRight(baseURL, "/"),
-		client:            http.DefaultClient,
+		client:            newDefaultHTTPClient(),
 		queryPath:         "/v1/agent/query",
 		conversationsPath: "/v1/conversations",
 		messagesPath:      "/v1/messages",
@@ -617,7 +626,7 @@ func (c *HTTPClient) DownloadFile(ctx context.Context, input *DownloadFileInput)
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("download file: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}

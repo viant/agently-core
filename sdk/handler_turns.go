@@ -74,7 +74,7 @@ func handleDeleteQueuedTurn(client Client) http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -100,7 +100,7 @@ func handleMoveQueuedTurn(client Client) http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -126,7 +126,7 @@ func handleEditQueuedTurn(client Client) http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
