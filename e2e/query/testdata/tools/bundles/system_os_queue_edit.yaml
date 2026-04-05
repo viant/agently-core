@@ -1,0 +1,16 @@
+id: system/os_queue_edit
+title: System OS Queue Edit
+description: OS helpers with queue approval and editable env var selection
+iconRef: builtin:system-os
+priority: 60
+match:
+  - name: "system/os:*"
+    approval:
+      mode: queue
+      ui:
+        editable:
+          - name: names
+            selector: input.names
+            kind: checkbox_list
+            label: Environment variables
+            description: Choose which environment variables this tool may access.

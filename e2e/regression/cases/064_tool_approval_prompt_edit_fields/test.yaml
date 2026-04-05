@@ -1,0 +1,86 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt edit fields - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: chatter_system_os_prompt_edit
+          Title: prompt-approval-edit-fields-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startPromptQuery:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt edit fields - start query"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: chatter_system_os_prompt_edit
+          UserId: e2e-prompt-edit
+          Query: What are my HOME, SHELL, and PATH environment variables?
+
+  waitForElicitation:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  listPendingElicitations:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt edit fields - verify elicitation appeared"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@rows[0]": true
+            "@exists@rows[0].elicitationId": true
+
+  acceptEditedApproval:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval prompt edit fields - accept with HOME and PATH only"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/elicitations/${createConversation.Responses[0].JSONBody.Id}/${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}/resolve
+        JSONBody:
+          action: accept
+          payload:
+            editedFields:
+              names:
+                - HOME
+                - PATH
+        Expect:
+          Code: 200
+
+  waitForCompletion:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  verifyFilteredResult:
+    when: $sdkKey != ''
+    action: exec:run
+    description: "tool approval prompt edit fields - verify final response excludes SHELL"
+    checkError: true
+    commands:
+      - |
+        body=$(curl -fsS "${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/live-state" | jq -r '.conversation.turns[0].assistant.final.content // ""')
+        echo "$body" | grep '"HOME"'
+        echo "$body" | grep '"PATH"'
+        if echo "$body" | grep -q '"SHELL"'; then
+          echo "unexpected SHELL in final response"
+          echo "$body"
+          exit 1
+        fi

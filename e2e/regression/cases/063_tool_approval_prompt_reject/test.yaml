@@ -42,11 +42,11 @@ pipeline:
     description: "tool approval prompt reject - verify elicitation appeared"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/elicitations/pending?conversationId=${createConversationReject.Responses[0].JSONBody.Id}
+        URL: ${serverURL}/v1/elicitations?conversationId=${createConversationReject.Responses[0].JSONBody.Id}
         Expect:
           Code: 200
           JSONBody:
-            "@exists@data[0]": true
+            "@exists@rows[0]": true
 
   rejectToolApproval:
     when: $sdkKey != ''
@@ -54,7 +54,7 @@ pipeline:
     description: "tool approval prompt reject - decline the elicitation"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/conversations/${createConversationReject.Responses[0].JSONBody.Id}/elicitation/${listElicitationsReject.Responses[0].JSONBody.data[0].elicitationId}/resolve
+        URL: ${serverURL}/v1/elicitations/${createConversationReject.Responses[0].JSONBody.Id}/${listElicitationsReject.Responses[0].JSONBody.rows[0].elicitationId}/resolve
         JSONBody:
           action: decline
           reason: e2e rejection test
@@ -104,11 +104,11 @@ pipeline:
     description: "tool approval prompt cancel - verify elicitation appeared"
     requests:
       - Method: GET
-        URL: ${serverURL}/v1/elicitations/pending?conversationId=${createConversationCancel.Responses[0].JSONBody.Id}
+        URL: ${serverURL}/v1/elicitations?conversationId=${createConversationCancel.Responses[0].JSONBody.Id}
         Expect:
           Code: 200
           JSONBody:
-            "@exists@data[0]": true
+            "@exists@rows[0]": true
 
   cancelToolApproval:
     when: $sdkKey != ''
@@ -116,7 +116,7 @@ pipeline:
     description: "tool approval prompt cancel - cancel the elicitation"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/conversations/${createConversationCancel.Responses[0].JSONBody.Id}/elicitation/${listElicitationsCancel.Responses[0].JSONBody.data[0].elicitationId}/resolve
+        URL: ${serverURL}/v1/elicitations/${createConversationCancel.Responses[0].JSONBody.Id}/${listElicitationsCancel.Responses[0].JSONBody.rows[0].elicitationId}/resolve
         JSONBody:
           action: cancel
         Expect:

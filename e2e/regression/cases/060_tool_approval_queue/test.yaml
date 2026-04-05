@@ -44,8 +44,8 @@ pipeline:
         Expect:
           Code: 200
           JSONBody:
-            "@exists@data[0]": true
-            "@exists@data[0].id": true
+            "@exists@rows[0]": true
+            "@exists@rows[0].id": true
 
   approveToolCall:
     when: $sdkKey != ''
@@ -53,7 +53,7 @@ pipeline:
     description: "tool approval queue - approve the queued tool call"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.data[0].id}/decision
+        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
         JSONBody:
           action: approve
           userId: e2e-queue-approval

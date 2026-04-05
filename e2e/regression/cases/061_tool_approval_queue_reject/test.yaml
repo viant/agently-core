@@ -44,7 +44,7 @@ pipeline:
         Expect:
           Code: 200
           JSONBody:
-            "@exists@data[0]": true
+            "@exists@rows[0]": true
 
   rejectToolCall:
     when: $sdkKey != ''
@@ -52,7 +52,7 @@ pipeline:
     description: "tool approval queue reject - reject the queued tool call"
     requests:
       - Method: POST
-        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.data[0].id}/decision
+        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
         JSONBody:
           action: reject
           reason: e2e rejection test
