@@ -1,0 +1,20 @@
+id: system/os_prompt_edit
+title: System OS Prompt Edit
+description: OS helpers with prompt approval and editable env var selection
+iconRef: builtin:system-os
+priority: 60
+match:
+  - name: "system/os:*"
+    approval:
+      mode: prompt
+      prompt:
+        acceptLabel: "Allow"
+        rejectLabel: "Deny"
+        cancelLabel: "Cancel"
+      ui:
+        editable:
+          - name: names
+            selector: input.names
+            kind: checkbox_list
+            label: Environment variables
+            description: Choose which environment variables this tool may access.

@@ -1,0 +1,88 @@
+pipeline:
+  createConversation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue edit fields - create conversation"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/conversations
+        JSONBody:
+          AgentID: chatter_system_os_queue_edit
+          Title: queue-approval-edit-fields-e2e
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Id": true
+
+  startQueuedQuery:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue edit fields - start query"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
+          AgentID: chatter_system_os_queue_edit
+          UserId: e2e-queue-edit
+          Query: What are my HOME, SHELL, and PATH environment variables?
+
+  waitForQueue:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  listPendingApprovals:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue edit fields - verify pending approval"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-edit&conversationId=${createConversation.Responses[0].JSONBody.Id}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@rows[0]": true
+            "@exists@rows[0].metadata.approval.editors[0]": true
+
+  approveEditedToolCall:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "tool approval queue edit fields - approve with HOME and PATH only"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
+        JSONBody:
+          action: approve
+          userId: e2e-queue-edit
+          editedFields:
+            names:
+              - HOME
+              - PATH
+        Expect:
+          Code: 200
+          JSONBody:
+            status: ok
+
+  waitForCompletion:
+    when: $sdkKey != ''
+    action: nop
+    sleepTimeMs: 3000
+
+  verifyFilteredResult:
+    when: $sdkKey != ''
+    action: exec:run
+    description: "tool approval queue edit fields - verify final response excludes SHELL"
+    checkError: true
+    commands:
+      - |
+        body=$(curl -fsS "${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/live-state" | jq -r '.conversation.turns[0].assistant.final.content // ""')
+        echo "$body" | grep '"HOME"'
+        echo "$body" | grep '"PATH"'
+        if echo "$body" | grep -q '"SHELL"'; then
+          echo "unexpected SHELL in final response"
+          echo "$body"
+          exit 1
+        fi

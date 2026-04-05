@@ -1,0 +1,16 @@
+id: chatter_system_os_prompt_edit
+name: Chatter System OS Prompt Edit
+description: Chatter agent with prompt approval and editable env var selection
+modelRef: openai_gpt-5.2
+temperature: 0
+persona:
+  role: assistant
+  actor: Chatter
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/os_prompt_edit
