@@ -392,13 +392,26 @@ describe('Turns', () => {
 
 describe('Tool Approvals', () => {
     it('listPendingToolApprovals with status filter', async () => {
-        const f = mockFetch(200, { rows: [{ id: 'ta_1', toolName: 'exec', status: 'pending' }] });
+        const f = mockFetch(200, { rows: [{ id: 'ta_1', toolName: 'exec', status: 'pending' }], total: 1, offset: 0, limit: 10, hasMore: false });
         const c = client(f);
         const res = await c.listPendingToolApprovals({ status: 'pending' });
 
         expect(res).toHaveLength(1);
         const call = lastCall(f);
         expect(call.url).toContain('status=pending');
+    });
+
+    it('listPendingToolApprovalsPage sends limit and offset', async () => {
+        const f = mockFetch(200, { rows: [{ id: 'ta_1', toolName: 'exec', status: 'pending' }], total: 25, offset: 8, limit: 8, hasMore: true });
+        const c = client(f);
+        const res = await c.listPendingToolApprovalsPage({ status: 'pending', limit: 8, offset: 8 });
+
+        expect(res.total).toBe(25);
+        expect(res.rows).toHaveLength(1);
+        const call = lastCall(f);
+        expect(call.url).toContain('status=pending');
+        expect(call.url).toContain('limit=8');
+        expect(call.url).toContain('offset=8');
     });
 
     it('decideToolApproval sends POST with action', async () => {

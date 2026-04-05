@@ -421,20 +421,49 @@ export class AgentlyClient {
     // ── Tool Approvals ───────────────────────────────────────────────────────
 
     /** List pending tool approvals with optional filters. */
-    async listPendingToolApprovals(input?: {
+    async listPendingToolApprovalsPage(input?: {
         userId?: string;
         conversationId?: string;
         status?: string;
-    }): Promise<PendingToolApproval[]> {
+        limit?: number;
+        offset?: number;
+    }): Promise<PendingToolApprovalPage> {
         const q = new URLSearchParams();
         if (input?.userId) q.set('userId', input.userId);
         if (input?.conversationId) q.set('conversationId', input.conversationId);
         if (input?.status) q.set('status', input.status);
-        const out = await this.get<PendingToolApproval[] | { data?: PendingToolApproval[]; rows?: PendingToolApproval[] }>('/tool-approvals/pending', q);
-        if (Array.isArray(out?.data)) return out.data;
-        if (Array.isArray(out?.rows)) return out.rows;
-        if (Array.isArray(out)) return out;
-        return [];
+        if (Number.isFinite(input?.limit) && Number(input.limit) > 0) q.set('limit', String(Math.floor(Number(input.limit))));
+        if (Number.isFinite(input?.offset) && Number(input.offset) >= 0) q.set('offset', String(Math.floor(Number(input.offset))));
+        const out = await this.get<PendingToolApprovalPage | PendingToolApproval[] | { data?: PendingToolApproval[]; rows?: PendingToolApproval[]; total?: number; offset?: number; limit?: number; hasMore?: boolean }>('/tool-approvals/pending', q);
+        if (Array.isArray(out)) {
+            return {
+                rows: out,
+                total: out.length,
+                offset: Number(input?.offset || 0) || 0,
+                limit: Number(input?.limit || out.length) || out.length,
+                hasMore: false,
+            };
+        }
+        const rows = Array.isArray(out?.rows) ? out.rows : (Array.isArray(out?.data) ? out.data : []);
+        return {
+            rows,
+            total: Number(out?.total || rows.length) || 0,
+            offset: Number(out?.offset || 0) || 0,
+            limit: Number(out?.limit || rows.length) || 0,
+            hasMore: Boolean(out?.hasMore),
+        };
+    }
+
+    /** Backward-compatible array view of pending approvals. */
+    async listPendingToolApprovals(input?: {
+        userId?: string;
+        conversationId?: string;
+        status?: string;
+        limit?: number;
+        offset?: number;
+    }): Promise<PendingToolApproval[]> {
+        const page = await this.listPendingToolApprovalsPage(input);
+        return Array.isArray(page?.rows) ? page.rows : [];
     }
 
     /** Approve or reject a queued tool execution. */

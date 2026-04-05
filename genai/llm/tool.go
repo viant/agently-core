@@ -26,11 +26,15 @@ type ApprovalPrompt struct {
 
 // ApprovalEditableField declares a single user-editable field in the approval UI.
 type ApprovalEditableField struct {
-	Name        string `json:"name" yaml:"name"`
-	Selector    string `json:"selector,omitempty" yaml:"selector,omitempty"`
-	Label       string `json:"label,omitempty" yaml:"label,omitempty"`
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	Required    bool   `json:"required,omitempty" yaml:"required,omitempty"`
+	Name                    string `json:"name" yaml:"name"`
+	Selector                string `json:"selector,omitempty" yaml:"selector,omitempty"`
+	Kind                    string `json:"kind,omitempty" yaml:"kind,omitempty"` // checkbox_list|radio_list|text
+	Label                   string `json:"label,omitempty" yaml:"label,omitempty"`
+	Description             string `json:"description,omitempty" yaml:"description,omitempty"`
+	ItemLabelSelector       string `json:"itemLabelSelector,omitempty" yaml:"itemLabelSelector,omitempty"`
+	ItemDescriptionSelector string `json:"itemDescriptionSelector,omitempty" yaml:"itemDescriptionSelector,omitempty"`
+	ItemValueSelector       string `json:"itemValueSelector,omitempty" yaml:"itemValueSelector,omitempty"`
+	Required                bool   `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // ApprovalCallback declares a Forge visual element callback.

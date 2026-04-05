@@ -641,6 +641,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			queryOutput.Content = genOutput.Content
 			return nil
 		}
+		waitingForUser, waitErr := s.turnAwaitingUserAction(ctx, turn)
+		if waitErr != nil {
+			return waitErr
+		}
+		if waitingForUser {
+			debugf("agent.runPlan waiting-for-user convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
+			queryOutput.Content = ""
+			return nil
+		}
 
 		debugf("agent.runPlan continue convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 	}

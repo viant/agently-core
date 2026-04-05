@@ -11,13 +11,18 @@ activation:
 dataSource:
   snapshot:
     source: output
+    merge: replace_last
+    exposeAs: output
 
   changes:
+    root: true
     dataSourceRef: snapshot
     uniqueKey:
       - field: changes
     selectors:
       data: changes
+
+countSource: changes
 
 
 ui:

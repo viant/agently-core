@@ -119,6 +119,26 @@ func TestResolveDefinitions(t *testing.T) {
 				{Name: "steward-AdHierarchy"},
 			},
 		},
+		{
+			name: "captures_prompt_approval_config",
+			bundle: &Bundle{
+				ID: "system_os",
+				Match: []llm.Tool{
+					{
+						Name: "system/os:*",
+						Approval: &llm.ApprovalConfig{
+							Mode: llm.ApprovalModePrompt,
+						},
+					},
+				},
+			},
+			matches: map[string][]*llm.ToolDefinition{
+				"system/os:*": {def("system/os:getEnv")},
+			},
+			expected: []llm.ToolDefinition{
+				{Name: "system/os:getEnv"},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -129,5 +149,32 @@ func TestResolveDefinitions(t *testing.T) {
 			actual := ResolveDefinitions(tc.bundle, matchFn)
 			assert.EqualValues(t, tc.expected, actual)
 		})
+	}
+}
+
+func TestResolveDefinitionsWithOptions_PromptApproval(t *testing.T) {
+	bundle := &Bundle{
+		ID: "system_os",
+		Match: []llm.Tool{
+			{
+				Name: "system/os:*",
+				Approval: &llm.ApprovalConfig{
+					Mode: llm.ApprovalModePrompt,
+				},
+			},
+		},
+	}
+	matchFn := func(pattern string) []*llm.ToolDefinition {
+		if pattern == "system/os:*" {
+			return []*llm.ToolDefinition{{Name: "system/os:getEnv"}}
+		}
+		return nil
+	}
+
+	actual := ResolveDefinitionsWithOptions(bundle, matchFn)
+	cfg, ok := actual.ApprovalByID[normalizedApprovalKey("system/os:getEnv")]
+	if assert.True(t, ok) {
+		assert.NotNil(t, cfg)
+		assert.True(t, cfg.IsPrompt())
 	}
 }

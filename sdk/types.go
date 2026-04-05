@@ -213,6 +213,8 @@ type ListPendingToolApprovalsInput struct {
 	UserID         string
 	ConversationID string
 	Status         string
+	Limit          int
+	Offset         int
 }
 
 type PendingToolApproval struct {
@@ -230,6 +232,67 @@ type PendingToolApproval struct {
 	CreatedAt      time.Time              `json:"createdAt"`
 	UpdatedAt      *time.Time             `json:"updatedAt,omitempty"`
 	ErrorMessage   string                 `json:"errorMessage,omitempty"`
+}
+
+type ApprovalOption struct {
+	ID          string      `json:"id"`
+	Label       string      `json:"label"`
+	Description string      `json:"description,omitempty"`
+	Item        interface{} `json:"item,omitempty"`
+	Selected    bool        `json:"selected"`
+}
+
+type ApprovalEditor struct {
+	Name        string            `json:"name"`
+	Kind        string            `json:"kind"`
+	Path        string            `json:"path,omitempty"`
+	Label       string            `json:"label,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Options     []*ApprovalOption `json:"options,omitempty"`
+}
+
+type ApprovalCallback struct {
+	ElementID string `json:"elementId,omitempty"`
+	Event     string `json:"event,omitempty"`
+	Handler   string `json:"handler,omitempty"`
+}
+
+type ApprovalForgeView struct {
+	WindowRef    string              `json:"windowRef,omitempty"`
+	ContainerRef string              `json:"containerRef,omitempty"`
+	DataSource   string              `json:"dataSource,omitempty"`
+	Callbacks    []*ApprovalCallback `json:"callbacks,omitempty"`
+}
+
+type ApprovalMeta struct {
+	Type        string             `json:"type,omitempty"`
+	ToolName    string             `json:"toolName,omitempty"`
+	Title       string             `json:"title,omitempty"`
+	Message     string             `json:"message,omitempty"`
+	AcceptLabel string             `json:"acceptLabel,omitempty"`
+	RejectLabel string             `json:"rejectLabel,omitempty"`
+	CancelLabel string             `json:"cancelLabel,omitempty"`
+	Editors     []*ApprovalEditor  `json:"editors,omitempty"`
+	Forge       *ApprovalForgeView `json:"forge,omitempty"`
+}
+
+type ApprovalCallbackPayload struct {
+	Approval     *ApprovalMeta          `json:"approval,omitempty"`
+	EditedFields map[string]interface{} `json:"editedFields,omitempty"`
+	OriginalArgs map[string]interface{} `json:"originalArgs,omitempty"`
+}
+
+type ApprovalCallbackResult struct {
+	EditedFields map[string]interface{} `json:"editedFields,omitempty"`
+	Action       string                 `json:"action,omitempty"`
+}
+
+type PendingToolApprovalPage struct {
+	Rows    []*PendingToolApproval `json:"rows"`
+	Total   int                    `json:"total"`
+	Offset  int                    `json:"offset"`
+	Limit   int                    `json:"limit"`
+	HasMore bool                   `json:"hasMore"`
 }
 
 type DecideToolApprovalInput struct {

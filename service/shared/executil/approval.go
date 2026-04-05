@@ -18,7 +18,7 @@ var (
 // waits for the user's decision. It returns the normalized action string:
 // "accept", "decline", or "cancel".
 type ToolApprovalElicitor interface {
-	ElicitToolApproval(ctx context.Context, turn *memory.TurnMeta, toolName string, cfg *llm.ApprovalConfig, args map[string]interface{}) (action string, err error)
+	ElicitToolApproval(ctx context.Context, turn *memory.TurnMeta, toolName string, cfg *llm.ApprovalConfig, args map[string]interface{}) (action string, payload map[string]interface{}, err error)
 }
 
 type approvalElicitorKeyT struct{}

@@ -70,7 +70,7 @@ type Client interface {
 	// ListPendingElicitations returns unresolved elicitation prompts for a conversation.
 	ListPendingElicitations(ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error)
 	// ListPendingToolApprovals returns queued tool approvals for a user/conversation.
-	ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) ([]*PendingToolApproval, error)
+	ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error)
 	// DecideToolApproval resolves a queued tool request with approve/reject.
 	DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error)
 

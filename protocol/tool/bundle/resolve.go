@@ -57,15 +57,16 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 				if _, ok := excluded[key]; ok {
 					continue
 				}
+				approvalKey := normalizedApprovalKey(d.Name)
 				if _, ok := selected[key]; ok {
-					if r.Approval.IsQueue() {
-						approvalByKey[key] = r.Approval
+					if r.Approval != nil && (r.Approval.IsQueue() || r.Approval.IsPrompt()) {
+						approvalByKey[approvalKey] = r.Approval
 					}
 					continue
 				}
 				selected[key] = *d
-				if r.Approval.IsQueue() {
-					approvalByKey[key] = r.Approval
+				if r.Approval != nil && (r.Approval.IsQueue() || r.Approval.IsPrompt()) {
+					approvalByKey[approvalKey] = r.Approval
 				}
 			}
 		}
@@ -86,6 +87,10 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 
 func canonicalKey(name string) string {
 	return mcpname.Canonical(strings.TrimSpace(name))
+}
+
+func normalizedApprovalKey(name string) string {
+	return strings.ToLower(canonicalKey(name))
 }
 
 func patternVariants(name string) []string {

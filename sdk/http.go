@@ -492,7 +492,7 @@ func (c *HTTPClient) ListPendingElicitations(ctx context.Context, input *ListPen
 	return out.Rows, nil
 }
 
-func (c *HTTPClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) ([]*PendingToolApproval, error) {
+func (c *HTTPClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
 	q := url.Values{}
 	if input != nil {
 		if strings.TrimSpace(input.UserID) != "" {
@@ -504,21 +504,25 @@ func (c *HTTPClient) ListPendingToolApprovals(ctx context.Context, input *ListPe
 		if strings.TrimSpace(input.Status) != "" {
 			q.Set("status", strings.TrimSpace(input.Status))
 		}
+		if input.Limit > 0 {
+			q.Set("limit", fmt.Sprintf("%d", input.Limit))
+		}
+		if input.Offset > 0 {
+			q.Set("offset", fmt.Sprintf("%d", input.Offset))
+		}
 	}
 	path := strings.TrimRight(c.toolApprovalsPath, "/") + "/pending"
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	var out struct {
-		Rows []*PendingToolApproval `json:"rows"`
-	}
+	var out PendingToolApprovalPage
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
 	if out.Rows == nil {
-		return []*PendingToolApproval{}, nil
+		out.Rows = []*PendingToolApproval{}
 	}
-	return out.Rows, nil
+	return &out, nil
 }
 
 func (c *HTTPClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {

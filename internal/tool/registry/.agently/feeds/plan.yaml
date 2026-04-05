@@ -10,13 +10,20 @@ activation:
 dataSource:
   planInfo:
     source: output
+    merge: replace_last
+    exposeAs: output
 
   planDetail:
+    root: true
+    derive:
+      content: "**Status:** ${status}\n\n**Step:** ${step}"
     dataSourceRef: planInfo
     uniqueKey:
       - field: step
     selectors:
       data: plan
+
+countSource: planDetail
 
 
 

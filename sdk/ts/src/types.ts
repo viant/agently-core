@@ -528,10 +528,72 @@ export interface PendingToolApproval {
     errorMessage?: string;
 }
 
+export interface ApprovalOption {
+    id: string;
+    label: string;
+    description?: string;
+    item?: JSONValue;
+    selected: boolean;
+}
+
+export interface ApprovalEditor {
+    name: string;
+    kind: string;
+    path?: string;
+    label?: string;
+    description?: string;
+    options?: ApprovalOption[];
+}
+
+export interface ApprovalCallback {
+    elementId?: string;
+    event?: string;
+    handler?: string;
+}
+
+export interface ApprovalForgeView {
+    windowRef?: string;
+    containerRef?: string;
+    dataSource?: string;
+    callbacks?: ApprovalCallback[];
+}
+
+export interface ApprovalMeta {
+    type?: string;
+    toolName?: string;
+    title?: string;
+    message?: string;
+    acceptLabel?: string;
+    rejectLabel?: string;
+    cancelLabel?: string;
+    editors?: ApprovalEditor[];
+    forge?: ApprovalForgeView;
+}
+
+export interface ApprovalCallbackPayload {
+    approval?: ApprovalMeta;
+    editedFields?: JSONObject;
+    originalArgs?: JSONObject;
+}
+
+export interface ApprovalCallbackResult {
+    editedFields?: JSONObject;
+    action?: string;
+}
+
+export interface PendingToolApprovalPage {
+    rows: PendingToolApproval[];
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+}
+
 export interface DecideToolApprovalInput {
-    action: 'approve' | 'reject';
+    action: 'approve' | 'reject' | 'cancel';
     userId?: string;
     reason?: string;
+    editedFields?: JSONObject;
     payload?: JSONObject;
 }
 

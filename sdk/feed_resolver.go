@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 )
 
@@ -174,15 +173,12 @@ func (c *EmbeddedClient) resolveActiveFeedsWithVisited(ctx context.Context, stat
 		if len(col.requestPayloads) == 0 && len(col.responsePayloads) == 0 {
 			continue
 		}
-		rootData := buildFeedData(col.spec.ID, col.requestPayloads, col.responsePayloads)
-		itemCount := 0
-		if output, ok := rootData["output"].(map[string]interface{}); ok {
-			raw, _ := json.Marshal(output)
-			itemCount = estimateItemCount(string(raw))
+		resultSet, err := extractFeedData(col.spec, col.requestPayloads, col.responsePayloads)
+		if err != nil || resultSet == nil || resultSet.RootData == nil {
+			continue
 		}
-		if entries, ok := rootData["entries"].([]interface{}); ok && len(entries) > itemCount {
-			itemCount = len(entries)
-		}
+		rootData := resultSet.RootData
+		itemCount := resultSet.ItemCount
 		if itemCount == 0 {
 			continue
 		}

@@ -43,3 +43,20 @@ func TestSelect(t *testing.T) {
 		})
 	}
 }
+
+func TestAssign(t *testing.T) {
+	root := map[string]interface{}{
+		"names": []interface{}{"HOME", "SHELL", "PATH"},
+		"request": map[string]interface{}{
+			"selection": map[string]interface{}{},
+		},
+	}
+
+	err := Assign(root, "names", []interface{}{"HOME", "PATH"})
+	assert.NoError(t, err)
+	assert.EqualValues(t, []interface{}{"HOME", "PATH"}, root["names"])
+
+	err = Assign(root, "request.selection.primary", "HOME")
+	assert.NoError(t, err)
+	assert.EqualValues(t, "HOME", root["request"].(map[string]interface{})["selection"].(map[string]interface{})["primary"])
+}
