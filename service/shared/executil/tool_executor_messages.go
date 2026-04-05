@@ -61,6 +61,16 @@ func updateToolMessageStatus(ctx context.Context, conv apiconv.Client, toolMsgID
 	return conv.PatchMessage(ctx, upd)
 }
 
+func updateToolMessageContent(ctx context.Context, conv apiconv.Client, toolMsgID, content string) error {
+	if conv == nil || strings.TrimSpace(toolMsgID) == "" {
+		return nil
+	}
+	upd := apiconv.NewMessage()
+	upd.SetId(toolMsgID)
+	upd.SetContent(content)
+	return conv.PatchMessage(ctx, upd)
+}
+
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
 func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn memory.TurnMeta, toolName string, startedAt time.Time, traceID string) error {
 	displayName := mcpname.Display(toolName)

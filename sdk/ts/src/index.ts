@@ -38,7 +38,9 @@ export type {
     // Elicitations
     PendingElicitation, ResolveElicitationInput,
     // Tool Approvals
-    PendingToolApproval, DecideToolApprovalInput, DecideToolApprovalOutput,
+    PendingToolApproval, PendingToolApprovalPage, DecideToolApprovalInput, DecideToolApprovalOutput,
+    ApprovalOption, ApprovalEditor, ApprovalMeta, ApprovalCallback,
+    ApprovalForgeView, ApprovalCallbackPayload, ApprovalCallbackResult,
     // Files
     FileEntry, UploadFileOutput,
     // Resources
@@ -112,6 +114,16 @@ export {
 
 // Conversation status helpers
 export { isLiveConversationState } from './conversationStatus';
+
+// Approval editing / callback helpers
+export {
+    normalizeApprovalMeta,
+    buildApprovalEditorState,
+    buildApprovalForgeSchema,
+    serializeApprovalEditedFields,
+    executeApprovalCallbacks,
+} from './approval';
+export type { ApprovalHandlerResolver } from './approval';
 
 // Ordering helpers
 export {

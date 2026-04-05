@@ -12,12 +12,27 @@ dataSource:
     source: ops
   search:
     source: input
+    merge: replace_last
+    exposeAs: input
+  output:
+    source: output
+    merge: merge_object
+    exposeAs: output
   results:
+    merge: append
     source: output.files
     uniqueKey:
       - field: URI
       - field: SearchHash
       - field: RangeKey
+  entries:
+    root: true
+    inputs:
+      - results
+    merge: union
+    exposeAs: entries
+
+countSource: entries
 
 ui:
   title: Explorer

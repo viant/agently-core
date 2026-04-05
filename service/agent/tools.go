@@ -206,7 +206,7 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 		for _, d := range res.Definitions {
 			key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
 			cfg := res.ApprovalByID[key]
-			if cfg.IsQueue() {
+			if cfg != nil && (cfg.IsQueue() || cfg.IsPrompt()) {
 				toolctx.MarkApprovalQueueTool(ctx, d.Name, cfg)
 			}
 		}

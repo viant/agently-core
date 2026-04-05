@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -70,6 +71,62 @@ func Select(selector string, input, output interface{}) interface{} {
 		}
 	}
 	return cur
+}
+
+// Assign writes a value into the provided JSON-like map using the same
+// selector syntax supported by Select, but without the input/output prefix.
+// Missing object segments are created automatically. Array writes are only
+// supported when the indexed segment already exists.
+func Assign(target map[string]interface{}, selector string, value interface{}) error {
+	if target == nil {
+		return fmt.Errorf("target is nil")
+	}
+	path := strings.TrimSpace(selector)
+	path = strings.TrimPrefix(path, "input.")
+	path = strings.TrimPrefix(path, "output.")
+	tokens := tokenize(path)
+	if len(tokens) == 0 {
+		return fmt.Errorf("selector is required")
+	}
+	var cur interface{} = target
+	for i, tok := range tokens {
+		last := i == len(tokens)-1
+		if idx, ok := parseIndex(tok); ok {
+			arr, ok := cur.([]interface{})
+			if !ok {
+				return fmt.Errorf("selector %q expects array at %q", selector, tok)
+			}
+			if idx < 0 || idx >= len(arr) {
+				return fmt.Errorf("selector %q index %d out of bounds", selector, idx)
+			}
+			if last {
+				arr[idx] = value
+				return nil
+			}
+			cur = arr[idx]
+			continue
+		}
+		obj, ok := cur.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("selector %q expects object at %q", selector, tok)
+		}
+		if last {
+			obj[tok] = value
+			return nil
+		}
+		next, exists := obj[tok]
+		if !exists || next == nil {
+			if _, nextIsIndex := parseIndex(tokens[i+1]); nextIsIndex {
+				return fmt.Errorf("selector %q cannot create array segment %q automatically", selector, tok)
+			}
+			child := map[string]interface{}{}
+			obj[tok] = child
+			cur = child
+			continue
+		}
+		cur = next
+	}
+	return nil
 }
 
 // tokenize splits a selector into tokens, handling a[0].b and a.0.b styles.

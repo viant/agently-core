@@ -33,6 +33,8 @@ func TestResolveToolStatus_DataDriven(t *testing.T) {
 		{name: "exec-error", err: assert.AnError, parentFn: context.Background, expected: "failed"},
 		{name: "exec-canceled", err: context.Canceled, parentFn: context.Background, expected: "canceled"},
 		{name: "exec-deadline", err: context.DeadlineExceeded, parentFn: context.Background, expected: "canceled"},
+		{name: "prompt-declined", err: errToolPromptDeclined, parentFn: context.Background, expected: "rejected"},
+		{name: "prompt-canceled-treated-as-rejected", err: errToolPromptCanceled, parentFn: context.Background, expected: "rejected"},
 	}
 	for _, tc := range cases {
 		ctx := tc.parentFn()

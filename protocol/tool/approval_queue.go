@@ -26,7 +26,7 @@ func WithApprovalQueueState(ctx context.Context) context.Context {
 	return context.WithValue(ctx, approvalQueueKey, &approvalQueueState{tools: map[string]*llm.ApprovalConfig{}})
 }
 
-// MarkApprovalQueueTool marks a tool name to require approval queue.
+// MarkApprovalQueueTool attaches approval configuration to a tool name.
 func MarkApprovalQueueTool(ctx context.Context, name string, cfg *llm.ApprovalConfig) {
 	st := approvalQueueFromContext(ctx)
 	if st == nil {
@@ -39,7 +39,7 @@ func MarkApprovalQueueTool(ctx context.Context, name string, cfg *llm.ApprovalCo
 	if cfg == nil {
 		cfg = &llm.ApprovalConfig{Mode: llm.ApprovalModeQueue}
 	}
-	if !cfg.IsQueue() {
+	if !cfg.IsQueue() && !cfg.IsPrompt() {
 		return
 	}
 	st.mu.Lock()

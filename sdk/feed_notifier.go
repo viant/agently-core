@@ -56,14 +56,6 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	}
 
 	itemCount := estimateItemCount(result)
-	// Parse tool result as JSON to include in the SSE event.
-	var feedData interface{}
-	if strings.TrimSpace(result) != "" {
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(result), &parsed); err == nil {
-			feedData = map[string]interface{}{"output": parsed}
-		}
-	}
 	// Collect all map writes under one lock acquisition to avoid interleaving
 	// with concurrent EmitInactiveForMissing calls between loop iterations.
 	n.mu.Lock()
@@ -79,6 +71,10 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	// Emit SSE events outside the lock — bus.Publish must not be called under
 	// n.mu to avoid deadlock if the bus callback re-enters the notifier.
 	for _, spec := range matched {
+		feedData, feedCount := genericNotifierFeedPayload(spec, result)
+		if feedCount > 0 {
+			itemCount = feedCount
+		}
 		emitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
 	}
 }
@@ -134,4 +130,20 @@ func estimateItemCount(result string) int {
 		return 1
 	}
 	return 1
+}
+
+func genericNotifierFeedPayload(spec *FeedSpec, result string) (interface{}, int) {
+	if spec != nil {
+		if extracted, err := extractFeedData(spec, nil, []string{result}); err == nil && extracted != nil && extracted.RootData != nil {
+			return extracted.RootData, extracted.ItemCount
+		}
+	}
+	var feedData interface{}
+	if strings.TrimSpace(result) != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(result), &parsed); err == nil {
+			feedData = map[string]interface{}{"output": parsed}
+		}
+	}
+	return feedData, 0
 }

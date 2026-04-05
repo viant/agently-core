@@ -222,10 +222,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("persist response payload: %w", respErr))
 	}
 
-	// 6) Update tool message with result content - why duplication of content gere
-	//if uErr := updateToolMessageContent(persistCtx, conv, toolMsgID, toolResult); uErr != nil {
-	//	errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
-	//}
+	// 6) Mirror the tool result into the tool message body so transcript/history
+	// readers can consume the result without depending on payload joins.
+	if uErr := updateToolMessageContent(persistCtx, conv, toolMsgID, toolResult); uErr != nil {
+		errs = append(errs, fmt.Errorf("update tool message: %w", uErr))
+	}
 
 	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx, toolResult)
@@ -318,6 +319,9 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	if respErr != nil {
 		return fmt.Errorf("persist response payload: %w", respErr)
 	}
+	if uErr := updateToolMessageContent(ctx, conv, toolMsgID, toolResult); uErr != nil {
+		return fmt.Errorf("update tool message: %w", uErr)
+	}
 	// Complete tool call
 	status := "completed"
 	completedAt := time.Now()
@@ -368,11 +372,11 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 			case "accept":
 				// approved — fall through to normal execution below
 			case "cancel":
-				msg := "tool execution canceled by user"
+				msg := "tool execution was not approved by user"
 				out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: msg}
-				return out, msg, errToolPromptCanceled
+				return out, msg, errToolPromptDeclined
 			default:
-				msg := "tool execution declined by user"
+				msg := "tool execution was not approved by user"
 				out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: msg}
 				return out, msg, errToolPromptDeclined
 			}
@@ -397,7 +401,19 @@ func promptToolApproval(ctx context.Context, step StepInfo, cfg *plan.ApprovalCo
 	if elicitor == nil {
 		return "", fmt.Errorf("prompt approval not configured: no elicitor in context")
 	}
-	return elicitor.ElicitToolApproval(ctx, &turn, step.Name, cfg, step.Args)
+	action, payload, err := elicitor.ElicitToolApproval(ctx, &turn, step.Name, cfg, step.Args)
+	if err != nil {
+		return action, err
+	}
+	if strings.EqualFold(strings.TrimSpace(action), "accept") {
+		view := BuildApprovalView(step.Name, step.Args, cfg)
+		if edits := extractApprovalEditedFields(payload); len(edits) > 0 {
+			if err := ApplyApprovalEdits(step.Args, view.Editors, edits); err != nil {
+				return "", err
+			}
+		}
+	}
+	return action, nil
 }
 
 func applyContextWorkdir(toolName string, args map[string]interface{}, ctx context.Context) {
@@ -453,7 +469,7 @@ func resolveToolStatus(execErr error, parentCtx context.Context, toolResult stri
 			return "rejected", ""
 		}
 		if errors.Is(execErr, errToolPromptCanceled) {
-			return "canceled", ""
+			return "rejected", ""
 		}
 		// Treat context cancellation and deadline as cancellations, not failures
 		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) || parentCtx.Err() == context.Canceled {
@@ -508,11 +524,6 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	if err != nil {
 		return "", fmt.Errorf("marshal tool arguments: %w", err)
 	}
-	metadata, _ := json.Marshal(map[string]interface{}{
-		"opId":       step.ID,
-		"responseId": step.ResponseID,
-		"turnId":     turn.TurnID,
-	})
 	writer, ok := conv.(toolApprovalQueueWriter)
 	if !ok || writer == nil {
 		return "", fmt.Errorf("approval queue writer not configured")
@@ -546,6 +557,12 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	}
 	cfg, _ := tool.ApprovalQueueFor(ctx, step.Name)
 	view := BuildApprovalView(step.Name, step.Args, cfg)
+	metadata, _ := json.Marshal(map[string]interface{}{
+		"opId":       step.ID,
+		"responseId": step.ResponseID,
+		"turnId":     turn.TurnID,
+		"approval":   view,
+	})
 
 	rec := &queuew.ToolApprovalQueue{Has: &queuew.ToolApprovalQueueHas{}}
 	rec.SetId(uuid.NewString())

@@ -131,6 +131,15 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 		}
 		return "failed", err
 	}
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		waitingForUser, err := s.turnAwaitingUserAction(ctx, turn)
+		if err != nil {
+			return "failed", err
+		}
+		if waitingForUser {
+			return "waiting_for_user", nil
+		}
+	}
 	if output != nil && output.Plan != nil && output.Plan.IsEmpty() && strings.TrimSpace(output.Content) == "" {
 		return "canceled", context.Canceled
 	}
@@ -350,4 +359,65 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn memory.TurnMet
 	}
 	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
 	return err
+}
+
+func (s *Service) turnAwaitingUserAction(ctx context.Context, turn memory.TurnMeta) (bool, error) {
+	if s == nil || s.conversation == nil {
+		return false, nil
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if conversationID == "" || turnID == "" {
+		return false, nil
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil {
+		return false, fmt.Errorf("load conversation %s: %w", conversationID, err)
+	}
+	if conv == nil {
+		return false, nil
+	}
+	for _, transcriptTurn := range conv.GetTranscript() {
+		if transcriptTurn == nil || strings.TrimSpace(transcriptTurn.Id) != turnID {
+			continue
+		}
+		status := strings.ToLower(strings.TrimSpace(transcriptTurn.Status))
+		if status == "waiting_for_user" || status == "queued" {
+			return true, nil
+		}
+		for _, msg := range transcriptTurn.GetMessages() {
+			if messageAwaitingUserAction(msg) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	return false, nil
+}
+
+func messageAwaitingUserAction(msg *apiconv.Message) bool {
+	if msg == nil {
+		return false
+	}
+	if statusIndicatesAwaitingUser(valueOrEmpty(msg.Status)) {
+		return true
+	}
+	for _, toolMsg := range msg.ToolMessage {
+		if toolMsg == nil {
+			continue
+		}
+		if toolMsg.ToolCall != nil && statusIndicatesAwaitingUser(toolMsg.ToolCall.Status) {
+			return true
+		}
+	}
+	return false
+}
+
+func statusIndicatesAwaitingUser(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "queued", "pending", "waiting_for_user":
+		return true
+	default:
+		return false
+	}
 }

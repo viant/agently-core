@@ -620,7 +620,7 @@ func (c *EmbeddedClient) ResolveElicitation(ctx context.Context, input *ResolveE
 func (c *EmbeddedClient) ListPendingElicitations(ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error) {
 	return listPendingElicitations(c, ctx, input)
 }
-func (c *EmbeddedClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) ([]*PendingToolApproval, error) {
+func (c *EmbeddedClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
 	return listPendingToolApprovals(c, ctx, input)
 }
 func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {

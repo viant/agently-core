@@ -2,16 +2,22 @@ package sdk
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
+	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
+	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
@@ -20,9 +26,15 @@ import (
 	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/memory"
+	agentsvc "github.com/viant/agently-core/service/agent"
+	executil "github.com/viant/agently-core/service/shared/executil"
+	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
+	_ "modernc.org/sqlite"
 )
 
 func moveQueuedTurn(c *EmbeddedClient, ctx context.Context, input *MoveQueuedTurnInput) error {
@@ -369,7 +381,7 @@ func listPendingElicitations(c *EmbeddedClient, ctx context.Context, input *List
 	return out, nil
 }
 
-func listPendingToolApprovals(c *EmbeddedClient, ctx context.Context, input *ListPendingToolApprovalsInput) ([]*PendingToolApproval, error) {
+func listPendingToolApprovals(c *EmbeddedClient, ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
 	lister, ok := c.conv.(toolApprovalQueueLister)
 	if !ok || lister == nil {
 		return nil, errors.New("tool approval queue not configured")
@@ -431,7 +443,37 @@ func listPendingToolApprovals(c *EmbeddedClient, ctx context.Context, input *Lis
 		}
 		out = append(out, item)
 	}
-	return out, nil
+	total := len(out)
+	limit := total
+	offset := 0
+	if input != nil {
+		if input.Limit > 0 {
+			limit = input.Limit
+		}
+		if input.Offset > 0 {
+			offset = input.Offset
+		}
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	rowsPage := out
+	if offset < len(out) {
+		rowsPage = out[offset:end]
+	} else {
+		rowsPage = []*PendingToolApproval{}
+	}
+	return &PendingToolApprovalPage{
+		Rows:    rowsPage,
+		Total:   total,
+		Offset:  offset,
+		Limit:   limit,
+		HasMore: end < total,
+	}, nil
 }
 
 func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
@@ -477,8 +519,23 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
+		if err := ensureToolApprovalStatus(ctx, lister, row.Id, "approved", func() error {
+			return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+				"status":              "approved",
+				"decision":            "approve",
+				"approved_by_user_id": strings.TrimSpace(input.UserID),
+				"approved_at":         now,
+				"updated_at":          now,
+			})
+		}); err != nil {
+			return nil, err
+		}
 		var args map[string]interface{}
 		_ = json.Unmarshal(row.Arguments, &args)
+		meta := parseToolApprovalMetadata(row.Metadata)
+		if err := executil.ApplyApprovalEdits(args, approvalEditorsFromMeta(meta), input.EditedFields); err != nil {
+			return nil, err
+		}
 		execCtx := ctx
 		if strings.TrimSpace(input.UserID) != "" {
 			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
@@ -499,7 +556,15 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		if turn.ConversationID != "" && turn.TurnID != "" {
 			execCtx = memory.WithTurnMeta(execCtx, turn)
 		}
-		_, execErr := c.ExecuteTool(execCtx, row.ToolName, args)
+		toolResult, execErr := c.ExecuteTool(execCtx, row.ToolName, args)
+		if turn.ConversationID != "" && turn.TurnID != "" {
+			_ = executil.SynthesizeToolStep(execCtx, c.conv, executil.StepInfo{
+				ID:         syntheticToolStepID(meta.OpID),
+				Name:       row.ToolName,
+				Args:       args,
+				ResponseID: meta.ResponseID,
+			}, resolvedQueueToolResult(toolResult, execErr))
+		}
 		done := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
 		done.SetId(row.Id)
 		done.SetUserId(row.UserId)
@@ -516,6 +581,30 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		if err := patcher.PatchToolApprovalQueue(ctx, done); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
+		finalStatus := "executed"
+		fallbackFields := map[string]interface{}{
+			"status":      "executed",
+			"executed_at": time.Now().UTC(),
+			"updated_at":  time.Now().UTC(),
+		}
+		if execErr != nil {
+			finalStatus = "failed"
+			fallbackFields["status"] = "failed"
+			fallbackFields["error_message"] = execErr.Error()
+			delete(fallbackFields, "executed_at")
+		}
+		if err := ensureToolApprovalStatus(ctx, lister, row.Id, finalStatus, func() error {
+			return fallbackToolApprovalUpdate(row.Id, fallbackFields)
+		}); err != nil {
+			return nil, err
+		}
+		if execErr == nil {
+			if isSystemOSEnvTool(row.ToolName) {
+				_ = persistSystemOSEnvAssistantResult(execCtx, c, row, toolResult)
+			} else {
+				_ = continueQueueConversation(execCtx, c, row, buildQueueContinuationInstruction(row.ToolName, toolResult, true))
+			}
+		}
 	case "reject", "rejected":
 		upd.SetStatus("rejected")
 		upd.SetDecision("reject")
@@ -528,6 +617,24 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		upd.SetApprovedAt(now)
 		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
+		}
+		if err := ensureToolApprovalStatus(ctx, lister, row.Id, "rejected", func() error {
+			return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+				"status":              "rejected",
+				"decision":            "reject",
+				"approved_by_user_id": strings.TrimSpace(input.UserID),
+				"approved_at":         now,
+				"updated_at":          now,
+				"error_message":       strings.TrimSpace(input.Reason),
+			})
+		}); err != nil {
+			return nil, err
+		}
+		_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
+		if isSystemOSEnvTool(row.ToolName) {
+			_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
+		} else {
+			_ = continueQueueConversation(ctx, c, row, buildQueueContinuationInstruction(row.ToolName, "tool execution was not approved by user", false))
 		}
 	case "cancel", "canceled", "cancelled":
 		upd.SetStatus("canceled")
@@ -542,10 +649,417 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
+		if err := ensureToolApprovalStatus(ctx, lister, row.Id, "canceled", func() error {
+			return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+				"status":              "canceled",
+				"decision":            "cancel",
+				"approved_by_user_id": strings.TrimSpace(input.UserID),
+				"approved_at":         now,
+				"updated_at":          now,
+				"error_message":       strings.TrimSpace(input.Reason),
+			})
+		}); err != nil {
+			return nil, err
+		}
+		_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
+		if isSystemOSEnvTool(row.ToolName) {
+			_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
+		} else {
+			_ = continueQueueConversation(ctx, c, row, buildQueueContinuationInstruction(row.ToolName, "tool execution was not approved by user", false))
+		}
 	default:
 		return nil, errors.New("action must be approve, reject, or cancel")
 	}
 	return &DecideToolApprovalOutput{Status: "ok"}, nil
+}
+
+type toolApprovalMetadata struct {
+	OpID       string                 `json:"opId"`
+	ResponseID string                 `json:"responseId"`
+	TurnID     string                 `json:"turnId"`
+	Approval   *executil.ApprovalView `json:"approval,omitempty"`
+}
+
+func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
+	if raw == nil || len(*raw) == 0 {
+		return toolApprovalMetadata{}
+	}
+	result := toolApprovalMetadata{}
+	_ = json.Unmarshal(*raw, &result)
+	return result
+}
+
+func approvalEditorsFromMeta(meta toolApprovalMetadata) []*executil.ApprovalEditorView {
+	if meta.Approval == nil {
+		return nil
+	}
+	return meta.Approval.Editors
+}
+
+func syntheticToolStepID(opID string) string {
+	opID = strings.TrimSpace(opID)
+	if opID == "" {
+		return "tool-approval-" + strings.ReplaceAll(time.Now().UTC().Format("20060102150405.000000000"), ".", "-")
+	}
+	return opID + ":approved"
+}
+
+func resolvedQueueToolResult(result string, err error) string {
+	if strings.TrimSpace(result) != "" {
+		return result
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func synthesizeQueueDecisionResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, result string) error {
+	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
+		return nil
+	}
+	var args map[string]interface{}
+	_ = json.Unmarshal(row.Arguments, &args)
+	meta := parseToolApprovalMetadata(row.Metadata)
+	turnCtx := memory.WithConversationID(ctx, strings.TrimSpace(*row.ConversationId))
+	turnCtx = memory.WithTurnMeta(turnCtx, memory.TurnMeta{
+		ConversationID:  strings.TrimSpace(*row.ConversationId),
+		TurnID:          strings.TrimSpace(*row.TurnId),
+		ParentMessageID: valueOrEmpty(row.MessageId),
+	})
+	return executil.SynthesizeToolStep(turnCtx, c.conv, executil.StepInfo{
+		ID:         syntheticToolStepID(meta.OpID),
+		Name:       row.ToolName,
+		Args:       args,
+		ResponseID: meta.ResponseID,
+	}, result)
+}
+
+func continueQueueConversation(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, instruction string) error {
+	if c == nil || c.agent == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
+		return nil
+	}
+	turnID := strings.TrimSpace(*row.TurnId)
+	conversationID := strings.TrimSpace(*row.ConversationId)
+	if turnID == "" || conversationID == "" {
+		return nil
+	}
+	agentID, err := lookupQueueTurnAgentID(turnID)
+	if err != nil {
+		return err
+	}
+	if agentID == "" {
+		return nil
+	}
+	userID := strings.TrimSpace(row.UserId)
+	if strings.TrimSpace(userID) == "" {
+		userID = strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	}
+	followCtx := context.Background()
+	if userID != "" {
+		followCtx = authctx.WithUserInfo(followCtx, &authctx.UserInfo{Subject: userID})
+	}
+	followUp := &agentsvc.QueryInput{
+		ConversationID:         conversationID,
+		UserId:                 userID,
+		Query:                  strings.TrimSpace(instruction),
+		MessageID:              turnID,
+		SkipInitialUserMessage: true,
+		DisableChains:          true,
+		ToolsAllowed:           []string{"__queue_continuation_no_tools__"},
+	}
+	autoSelectTools := false
+	followUp.AutoSelectTools = &autoSelectTools
+	if finder := c.agent.Finder(); finder != nil {
+		if ag, err := finder.Find(followCtx, agentID); err == nil && ag != nil {
+			cloned := *ag
+			cloned.Tool = agentmdl.Tool{}
+			cloned.ToolCallExposure = ""
+			followUp.Agent = &cloned
+		} else {
+			followUp.AgentID = agentID
+		}
+	} else {
+		followUp.AgentID = agentID
+	}
+	var output agentsvc.QueryOutput
+	return c.agent.Query(followCtx, followUp, &output)
+}
+
+func buildQueueContinuationInstruction(toolName, result string, approved bool) string {
+	toolName = strings.TrimSpace(toolName)
+	result = strings.TrimSpace(result)
+	if approved {
+		return fmt.Sprintf("Continue the previous request using this approved %s result. Do not call any tools. Return the answer directly from this result:\n\n%s", toolName, result)
+	}
+	return fmt.Sprintf("Continue the previous request. The %s execution was not approved by the user. Do not ask for approval again in this turn and do not call any tools. Explain briefly that the value could not be retrieved because approval was not granted. Latest tool result:\n\n%s", toolName, result)
+}
+
+func isSystemOSEnvTool(name string) bool {
+	return mcpname.Canonical(strings.TrimSpace(name)) == mcpname.Canonical("system/os/getEnv")
+}
+
+func persistSystemOSEnvAssistantResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, toolResult string) error {
+	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
+		return nil
+	}
+	content := formatSystemOSEnvResult(toolResult)
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
+	return persistQueueAssistantResult(ctx, c, row, content)
+}
+
+func persistSystemOSEnvDeniedAssistantResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView) error {
+	return persistQueueAssistantResult(ctx, c, row, formatSystemOSEnvDeniedResult(row))
+}
+
+func persistQueueAssistantResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, content string) error {
+	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
+		return nil
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	conversationID := strings.TrimSpace(*row.ConversationId)
+	turnID := strings.TrimSpace(*row.TurnId)
+	if convView, err := c.conv.GetConversation(ctx, conversationID, conversation.WithIncludeTranscript(true)); err == nil && convView != nil {
+		for _, tr := range convView.Transcript {
+			if tr == nil || strings.TrimSpace(tr.Id) != turnID {
+				continue
+			}
+			maxIteration := 0
+			for _, existing := range tr.Message {
+				if existing == nil || existing.Iteration == nil {
+					continue
+				}
+				if *existing.Iteration > maxIteration {
+					maxIteration = *existing.Iteration
+				}
+			}
+			for i := len(tr.Message) - 1; i >= 0; i-- {
+				msg := tr.Message[i]
+				if msg == nil || !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+					continue
+				}
+				if msg.Interim == 1 {
+					continue
+				}
+				upd := conversation.NewMessage()
+				upd.SetId(msg.Id)
+				upd.SetConversationID(conversationID)
+				upd.SetTurnID(turnID)
+				upd.SetRole("assistant")
+				upd.SetType("text")
+				upd.SetContent(content)
+				upd.SetInterim(0)
+				if err := c.conv.PatchMessage(ctx, upd); err != nil {
+					return err
+				}
+				return completeResolvedQueueTurn(ctx, c, conversationID, turnID)
+			}
+			msg := conversation.NewMessage()
+			msg.SetId(uuid.NewString())
+			msg.SetConversationID(conversationID)
+			msg.SetTurnID(turnID)
+			msg.SetRole("assistant")
+			msg.SetType("text")
+			msg.SetContent(content)
+			msg.SetCreatedAt(time.Now())
+			msg.SetInterim(0)
+			msg.SetParentMessageID(valueOrEmpty(row.MessageId))
+			if maxIteration > 0 {
+				msg.SetIteration(maxIteration + 1)
+			}
+			if err := c.conv.PatchMessage(ctx, msg); err != nil {
+				return err
+			}
+			return completeResolvedQueueTurn(ctx, c, conversationID, turnID)
+		}
+	}
+	msg := conversation.NewMessage()
+	msg.SetId(uuid.NewString())
+	msg.SetConversationID(conversationID)
+	msg.SetTurnID(turnID)
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetContent(content)
+	msg.SetCreatedAt(time.Now())
+	msg.SetInterim(0)
+	msg.SetParentMessageID(valueOrEmpty(row.MessageId))
+	if err := c.conv.PatchMessage(ctx, msg); err != nil {
+		return err
+	}
+	return completeResolvedQueueTurn(ctx, c, conversationID, turnID)
+}
+
+func formatSystemOSEnvResult(result string) string {
+	result = strings.TrimSpace(result)
+	if result == "" {
+		return ""
+	}
+	var payload struct {
+		Values map[string]string `json:"values"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		return result
+	}
+	if len(payload.Values) == 0 {
+		return "The requested environment variable is not set."
+	}
+	return "```json\n" + result + "\n```"
+}
+
+func formatSystemOSEnvDeniedResult(row *queueRead.QueueRowView) string {
+	if row == nil {
+		return "I couldn't retrieve the requested environment variable because approval was not granted."
+	}
+	var args struct {
+		Names []string `json:"names"`
+	}
+	if len(row.Arguments) > 0 {
+		_ = json.Unmarshal(row.Arguments, &args)
+	}
+	if len(args.Names) == 1 && strings.TrimSpace(args.Names[0]) != "" {
+		return fmt.Sprintf("I couldn't retrieve your %s environment variable because approval was not granted.", strings.TrimSpace(args.Names[0]))
+	}
+	if len(args.Names) > 1 {
+		return "I couldn't retrieve the requested environment variables because approval was not granted."
+	}
+	return "I couldn't retrieve the requested environment variable because approval was not granted."
+}
+
+func completeResolvedQueueTurn(ctx context.Context, c *EmbeddedClient, conversationID, turnID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	turnID = strings.TrimSpace(turnID)
+	if c == nil || c.conv == nil || conversationID == "" || turnID == "" {
+		return nil
+	}
+	now := time.Now()
+	if c.data != nil {
+		run := agrunwrite.NewMutableRunView(agrunwrite.WithRunID(turnID))
+		run.SetStatus("succeeded")
+		run.SetCompletedAt(now)
+		if _, err := c.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+			return err
+		}
+	}
+	if err := c.conv.PatchConversations(ctx, agconvwrite.NewConversationStatus(conversationID, "succeeded")); err != nil {
+		return err
+	}
+	upd := conversation.NewTurn()
+	upd.SetId(turnID)
+	upd.SetConversationID(conversationID)
+	upd.SetStatus("succeeded")
+	return c.conv.PatchTurn(ctx, upd)
+}
+
+func lookupQueueTurnAgentID(turnID string) (string, error) {
+	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+	if dsn == "" {
+		dsn = filepath.Join(workspace.RuntimeRoot(), "db", "agently-core.db")
+	}
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	var agentID sql.NullString
+	if err := db.QueryRow("SELECT agent_id_used FROM turn WHERE id = ?", strings.TrimSpace(turnID)).Scan(&agentID); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(agentID.String), nil
+}
+
+func ensureToolApprovalStatus(ctx context.Context, lister toolApprovalQueueLister, id, want string, fallback func() error) error {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(want) == "" || lister == nil {
+		return nil
+	}
+	if toolApprovalHasStatus(ctx, lister, id, want) {
+		return nil
+	}
+	if fallback == nil {
+		return nil
+	}
+	if err := fallback(); err != nil {
+		return err
+	}
+	if !toolApprovalHasStatus(ctx, lister, id, want) {
+		return fmt.Errorf("tool approval %s did not transition to %s", id, want)
+	}
+	return nil
+}
+
+func toolApprovalHasStatus(ctx context.Context, lister toolApprovalQueueLister, id, want string) bool {
+	rows, err := lister.ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+		Id:  strings.TrimSpace(id),
+		Has: &queueRead.QueueRowsInputHas{Id: true},
+	})
+	if err != nil || len(rows) == 0 || rows[0] == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(rows[0].Status), strings.TrimSpace(want))
+}
+
+func fallbackToolApprovalUpdate(id string, fields map[string]interface{}) error {
+	if strings.TrimSpace(id) == "" || len(fields) == 0 {
+		return nil
+	}
+	driver := strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER")))
+	if driver != "" && driver != "sqlite" {
+		return nil
+	}
+	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
+	if dsn == "" {
+		dsn = filepath.Join(workspace.RuntimeRoot(), "db", "agently-core.db")
+	}
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	sets := make([]string, 0, len(fields))
+	args := make([]interface{}, 0, len(fields)+1)
+	add := func(name string, value interface{}) {
+		sets = append(sets, name+" = ?")
+		args = append(args, value)
+	}
+	if value, ok := fields["status"]; ok {
+		add("status", value)
+	}
+	if value, ok := fields["decision"]; ok {
+		add("decision", nullableString(value))
+	}
+	if value, ok := fields["approved_by_user_id"]; ok {
+		add("approved_by_user_id", nullableString(value))
+	}
+	if value, ok := fields["approved_at"]; ok {
+		add("approved_at", value)
+	}
+	if value, ok := fields["executed_at"]; ok {
+		add("executed_at", value)
+	}
+	if value, ok := fields["error_message"]; ok {
+		add("error_message", nullableString(value))
+	}
+	if value, ok := fields["updated_at"]; ok {
+		add("updated_at", value)
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	args = append(args, strings.TrimSpace(id))
+	_, err = db.Exec("UPDATE tool_approval_queue SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	return err
+}
+
+func nullableString(value interface{}) interface{} {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return nil
+	}
+	return text
 }
 
 func listToolDefinitions(c *EmbeddedClient) ([]ToolDefinitionInfo, error) {

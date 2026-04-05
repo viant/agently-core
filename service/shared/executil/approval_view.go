@@ -13,10 +13,29 @@ import (
 // its approval config. It is shared between queue-mode persistence and
 // prompt-mode elicitation so both surfaces render consistently.
 type ApprovalView struct {
-	ToolName string
-	Title    string
-	Message  string
-	Data     interface{}
+	ToolName string                 `json:"toolName"`
+	Title    string                 `json:"title"`
+	Message  string                 `json:"message"`
+	Data     interface{}            `json:"data,omitempty"`
+	Editors  []*ApprovalEditorView  `json:"editors,omitempty"`
+	Forge    *llm.ApprovalForgeView `json:"forge,omitempty"`
+}
+
+type ApprovalEditorView struct {
+	Name        string                `json:"name"`
+	Kind        string                `json:"kind"`
+	Path        string                `json:"path,omitempty"`
+	Label       string                `json:"label,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Options     []*ApprovalOptionView `json:"options,omitempty"`
+}
+
+type ApprovalOptionView struct {
+	ID          string      `json:"id"`
+	Label       string      `json:"label"`
+	Description string      `json:"description,omitempty"`
+	Item        interface{} `json:"item,omitempty"`
+	Selected    bool        `json:"selected"`
 }
 
 // BuildApprovalView extracts title, message and data from the original tool
@@ -34,7 +53,7 @@ func BuildApprovalView(toolName string, args map[string]interface{}, cfg *llm.Ap
 	}
 
 	if cfg == nil {
-		return v
+		return applyToolSpecificApprovalView(v, toolName, args)
 	}
 
 	// Resolve title
@@ -67,6 +86,194 @@ func BuildApprovalView(toolName string, args map[string]interface{}, cfg *llm.Ap
 			v.Data = raw
 		}
 	}
+	if cfg.UI != nil && len(cfg.UI.Editable) > 0 {
+		v.Editors = buildApprovalEditors(args, cfg.UI.Editable)
+	}
+	if cfg.UI != nil && cfg.UI.Forge != nil {
+		v.Forge = cfg.UI.Forge
+	}
 
+	return applyToolSpecificApprovalView(v, toolName, args)
+}
+
+func applyToolSpecificApprovalView(v ApprovalView, toolName string, args map[string]interface{}) ApprovalView {
+	if mcpname.Canonical(strings.TrimSpace(toolName)) != mcpname.Canonical("system/os:getEnv") {
+		return v
+	}
+	names := envApprovalNames(args)
+	v.Title = "OS Env Access"
+	if len(names) == 0 {
+		v.Message = "The agent wants access to your environment variables."
+		return v
+	}
+	v.Message = formatEnvApprovalMessage(names)
+	v.Data = map[string]interface{}{"names": names}
 	return v
+}
+
+func buildApprovalEditors(args map[string]interface{}, fields []*llm.ApprovalEditableField) []*ApprovalEditorView {
+	result := make([]*ApprovalEditorView, 0, len(fields))
+	for _, field := range fields {
+		editor := buildApprovalEditor(args, field)
+		if editor == nil {
+			continue
+		}
+		result = append(result, editor)
+	}
+	return result
+}
+
+func buildApprovalEditor(args map[string]interface{}, field *llm.ApprovalEditableField) *ApprovalEditorView {
+	if field == nil {
+		return nil
+	}
+	name := strings.TrimSpace(field.Name)
+	if name == "" {
+		return nil
+	}
+	kind := strings.ToLower(strings.TrimSpace(field.Kind))
+	if kind == "" {
+		kind = "checkbox_list"
+	}
+	path := normalizeApprovalPath(field.Selector, name)
+	editor := &ApprovalEditorView{
+		Name:        name,
+		Kind:        kind,
+		Path:        path,
+		Label:       strings.TrimSpace(field.Label),
+		Description: strings.TrimSpace(field.Description),
+	}
+	raw := resolver.Select(field.Selector, args, nil)
+	switch actual := raw.(type) {
+	case []interface{}:
+		editor.Options = make([]*ApprovalOptionView, 0, len(actual))
+		for index, item := range actual {
+			option := buildApprovalOption(item, index, field)
+			if option == nil {
+				continue
+			}
+			editor.Options = append(editor.Options, option)
+		}
+	}
+	if len(editor.Options) == 0 {
+		return nil
+	}
+	return editor
+}
+
+func buildApprovalOption(item interface{}, index int, field *llm.ApprovalEditableField) *ApprovalOptionView {
+	id := optionValue(item, field, index)
+	label := optionLabel(item, field)
+	if label == "" {
+		label = id
+	}
+	if id == "" || label == "" {
+		return nil
+	}
+	return &ApprovalOptionView{
+		ID:          id,
+		Label:       label,
+		Description: optionDescription(item, field),
+		Item:        item,
+		Selected:    true,
+	}
+}
+
+func optionValue(item interface{}, field *llm.ApprovalEditableField, index int) string {
+	if field != nil && strings.TrimSpace(field.ItemValueSelector) != "" {
+		if value := selectApprovalItemField(item, strings.TrimSpace(field.ItemValueSelector)); value != nil {
+			if text := strings.TrimSpace(fmt.Sprintf("%v", value)); text != "" {
+				return text
+			}
+		}
+	}
+	if text := strings.TrimSpace(fmt.Sprintf("%v", item)); text != "" && !strings.HasPrefix(text, "map[") {
+		return text
+	}
+	return fmt.Sprintf("__index_%d", index)
+}
+
+func optionLabel(item interface{}, field *llm.ApprovalEditableField) string {
+	if field != nil && strings.TrimSpace(field.ItemLabelSelector) != "" {
+		if value := selectApprovalItemField(item, strings.TrimSpace(field.ItemLabelSelector)); value != nil {
+			if text := strings.TrimSpace(fmt.Sprintf("%v", value)); text != "" {
+				return text
+			}
+		}
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", item))
+}
+
+func optionDescription(item interface{}, field *llm.ApprovalEditableField) string {
+	if field == nil || strings.TrimSpace(field.ItemDescriptionSelector) == "" {
+		return ""
+	}
+	value := selectApprovalItemField(item, strings.TrimSpace(field.ItemDescriptionSelector))
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func selectApprovalItemField(item interface{}, selector string) interface{} {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return nil
+	}
+	if strings.HasPrefix(selector, "input.") || strings.HasPrefix(selector, "output.") || selector == "input" || selector == "output" {
+		return resolver.Select(selector, item, item)
+	}
+	return resolver.Select("input."+selector, item, item)
+}
+
+func normalizeApprovalPath(selector, fallback string) string {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return strings.TrimSpace(fallback)
+	}
+	selector = strings.TrimPrefix(selector, "input.")
+	selector = strings.TrimPrefix(selector, "output.")
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return strings.TrimSpace(fallback)
+	}
+	return selector
+}
+
+func envApprovalNames(args map[string]interface{}) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	raw, ok := args["names"]
+	if !ok || raw == nil {
+		return nil
+	}
+	values, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, item := range values {
+		name := strings.TrimSpace(fmt.Sprintf("%v", item))
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result
+}
+
+func formatEnvApprovalMessage(names []string) string {
+	switch len(names) {
+	case 0:
+		return "The agent wants access to your environment variables."
+	case 1:
+		return fmt.Sprintf("The agent wants access to your %s environment variable.", names[0])
+	case 2:
+		return fmt.Sprintf("The agent wants access to your %s and %s environment variables.", names[0], names[1])
+	default:
+		return fmt.Sprintf("The agent wants access to your %s, and %s environment variables.", strings.Join(names[:len(names)-1], ", "), names[len(names)-1])
+	}
 }

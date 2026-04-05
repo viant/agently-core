@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -32,7 +33,7 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 	toolName string,
 	cfg *llm.ApprovalConfig,
 	args map[string]interface{},
-) (string, error) {
+) (string, map[string]interface{}, error) {
 	view := executil.BuildApprovalView(toolName, args, cfg)
 
 	acceptLabel := "Accept"
@@ -60,6 +61,18 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 		"_rejectLabel": map[string]interface{}{"type": "string", "const": rejectLabel},
 		"_cancelLabel": map[string]interface{}{"type": "string", "const": cancelLabel},
 	}
+	if meta, err := json.Marshal(map[string]interface{}{
+		"type":        "tool_approval",
+		"toolName":    toolName,
+		"title":       view.Title,
+		"message":     view.Message,
+		"acceptLabel": acceptLabel,
+		"rejectLabel": rejectLabel,
+		"cancelLabel": cancelLabel,
+		"editors":     view.Editors,
+	}); err == nil && len(meta) > 0 {
+		properties["_approvalMeta"] = map[string]interface{}{"type": "string", "const": string(meta)}
+	}
 
 	message := view.Message
 	if message == "" {
@@ -76,9 +89,9 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 		},
 	}
 
-	_, action, _, err := e.elicService.Elicit(ctx, turn, "assistant", req)
+	_, action, payload, err := e.elicService.Elicit(ctx, turn, "assistant", req)
 	if err != nil {
-		return elicaction.Decline, err
+		return elicaction.Decline, nil, err
 	}
-	return elicaction.Normalize(action), nil
+	return elicaction.Normalize(action), payload, nil
 }

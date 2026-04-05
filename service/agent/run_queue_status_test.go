@@ -161,6 +161,73 @@ func TestService_RegisterTurnCancel_UpdatesStarterMessageStatus(t *testing.T) {
 	require.Equal(t, "cancel", *gotMsg.Status)
 }
 
+func TestService_TurnAwaitingUserAction(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	svc := &Service{conversation: client}
+
+	conv := apiconv.NewConversation()
+	conv.SetId("c-await")
+	require.NoError(t, client.PatchConversations(ctx, conv))
+
+	turn := apiconv.NewTurn()
+	turn.SetId("t-await")
+	turn.SetConversationID("c-await")
+	turn.SetStatus("running")
+	require.NoError(t, client.PatchTurn(ctx, turn))
+
+	userMsg := apiconv.NewMessage()
+	userMsg.SetId("m-user")
+	userMsg.SetConversationID("c-await")
+	userMsg.SetTurnID("t-await")
+	userMsg.SetRole("user")
+	userMsg.SetType("task")
+	userMsg.SetContent("What is my LOGNAME?")
+	require.NoError(t, client.PatchMessage(ctx, userMsg))
+
+	assistantMsg := apiconv.NewMessage()
+	assistantMsg.SetId("m-assistant")
+	assistantMsg.SetConversationID("c-await")
+	assistantMsg.SetTurnID("t-await")
+	assistantMsg.SetRole("assistant")
+	assistantMsg.SetType("text")
+	assistantMsg.SetContent("I will read the LOGNAME environment variable.")
+	assistantMsg.SetInterim(1)
+	require.NoError(t, client.PatchMessage(ctx, assistantMsg))
+
+	toolMsg := apiconv.NewMessage()
+	toolMsg.SetId("m-tool")
+	toolMsg.SetConversationID("c-await")
+	toolMsg.SetTurnID("t-await")
+	toolMsg.SetParentMessageID("m-assistant")
+	toolMsg.SetRole("tool")
+	toolMsg.SetType("tool_op")
+	toolMsg.SetToolName("system/os/getEnv")
+	toolMsg.SetStatus("queued")
+	toolMsg.SetContent("queued for user approval")
+	require.NoError(t, client.PatchMessage(ctx, toolMsg))
+
+	waiting, err := svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-await",
+		TurnID:         "t-await",
+	})
+	require.NoError(t, err)
+	require.True(t, waiting)
+
+	toolMsgDone := apiconv.NewMessage()
+	toolMsgDone.SetId("m-tool")
+	toolMsgDone.SetStatus("completed")
+	toolMsgDone.SetContent(`{"values":{"LOGNAME":"awitas"}}`)
+	require.NoError(t, client.PatchMessage(ctx, toolMsgDone))
+
+	waiting, err = svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-await",
+		TurnID:         "t-await",
+	})
+	require.NoError(t, err)
+	require.False(t, waiting)
+}
+
 func TestService_FinalizeTurn_PatchesConversationBeforeTurnTerminalEvent(t *testing.T) {
 	ctx := context.Background()
 	rec := &orderingConvClient{}

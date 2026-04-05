@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
@@ -93,17 +94,27 @@ func handleListPendingToolApprovals(client Client) http.HandlerFunc {
 			UserID:         strings.TrimSpace(q.Get("userId")),
 			ConversationID: strings.TrimSpace(q.Get("conversationId")),
 			Status:         strings.TrimSpace(q.Get("status")),
+			Limit:          queryInt(q.Get("limit")),
+			Offset:         queryInt(q.Get("offset")),
 		})
 		if err != nil {
 			if isToolApprovalQueueNotConfiguredErr(err) {
-				httpJSON(w, http.StatusOK, map[string]interface{}{"data": []interface{}{}})
+				httpJSON(w, http.StatusOK, &PendingToolApprovalPage{Rows: []*PendingToolApproval{}, Total: 0, Offset: 0, Limit: 0, HasMore: false})
 				return
 			}
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		httpJSON(w, http.StatusOK, map[string]interface{}{"data": rows})
+		httpJSON(w, http.StatusOK, rows)
 	}
+}
+
+func queryInt(raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 0 {
+		return 0
+	}
+	return value
 }
 
 func isToolApprovalQueueNotConfiguredErr(err error) bool {
