@@ -92,10 +92,13 @@ type Registry struct {
 	// scoped discovery client diagnostics for manager-backed list_tools path.
 	discoveryShared    map[string]discoveryIdentity
 	discoveryWarnAt    map[string]time.Time
+	discoveryFailUntil map[string]time.Time
+	discoveryFailErr   map[string]string
 	discoveryWarnEvery time.Duration
 	discoveryWaitEvery time.Duration
 	discoveryTimeout   time.Duration
 	discoveryStrictTTL time.Duration
+	discoveryFailTTL   time.Duration
 	discoveryScopeSeq  uint64
 
 	// jsonRPCRequestSeq provides unique JSON-RPC request ids for local MCP calls.
@@ -141,23 +144,26 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		return nil, fmt.Errorf("adapter/tool: nil mcp manager passed to NewWithManager")
 	}
 	r := &Registry{
-		virtualDefs:     map[string]llm.ToolDefinition{},
-		virtualExec:     map[string]Handler{},
-		mgr:             mgr,
-		cache:           map[string]*toolCacheEntry{},
-		internal:        map[string]mcpclient.Interface{},
-		internalTimeout: map[string]time.Duration{},
-		recentResults:   map[string]map[string]recentItem{},
-		recentTTL:       5 * time.Second,
-		refreshEvery:    30 * time.Second,
-		virtualTimeout:  map[string]timeoutSupport{},
-		discoveryShared: map[string]discoveryIdentity{},
-		discoveryWarnAt: map[string]time.Time{},
+		virtualDefs:        map[string]llm.ToolDefinition{},
+		virtualExec:        map[string]Handler{},
+		mgr:                mgr,
+		cache:              map[string]*toolCacheEntry{},
+		internal:           map[string]mcpclient.Interface{},
+		internalTimeout:    map[string]time.Duration{},
+		recentResults:      map[string]map[string]recentItem{},
+		recentTTL:          5 * time.Second,
+		refreshEvery:       30 * time.Second,
+		virtualTimeout:     map[string]timeoutSupport{},
+		discoveryShared:    map[string]discoveryIdentity{},
+		discoveryWarnAt:    map[string]time.Time{},
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
 		// Cap duplicate warning noise while preserving first signal quickly.
 		discoveryWarnEvery: 30 * time.Second,
 		discoveryWaitEvery: 30 * time.Second,
 		discoveryTimeout:   15 * time.Second,
 		discoveryStrictTTL: 30 * time.Second,
+		discoveryFailTTL:   30 * time.Second,
 	}
 	// Internal MCP services are app-owned plugins; registries start empty.
 	// Register orchestrator synthetic tool.
@@ -1348,6 +1354,10 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	scope := r.discoveryClientScope(ctx, server)
 	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
+	if err := r.discoveryFailureFor(server, scope); err != nil {
+		r.warnDiscoveryListIssue(server, scope, "cooldown", err, userID, useID, tokenFingerprint(token))
+		return nil, err
+	}
 
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	var cli mcpclient.Interface
@@ -1357,9 +1367,11 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return getErr
 	})
 	if err != nil {
+		r.noteDiscoveryFailure(server, scope, err)
 		r.warnDiscoveryListIssue(server, scope, "manager_get", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
+	r.clearDiscoveryFailure(server, scope)
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
 	var opts []mcpclient.RequestOption
 	if tok := strings.TrimSpace(token); tok != "" {
@@ -1374,14 +1386,17 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if err != nil {
 		if isReconnectableError(err) {
 			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, scope, server, opts); retryErr == nil {
+				r.clearDiscoveryFailure(server, scope)
 				return retried, nil
 			} else {
 				err = retryErr
 			}
 		}
+		r.noteDiscoveryFailure(server, scope, err)
 		r.warnDiscoveryListIssue(server, scope, "list_tools", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
+	r.clearDiscoveryFailure(server, scope)
 	return tools, nil
 }
 
@@ -1390,6 +1405,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 		return nil, errors.New("mcp manager not configured")
 	}
 	if _, err := r.mgr.Reconnect(ctx, scope, server); err != nil {
+		r.noteDiscoveryFailure(server, scope, err)
 		return nil, err
 	}
 	var cli mcpclient.Interface
@@ -1399,6 +1415,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 		return getErr
 	})
 	if err != nil {
+		r.noteDiscoveryFailure(server, scope, err)
 		return nil, err
 	}
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
@@ -1409,9 +1426,65 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 		return listErr
 	})
 	if err != nil {
+		r.noteDiscoveryFailure(server, scope, err)
 		return nil, err
 	}
+	r.clearDiscoveryFailure(server, scope)
 	return tools, nil
+}
+
+func (r *Registry) discoveryFailureFor(server, scope string) error {
+	if r == nil {
+		return nil
+	}
+	key := discoveryIdentityKey(server, scope)
+	now := time.Now()
+	r.mu.RLock()
+	until := r.discoveryFailUntil[key]
+	msg := r.discoveryFailErr[key]
+	r.mu.RUnlock()
+	if until.IsZero() || !until.After(now) {
+		return nil
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "discovery temporarily unavailable"
+	}
+	return fmt.Errorf("mcp discovery cooldown active until %s: %s", until.Format(time.RFC3339), msg)
+}
+
+func (r *Registry) noteDiscoveryFailure(server, scope string, err error) {
+	if r == nil || err == nil {
+		return
+	}
+	if classifyDiscoveryError(err) != "transport" {
+		return
+	}
+	ttl := r.discoveryFailTTL
+	if ttl <= 0 {
+		ttl = 30 * time.Second
+	}
+	key := discoveryIdentityKey(server, scope)
+	r.mu.Lock()
+	if r.discoveryFailUntil == nil {
+		r.discoveryFailUntil = map[string]time.Time{}
+	}
+	if r.discoveryFailErr == nil {
+		r.discoveryFailErr = map[string]string{}
+	}
+	r.discoveryFailUntil[key] = time.Now().Add(ttl)
+	r.discoveryFailErr[key] = err.Error()
+	r.mu.Unlock()
+}
+
+func (r *Registry) clearDiscoveryFailure(server, scope string) {
+	if r == nil {
+		return
+	}
+	key := discoveryIdentityKey(server, scope)
+	r.mu.Lock()
+	delete(r.discoveryFailUntil, key)
+	delete(r.discoveryFailErr, key)
+	r.mu.Unlock()
 }
 
 func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

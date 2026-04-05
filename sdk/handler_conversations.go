@@ -8,6 +8,23 @@ import (
 	"strings"
 )
 
+func statusForUpdateConversationError(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	if isConflictError(err) {
+		return http.StatusConflict
+	}
+	if isNotFoundError(err) {
+		return http.StatusNotFound
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "required") || strings.Contains(msg, "unsupported") || strings.Contains(msg, "invalid") {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
 func handleCreateConversation(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input CreateConversationInput
@@ -64,7 +81,7 @@ func handleUpdateConversation(client Client) http.HandlerFunc {
 		}
 		out, err := client.UpdateConversation(r.Context(), input)
 		if err != nil {
-			httpError(w, http.StatusBadRequest, err)
+			httpError(w, statusForUpdateConversationError(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)

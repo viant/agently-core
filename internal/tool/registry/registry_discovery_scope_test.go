@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/runtime/memory"
@@ -159,6 +160,42 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 	}
 	if getCalls[0].convID != syntheticScope || getCalls[1].convID != syntheticScope || reconnectCalls[0].convID != syntheticScope {
 		t.Fatalf("expected retry to reuse scope %q, got gets=%+v reconnects=%+v", syntheticScope, getCalls, reconnectCalls)
+	}
+}
+
+func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			return nil, errors.New(`Post "http://guardian-soak.viantinc.com:5000/mcp": dial tcp 10.55.132.138:5000: i/o timeout`)
+		},
+	}
+	reg := &Registry{
+		mgr:                stub,
+		discoveryFailTTL:   5 * time.Minute,
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
+	}
+	ctx := memory.WithConversationID(context.Background(), "conv-shared")
+
+	_, err := reg.listServerTools(ctx, "guardian")
+	if err == nil {
+		t.Fatal("expected first discovery call to fail")
+	}
+	firstCalls := stub.getCallsSnapshot()
+	if len(firstCalls) != 1 {
+		t.Fatalf("expected 1 manager Get call, got %d", len(firstCalls))
+	}
+
+	_, err = reg.listServerTools(ctx, "guardian")
+	if err == nil {
+		t.Fatal("expected second discovery call to fail from cooldown")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "cooldown") {
+		t.Fatalf("expected cooldown error, got %v", err)
+	}
+	secondCalls := stub.getCallsSnapshot()
+	if len(secondCalls) != 1 {
+		t.Fatalf("expected cooldown to skip a second manager Get, got calls=%d", len(secondCalls))
 	}
 }
 

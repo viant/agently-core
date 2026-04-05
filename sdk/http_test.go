@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -451,6 +452,211 @@ func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
 	}
 }
 
+type spyConversationUpdateClient struct {
+	*HTTPClient
+	gotInput *UpdateConversationInput
+	err      error
+}
+
+func (s *spyConversationUpdateClient) UpdateConversation(_ context.Context, input *UpdateConversationInput) (*conversation.Conversation, error) {
+	s.gotInput = input
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &conversation.Conversation{Id: input.ConversationID}, nil
+}
+
+func TestHandler_UpdateConversation_ErrorStatusMapping(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "validation", err: errors.New("conversation ID is required"), wantStatus: http.StatusBadRequest},
+		{name: "unsupported", err: errors.New("unsupported visibility"), wantStatus: http.StatusBadRequest},
+		{name: "not found", err: errors.New("conversation not found"), wantStatus: http.StatusNotFound},
+		{name: "conflict", err: newConflictError("conflict"), wantStatus: http.StatusConflict},
+		{name: "internal", err: errors.New("db timeout"), wantStatus: http.StatusInternalServerError},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base, err := NewHTTP("http://127.0.0.1")
+			if err != nil {
+				t.Fatalf("NewHTTP: %v", err)
+			}
+			spy := &spyConversationUpdateClient{HTTPClient: base, err: tc.err}
+			handler := NewHandler(spy)
+
+			req := httptest.NewRequest(http.MethodPatch, "/v1/conversations/c1", strings.NewReader(`{"title":"x"}`))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+type spyQueuedTurnMutationClient struct {
+	*HTTPClient
+	cancelConversationID string
+	cancelTurnID         string
+	moveInput            *MoveQueuedTurnInput
+	editInput            *EditQueuedTurnInput
+}
+
+func (s *spyQueuedTurnMutationClient) CancelQueuedTurn(_ context.Context, conversationID, turnID string) error {
+	s.cancelConversationID = conversationID
+	s.cancelTurnID = turnID
+	return nil
+}
+
+func (s *spyQueuedTurnMutationClient) MoveQueuedTurn(_ context.Context, input *MoveQueuedTurnInput) error {
+	s.moveInput = input
+	return nil
+}
+
+func (s *spyQueuedTurnMutationClient) EditQueuedTurn(_ context.Context, input *EditQueuedTurnInput) error {
+	s.editInput = input
+	return nil
+}
+
+func TestHandler_QueuedTurnMutations_ReturnNoContent(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyQueuedTurnMutationClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	t.Run("delete", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/v1/conversations/c1/turns/t1", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+		}
+		if spy.cancelConversationID != "c1" || spy.cancelTurnID != "t1" {
+			t.Fatalf("unexpected cancel args: %q %q", spy.cancelConversationID, spy.cancelTurnID)
+		}
+	})
+
+	t.Run("move", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/conversations/c1/turns/t1/move", strings.NewReader(`{"direction":"up"}`))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+		}
+		if spy.moveInput == nil || spy.moveInput.ConversationID != "c1" || spy.moveInput.TurnID != "t1" || spy.moveInput.Direction != "up" {
+			t.Fatalf("unexpected move input: %#v", spy.moveInput)
+		}
+	})
+
+	t.Run("edit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPatch, "/v1/conversations/c1/turns/t1", strings.NewReader(`{"content":"edited"}`))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+		}
+		if spy.editInput == nil || spy.editInput.ConversationID != "c1" || spy.editInput.TurnID != "t1" || spy.editInput.Content != "edited" {
+			t.Fatalf("unexpected edit input: %#v", spy.editInput)
+		}
+	})
+}
+
+type spyToolResourceClient struct {
+	*HTTPClient
+	executeName string
+	resourceRef *ResourceRef
+	saveInput   *SaveResourceInput
+}
+
+func (s *spyToolResourceClient) ExecuteTool(_ context.Context, name string, args map[string]interface{}) (string, error) {
+	s.executeName = name
+	return "ok", nil
+}
+
+func (s *spyToolResourceClient) GetResource(_ context.Context, ref *ResourceRef) (*GetResourceOutput, error) {
+	s.resourceRef = ref
+	return &GetResourceOutput{Kind: ref.Kind, Name: ref.Name, Data: []byte("ok")}, nil
+}
+
+func (s *spyToolResourceClient) SaveResource(_ context.Context, input *SaveResourceInput) error {
+	s.saveInput = input
+	return nil
+}
+
+func (s *spyToolResourceClient) DeleteResource(_ context.Context, ref *ResourceRef) error {
+	s.resourceRef = ref
+	return nil
+}
+
+func TestHandler_ExecuteTool_EmptyNameIsBadRequest(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolResourceClient{HTTPClient: base}
+	handler := handleExecuteTool(spy)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools//execute", strings.NewReader(`{}`))
+	req.SetPathValue("name", "")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if spy.executeName != "" {
+		t.Fatalf("ExecuteTool should not be called, got %q", spy.executeName)
+	}
+}
+
+func TestHandler_ResourceHandlers_EmptyPathValuesAreBadRequest(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolResourceClient{HTTPClient: base}
+
+	t.Run("get", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/workspace/resources//", nil)
+		req.SetPathValue("kind", "")
+		req.SetPathValue("name", "")
+		rec := httptest.NewRecorder()
+		handleGetResource(spy).ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+	})
+
+	t.Run("save", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPut, "/v1/workspace/resources//", strings.NewReader("x"))
+		req.SetPathValue("kind", "")
+		req.SetPathValue("name", "")
+		rec := httptest.NewRecorder()
+		handleSaveResource(spy).ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/v1/workspace/resources//", nil)
+		req.SetPathValue("kind", "")
+		req.SetPathValue("name", "")
+		rec := httptest.NewRecorder()
+		handleDeleteResource(spy).ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+	})
+}
+
 type spyTranscriptClient struct {
 	*HTTPClient
 	gotInput   *GetTranscriptInput
@@ -775,6 +981,39 @@ func TestResolveQueryUserID_AuthDisabled_AssignsAnonymousCookie(t *testing.T) {
 	cookies := rec.Result().Cookies()
 	if len(cookies) == 0 || cookies[0].Name != anonymousUserCookieName {
 		t.Fatalf("expected anonymous cookie, got %#v", cookies)
+	}
+	if !cookies[0].Secure {
+		t.Fatalf("expected anonymous cookie to be Secure")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestHTTPClient_DownloadFile_RejectsInformationalStatus(t *testing.T) {
+	c, err := NewHTTP("http://example.invalid")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	c.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 199,
+			Status:     "199 Informational",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("informational")),
+			Request:    req,
+		}, nil
+	})
+	_, err = c.DownloadFile(context.Background(), &DownloadFileInput{
+		ConversationID: "conv-1",
+		FileID:         "file-1",
+	})
+	if err == nil {
+		t.Fatalf("expected error for informational response")
+	}
+	if !strings.Contains(err.Error(), "download file") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

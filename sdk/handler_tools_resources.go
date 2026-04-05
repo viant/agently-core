@@ -25,7 +25,11 @@ func handleListToolDefinitions(client Client) http.HandlerFunc {
 
 func handleExecuteTool(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
+		name := strings.TrimSpace(r.PathValue("name"))
+		if name == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("tool name is required"))
+			return
+		}
 		var args map[string]interface{}
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&args)
@@ -71,6 +75,15 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
 	}
+}
+
+func resourcePathRef(r *http.Request) (*ResourceRef, error) {
+	kind := strings.TrimSpace(r.PathValue("kind"))
+	name := strings.TrimSpace(r.PathValue("name"))
+	if kind == "" || name == "" {
+		return nil, fmt.Errorf("resource kind and name are required")
+	}
+	return &ResourceRef{Kind: kind, Name: name}, nil
 }
 
 func handleListPendingToolApprovals(client Client) http.HandlerFunc {
@@ -148,9 +161,12 @@ func handleListResources(client Client) http.HandlerFunc {
 
 func handleGetResource(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := r.PathValue("kind")
-		name := r.PathValue("name")
-		out, err := client.GetResource(r.Context(), &ResourceRef{Kind: kind, Name: name})
+		ref, err := resourcePathRef(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		out, err := client.GetResource(r.Context(), ref)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -161,14 +177,17 @@ func handleGetResource(client Client) http.HandlerFunc {
 
 func handleSaveResource(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := r.PathValue("kind")
-		name := r.PathValue("name")
+		ref, err := resourcePathRef(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := client.SaveResource(r.Context(), &SaveResourceInput{Kind: kind, Name: name, Data: body}); err != nil {
+		if err := client.SaveResource(r.Context(), &SaveResourceInput{Kind: ref.Kind, Name: ref.Name, Data: body}); err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -178,9 +197,12 @@ func handleSaveResource(client Client) http.HandlerFunc {
 
 func handleDeleteResource(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := r.PathValue("kind")
-		name := r.PathValue("name")
-		if err := client.DeleteResource(r.Context(), &ResourceRef{Kind: kind, Name: name}); err != nil {
+		ref, err := resourcePathRef(r)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := client.DeleteResource(r.Context(), ref); err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
