@@ -159,13 +159,26 @@ func extractPriorToolResults(genInput *core2.GenerateInput) []llm.ToolCall {
 }
 
 func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) error {
-	var err error
-	if strings.Contains(genOutput.Content, `"tool"`) {
-		err = executil.EnsureJSONResponse(ctx, genOutput.Content, aPlan)
+	content := strings.TrimSpace(genOutput.Content)
+	if genOutput != nil && genOutput.Response != nil {
+		for _, choice := range genOutput.Response.Choices {
+			text := strings.TrimSpace(choice.Message.Content)
+			if text == "" {
+				text = strings.TrimSpace(llm.MessageText(choice.Message))
+			}
+			if text != "" {
+				content = text
+				break
+			}
+		}
 	}
-	if strings.Contains(genOutput.Content, `"elicitation"`) {
+	var err error
+	if strings.Contains(content, `"tool"`) {
+		err = executil.EnsureJSONResponse(ctx, content, aPlan)
+	}
+	if strings.Contains(content, `"elicitation"`) {
 		aPlan.Elicitation = &plan.Elicitation{}
-		_ = executil.EnsureJSONResponse(ctx, genOutput.Content, aPlan.Elicitation)
+		_ = executil.EnsureJSONResponse(ctx, content, aPlan.Elicitation)
 		if aPlan.Elicitation.IsEmpty() {
 			aPlan.Elicitation = nil
 		} else if aPlan.Elicitation.ElicitationId == "" {
@@ -174,7 +187,7 @@ func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.Ge
 	}
 	aPlan.Steps.EnsureID()
 	if len(aPlan.Steps) > 0 && strings.TrimSpace(aPlan.Steps[0].Reason) == "" {
-		prefix := genOutput.Content
+		prefix := content
 		if idx := strings.Index(prefix, "```json"); idx != -1 {
 			prefix = prefix[:idx]
 		} else if idx := strings.Index(prefix, "{"); idx != -1 {

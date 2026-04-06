@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
@@ -22,6 +23,38 @@ import (
 	"github.com/viant/agently-core/service/core/stream"
 	executil "github.com/viant/agently-core/service/shared/executil"
 )
+
+func normalizeStreamContentForMerge(value string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(value))
+}
+
+func mergeStreamContent(current, incoming string) string {
+	currentRaw := current
+	incomingRaw := incoming
+	current = normalizeStreamContentForMerge(currentRaw)
+	incoming = normalizeStreamContentForMerge(incomingRaw)
+	if incoming == "" {
+		return currentRaw
+	}
+	if current == "" {
+		return incomingRaw
+	}
+	if incoming == current {
+		return currentRaw
+	}
+	if strings.HasPrefix(incoming, current) {
+		return incomingRaw
+	}
+	if strings.HasPrefix(current, incoming) {
+		return currentRaw
+	}
+	return currentRaw + incomingRaw
+}
 
 func plannedToolCalls(choice *llm.Choice) []streaming.PlannedToolCall {
 	if choice == nil || len(choice.Message.ToolCalls) == 0 {
@@ -174,11 +207,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		mux.Lock()
 		defer mux.Unlock()
 		if content := strings.TrimSpace(choice.Message.Content); content != "" {
-			if genOutput.Content == "" {
-				genOutput.Content = content
-			} else {
-				genOutput.Content += content
-			}
+			genOutput.Content = mergeStreamContent(genOutput.Content, content)
 		}
 		s.publishPlannedToolCallsEvent(runCtx, event.Response.ResponseID, &choice)
 		s.patchStreamingToolPreamble(runCtx, choice)
@@ -203,7 +232,7 @@ func (s *Service) handleTypedStreamEvent(
 	switch event.Kind {
 	case llm.StreamEventTextDelta:
 		mux.Lock()
-		genOutput.Content += event.Delta
+		genOutput.Content = mergeStreamContent(genOutput.Content, event.Delta)
 		mux.Unlock()
 	case llm.StreamEventToolCallCompleted:
 		mux.Lock()
@@ -229,7 +258,22 @@ func (s *Service) handleTypedStreamEvent(
 		s.publishTypedToolCallEvent(ctx, event)
 		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, guard, reg, genOutput.MessageID)
 	case llm.StreamEventToolCallStarted:
-	case llm.StreamEventTurnCompleted, llm.StreamEventReasoningDelta, llm.StreamEventToolCallDelta, llm.StreamEventUsage, llm.StreamEventItemCompleted:
+	case llm.StreamEventTurnCompleted:
+		mux.Lock()
+		if event.Response != nil {
+			genOutput.Response = event.Response
+			for _, choice := range event.Response.Choices {
+				if len(choice.Message.ToolCalls) > 0 {
+					continue
+				}
+				if content := strings.TrimSpace(choice.Message.Content); content != "" {
+					genOutput.Content = content
+					break
+				}
+			}
+		}
+		mux.Unlock()
+	case llm.StreamEventReasoningDelta, llm.StreamEventToolCallDelta, llm.StreamEventUsage, llm.StreamEventItemCompleted:
 	default:
 		if debugtrace.Enabled() {
 			debugtrace.Write("reactor", "unhandled_kind", map[string]any{"kind": string(event.Kind)})

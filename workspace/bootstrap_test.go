@@ -58,6 +58,16 @@ func TestIsEmptyWorkspaceAt(t *testing.T) {
 		require.True(t, empty)
 	})
 
+	t.Run("mcp only workspace is treated as empty for bootstrap", func(t *testing.T) {
+		root := filepath.Join(tmp, "mcp_only")
+		require.NoError(t, os.MkdirAll(filepath.Join(root, KindMCP, "system"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, KindMCP, "system", "os.yaml"), []byte("name: system/os\n"), 0o644))
+
+		empty, err := IsEmptyWorkspaceAt(ctx, fs, root)
+		require.NoError(t, err)
+		require.True(t, empty)
+	})
+
 	t.Run("config file makes workspace non-empty", func(t *testing.T) {
 		root := filepath.Join(tmp, "has_config")
 		require.NoError(t, os.MkdirAll(root, 0o755))

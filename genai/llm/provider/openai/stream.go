@@ -77,11 +77,11 @@ func extractOutputTextFromContentItems(items []struct {
 	return ""
 }
 
-func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
+func (p *streamProcessor) emitAssistantTextDeltaWithObserver(itemID, delta string, notifyObserver bool) bool {
 	if strings.TrimSpace(delta) == "" {
 		return true
 	}
-	if p.observer != nil {
+	if notifyObserver && p.observer != nil {
 		if err := p.observer.OnStreamDelta(p.ctx, []byte(delta)); err != nil {
 			p.events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", err)}
 			return false
@@ -100,6 +100,10 @@ func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
 	return true
 }
 
+func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
+	return p.emitAssistantTextDeltaWithObserver(itemID, delta, true)
+}
+
 func (p *streamProcessor) normalizeAlternativeAssistantDelta(itemID, text string) string {
 	value := text
 	if value == "" {
@@ -113,6 +117,9 @@ func (p *streamProcessor) normalizeAlternativeAssistantDelta(itemID, text string
 		p.state.emittedAssistantTextByItem = map[string]string{}
 	}
 	prev := p.state.emittedAssistantTextByItem[id]
+	if global := p.state.emittedAssistantTextByItem["_default"]; len(global) > len(prev) {
+		prev = global
+	}
 	switch {
 	case prev == "":
 		return value
@@ -132,7 +139,8 @@ func (p *streamProcessor) emitAssistantTextAlternative(itemID, text string) bool
 	if delta == "" {
 		return true
 	}
-	return p.emitAssistantTextDelta(itemID, delta)
+	notifyObserver := !p.state.emittedAssistantText
+	return p.emitAssistantTextDeltaWithObserver(itemID, delta, notifyObserver)
 }
 
 // recordEmittedToolCall marks a tool call as emitted.
@@ -253,6 +261,9 @@ func (p *streamProcessor) markAssistantTextEmittedForItem(itemID, txt string) {
 		p.state.emittedAssistantTextByItem = map[string]string{}
 	}
 	p.state.emittedAssistantTextByItem[id] = p.state.emittedAssistantTextByItem[id] + txt
+	if id != "_default" {
+		p.state.emittedAssistantTextByItem["_default"] = p.state.emittedAssistantTextByItem["_default"] + txt
+	}
 }
 
 func (p *streamProcessor) shouldEmitTerminalResponse(lr *llm.GenerateResponse) bool {

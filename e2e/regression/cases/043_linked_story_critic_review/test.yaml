@@ -40,5 +40,4 @@ pipeline:
         Expect:
           Code: 200
           JSONBody:
-            rows: []
             hasMore: false

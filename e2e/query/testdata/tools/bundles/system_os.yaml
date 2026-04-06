@@ -5,9 +5,3 @@ iconRef: builtin:system-os
 priority: 60
 match:
   - name: "system/os:*"
-    approval:
-      mode: prompt
-      prompt:
-        acceptLabel: "Allow"
-        rejectLabel: "Deny"
-        cancelLabel: "Cancel"

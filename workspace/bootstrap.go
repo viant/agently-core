@@ -204,6 +204,9 @@ func isDirEffectivelyEmpty(ctx context.Context, fs afs.Service, dir string) (boo
 			// afs may include the directory itself in listing results.
 			continue
 		}
+		if object.IsDir() && isBootstrapIgnorableDir(name) {
+			continue
+		}
 		if !object.IsDir() {
 			return false, nil
 		}
@@ -223,4 +226,13 @@ func isDirEffectivelyEmpty(ctx context.Context, fs afs.Service, dir string) (boo
 		}
 	}
 	return true, nil
+}
+
+func isBootstrapIgnorableDir(name string) bool {
+	switch strings.TrimSpace(name) {
+	case KindMCP, KindOAuth, KindWorkflow:
+		return true
+	default:
+		return false
+	}
 }

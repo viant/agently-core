@@ -1,14 +1,15 @@
 pipeline:
   executeOOBTool:
     when: $sdkKey != ''
-    action: exec:run
-    checkError: true
+    action: http/runner:send
     description: "mcp oob tool - direct MCP tool execution should succeed"
-    commands:
-      - >-
-        resp=$(curl -sS -X POST ${serverURL}/v1/tools/execute
-        -H "Content-Type: application/json"
-        -d '{"name":"mcpoob/ask_oob","args":{}}') &&
-        echo "$resp" &&
-        echo "$resp" | grep -q '"mode":"elicitation_oob"' &&
-        echo "$resp" | grep -q '"action":"accept"'
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/tools/execute
+        JSONBody:
+          name: mcpoob/ask_oob
+          args: {}
+        Expect:
+          Code: 200
+          JSONBody:
+            result: '{"action":"accept","mode":"elicitation_oob"}'

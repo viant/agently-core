@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	elact "github.com/viant/agently-core/service/elicitation/action"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	executil "github.com/viant/agently-core/service/shared/executil"
 	"github.com/viant/mcp-protocol/schema"
 )
 
@@ -435,6 +436,9 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	upd := apiconv.NewMessage()
 	upd.SetId(msg.Id)
 	if msg.Role == llm.RoleAssistant.String() {
+		if loaded, ok := s.loadRecordedElicitation(ctx, msg); ok {
+			payload = enrichApprovalPayload(payload, &loaded)
+		}
 		turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
 		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload); err != nil {
 			return err
@@ -456,6 +460,109 @@ func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnM
 		apiconv.WithRawContent(string(raw)),
 	)
 	return err
+}
+
+func enrichApprovalPayload(payload map[string]interface{}, req *plan.Elicitation) map[string]interface{} {
+	if len(payload) == 0 || req == nil {
+		return payload
+	}
+	properties := req.RequestedSchema.Properties
+	if len(properties) == 0 {
+		return payload
+	}
+	rawMeta, ok := properties["_approvalMeta"].(map[string]interface{})
+	if !ok {
+		return payload
+	}
+	constValue, _ := rawMeta["const"].(string)
+	constValue = strings.TrimSpace(constValue)
+	if constValue == "" {
+		return payload
+	}
+	var meta executil.ApprovalView
+	if err := json.Unmarshal([]byte(constValue), &meta); err != nil {
+		return payload
+	}
+	editedFields, ok := payload["editedFields"].(map[string]interface{})
+	if !ok || len(editedFields) == 0 {
+		return payload
+	}
+	fields := map[string]interface{}{}
+	partial := false
+	for _, editor := range meta.Editors {
+		if editor == nil || strings.TrimSpace(editor.Name) == "" {
+			continue
+		}
+		selectedRaw, ok := editedFields[editor.Name]
+		if !ok {
+			continue
+		}
+		selectedIDs := normalizeApprovalSelectionSet(selectedRaw)
+		if len(selectedIDs) == 0 && len(editor.Options) == 0 {
+			continue
+		}
+		selected := make([]string, 0, len(selectedIDs))
+		denied := make([]string, 0)
+		for _, option := range editor.Options {
+			if option == nil || strings.TrimSpace(option.ID) == "" {
+				continue
+			}
+			if _, ok := selectedIDs[option.ID]; ok {
+				selected = append(selected, option.ID)
+				continue
+			}
+			denied = append(denied, option.ID)
+		}
+		if len(denied) > 0 {
+			partial = true
+		}
+		fields[editor.Name] = map[string]interface{}{
+			"approved": selected,
+			"denied":   denied,
+		}
+	}
+	if len(fields) == 0 {
+		return payload
+	}
+	enriched := map[string]interface{}{}
+	for key, value := range payload {
+		enriched[key] = value
+	}
+	enriched["approvalDecision"] = map[string]interface{}{
+		"type":        "tool_approval",
+		"toolName":    strings.TrimSpace(meta.ToolName),
+		"title":       strings.TrimSpace(meta.Title),
+		"isPartial":   partial,
+		"fields":      fields,
+		"instruction": "Only the approved selection was allowed by the user. Do not request denied items again in this turn.",
+	}
+	return enriched
+}
+
+func normalizeApprovalSelectionSet(raw interface{}) map[string]struct{} {
+	result := map[string]struct{}{}
+	switch actual := raw.(type) {
+	case []interface{}:
+		for _, item := range actual {
+			key := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if key != "" {
+				result[key] = struct{}{}
+			}
+		}
+	case []string:
+		for _, item := range actual {
+			key := strings.TrimSpace(item)
+			if key != "" {
+				result[key] = struct{}{}
+			}
+		}
+	default:
+		key := strings.TrimSpace(fmt.Sprintf("%v", actual))
+		if key != "" {
+			result[key] = struct{}{}
+		}
+	}
+	return result
 }
 
 // NormalizeAction is kept for backward compatibility; use action.Normalize.
