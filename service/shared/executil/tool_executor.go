@@ -575,7 +575,11 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	rec.SetStatus("pending")
 	rec.SetConversationId(turn.ConversationID)
 	rec.SetTurnId(turn.TurnID)
-	rec.SetMessageId(turn.ParentMessageID)
+	parentMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	if parentMessageID == "" {
+		parentMessageID = strings.TrimSpace(turn.ParentMessageID)
+	}
+	rec.SetMessageId(parentMessageID)
 	rec.SetMetadata(metadata)
 	if err := writer.PatchToolApprovalQueue(ctx, rec); err != nil {
 		return "", fmt.Errorf("enqueue tool approval: %w", err)

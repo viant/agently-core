@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -31,6 +32,34 @@ func (r *recordingObserver) OnCallEnd(_ context.Context, info mcbuf.Info) error 
 func (r *recordingObserver) OnStreamDelta(_ context.Context, data []byte) error {
 	r.deltas = append(r.deltas, string(data))
 	return nil
+}
+
+func TestStreamProcessor_NormalizeAlternativeAssistantDelta_UsesGlobalHistory(t *testing.T) {
+	p := &streamProcessor{state: &streamState{}}
+	p.markAssistantTextEmittedForItem("content-item-1", "Hello")
+
+	got := p.normalizeAlternativeAssistantDelta("message-item-9", "Hello world")
+	assert.Equal(t, " world", got)
+
+	p.markAssistantTextEmittedForItem("message-item-9", got)
+	got = p.normalizeAlternativeAssistantDelta("message-item-9", "Hello world")
+	assert.Equal(t, "", got)
+}
+
+func TestStreamProcessor_AlternativeTextDoesNotDoubleFeedObserver(t *testing.T) {
+	observer := &recordingObserver{}
+	p := &streamProcessor{
+		observer: observer,
+		ctx:      context.Background(),
+		state:    &streamState{},
+		events:   make(chan llm.StreamEvent, 8),
+		agg:      newStreamAggregator(),
+	}
+
+	require.True(t, p.emitAssistantTextDelta("content-item-1", "Hello"))
+	require.True(t, p.emitAssistantTextAlternative("message-item-9", "Hello world"))
+
+	require.Equal(t, []string{"Hello"}, observer.deltas)
 }
 
 // Data-driven test: verifies stream aggregation with Responses API events.

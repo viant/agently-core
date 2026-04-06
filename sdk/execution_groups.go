@@ -74,19 +74,23 @@ func collectToolChildren(turn *convstore.Turn, message *agconv.MessageView, inde
 		parentID = strings.TrimSpace(message.Id)
 	}
 	key := toolMessageGroupKey(parentID, message.Iteration)
-	for _, toolMessage := range indexed[key] {
+	appendToolMessage := func(toolMessage *agconv.ToolMessageView) {
 		if toolMessage == nil {
-			continue
+			return
 		}
-		already := false
 		for _, existing := range toolMessages {
 			if existing != nil && existing.Id == toolMessage.Id {
-				already = true
-				break
+				return
 			}
 		}
-		if !already {
-			toolMessages = append(toolMessages, toolMessage)
+		toolMessages = append(toolMessages, toolMessage)
+	}
+	for _, toolMessage := range indexed[key] {
+		appendToolMessage(toolMessage)
+	}
+	if message.Iteration != nil {
+		for _, toolMessage := range indexed[toolMessageGroupKey(parentID, nil)] {
+			appendToolMessage(toolMessage)
 		}
 	}
 	if len(toolMessages) == 0 {

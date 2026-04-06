@@ -29,6 +29,23 @@ pipeline:
           exit 1
         fi
 
+  refreshMCPServerBinaries:
+    action: exec:run
+    description: rebuild mcpserver once and refresh all MCP helper copies used by regression
+    TimeoutMs: 180000
+    checkError: true
+    commands:
+      - cd ${repoPath}
+      - export PATH=/usr/local/go/bin:$PATH
+      - export GOPATH=${env.GOPATH}
+      - mkdir -p ${repoPath}/e2e/bin
+      - cd ${repoPath}/e2e/cli/mcpserver
+      - go build -o mcpserver
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-resources
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-form
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-oob
+      - cp mcpserver ${repoPath}/e2e/bin/mcp-approval-tool
+
   requireBinaries:
     action: exec:run
     description: verify required e2e binaries are prebuilt
@@ -36,7 +53,7 @@ pipeline:
     commands:
       - |
         missing=""
-        for bin in datly agently-app mcp-resources mcp-elicitation-form mcp-elicitation-oob; do
+        for bin in datly agently-app mcp-resources mcp-elicitation-form mcp-elicitation-oob mcp-approval-tool; do
           path="${repoPath}/e2e/bin/${bin}"
           if [ ! -x "$path" ]; then
             missing="${missing} ${path}"

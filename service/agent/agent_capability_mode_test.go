@@ -45,6 +45,22 @@ func TestEnsureAgent_UsesCapabilityAgentForAgentSelector(t *testing.T) {
 	if input.ModelOverride != "openai_gpt-5.4" {
 		t.Fatalf("model override = %q, want %q", input.ModelOverride, "openai_gpt-5.4")
 	}
+	if input.Agent.Model != "openai_gpt4o_mini" {
+		t.Fatalf("capability agent fallback model = %q, want %q", input.Agent.Model, "openai_gpt4o_mini")
+	}
+}
+
+func TestNewCapabilityAgent_UsesDefaultModel(t *testing.T) {
+	ag := newCapabilityAgent(&config.Defaults{
+		Model:            "openai_gpt4o_mini",
+		CapabilityPrompt: "Custom capability prompt",
+	})
+	if ag == nil {
+		t.Fatalf("expected capability agent")
+	}
+	if ag.ModelSelection.Model != "openai_gpt4o_mini" {
+		t.Fatalf("model = %q, want %q", ag.ModelSelection.Model, "openai_gpt4o_mini")
+	}
 }
 
 func TestLoadResolvedAgent_UsesFinderForNonCapabilityAgents(t *testing.T) {

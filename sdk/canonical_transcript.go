@@ -274,7 +274,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 			ts.LinkedConversationID = parentLinkedConvID
 		}
 		existing := upsertToolStep(page, ts.ToolCallID)
-		*existing = *ts
+		*existing = mergeToolStepState(existing, ts)
 	}
 
 	// Set preamble/final message IDs
@@ -352,7 +352,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	}
 	tc := tm.ToolCall
 	step := &ToolStepState{
-		ToolCallID:    strings.TrimSpace(tc.OpId),
+		ToolCallID:    normalizeCanonicalToolCallID(tc.OpId),
 		ToolMessageID: strings.TrimSpace(tm.Id),
 		ToolName:      strings.TrimSpace(tc.ToolName),
 		Status:        stepStatusFromString(tc.Status, ""),
@@ -375,6 +375,74 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
 	}
 	return step
+}
+
+func normalizeCanonicalToolCallID(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, ":approved") {
+		return strings.TrimSpace(strings.TrimSuffix(value, ":approved"))
+	}
+	return value
+}
+
+func mergeToolStepState(existing, incoming *ToolStepState) ToolStepState {
+	if existing == nil && incoming == nil {
+		return ToolStepState{}
+	}
+	if existing == nil {
+		return *incoming
+	}
+	if incoming == nil {
+		return *existing
+	}
+	merged := *existing
+	if strings.TrimSpace(incoming.ToolCallID) != "" {
+		merged.ToolCallID = incoming.ToolCallID
+	}
+	if strings.TrimSpace(incoming.ToolMessageID) != "" && toolStepStatusRank(incoming.Status) >= toolStepStatusRank(existing.Status) {
+		merged.ToolMessageID = incoming.ToolMessageID
+	}
+	if strings.TrimSpace(incoming.ToolName) != "" {
+		merged.ToolName = incoming.ToolName
+	}
+	if toolStepStatusRank(incoming.Status) >= toolStepStatusRank(existing.Status) && strings.TrimSpace(incoming.Status) != "" {
+		merged.Status = incoming.Status
+	}
+	if incoming.StartedAt != nil {
+		merged.StartedAt = incoming.StartedAt
+	}
+	if incoming.CompletedAt != nil {
+		merged.CompletedAt = incoming.CompletedAt
+	}
+	if strings.TrimSpace(incoming.RequestPayloadID) != "" {
+		merged.RequestPayloadID = incoming.RequestPayloadID
+	}
+	if strings.TrimSpace(incoming.ResponsePayloadID) != "" {
+		merged.ResponsePayloadID = incoming.ResponsePayloadID
+	}
+	if incoming.RequestPayload != nil {
+		merged.RequestPayload = incoming.RequestPayload
+	}
+	if incoming.ResponsePayload != nil {
+		merged.ResponsePayload = incoming.ResponsePayload
+	}
+	if strings.TrimSpace(incoming.LinkedConversationID) != "" {
+		merged.LinkedConversationID = incoming.LinkedConversationID
+	}
+	return merged
+}
+
+func toolStepStatusRank(status string) int {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "queued", "planned", "pending":
+		return 1
+	case "running", "streaming", "waiting_for_user", "blocked", "in_progress":
+		return 2
+	case "completed", "succeeded", "success", "done", "failed", "error", "rejected", "canceled", "cancelled", "terminated":
+		return 3
+	default:
+		return 0
+	}
 }
 
 func toolCallIDFromToolMessage(tm *agconv.ToolMessageView) string {

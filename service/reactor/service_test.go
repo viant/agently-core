@@ -2,6 +2,7 @@ package reactor
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -105,6 +106,38 @@ func TestService_extendPlanFromResponse_ElicitationOnlyIsNotEmpty(t *testing.T) 
 	assert.Equal(t, "Provide repository path", aPlan.Elicitation.Message)
 }
 
+func TestService_extendPlanFromContent_PrefersResponseContentForElicitation(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{}
+	aPlan := plan.New()
+	genOutput := &core2.GenerateOutput{
+		Content: `{
+ "type": "elicitation",
+ "message": "Please provide your favorite color so I can describe it in3 sentences.",
+ "requestedSchema": "type": "object",
+ "properties": "favoriteColor": "type": "string" }
+ },
+ "required": ["favoriteColor"]
+ }
+}`,
+		Response: &llm.GenerateResponse{
+			Choices: []llm.Choice{{
+				Index: 0,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Content: `{"type":"elicitation","message":"Please provide your favorite color so I can describe it in 3 sentences.","requestedSchema":{"type":"object","properties":{"favoriteColor":{"type":"string"}},"required":["favoriteColor"]}}`,
+				},
+				FinishReason: "stop",
+			}},
+		},
+	}
+
+	err := service.extendPlanFromContent(ctx, genOutput, aPlan)
+	require.NoError(t, err)
+	require.NotNil(t, aPlan.Elicitation)
+	assert.Equal(t, "Please provide your favorite color so I can describe it in 3 sentences.", aPlan.Elicitation.Message)
+}
+
 func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 	service := &Service{}
 	aPlan := plan.New()
@@ -159,6 +192,93 @@ func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreaming
 	assert.Equal(t, "resp-stream:0:system_patch-apply", aPlan.Steps[0].ID)
 	require.NotNil(t, aPlan.Steps[0].Args)
 	assert.Equal(t, "/tmp/change-repo2", aPlan.Steps[0].Args["workdir"])
+}
+
+func TestMergeStreamContent(t *testing.T) {
+	cases := []struct {
+		name     string
+		current  string
+		incoming string
+		expect   string
+	}{
+		{
+			name:     "starts with incoming when empty",
+			current:  "",
+			incoming: "Hello",
+			expect:   "Hello",
+		},
+		{
+			name:     "dedupes exact repeat",
+			current:  "Hello",
+			incoming: "Hello",
+			expect:   "Hello",
+		},
+		{
+			name:     "promotes cumulative snapshot",
+			current:  "Hello",
+			incoming: "Hello world",
+			expect:   "Hello world",
+		},
+		{
+			name:     "ignores older prefix snapshot",
+			current:  "Hello world",
+			incoming: "Hello",
+			expect:   "Hello world",
+		},
+		{
+			name:     "dedupes same content with formatting differences",
+			current:  "```json{\"values\":{\"HOME\":\"/Users/awitas\"}}\n```",
+			incoming: "```json\n{\"values\":{\"HOME\":\"/Users/awitas\"}}\n```",
+			expect:   "```json{\"values\":{\"HOME\":\"/Users/awitas\"}}\n```",
+		},
+		{
+			name:     "appends unrelated chunk",
+			current:  "Hello ",
+			incoming: "world",
+			expect:   "Hello world",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expect, mergeStreamContent(tc.current, tc.incoming))
+		})
+	}
+}
+
+func TestService_handleTypedStreamEvent_TurnCompletedUsesFinalResponseContent(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{}
+	genOutput := &core2.GenerateOutput{
+		Content: `{
+ "type": "elicitation",
+ "message": "Please provide your favorite color so I can describe it in3 sentences."
+}`,
+	}
+	aPlan := plan.New()
+	nextStepIdx := 0
+	var wg sync.WaitGroup
+	var mux sync.Mutex
+
+	event := &llm.StreamEvent{
+		Kind: llm.StreamEventTurnCompleted,
+		Response: &llm.GenerateResponse{
+			Choices: []llm.Choice{{
+				Index: 0,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Content: `{"type":"elicitation","message":"Please provide your favorite color so I can describe it in 3 sentences.","requestedSchema":{"type":"object","properties":{"favoriteColor":{"type":"string"}},"required":["favoriteColor"]}}`,
+				},
+				FinishReason: "stop",
+			}},
+		},
+	}
+
+	err := service.handleTypedStreamEvent(ctx, event, &mux, genOutput, aPlan, &nextStepIdx, &wg, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, genOutput.Response)
+	assert.Equal(t, event.Response, genOutput.Response)
+	assert.Equal(t, event.Response.Choices[0].Message.Content, genOutput.Content)
 }
 
 // patchCountingClient wraps a conversation client and counts PatchMessage calls.

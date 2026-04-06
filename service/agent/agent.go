@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	promptmdl "github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/service/agent/prompts"
@@ -74,12 +75,21 @@ func (s *Service) loadResolvedAgent(ctx context.Context, agentID string) (*agent
 
 func newCapabilityAgent(defaults *config.Defaults) *agentmdl.Agent {
 	capPrompt := prompts.CapabilityPrompt()
+	modelID := ""
+	const fallbackCapabilityModel = "openai_gpt4o_mini"
 	if defaults != nil && strings.TrimSpace(defaults.CapabilityPrompt) != "" {
 		capPrompt = strings.TrimSpace(defaults.CapabilityPrompt)
 	}
+	if defaults != nil {
+		modelID = strings.TrimSpace(defaults.Model)
+	}
+	if modelID == "" {
+		modelID = fallbackCapabilityModel
+	}
 	return &agentmdl.Agent{
-		Identity: agentmdl.Identity{ID: "agent_selector", Name: "Agent Selector"},
-		Prompt:   &promptmdl.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		Identity:       agentmdl.Identity{ID: "agent_selector", Name: "Agent Selector"},
+		ModelSelection: llm.ModelSelection{Model: modelID},
+		Prompt:         &promptmdl.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
 		SystemPrompt: &promptmdl.Prompt{
 			Text:   capPrompt,
 			Engine: "go",
