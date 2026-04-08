@@ -13,7 +13,7 @@ import (
 
 	"github.com/viant/afs"
 	authctx "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	authtransport "github.com/viant/mcp/client/auth/transport"
@@ -196,7 +196,7 @@ func (p *Provider) String() string {
 }
 
 func (p *Provider) logSchedulerJarResolved(ctx context.Context, user string, cached bool) {
-	mode, ok := memory.DiscoveryModeFromContext(ctx)
+	mode, ok := runtimediscovery.ModeFromContext(ctx)
 	if !ok || !mode.Scheduler {
 		return
 	}

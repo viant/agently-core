@@ -2,30 +2,21 @@ package memory
 
 import (
 	"context"
-	"strings"
+
+	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
 
-type contextRecoveryModeKey struct{}
-
+// Deprecated: package memory is a compatibility shim over runtime/recovery.
+// New code should import runtime/recovery directly.
 const (
-	ContextRecoveryCompact      = "compact"
-	ContextRecoveryPruneCompact = "pruneCompact"
+	ContextRecoveryCompact      = runtimerecovery.ModeCompact
+	ContextRecoveryPruneCompact = runtimerecovery.ModePruneCompact
 )
 
 func WithContextRecoveryMode(ctx context.Context, mode string) context.Context {
-	m := strings.TrimSpace(mode)
-	if m == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, contextRecoveryModeKey{}, m)
+	return runtimerecovery.WithMode(ctx, mode)
 }
 
 func ContextRecoveryModeFromContext(ctx context.Context) (string, bool) {
-	if ctx == nil {
-		return "", false
-	}
-	if v, ok := ctx.Value(contextRecoveryModeKey{}).(string); ok {
-		return strings.TrimSpace(v), true
-	}
-	return "", false
+	return runtimerecovery.ModeFromContext(ctx)
 }

@@ -13,11 +13,11 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	elact "github.com/viant/agently-core/service/elicitation/action"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	"github.com/viant/mcp-protocol/schema"
 )
 
@@ -52,7 +52,7 @@ func (s *Service) SetStreamPublisher(p streaming.Publisher) {
 	s.streamPub = p
 }
 
-func (s *Service) emitElicitationRequested(ctx context.Context, turn *memory.TurnMeta, elic *plan.Elicitation, messageID string) {
+func (s *Service) emitElicitationRequested(ctx context.Context, turn *runtimerequestctx.TurnMeta, elic *plan.Elicitation, messageID string) {
 	if s == nil || s.streamPub == nil || turn == nil || elic == nil {
 		return
 	}
@@ -108,12 +108,12 @@ func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitati
 	}
 	now := time.Now()
 	turnID := ""
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		turnID = strings.TrimSpace(turn.TurnID)
 	}
-	messageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	messageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
 	if messageID == "" {
-		messageID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
 	event := &streaming.Event{
 		StreamID:        strings.TrimSpace(convID),
@@ -145,7 +145,7 @@ func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedS
 }
 
 // Record persists an elicitation control message and returns its message id.
-func (s *Service) Record(ctx context.Context, turn *memory.TurnMeta, role string, elic *plan.Elicitation) (*apiconv.MutableMessage, error) {
+func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, elic *plan.Elicitation) (*apiconv.MutableMessage, error) {
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
@@ -325,7 +325,7 @@ func (s *Service) loadRecordedElicitation(ctx context.Context, msg *apiconv.Mess
 
 // Elicit records a new elicitation control message and waits for a resolution via router/UI.
 // Returns message id, normalized status (accepted/rejected/cancel) and optional payload.
-func (s *Service) Elicit(ctx context.Context, turn *memory.TurnMeta, role string, req *plan.Elicitation) (string, string, map[string]interface{}, error) {
+func (s *Service) Elicit(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, req *plan.Elicitation) (string, string, map[string]interface{}, error) {
 	if req == nil || turn == nil {
 		return "", "", nil, fmt.Errorf("invalid input")
 	}
@@ -439,7 +439,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 		if loaded, ok := s.loadRecordedElicitation(ctx, msg); ok {
 			payload = enrichApprovalPayload(payload, &loaded)
 		}
-		turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+		turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
 		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload); err != nil {
 			return err
 		}
@@ -449,7 +449,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	return s.client.PatchMessage(ctx, upd)
 }
 
-func (s *Service) AddUserResponseMessage(ctx context.Context, turn *memory.TurnMeta, elicitationID string, payload map[string]interface{}) error {
+func (s *Service) AddUserResponseMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, elicitationID string, payload map[string]interface{}) error {
 	raw, _ := json.Marshal(payload)
 	_, err := apiconv.AddMessage(ctx, s.client, turn,
 		apiconv.WithId(uuid.New().String()),
@@ -479,7 +479,7 @@ func enrichApprovalPayload(payload map[string]interface{}, req *plan.Elicitation
 	if constValue == "" {
 		return payload
 	}
-	var meta executil.ApprovalView
+	var meta toolapproval.View
 	if err := json.Unmarshal([]byte(constValue), &meta); err != nil {
 		return payload
 	}
@@ -625,7 +625,7 @@ func (s *Service) StoreDeclineReason(ctx context.Context, convID, elicitationID,
 	if msg.Role != llm.RoleAssistant.String() {
 		return nil
 	}
-	turn := memory.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+	turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
 	payload := map[string]interface{}{"declineReason": reason}
 	return s.AddUserResponseMessage(ctx, &turn, elicitationID, payload)
 }

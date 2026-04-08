@@ -12,12 +12,13 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	core2 "github.com/viant/agently-core/service/core"
 )
 
 func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *core2.GenerateInput, causeErr error, errMessage string) error {
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" || s.convClient == nil {
 		return fmt.Errorf("missing conversation context")
 	}
@@ -38,17 +39,17 @@ func (s *Service) presentContextLimitExceeded(ctx context.Context, oldGenInput *
 		overlimit = v
 		logx.Debugf("reactor", "context limit overlimit tokens=%d", overlimit)
 	}
-	mode := memory.ContextRecoveryPruneCompact
-	if v, ok := memory.ContextRecoveryModeFromContext(ctx); ok && strings.TrimSpace(v) != "" {
+	mode := runtimerecovery.ModePruneCompact
+	if v, ok := runtimerecovery.ModeFromContext(ctx); ok && strings.TrimSpace(v) != "" {
 		mode = strings.TrimSpace(v)
 	}
 	if core2.IsContinuationContextLimit(causeErr) {
-		mode = memory.ContextRecoveryCompact
+		mode = runtimerecovery.ModeCompact
 	}
 	promptText := prunePrompt
 	var recoveryErr error
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case strings.ToLower(memory.ContextRecoveryCompact):
+	case strings.ToLower(runtimerecovery.ModeCompact):
 		compactLines, compactIDs := s.buildRemovalCandidates(ctx, conv, compactCandidateLimit)
 		if len(compactLines) == 0 {
 			compactLines = []string{"(no removable items identified)"}
@@ -195,15 +196,15 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 	return out, msgIDs
 }
 
-func (s *Service) ensureTurnMeta(ctx context.Context, conv *apiconv.Conversation) memory.TurnMeta {
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+func (s *Service) ensureTurnMeta(ctx context.Context, conv *apiconv.Conversation) runtimerequestctx.TurnMeta {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		return tm
 	}
 	turnID := ""
 	if conv != nil && conv.LastTurnId != nil {
 		turnID = *conv.LastTurnId
 	}
-	return memory.TurnMeta{ConversationID: conv.Id, TurnID: turnID, ParentMessageID: turnID}
+	return runtimerequestctx.TurnMeta{ConversationID: conv.Id, TurnID: turnID, ParentMessageID: turnID}
 }
 
 func estimateTokens(s string) int { return estimateTokensInt(len(s)) }

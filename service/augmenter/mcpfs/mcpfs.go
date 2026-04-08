@@ -14,7 +14,7 @@ import (
 	"github.com/viant/afs/storage"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
@@ -103,9 +103,9 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 	if strings.TrimSpace(server) == "" {
 		return nil, fmt.Errorf("mcpfs: invalid location: %s", location)
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" {
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 			convID = tm.ConversationID
 		}
 	}
@@ -220,9 +220,9 @@ func (s *Service) fetchSnapshotSize(ctx context.Context, snapURI string) (int64,
 	if strings.TrimSpace(server) == "" {
 		return 0, false, nil
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" {
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 			convID = tm.ConversationID
 		}
 	}
@@ -349,9 +349,9 @@ func (s *Service) downloadRaw(ctx context.Context, mcpURL string) ([]byte, error
 	if strings.TrimSpace(server) == "" || strings.TrimSpace(uri) == "" {
 		return nil, fmt.Errorf("mcpfs: invalid mcp url: %s", mcpURL)
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" {
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+		if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 			convID = tm.ConversationID
 		}
 	}

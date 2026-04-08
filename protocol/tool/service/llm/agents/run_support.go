@@ -14,13 +14,13 @@ import (
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	coreauth "github.com/viant/agently-core/service/auth"
 )
 
 type linkedRun struct {
-	parent              memory.TurnMeta
+	parent              runtimerequestctx.TurnMeta
 	childConversationID string
 	statusMessageID     string
 }
@@ -54,7 +54,7 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 	}
 	extCtx := ctx
 	if strings.TrimSpace(runCtx.childConversationID) != "" {
-		extCtx = memory.WithConversationID(ctx, runCtx.childConversationID)
+		extCtx = runtimerequestctx.WithConversationID(ctx, runCtx.childConversationID)
 		ro.ConversationID = runCtx.childConversationID
 	}
 	debugf("agents.run external invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
@@ -75,7 +75,7 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 	ro.Status = st
 	ro.TaskID = taskID
 	if ro.ConversationID == "" {
-		ro.ConversationID = strings.TrimSpace(memory.ConversationIDFromContext(extCtx))
+		ro.ConversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(extCtx))
 	}
 	if strings.TrimSpace(ctxID) != "" {
 		ro.ContextID = ctxID
@@ -178,19 +178,19 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 	// don't inherit the parent's assistant message as their parent_message_id.
 	childCtx := context.WithValue(
 		toolpol.WithPolicy(context.WithoutCancel(ctx), nil),
-		memory.ModelMessageIDKey, "",
+		runtimerequestctx.ModelMessageIDKey, "",
 	)
 	// Child runs must not inherit the parent's conversation/turn context.
 	// Agent.Query performs pre-turn work before it seeds a new turn, so bind
 	// the child conversation id here and reset turn metadata up front.
 	if strings.TrimSpace(runCtx.childConversationID) != "" {
-		childCtx = memory.WithConversationID(childCtx, strings.TrimSpace(runCtx.childConversationID))
+		childCtx = runtimerequestctx.WithConversationID(childCtx, strings.TrimSpace(runCtx.childConversationID))
 	}
-	childCtx = memory.WithTurnMeta(childCtx, memory.TurnMeta{})
+	childCtx = runtimerequestctx.WithTurnMeta(childCtx, runtimerequestctx.TurnMeta{})
 	childCtx = inheritDelegatedAuthContext(childCtx, ctx)
 	if childConversationID := strings.TrimSpace(runCtx.childConversationID); childConversationID != "" {
-		childCtx = memory.WithConversationID(childCtx, childConversationID)
-		childCtx = memory.WithTurnMeta(childCtx, memory.TurnMeta{
+		childCtx = runtimerequestctx.WithConversationID(childCtx, childConversationID)
+		childCtx = runtimerequestctx.WithTurnMeta(childCtx, runtimerequestctx.TurnMeta{
 			ConversationID: childConversationID,
 			TurnID:         uuid.NewString(),
 		})
@@ -713,11 +713,11 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 	return runCtx, nil
 }
 
-func turnMetaFromContext(ctx context.Context) memory.TurnMeta {
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+func turnMetaFromContext(ctx context.Context) runtimerequestctx.TurnMeta {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		return tm
 	}
-	return memory.TurnMeta{}
+	return runtimerequestctx.TurnMeta{}
 }
 
 func (s *Service) agentConversationScope(ctx context.Context, agentID string) string {
@@ -734,7 +734,7 @@ func (s *Service) agentConversationScope(ctx context.Context, agentID string) st
 	return scope
 }
 
-func (s *Service) resolveReusableChildConversation(ctx context.Context, agentID string, parent memory.TurnMeta, scope, route string) string {
+func (s *Service) resolveReusableChildConversation(ctx context.Context, agentID string, parent runtimerequestctx.TurnMeta, scope, route string) string {
 	if s == nil || s.conv == nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(parent.ConversationID) == "" || scope == "new" {
 		return ""
 	}
@@ -755,7 +755,7 @@ func (s *Service) resolveReusableChildConversation(ctx context.Context, agentID 
 	return ""
 }
 
-func (s *Service) createChildConversation(ctx context.Context, agentID, objective string, parent memory.TurnMeta, route string, waitForConversation bool) (string, error) {
+func (s *Service) createChildConversation(ctx context.Context, agentID, objective string, parent runtimerequestctx.TurnMeta, route string, waitForConversation bool) (string, error) {
 	if s == nil || s.linker == nil || strings.TrimSpace(parent.ConversationID) == "" {
 		return "", nil
 	}
@@ -789,7 +789,7 @@ func (s *Service) assignConversationAgent(ctx context.Context, conversationID, a
 	}
 }
 
-func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, childConversationID, childAgentID, route string) string {
+func (s *Service) startRunStatus(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, childAgentID, route string) string {
 	if s == nil || s.status == nil || strings.TrimSpace(parent.ConversationID) == "" {
 		return ""
 	}
@@ -800,7 +800,7 @@ func (s *Service) startRunStatus(ctx context.Context, parent memory.TurnMeta, ch
 	}
 	attachLinkedConversation(ctx, s.conv, parent, mid, childConversationID)
 	if s.linker != nil {
-		eventToolCallID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+		eventToolCallID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
 		if eventToolCallID == "" {
 			eventToolCallID = mid
 		}
@@ -824,7 +824,7 @@ func (s *Service) parentConversationModel(ctx context.Context) string {
 	if s == nil || s.conv == nil {
 		return ""
 	}
-	parentConvID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	parentConvID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	if parentConvID == "" {
 		return ""
 	}

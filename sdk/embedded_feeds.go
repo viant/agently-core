@@ -10,7 +10,7 @@ import (
 
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func (c *EmbeddedClient) FeedRegistry() *FeedRegistry {
@@ -60,9 +60,9 @@ func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL s
 	if c.elicSvc == nil {
 		return fmt.Errorf("elicitation service not configured")
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	turnID := ""
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		turnID = turn.TurnID
 		if convID == "" {
 			convID = turn.ConversationID
@@ -71,7 +71,7 @@ func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL s
 	if convID == "" {
 		return fmt.Errorf("no conversation in context for OOB auth")
 	}
-	turn := memory.TurnMeta{ConversationID: convID, TurnID: turnID}
+	turn := runtimerequestctx.TurnMeta{ConversationID: convID, TurnID: turnID}
 	elic := &plan.Elicitation{}
 	elic.Message = "MCP server requires authentication. Please sign in to continue."
 	elic.Mode = "url"

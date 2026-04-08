@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	authctx "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/scy/auth/flow"
 	"golang.org/x/oauth2"
 )
@@ -98,7 +98,7 @@ func oauthConfigOrigin(cfg *oauth2.Config) string {
 }
 
 func logHeadlessAuth(ctx context.Context, origin, reason string) {
-	mode, _ := memory.DiscoveryModeFromContext(ctx)
+	mode, _ := runtimediscovery.ModeFromContext(ctx)
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if mode.Scheduler {
 		log.Printf("[scheduler-auth] schedule=%q run=%q user=%q scheduler auth headless fallback server=%q reason=%q",

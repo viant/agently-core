@@ -9,7 +9,8 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimeprojection "github.com/viant/agently-core/runtime/projection"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *prompt.Binding) error {
@@ -148,11 +149,7 @@ type normalizedMsg struct {
 func (s *Service) buildHistoryWithLimit(ctx context.Context, transcript apiconv.Transcript, input *QueryInput) (*HistoryResult, error) {
 	// When no preview limit is configured, fall back to default mapping.
 	if s.defaults == nil || s.defaults.PreviewSettings.Limit <= 0 {
-		h, err := s.buildHistory(ctx, transcript)
-		if err != nil {
-			return nil, err
-		}
-		return &HistoryResult{History: h}, nil
+		return s.buildChronologicalHistory(ctx, transcript, input, false)
 	}
 	return s.buildChronologicalHistory(ctx, transcript, input, true)
 }
@@ -179,7 +176,7 @@ func (s *Service) buildChronologicalHistory(
 	// (by TurnMeta) even if it is still marked queued due to eventual
 	// consistency or ordering.
 	currentTurnID := ""
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		currentTurnID = strings.TrimSpace(tm.TurnID)
 	}
 
@@ -198,14 +195,28 @@ func (s *Service) buildChronologicalHistory(
 	// Determine whether continuation preview format is enabled for the selected model.
 	allowContinuation := s.allowContinuationPreview(ctx, input)
 
-	normalized, elicitation := s.collectNormalizedMessages(ctx, transcript, applyPreview, currentTurnID, currentElicitation, lastElicitationMessage)
+	projection, _ := runtimeprojection.SnapshotFromContext(ctx)
+	scope := string(resolveToolCallExposure(input))
+	if state, ok := runtimeprojection.StateFromContext(ctx); ok {
+		state.SetScope(scope)
+		s.applyRelevanceProjection(ctx, transcript, input, currentTurnID, scope)
+		projection = state.Snapshot()
+		if expanded := expandHiddenTurnMessageIDs(transcript, projection.HiddenTurnIDs); len(expanded) > 0 {
+			state.HideMessages(expanded...)
+		}
+		projection = state.Snapshot()
+	} else {
+		projection.Scope = scope
+		projection.HiddenMessageIDs = appendUniqueProjectionIDs(projection.HiddenMessageIDs, expandHiddenTurnMessageIDs(transcript, projection.HiddenTurnIDs)...)
+	}
+	normalized, elicitation := s.collectNormalizedMessages(ctx, transcript, applyPreview, currentTurnID, currentElicitation, lastElicitationMessage, projection)
 
 	// Dedupe current-turn user task messages that are effectively the
 	// same instruction expressed twice (e.g., raw input and a later
 	// Task: wrapper). The transcript remains unchanged for UI/summary;
 	// this is only a prompt-history optimization for the LLM.
 	if len(normalized) > 0 {
-		if tm, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(tm.TurnID) != "" {
+		if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(tm.TurnID) != "" {
 			// Find the index of the current turn in the transcript
 			currentTurnIdx := -1
 			for ti, turn := range transcript {
@@ -258,9 +269,9 @@ func (s *Service) buildChronologicalHistory(
 			}
 		}
 	}
-	// Apply cacheable tool-call supersession: suppress older outputs for the
-	// same tool call signature, keeping only the newest per scope.
-	if s.defaults != nil && s.registry != nil {
+	// Apply cacheable tool-call supersession by updating projection state, then
+	// filtering normalized messages through the projection snapshot.
+	if s.defaults != nil && s.registry != nil && strings.EqualFold(strings.TrimSpace(projection.Scope), "conversation") {
 		currentIdx := -1
 		if currentTurnID != "" {
 			for ti, turn := range transcript {
@@ -270,7 +281,24 @@ func (s *Service) buildChronologicalHistory(
 				}
 			}
 		}
-		normalized = applyToolCallSupersession(normalized, currentIdx, s.registry, &s.defaults.Compaction)
+		hidden, freed := collectToolCallSupersessionHiddenMessageIDs(normalized, currentIdx, s.registry, &s.defaults.Projection)
+		if len(hidden) > 0 {
+			if state, ok := runtimeprojection.StateFromContext(ctx); ok {
+				state.HideMessages(hidden...)
+				state.AddReason("tool call supersession")
+				state.AddTokensFreed(freed)
+				projection = state.Snapshot()
+			} else {
+				projection.HiddenMessageIDs = appendUniqueProjectionIDs(projection.HiddenMessageIDs, hidden...)
+				if projection.Reason == "" {
+					projection.Reason = "tool call supersession"
+				} else if !strings.Contains(projection.Reason, "tool call supersession") {
+					projection.Reason += "; tool call supersession"
+				}
+				projection.TokensFreed += freed
+			}
+			normalized = applyProjectionToNormalized(normalized, projection)
+		}
 	}
 
 	overflow := false
@@ -487,11 +515,31 @@ func (s *Service) collectNormalizedMessages(
 	currentTurnID string,
 	currentElicitation bool,
 	lastElicitationMessage *apiconv.Message,
+	projection runtimeprojection.ContextProjection,
 ) ([]normalizedMsg, []*prompt.Message) {
 	var normalized []normalizedMsg
 	var elicitation []*prompt.Message
+	hiddenTurns := make(map[string]struct{}, len(projection.HiddenTurnIDs))
+	for _, turnID := range projection.HiddenTurnIDs {
+		turnID = strings.TrimSpace(turnID)
+		if turnID == "" {
+			continue
+		}
+		hiddenTurns[turnID] = struct{}{}
+	}
+	hiddenMessages := make(map[string]struct{}, len(projection.HiddenMessageIDs))
+	for _, messageID := range projection.HiddenMessageIDs {
+		messageID = strings.TrimSpace(messageID)
+		if messageID == "" {
+			continue
+		}
+		hiddenMessages[messageID] = struct{}{}
+	}
 	for ti, turn := range transcript {
 		if turn == nil || turn.Message == nil {
+			continue
+		}
+		if _, ok := hiddenTurns[strings.TrimSpace(turn.Id)]; ok {
 			continue
 		}
 		turnStatus := strings.ToLower(strings.TrimSpace(turn.Status))
@@ -506,10 +554,16 @@ func (s *Service) collectNormalizedMessages(
 			if m == nil {
 				continue
 			}
+			if _, ok := hiddenMessages[strings.TrimSpace(m.Id)]; ok {
+				continue
+			}
 			toolMsgs := s.syntheticToolMessages(ctx, m)
 			baseMsg := cloneMessageWithoutToolMessages(m)
 			if baseMsg == nil {
 				baseMsg = m
+			}
+			if _, ok := hiddenMessages[strings.TrimSpace(baseMsg.Id)]; ok {
+				continue
 			}
 			if baseMsg.Mode != nil {
 				switch strings.ToLower(strings.TrimSpace(*baseMsg.Mode)) {
@@ -580,6 +634,9 @@ func (s *Service) collectNormalizedMessages(
 			}
 
 			for _, toolMsg := range toolMsgs {
+				if _, ok := hiddenMessages[strings.TrimSpace(toolMsg.Id)]; ok {
+					continue
+				}
 				if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
 					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
 				} else if DebugEnabled() {
@@ -595,6 +652,72 @@ func (s *Service) collectNormalizedMessages(
 		}
 	}
 	return normalized, elicitation
+}
+
+func expandHiddenTurnMessageIDs(transcript apiconv.Transcript, turnIDs []string) []string {
+	if len(transcript) == 0 || len(turnIDs) == 0 {
+		return nil
+	}
+	hiddenTurns := make(map[string]struct{}, len(turnIDs))
+	for _, turnID := range turnIDs {
+		turnID = strings.TrimSpace(turnID)
+		if turnID == "" {
+			continue
+		}
+		hiddenTurns[turnID] = struct{}{}
+	}
+	if len(hiddenTurns) == 0 {
+		return nil
+	}
+	var result []string
+	for _, turn := range transcript {
+		if turn == nil {
+			continue
+		}
+		if _, ok := hiddenTurns[strings.TrimSpace(turn.Id)]; !ok {
+			continue
+		}
+		for _, msg := range turn.GetMessages() {
+			if msg == nil {
+				continue
+			}
+			if id := strings.TrimSpace(msg.Id); id != "" {
+				result = append(result, id)
+			}
+			for _, tm := range msg.ToolMessage {
+				if tm == nil {
+					continue
+				}
+				if id := strings.TrimSpace(tm.Id); id != "" {
+					result = append(result, id)
+				}
+			}
+		}
+	}
+	return appendUniqueProjectionIDs(nil, result...)
+}
+
+func appendUniqueProjectionIDs(dst []string, values ...string) []string {
+	seen := make(map[string]struct{}, len(dst))
+	for _, existing := range dst {
+		id := strings.TrimSpace(existing)
+		if id == "" {
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	for _, raw := range values {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		dst = append(dst, id)
+	}
+	return dst
 }
 
 // appendCurrentMessages appends messages to History.Current ensuring

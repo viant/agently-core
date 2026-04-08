@@ -7,13 +7,13 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/mcp-protocol/schema"
 )
 
 // Elicitor abstracts the elicitation service to avoid a direct import cycle.
 type Elicitor interface {
-	Elicit(ctx context.Context, turn *memory.TurnMeta, role string, req *plan.Elicitation) (messageID string, status string, payload map[string]interface{}, err error)
+	Elicit(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, req *plan.Elicitation) (messageID string, status string, payload map[string]interface{}, err error)
 }
 
 // AskUserInput is the tool input for message-askUser.
@@ -44,7 +44,7 @@ func (s *Service) askUser(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("message is required")
 	}
 
-	turn, ok := memory.TurnMetaFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
 		return fmt.Errorf("turn context not available")
 	}

@@ -29,9 +29,10 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/tool"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
 	_ "modernc.org/sqlite"
@@ -533,14 +534,14 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 		var args map[string]interface{}
 		_ = json.Unmarshal(row.Arguments, &args)
 		meta := parseToolApprovalMetadata(row.Metadata)
-		if err := executil.ApplyApprovalEdits(args, approvalEditorsFromMeta(meta), input.EditedFields); err != nil {
+		if err := toolapproval.ApplyEdits(args, approvalEditorsFromMeta(meta), input.EditedFields); err != nil {
 			return nil, err
 		}
 		execCtx := ctx
 		if strings.TrimSpace(input.UserID) != "" {
 			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
 		}
-		turn := memory.TurnMeta{}
+		turn := runtimerequestctx.TurnMeta{}
 		if row.ConversationId != nil {
 			turn.ConversationID = strings.TrimSpace(*row.ConversationId)
 		}
@@ -551,14 +552,14 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 			turn.ParentMessageID = strings.TrimSpace(*row.MessageId)
 		}
 		if turn.ConversationID != "" {
-			execCtx = memory.WithConversationID(execCtx, turn.ConversationID)
+			execCtx = runtimerequestctx.WithConversationID(execCtx, turn.ConversationID)
 		}
 		if turn.ConversationID != "" && turn.TurnID != "" {
-			execCtx = memory.WithTurnMeta(execCtx, turn)
+			execCtx = runtimerequestctx.WithTurnMeta(execCtx, turn)
 		}
 		toolResult, execErr := c.ExecuteTool(execCtx, row.ToolName, args)
 		if turn.ConversationID != "" && turn.TurnID != "" {
-			_ = executil.SynthesizeToolStep(execCtx, c.conv, executil.StepInfo{
+			_ = toolexec.SynthesizeToolStep(execCtx, c.conv, toolexec.StepInfo{
 				ID:         syntheticToolStepID(meta.OpID),
 				Name:       row.ToolName,
 				Args:       args,
@@ -674,10 +675,10 @@ func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToo
 }
 
 type toolApprovalMetadata struct {
-	OpID       string                 `json:"opId"`
-	ResponseID string                 `json:"responseId"`
-	TurnID     string                 `json:"turnId"`
-	Approval   *executil.ApprovalView `json:"approval,omitempty"`
+	OpID       string             `json:"opId"`
+	ResponseID string             `json:"responseId"`
+	TurnID     string             `json:"turnId"`
+	Approval   *toolapproval.View `json:"approval,omitempty"`
 }
 
 func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
@@ -689,7 +690,7 @@ func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
 	return result
 }
 
-func approvalEditorsFromMeta(meta toolApprovalMetadata) []*executil.ApprovalEditorView {
+func approvalEditorsFromMeta(meta toolApprovalMetadata) []*toolapproval.EditorView {
 	if meta.Approval == nil {
 		return nil
 	}
@@ -721,13 +722,13 @@ func synthesizeQueueDecisionResult(ctx context.Context, c *EmbeddedClient, row *
 	var args map[string]interface{}
 	_ = json.Unmarshal(row.Arguments, &args)
 	meta := parseToolApprovalMetadata(row.Metadata)
-	turnCtx := memory.WithConversationID(ctx, strings.TrimSpace(*row.ConversationId))
-	turnCtx = memory.WithTurnMeta(turnCtx, memory.TurnMeta{
+	turnCtx := runtimerequestctx.WithConversationID(ctx, strings.TrimSpace(*row.ConversationId))
+	turnCtx = runtimerequestctx.WithTurnMeta(turnCtx, runtimerequestctx.TurnMeta{
 		ConversationID:  strings.TrimSpace(*row.ConversationId),
 		TurnID:          strings.TrimSpace(*row.TurnId),
 		ParentMessageID: valueOrEmpty(row.MessageId),
 	})
-	return executil.SynthesizeToolStep(turnCtx, c.conv, executil.StepInfo{
+	return toolexec.SynthesizeToolStep(turnCtx, c.conv, toolexec.StepInfo{
 		ID:         syntheticToolStepID(meta.OpID),
 		Name:       row.ToolName,
 		Args:       args,

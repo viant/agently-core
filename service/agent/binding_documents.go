@@ -17,7 +17,7 @@ import (
 	"github.com/viant/agently-core/protocol/prompt"
 	padapter "github.com/viant/agently-core/protocol/prompt/adapter"
 	"github.com/viant/agently-core/service/elicitation"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	"github.com/viant/agently-core/service/shared/toolexec"
 )
 
 func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput, docs *prompt.Documents) {
@@ -630,7 +630,7 @@ func hasSystemDocTag(msg *apiconv.Message) bool {
 	}
 	if msg.Tags != nil {
 		for _, tag := range strings.Split(*msg.Tags, ",") {
-			if strings.EqualFold(strings.TrimSpace(tag), executil.SystemDocumentTag) {
+			if strings.EqualFold(strings.TrimSpace(tag), toolexec.SystemDocumentTag) {
 				return true
 			}
 		}
@@ -639,7 +639,7 @@ func hasSystemDocTag(msg *apiconv.Message) bool {
 	if msg.Mode != nil {
 		mode = *msg.Mode
 	}
-	if strings.EqualFold(strings.TrimSpace(mode), executil.SystemDocumentMode) {
+	if strings.EqualFold(strings.TrimSpace(mode), toolexec.SystemDocumentMode) {
 		return true
 	}
 	content := strings.ToLower(strings.TrimSpace(msg.GetContent()))

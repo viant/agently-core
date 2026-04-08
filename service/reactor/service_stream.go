@@ -16,12 +16,12 @@ import (
 	"github.com/viant/agently-core/internal/textutil"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	core2 "github.com/viant/agently-core/service/core"
 	modelcall "github.com/viant/agently-core/service/core/modelcall"
 	"github.com/viant/agently-core/service/core/stream"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 func normalizeStreamContentForMerge(value string) string {
@@ -83,9 +83,9 @@ func (s *Service) publishPlannedToolCallsEvent(ctx context.Context, responseID s
 	if len(toolCalls) == 0 {
 		return
 	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
-	runMeta, _ := memory.RunMetaFromContext(ctx)
-	assistantMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	runMeta, _ := runtimerequestctx.RunMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	if assistantMessageID == "" {
 		return
 	}
@@ -181,10 +181,10 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		if event.Err != nil {
 			return event.Err
 		}
-		if mid := strings.TrimSpace(memory.ModelMessageIDFromContext(callbackCtx)); mid != "" {
+		if mid := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(callbackCtx)); mid != "" {
 			genOutput.MessageID = mid
-		} else if tm, ok := memory.TurnMetaFromContext(runCtx); ok {
-			if mid := strings.TrimSpace(memory.TurnModelMessageID(tm.TurnID)); mid != "" {
+		} else if tm, ok := runtimerequestctx.TurnMetaFromContext(runCtx); ok {
+			if mid := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(tm.TurnID)); mid != "" {
 				genOutput.MessageID = mid
 			}
 		}
@@ -287,12 +287,12 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 	if !ok {
 		return
 	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
-	assistantMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	if assistantMessageID == "" {
 		return
 	}
-	runMeta, _ := memory.RunMetaFromContext(ctx)
+	runMeta, _ := runtimerequestctx.RunMetaFromContext(ctx)
 	iteration := 0
 	if runMeta.Iteration > 0 {
 		iteration = runMeta.Iteration
@@ -325,13 +325,13 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 	toolCtx := ctx
 	if len(assistantMsgID) > 0 {
 		if id := strings.TrimSpace(assistantMsgID[0]); id != "" {
-			toolCtx = context.WithValue(ctx, memory.ModelMessageIDKey, id)
+			toolCtx = context.WithValue(ctx, runtimerequestctx.ModelMessageIDKey, id)
 			logx.Debugf("reactor", "launchPendingSteps enriched context with assistant_msg_id=%s", id)
 		} else {
 			logx.Debugf("reactor", "launchPendingSteps assistantMsgID param is empty")
 		}
 	} else {
-		existing := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+		existing := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 		logx.Debugf("reactor", "launchPendingSteps no assistantMsgID param; ctx has ModelMessageID=%q", existing)
 	}
 	for *nextStepIdx < len(aPlan.Steps) {
@@ -344,10 +344,10 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 		step := st
 		go func() {
 			defer wg.Done()
-			stepInfo := executil.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
+			stepInfo := toolexec.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
 			if debugtrace.Enabled() {
 				turnID := ""
-				if tm, ok := memory.TurnMetaFromContext(toolCtx); ok {
+				if tm, ok := runtimerequestctx.TurnMetaFromContext(toolCtx); ok {
 					turnID = strings.TrimSpace(tm.TurnID)
 				}
 				debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
@@ -371,12 +371,12 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 						})
 					}
 					if prev.Name != "" && prev.Error == "" && s.convClient != nil {
-						_ = executil.SynthesizeToolStep(toolCtx, s.convClient, stepInfo, prev.Result)
+						_ = toolexec.SynthesizeToolStep(toolCtx, s.convClient, stepInfo, prev.Result)
 					}
 					return
 				}
 			}
-			call, _, err := executil.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
+			call, _, err := toolexec.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
 			if err != nil {
 				logx.Warnf("reactor", "tool step %s execution failed: %v", step.Name, err)
 			}
@@ -404,14 +404,14 @@ func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Cho
 	if len(choice.Message.ToolCalls) == 0 && choice.Message.FunctionCall == nil {
 		return
 	}
-	msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	msgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	if msgID == "" {
 		return
 	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
 	conversationID := strings.TrimSpace(turn.ConversationID)
 	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
 		return

@@ -21,12 +21,18 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
-	"github.com/viant/agently-core/runtime/memory"
+	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
+	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
+	runtimeprojection "github.com/viant/agently-core/runtime/projection"
+	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/usage"
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elact "github.com/viant/agently-core/service/elicitation/action"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	"github.com/viant/agently-core/service/shared/asyncwait"
+	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 var queueDrainGuards = &convGuardMap{m: make(map[string]*int32)}
@@ -56,6 +62,16 @@ func (g *convGuardMap) release(convID string) {
 }
 
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) (retErr error) {
+	defer func() {
+		if output == nil {
+			return
+		}
+		snapshot, ok := runtimeprojection.SnapshotFromContext(ctx)
+		if !ok {
+			return
+		}
+		output.Projection = &snapshot
+	}()
 	queryStarted := time.Now()
 	ctx = s.bindAuthFromInputContext(ctx, input)
 	ctx = bindEffectiveUserFromInput(ctx, input)
@@ -82,7 +98,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		output.Content = ""
 		return nil
 	}
-	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
 		ConversationID:  strings.TrimSpace(input.ConversationID),
 		TurnID:          strings.TrimSpace(input.MessageID),
 		ParentMessageID: strings.TrimSpace(input.MessageID),
@@ -129,7 +145,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	s.tryMergePromptIntoContext(input)
 	workdir := ensureResolvedWorkdir(input)
-	ctx = executil.WithWorkdir(ctx, workdir)
+	ctx = toolexec.WithWorkdir(ctx, workdir)
 	contextStarted := time.Now()
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err
@@ -138,14 +154,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	infof("agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
 
 	ctx, agg := usage.WithAggregator(ctx)
-	turn := memory.TurnMeta{
+	turn := runtimerequestctx.TurnMeta{
 		Assistant:       input.Agent.ID,
 		ConversationID:  input.ConversationID,
 		TurnID:          input.MessageID,
 		ParentMessageID: input.MessageID,
 	}
-	ctx = memory.WithTurnMeta(ctx, turn)
-	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: turn.TurnID})
+	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
+	ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID})
 
 	var cancel func()
 	ctx, cancel = s.registerTurnCancel(ctx, turn)
@@ -156,16 +172,17 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if pol := s.resolveToolPolicy(input); pol != nil {
 		ctx = tool.WithPolicy(ctx, pol)
 	}
-	ctx = tool.WithApprovalQueueState(ctx)
-	ctx = tool.WithAsyncConfigState(ctx)
-	ctx = executil.WithAsyncWaitState(ctx)
+	ctx = runtimeprojection.WithState(ctx)
+	ctx = toolapprovalqueue.WithState(ctx)
+	ctx = toolasyncconfig.WithState(ctx)
+	ctx = asyncwait.WithState(ctx)
 	if s.elicitation != nil {
-		ctx = executil.WithApprovalElicitor(ctx, &agentToolApprovalElicitor{elicService: s.elicitation})
+		ctx = toolapproval.WithElicitor(ctx, &agentToolApprovalElicitor{elicService: s.elicitation})
 	}
 	if s.asyncManager != nil {
-		ctx = executil.WithAsyncManager(ctx, s.asyncManager)
+		ctx = toolexec.WithAsyncManager(ctx, s.asyncManager)
 	}
-	ctx = executil.WithAsyncConversation(ctx, s.conversation)
+	ctx = toolexec.WithAsyncConversation(ctx, s.conversation)
 
 	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err
@@ -258,7 +275,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	if s.defaults != nil && s.defaults.ToolCallTimeoutSec > 0 {
 		d := time.Duration(s.defaults.ToolCallTimeoutSec) * time.Second
-		ctx = executil.WithToolTimeout(ctx, d)
+		ctx = toolexec.WithToolTimeout(ctx, d)
 	}
 
 	var (
@@ -359,7 +376,7 @@ func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 	}
 }
 
-func (s *Service) addAttachment(ctx context.Context, turn memory.TurnMeta, att *prompt.Attachment) error {
+func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.TurnMeta, att *prompt.Attachment) error {
 	pid := uuid.New().String()
 	payload := apiconv.NewPayload()
 	payload.SetId(pid)
@@ -405,22 +422,22 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	iter := 0
 	var resolvedModel string
 
-	turn, ok := memory.TurnMetaFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
 		return fmt.Errorf("failed to get turn meta")
 	}
-	mode := memory.ContextRecoveryPruneCompact
+	mode := runtimerecovery.ModePruneCompact
 	if input != nil && input.Agent != nil {
 		if v := strings.TrimSpace(input.Agent.ContextRecoveryMode); v != "" {
 			mode = v
 		}
 	}
-	ctx = memory.WithContextRecoveryMode(ctx, mode)
+	ctx = runtimerecovery.WithMode(ctx, mode)
 
 	input.RequestTime = time.Now()
 	for {
 		iter++
-		ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: turn.TurnID, Iteration: iter})
+		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
 		iterStart := time.Now()
 		s.updateRunIteration(ctx, turn, iter)
 
@@ -545,7 +562,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if aPlan == nil {
 			return fmt.Errorf("unable to generate plan")
 		}
-		if s.asyncManager != nil && len(executil.ConsumeAsyncWaitAfterStatus(ctx)) > 0 && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
+		if s.asyncManager != nil && len(asyncwait.ConsumeAfterStatus(ctx)) > 0 && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
 			_ = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 			if err := s.asyncManager.WaitForChange(ctx, turn.ConversationID, turn.TurnID); err != nil {
 				return err
@@ -634,7 +651,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 				msgID := strings.TrimSpace(genOutput.MessageID)
 				if msgID == "" {
-					msgID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+					msgID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 				}
 				if msgID == "" {
 					msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)

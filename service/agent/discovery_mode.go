@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 )
 
 func applySchedulerDiscoveryMode(ctx context.Context, conv *apiconv.Conversation) context.Context {
@@ -21,7 +21,7 @@ func applySchedulerDiscoveryMode(ctx context.Context, conv *apiconv.Conversation
 	if !isScheduled && scheduleID == "" && runID == "" {
 		return ctx
 	}
-	return memory.MergeDiscoveryMode(ctx, memory.DiscoveryMode{
+	return runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{
 		Scheduler: true,
 		// Temporary safety mode: keep scheduler discovery non-strict while
 		// validating discovery diagnostics in production. Re-enable strict=true

@@ -8,8 +8,10 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	toolctx "github.com/viant/agently-core/protocol/tool"
+	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
+	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 )
 
 // Small utilities for tool name resolution and filtering.
@@ -207,10 +209,10 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 			key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
 			cfg := res.ApprovalByID[key]
 			if cfg != nil && (cfg.IsQueue() || cfg.IsPrompt()) {
-				toolctx.MarkApprovalQueueTool(ctx, d.Name, cfg)
+				toolapprovalqueue.MarkTool(ctx, d.Name, cfg)
 			}
 			if asyncRule := res.AsyncByID[key]; asyncRule != nil && asyncRule.Async != nil {
-				toolctx.MarkAsyncTool(ctx, d.Name, asyncRule.Async)
+				toolasyncconfig.MarkTool(ctx, d.Name, asyncRule.Async)
 			}
 		}
 		defs = append(defs, res.Definitions...)
@@ -288,12 +290,12 @@ func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.T
 }
 
 func strictDiscoveryMode(ctx context.Context) bool {
-	mode, ok := memory.DiscoveryModeFromContext(ctx)
+	mode, ok := runtimediscovery.ModeFromContext(ctx)
 	return ok && mode.Scheduler && mode.Strict
 }
 
 func strictToolDiscoveryError(ctx context.Context, pattern string) error {
-	mode, _ := memory.DiscoveryModeFromContext(ctx)
+	mode, _ := runtimediscovery.ModeFromContext(ctx)
 	pattern = strings.TrimSpace(pattern)
 	return fmt.Errorf("strict tool discovery: required scheduler tool unavailable pattern=%q schedule_id=%q schedule_run_id=%q", pattern, strings.TrimSpace(mode.ScheduleID), strings.TrimSpace(mode.ScheduleRunID))
 }

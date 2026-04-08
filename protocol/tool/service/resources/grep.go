@@ -21,7 +21,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 type GrepInput struct {
@@ -175,7 +175,7 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	base := rootBase
 	pathValue := strings.TrimSpace(input.Path)
 	if pathValue == "" {
-		if workdir, ok := executil.WorkdirFromContext(ctx); ok {
+		if workdir, ok := toolexec.WorkdirFromContext(ctx); ok {
 			pathValue = strings.TrimSpace(workdir)
 		}
 	}

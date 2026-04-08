@@ -10,6 +10,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class AgentlyClientTest {
@@ -400,7 +402,14 @@ class AgentlyClientTest {
                   "content": "Hello from backend",
                   "model": "gpt-5.4",
                   "messageId": "msg-7",
-                  "warnings": ["warn-1"]
+                  "warnings": ["warn-1"],
+                  "projection": {
+                    "scope": "conversation",
+                    "hiddenTurnIds": ["turn-1"],
+                    "hiddenMessageIds": ["msg-9"],
+                    "reason": "tool call supersession",
+                    "tokensFreed": 42
+                  }
                 }
                 """.trimIndent()
             )
@@ -422,6 +431,15 @@ class AgentlyClientTest {
         assertEquals("gpt-5.4", result.model)
         assertEquals("msg-7", result.messageId)
         assertEquals(listOf("warn-1"), result.warnings)
+        assertNotNull(result.projection)
+        assertEquals(
+            "conversation",
+            result.projection!!.jsonObject["scope"]?.jsonPrimitive?.content
+        )
+        assertEquals(
+            "tool call supersession",
+            result.projection!!.jsonObject["reason"]?.jsonPrimitive?.content
+        )
         val request = server.takeRequest()
         assertEquals("/v1/agent/query", request.path)
         assertEquals("POST", request.method)

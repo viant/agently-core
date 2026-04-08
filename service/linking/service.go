@@ -10,7 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/shared"
 )
@@ -36,13 +36,13 @@ func (s *Service) SetStreamPublisher(p streaming.Publisher) {
 	s.streamPub = p
 }
 
-func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent memory.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
+func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
 	if s == nil || s.streamPub == nil {
 		return
 	}
 	debugf("emitLinkedConversationAttached parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
-	toolMessageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
-	modelMessageID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	toolMessageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
+	modelMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	messageID := toolMessageID
 	if messageID == "" {
 		messageID = modelMessageID
@@ -71,7 +71,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent mem
 	debugf("emitLinkedConversationAttached ok parent_convo=%q child_convo=%q", parent.ConversationID, childConversationID)
 }
 
-func (s *Service) EmitLinkedConversationAttached(ctx context.Context, parent memory.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
+func (s *Service) EmitLinkedConversationAttached(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
 	s.emitLinkedConversationAttached(ctx, parent, childConversationID, toolCallID, childAgentID, childTitle)
 }
 
@@ -79,7 +79,7 @@ func (s *Service) EmitLinkedConversationAttached(ctx context.Context, parent mem
 // parent turn (by conversation/turn id). When cloneTranscript is true and a
 // transcript is provided, it clones the last transcript into the new
 // conversation for context.
-func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.TurnMeta, cloneTranscript bool, transcript apiconv.Transcript) (string, error) {
+func (s *Service) CreateLinkedConversation(ctx context.Context, parent runtimerequestctx.TurnMeta, cloneTranscript bool, transcript apiconv.Transcript) (string, error) {
 	childID := uuid.New().String()
 	debugf("CreateLinkedConversation parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
 	debugf("CreateLinkedConversation start parent_convo=%q parent_turn=%q child_convo=%q clone=%v transcript_len=%d", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), cloneTranscript, len(transcript))
@@ -115,7 +115,7 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent memory.Tu
 
 // AddLinkMessage adds an interim message to the parent turn with a linked
 // conversation id so UIs and tooling can navigate to the child.
-func (s *Service) AddLinkMessage(ctx context.Context, parent memory.TurnMeta, childConversationID, role, actor, mode string, content string) error {
+func (s *Service) AddLinkMessage(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, role, actor, mode string, content string) error {
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("linking: conversation client not configured")
 	}
@@ -155,7 +155,7 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 	}
 	debugf("cloneMessages start convo=%q transcript_len=%d", strings.TrimSpace(conversationID), len(transcript))
 	turnID := uuid.New().String()
-	turn := memory.TurnMeta{ParentMessageID: turnID, TurnID: turnID, ConversationID: conversationID}
+	turn := runtimerequestctx.TurnMeta{ParentMessageID: turnID, TurnID: turnID, ConversationID: conversationID}
 	mt := apiconv.NewTurn()
 	mt.SetId(turn.TurnID)
 	mt.SetConversationID(turn.ConversationID)

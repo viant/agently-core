@@ -11,7 +11,7 @@ import (
 	"time"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	mem "github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // Name identifies this service for MCP routing.
@@ -101,7 +101,7 @@ func (s *Service) getEnv(ctx context.Context, in, out interface{}) error {
 	}
 	sort.Strings(names)
 	argsKey := strings.Join(names, ",")
-	convID := mem.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 
 	// Return recent cached values when identical request repeats quickly
 	const cooldown = 5 * time.Second

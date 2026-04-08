@@ -13,11 +13,11 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	linksvc "github.com/viant/agently-core/service/linking"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	statussvc "github.com/viant/agently-core/service/toolstatus"
 )
 
@@ -243,7 +243,7 @@ func (s *Service) me(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	mo.ConversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	mo.ConversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	// Best-effort: load conversation to get agent id + model
 	if s.conv != nil && mo.ConversationID != "" {
 		if c, err := s.conv.GetConversation(ctx, mo.ConversationID); err == nil && c != nil {
@@ -283,11 +283,11 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		ro.Answer = "delegation depth reached for agent " + strings.TrimSpace(ri.AgentID)
 		return nil
 	}
-	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	if convID == "" {
 		if v := strings.TrimSpace(ri.ConversationID); v != "" {
 			convID = v
-			ctx = memory.WithConversationID(ctx, convID)
+			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 	}
 	ro.ConversationID = convID
@@ -467,7 +467,7 @@ func inheritDelegatedContext(ctx context.Context, child map[string]interface{}) 
 		child = map[string]interface{}{}
 	}
 	if _, ok := child["workdir"]; !ok {
-		if workdir, ok := executil.WorkdirFromContext(ctx); ok && strings.TrimSpace(workdir) != "" {
+		if workdir, ok := toolexec.WorkdirFromContext(ctx); ok && strings.TrimSpace(workdir) != "" {
 			child["workdir"] = strings.TrimSpace(workdir)
 		}
 	}
@@ -512,12 +512,12 @@ func (s *Service) isInternalAgent(ctx context.Context, agentID string) bool {
 	return err == nil && ag != nil
 }
 
-func attachLinkedConversation(ctx context.Context, conv apiconv.Client, parent memory.TurnMeta, statusMessageID, linkedConversationID string) {
+func attachLinkedConversation(ctx context.Context, conv apiconv.Client, parent runtimerequestctx.TurnMeta, statusMessageID, linkedConversationID string) {
 	if conv == nil || strings.TrimSpace(linkedConversationID) == "" {
 		return
 	}
 	messageIDs := []string{strings.TrimSpace(statusMessageID)}
-	if toolMsgID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx)); toolMsgID != "" && toolMsgID != strings.TrimSpace(statusMessageID) {
+	if toolMsgID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)); toolMsgID != "" && toolMsgID != strings.TrimSpace(statusMessageID) {
 		messageIDs = append(messageIDs, toolMsgID)
 	}
 	for _, messageID := range messageIDs {

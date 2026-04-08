@@ -12,7 +12,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func isTransientNetworkError(err error) bool {
@@ -60,7 +60,7 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 	if !IsContextContinuationEnabled(model) {
 		return nil, false, nil
 	}
-	turn, ok := memory.TurnMetaFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
 		return nil, false, nil
 	}
@@ -200,7 +200,7 @@ func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateIn
 	}
 	isMM := input.Binding != nil && input.Binding.Flags.IsMultimodal
 	convID := ""
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		convID = tm.ConversationID
 	}
 	var limit int64 = s.ProviderAttachmentLimit(model)

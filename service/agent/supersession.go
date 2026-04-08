@@ -10,6 +10,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/tool"
+	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 )
 
 // supersessionKey computes a stable key for a tool call based on tool name
@@ -52,88 +53,53 @@ func sortedMapJSON(m map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// applyToolCallSupersession filters normalized messages to suppress older
-// cacheable tool outputs that are superseded by newer calls with the same
-// supersession key. It checks tool.Registry to resolve cacheable status.
+// collectToolCallSupersessionHiddenMessageIDs returns message IDs that should be
+// hidden from prompt history because newer cacheable tool calls with the same
+// supersession key exist in the relevant scope.
 //
 // Rules:
 //   - Prior turns T(0)..T(N-1): per key, keep last `historyLimit` results
 //   - Current turn TN: per key, keep last `turnLimit` results
+func collectToolCallSupersessionHiddenMessageIDs(
+	normalized []normalizedMsg,
+	currentTurnIdx int,
+	reg tool.Registry,
+	projection *config.Projection,
+) ([]string, int) {
+	suppress := collectToolCallSupersessionSuppressedIndices(normalized, currentTurnIdx, reg, projection)
+	if len(suppress) == 0 {
+		return nil, 0
+	}
+
+	hidden := make([]string, 0, len(suppress))
+	tokensFreed := 0
+	for i := range normalized {
+		if !suppress[i] {
+			continue
+		}
+		msgID := strings.TrimSpace(normalized[i].msg.Id)
+		if msgID == "" {
+			continue
+		}
+		hidden = append(hidden, msgID)
+		tokensFreed += estimateProjectionTokens(normalized[i].msg)
+	}
+	return hidden, tokensFreed
+}
+
+// applyToolCallSupersession is a compatibility helper used by tests and any
+// legacy call sites. It computes superseded message IDs, then filters the
+// normalized slice via projection semantics.
 func applyToolCallSupersession(
 	normalized []normalizedMsg,
 	currentTurnIdx int,
 	reg tool.Registry,
-	compaction *config.Compaction,
+	projection *config.Projection,
 ) []normalizedMsg {
-	if !compaction.IsSupersessionEnabled() {
-		return normalized
-	}
-	historyLimit := compaction.SupersessionHistoryLimit()
-	turnLimit := compaction.SupersessionTurnLimit()
-
-	// Collect supersession keys for cacheable tool-result messages.
-	var historyEntries []keyEntry // entries from prior turns
-	var turnEntries []keyEntry    // entries from current turn
-
-	for i, item := range normalized {
-		tc := messageToolCall(item.msg)
-		if tc == nil {
-			continue
-		}
-		toolName := strings.TrimSpace(tc.ToolName)
-		if toolName == "" {
-			continue
-		}
-		if !isToolCacheable(reg, toolName) {
-			continue
-		}
-		args := toolCallArgs(item.msg)
-		key := supersessionKey(toolName, args)
-		entry := keyEntry{idx: i, key: key}
-		if item.turnIdx == currentTurnIdx {
-			turnEntries = append(turnEntries, entry)
-		} else {
-			historyEntries = append(historyEntries, entry)
-		}
-	}
-
-	// Build the set of indices to suppress.
-	suppress := map[int]bool{}
-
-	// History: per key, keep only the last `historyLimit` entries.
-	historyByKey := groupByKey(historyEntries)
-	for _, entries := range historyByKey {
-		if len(entries) <= historyLimit {
-			continue
-		}
-		// Sort by index (chronological order) — entries are already in order
-		// since we iterated normalized sequentially.
-		sort.Slice(entries, func(i, j int) bool { return entries[i].idx < entries[j].idx })
-		// Suppress all but the last `historyLimit`
-		cutoff := len(entries) - historyLimit
-		for _, e := range entries[:cutoff] {
-			suppress[e.idx] = true
-		}
-	}
-
-	// Current turn: per key, keep only the last `turnLimit` entries.
-	turnByKey := groupByKey(turnEntries)
-	for _, entries := range turnByKey {
-		if len(entries) <= turnLimit {
-			continue
-		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].idx < entries[j].idx })
-		cutoff := len(entries) - turnLimit
-		for _, e := range entries[:cutoff] {
-			suppress[e.idx] = true
-		}
-	}
-
+	suppress := collectToolCallSupersessionSuppressedIndices(normalized, currentTurnIdx, reg, projection)
 	if len(suppress) == 0 {
 		return normalized
 	}
-
-	// Filter out suppressed entries.
 	result := make([]normalizedMsg, 0, len(normalized)-len(suppress))
 	for i, item := range normalized {
 		if suppress[i] {
@@ -171,10 +137,133 @@ type keyEntry struct {
 	key string
 }
 
+func collectToolCallSupersessionSuppressedIndices(
+	normalized []normalizedMsg,
+	currentTurnIdx int,
+	reg tool.Registry,
+	projection *config.Projection,
+) map[int]bool {
+	if !projection.IsSupersessionEnabled() {
+		return nil
+	}
+	historyLimit := projection.SupersessionHistoryLimit()
+	turnLimit := projection.SupersessionTurnLimit()
+
+	var historyEntries []keyEntry
+	var turnEntries []keyEntry
+
+	for i, item := range normalized {
+		tc := messageToolCall(item.msg)
+		if tc == nil {
+			continue
+		}
+		toolName := strings.TrimSpace(tc.ToolName)
+		if toolName == "" {
+			continue
+		}
+		if !isToolCacheable(reg, toolName) {
+			continue
+		}
+		args := toolCallArgs(item.msg)
+		key := supersessionKey(toolName, args)
+		entry := keyEntry{idx: i, key: key}
+		if item.turnIdx == currentTurnIdx {
+			turnEntries = append(turnEntries, entry)
+		} else {
+			historyEntries = append(historyEntries, entry)
+		}
+	}
+
+	suppress := map[int]bool{}
+	historyByKey := groupByKey(historyEntries)
+	for _, entries := range historyByKey {
+		if len(entries) <= historyLimit {
+			continue
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].idx < entries[j].idx })
+		cutoff := len(entries) - historyLimit
+		for _, e := range entries[:cutoff] {
+			suppress[e.idx] = true
+		}
+	}
+	turnByKey := groupByKey(turnEntries)
+	for _, entries := range turnByKey {
+		if len(entries) <= turnLimit {
+			continue
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].idx < entries[j].idx })
+		cutoff := len(entries) - turnLimit
+		for _, e := range entries[:cutoff] {
+			suppress[e.idx] = true
+		}
+	}
+	return suppress
+}
+
 func groupByKey(entries []keyEntry) map[string][]keyEntry {
 	m := map[string][]keyEntry{}
 	for _, e := range entries {
 		m[e.key] = append(m[e.key], e)
 	}
 	return m
+}
+
+func estimateProjectionTokens(msg *apiconv.Message) int {
+	if msg == nil {
+		return 0
+	}
+	text := strings.TrimSpace(msg.GetContent())
+	if text == "" {
+		return 0
+	}
+	if len(text) < 8 {
+		return 1
+	}
+	return (len(text) + 3) / 4
+}
+
+func applyProjectionToNormalized(normalized []normalizedMsg, projection runtimeprojection.ContextProjection) []normalizedMsg {
+	if len(normalized) == 0 {
+		return normalized
+	}
+	hiddenTurns := make(map[string]struct{}, len(projection.HiddenTurnIDs))
+	for _, turnID := range projection.HiddenTurnIDs {
+		turnID = strings.TrimSpace(turnID)
+		if turnID == "" {
+			continue
+		}
+		hiddenTurns[turnID] = struct{}{}
+	}
+	hiddenMessages := make(map[string]struct{}, len(projection.HiddenMessageIDs))
+	for _, messageID := range projection.HiddenMessageIDs {
+		messageID = strings.TrimSpace(messageID)
+		if messageID == "" {
+			continue
+		}
+		hiddenMessages[messageID] = struct{}{}
+	}
+	if len(hiddenTurns) == 0 && len(hiddenMessages) == 0 {
+		return normalized
+	}
+	result := make([]normalizedMsg, 0, len(normalized))
+	for _, item := range normalized {
+		msg := item.msg
+		if msg == nil {
+			continue
+		}
+		if msg.TurnId != nil {
+			if turnID := strings.TrimSpace(*msg.TurnId); turnID != "" {
+				if _, ok := hiddenTurns[turnID]; ok {
+					continue
+				}
+			}
+		}
+		if msgID := strings.TrimSpace(msg.Id); msgID != "" {
+			if _, ok := hiddenMessages[msgID]; ok {
+				continue
+			}
+		}
+		result = append(result, item)
+	}
+	return result
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // BuildContinuationRequest constructs a continuation request by selecting the latest
@@ -15,11 +15,11 @@ import (
 // map to that anchor.
 func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *prompt.History) *llm.GenerateRequest {
 	var conversationID string
-	if meta, ok := memory.TurnMetaFromContext(ctx); ok {
+	if meta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		conversationID = meta.ConversationID
 	}
 	if conversationID == "" {
-		conversationID = memory.ConversationIDFromContext(ctx)
+		conversationID = runtimerequestctx.ConversationIDFromContext(ctx)
 	}
 
 	anchor := history.LastResponse

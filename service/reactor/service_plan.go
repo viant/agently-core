@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/jsonutil"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	core2 "github.com/viant/agently-core/service/core"
-	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
 func hasRemovalTool(p *plan.Plan) bool {
@@ -174,11 +174,11 @@ func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.Ge
 	}
 	var err error
 	if strings.Contains(content, `"tool"`) {
-		err = executil.EnsureJSONResponse(ctx, content, aPlan)
+		err = jsonutil.EnsureJSONResponse(ctx, content, aPlan)
 	}
 	if strings.Contains(content, `"elicitation"`) {
 		aPlan.Elicitation = &plan.Elicitation{}
-		_ = executil.EnsureJSONResponse(ctx, content, aPlan.Elicitation)
+		_ = jsonutil.EnsureJSONResponse(ctx, content, aPlan.Elicitation)
 		if aPlan.Elicitation.IsEmpty() {
 			aPlan.Elicitation = nil
 		} else if aPlan.Elicitation.ElicitationId == "" {

@@ -10,7 +10,7 @@ import (
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
@@ -20,7 +20,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	}
 	s.ensureLeaseConfig()
 
-	runCtx := memory.MergeDiscoveryMode(ctx, memory.DiscoveryMode{
+	runCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{
 		Scheduler:     true,
 		ScheduleID:    strings.TrimSpace(row.Id),
 		ScheduleRunID: strings.TrimSpace(runID),

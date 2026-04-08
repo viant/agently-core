@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // ensureRunTrackedLLMContext normalizes context so LLM calls participate in
@@ -14,12 +14,12 @@ import (
 func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID, assistant, preferredTurnID string) context.Context {
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID != "" {
-		ctx = memory.WithConversationID(ctx, conversationID)
+		ctx = runtimerequestctx.WithConversationID(ctx, conversationID)
 	}
 
-	turn, ok := memory.TurnMetaFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
-		turn = memory.TurnMeta{}
+		turn = runtimerequestctx.TurnMeta{}
 	}
 	if strings.TrimSpace(turn.TurnID) == "" {
 		turnID := strings.TrimSpace(preferredTurnID)
@@ -38,7 +38,7 @@ func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID
 		turn.Assistant = strings.TrimSpace(assistant)
 	}
 
-	ctx = memory.WithTurnMeta(ctx, turn)
+	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 	// Ensure the turn exists for recorder-backed model/tool call persistence.
 	if s != nil && s.conversation != nil && strings.TrimSpace(turn.ConversationID) != "" && strings.TrimSpace(turn.TurnID) != "" {
 		rec := apiconv.NewTurn()

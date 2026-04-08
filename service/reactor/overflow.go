@@ -13,7 +13,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
 )
@@ -27,7 +27,7 @@ func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conver
 	}
 	// Ensure turn meta so recorder/stream handler can attach artifacts properly.
 	turn := s.ensureTurnMeta(ctx, conv)
-	ctx = memory.WithTurnMeta(ctx, turn)
+	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 
 	// Prefer an injected builder that mirrors agent.runPlanLoop with `instruction` as the user query.
 	var genInput *core2.GenerateInput

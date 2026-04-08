@@ -12,7 +12,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	toolctx "github.com/viant/agently-core/protocol/tool"
+	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 )
 
@@ -207,12 +207,12 @@ func TestResolveBundleDefinitions_WithPromptApprovalBundle(t *testing.T) {
 		},
 	}
 
-	ctx := toolctx.WithApprovalQueueState(context.Background())
+	ctx := toolapprovalqueue.WithState(context.Background())
 	actual, err := svc.resolveBundleDefinitions(ctx, []string{"system"})
 
 	if assert.NoError(t, err) {
 		assert.Len(t, actual, 1)
-		cfg, ok := toolctx.ApprovalQueueFor(ctx, "system/os:getEnv")
+		cfg, ok := toolapprovalqueue.ConfigFor(ctx, "system/os:getEnv")
 		if assert.True(t, ok) {
 			assert.NotNil(t, cfg)
 			assert.True(t, cfg.IsPrompt())

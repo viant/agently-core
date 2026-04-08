@@ -300,7 +300,8 @@ data class QueryOutput(
     val elicitation: JsonElement? = null,
     val plan: JsonElement? = null,
     val usage: UsageInfo? = null,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    val projection: JsonElement? = null
 )
 
 @Serializable

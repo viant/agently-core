@@ -7,13 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // AddMessage creates and persists a message attached to the given turn using the provided options.
 // It sets sensible defaults: id (uuid), conversation/turn/parent ids from turn, and type "text" unless overridden.
 // Returns the message id.
-func AddMessage(ctx context.Context, cl Client, turn *memory.TurnMeta, opts ...MessageOption) (*MutableMessage, error) {
+func AddMessage(ctx context.Context, cl Client, turn *runtimerequestctx.TurnMeta, opts ...MessageOption) (*MutableMessage, error) {
 	if cl == nil || turn == nil {
 		errorf("AddMessage invalid input cl_nil=%v turn_nil=%v", cl == nil, turn == nil)
 		return nil, ErrInvalidInput

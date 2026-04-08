@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/textutil"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type RemoveTuple struct {
@@ -41,7 +41,7 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("conversation client not initialised")
 	}
-	turn, ok := memory.TurnMetaFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turn.ConversationID) == "" {
 		return fmt.Errorf("missing conversation context")
 	}

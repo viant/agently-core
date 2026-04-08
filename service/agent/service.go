@@ -79,6 +79,8 @@ type Service struct {
 
 	asyncManager *asynccfg.Manager
 	asyncPollers sync.Map
+
+	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -122,6 +124,13 @@ func WithTokenProvider(p token.Provider) Option {
 // WithDataService injects a data service for run record management.
 func WithDataService(d data.Service) Option {
 	return func(s *Service) { s.dataService = d }
+}
+
+// WithRelevanceSelector overrides the relevance selector used to populate
+// ContextProjection.HiddenTurnIDs. Intended primarily for testing or custom
+// selector integrations.
+func WithRelevanceSelector(fn func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)) Option {
+	return func(s *Service) { s.relevanceSelector = fn }
 }
 
 // New creates a new agent service instance with the given tool registry.

@@ -13,7 +13,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -527,7 +527,7 @@ func (c *Client) createHTTPResponsesApiRequest(ctx context.Context, data []byte)
 		if accountID, err := c.chatGPTAccountID(ctx); err == nil && accountID != "" {
 			httpReq.Header.Set("ChatGPT-Account-Id", accountID)
 		}
-		if conversationID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); conversationID != "" {
+		if conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); conversationID != "" {
 			// Codex parity: bind backend requests to a stable conversation/session identity.
 			httpReq.Header.Set("session_id", conversationID)
 			// Replay turn-state token captured during backend websocket handshake.
@@ -1068,7 +1068,7 @@ func (c *Client) applyBackendSessionDefaults(ctx context.Context, req *Request) 
 	if strings.TrimSpace(req.PromptCacheKey) != "" {
 		return
 	}
-	if conversationID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); conversationID != "" {
+	if conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); conversationID != "" {
 		req.PromptCacheKey = conversationID
 	}
 }

@@ -12,7 +12,7 @@ import (
 	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/shared"
 )
@@ -115,7 +115,7 @@ func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID str
 	}
 }
 
-func (s *Service) registerTurnCancel(ctx context.Context, turn memory.TurnMeta) (context.Context, func()) {
+func (s *Service) registerTurnCancel(ctx context.Context, turn runtimerequestctx.TurnMeta) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wrappedCancel func()
 	wrappedCancel = func() {
@@ -264,7 +264,7 @@ func (s *Service) patchQueuedStarterMessageStatus(ctx context.Context, conversat
 	}
 }
 
-func (s *Service) patchStarterMessageTerminalStatus(ctx context.Context, turn memory.TurnMeta, status string) {
+func (s *Service) patchStarterMessageTerminalStatus(ctx context.Context, turn runtimerequestctx.TurnMeta, status string) {
 	normalized := shared.NormalizeMessageStatus(status)
 	if normalized != "rejected" && normalized != "cancel" {
 		return

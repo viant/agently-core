@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/prompt"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/runtime/usage"
 )
 
@@ -89,15 +90,16 @@ type QueryInput struct {
 
 // QueryOutput represents the result of an agent knowledge query
 type QueryOutput struct {
-	ConversationID string            `json:"conversationId,omitempty"`
-	Agent          *agentmdl.Agent   `json:"agent"`                 // Agent used for the query
-	Content        string            `json:"content"`               // Generated content from the agent
-	Elicitation    *plan.Elicitation `json:"elicitation,omitempty"` // structured missing input request
-	Plan           *plan.Plan        `json:"plan,omitempty"`        // current execution plan (optional)
-	Usage          *usage.Aggregator `json:"usage,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	MessageID      string            `json:"messageId,omitempty"`
-	Warnings       []string          `json:"warnings,omitempty"`
+	ConversationID string                               `json:"conversationId,omitempty"`
+	Agent          *agentmdl.Agent                      `json:"agent"`                 // Agent used for the query
+	Content        string                               `json:"content"`               // Generated content from the agent
+	Elicitation    *plan.Elicitation                    `json:"elicitation,omitempty"` // structured missing input request
+	Plan           *plan.Plan                           `json:"plan,omitempty"`        // current execution plan (optional)
+	Usage          *usage.Aggregator                    `json:"usage,omitempty"`
+	Model          string                               `json:"model,omitempty"`
+	MessageID      string                               `json:"messageId,omitempty"`
+	Warnings       []string                             `json:"warnings,omitempty"`
+	Projection     *runtimeprojection.ContextProjection `json:"projection,omitempty"`
 
 	lastTaskCheckpoint turnTaskCheckpoint
 }

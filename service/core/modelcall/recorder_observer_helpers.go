@@ -9,7 +9,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func messageText(msg llm.Message) string {
@@ -41,8 +41,8 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 	if !ok || looksLikeElicitationDelta(data) {
 		return
 	}
-	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
-	msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	msgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	if convID == "" || msgID == "" {
 		return
 	}
@@ -52,7 +52,7 @@ func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) 
 		Role:           "assistant",
 		Type:           "text",
 	}
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		if strings.TrimSpace(turn.TurnID) != "" {
 			msg.TurnId = &turn.TurnID
 		}
@@ -92,7 +92,7 @@ func looksLikeElicitationContent(content string) bool {
 }
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
-func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn memory.TurnMeta, msgID string, payload []byte, mode string) error {
+func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, msgID string, payload []byte, mode string) error {
 	debugf("patchInterimRequestMessage start convo=%q turn=%q msg=%q mode=%q payload_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(mode), len(payload))
 	opts := []apiconv.MessageOption{
 		apiconv.WithId(msgID),
@@ -102,7 +102,7 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 		apiconv.WithCreatedByUserID(turn.Assistant),
 		apiconv.WithInterim(1),
 	}
-	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
 	}
 	_, err := apiconv.AddMessage(ctx, o.client, &turn, opts...)
@@ -118,7 +118,7 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) error {
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.ConversationID) != "" {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.ConversationID) != "" {
 		msg.SetConversationID(turn.ConversationID)
 	}
 	msg.SetInterim(1)
@@ -132,14 +132,14 @@ func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) e
 }
 
 // beginModelCall persists the initial model call and associated request payloads.
-func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, turn memory.TurnMeta, info Info) error {
+func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, turn runtimerequestctx.TurnMeta, info Info) error {
 	debugf("beginModelCall start convo=%q turn=%q msg=%q provider=%q model=%q kind=%q req_bytes=%d provider_req_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(info.Provider), strings.TrimSpace(info.Model), strings.TrimSpace(info.ModelKind), len(info.Payload), len(info.RequestJSON))
 	mc := apiconv.NewModelCall()
 	mc.SetMessageID(msgID)
 	if turn.TurnID != "" {
 		mc.SetTurnID(turn.TurnID)
 	}
-	if runMeta, ok := memory.RunMetaFromContext(ctx); ok {
+	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok {
 		if strings.TrimSpace(runMeta.RunID) != "" {
 			mc.SetRunID(runMeta.RunID)
 		}

@@ -12,7 +12,7 @@ import (
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
 	padapter "github.com/viant/agently-core/protocol/prompt/adapter"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace/repository/toolplaybook"
 )
@@ -370,7 +370,7 @@ type ToolExecutionsResult struct {
 }
 
 func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, conv *apiconv.Conversation, exposure agent.ToolCallExposure) (*ToolExecutionsResult, error) {
-	turnMeta, ok := memory.TurnMetaFromContext(ctx)
+	turnMeta, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turnMeta.TurnID) == "" {
 		return &ToolExecutionsResult{}, nil
 	}

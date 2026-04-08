@@ -15,12 +15,12 @@ import (
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolpol "github.com/viant/agently-core/protocol/tool"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	coreauth "github.com/viant/agently-core/service/auth"
 	linksvc "github.com/viant/agently-core/service/linking"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	statussvc "github.com/viant/agently-core/service/toolstatus"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
@@ -294,7 +294,7 @@ func TestService_Run_Internal_RebindsChildConversationContext(t *testing.T) {
 }
 
 func TestService_Run_Internal_InheritsParentWorkdir(t *testing.T) {
-	ctx := executil.WithWorkdir(context.Background(), "/tmp/poly")
+	ctx := toolexec.WithWorkdir(context.Background(), "/tmp/poly")
 	streaming := false
 	in := &RunInput{
 		AgentID:   "dev_reviewer",

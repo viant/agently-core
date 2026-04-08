@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func handleListToolDefinitions(client Client) http.HandlerFunc {
@@ -37,7 +37,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 		}
 		ctx := r.Context()
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
-			ctx = memory.WithConversationID(ctx, convID)
+			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
 		result, err := client.ExecuteTool(ctx, name, args)
@@ -66,7 +66,7 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		}
 		ctx := r.Context()
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
-			ctx = memory.WithConversationID(ctx, convID)
+			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
 		result, err := client.ExecuteTool(ctx, name, req.Args)

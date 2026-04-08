@@ -29,7 +29,8 @@ import (
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
@@ -672,7 +673,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			defer cancel()
 		}
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 
 	// virtual tool?
 	r.mu.RLock()
@@ -1585,7 +1586,7 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	if mode, ok := memory.DiscoveryModeFromContext(ctx); ok && mode.Strict {
+	if mode, ok := runtimediscovery.ModeFromContext(ctx); ok && mode.Strict {
 		if r.discoveryStrictTTL > 0 {
 			timeout = r.discoveryStrictTTL
 		}
@@ -1594,7 +1595,7 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 }
 
 func (r *Registry) discoveryClientScope(ctx context.Context, server string) string {
-	if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
+	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
 		return convID
 	}
 	server = strings.TrimSpace(server)
@@ -1745,7 +1746,7 @@ const (
 )
 
 func (r *Registry) discoveryWaitDiagnostics(ctx context.Context, server string) discoveryWaitDiag {
-	convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	hasConvID := convID != ""
 	if !hasConvID {
 		convID = discoveryCtxMissing
@@ -1773,7 +1774,7 @@ func (r *Registry) discoveryWaitDiagnostics(ctx context.Context, server string) 
 		modeBasis:       "insufficient_signal",
 	}
 
-	if mode, ok := memory.DiscoveryModeFromContext(ctx); ok {
+	if mode, ok := runtimediscovery.ModeFromContext(ctx); ok {
 		diag.modePresent = true
 		diag.scheduler = mode.Scheduler
 		diag.strict = mode.Strict

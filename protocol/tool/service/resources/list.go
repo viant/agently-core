@@ -14,7 +14,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 type ListInput struct {
@@ -349,7 +349,7 @@ func defaultResourcePath(ctx context.Context, current string) string {
 	if trimmed := strings.TrimSpace(current); trimmed != "" {
 		return trimmed
 	}
-	if workdir, ok := executil.WorkdirFromContext(ctx); ok {
+	if workdir, ok := toolexec.WorkdirFromContext(ctx); ok {
 		return strings.TrimSpace(workdir)
 	}
 	return ""
