@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type capturePatchRunsService struct {

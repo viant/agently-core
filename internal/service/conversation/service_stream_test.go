@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 

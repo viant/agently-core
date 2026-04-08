@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/elicitation/router"
 )
 

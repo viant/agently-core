@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/protocol/mcp/config"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )

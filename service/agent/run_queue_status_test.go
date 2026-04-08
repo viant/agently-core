@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	memconv "github.com/viant/agently-core/internal/service/conversation/memory"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestService_PatchQueuedStarterMessageStatus(t *testing.T) {
