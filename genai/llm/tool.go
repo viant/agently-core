@@ -3,6 +3,7 @@ package llm
 import (
 	"strings"
 
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
@@ -111,6 +112,8 @@ type Tool struct {
 	Name string `json:"name,omitempty" yaml:"name,omitempty"`
 	// Approval configures approval behavior for this tool rule. Used in bundle context.
 	Approval *ApprovalConfig `json:"approval,omitempty" yaml:"approval,omitempty"`
+	// Async configures async behavior for this tool rule. Used in bundle context.
+	Async *asynccfg.Config `json:"async,omitempty" yaml:"async,omitempty"`
 	// Exclude subtracts sub-patterns from the match set. Used in bundle context.
 	Exclude []string `json:"exclude,omitempty" yaml:"exclude,omitempty"`
 	// Type is the tool type. Defaults to "function". Set to "code_interpreter" for OpenAI built-ins.
@@ -138,6 +141,12 @@ type ToolDefinition struct {
 	OutputSchema map[string]interface{} `json:"output_schema,omitempty" yaml:"output_schema,omitempty"` // Output schema for the function
 
 	Strict bool `json:"strict,omitempty" yaml:"strict,omitempty"`
+
+	// Cacheable marks this tool's output as eligible for supersession during
+	// prompt-history construction. When true, older outputs for the same tool
+	// call signature may be hidden in favour of newer ones. This is metadata
+	// only — it does not imply response caching or memoized execution.
+	Cacheable bool `json:"cacheable,omitempty" yaml:"cacheable,omitempty"`
 }
 
 // NewFunctionTool creates a new Tool representing a callable function.

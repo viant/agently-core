@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"time"
+
+	asynccfg "github.com/viant/agently-core/protocol/async"
 )
 
 // Executable represents a callable method accepting an input value and writing
@@ -34,6 +36,19 @@ type Service interface {
 // Returned duration should be >0 to take effect.
 type HasToolTimeout interface {
 	ToolTimeout() time.Duration
+}
+
+type AsyncConfigurer interface {
+	AsyncConfig(toolName string) *asynccfg.Config
+	AsyncConfigs() []*asynccfg.Config
+}
+
+// CacheableProvider can be implemented by services to declare which methods
+// produce cacheable (supersession-eligible) outputs. The registry queries
+// this at AddInternalService time. Keys are method names (e.g., "status",
+// "list"); values indicate cacheability.
+type CacheableProvider interface {
+	CacheableMethods() map[string]bool
 }
 
 // Error helpers (compat stamps with fluxor types)

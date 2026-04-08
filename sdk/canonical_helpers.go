@@ -349,6 +349,7 @@ func applyToolStart(step *ToolStepState, event *streaming.Event) {
 	if event.RequestPayloadID != "" {
 		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
 	}
+	applyAsyncOperation(step, event)
 }
 
 func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
@@ -383,6 +384,7 @@ func applyToolCompletion(step *ToolStepState, event *streaming.Event) {
 		step.LinkedConversationID = strings.TrimSpace(event.LinkedConversationID)
 	}
 	step.CompletedAt = completedAtForEvent(event)
+	applyAsyncOperation(step, event)
 }
 
 func ensureToolCompletion(page *ExecutionPageState, event *streaming.Event) *ToolStepState {
@@ -398,6 +400,29 @@ func ensureToolCompletion(page *ExecutionPageState, event *streaming.Event) *Too
 		step.ToolName = strings.TrimSpace(event.ToolName)
 	}
 	return step
+}
+
+func applyAsyncOperation(step *ToolStepState, event *streaming.Event) {
+	if step == nil || event == nil || strings.TrimSpace(event.OperationID) == "" {
+		return
+	}
+	step.OperationID = strings.TrimSpace(event.OperationID)
+	if step.AsyncOperation == nil {
+		step.AsyncOperation = &AsyncOperationState{OperationID: step.OperationID}
+	}
+	step.AsyncOperation.Status = stepStatusFromString(event.Status, step.AsyncOperation.Status)
+	if msg := strings.TrimSpace(event.Content); msg != "" {
+		step.AsyncOperation.Message = msg
+	}
+	if errMsg := strings.TrimSpace(event.Error); errMsg != "" {
+		step.AsyncOperation.Error = errMsg
+	}
+	if event.ResponsePayload != nil {
+		step.AsyncOperation.Response = marshalToRawJSON(event.ResponsePayload)
+	}
+	if step.OperationID != "" && step.AsyncOperation.OperationID == "" {
+		step.AsyncOperation.OperationID = step.OperationID
+	}
 }
 
 // finalizeTurn sets a terminal status on the turn, refusing to downgrade

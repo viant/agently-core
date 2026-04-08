@@ -93,6 +93,19 @@ func (s *Service) Name() string { return Name }
 // ToolTimeout suggests a longer timeout for resources tools that may index large roots.
 func (s *Service) ToolTimeout() time.Duration { return 15 * time.Minute }
 
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{
+		"roots":          true,
+		"list":           true,
+		"read":           true,
+		"readImage":      true,
+		"match":          true,
+		"matchDocuments": true,
+		"grepFiles":      true,
+	}
+}
+
 // Methods declares available tool methods
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{

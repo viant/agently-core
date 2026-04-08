@@ -8,8 +8,10 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/memory"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -45,6 +47,7 @@ type Service struct {
 	// ChildTimeout overrides DefaultChildAgentTimeout for internal runs.
 	// Zero means use DefaultChildAgentTimeout.
 	ChildTimeout time.Duration
+	cancelReg    cancels.Registry
 }
 
 // New creates a Service bound to the internal agent runtime.
@@ -65,6 +68,10 @@ func WithStrict(v bool) Option { return func(s *Service) { s.strict = v } }
 
 // WithAllowedIDs configures the set of allowed agent ids (directory view).
 func WithAllowedIDs(ids map[string]string) Option { return func(s *Service) { s.allowed = ids } }
+
+func WithCancelRegistry(reg cancels.Registry) Option {
+	return func(s *Service) { s.cancelReg = reg }
+}
 
 // WithConversationClient injects the conversation client and initializes linking/status helpers.
 func WithConversationClient(c apiconv.Client) Option {
@@ -94,6 +101,9 @@ func New(agent *agentsvc.Service, opts ...Option) *Service {
 			o(s)
 		}
 	}
+	if s.cancelReg == nil {
+		s.cancelReg = cancels.Default()
+	}
 	return s
 }
 
@@ -103,6 +113,57 @@ func (s *Service) Name() string { return Name }
 // ToolTimeout suggests a larger timeout for llm/agents service tools which run
 // full agent turns.
 func (s *Service) ToolTimeout() time.Duration { return 18 * time.Minute }
+
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{
+		"list":   true,
+		"me":     true,
+		"status": true,
+	}
+}
+
+func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
+	for _, cfg := range s.AsyncConfigs() {
+		if cfg == nil {
+			continue
+		}
+		if strings.TrimSpace(cfg.Run.Tool) == strings.TrimSpace(toolName) ||
+			strings.TrimSpace(cfg.Status.Tool) == strings.TrimSpace(toolName) ||
+			(cfg.Cancel != nil && strings.TrimSpace(cfg.Cancel.Tool) == strings.TrimSpace(toolName)) {
+			return cfg
+		}
+	}
+	return nil
+}
+
+func (s *Service) AsyncConfigs() []*asynccfg.Config {
+	return []*asynccfg.Config{
+		{
+			WaitForResponse: true,
+			TimeoutMs:       int((5 * time.Minute) / time.Millisecond),
+			PollIntervalMs:  int((2 * time.Second) / time.Millisecond),
+			Run: asynccfg.RunConfig{
+				Tool:            "llm/agents:run",
+				OperationIDPath: "conversationId",
+				ExtraArgs:       map[string]interface{}{"async": true},
+				Selector:        &asynccfg.Selector{StatusPath: "status"},
+			},
+			Status: asynccfg.StatusConfig{
+				Tool:           "llm/agents:status",
+				OperationIDArg: "conversationId",
+				Selector: asynccfg.Selector{
+					StatusPath: "status",
+					DataPath:   "items",
+				},
+			},
+			Cancel: &asynccfg.CancelConfig{
+				Tool:           "llm/agents:cancel",
+				OperationIDArg: "conversationId",
+			},
+		},
+	}
+}
 
 // Methods returns available methods.
 func (s *Service) Methods() svc.Signatures {
@@ -126,6 +187,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&StatusOutput{}),
 		},
 		{
+			Name:        "cancel",
+			Description: "Cancel a running child agent conversation",
+			Input:       reflect.TypeOf(&CancelInput{}),
+			Output:      reflect.TypeOf(&CancelOutput{}),
+		},
+		{
 			Name:        "run",
 			Description: "Run an agent by id with an objective and optional context",
 			Input:       reflect.TypeOf(&RunInput{}),
@@ -143,6 +210,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.me, nil
 	case "status":
 		return s.statusMethod, nil
+	case "cancel":
+		return s.cancelMethod, nil
 	case "run":
 		return s.run, nil
 	default:

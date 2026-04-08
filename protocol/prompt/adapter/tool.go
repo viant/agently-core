@@ -22,6 +22,7 @@ func ToToolDefinition(t llm.Tool) *llm.ToolDefinition {
 		Parameters:   t.Definition.Parameters,
 		Required:     t.Definition.Required,
 		OutputSchema: t.Definition.OutputSchema,
+		Cacheable:    t.Definition.Cacheable,
 	}
 }
 

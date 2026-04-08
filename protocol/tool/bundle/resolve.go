@@ -11,6 +11,7 @@ import (
 type ResolveResult struct {
 	Definitions  []llm.ToolDefinition
 	ApprovalByID map[string]*llm.ApprovalConfig
+	AsyncByID    map[string]*llm.Tool
 }
 
 // ResolveDefinitions expands bundle match rules into concrete tool definitions using matchFn.
@@ -28,6 +29,7 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 	}
 	selected := map[string]llm.ToolDefinition{}
 	approvalByKey := map[string]*llm.ApprovalConfig{}
+	asyncByKey := map[string]*llm.Tool{}
 	for _, r := range b.Match {
 		namePattern := strings.TrimSpace(r.Name)
 		if namePattern == "" {
@@ -62,11 +64,19 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 					if r.Approval != nil && (r.Approval.IsQueue() || r.Approval.IsPrompt()) {
 						approvalByKey[approvalKey] = r.Approval
 					}
+					if r.Async != nil {
+						ruleCopy := r
+						asyncByKey[approvalKey] = &ruleCopy
+					}
 					continue
 				}
 				selected[key] = *d
 				if r.Approval != nil && (r.Approval.IsQueue() || r.Approval.IsPrompt()) {
 					approvalByKey[approvalKey] = r.Approval
+				}
+				if r.Async != nil {
+					ruleCopy := r
+					asyncByKey[approvalKey] = &ruleCopy
 				}
 			}
 		}
@@ -82,6 +92,7 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 	return ResolveResult{
 		Definitions:  out,
 		ApprovalByID: approvalByKey,
+		AsyncByID:    asyncByKey,
 	}
 }
 

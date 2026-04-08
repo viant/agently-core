@@ -1,0 +1,16 @@
+id: async_exec_failer
+name: Async Exec Failer
+description: Agent that starts a long-running shell job which ends in failure after async reinforcement.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: AsyncExecFailer
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/exec

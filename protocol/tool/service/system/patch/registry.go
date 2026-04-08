@@ -27,6 +27,14 @@ func New() *Service { return &Service{sessions: map[string]*Session{}} }
 // Name returns service identifier.
 func (s *Service) Name() string { return Name }
 
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{
+		"diff":     true,
+		"snapshot": true,
+	}
+}
+
 // Methods returns service method catalogue.
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{

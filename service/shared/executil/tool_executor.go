@@ -75,11 +75,12 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	toolMsgID := ""
 	toolCallStarted := false
 	toolCallClosed := false
+	toolCallManagedAsync := false
 	forcedStatus := ""
 	// Ensure started tool calls never remain non-terminal on abort/early exits.
 	// Conversation terminal status is owned by turn finalization.
 	defer func() {
-		if !toolCallStarted || strings.TrimSpace(toolMsgID) == "" {
+		if toolCallManagedAsync || !toolCallStarted || strings.TrimSpace(toolMsgID) == "" {
 			return
 		}
 		status := strings.TrimSpace(forcedStatus)
@@ -154,7 +155,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	var toolResult string
 	var execErr error
-	out, toolResult, execErr = executeToolWithRetry(ctx, reg, step, conv)
+	callStep := step
+	if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Run.Tool) {
+		callStep.Args = prepareAsyncStartArgs(asyncCfg, step.Args)
+	}
+	out, toolResult, execErr = executeToolWithRetry(ctx, reg, callStep, conv)
 	// Optionally wrap overflow with YAML helper when native continuation is not supported.
 	if wrapped := maybeWrapOverflow(ctx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
 		toolResult = wrapped
@@ -178,6 +183,8 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		warnConvf("tool execute auth challenge convo=%q turn=%q op_id=%q tool=%q exec_err=nil result_len=%d result_head=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(toolResult), headString(toolResult, 256))
 	}
 	span.SetEnd(time.Now())
+
+	asyncRecord := maybeHandleAsyncTool(ctx, reg, callStep, toolResult, execErr)
 
 	// Debug trace: log tool call result to /tmp/agently-debug.log
 	{
@@ -230,6 +237,26 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx, toolResult)
+	if asyncRecord != nil {
+		forcedStatus = "running"
+		toolCallManagedAsync = true
+		finCtx, cancelFin := detachedFinalizeCtx(ctx)
+		defer cancelFin()
+		if cErr := updateAsyncToolCallState(finCtx, conv, toolMsgID, step.ID, step.Name, "running", respID, ""); cErr != nil {
+			errs = append(errs, fmt.Errorf("mark async tool call running: %w", cErr))
+		} else {
+			toolCallClosed = true
+		}
+		if len(errs) > 0 {
+			retErr = errors.Join(errs...)
+		}
+		if retErr != nil && len(errs) > 0 {
+			errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult), retErr)
+		} else {
+			infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult))
+		}
+		return
+	}
 	forcedStatus = status
 	// Use detached + bounded context for terminal writes.
 	finCtx, cancelFin := detachedFinalizeCtx(ctx)

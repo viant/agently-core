@@ -180,6 +180,7 @@ export interface ToolStepState {
     toolCallId: string;
     toolMessageId?: string;
     toolName: string;
+    operationId?: string;
     status?: string;
     errorMessage?: string;
     requestPayloadId?: string;
@@ -189,6 +190,13 @@ export interface ToolStepState {
     linkedConversationTitle?: string;
     startedAt?: string;
     completedAt?: string;
+    asyncOperation?: {
+        operationId: string;
+        status?: string;
+        message?: string;
+        error?: string;
+        response?: JSONObject;
+    };
 }
 
 /** @deprecated Use ExecutionPage instead */
@@ -332,7 +340,10 @@ export type SSEEventType =
     | 'assistant_final'
     // Tool call lifecycle
     | 'tool_call_started'
+    | 'tool_call_waiting'
     | 'tool_call_completed'
+    | 'tool_call_failed'
+    | 'tool_call_canceled'
     // Metadata
     | 'item_completed'
     | 'usage'
@@ -372,6 +383,7 @@ export interface SSEEvent {
     parentMessageId?: string;
     requestId?: string;
     responseId?: string;
+    operationId?: string;
     toolCallId?: string;
     toolMessageId?: string;
     requestPayloadId?: string;

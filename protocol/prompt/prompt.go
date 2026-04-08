@@ -133,7 +133,9 @@ func (a *Prompt) generateVeltyPrompt(binding *Binding) (string, error) {
 func (a *goTemplatePrompt) generateGoTemplatePrompt(prompt string, binding *Binding) (string, error) {
 	// lazily compile template once
 	a.once.Do(func() {
-		a.parsedTemplate, a.parseErr = template.New("prompt").Parse(prompt)
+		a.parsedTemplate, a.parseErr = template.New("prompt").Funcs(template.FuncMap{
+			"lower": strings.ToLower,
+		}).Parse(prompt)
 	})
 	if a.parseErr != nil {
 		return "", a.parseErr

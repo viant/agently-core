@@ -209,6 +209,9 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 			if cfg != nil && (cfg.IsQueue() || cfg.IsPrompt()) {
 				toolctx.MarkApprovalQueueTool(ctx, d.Name, cfg)
 			}
+			if asyncRule := res.AsyncByID[key]; asyncRule != nil && asyncRule.Async != nil {
+				toolctx.MarkAsyncTool(ctx, d.Name, asyncRule.Async)
+			}
 		}
 		defs = append(defs, res.Definitions...)
 	}

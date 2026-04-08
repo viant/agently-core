@@ -1069,7 +1069,7 @@ func listToolDefinitions(c *EmbeddedClient) ([]ToolDefinitionInfo, error) {
 	defs := c.registry.Definitions()
 	out := make([]ToolDefinitionInfo, len(defs))
 	for i, d := range defs {
-		out[i] = ToolDefinitionInfo{Name: d.Name, Description: d.Description, Parameters: d.Parameters, Required: d.Required, OutputSchema: d.OutputSchema}
+		out[i] = ToolDefinitionInfo{Name: d.Name, Description: d.Description, Parameters: d.Parameters, Required: d.Required, OutputSchema: d.OutputSchema, Cacheable: d.Cacheable}
 	}
 	return out, nil
 }

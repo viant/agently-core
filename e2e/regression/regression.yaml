@@ -240,6 +240,10 @@ pipeline:
   testCases:
     tag: $pathMatch
     subPath: 'cases/${index}_*'
+    # Allow focused runs, for example:
+    # endly -t=test -p=caseRange=027..027
+    # endly -t=test -p=caseRange=052..052
+    range: '$caseRange ? $caseRange : 1..065'
     template:
       ensureServer:
         action: http/runner:send

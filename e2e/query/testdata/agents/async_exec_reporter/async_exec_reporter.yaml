@@ -1,0 +1,16 @@
+id: async_exec_reporter
+name: Async Exec Reporter
+description: Agent that starts a long-running shell watcher and waits for async reinforcement before answering.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: AsyncExecReporter
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/exec

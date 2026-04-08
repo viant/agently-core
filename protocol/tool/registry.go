@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 )
 
 // ---------------------------------------------------------------------------
@@ -59,4 +60,8 @@ type ContextMatcher interface {
 // boolean indicates whether a suggestion is available for the given name.
 type TimeoutResolver interface {
 	ToolTimeout(name string) (time.Duration, bool)
+}
+
+type AsyncResolver interface {
+	AsyncConfig(name string) (*asynccfg.Config, bool)
 }

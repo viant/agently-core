@@ -33,6 +33,7 @@ type RunInput struct {
 	AgentID   string                 `json:"agentId"`
 	Objective string                 `json:"objective"`
 	Context   map[string]interface{} `json:"context,omitempty"`
+	Async     *bool                  `json:"async,omitempty" internal:"true"`
 	// ConversationID optionally overrides the conversation identifier when
 	// not already provided by context.
 	ConversationID string `json:"conversationId,omitempty"`
@@ -84,7 +85,17 @@ type StatusItem struct {
 }
 
 type StatusOutput struct {
-	Items []StatusItem `json:"items,omitempty"`
+	ConversationID string       `json:"conversationId,omitempty"`
+	Status         string       `json:"status,omitempty"`
+	Items          []StatusItem `json:"items,omitempty"`
+}
+
+type CancelInput struct {
+	ConversationID string `json:"conversationId"`
+}
+
+type CancelOutput struct {
+	Status string `json:"status,omitempty"`
 }
 
 // MeOutput provides minimal execution context details.

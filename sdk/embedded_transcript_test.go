@@ -274,6 +274,134 @@ func TestBuildCanonicalState_PreservesLinkedConversationOnToolStepAndTurn(t *tes
 	require.Len(t, ts.Execution.Pages, 1)
 	require.Len(t, ts.Execution.Pages[0].ToolSteps, 1)
 	require.Equal(t, linkedID, ts.Execution.Pages[0].ToolSteps[0].LinkedConversationID)
+	require.Equal(t, linkedID, ts.Execution.Pages[0].ToolSteps[0].OperationID)
+	require.NotNil(t, ts.Execution.Pages[0].ToolSteps[0].AsyncOperation)
+	require.Equal(t, linkedID, ts.Execution.Pages[0].ToolSteps[0].AsyncOperation.OperationID)
+}
+
+func TestBuildCanonicalState_DerivesExecAsyncOperationFromResponsePayload(t *testing.T) {
+	toolStatus := "completed"
+	payloadID := "resp-1"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:      "m1",
+				Role:    "assistant",
+				Interim: 1,
+				Content: strPtr("Running command."),
+				ModelCall: &agconv.ModelCallView{
+					MessageId: "m1",
+					Status:    "completed",
+				},
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:              "tm1",
+						ParentMessageId: strPtr("m1"),
+						ToolCall: &agconv.ToolCallView{
+							MessageId:         "tm1",
+							OpId:              "call-1",
+							ToolName:          "system/exec:start",
+							Status:            toolStatus,
+							ResponsePayloadId: &payloadID,
+							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								Id:         payloadID,
+								InlineBody: strPtr(`{"sessionId":"sess-1","status":"completed"}`),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+	require.Len(t, state.Turns[0].Execution.Pages[0].ToolSteps, 1)
+	step := state.Turns[0].Execution.Pages[0].ToolSteps[0]
+	require.Equal(t, "sess-1", step.OperationID)
+	require.NotNil(t, step.AsyncOperation)
+	require.Equal(t, "sess-1", step.AsyncOperation.OperationID)
+	require.Equal(t, "completed", step.AsyncOperation.Status)
+	require.NotNil(t, step.AsyncOperation.Response)
+}
+
+func TestBuildCanonicalState_DerivesExecAsyncOperationTerminalStatusFromResponsePayload(t *testing.T) {
+	testCases := []struct {
+		name   string
+		status string
+		body   string
+	}{
+		{
+			name:   "failed",
+			status: "failed",
+			body:   `{"sessionId":"sess-fail","status":"failed","stderr":"TERMINAL_FAILURE"}`,
+		},
+		{
+			name:   "canceled",
+			status: "canceled",
+			body:   `{"sessionId":"sess-cancel","status":"canceled","stdout":"canceled"}`,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			payloadID := "resp-1"
+			turn := &agconv.TranscriptView{
+				Id:             "turn-1",
+				ConversationId: "conv-1",
+				Status:         "succeeded",
+				Message: []*agconv.MessageView{
+					{
+						Id:      "m1",
+						Role:    "assistant",
+						Interim: 1,
+						Content: strPtr("Running command."),
+						ModelCall: &agconv.ModelCallView{
+							MessageId: "m1",
+							Status:    "completed",
+						},
+						ToolMessage: []*agconv.ToolMessageView{
+							{
+								Id:              "tm1",
+								ParentMessageId: strPtr("m1"),
+								ToolCall: &agconv.ToolCallView{
+									MessageId:         "tm1",
+									OpId:              "call-1",
+									ToolName:          "system/exec:start",
+									Status:            testCase.status,
+									ResponsePayloadId: &payloadID,
+									ResponsePayload: &agconv.ModelCallStreamPayloadView{
+										Id:         payloadID,
+										InlineBody: strPtr(testCase.body),
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+			require.NotNil(t, state)
+			require.Len(t, state.Turns, 1)
+			require.NotNil(t, state.Turns[0].Execution)
+			require.Len(t, state.Turns[0].Execution.Pages, 1)
+			require.Len(t, state.Turns[0].Execution.Pages[0].ToolSteps, 1)
+
+			step := state.Turns[0].Execution.Pages[0].ToolSteps[0]
+			require.NotNil(t, step.AsyncOperation)
+			require.Equal(t, testCase.status, step.Status)
+			require.Equal(t, testCase.status, step.AsyncOperation.Status)
+			require.NotEmpty(t, step.OperationID)
+			require.NotNil(t, step.AsyncOperation.Response)
+		})
+	}
 }
 
 func TestBuildCanonicalState_PreservesModelPayloadsOnCanonicalStep(t *testing.T) {

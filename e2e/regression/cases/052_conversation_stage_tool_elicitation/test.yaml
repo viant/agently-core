@@ -20,13 +20,15 @@ pipeline:
   startToolTurn:
     when: $sdkKey != ''
     action: exec:run
+    checkError: true
     description: "tool elicitation stage - start async oob probe turn"
     commands:
       - >-
-        nohup curl -sS -X POST ${serverURL}/v1/agent/query
+        sh -c 'nohup curl -sS -X POST ${serverURL}/v1/agent/query
         -H "Content-Type: application/json"
+        -H "Connection: close"
         -d "{\"ConversationID\":\"${createConversation.Responses[0].JSONBody.Id}\",\"AgentID\":\"mcp_oob_probe\",\"MessageID\":\"e2e-stage-tool-elic\",\"UserId\":\"e2e-stage-tool\",\"Query\":\"run the oob probe\"}"
-        >/tmp/agently-core-e2e-052.out 2>&1 &
+        >/tmp/agently-core-e2e-052.out 2>&1 </dev/null &'
       - sleep 1
 
   waitForElicitation:

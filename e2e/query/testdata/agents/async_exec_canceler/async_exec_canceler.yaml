@@ -1,0 +1,16 @@
+id: async_exec_canceler
+name: Async Exec Canceler
+description: Agent that starts a long-running shell heartbeat, waits for async reinforcement, then cancels it and verifies terminal canceled status.
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: AsyncExecCanceler
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  callExposure: conversation
+  bundles:
+    - system/exec

@@ -201,3 +201,16 @@ func TestPrompt_Generate_ContextJSON(t *testing.T) {
 	assert.Contains(t, goGot, `"stream": true`)
 	assert.NotContains(t, goGot, "map[")
 }
+
+func TestPrompt_Generate_GoTemplateLowerHelper(t *testing.T) {
+	ctx := context.Background()
+	p := Prompt{
+		Engine: "go",
+		Text:   `Tool: {{ lower .Task.Prompt }}`,
+	}
+	got, err := p.Generate(ctx, &Binding{
+		Task: Task{Prompt: "SYSTEM/EXEC:START"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "Tool: system/exec:start", got)
+}

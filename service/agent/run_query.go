@@ -157,9 +157,15 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = tool.WithPolicy(ctx, pol)
 	}
 	ctx = tool.WithApprovalQueueState(ctx)
+	ctx = tool.WithAsyncConfigState(ctx)
+	ctx = executil.WithAsyncWaitState(ctx)
 	if s.elicitation != nil {
 		ctx = executil.WithApprovalElicitor(ctx, &agentToolApprovalElicitor{elicService: s.elicitation})
 	}
+	if s.asyncManager != nil {
+		ctx = executil.WithAsyncManager(ctx, s.asyncManager)
+	}
+	ctx = executil.WithAsyncConversation(ctx, s.conversation)
 
 	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err
@@ -539,6 +545,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if aPlan == nil {
 			return fmt.Errorf("unable to generate plan")
 		}
+		if s.asyncManager != nil && len(executil.ConsumeAsyncWaitAfterStatus(ctx)) > 0 && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
+			_ = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
+			if err := s.asyncManager.WaitForChange(ctx, turn.ConversationID, turn.TurnID); err != nil {
+				return err
+			}
+			s.injectAsyncReinforcement(ctx, &turn)
+			queryOutput.Content = ""
+			continue
+		}
 		if strings.TrimSpace(resolvedModel) == "" && genInput != nil {
 			if m := strings.TrimSpace(genInput.ModelSelection.Model); m != "" {
 				resolvedModel = m
@@ -607,6 +622,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		isTerminal := aPlan.IsEmpty()
 		if isTerminal {
+			if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
+				if err := s.asyncManager.WaitForChange(ctx, turn.ConversationID, turn.TurnID); err != nil {
+					return err
+				}
+				s.injectAsyncReinforcement(ctx, &turn)
+				queryOutput.Content = ""
+				continue
+			}
 			if strings.TrimSpace(genOutput.Content) != "" {
 				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 				msgID := strings.TrimSpace(genOutput.MessageID)

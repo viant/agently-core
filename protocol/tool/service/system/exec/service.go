@@ -3,14 +3,17 @@ package exec
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/viant/afs/url"
+	"github.com/viant/agently-core/internal/textutil"
 	sys "github.com/viant/agently-core/protocol/tool/service/system"
 	"github.com/viant/gosh"
 	"github.com/viant/gosh/runner"
 	"github.com/viant/gosh/runner/local"
 	rssh "github.com/viant/gosh/runner/ssh"
+	"github.com/viant/mcp-protocol/extension"
 	"golang.org/x/crypto/ssh"
 
 	"reflect"
@@ -24,25 +27,34 @@ const Name = "system/exec"
 const timeoutCode = -101
 
 // Service executes terminal commands
-type Service struct{}
+type Service struct {
+	mu        sync.RWMutex
+	processes map[string]*processState
+	sessions  map[string]*sessionInfo
+}
 
 type sessionInfo struct {
-	id      string
-	service *gosh.Service
-	close   func()
+	id         string
+	service    *gosh.Service
+	close      func()
+	persistent bool
 }
 
 // New creates a new Service instance
-func New() *Service { return &Service{} }
+func New() *Service {
+	return &Service{processes: map[string]*processState{}, sessions: map[string]*sessionInfo{}}
+}
 
 // Execute executes terminal commands on the target system
 func (s *Service) Execute(ctx context.Context, input *Input, output *Output) error {
 	input.Init()
-	session, err := s.getSession(ctx, input.Host, input.Env)
+	session, err := s.getSession(ctx, input.SessionID, input.Host, input.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)
 	}
-	defer session.close()
+	if !session.persistent && session.close != nil {
+		defer session.close()
+	}
 
 	if input.Workdir == "" {
 		if cmd := input.HasFSCommand(); cmd != "" {
@@ -104,8 +116,37 @@ func (s *Service) Execute(ctx context.Context, input *Input, output *Output) err
 	}
 
 	output.Commands = commands
+	output.SessionID = session.id
 	output.Stdout = strings.TrimSpace(combinedStdout.String())
 	output.Stderr = strings.TrimSpace(combinedStderr.String())
+	if strings.TrimSpace(input.Stream) != "" || input.ByteRange != nil {
+		selected, streamName := selectedStatusStream(strings.TrimSpace(input.Stream), output.Stdout, output.Stderr)
+		clipped, offset, end, err := textutil.ClipBytes([]byte(selected), input.ByteRange)
+		if err != nil {
+			return err
+		}
+		output.Stream = streamName
+		output.Content = string(clipped)
+		output.Offset = offset
+		output.Limit = end - offset
+		output.Size = len(selected)
+		if end < len(selected) {
+			remaining := len(selected) - end
+			nextLength := output.Limit
+			if nextLength <= 0 {
+				nextLength = remaining
+			}
+			if nextLength > remaining {
+				nextLength = remaining
+			}
+			output.Continuation = &extension.Continuation{
+				HasMore:   true,
+				Remaining: remaining,
+				Returned:  output.Limit,
+				NextRange: &extension.RangeHint{Bytes: &extension.ByteRange{Offset: end, Length: nextLength}},
+			}
+		}
+	}
 	output.Status = lastExitCode
 	if lastErrorCode != 0 {
 		output.Status = lastErrorCode
@@ -142,8 +183,19 @@ func (s *Service) executeCommand(ctx context.Context, session *sessionInfo, comm
 	return "", stdout, status
 }
 
-func (s *Service) getSession(ctx context.Context, host *sys.Host, env map[string]string) (*sessionInfo, error) {
-	sessionID := host.URL
+func (s *Service) getSession(ctx context.Context, sessionID string, host *sys.Host, env map[string]string) (*sessionInfo, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		s.mu.RLock()
+		if existing := s.sessions[sessionID]; existing != nil {
+			s.mu.RUnlock()
+			return existing, nil
+		}
+		s.mu.RUnlock()
+	}
+	if sessionID == "" {
+		sessionID = host.URL
+	}
 	var service *gosh.Service
 	var err error
 	envOptions := []runner.Option{}
@@ -166,7 +218,16 @@ func (s *Service) getSession(ctx context.Context, host *sys.Host, env map[string
 	if err != nil {
 		return nil, err
 	}
-	session := &sessionInfo{service: service, id: sessionID, close: func() { _ = service.Close() }}
+	persistent := strings.TrimSpace(sessionID) != "" && sessionID != host.URL
+	session := &sessionInfo{service: service, id: sessionID, close: func() { _ = service.Close() }, persistent: persistent}
+	if persistent {
+		s.mu.Lock()
+		if s.sessions == nil {
+			s.sessions = map[string]*sessionInfo{}
+		}
+		s.sessions[sessionID] = session
+		s.mu.Unlock()
+	}
 	return session, nil
 }
 
@@ -186,14 +247,41 @@ func (s *Service) getSSHConfig(ctx context.Context, host *sys.Host) (*ssh.Client
 // Name returns the service name.
 func (s *Service) Name() string { return Name }
 
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{
+		"status": true,
+	}
+}
+
 // Methods returns method signatures for this service.
 func (s *Service) Methods() svc.Signatures {
-	return []svc.Signature{{
-		Name:        "execute",
-		Description: "Run shell commands on local host (no pipes). When using fs operation workdir is required",
-		Input:       reflect.TypeOf(&Input{}),
-		Output:      reflect.TypeOf(&Output{}),
-	}}
+	return []svc.Signature{
+		{
+			Name:        "execute",
+			Description: "Run shell commands on local host (no pipes). When using fs operation workdir is required. Returns full stdout/stderr and supports native byte-range continuation over aggregated output.",
+			Input:       reflect.TypeOf(&Input{}),
+			Output:      reflect.TypeOf(&Output{}),
+		},
+		{
+			Name:        "start",
+			Description: "Start a detached local shell command sequence and return immediately with process id",
+			Input:       reflect.TypeOf(&StartInput{}),
+			Output:      reflect.TypeOf(&StartOutput{}),
+		},
+		{
+			Name:        "status",
+			Description: "Return the current status of a detached local shell command sequence, including full buffered stdout and stderr accumulated so far",
+			Input:       reflect.TypeOf(&StatusInput{}),
+			Output:      reflect.TypeOf(&StatusOutput{}),
+		},
+		{
+			Name:        "cancel",
+			Description: "Cancel a detached local shell command sequence",
+			Input:       reflect.TypeOf(&CancelInput{}),
+			Output:      reflect.TypeOf(&CancelOutput{}),
+		},
+	}
 }
 
 func (s *Service) execute(ctx context.Context, in, out interface{}) error {
@@ -213,6 +301,12 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
 	case "execute":
 		return s.execute, nil
+	case "start":
+		return s.start, nil
+	case "status":
+		return s.status, nil
+	case "cancel":
+		return s.cancel, nil
 	default:
 		return nil, svc.NewMethodNotFoundError(name)
 	}

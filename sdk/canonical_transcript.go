@@ -374,6 +374,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	if tm.LinkedConversationId != nil {
 		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
 	}
+	attachTranscriptAsyncOperation(step)
 	return step
 }
 
@@ -429,7 +430,81 @@ func mergeToolStepState(existing, incoming *ToolStepState) ToolStepState {
 	if strings.TrimSpace(incoming.LinkedConversationID) != "" {
 		merged.LinkedConversationID = incoming.LinkedConversationID
 	}
+	if strings.TrimSpace(incoming.OperationID) != "" {
+		merged.OperationID = incoming.OperationID
+	}
+	if incoming.AsyncOperation != nil {
+		merged.AsyncOperation = incoming.AsyncOperation
+	}
 	return merged
+}
+
+func attachTranscriptAsyncOperation(step *ToolStepState) {
+	if step == nil {
+		return
+	}
+	opID := strings.TrimSpace(step.OperationID)
+	if opID == "" {
+		switch {
+		case strings.HasPrefix(strings.TrimSpace(step.ToolName), "llm/agents"):
+			opID = strings.TrimSpace(step.LinkedConversationID)
+			if opID == "" {
+				if value := rawJSONFieldString(step.ResponsePayload, "conversationId"); value != "" {
+					opID = value
+				}
+			}
+		case strings.HasPrefix(strings.TrimSpace(step.ToolName), "system/exec"):
+			if value := rawJSONFieldString(step.ResponsePayload, "sessionId"); value != "" {
+				opID = value
+			}
+		}
+	}
+	if opID == "" {
+		return
+	}
+	step.OperationID = opID
+	if step.AsyncOperation == nil {
+		step.AsyncOperation = &AsyncOperationState{OperationID: opID}
+	}
+	if step.AsyncOperation.Status == "" {
+		step.AsyncOperation.Status = strings.TrimSpace(step.Status)
+	}
+	if step.AsyncOperation.Response == nil && step.ResponsePayload != nil {
+		step.AsyncOperation.Response = step.ResponsePayload
+	}
+}
+
+func rawJSONFieldString(raw json.RawMessage, field string) string {
+	if len(raw) == 0 || strings.TrimSpace(field) == "" {
+		return ""
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	for _, key := range []string{"inlineBody", "InlineBody"} {
+		if inline, ok := obj[key].(string); ok && strings.TrimSpace(inline) != "" {
+			var nested map[string]interface{}
+			if err := json.Unmarshal([]byte(inline), &nested); err == nil {
+				obj = nested
+			}
+			break
+		}
+	}
+	value, ok := obj[field]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(stringValueInterface(value))
+}
+
+func stringValueInterface(value interface{}) string {
+	switch actual := value.(type) {
+	case string:
+		return actual
+	default:
+		return strings.TrimSpace(strings.ReplaceAll(string(marshalToRawJSON(actual)), "\"", ""))
+	}
 }
 
 func toolStepStatusRank(status string) int {

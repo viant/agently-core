@@ -153,7 +153,13 @@ export function applyEvent(
 
         case 'tool_call_started':
         case 'tool_call_delta':
+        case 'tool_call_waiting':
         case 'tool_call_completed': {
+            setActiveTurn(buf, turnId);
+            return null;
+        }
+        case 'tool_call_failed':
+        case 'tool_call_canceled': {
             setActiveTurn(buf, turnId);
             return null;
         }

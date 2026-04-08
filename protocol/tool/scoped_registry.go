@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	mcpnames "github.com/viant/agently-core/pkg/mcpname"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/runtime/memory"
 )
 
@@ -91,4 +92,11 @@ func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
 		return 30 * time.Minute, true
 	}
 	return 0, false
+}
+
+func (s *scopedRegistry) AsyncConfig(name string) (*asynccfg.Config, bool) {
+	if ar, ok := s.inner.(AsyncResolver); ok {
+		return ar.AsyncConfig(name)
+	}
+	return nil, false
 }

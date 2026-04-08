@@ -39,7 +39,10 @@ const (
 	// Tool call lifecycle.
 	EventTypeToolCallsPlanned  EventType = "tool_calls_planned"
 	EventTypeToolCallStarted   EventType = "tool_call_started"
+	EventTypeToolCallWaiting   EventType = "tool_call_waiting"
 	EventTypeToolCallCompleted EventType = "tool_call_completed"
+	EventTypeToolCallFailed    EventType = "tool_call_failed"
+	EventTypeToolCallCanceled  EventType = "tool_call_canceled"
 
 	// Stream metadata / completion.
 	EventTypeItemCompleted EventType = "item_completed"
@@ -82,6 +85,7 @@ type Event struct {
 	ParentMessageID           string                 `json:"parentMessageId,omitempty"`
 	RequestID                 string                 `json:"requestId,omitempty"`
 	ResponseID                string                 `json:"responseId,omitempty"`
+	OperationID               string                 `json:"operationId,omitempty"`
 	ToolCallID                string                 `json:"toolCallId,omitempty"`
 	ToolMessageID             string                 `json:"toolMessageId,omitempty"`
 	RequestPayloadID          string                 `json:"requestPayloadId,omitempty"`

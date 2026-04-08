@@ -119,19 +119,29 @@ type ModelStepState struct {
 
 // ToolStepState represents a single tool invocation within an execution page.
 type ToolStepState struct {
-	ToolCallID                string          `json:"toolCallId"`
-	ToolMessageID             string          `json:"toolMessageId"`
-	ToolName                  string          `json:"toolName"`
-	Status                    string          `json:"status,omitempty"`
-	RequestPayloadID          string          `json:"requestPayloadId,omitempty"`
-	ResponsePayloadID         string          `json:"responsePayloadId,omitempty"`
-	RequestPayload            json.RawMessage `json:"requestPayload,omitempty"`
-	ResponsePayload           json.RawMessage `json:"responsePayload,omitempty"`
-	LinkedConversationID      string          `json:"linkedConversationId,omitempty"`
-	LinkedConversationAgentID string          `json:"linkedConversationAgentId,omitempty"`
-	LinkedConversationTitle   string          `json:"linkedConversationTitle,omitempty"`
-	StartedAt                 *time.Time      `json:"startedAt,omitempty"`
-	CompletedAt               *time.Time      `json:"completedAt,omitempty"`
+	ToolCallID                string               `json:"toolCallId"`
+	ToolMessageID             string               `json:"toolMessageId"`
+	ToolName                  string               `json:"toolName"`
+	OperationID               string               `json:"operationId,omitempty"`
+	Status                    string               `json:"status,omitempty"`
+	RequestPayloadID          string               `json:"requestPayloadId,omitempty"`
+	ResponsePayloadID         string               `json:"responsePayloadId,omitempty"`
+	RequestPayload            json.RawMessage      `json:"requestPayload,omitempty"`
+	ResponsePayload           json.RawMessage      `json:"responsePayload,omitempty"`
+	LinkedConversationID      string               `json:"linkedConversationId,omitempty"`
+	LinkedConversationAgentID string               `json:"linkedConversationAgentId,omitempty"`
+	LinkedConversationTitle   string               `json:"linkedConversationTitle,omitempty"`
+	StartedAt                 *time.Time           `json:"startedAt,omitempty"`
+	CompletedAt               *time.Time           `json:"completedAt,omitempty"`
+	AsyncOperation            *AsyncOperationState `json:"asyncOperation,omitempty"`
+}
+
+type AsyncOperationState struct {
+	OperationID string          `json:"operationId"`
+	Status      string          `json:"status,omitempty"`
+	Message     string          `json:"message,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	Response    json.RawMessage `json:"response,omitempty"`
 }
 
 // ElicitationState represents a pending or resolved elicitation within a turn.

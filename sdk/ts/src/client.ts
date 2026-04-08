@@ -315,8 +315,11 @@ export class AgentlyClient {
                         handlers.onTextDelta?.(event.content ?? '', event);
                         break;
                     case 'tool_call_started':
+                    case 'tool_call_waiting':
                     case 'tool_call_delta':
                     case 'tool_call_completed':
+                    case 'tool_call_failed':
+                    case 'tool_call_canceled':
                         handlers.onToolEvent?.(event);
                         break;
                     case 'turn_completed':

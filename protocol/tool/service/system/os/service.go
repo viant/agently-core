@@ -44,6 +44,11 @@ type GetEnvOutput struct {
 // Name returns the service name.
 func (s *Service) Name() string { return Name }
 
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{"getEnv": true}
+}
+
 // Methods returns supported method signatures.
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{{

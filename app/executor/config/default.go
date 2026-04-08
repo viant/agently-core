@@ -40,6 +40,9 @@ type Defaults struct {
 	// ---- Tool-call result controls (grouped) ---------------------
 	PreviewSettings PreviewSettings `yaml:"previewSettings" json:"previewSettings"`
 
+	// ---- Prompt-history compaction --------------------------------
+	Compaction Compaction `yaml:"compaction,omitempty" json:"compaction,omitempty"`
+
 	ToolCallMaxResults int `yaml:"toolCallMaxResults" json:"toolCallMaxResults"`
 
 	// ---- Execution timeouts -------------------------------------
@@ -96,6 +99,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		CapabilityPrompt string `yaml:"capabilityPrompt,omitempty"`
 
 		PreviewSettings PreviewSettings `yaml:"previewSettings,omitempty"`
+		Compaction      Compaction      `yaml:"compaction,omitempty"`
 
 		ToolCallMaxResults    int `yaml:"toolCallMaxResults,omitempty"`
 		ToolCallTimeoutSec    int `yaml:"toolCallTimeoutSec,omitempty"`
@@ -124,6 +128,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		CapabilityPrompt: tmp.CapabilityPrompt,
 
 		PreviewSettings: tmp.PreviewSettings,
+		Compaction:      tmp.Compaction,
 
 		ToolCallMaxResults:    tmp.ToolCallMaxResults,
 		ToolCallTimeoutSec:    tmp.ToolCallTimeoutSec,
@@ -178,6 +183,58 @@ type PreviewSettings struct {
 	// exposed for overflowed messages. When zero or negative, any
 	// overflowed message may use summarize.
 	SummaryThresholdBytes int `yaml:"summaryThresholdBytes,omitempty" json:"summaryThresholdBytes,omitempty"`
+}
+
+// Compaction groups prompt-history compaction settings.
+type Compaction struct {
+	ToolCallSupersession *ToolCallSupersession `yaml:"toolCallSupersession,omitempty" json:"toolCallSupersession,omitempty"`
+}
+
+// ToolCallSupersession controls how repeated cacheable tool outputs are
+// superseded during prompt-history construction.
+type ToolCallSupersession struct {
+	// Enabled controls whether supersession is applied. Default: true.
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// Limit controls how many matching results per supersession key are
+	// retained in each scope.
+	Limit *SupersessionLimit `yaml:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SupersessionLimit specifies per-scope retention caps.
+type SupersessionLimit struct {
+	// History is the max matching results per key across all prior turns
+	// T(0)..T(N-1). Default: 1 (only the newest survives).
+	History *int `yaml:"history,omitempty" json:"history,omitempty"`
+	// Turn is the max matching results per key within the current turn TN.
+	// Default: 2 (keep last 2, suppress K-2 earliest).
+	Turn *int `yaml:"turn,omitempty" json:"turn,omitempty"`
+}
+
+// IsSupersessionEnabled returns whether tool-call supersession is active.
+func (c *Compaction) IsSupersessionEnabled() bool {
+	if c == nil || c.ToolCallSupersession == nil {
+		return true // default enabled
+	}
+	if c.ToolCallSupersession.Enabled != nil {
+		return *c.ToolCallSupersession.Enabled
+	}
+	return true
+}
+
+// SupersessionHistoryLimit returns the per-key limit for prior turns.
+func (c *Compaction) SupersessionHistoryLimit() int {
+	if c == nil || c.ToolCallSupersession == nil || c.ToolCallSupersession.Limit == nil || c.ToolCallSupersession.Limit.History == nil {
+		return 1
+	}
+	return *c.ToolCallSupersession.Limit.History
+}
+
+// SupersessionTurnLimit returns the per-key limit for the current turn.
+func (c *Compaction) SupersessionTurnLimit() int {
+	if c == nil || c.ToolCallSupersession == nil || c.ToolCallSupersession.Limit == nil || c.ToolCallSupersession.Limit.Turn == nil {
+		return 2
+	}
+	return *c.ToolCallSupersession.Limit.Turn
 }
 
 // MatchDefaults groups retrieval/matching defaults
