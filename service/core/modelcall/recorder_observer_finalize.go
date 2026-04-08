@@ -12,7 +12,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // finishModelCall persists final model call updates, including response payloads and usage.
@@ -54,8 +54,8 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		}
 		if strings.TrimSpace(info.LLMResponse.ResponseID) != "" {
 			upd.SetTraceID(strings.TrimSpace(info.LLMResponse.ResponseID))
-			if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-				memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(info.LLMResponse.ResponseID))
+			if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+				runtimerequestctx.SetTurnTrace(turn.TurnID, strings.TrimSpace(info.LLMResponse.ResponseID))
 			}
 			if debugtrace.Enabled() {
 				debugtrace.Write("modelcall", "finish_model_call", map[string]any{
@@ -136,7 +136,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		isToolRelated := hasToolCalls || strings.Contains(finishLower, "tool")
 		isFinalStop := finishLower == "stop" || finishLower == "end_turn" || finishLower == "length"
 		finalResponse := isFinalStop && !isToolRelated && content != ""
-		patchCtx = memory.WithModelCompletionMeta(ctx, memory.ModelCompletionMeta{
+		patchCtx = runtimerequestctx.WithModelCompletionMeta(ctx, runtimerequestctx.ModelCompletionMeta{
 			Content:       content,
 			Preamble:      preamble,
 			FinalResponse: finalResponse,
@@ -172,7 +172,7 @@ func (o *recorderObserver) isLikelyUserEcho(ctx context.Context, assistantConten
 	if assistantText == "" {
 		return false
 	}
-	turn, ok := memory.TurnMetaFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
 		return false
 	}

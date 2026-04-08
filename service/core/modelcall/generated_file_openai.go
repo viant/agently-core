@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 const (
@@ -36,7 +36,7 @@ type openAIGeneratedFileRef struct {
 	InlineBody     []byte
 }
 
-func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgID string, turn memory.TurnMeta, info Info) error {
+func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgID string, turn runtimerequestctx.TurnMeta, info Info) error {
 	if !strings.EqualFold(strings.TrimSpace(info.Provider), "openai") {
 		return nil
 	}

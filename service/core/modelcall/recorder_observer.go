@@ -15,7 +15,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 const streamPersistModeEnv = "AGENTLY_STREAM_PERSIST_MODE"
@@ -77,16 +77,16 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	// Attach finish barrier so downstream can wait for persistence before emitting final message.
 	ctx, _ = WithFinishBarrier(ctx)
 	msgID := uuid.NewString()
-	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, msgID)
+	ctx = context.WithValue(ctx, runtimerequestctx.ModelMessageIDKey, msgID)
 	o.mu.Lock()
 	o.msgID = msgID
 	o.ended = false
 	o.mu.Unlock()
-	turn, _ := memory.TurnMetaFromContext(ctx)
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
 	// Store the assistant message ID at the turn level so the stream handler
 	// (which uses the original non-enriched context) can read it for
 	// parent_message_id on tool_op messages.
-	memory.SetTurnModelMessageID(turn.TurnID, msgID)
+	runtimerequestctx.SetTurnModelMessageID(turn.TurnID, msgID)
 
 	// Create interim assistant message to capture request payload in transcript
 	if turn.ConversationID != "" {
@@ -152,7 +152,7 @@ func (o *recorderObserver) CloseIfOpen(ctx context.Context, info Info) error {
 }
 
 func (o *recorderObserver) resolveMessageID(ctx context.Context) string {
-	if msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); msgID != "" {
+	if msgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)); msgID != "" {
 		return msgID
 	}
 	o.mu.Lock()
@@ -177,7 +177,7 @@ func (o *recorderObserver) markEnded(msgID string) {
 func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, info Info) error {
 	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), finalizePersistTimeout)
 	defer cancelPersist()
-	turn, _ := memory.TurnMetaFromContext(persistCtx)
+	turn, _ := runtimerequestctx.TurnMetaFromContext(persistCtx)
 
 	// Prefer provider-supplied stream text; fall back to accumulated chunks.
 	// Compute this BEFORE patchAssistantMessageFromInfo so it can use it as fallback.
@@ -287,20 +287,20 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	msg.SetId(msgID)
 	msg.SetRole("assistant")
 	msg.SetType("text")
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.ConversationID) != "" {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.ConversationID) != "" {
 		msg.SetConversationID(turn.ConversationID)
 		if strings.TrimSpace(turn.TurnID) != "" {
 			msg.SetTurnID(turn.TurnID)
 		}
 	}
-	mode := strings.TrimSpace(memory.RequestModeFromContext(ctx))
+	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
 	if mode == "" && info.LLMRequest != nil && info.LLMRequest.Options != nil {
 		mode = strings.TrimSpace(info.LLMRequest.Options.Mode)
 	}
 	if mode != "" {
 		msg.SetMode(mode)
 	}
-	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		msg.SetIteration(runMeta.Iteration)
 	}
 	// Store content always. Store raw_content only for tool-call responses so
@@ -350,7 +350,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	}
 	o.publishStreamDelta(ctx, data)
 	o.acc.Write(data)
-	msgID := memory.ModelMessageIDFromContext(ctx)
+	msgID := runtimerequestctx.ModelMessageIDFromContext(ctx)
 	mode := streamPersistModeFromEnv()
 
 	// Attempt to detect provider response id early from OpenAI Responses events.
@@ -368,15 +368,15 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 		if err := json.Unmarshal(data, &probe); err == nil {
 			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(probe.Type)), "response.") && strings.TrimSpace(probe.Response.ID) != "" {
 				// Always cache in-memory per-turn for quick reuse.
-				if turn, ok := memory.TurnMetaFromContext(ctx); ok {
-					memory.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
+				if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+					runtimerequestctx.SetTurnTrace(turn.TurnID, strings.TrimSpace(probe.Response.ID))
 					if debugtrace.Enabled() {
 						debugtrace.Write("modelcall", "stream_response_anchor", map[string]any{
 							"turnID":       strings.TrimSpace(turn.TurnID),
 							"messageID":    strings.TrimSpace(msgID),
 							"eventType":    strings.TrimSpace(probe.Type),
 							"responseID":   strings.TrimSpace(probe.Response.ID),
-							"turnTraceNow": strings.TrimSpace(memory.TurnTrace(turn.TurnID)),
+							"turnTraceNow": strings.TrimSpace(runtimerequestctx.TurnTrace(turn.TurnID)),
 						})
 					}
 				}
@@ -460,7 +460,7 @@ func (o *recorderObserver) resolveStreamPayloadID(ctx context.Context, msgID str
 	}
 	if trimmed := strings.TrimSpace(msgID); trimmed != "" {
 		id = trimmed
-	} else if fromCtx := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)); fromCtx != "" {
+	} else if fromCtx := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)); fromCtx != "" {
 		id = fromCtx
 	} else {
 		id = uuid.New().String()
@@ -505,12 +505,12 @@ func streamPersistModeFromEnv() streamPersistMode {
 
 // WithRecorderObserver injects a recorder-backed Observer into context.
 func WithRecorderObserver(ctx context.Context, client apiconv.Client) context.Context {
-	_, ok := memory.TurnMetaFromContext(ctx) //ensure turn is in context
+	_, ok := runtimerequestctx.TurnMetaFromContext(ctx) //ensure turn is in context
 	if !ok {
-		ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
 			TurnID:          uuid.New().String(),
-			ConversationID:  memory.ConversationIDFromContext(ctx),
-			ParentMessageID: memory.ModelMessageIDFromContext(ctx),
+			ConversationID:  runtimerequestctx.ConversationIDFromContext(ctx),
+			ParentMessageID: runtimerequestctx.ModelMessageIDFromContext(ctx),
 		})
 	}
 	return WithObserver(ctx, &recorderObserver{client: client})
@@ -524,12 +524,12 @@ type TokenPriceProvider interface {
 }
 
 func WithRecorderObserverWithPrice(ctx context.Context, client apiconv.Client, provider TokenPriceProvider) context.Context {
-	_, ok := memory.TurnMetaFromContext(ctx)
+	_, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
-		ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
 			TurnID:          uuid.New().String(),
-			ConversationID:  memory.ConversationIDFromContext(ctx),
-			ParentMessageID: memory.ModelMessageIDFromContext(ctx),
+			ConversationID:  runtimerequestctx.ConversationIDFromContext(ctx),
+			ParentMessageID: runtimerequestctx.ModelMessageIDFromContext(ctx),
 		})
 	}
 	return WithObserver(ctx, &recorderObserver{client: client, priceProvider: provider})

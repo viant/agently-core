@@ -24,6 +24,8 @@ var (
 	matchDesc string
 	//go:embed tools/remove.md
 	removeDesc string
+	//go:embed tools/project.md
+	projectDesc string
 	//go:embed tools/askUser.md
 	askUserDesc string
 )
@@ -85,6 +87,7 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "match", Description: matchDesc, Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "listCandidates", Description: "List removable messages with byte/token size and concise preview.", Input: reflect.TypeOf(&ListCandidatesInput{}), Output: reflect.TypeOf(&ListCandidatesOutput{})},
 		{Name: "remove", Description: removeDesc, Input: reflect.TypeOf(&RemoveInput{}), Output: reflect.TypeOf(&RemoveOutput{})},
+		{Name: "project", Description: projectDesc, Input: reflect.TypeOf(&ProjectInput{}), Output: reflect.TypeOf(&ProjectOutput{})},
 	}
 	if s.elicitor != nil {
 		sigs = append(sigs, svc.Signature{Name: "askUser", Description: askUserDesc, Input: reflect.TypeOf(&AskUserInput{}), Output: reflect.TypeOf(&AskUserOutput{})})
@@ -104,6 +107,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.listCandidates, nil
 	case "remove":
 		return s.remove, nil
+	case "project":
+		return s.project, nil
 	case "askuser":
 		if s.elicitor == nil {
 			return nil, fmt.Errorf("askUser: elicitation not configured")

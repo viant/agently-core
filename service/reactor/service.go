@@ -13,7 +13,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/tool"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
 )
@@ -68,7 +68,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	var wg sync.WaitGroup
 	nextStepIdx := 0
 	// Binding registry to current conversation (if any) so tool.Execute receives ctx with convID.
-	reg := tool.WithConversation(s.registry, memory.ConversationIDFromContext(ctx))
+	reg := tool.WithConversation(s.registry, runtimerequestctx.ConversationIDFromContext(ctx))
 	// Do not create child cancels here; errors must not cancel context.
 	streamId := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput, priorResults)
 	canStream, err := s.canStream(ctx, genInput)
@@ -138,8 +138,8 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			// calls (e.g., extendPlanFromResponse path). OnCallStart stored
 			// the assistant message ID at the turn level during streaming.
 			if genOutput.MessageID == "" {
-				if tm, ok2 := memory.TurnMetaFromContext(ctx); ok2 {
-					if mid := strings.TrimSpace(memory.TurnModelMessageID(tm.TurnID)); mid != "" {
+				if tm, ok2 := runtimerequestctx.TurnMetaFromContext(ctx); ok2 {
+					if mid := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(tm.TurnID)); mid != "" {
 						genOutput.MessageID = mid
 					}
 				}

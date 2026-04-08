@@ -8,7 +8,7 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -398,7 +398,7 @@ func scyToOAuthToken(key Key, tok *scyauth.Token) *OAuthToken {
 }
 
 func logSchedulerEnsure(ctx context.Context, key Key, format string, args ...interface{}) {
-	mode, ok := memory.DiscoveryModeFromContext(ctx)
+	mode, ok := runtimediscovery.ModeFromContext(ctx)
 	if !ok || !mode.Scheduler {
 		return
 	}

@@ -33,7 +33,7 @@ import (
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	"github.com/viant/agently-core/service/scheduler"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
 )
 
@@ -123,7 +123,7 @@ func (c *EmbeddedClient) Mode() Mode { return ModeEmbedded }
 
 func (c *EmbeddedClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
 	if c.feeds != nil && c.streaming != nil {
-		ctx = executil.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
+		ctx = toolexec.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
 	}
 	out := &agentsvc.QueryOutput{}
 	if err := c.agent.Query(ctx, input, out); err != nil {

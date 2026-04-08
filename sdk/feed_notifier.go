@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -43,9 +43,9 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	if len(matched) == 0 {
 		return
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	turnID := ""
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		turnID = turn.TurnID
 		if convID == "" {
 			convID = turn.ConversationID

@@ -8,7 +8,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/protocol/prompt"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	"github.com/viant/agently-core/service/shared/toolexec"
 )
 
 func TestTranscriptSystemDocuments(t *testing.T) {
@@ -17,7 +17,7 @@ func TestTranscriptSystemDocuments(t *testing.T) {
 		Id:             "msg-1",
 		Role:           "system",
 		Content:        strPtr(content),
-		Tags:           strPtr(executil.SystemDocumentTag),
+		Tags:           strPtr(toolexec.SystemDocumentTag),
 		ContextSummary: strPtr("workspace://localhost/doc.md"),
 	}
 	dup := &apiconv.Message{
@@ -48,7 +48,7 @@ func TestExtractSystemDocSourceFallback(t *testing.T) {
 		Id:      "msg-2",
 		Role:    "system",
 		Content: strPtr(content),
-		Tags:    strPtr(executil.SystemDocumentTag),
+		Tags:    strPtr(toolexec.SystemDocumentTag),
 	}
 	turn := &apiconv.Turn{Id: "turn-2", Message: []*agconv.MessageView{(*agconv.MessageView)(msg)}}
 	docs := transcriptSystemDocuments(apiconv.Transcript{turn})

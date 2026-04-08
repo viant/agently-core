@@ -8,33 +8,33 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicitation "github.com/viant/agently-core/service/elicitation"
 	elicaction "github.com/viant/agently-core/service/elicitation/action"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
-// agentToolApprovalElicitor implements executil.ToolApprovalElicitor by wiring
+// agentToolApprovalElicitor implements toolapproval.Elicitor by wiring
 // into the agent's elicitation service. It builds a tool_approval elicitation
 // from the approval config and blocks until the user resolves it.
 type agentToolApprovalElicitor struct {
 	elicService *elicitation.Service
 }
 
-var _ executil.ToolApprovalElicitor = (*agentToolApprovalElicitor)(nil)
+var _ toolapproval.Elicitor = (*agentToolApprovalElicitor)(nil)
 
 // ElicitToolApproval builds a plan.Elicitation for the tool approval request,
 // records it via the elicitation service, and waits for the user's decision.
 // Returns the normalized action: "accept", "decline", or "cancel".
 func (e *agentToolApprovalElicitor) ElicitToolApproval(
 	ctx context.Context,
-	turn *memory.TurnMeta,
+	turn *runtimerequestctx.TurnMeta,
 	toolName string,
 	cfg *llm.ApprovalConfig,
 	args map[string]interface{},
 ) (string, map[string]interface{}, error) {
-	view := executil.BuildApprovalView(toolName, args, cfg)
+	view := toolapproval.BuildView(toolName, args, cfg)
 
 	acceptLabel := "Accept"
 	rejectLabel := "Reject"

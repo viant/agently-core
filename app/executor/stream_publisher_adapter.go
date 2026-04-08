@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/internal/debugtrace"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -31,7 +31,7 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 	if convID == "" {
 		return nil
 	}
-	turnMeta, _ := memory.TurnMetaFromContext(ctx)
+	turnMeta, _ := runtimerequestctx.TurnMetaFromContext(ctx)
 
 	if ev.Event != nil {
 		out := ev.Event
@@ -82,7 +82,7 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 		AgentIDUsed:        strings.TrimSpace(turnMeta.Assistant),
 		UserMessageID:      strings.TrimSpace(turnMeta.ParentMessageID),
 		Type:               streaming.EventTypeTextDelta,
-		Mode:               strings.TrimSpace(memory.RequestModeFromContext(ctx)),
+		Mode:               strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)),
 		AssistantMessageID: messageID,
 		ParentMessageID:    strings.TrimSpace(turnMeta.ParentMessageID),
 		ModelCallID:        messageID,

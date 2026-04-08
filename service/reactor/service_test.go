@@ -12,11 +12,11 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/jsonutil"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 	core2 "github.com/viant/agently-core/service/core"
-	executil "github.com/viant/agently-core/service/shared/executil"
 )
 
 // dd test for extendPlanFromContent: parses elicitation JSON embedded in content.
@@ -47,7 +47,7 @@ func TestService_extendPlanFromContent_DD(t *testing.T) {
 }`
 
 	expected := &plan.Elicitation{}
-	_ = executil.EnsureJSONResponse(ctx, elicitationJSON, expected)
+	_ = jsonutil.EnsureJSONResponse(ctx, elicitationJSON, expected)
 	if expected.IsEmpty() {
 		expected = nil
 	}

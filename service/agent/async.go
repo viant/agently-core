@@ -7,7 +7,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 )
 
@@ -16,7 +16,7 @@ const (
 	asyncMessageMode  = "async_wait"
 )
 
-func (s *Service) injectAsyncReinforcement(ctx context.Context, turn *memory.TurnMeta) {
+func (s *Service) injectAsyncReinforcement(ctx context.Context, turn *runtimerequestctx.TurnMeta) {
 	if s == nil || s.asyncManager == nil || turn == nil {
 		return
 	}

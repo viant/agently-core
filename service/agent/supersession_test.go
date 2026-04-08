@@ -91,7 +91,7 @@ func TestApplyToolCallSupersession_HistoryKeepsNewest(t *testing.T) {
 		{turnIdx: 1, msg: makeTCMsg("resources/read", args, "newer content")},
 		{turnIdx: 2, msg: makeTCMsg("resources/read", args, "newest content")},
 	}
-	result := applyToolCallSupersession(msgs, 3, reg, &config.Compaction{})
+	result := applyToolCallSupersession(msgs, 3, reg, &config.Projection{})
 	require.Len(t, result, 1, "should keep only newest across history")
 	assert.Equal(t, "newest content", *result[0].msg.Content)
 }
@@ -106,7 +106,7 @@ func TestApplyToolCallSupersession_NonCacheableNeverSuppressed(t *testing.T) {
 		{turnIdx: 1, msg: makeTCMsg("system/exec/execute", args, "result2")},
 		{turnIdx: 2, msg: makeTCMsg("system/exec/execute", args, "result3")},
 	}
-	result := applyToolCallSupersession(msgs, 3, reg, &config.Compaction{})
+	result := applyToolCallSupersession(msgs, 3, reg, &config.Projection{})
 	require.Len(t, result, 3, "non-cacheable tools should never be suppressed")
 }
 
@@ -121,7 +121,7 @@ func TestApplyToolCallSupersession_CurrentTurnKeepsLast2(t *testing.T) {
 		{turnIdx: 0, msg: makeTCMsg("resources/read", args, "call3")},
 		{turnIdx: 0, msg: makeTCMsg("resources/read", args, "call4")},
 	}
-	result := applyToolCallSupersession(msgs, 0, reg, &config.Compaction{})
+	result := applyToolCallSupersession(msgs, 0, reg, &config.Projection{})
 	require.Len(t, result, 2, "current turn should keep last 2")
 	assert.Equal(t, "call3", *result[0].msg.Content)
 	assert.Equal(t, "call4", *result[1].msg.Content)
@@ -137,7 +137,7 @@ func TestApplyToolCallSupersession_DisabledLeavesAllIntact(t *testing.T) {
 		{turnIdx: 1, msg: makeTCMsg("resources/read", args, "new")},
 	}
 	enabled := false
-	result := applyToolCallSupersession(msgs, 2, reg, &config.Compaction{
+	result := applyToolCallSupersession(msgs, 2, reg, &config.Projection{
 		ToolCallSupersession: &config.ToolCallSupersession{Enabled: &enabled},
 	})
 	require.Len(t, result, 2, "disabled supersession should leave all intact")
@@ -156,7 +156,7 @@ func TestApplyToolCallSupersession_MixedCacheableAndNot(t *testing.T) {
 		{turnIdx: 1, msg: makeTCMsg("resources/read", readArgs, "read-new")},
 		{turnIdx: 1, msg: makeTCMsg("system/exec/execute", execArgs, "exec2")},
 	}
-	result := applyToolCallSupersession(msgs, 2, reg, &config.Compaction{})
+	result := applyToolCallSupersession(msgs, 2, reg, &config.Projection{})
 	require.Len(t, result, 3, "should suppress only cacheable duplicates")
 	contents := make([]string, len(result))
 	for i, r := range result {

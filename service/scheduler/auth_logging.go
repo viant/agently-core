@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 )
 
 const authLogPrefix = "[scheduler-auth]"
@@ -20,8 +20,8 @@ func logAuthRunf(scheduleID, runID, userID string, format string, args ...interf
 	log.Printf(authLogPrefix+" schedule=%q run=%q user=%q "+format, args...)
 }
 
-func schedulerAuthMeta(ctx context.Context) (memory.DiscoveryMode, string) {
-	mode, _ := memory.DiscoveryModeFromContext(ctx)
+func schedulerAuthMeta(ctx context.Context) (runtimediscovery.Mode, string) {
+	mode, _ := runtimediscovery.ModeFromContext(ctx)
 	return mode, strings.TrimSpace(iauth.EffectiveUserID(ctx))
 }
 

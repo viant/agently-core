@@ -7,7 +7,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // Service publishes tool-run status messages into the parent conversation turn.
@@ -20,7 +20,7 @@ func New(c apiconv.Client) *Service { return &Service{conv: c} }
 
 // Start creates an interim status message under the parent turn and returns its id.
 // role defaults to "assistant"; mode defaults to "exec"; actor defaults to "tool".
-func (s *Service) Start(ctx context.Context, parent memory.TurnMeta, toolName, role, actor, mode string) (string, error) {
+func (s *Service) Start(ctx context.Context, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode string) (string, error) {
 	if s == nil || s.conv == nil {
 		return "", fmt.Errorf("status: conversation client not configured")
 	}
@@ -51,7 +51,7 @@ func (s *Service) Start(ctx context.Context, parent memory.TurnMeta, toolName, r
 }
 
 // Update sets interim content (e.g., progress text) on the status message.
-func (s *Service) Update(ctx context.Context, parent memory.TurnMeta, messageID, content string) error {
+func (s *Service) Update(ctx context.Context, parent runtimerequestctx.TurnMeta, messageID, content string) error {
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("status: conversation client not configured")
 	}
@@ -75,7 +75,7 @@ func (s *Service) Update(ctx context.Context, parent memory.TurnMeta, messageID,
 
 // Finalize clears interim, sets final status, and writes an optional preview content.
 // status should be one of running|succeeded|failed|canceled|auth-required.
-func (s *Service) Finalize(ctx context.Context, parent memory.TurnMeta, messageID, status, preview string) error {
+func (s *Service) Finalize(ctx context.Context, parent runtimerequestctx.TurnMeta, messageID, status, preview string) error {
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("status: conversation client not configured")
 	}

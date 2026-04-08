@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/prompt"
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -79,7 +79,7 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
 	if input != nil && input.Options != nil {
-		ctx = memory.WithRequestMode(ctx, input.Options.Mode)
+		ctx = runtimerequestctx.WithRequestMode(ctx, input.Options.Mode)
 	}
 	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
 		declared := strings.TrimSpace(input.Model)
@@ -138,7 +138,7 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 					}
 				}
 				output.Content = strings.TrimSpace(builder.String())
-				if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
+				if msgID := runtimerequestctx.ModelMessageIDFromContext(ctx); msgID != "" {
 					output.MessageID = msgID
 				}
 			}
@@ -208,7 +208,7 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	output.Content = strings.TrimSpace(builder.String())
-	if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
+	if msgID := runtimerequestctx.ModelMessageIDFromContext(ctx); msgID != "" {
 		output.MessageID = msgID
 	}
 	return nil

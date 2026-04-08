@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
@@ -175,9 +175,9 @@ func emitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID strin
 	if bus == nil || spec == nil || convID == "" {
 		return
 	}
-	messageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	messageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
 	if messageID == "" {
-		messageID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
 	event := &streaming.Event{
 		StreamID:       convID,
@@ -200,12 +200,12 @@ func emitFeedInactive(ctx context.Context, bus streaming.Bus, convID string, fee
 	if bus == nil || convID == "" || feedID == "" {
 		return
 	}
-	messageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	messageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
 	if messageID == "" {
-		messageID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
 	turnID := ""
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		turnID = strings.TrimSpace(turn.TurnID)
 	}
 	event := &streaming.Event{

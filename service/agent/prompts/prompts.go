@@ -23,6 +23,9 @@ var Capability string
 //go:embed async_reinforcement.md
 var AsyncReinforcement string
 
+//go:embed relevance_projection.md
+var RelevanceProjection string
+
 func RouterPrompt(outputKey string) string {
 	key := strings.TrimSpace(outputKey)
 	if key == "" {

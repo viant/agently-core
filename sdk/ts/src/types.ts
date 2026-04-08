@@ -472,6 +472,7 @@ export interface QueryOutput {
     plan?: JSONObject;
     usage?: UsageInfo;
     warnings?: string[];
+    projection?: JSONObject;
 }
 
 export interface UsageInfo {

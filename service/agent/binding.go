@@ -13,7 +13,8 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimeprojection "github.com/viant/agently-core/runtime/projection"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/workspace"
 )
 
@@ -61,7 +62,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	debugf("agent.BuildBinding buildHistory ok convo=%q elapsed=%s overflow=%t elicitation=%d", convoID, time.Since(histStart).String(), histResult.Overflow, len(histResult.Elicitation))
 	b.History = histResult.History
 	// Align History.CurrentTurnID with the in-flight turn when available
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		b.History.CurrentTurnID = strings.TrimSpace(tm.TurnID)
 	}
 	// Attach current-turn elicitation messages to History.Current so
@@ -107,12 +108,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	debugf("agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
 
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
-	exposure := agent.ToolCallExposure("turn")
-	if input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
-		exposure = *input.ToolCallExposure
-	} else if input.Agent != nil && strings.TrimSpace(string(input.Agent.Tool.CallExposure)) != "" {
-		exposure = input.Agent.Tool.CallExposure
-	}
+	exposure := resolveToolCallExposure(input)
 
 	b.History.ToolExposure = string(exposure)
 
@@ -134,7 +130,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 
 	// If any tool call in the current turn overflowed, expose callToolResult tools
-	turnMeta, ok := memory.TurnMetaFromContext(ctx)
+	turnMeta, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if ok && strings.TrimSpace(turnMeta.TurnID) != "" {
 		var current *apiconv.Turn
 		for _, t := range conv.GetTranscript() {
@@ -192,6 +188,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	// Avoid mutating input.Context directly by working on a copy.
 	b.Context = cloneContextMap(b.Context)
 	mergeElicitationPayloadIntoContext(b.History, &b.Context)
+	applyProjectionContext(ctx, &b.Context)
 	s.applyWorkdirContext(input, b)
 	s.applyDelegationContext(input, b)
 
@@ -214,6 +211,23 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		})
 	}
 	return b, nil
+}
+
+func resolveToolCallExposure(input *QueryInput) agent.ToolCallExposure {
+	exposure := agent.ToolCallExposure("turn")
+	if input == nil {
+		return exposure
+	}
+	if input.ToolCallExposure != nil && strings.TrimSpace(string(*input.ToolCallExposure)) != "" {
+		return *input.ToolCallExposure
+	}
+	if input.Agent != nil && strings.TrimSpace(string(input.Agent.Tool.CallExposure)) != "" {
+		return input.Agent.Tool.CallExposure
+	}
+	if input.Agent != nil && strings.TrimSpace(string(input.Agent.ToolCallExposure)) != "" {
+		return input.Agent.ToolCallExposure
+	}
+	return exposure
 }
 
 func bindingTraceID(trace *prompt.Trace) string {
@@ -255,6 +269,26 @@ func cloneContextMap(src map[string]interface{}) map[string]interface{} {
 		dst[k] = v
 	}
 	return dst
+}
+
+func applyProjectionContext(ctx context.Context, target *map[string]interface{}) {
+	if target == nil {
+		return
+	}
+	if *target == nil {
+		*target = map[string]interface{}{}
+	}
+	snapshot, ok := runtimeprojection.SnapshotFromContext(ctx)
+	if !ok {
+		return
+	}
+	(*target)["Projection"] = map[string]interface{}{
+		"scope":            strings.TrimSpace(snapshot.Scope),
+		"hiddenTurnIds":    append([]string(nil), snapshot.HiddenTurnIDs...),
+		"hiddenMessageIds": append([]string(nil), snapshot.HiddenMessageIDs...),
+		"reason":           strings.TrimSpace(snapshot.Reason),
+		"tokensFreed":      snapshot.TokensFreed,
+	}
 }
 
 func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {

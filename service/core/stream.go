@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	stream "github.com/viant/agently-core/service/core/stream"
@@ -37,7 +37,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		return nop, err
 	}
 	if input != nil && input.GenerateInput != nil && input.GenerateInput.Options != nil {
-		ctx = memory.WithRequestMode(ctx, input.GenerateInput.Options.Mode)
+		ctx = runtimerequestctx.WithRequestMode(ctx, input.GenerateInput.Options.Mode)
 	}
 	// StreamOutput is an accumulator for this invocation only. Reject reused
 	// outputs to keep retry behavior deterministic and avoid mixing old events.
@@ -251,7 +251,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}
 
 	// Provide the shared assistant message ID to the caller; orchestrator writes the final assistant message.
-	if msgID := memory.ModelMessageIDFromContext(ctx); msgID != "" {
+	if msgID := runtimerequestctx.ModelMessageIDFromContext(ctx); msgID != "" {
 		output.MessageID = msgID
 	}
 
@@ -337,9 +337,9 @@ func (s *Service) consumeEvents(ctx context.Context, ch <-chan llm.StreamEvent, 
 // When the event carries typed Kind fields, those take precedence.
 func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent, output *StreamOutput) error {
 	now := time.Now()
-	streamID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
-	turnMeta, _ := memory.TurnMetaFromContext(ctx)
-	mode := strings.TrimSpace(memory.RequestModeFromContext(ctx))
+	streamID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	turnMeta, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
 	if streamID == "" {
 		streamID = strings.TrimSpace(turnMeta.ConversationID)
 	}
@@ -435,7 +435,7 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			StreamID:        streamID,
 			ConversationID:  streamID,
 			TurnID:          strings.TrimSpace(turnMeta.TurnID),
-			MessageID:       strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)),
+			MessageID:       strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)),
 			AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
 			UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
 			ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),

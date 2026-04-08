@@ -16,10 +16,10 @@ import (
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/service/shared"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 type chainControl struct {
@@ -70,7 +70,7 @@ type ChainContext struct {
 	Conversation *apiconv.Conversation
 	Context      map[string]interface{}
 	UserID       string
-	ParentTurn   *memory.TurnMeta
+	ParentTurn   *runtimerequestctx.TurnMeta
 	Output       struct{ Content, Model, MessageID, Error string }
 	// Per-request controls
 	AllowedChains []string
@@ -79,7 +79,7 @@ type ChainContext struct {
 
 // NewChainContext builds a ChainContext from the current turn context,
 // parent input and output. Conversation can be attached by the caller.
-func NewChainContext(in *QueryInput, out *QueryOutput, turn *memory.TurnMeta) ChainContext {
+func NewChainContext(in *QueryInput, out *QueryOutput, turn *runtimerequestctx.TurnMeta) ChainContext {
 	var cc ChainContext
 	if in != nil {
 		cc.Agent = in.Agent
@@ -385,7 +385,7 @@ func (s *Service) ensureChainConversation(ctx context.Context, chainCtx ChainCon
 
 func (s *Service) cloneContextMessages(ctx context.Context, transcript apiconv.Transcript, conversationID string) error {
 	transcriptTurnID := uuid.New().String()
-	transcriptTurn := memory.TurnMeta{
+	transcriptTurn := runtimerequestctx.TurnMeta{
 		ParentMessageID: transcriptTurnID,
 		TurnID:          transcriptTurnID,
 		ConversationID:  conversationID,
@@ -516,7 +516,7 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 		next.Context[k] = v
 	}
 	var out QueryOutput
-	if err := s.Query(executil.WithChainMode(ctx, true), next, &out); err != nil {
+	if err := s.Query(toolexec.WithChainMode(ctx, true), next, &out); err != nil {
 		return fmt.Errorf("continuation error: %w", err)
 	}
 	return nil
@@ -527,7 +527,7 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 // trimmed content and resolved role.
 // It centralizes shared logic for sync/async chain execution without applying error policies.
 func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, error) {
-	ctx = executil.WithChainMode(ctx, true)
+	ctx = toolexec.WithChainMode(ctx, true)
 	var out QueryOutput
 	if err := s.Query(ctx, in, &out); err != nil {
 		return "", fmt.Errorf("failed to run query %w", err)

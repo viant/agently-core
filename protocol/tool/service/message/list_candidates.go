@@ -9,7 +9,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func firstToolCallForCandidate(m *agconv.MessageView) *agconv.ToolCallView {
@@ -57,7 +57,7 @@ func (s *Service) listCandidates(ctx context.Context, in, out interface{}) error
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("conversation client not initialised")
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" {
 		return fmt.Errorf("missing conversation id in context")
 	}

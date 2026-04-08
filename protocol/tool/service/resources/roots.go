@@ -13,7 +13,7 @@ import (
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	embopt "github.com/viant/embedius/matching/option"
@@ -298,8 +298,8 @@ func (s *Service) resolveRootID(ctx context.Context, id string) (string, error) 
 		if userID != "" {
 			bg = authctx.WithUserInfo(bg, &authctx.UserInfo{Subject: userID})
 		}
-		if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
-			bg = memory.WithConversationID(bg, convID)
+		if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+			bg = runtimerequestctx.WithConversationID(bg, convID)
 		}
 		curAgent = s.currentAgent(bg)
 	}

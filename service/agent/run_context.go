@@ -12,12 +12,12 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	"github.com/viant/agently-core/runtime/memory"
-	executil "github.com/viant/agently-core/service/shared/executil"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
-func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, actor, content string, raw *string, mode, id string) (string, error) {
-	if executil.IsChainMode(ctx) {
+func (s *Service) addMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, role, actor, content string, raw *string, mode, id string) (string, error) {
+	if toolexec.IsChainMode(ctx) {
 		mode = "chain"
 	}
 	opts := []apiconv.MessageOption{
@@ -36,7 +36,7 @@ func (s *Service) addMessage(ctx context.Context, turn *memory.TurnMeta, role, a
 	if strings.TrimSpace(id) != "" {
 		opts = append(opts, apiconv.WithId(id))
 	}
-	if runMeta, ok := memory.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
 	}
 	infof("agent.addMessage start convo=%q turn_id=%q role=%q actor=%q mode=%q id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), strings.TrimSpace(id), len(content), headString(content, 512), tailString(content, 512))
@@ -209,7 +209,7 @@ func extractBearer(authHeader string) string {
 	return authHeader
 }
 
-func shouldSkipFinalAssistantPersist(ctx context.Context, client apiconv.Client, turn *memory.TurnMeta, content string) bool {
+func shouldSkipFinalAssistantPersist(ctx context.Context, client apiconv.Client, turn *runtimerequestctx.TurnMeta, content string) bool {
 	if client == nil || turn == nil {
 		return false
 	}
@@ -279,7 +279,7 @@ type turnTaskCheckpoint struct {
 	Found     bool
 }
 
-func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn memory.TurnMeta) (turnTaskCheckpoint, error) {
+func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequestctx.TurnMeta) (turnTaskCheckpoint, error) {
 	checkpoint := turnTaskCheckpoint{}
 	if s == nil {
 		return checkpoint, nil
@@ -349,7 +349,7 @@ func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn memory.Turn
 	return checkpoint, nil
 }
 
-func (s *Service) hasNewTurnTaskSince(ctx context.Context, turn memory.TurnMeta, checkpoint turnTaskCheckpoint) (bool, error) {
+func (s *Service) hasNewTurnTaskSince(ctx context.Context, turn runtimerequestctx.TurnMeta, checkpoint turnTaskCheckpoint) (bool, error) {
 	latest, err := s.latestTurnTaskCheckpoint(ctx, turn)
 	if err != nil {
 		return false, err

@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -249,7 +249,7 @@ func (s *Service) setModelCallStatus(ctx context.Context, status string) {
 	if s == nil || s.convClient == nil || strings.TrimSpace(status) == "" {
 		return
 	}
-	msgID := strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+	msgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	if msgID == "" {
 		return
 	}

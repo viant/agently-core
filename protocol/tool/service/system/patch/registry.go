@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
-	mem "github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // Name of the system/patch action service.
@@ -117,7 +117,7 @@ func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *App
 	if strings.TrimSpace(input.Workdir) == "" {
 		return fmt.Errorf("workdir is required for system/patch:apply")
 	}
-	convID := mem.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if convID == "" {
 		convID = "_global"
 	}
@@ -156,7 +156,7 @@ func (s *Service) commit(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 
-	convID := mem.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if convID == "" {
 		convID = "_global"
 	}
@@ -182,7 +182,7 @@ func (s *Service) rollback(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 
-	convID := mem.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if convID == "" {
 		convID = "_global"
 	}
@@ -229,7 +229,7 @@ func (s *Service) snapshot(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 
-	convID := mem.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if convID == "" {
 		convID = "_global"
 	}

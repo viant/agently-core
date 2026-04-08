@@ -10,7 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestBuildToolExecutions_DecodesCompressedToolResult(t *testing.T) {

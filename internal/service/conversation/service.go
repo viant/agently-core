@@ -33,7 +33,7 @@ import (
 	turnread "github.com/viant/agently-core/pkg/agently/turn/read"
 	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
@@ -535,7 +535,7 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 	}
 	conversationID := strings.TrimSpace(message.ConversationID)
 	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
 		return
@@ -573,7 +573,7 @@ func shouldSuppressMessagePatchEvent(ctx context.Context, message *convcli.Mutab
 	if isToolMessage(message) {
 		return true
 	}
-	toolMessageID := strings.TrimSpace(memory.ToolMessageIDFromContext(ctx))
+	toolMessageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
 	return toolMessageID != "" && toolMessageID == strings.TrimSpace(message.Id)
 }
 
@@ -759,7 +759,7 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	}
 	fallbackConversationID := ""
 	fallbackTurnID := ""
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		fallbackConversationID = strings.TrimSpace(turn.ConversationID)
 		fallbackTurnID = strings.TrimSpace(turn.TurnID)
 	}
@@ -826,10 +826,10 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 	if toolCall == nil {
 		return nil
 	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
 	conversationID := strings.TrimSpace(turn.ConversationID)
 	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
 		return nil
@@ -847,10 +847,10 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		StreamID:           conversationID,
 		ConversationID:     conversationID,
 		MessageID:          strings.TrimSpace(toolCall.MessageID),
-		Mode:               strings.TrimSpace(memory.RequestModeFromContext(ctx)),
+		Mode:               strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)),
 		Type:               eventType,
 		TurnID:             resolveTurnID(ctx, valueOrEmptyStr(toolCall.TurnID)),
-		AssistantMessageID: strings.TrimSpace(memory.ModelMessageIDFromContext(ctx)),
+		AssistantMessageID: strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)),
 		ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
 		ToolCallID:         strings.TrimSpace(toolCall.OpID),
 		ToolMessageID:      strings.TrimSpace(toolCall.MessageID),
@@ -1053,7 +1053,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 	}
 	conversationID := strings.TrimSpace(turn.ConversationID)
 	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
 		return
@@ -1061,7 +1061,7 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 	createdAt := turnEventCreatedAt(turn)
 	userMessageID := strings.TrimSpace(valueOrEmptyStr(turn.StartedByMessageID))
 	if userMessageID == "" {
-		if turnMeta, ok := memory.TurnMetaFromContext(ctx); ok {
+		if turnMeta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 			userMessageID = strings.TrimSpace(turnMeta.ParentMessageID)
 		}
 	}
@@ -1163,7 +1163,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 		turnID = strings.TrimSpace(*message.TurnID)
 	}
 	if turnID == "" {
-		if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 			turnID = strings.TrimSpace(turn.TurnID)
 		}
 	}
@@ -1213,17 +1213,17 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 	if s == nil || s.streamPub == nil || modelCall == nil {
 		return
 	}
-	turn, _ := memory.TurnMetaFromContext(ctx)
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
 	conversationID := strings.TrimSpace(turn.ConversationID)
 	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
 		log.Printf("[emitCanonicalModelEvent] SKIP no conversationID msg=%q status=%q", modelCall.MessageID, modelCall.Status)
 		return
 	}
 	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
-	mode := strings.TrimSpace(memory.RequestModeFromContext(ctx))
+	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
 	log.Printf("[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
@@ -1310,7 +1310,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		}
 		// Include LLM response data (content, preamble, finalResponse) when
 		// available via context — makes model_completed self-sufficient.
-		if meta, ok := memory.ModelCompletionMetaFromContext(ctx); ok {
+		if meta, ok := runtimerequestctx.ModelCompletionMetaFromContext(ctx); ok {
 			event.Content = meta.Content
 			event.Preamble = meta.Preamble
 			event.FinalResponse = meta.FinalResponse
@@ -1324,7 +1324,7 @@ func resolveTurnID(ctx context.Context, explicit string) string {
 	if turnID := strings.TrimSpace(explicit); turnID != "" {
 		return turnID
 	}
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		return strings.TrimSpace(turn.TurnID)
 	}
 	return ""

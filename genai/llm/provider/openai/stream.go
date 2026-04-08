@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -311,8 +311,8 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			}
 			if err := json.Unmarshal([]byte(data), &e); err == nil && strings.TrimSpace(e.Response.ID) != "" {
 				p.state.lastResponseID = strings.TrimSpace(e.Response.ID)
-				if turn, ok := memory.TurnMetaFromContext(p.ctx); ok {
-					memory.SetTurnTrace(turn.TurnID, p.state.lastResponseID)
+				if turn, ok := runtimerequestctx.TurnMetaFromContext(p.ctx); ok {
+					runtimerequestctx.SetTurnTrace(turn.TurnID, p.state.lastResponseID)
 				}
 			}
 			return true

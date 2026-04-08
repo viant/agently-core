@@ -3,37 +3,17 @@ package memory
 import (
 	"context"
 
-	"github.com/google/uuid"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-// ConversationIDKey is used to propagate the current conversation identifier
-// via context so that downstream services (e.g. tool-execution tracing) can
-// associate side-effects with the correct conversation without changing every
-// function signature.
-type conversationIDKey string
+// Deprecated: package memory is a compatibility shim over runtime/requestctx.
+// New code should import runtime/requestctx directly.
+var ConversationIDKey = runtimerequestctx.ConversationIDKey
 
-var ConversationIDKey = conversationIDKey("conversationID")
-
-// ConversationIDFromContext return conversation id from context
 func ConversationIDFromContext(ctx context.Context) string {
-	value := ctx.Value(ConversationIDKey)
-	if value == nil {
-		return ""
-	}
-	if id, ok := value.(string); ok {
-		return id
-	}
-	return ""
+	return runtimerequestctx.ConversationIDFromContext(ctx)
 }
 
-// WithConversationID create context with conversation id
 func WithConversationID(ctx context.Context, conversationID string) context.Context {
-	if conversationID == "" {
-		conversationID = uuid.New().String()
-	}
-	prev := ctx.Value(ConversationIDKey)
-	if prev != nil && prev == conversationID {
-		return ctx
-	}
-	return context.WithValue(ctx, ConversationIDKey, conversationID)
+	return runtimerequestctx.WithConversationID(ctx, conversationID)
 }

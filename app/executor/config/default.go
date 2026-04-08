@@ -1,6 +1,9 @@
 package config
 
-import "gopkg.in/yaml.v3"
+import (
+	"github.com/viant/agently-core/protocol/prompt"
+	"gopkg.in/yaml.v3"
+)
 
 type Defaults struct {
 	Model    string
@@ -40,8 +43,8 @@ type Defaults struct {
 	// ---- Tool-call result controls (grouped) ---------------------
 	PreviewSettings PreviewSettings `yaml:"previewSettings" json:"previewSettings"`
 
-	// ---- Prompt-history compaction --------------------------------
-	Compaction Compaction `yaml:"compaction,omitempty" json:"compaction,omitempty"`
+	// ---- Prompt-history projection -------------------------------
+	Projection Projection `yaml:"projection,omitempty" json:"projection,omitempty"`
 
 	ToolCallMaxResults int `yaml:"toolCallMaxResults" json:"toolCallMaxResults"`
 
@@ -99,7 +102,8 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		CapabilityPrompt string `yaml:"capabilityPrompt,omitempty"`
 
 		PreviewSettings PreviewSettings `yaml:"previewSettings,omitempty"`
-		Compaction      Compaction      `yaml:"compaction,omitempty"`
+		Projection      Projection      `yaml:"projection,omitempty"`
+		Compaction      Projection      `yaml:"compaction,omitempty"` // legacy alias
 
 		ToolCallMaxResults    int `yaml:"toolCallMaxResults,omitempty"`
 		ToolCallTimeoutSec    int `yaml:"toolCallTimeoutSec,omitempty"`
@@ -128,7 +132,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		CapabilityPrompt: tmp.CapabilityPrompt,
 
 		PreviewSettings: tmp.PreviewSettings,
-		Compaction:      tmp.Compaction,
+		Projection:      tmp.Projection,
 
 		ToolCallMaxResults:    tmp.ToolCallMaxResults,
 		ToolCallTimeoutSec:    tmp.ToolCallTimeoutSec,
@@ -149,6 +153,9 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		d.ToolAutoSelection = tmp.ToolAutoSelection
 	} else if hasKey("toolRouter") {
 		d.ToolAutoSelection = tmp.ToolRouter
+	}
+	if !hasKey("projection") && hasKey("compaction") {
+		d.Projection = tmp.Compaction
 	}
 
 	return nil
@@ -185,9 +192,65 @@ type PreviewSettings struct {
 	SummaryThresholdBytes int `yaml:"summaryThresholdBytes,omitempty" json:"summaryThresholdBytes,omitempty"`
 }
 
-// Compaction groups prompt-history compaction settings.
-type Compaction struct {
+// Projection groups prompt-history projection settings.
+type Projection struct {
+	Relevance            *RelevanceProjection  `yaml:"relevance,omitempty" json:"relevance,omitempty"`
 	ToolCallSupersession *ToolCallSupersession `yaml:"toolCallSupersession,omitempty" json:"toolCallSupersession,omitempty"`
+}
+
+// RelevanceProjection controls optional selector-based hiding of irrelevant
+// prior turns before prompt-history construction.
+type RelevanceProjection struct {
+	Enabled              *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	ProtectedRecentTurns *int           `yaml:"protectedRecentTurns,omitempty" json:"protectedRecentTurns,omitempty"`
+	TokenThreshold       *int           `yaml:"tokenThreshold,omitempty" json:"tokenThreshold,omitempty"`
+	ChunkSize            *int           `yaml:"chunkSize,omitempty" json:"chunkSize,omitempty"`
+	MaxConcurrency       *int           `yaml:"maxConcurrency,omitempty" json:"maxConcurrency,omitempty"`
+	Model                *string        `yaml:"model,omitempty" json:"model,omitempty"`
+	Prompt               *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+}
+
+// IsEnabled reports whether relevance projection is enabled. Default: false.
+func (r *RelevanceProjection) IsEnabled() bool {
+	if r == nil || r.Enabled == nil {
+		return false
+	}
+	return *r.Enabled
+}
+
+// ProtectedTurns returns the protected recent-tail size. Default: 1.
+func (r *RelevanceProjection) ProtectedTurns() int {
+	if r == nil || r.ProtectedRecentTurns == nil || *r.ProtectedRecentTurns <= 0 {
+		return 1
+	}
+	return *r.ProtectedRecentTurns
+}
+
+// Threshold returns the approximate token threshold that must be exceeded
+// before selector-based relevance projection runs. Default: 0 (always eligible).
+func (r *RelevanceProjection) Threshold() int {
+	if r == nil || r.TokenThreshold == nil || *r.TokenThreshold < 0 {
+		return 0
+	}
+	return *r.TokenThreshold
+}
+
+// Chunk returns the candidate chunk size for concurrent selector runs.
+// Default: 0 (no chunking).
+func (r *RelevanceProjection) Chunk() int {
+	if r == nil || r.ChunkSize == nil || *r.ChunkSize <= 0 {
+		return 0
+	}
+	return *r.ChunkSize
+}
+
+// Concurrency returns the maximum concurrent selector calls for chunked
+// relevance projection. Default: 1.
+func (r *RelevanceProjection) Concurrency() int {
+	if r == nil || r.MaxConcurrency == nil || *r.MaxConcurrency <= 0 {
+		return 1
+	}
+	return *r.MaxConcurrency
 }
 
 // ToolCallSupersession controls how repeated cacheable tool outputs are
@@ -203,7 +266,7 @@ type ToolCallSupersession struct {
 // SupersessionLimit specifies per-scope retention caps.
 type SupersessionLimit struct {
 	// History is the max matching results per key across all prior turns
-	// T(0)..T(N-1). Default: 1 (only the newest survives).
+	// T(LastCheckpoint)..T(N-1). Default: 1 (only the newest survives).
 	History *int `yaml:"history,omitempty" json:"history,omitempty"`
 	// Turn is the max matching results per key within the current turn TN.
 	// Default: 2 (keep last 2, suppress K-2 earliest).
@@ -211,30 +274,30 @@ type SupersessionLimit struct {
 }
 
 // IsSupersessionEnabled returns whether tool-call supersession is active.
-func (c *Compaction) IsSupersessionEnabled() bool {
-	if c == nil || c.ToolCallSupersession == nil {
+func (p *Projection) IsSupersessionEnabled() bool {
+	if p == nil || p.ToolCallSupersession == nil {
 		return true // default enabled
 	}
-	if c.ToolCallSupersession.Enabled != nil {
-		return *c.ToolCallSupersession.Enabled
+	if p.ToolCallSupersession.Enabled != nil {
+		return *p.ToolCallSupersession.Enabled
 	}
 	return true
 }
 
 // SupersessionHistoryLimit returns the per-key limit for prior turns.
-func (c *Compaction) SupersessionHistoryLimit() int {
-	if c == nil || c.ToolCallSupersession == nil || c.ToolCallSupersession.Limit == nil || c.ToolCallSupersession.Limit.History == nil {
+func (p *Projection) SupersessionHistoryLimit() int {
+	if p == nil || p.ToolCallSupersession == nil || p.ToolCallSupersession.Limit == nil || p.ToolCallSupersession.Limit.History == nil {
 		return 1
 	}
-	return *c.ToolCallSupersession.Limit.History
+	return *p.ToolCallSupersession.Limit.History
 }
 
 // SupersessionTurnLimit returns the per-key limit for the current turn.
-func (c *Compaction) SupersessionTurnLimit() int {
-	if c == nil || c.ToolCallSupersession == nil || c.ToolCallSupersession.Limit == nil || c.ToolCallSupersession.Limit.Turn == nil {
+func (p *Projection) SupersessionTurnLimit() int {
+	if p == nil || p.ToolCallSupersession == nil || p.ToolCallSupersession.Limit == nil || p.ToolCallSupersession.Limit.Turn == nil {
 		return 2
 	}
-	return *c.ToolCallSupersession.Limit.Turn
+	return *p.ToolCallSupersession.Limit.Turn
 }
 
 // MatchDefaults groups retrieval/matching defaults

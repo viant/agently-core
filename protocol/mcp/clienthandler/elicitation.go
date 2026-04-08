@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentplan "github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -74,7 +74,7 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 	}
 	conversationID := strings.TrimSpace(h.conversation)
 	if conversationID == "" {
-		conversationID = strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 
 	params := request.Request.Params
@@ -110,7 +110,7 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 		fmt.Printf("[elicit-handler] conversation %s found, waitForResolution=true\n", conversationID)
 	}
 	elic := &agentplan.Elicitation{ElicitRequestParams: params}
-	turn := &memory.TurnMeta{ConversationID: conversationID}
+	turn := &runtimerequestctx.TurnMeta{ConversationID: conversationID}
 	if conv != nil && conv.LastTurnId != nil {
 		turn.TurnID = *conv.LastTurnId
 		turn.ParentMessageID = *conv.LastTurnId

@@ -12,11 +12,11 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 )
 
-func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta, scheduleID string) error {
+func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta, scheduleID string) error {
 	rec := apiconv.NewTurn()
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
@@ -52,7 +52,7 @@ func (s *Service) startTurn(ctx context.Context, turn memory.TurnMeta, scheduleI
 	return fmt.Errorf("failed to update conversation status: %w", convErr)
 }
 
-func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, userID, content, raw string) error {
+func (s *Service) addUserMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, userID, content, raw string) error {
 	var rawPtr *string
 	if strings.TrimSpace(raw) != "" {
 		rawCopy := raw
@@ -66,7 +66,7 @@ func (s *Service) addUserMessage(ctx context.Context, turn *memory.TurnMeta, use
 	return nil
 }
 
-func (s *Service) processAttachments(ctx context.Context, turn memory.TurnMeta, input *QueryInput) error {
+func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx.TurnMeta, input *QueryInput) error {
 	if len(input.Attachments) == 0 {
 		return nil
 	}
@@ -131,7 +131,7 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 		}
 		return "failed", err
 	}
-	if turn, ok := memory.TurnMetaFromContext(ctx); ok {
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		waitingForUser, err := s.turnAwaitingUserAction(ctx, turn)
 		if err != nil {
 			return "failed", err
@@ -146,7 +146,7 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 	return "succeeded", nil
 }
 
-func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status string, runErr error) error {
+func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnMeta, status string, runErr error) error {
 	var emsg string
 	if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {
 		emsg = runErr.Error()
@@ -198,12 +198,12 @@ func (s *Service) finalizeTurn(ctx context.Context, turn memory.TurnMeta, status
 	}
 
 	infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
-	memory.CleanupTurn(turn.TurnID)
+	runtimerequestctx.CleanupTurn(turn.TurnID)
 	s.triggerQueueDrain(turn.ConversationID)
 	return nil
 }
 
-func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, output *QueryOutput) error {
+func (s *Service) updateDefaultModel(ctx context.Context, turn runtimerequestctx.TurnMeta, output *QueryOutput) error {
 	if strings.TrimSpace(output.Model) == "" {
 		return nil
 	}
@@ -217,7 +217,7 @@ func (s *Service) updateDefaultModel(ctx context.Context, turn memory.TurnMeta, 
 	return nil
 }
 
-func (s *Service) executeChainsAfter(ctx context.Context, input *QueryInput, output *QueryOutput, turn memory.TurnMeta, conv *apiconv.Conversation, status string) error {
+func (s *Service) executeChainsAfter(ctx context.Context, input *QueryInput, output *QueryOutput, turn runtimerequestctx.TurnMeta, conv *apiconv.Conversation, status string) error {
 	cc := NewChainContext(input, output, &turn)
 	cc.Conversation = conv
 	return s.executeChains(ctx, cc, status)
@@ -252,7 +252,7 @@ func valueOrEmpty(v *string) string {
 	return *v
 }
 
-func (s *Service) ensureRunRecord(ctx context.Context, turn memory.TurnMeta, status, scheduleID string) error {
+func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.TurnMeta, status, scheduleID string) error {
 	if s == nil || s.dataService == nil {
 		return nil
 	}
@@ -275,7 +275,7 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn memory.TurnMeta, sta
 	return err
 }
 
-func (s *Service) updateRunIteration(ctx context.Context, turn memory.TurnMeta, iteration int) {
+func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx.TurnMeta, iteration int) {
 	if s == nil || s.dataService == nil || iteration <= 0 {
 		return
 	}
@@ -288,7 +288,7 @@ func (s *Service) updateRunIteration(ctx context.Context, turn memory.TurnMeta, 
 	}
 }
 
-func (s *Service) replaceInterimContentForElicitation(ctx context.Context, turn *memory.TurnMeta, genOutput *core.GenerateOutput, elicitMessage string) {
+func (s *Service) replaceInterimContentForElicitation(ctx context.Context, turn *runtimerequestctx.TurnMeta, genOutput *core.GenerateOutput, elicitMessage string) {
 	if s.conversation == nil || turn == nil {
 		return
 	}
@@ -298,7 +298,7 @@ func (s *Service) replaceInterimContentForElicitation(ctx context.Context, turn 
 	}
 	msgID := strings.TrimSpace(genOutput.MessageID)
 	if msgID == "" {
-		msgID = strings.TrimSpace(memory.ModelMessageIDFromContext(ctx))
+		msgID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
 	if msgID == "" {
 		msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
@@ -346,7 +346,7 @@ func (s *Service) findLastInterimAssistantMessageID(ctx context.Context, convers
 	return ""
 }
 
-func (s *Service) patchRunTerminalState(ctx context.Context, turn memory.TurnMeta, status, errorMessage string) error {
+func (s *Service) patchRunTerminalState(ctx context.Context, turn runtimerequestctx.TurnMeta, status, errorMessage string) error {
 	if s == nil || s.dataService == nil {
 		return nil
 	}
@@ -361,7 +361,7 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn memory.TurnMet
 	return err
 }
 
-func (s *Service) turnAwaitingUserAction(ctx context.Context, turn memory.TurnMeta) (bool, error) {
+func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimerequestctx.TurnMeta) (bool, error) {
 	if s == nil || s.conversation == nil {
 		return false, nil
 	}

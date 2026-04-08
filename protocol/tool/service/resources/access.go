@@ -8,7 +8,7 @@ import (
 	agmodel "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
 )
 
@@ -220,7 +220,7 @@ func (s *Service) currentAgent(ctx context.Context) *agmodel.Agent {
 	if s.aFinder == nil {
 		return nil
 	}
-	if tm, ok := memory.TurnMetaFromContext(ctx); ok {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		if agentID := strings.TrimSpace(tm.Assistant); agentID != "" {
 			ag, err := s.aFinder.Find(ctx, agentID)
 			if err == nil && ag != nil {
@@ -231,7 +231,7 @@ func (s *Service) currentAgent(ctx context.Context) *agmodel.Agent {
 	if s.conv == nil {
 		return nil
 	}
-	convID := memory.ConversationIDFromContext(ctx)
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
 	if strings.TrimSpace(convID) == "" {
 		return nil
 	}

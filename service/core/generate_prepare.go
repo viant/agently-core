@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -62,7 +62,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 			len(request.Messages),
 		)
 	}
-	if convID := strings.TrimSpace(memory.ConversationIDFromContext(ctx)); convID != "" {
+	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
 		request.PromptCacheKey = convID
 	}
 	applyInstructionsDefaults(request, model)

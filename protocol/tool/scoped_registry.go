@@ -8,7 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpnames "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // scopedRegistry is a lightweight wrapper that binds a tool.Registry to a
@@ -62,8 +62,8 @@ func (s *scopedRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 // underlying registry.
 func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	if s.convID != "" {
-		if memory.ConversationIDFromContext(ctx) == "" {
-			ctx = memory.WithConversationID(ctx, s.convID)
+		if runtimerequestctx.ConversationIDFromContext(ctx) == "" {
+			ctx = runtimerequestctx.WithConversationID(ctx, s.convID)
 		}
 	}
 	return s.inner.Execute(ctx, name, args)

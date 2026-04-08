@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	executil "github.com/viant/agently-core/service/shared/executil"
+	"github.com/viant/agently-core/service/shared/toolexec"
 )
 
 func TestJoinBaseWithPath_RootSlash(t *testing.T) {
@@ -91,7 +91,7 @@ func TestInferAllowedRootFromPath(t *testing.T) {
 }
 
 func TestDefaultResourcePath_UsesWorkdirWhenPathMissing(t *testing.T) {
-	ctx := executil.WithWorkdir(context.Background(), "/Users/adrianwitas/projects/poly/poly")
+	ctx := toolexec.WithWorkdir(context.Background(), "/Users/adrianwitas/projects/poly/poly")
 	if got := defaultResourcePath(ctx, ""); got != "/Users/adrianwitas/projects/poly/poly" {
 		t.Fatalf("expected workdir fallback, got %s", got)
 	}

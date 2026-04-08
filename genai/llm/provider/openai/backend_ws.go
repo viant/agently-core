@@ -15,7 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/runtime/memory"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -235,7 +235,7 @@ func isBackendTerminalEvent(eventType string) bool {
 }
 
 func (c *Client) streamViaBackendWebSocket(ctx context.Context, req *Request, orig *llm.GenerateRequest, events chan<- llm.StreamEvent) error {
-	conversationID := strings.TrimSpace(memory.ConversationIDFromContext(ctx))
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	if conversationID == "" {
 		return fmt.Errorf("backend websocket requires conversation id in context")
 	}

@@ -228,7 +228,18 @@ describe('Transcript', () => {
 
 describe('Query', () => {
     it('sends POST /agent/query with full input', async () => {
-        const f = mockFetch(200, { conversationId: 'conv_1', content: 'Hello', messageId: 'msg_1' });
+        const f = mockFetch(200, {
+            conversationId: 'conv_1',
+            content: 'Hello',
+            messageId: 'msg_1',
+            projection: {
+                scope: 'conversation',
+                hiddenTurnIds: ['turn_1'],
+                hiddenMessageIds: ['msg_9'],
+                reason: 'tool call supersession',
+                tokensFreed: 42,
+            },
+        });
         const c = client(f);
         const res = await c.query({
             conversationId: 'conv_1',
@@ -239,6 +250,8 @@ describe('Query', () => {
         });
 
         expect(res.content).toBe('Hello');
+        expect(res.projection?.scope).toBe('conversation');
+        expect(res.projection?.hiddenTurnIds).toEqual(['turn_1']);
         const call = lastCall(f);
         expect(call.method).toBe('POST');
         expect(call.url).toBe('http://localhost:8585/v1/agent/query');
