@@ -5,5 +5,6 @@ repo/
 logs/
 node_modules/
 agently-app
+e2e/database/agently/script/schema.ddl
 !e2e/cli/agently-app/
 !e2e/cli/agently-app/**
