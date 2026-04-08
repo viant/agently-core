@@ -207,6 +207,53 @@ describe('executionGroups', () => {
         });
     });
 
+    it('tracks async waiting and failed tool lifecycle events', () => {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
+            type: 'model_started',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            status: 'running',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
+            type: 'tool_call_waiting',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            toolCallId: 'tc1',
+            toolMessageId: 'tm1',
+            toolName: 'llm/agents:run',
+            operationId: 'child-1',
+            status: 'running',
+        }));
+        const live3 = applyExecutionStreamEventToGroups(live2, event({
+            type: 'tool_call_failed',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            toolCallId: 'tc1',
+            toolMessageId: 'tm1',
+            toolName: 'llm/agents:run',
+            operationId: 'child-1',
+            status: 'failed',
+            error: 'boom',
+        }));
+
+        expect(live3.a1).toMatchObject({
+            status: 'failed',
+            errorMessage: 'boom',
+        });
+        expect(live3.a1.toolSteps[0]).toMatchObject({
+            toolName: 'llm/agents:run',
+            operationId: 'child-1',
+            status: 'failed',
+            errorMessage: 'boom',
+        });
+        expect(live3.a1.toolSteps[0].asyncOperation).toMatchObject({
+            operationId: 'child-1',
+            status: 'failed',
+            error: 'boom',
+        });
+    });
+
     it('propagates linked conversation metadata onto the tool step in live execution groups', () => {
         const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',

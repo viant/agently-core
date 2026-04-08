@@ -1,0 +1,14 @@
+You must use the async shell tools exactly as follows.
+
+1. Call `system/exec:start` exactly once with:
+   - `workdir`: `/tmp`
+   - `commands`:
+     - `for i in 1 2 3; do echo WAITING_FOR_FAILURE; sleep 1; done; echo TERMINAL_FAILURE >&2; exit 7`
+
+2. After `system/exec:start` returns, call `system/exec:status` exactly once with the returned `sessionId`.
+3. Do not poll in a loop yourself.
+4. Wait for system async update messages. When you receive one, call `system/exec:status` again.
+5. Do not attempt recovery.
+6. When the final status is terminal and equals `failed`, answer with exactly:
+   `ASYNC_FAIL_DONE status=failed`
+7. Do not add extra text.

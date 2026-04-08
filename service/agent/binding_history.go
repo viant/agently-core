@@ -258,6 +258,21 @@ func (s *Service) buildChronologicalHistory(
 			}
 		}
 	}
+	// Apply cacheable tool-call supersession: suppress older outputs for the
+	// same tool call signature, keeping only the newest per scope.
+	if s.defaults != nil && s.registry != nil {
+		currentIdx := -1
+		if currentTurnID != "" {
+			for ti, turn := range transcript {
+				if turn != nil && strings.TrimSpace(turn.Id) == currentTurnID {
+					currentIdx = ti
+					break
+				}
+			}
+		}
+		normalized = applyToolCallSupersession(normalized, currentIdx, s.registry, &s.defaults.Compaction)
+	}
+
 	overflow := false
 	maxOverflowBytes := 0
 	turns := make([]*prompt.Turn, len(transcript))

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/viant/afs"
@@ -16,6 +17,7 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	implconv "github.com/viant/agently-core/internal/service/conversation"
 	"github.com/viant/agently-core/protocol/agent"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
@@ -74,6 +76,9 @@ type Service struct {
 	// streamPub is the SSE bus publisher used to emit agent-level lifecycle
 	// events such as turn_queued. Wired via SetElicitationStreamPublisher.
 	streamPub streaming.Publisher
+
+	asyncManager *asynccfg.Manager
+	asyncPollers sync.Map
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -134,6 +139,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		conversation: convClient,
 		fs:           afs.New(),
 		cancelReg:    cancels.Default(),
+		asyncManager: asynccfg.NewManager(),
 	}
 
 	for _, o := range opts {
@@ -152,6 +158,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 				srv.conversation = cli
 			}
 		}
+	}
+	if srv.asyncManager == nil {
+		srv.asyncManager = asynccfg.NewManager()
 	}
 	// Wire core and orchestrator with conversation client
 	if srv.conversation != nil && srv.llm != nil {

@@ -99,4 +99,37 @@ describe('reduceLinkedConversationPreviewEvent', () => {
         expect(afterFinal.response).toBe('Child forecast complete.');
         expect(afterFinal.status).toBe('completed');
     });
+
+    it('maps failed and canceled tool lifecycle events into preview status', () => {
+        const current = {
+            status: 'running',
+            response: '',
+            previewGroups: [],
+        };
+
+        const afterFailed = reduceLinkedConversationPreviewEvent(current, event({
+            type: 'tool_call_failed',
+            toolCallId: 'call-1',
+            toolName: 'system/exec:start',
+            status: 'failed',
+            error: 'boom',
+        }));
+        expect(afterFailed.previewGroups[0]).toMatchObject({
+            stepKind: 'tool',
+            stepLabel: 'system/exec:start',
+            status: 'failed',
+        });
+
+        const afterCanceled = reduceLinkedConversationPreviewEvent(afterFailed, event({
+            type: 'tool_call_canceled',
+            toolCallId: 'call-2',
+            toolName: 'llm/agents:run',
+            status: 'canceled',
+        }));
+        expect(afterCanceled.previewGroups[1]).toMatchObject({
+            stepKind: 'tool',
+            stepLabel: 'llm/agents:run',
+            status: 'canceled',
+        });
+    });
 });

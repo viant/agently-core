@@ -1,4 +1,5 @@
 import type { ExecutionPage, ModelStepState, SSEEvent, ToolStepState, TranscriptOutput, Turn } from './types';
+import { firstString } from './ordering';
 
 type LegacyModelStep = Partial<ModelStepState> & {
     Provider?: string;
@@ -202,13 +203,13 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
         if (content) next.response = content;
         return next;
     }
-    if (type === 'tool_call_started' || type === 'tool_call_completed') {
+    if (type === 'tool_call_started' || type === 'tool_call_waiting' || type === 'tool_call_completed' || type === 'tool_call_failed' || type === 'tool_call_canceled') {
         const previewGroups = Array.isArray(next.previewGroups) ? [...next.previewGroups] : [];
         const groupKey = String(event?.toolCallId || event?.toolMessageId || toolName || `tool:${previewGroups.length}`).trim();
         const merged = {
             id: groupKey,
             title: toolName ? `Using ${toolName}.` : 'Tool step',
-            status: status || (type === 'tool_call_started' ? 'running' : 'completed'),
+            status: status || (type === 'tool_call_started' || type === 'tool_call_waiting' ? 'running' : (type === 'tool_call_failed' ? 'failed' : (type === 'tool_call_canceled' ? 'canceled' : 'completed'))),
             finalResponse: false,
             content: '',
             stepKind: 'tool',
@@ -217,12 +218,14 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
                 kind: 'tool',
                 toolName,
                 status: status || '',
+                errorMessage: firstString(event?.error),
             },
             modelStep: null,
             toolSteps: [{
                 kind: 'tool',
                 toolName,
                 status: status || '',
+                errorMessage: firstString(event?.error),
             }],
         };
         const existingIndex = previewGroups.findIndex((item) => String(item?.id || '').trim() === groupKey);

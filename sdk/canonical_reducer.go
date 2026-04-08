@@ -63,8 +63,14 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 		return reduceToolStarted(state, event)
 	case streaming.EventTypeToolCallDelta:
 		return reduceToolCallDelta(state, event)
+	case streaming.EventTypeToolCallWaiting:
+		return reduceToolAsyncUpdate(state, event)
 	case streaming.EventTypeToolCallCompleted:
 		return reduceToolCompleted(state, event)
+	case streaming.EventTypeToolCallFailed:
+		return reduceToolAsyncUpdate(state, event)
+	case streaming.EventTypeToolCallCanceled:
+		return reduceToolAsyncUpdate(state, event)
 
 	// Elicitation
 	case streaming.EventTypeElicitationRequested:
@@ -293,6 +299,27 @@ func reduceToolCompleted(state *ConversationState, event *streaming.Event) *Conv
 	}
 	page := ensureCurrentPage(turn, event)
 	ensureToolCompletion(page, event)
+	return state
+}
+
+func reduceToolAsyncUpdate(state *ConversationState, event *streaming.Event) *ConversationState {
+	turn := findOrCreateTurnWithTime(state, event)
+	if turn == nil {
+		return state
+	}
+	page := ensureCurrentPage(turn, event)
+	step := upsertToolStep(page, firstNonEmptyString(strings.TrimSpace(event.ToolCallID), strings.TrimSpace(event.OperationID)))
+	if step.ToolName == "" {
+		step.ToolName = strings.TrimSpace(event.ToolName)
+	}
+	if step.ToolMessageID == "" {
+		step.ToolMessageID = strings.TrimSpace(event.ToolMessageID)
+	}
+	applyAsyncOperation(step, event)
+	step.Status = stepStatusFromString(event.Status, step.Status)
+	if event.Type == streaming.EventTypeToolCallCompleted || event.Type == streaming.EventTypeToolCallFailed || event.Type == streaming.EventTypeToolCallCanceled {
+		step.CompletedAt = completedAtForEvent(event)
+	}
 	return state
 }
 

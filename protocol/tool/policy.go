@@ -72,6 +72,8 @@ func BestPathAllowed(name string) bool {
 	switch n {
 	case "system/exec:run", "system/exec/run",
 		"system/exec:execute", "system/exec/execute",
+		"system/exec:start", "system/exec/start",
+		"system/exec:cancel", "system/exec/cancel",
 		"system/patch:apply", "system/patch/apply",
 		"message:remove", "message-remove", "internal/message:remove":
 		return false

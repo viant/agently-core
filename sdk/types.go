@@ -361,6 +361,7 @@ type ToolDefinitionInfo struct {
 	Parameters   map[string]interface{} `json:"parameters,omitempty"`
 	Required     []string               `json:"required,omitempty"`
 	OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
+	Cacheable    bool                   `json:"cacheable,omitempty"`
 }
 
 // ResourceRef identifies a workspace resource by kind and name.

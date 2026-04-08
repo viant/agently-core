@@ -34,6 +34,8 @@ func TestBestPathAllowed(t *testing.T) {
 		{"system/os:getEnv", true},
 		{"system/exec:run", false},
 		{"system/exec:execute", false},
+		{"system/exec:start", false},
+		{"system/exec:cancel", false},
 		{"system/patch:apply", false},
 	}
 	for _, tc := range cases {

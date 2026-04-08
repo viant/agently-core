@@ -51,6 +51,11 @@ type ReadImageOutput struct {
 	Base64   string `json:"dataBase64,omitempty"`
 }
 
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{"readImage": true}
+}
+
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{{
 		Name:        "readImage",

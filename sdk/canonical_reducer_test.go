@@ -230,6 +230,146 @@ func TestReduce_ToolCompletedFallsBackToCreatedAtForCompletedAt(t *testing.T) {
 	}
 }
 
+func TestReduce_AsyncToolLifecycleAttachesOperation(t *testing.T) {
+	now := time.Date(2026, 4, 8, 10, 0, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:           streaming.EventTypeToolCallStarted,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ToolCallID:     "call-1",
+		ToolMessageID:  "tool-msg-1",
+		ToolName:       "llm/agents:run",
+		Status:         "running",
+		CreatedAt:      now,
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolCallWaiting,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ToolCallID:     "call-1",
+		ToolName:       "llm/agents:status",
+		OperationID:    "child-1",
+		Status:         "running",
+		Content:        "still working",
+		CreatedAt:      now.Add(time.Second),
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolCallCompleted,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ToolCallID:     "call-1",
+		ToolName:       "llm/agents:status",
+		OperationID:    "child-1",
+		Status:         "completed",
+		ResponsePayload: map[string]interface{}{
+			"items": []map[string]interface{}{{"conversationId": "child-1", "status": "completed"}},
+		},
+		CreatedAt: now.Add(2 * time.Second),
+	})
+
+	page := state.Turns[0].Execution.Pages[0]
+	requireStep := page.ToolSteps[0]
+	if requireStep.OperationID != "child-1" {
+		t.Fatalf("expected operation id child-1, got %q", requireStep.OperationID)
+	}
+	if requireStep.AsyncOperation == nil {
+		t.Fatalf("expected async operation state")
+	}
+	if requireStep.AsyncOperation.Status != "completed" {
+		t.Fatalf("expected async operation completed, got %q", requireStep.AsyncOperation.Status)
+	}
+	if requireStep.AsyncOperation.Message != "still working" {
+		t.Fatalf("expected async message, got %q", requireStep.AsyncOperation.Message)
+	}
+	if len(requireStep.AsyncOperation.Response) == 0 {
+		t.Fatalf("expected async response payload")
+	}
+}
+
+func TestReduce_AsyncToolLifecycleTerminalStates(t *testing.T) {
+	testCases := []struct {
+		name      string
+		eventType streaming.EventType
+		status    string
+		errorMsg  string
+	}{
+		{
+			name:      "failed",
+			eventType: streaming.EventTypeToolCallFailed,
+			status:    "failed",
+			errorMsg:  "boom",
+		},
+		{
+			name:      "canceled",
+			eventType: streaming.EventTypeToolCallCanceled,
+			status:    "canceled",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			now := time.Date(2026, 4, 8, 11, 0, 0, 0, time.UTC)
+			state := Reduce(nil, &streaming.Event{
+				Type:           streaming.EventTypeToolCallStarted,
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				ToolCallID:     "call-1",
+				ToolMessageID:  "tool-msg-1",
+				ToolName:       "system/exec:start",
+				Status:         "running",
+				CreatedAt:      now,
+			})
+			state = Reduce(state, &streaming.Event{
+				Type:           streaming.EventTypeToolCallWaiting,
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				ToolCallID:     "call-1",
+				ToolName:       "system/exec:status",
+				OperationID:    "sess-1",
+				Status:         "running",
+				Content:        "still working",
+				CreatedAt:      now.Add(time.Second),
+			})
+			state = Reduce(state, &streaming.Event{
+				Type:           testCase.eventType,
+				ConversationID: "conv-1",
+				TurnID:         "turn-1",
+				ToolCallID:     "call-1",
+				ToolName:       "system/exec:status",
+				OperationID:    "sess-1",
+				Status:         testCase.status,
+				Error:          testCase.errorMsg,
+				ResponsePayload: map[string]interface{}{
+					"sessionId": "sess-1",
+					"status":    testCase.status,
+				},
+				CreatedAt: now.Add(2 * time.Second),
+			})
+
+			page := state.Turns[0].Execution.Pages[0]
+			requireStep := page.ToolSteps[0]
+			if requireStep.OperationID != "sess-1" {
+				t.Fatalf("expected operation id sess-1, got %q", requireStep.OperationID)
+			}
+			if requireStep.Status != testCase.status {
+				t.Fatalf("expected tool step status %q, got %q", testCase.status, requireStep.Status)
+			}
+			if requireStep.AsyncOperation == nil {
+				t.Fatalf("expected async operation state")
+			}
+			if requireStep.AsyncOperation.Status != testCase.status {
+				t.Fatalf("expected async operation status %q, got %q", testCase.status, requireStep.AsyncOperation.Status)
+			}
+			if testCase.errorMsg != "" && requireStep.AsyncOperation.Error != testCase.errorMsg {
+				t.Fatalf("expected async error %q, got %q", testCase.errorMsg, requireStep.AsyncOperation.Error)
+			}
+			if len(requireStep.AsyncOperation.Response) == 0 {
+				t.Fatalf("expected async response payload")
+			}
+		})
+	}
+}
+
 func TestReduce_ElicitationResolvedMapsCanceledStatus(t *testing.T) {
 	now := time.Date(2026, 4, 3, 16, 2, 0, 0, time.UTC)
 	state := Reduce(nil, &streaming.Event{

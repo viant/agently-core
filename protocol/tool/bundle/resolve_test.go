@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 )
 
 func TestResolveDefinitions(t *testing.T) {
@@ -176,5 +177,42 @@ func TestResolveDefinitionsWithOptions_PromptApproval(t *testing.T) {
 	if assert.True(t, ok) {
 		assert.NotNil(t, cfg)
 		assert.True(t, cfg.IsPrompt())
+	}
+}
+
+func TestResolveDefinitionsWithOptions_AsyncConfig(t *testing.T) {
+	bundle := &Bundle{
+		ID: "agents_async",
+		Match: []llm.Tool{
+			{
+				Name: "llm/agents:run",
+				Async: &asynccfg.Config{
+					WaitForResponse: true,
+					Run: asynccfg.RunConfig{
+						Tool:            "llm/agents:run",
+						OperationIDPath: "conversationId",
+					},
+					Status: asynccfg.StatusConfig{
+						Tool:           "llm/agents:status",
+						OperationIDArg: "conversationId",
+						Selector:       asynccfg.Selector{StatusPath: "status"},
+					},
+				},
+			},
+		},
+	}
+	matchFn := func(pattern string) []*llm.ToolDefinition {
+		if pattern == "llm/agents:run" || pattern == "llm/agents/run" {
+			return []*llm.ToolDefinition{{Name: "llm/agents:run"}}
+		}
+		return nil
+	}
+
+	actual := ResolveDefinitionsWithOptions(bundle, matchFn)
+	rule, ok := actual.AsyncByID[normalizedApprovalKey("llm/agents:run")]
+	if assert.True(t, ok) {
+		assert.NotNil(t, rule)
+		assert.NotNil(t, rule.Async)
+		assert.Equal(t, "conversationId", rule.Async.Run.OperationIDPath)
 	}
 }

@@ -1,0 +1,18 @@
+You must use the async shell tools exactly as follows.
+
+1. Call `system/exec:start` exactly once with:
+   - `workdir`: `/tmp`
+   - `commands`:
+     - `rm -f /tmp/agently_async_cancel_e2e.txt`
+     - `while true; do echo HEARTBEAT >> /tmp/agently_async_cancel_e2e.txt; echo HEARTBEAT; sleep 1; done`
+
+2. After `system/exec:start` returns, call `system/exec:status` exactly once with the returned `sessionId`.
+3. Do not poll in a loop yourself.
+4. Do not call `system/exec:cancel` until you receive a system async update message.
+5. After you receive a system async update message, call `system/exec:cancel` exactly once with the same `sessionId`.
+6. After cancel returns, call `system/exec:status` exactly once with the same `sessionId`.
+7. Do not answer until the final status is terminal and equals `canceled`.
+8. When complete, answer with exactly:
+   `ASYNC_CANCEL_DONE status=canceled`
+
+Do not add extra text.

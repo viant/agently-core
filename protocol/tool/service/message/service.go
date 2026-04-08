@@ -64,6 +64,16 @@ func WithElicitor(e Elicitor) Option {
 
 func (s *Service) Name() string { return Name }
 
+// CacheableMethods declares which methods produce cacheable outputs.
+func (s *Service) CacheableMethods() map[string]bool {
+	return map[string]bool{
+		"show":           true,
+		"summarize":      true,
+		"match":          true,
+		"listCandidates": true,
+	}
+}
+
 func (s *Service) Methods() svc.Signatures {
 	// Note: message:compact is intentionally NOT registered here.
 	// Compaction is only used internally by the orchestrator to free space

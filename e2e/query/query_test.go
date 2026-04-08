@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-pdf/fpdf"
 	"github.com/stretchr/testify/assert"
@@ -27,6 +29,7 @@ import (
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
@@ -294,6 +297,323 @@ func TestQueryWithToolUsage(t *testing.T) {
 	assert.Greater(t, toolCallCount, 0, "expected at least one tool call in transcript")
 	assert.True(t, foundEnvTool, "expected system/os:getEnv tool call in transcript")
 	fmt.Printf("[tool_user] content: %s\n", truncate(out.Content, 300))
+}
+
+func TestQueryAsyncExecReporter(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
+		AgentID: "async_exec_reporter",
+		Title:   "async-exec-reporter",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conv)
+	require.NotEmpty(t, conv.Id)
+
+	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	var (
+		mu     sync.Mutex
+		events []*streaming.Event
+		done   = make(chan struct{})
+	)
+	go func() {
+		defer close(done)
+		for ev := range sub.C() {
+			if ev == nil {
+				continue
+			}
+			mu.Lock()
+			events = append(events, ev)
+			mu.Unlock()
+		}
+	}()
+
+	started := time.Now()
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		ConversationID: conv.Id,
+		AgentID:        "async_exec_reporter",
+		UserId:         "e2e-test",
+		Query:          "Watch for the report readiness signal and tell me when it is done.",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.Equal(t, "ASYNC_REPORT_DONE found=READY_SIGNAL", strings.TrimSpace(out.Content))
+	require.GreaterOrEqual(t, time.Since(started), 2*time.Second, "query should stay open while async watcher is running")
+
+	_ = sub.Close()
+	<-done
+
+	mu.Lock()
+	captured := append([]*streaming.Event(nil), events...)
+	mu.Unlock()
+	require.NotEmpty(t, captured)
+
+	var sawToolStarted bool
+	for _, ev := range captured {
+		if ev == nil {
+			continue
+		}
+		switch ev.Type {
+		case streaming.EventTypeToolCallStarted:
+			if strings.Contains(strings.ToLower(strings.TrimSpace(ev.ToolName)), "system/exec/start") {
+				sawToolStarted = true
+			}
+		}
+	}
+	require.True(t, sawToolStarted, "expected at least one system/exec:start tool event")
+
+	messages, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: conv.Id})
+	require.NoError(t, err)
+	require.NotNil(t, messages)
+	foundAsyncWait := false
+	statusToolCalls := 0
+	foundReadySignal := false
+	for _, row := range messages.Rows {
+		if row == nil {
+			continue
+		}
+		if row.Mode != nil && strings.TrimSpace(*row.Mode) == "async_wait" {
+			foundAsyncWait = true
+		}
+		if row.ToolName != nil && strings.Contains(strings.ToLower(strings.TrimSpace(*row.ToolName)), "system/exec/status") {
+			statusToolCalls++
+			if row.Content != nil && strings.Contains(*row.Content, "FOUND=READY_SIGNAL") {
+				foundReadySignal = true
+			}
+		}
+	}
+	require.True(t, foundAsyncWait, "expected at least one async reinforcement message")
+	require.GreaterOrEqual(t, statusToolCalls, 2, "expected repeated status tool calls after async reinforcement")
+	require.True(t, foundReadySignal, "expected final status tool result to contain READY_SIGNAL")
+}
+
+func TestQueryAsyncExecCanceler(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
+		AgentID: "async_exec_canceler",
+		Title:   "async-exec-canceler",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conv)
+	require.NotEmpty(t, conv.Id)
+
+	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	var (
+		mu     sync.Mutex
+		events []*streaming.Event
+		done   = make(chan struct{})
+	)
+	go func() {
+		defer close(done)
+		for ev := range sub.C() {
+			if ev == nil {
+				continue
+			}
+			mu.Lock()
+			events = append(events, ev)
+			mu.Unlock()
+		}
+	}()
+
+	started := time.Now()
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		ConversationID: conv.Id,
+		AgentID:        "async_exec_canceler",
+		UserId:         "e2e-test",
+		Query:          "Start the shell heartbeat watcher, then cancel it after the async update arrives.",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.Equal(t, "ASYNC_CANCEL_DONE status=canceled", strings.TrimSpace(out.Content))
+	require.GreaterOrEqual(t, time.Since(started), 2*time.Second, "query should stay open while async heartbeat is running")
+
+	_ = sub.Close()
+	<-done
+
+	mu.Lock()
+	captured := append([]*streaming.Event(nil), events...)
+	mu.Unlock()
+	require.NotEmpty(t, captured)
+
+	var sawStart, sawCancel bool
+	for _, ev := range captured {
+		if ev == nil {
+			continue
+		}
+		switch ev.Type {
+		case streaming.EventTypeToolCallStarted:
+			toolName := strings.ToLower(strings.TrimSpace(ev.ToolName))
+			if matchesExecTool(toolName, "start") {
+				sawStart = true
+			}
+			if matchesExecTool(toolName, "cancel") {
+				sawCancel = true
+			}
+		}
+	}
+	require.True(t, sawStart, "expected at least one system/exec:start tool event")
+	require.True(t, sawCancel, "expected at least one system/exec:cancel tool event")
+
+	messages, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: conv.Id})
+	require.NoError(t, err)
+	require.NotNil(t, messages)
+
+	foundAsyncWait := false
+	cancelToolCalls := 0
+	statusToolCalls := 0
+	foundRunningHeartbeat := false
+	foundCanceledStatus := false
+	for _, row := range messages.Rows {
+		if row == nil {
+			continue
+		}
+		if row.Mode != nil && strings.TrimSpace(*row.Mode) == "async_wait" {
+			foundAsyncWait = true
+		}
+		if row.ToolName != nil {
+			toolName := strings.ToLower(strings.TrimSpace(*row.ToolName))
+			switch {
+			case strings.Contains(toolName, "system/exec/cancel"):
+				cancelToolCalls++
+			case strings.Contains(toolName, "system/exec/status"):
+				statusToolCalls++
+				if row.Content != nil && strings.Contains(*row.Content, "HEARTBEAT") {
+					foundRunningHeartbeat = true
+				}
+				if row.Content != nil && strings.Contains(strings.ToLower(*row.Content), "canceled") {
+					foundCanceledStatus = true
+				}
+			}
+		}
+	}
+	require.True(t, foundAsyncWait, "expected at least one async reinforcement message")
+	require.GreaterOrEqual(t, cancelToolCalls, 1, "expected at least one cancel tool call")
+	require.GreaterOrEqual(t, statusToolCalls, 2, "expected status before and after cancel")
+	require.True(t, foundRunningHeartbeat, "expected running status output to contain HEARTBEAT")
+	require.True(t, foundCanceledStatus, "expected terminal status tool result to contain canceled")
+}
+
+func TestQueryAsyncExecFailure(t *testing.T) {
+	skipIfNoAPIKey(t)
+	client := setupSDK(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
+		AgentID: "async_exec_failer",
+		Title:   "async-exec-failer",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, conv)
+	require.NotEmpty(t, conv.Id)
+
+	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	var (
+		mu     sync.Mutex
+		events []*streaming.Event
+		done   = make(chan struct{})
+	)
+	go func() {
+		defer close(done)
+		for ev := range sub.C() {
+			if ev == nil {
+				continue
+			}
+			mu.Lock()
+			events = append(events, ev)
+			mu.Unlock()
+		}
+	}()
+
+	started := time.Now()
+	out, err := client.Query(ctx, &agentsvc.QueryInput{
+		ConversationID: conv.Id,
+		AgentID:        "async_exec_failer",
+		UserId:         "e2e-test",
+		Query:          "Start the async shell job that should eventually fail.",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.Equal(t, "ASYNC_FAIL_DONE status=failed", strings.TrimSpace(out.Content))
+	require.GreaterOrEqual(t, time.Since(started), 2*time.Second, "query should stay open while async failing job is running")
+
+	_ = sub.Close()
+	<-done
+
+	mu.Lock()
+	captured := append([]*streaming.Event(nil), events...)
+	mu.Unlock()
+	require.NotEmpty(t, captured)
+
+	var sawStart bool
+	for _, ev := range captured {
+		if ev == nil {
+			continue
+		}
+		toolName := strings.ToLower(strings.TrimSpace(ev.ToolName))
+		switch ev.Type {
+		case streaming.EventTypeToolCallStarted:
+			if matchesExecTool(toolName, "start") {
+				sawStart = true
+			}
+		}
+	}
+	require.True(t, sawStart, "expected at least one system/exec:start tool event")
+
+	messages, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: conv.Id})
+	require.NoError(t, err)
+	require.NotNil(t, messages)
+
+	foundAsyncWait := false
+	statusToolCalls := 0
+	foundWaitingOutput := false
+	foundTerminalFailure := false
+	for _, row := range messages.Rows {
+		if row == nil {
+			continue
+		}
+		if row.Mode != nil && strings.TrimSpace(*row.Mode) == "async_wait" {
+			foundAsyncWait = true
+		}
+		if row.ToolName != nil && strings.Contains(strings.ToLower(strings.TrimSpace(*row.ToolName)), "system/exec/status") {
+			statusToolCalls++
+			if row.Content != nil && strings.Contains(*row.Content, "WAITING_FOR_FAILURE") {
+				foundWaitingOutput = true
+			}
+			if row.Content != nil && strings.Contains(*row.Content, "TERMINAL_FAILURE") {
+				foundTerminalFailure = true
+			}
+		}
+	}
+	require.True(t, foundAsyncWait, "expected at least one async reinforcement message")
+	require.GreaterOrEqual(t, statusToolCalls, 2, "expected repeated status tool calls across async failure")
+	require.True(t, foundWaitingOutput, "expected non-terminal status output to contain WAITING_FOR_FAILURE")
+	require.True(t, foundTerminalFailure, "expected terminal failed status output to contain TERMINAL_FAILURE")
+}
+
+func matchesExecTool(toolName, action string) bool {
+	toolName = strings.ToLower(strings.TrimSpace(toolName))
+	action = strings.ToLower(strings.TrimSpace(action))
+	if toolName == "" || action == "" {
+		return false
+	}
+	return strings.Contains(toolName, "system/exec/"+action) || strings.Contains(toolName, "system/exec:"+action)
 }
 
 func TestQueryMultiTurn(t *testing.T) {

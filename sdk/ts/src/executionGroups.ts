@@ -208,10 +208,12 @@ function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Par
     const toolKey = firstString(event?.toolCallId, event?.toolMessageId, event?.id, event?.toolName);
     const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
     const existingIndex = priorList.findIndex((entry) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.toolName) === toolKey);
+    const operationId = firstString(event?.operationId, existingIndex >= 0 ? priorList[existingIndex]?.operationId : '');
     const toolEntry: ToolStepState = {
         toolCallId: firstString(event?.toolCallId),
         toolMessageId: firstString(event?.toolMessageId, event?.id),
         toolName: firstString(event?.toolName),
+        operationId,
         errorMessage: firstString(event?.error, existingIndex >= 0 ? priorList[existingIndex]?.errorMessage : ''),
         status: firstString(event?.status, existingIndex >= 0 ? priorList[existingIndex]?.status : ''),
         requestPayloadId: firstString(event?.requestPayloadId),
@@ -219,6 +221,13 @@ function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Par
         linkedConversationId: firstString(event?.linkedConversationId),
         linkedConversationAgentId: firstString(event?.linkedConversationAgentId),
         linkedConversationTitle: firstString(event?.linkedConversationTitle),
+        asyncOperation: operationId ? {
+            operationId,
+            status: firstString(event?.status),
+            message: firstString(event?.content),
+            error: firstString(event?.error),
+            response: event?.responsePayload,
+        } : undefined,
         ...extra,
     } as ToolStepState;
     const nextTools = [...priorList];
@@ -302,12 +311,21 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         next[assistantMessageId] = current;
         return next;
     }
-    if ((type === 'tool_call_started' || type === 'tool_call_completed') && assistantMessageId) {
+    if ((type === 'tool_call_started'
+        || type === 'tool_call_waiting'
+        || type === 'tool_call_completed'
+        || type === 'tool_call_failed'
+        || type === 'tool_call_canceled') && assistantMessageId) {
         const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         upsertToolStep(current, event);
-        current.status = firstString(event?.status, current.status);
+        current.errorMessage = firstString(event?.error, current.errorMessage);
+        current.status = firstString(
+            event?.status,
+            current.status,
+            type === 'tool_call_failed' ? 'failed' : (type === 'tool_call_canceled' ? 'canceled' : current.status),
+        );
         next[assistantMessageId] = current;
         return next;
     }

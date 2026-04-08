@@ -152,3 +152,37 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 	}
 	return updateToolMessageStatus(ctx, conv, toolMsgID, msgStatus)
 }
+
+func updateAsyncToolCallState(ctx context.Context, conv apiconv.Client, toolMsgID, opID, toolName, status, respPayloadID, errMsg string) error {
+	if conv == nil || strings.TrimSpace(toolMsgID) == "" {
+		return nil
+	}
+	updTC := apiconv.NewToolCall()
+	updTC.SetMessageID(toolMsgID)
+	if strings.TrimSpace(opID) != "" {
+		updTC.SetOpID(opID)
+	}
+	if strings.TrimSpace(toolName) != "" {
+		updTC.SetToolName(toolName)
+	}
+	if turn, ok := memory.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+		updTC.SetTurnID(turn.TurnID)
+	}
+	updTC.SetStatus(status)
+	if respPayloadID != "" {
+		updTC.ResponsePayloadID = &respPayloadID
+		updTC.Has.ResponsePayloadID = true
+	}
+	if errMsg != "" {
+		updTC.ErrorMessage = &errMsg
+		updTC.Has.ErrorMessage = true
+	}
+	if err := conv.PatchToolCall(ctx, updTC); err != nil {
+		return err
+	}
+	msgStatus := status
+	if status == "running" || status == "waiting" {
+		msgStatus = "open"
+	}
+	return updateToolMessageStatus(ctx, conv, toolMsgID, msgStatus)
+}

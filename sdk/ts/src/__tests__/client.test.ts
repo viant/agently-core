@@ -278,15 +278,17 @@ describe('Streaming', () => {
 
         es.emit({ type: 'text_delta', streamId: 'conv_1', content: 'hello' });
         es.emit({ type: 'tool_call_started', streamId: 'conv_1', toolName: 'system/exec' });
+        es.emit({ type: 'tool_call_waiting', streamId: 'conv_1', toolName: 'system/exec' });
+        es.emit({ type: 'tool_call_failed', streamId: 'conv_1', toolName: 'system/exec', error: 'boom' });
         es.emit({ type: 'tool_feed_active', streamId: 'conv_1', feedId: 'feed-1' });
         es.emit({ type: 'turn_completed', streamId: 'conv_1', status: 'completed' });
         es.emit({ type: 'text_delta', streamId: 'conv_other', content: 'skip me' });
 
-        expect(seen).toEqual(['text_delta', 'tool_call_started', 'tool_feed_active', 'turn_completed']);
-        expect(seenConversationIds).toEqual(['conv_1', 'conv_1', 'conv_1', 'conv_1']);
+        expect(seen).toEqual(['text_delta', 'tool_call_started', 'tool_call_waiting', 'tool_call_failed', 'tool_feed_active', 'turn_completed']);
+        expect(seenConversationIds).toEqual(['conv_1', 'conv_1', 'conv_1', 'conv_1', 'conv_1', 'conv_1']);
         expect(seenMessageIds[0]).toBe('conv_1');
         expect(text).toEqual(['hello']);
-        expect(tools).toEqual(['tool_call_started']);
+        expect(tools).toEqual(['tool_call_started', 'tool_call_waiting', 'tool_call_failed']);
         expect(feeds).toEqual(['tool_feed_active']);
         expect(turns).toEqual(['turn_completed']);
 

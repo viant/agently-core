@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
+	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
@@ -744,6 +745,103 @@ func TestService_Status_ByParentConversationAndTurn(t *testing.T) {
 	assert.Equal(t, "turn-1", out.Items[0].ParentTurnID)
 	assert.Equal(t, "parent-conv", out.Items[1].ParentConversationID)
 	assert.Equal(t, "turn-1", out.Items[1].ParentTurnID)
+}
+
+func TestService_Cancel_CancelsConversation(t *testing.T) {
+	ctx := context.Background()
+	reg := cancels.NewMemory()
+	canceled := false
+	reg.Register("child-conv", "turn-1", func() { canceled = true })
+
+	svc := New(nil, WithCancelRegistry(reg))
+	var out CancelOutput
+	err := svc.cancelMethod(ctx, &CancelInput{ConversationID: "child-conv"}, &out)
+	require.NoError(t, err)
+	assert.True(t, canceled)
+	assert.Equal(t, "canceled", out.Status)
+}
+
+func TestService_Cancel_ReturnsConversationStatusWhenAlreadyTerminal(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-conv")
+	childConv.SetStatus("succeeded")
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-1")
+	childTurn.SetConversationID("child-conv")
+	childTurn.SetStatus("succeeded")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	svc := New(nil, WithConversationClient(conv), WithCancelRegistry(cancels.NewMemory()))
+	var out CancelOutput
+	err := svc.cancelMethod(ctx, &CancelInput{ConversationID: "child-conv"}, &out)
+	require.NoError(t, err)
+	assert.Equal(t, "succeeded", out.Status)
+}
+
+func TestService_AsyncConfig(t *testing.T) {
+	svc := New(nil)
+	cfg := svc.AsyncConfig("llm/agents:run")
+	require.NotNil(t, cfg)
+	assert.Equal(t, "llm/agents:run", cfg.Run.Tool)
+	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
+	assert.Equal(t, "llm/agents:status", cfg.Status.Tool)
+	assert.Equal(t, "conversationId", cfg.Status.OperationIDArg)
+	if assert.NotNil(t, cfg.Cancel) {
+		assert.Equal(t, "llm/agents:cancel", cfg.Cancel.Tool)
+	}
+	assert.Nil(t, svc.AsyncConfig("llm/agents:list"))
+}
+
+func TestService_Run_Internal_AsyncReturnsConversationHandle(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	asyncFlag := true
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			time.Sleep(200 * time.Millisecond)
+			if out != nil {
+				out.Content = "done"
+				out.ConversationID = in.ConversationID
+			}
+			return nil
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "do async work",
+		Async:     &asyncFlag,
+	}, &out)
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
 }
 
 type fakeFinder struct {

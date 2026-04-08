@@ -3,17 +3,21 @@ package exec
 import (
 	"strings"
 
+	"github.com/viant/agently-core/internal/textutil"
 	sys "github.com/viant/agently-core/protocol/tool/service/system"
 )
 
 // Input represents system executor configuration
 type Input struct {
-	Host         *sys.Host         `json:"host,omitempty" internal:"true" description:"Target host. Use bash://localhost/ (default) or ssh://user@host:22."`
-	Workdir      string            `json:"workdir,omitempty" description:"Working directory for file operations. Example: /repo/path."`
-	Env          map[string]string `json:"env,omitempty" description:"Environment variables (k=v) set before running. Example: {'GOFLAGS':'-mod=mod'}."`
-	Commands     []string          `json:"commands,omitempty" description:"Commands to run in order (no pipes). Example: ['rg --files', 'sed -n 1,20p file.go']."`
-	TimeoutMs    int               `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty" description:"Per-command timeout in ms (default 180000)."`
-	AbortOnError *bool             `json:"abortOnError,omitempty" description:"Stop on first non-zero status (default true)."`
+	SessionID    string             `json:"sessionId,omitempty" description:"Optional shell session id to reuse across multiple execute calls."`
+	Host         *sys.Host          `json:"host,omitempty" internal:"true" description:"Target host. Use bash://localhost/ (default) or ssh://user@host:22."`
+	Workdir      string             `json:"workdir,omitempty" description:"Working directory for file operations. Example: /repo/path."`
+	Env          map[string]string  `json:"env,omitempty" description:"Environment variables (k=v) set before running. Example: {'GOFLAGS':'-mod=mod'}."`
+	Commands     []string           `json:"commands,omitempty" description:"Commands to run in order (no pipes). Example: ['rg --files', 'sed -n 1,20p file.go']."`
+	TimeoutMs    int                `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty" description:"Per-command timeout in ms (default 180000)."`
+	AbortOnError *bool              `json:"abortOnError,omitempty" description:"Stop on first non-zero status (default true)."`
+	Stream       string             `json:"stream,omitempty" description:"Optional stream selector for ranged reads over aggregated output: stdout, stderr, or combined."`
+	ByteRange    *textutil.IntRange `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the selected stream content."`
 }
 
 var fsCommands = []string{

@@ -26,6 +26,7 @@ import (
 	transform "github.com/viant/agently-core/internal/transform"
 	mcpnames "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/runtime/memory"
@@ -67,8 +68,10 @@ type Registry struct {
 	mgr mcpManager
 
 	// in-memory MCP clients for internal services (server name -> client)
-	internal        map[string]mcpclient.Interface
-	internalTimeout map[string]time.Duration
+	internal          map[string]mcpclient.Interface
+	internalTimeout   map[string]time.Duration
+	asyncByTool       map[string]*asynccfg.Config
+	internalCacheable map[string]map[string]bool // server name -> method name -> cacheable
 
 	// cache: tool name → entry
 	cache map[string]*toolCacheEntry
@@ -150,6 +153,7 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		cache:              map[string]*toolCacheEntry{},
 		internal:           map[string]mcpclient.Interface{},
 		internalTimeout:    map[string]time.Duration{},
+		asyncByTool:        map[string]*asynccfg.Config{},
 		recentResults:      map[string]map[string]recentItem{},
 		recentTTL:          5 * time.Second,
 		refreshEvery:       30 * time.Second,
@@ -483,6 +487,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 				def.Name = disp
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+				r.applyCacheableOverride(def, s)
 				defs = append(defs, *def)
 				seen[disp] = struct{}{}
 				// Update cache for lookup by display name
@@ -549,6 +554,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 				}
 				def.Name = full
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+				r.applyCacheableOverride(def, svc)
 				entry := newToolCacheEntry(def, t, injectTimeoutMs)
 				if entry == nil {
 					continue
@@ -617,6 +623,7 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 				fullSlash := qualifiedToolName(svc, strings.TrimSpace(t.Name))
 				tool.Name = fullSlash
 				_ = maybeInjectTimeoutMs(tool, injectTimeoutMs)
+				r.applyCacheableOverride(tool, svc)
 				entry := newToolCacheEntry(tool, t, injectTimeoutMs)
 				// cache both aliases and the exact name used
 				if entry != nil {
@@ -1030,6 +1037,9 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	if r.internalTimeout == nil {
 		r.internalTimeout = map[string]time.Duration{}
 	}
+	if r.asyncByTool == nil {
+		r.asyncByTool = map[string]*asynccfg.Config{}
+	}
 	r.internal[s.Name()] = cli
 	// Capture service-provided timeout when available
 	if tt, ok := any(s).(interface{ ToolTimeout() time.Duration }); ok {
@@ -1037,8 +1047,61 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 			r.internalTimeout[s.Name()] = d
 		}
 	}
+	if ac, ok := any(s).(svc.AsyncConfigurer); ok {
+		for _, cfg := range ac.AsyncConfigs() {
+			cacheAsyncConfigAliases(r.asyncByTool, cfg)
+		}
+	}
+	if cp, ok := any(s).(svc.CacheableProvider); ok {
+		if methods := cp.CacheableMethods(); len(methods) > 0 {
+			if r.internalCacheable == nil {
+				r.internalCacheable = map[string]map[string]bool{}
+			}
+			r.internalCacheable[s.Name()] = methods
+		}
+	}
 	r.mu.Unlock()
 	return nil
+}
+
+func (r *Registry) AsyncConfig(name string) (*asynccfg.Config, bool) {
+	if r == nil {
+		return nil, false
+	}
+	key := strings.TrimSpace(name)
+	if key == "" {
+		return nil, false
+	}
+	r.mu.RLock()
+	cfg, ok := r.asyncByTool[key]
+	if !ok {
+		cfg, ok = r.asyncByTool[mcpnames.Canonical(key)]
+	}
+	r.mu.RUnlock()
+	if ok && cfg != nil {
+		return cfg, true
+	}
+	server := serverFromName(key)
+	if server == "" || r.mgr == nil {
+		return nil, false
+	}
+	opts, err := r.mgr.Options(context.Background(), server)
+	if err != nil || opts == nil || len(opts.Async) == 0 {
+		return nil, false
+	}
+	r.mu.Lock()
+	if r.asyncByTool == nil {
+		r.asyncByTool = map[string]*asynccfg.Config{}
+	}
+	for _, candidate := range opts.Async {
+		cacheAsyncConfigAliases(r.asyncByTool, candidate)
+	}
+	cfg, ok = r.asyncByTool[key]
+	if !ok {
+		cfg, ok = r.asyncByTool[mcpnames.Canonical(key)]
+	}
+	r.mu.Unlock()
+	return cfg, ok && cfg != nil
 }
 
 // ToolTimeout returns a suggested timeout for a given tool name.
@@ -1096,6 +1159,7 @@ func (r *Registry) Initialize(ctx context.Context) {
 				def.Name = full
 				r.mu.Lock()
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+				r.applyCacheableOverride(def, s)
 				if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
 					r.cache[full] = entry
 				}
@@ -1197,6 +1261,7 @@ func (r *Registry) replaceServerTools(server string, tools []mcpschema.Tool) {
 		if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 			def.Name = full
 			_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+			r.applyCacheableOverride(def, server)
 			if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
 				newEntries[full] = entry
 				// also colon alias
@@ -1312,6 +1377,28 @@ func cacheToolAliases(cache map[string]*toolCacheEntry, entry *toolCacheEntry, n
 	cache[svc+"/"+method] = entry
 	cache[svc+":"+method] = entry
 	cache[mcpnames.Canonical(name)] = entry
+}
+
+func cacheAsyncConfigAliases(cache map[string]*asynccfg.Config, cfg *asynccfg.Config) {
+	if cache == nil || cfg == nil {
+		return
+	}
+	tools := []string{cfg.Run.Tool, cfg.Status.Tool}
+	if cfg.Cancel != nil {
+		tools = append(tools, cfg.Cancel.Tool)
+	}
+	for _, name := range tools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		cache[name] = cfg
+		if svc, method := splitToolName(name); svc != "" && method != "" {
+			cache[svc+"/"+method] = cfg
+			cache[svc+":"+method] = cfg
+		}
+		cache[mcpnames.Canonical(name)] = cfg
+	}
 }
 
 // listServerTools queries the server tool registry via MCP ListTools.
@@ -2061,40 +2148,86 @@ func (r *Registry) addInternalMcp() {
 	if r.internal == nil {
 		r.internal = map[string]mcpclient.Interface{}
 	}
+	if r.internalTimeout == nil {
+		r.internalTimeout = map[string]time.Duration{}
+	}
+	if r.asyncByTool == nil {
+		r.asyncByTool = map[string]*asynccfg.Config{}
+	}
 	// system/exec
 	{
-		svc := toolExec.New()
-		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
-			r.internal[svc.Name()] = cli
+		service := toolExec.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
+			r.internal[service.Name()] = cli
+			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
+				if d := tt.ToolTimeout(); d > 0 {
+					r.internalTimeout[service.Name()] = d
+				}
+			}
+			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
+				for _, cfg := range ac.AsyncConfigs() {
+					cacheAsyncConfigAliases(r.asyncByTool, cfg)
+				}
+			}
 		} else if err != nil {
-			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}
 	}
 	// system/patch
 	{
-		svc := toolPatch.New()
-		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
-			r.internal[svc.Name()] = cli
+		service := toolPatch.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
+			r.internal[service.Name()] = cli
+			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
+				if d := tt.ToolTimeout(); d > 0 {
+					r.internalTimeout[service.Name()] = d
+				}
+			}
+			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
+				for _, cfg := range ac.AsyncConfigs() {
+					cacheAsyncConfigAliases(r.asyncByTool, cfg)
+				}
+			}
 		} else if err != nil {
-			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}
 	}
 	// system/os
 	{
-		svc := toolOS.New()
-		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
-			r.internal[svc.Name()] = cli
+		service := toolOS.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
+			r.internal[service.Name()] = cli
+			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
+				if d := tt.ToolTimeout(); d > 0 {
+					r.internalTimeout[service.Name()] = d
+				}
+			}
+			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
+				for _, cfg := range ac.AsyncConfigs() {
+					cacheAsyncConfigAliases(r.asyncByTool, cfg)
+				}
+			}
 		} else if err != nil {
-			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}
 	}
 	// system/image
 	{
-		svc := toolImage.New()
-		if cli, err := localmcp.NewServiceClient(context.Background(), svc); err == nil && cli != nil {
-			r.internal[svc.Name()] = cli
+		service := toolImage.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
+			r.internal[service.Name()] = cli
+			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
+				if d := tt.ToolTimeout(); d > 0 {
+					r.internalTimeout[service.Name()] = d
+				}
+			}
+			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
+				for _, cfg := range ac.AsyncConfigs() {
+					cacheAsyncConfigAliases(r.asyncByTool, cfg)
+				}
+			}
 		} else if err != nil {
-			r.warnf("internal mcp for %s failed: %v", svc.Name(), err)
+			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}
 	}
 	// orchestration/plan
@@ -2127,4 +2260,40 @@ func (r *Registry) injectOrchestratorVirtualTool() {
 		r.virtualTimeout = map[string]timeoutSupport{}
 	}
 	r.virtualTimeout[def.Name] = detectTimeoutSupport(&def)
+}
+
+// applyCacheableOverride sets def.Cacheable based on internal service
+// annotations or MCP server config. This is the centralized application
+// point — callers should not scatter this logic elsewhere.
+func (r *Registry) applyCacheableOverride(def *llm.ToolDefinition, serverName string) {
+	if def == nil {
+		return
+	}
+	// Internal service annotations (CacheableProvider)
+	r.mu.RLock()
+	methods := r.internalCacheable[serverName]
+	r.mu.RUnlock()
+	if len(methods) > 0 {
+		_, method := splitToolName(def.Name)
+		if v, ok := methods[method]; ok {
+			def.Cacheable = v
+			return
+		}
+	}
+	// MCP server config
+	if r.mgr == nil {
+		return
+	}
+	opts, err := r.mgr.Options(context.Background(), serverName)
+	if err != nil || opts == nil || len(opts.Cacheable) == 0 {
+		return
+	}
+	if v, ok := opts.Cacheable[def.Name]; ok {
+		def.Cacheable = v
+		return
+	}
+	canonical := mcpnames.Canonical(def.Name)
+	if v, ok := opts.Cacheable[canonical]; ok {
+		def.Cacheable = v
+	}
 }

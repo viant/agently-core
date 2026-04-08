@@ -133,6 +133,24 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		qi.ConversationID = runCtx.childConversationID
 		ro.ConversationID = runCtx.childConversationID
 	}
+	if ri.Async != nil && *ri.Async {
+		ro.Status = "running"
+		ro.ConversationID = runCtx.childConversationID
+		go func(parentCtx context.Context, childIn *agentsvc.QueryInput, childOut *agentsvc.QueryOutput, linked linkedRun) {
+			result := s.executeChildRun(parentCtx, childIn, childOut, linked)
+			finalStatus := result.status
+			if strings.TrimSpace(finalStatus) == "" {
+				if result.err != nil {
+					finalStatus = "failed"
+				} else {
+					finalStatus = "succeeded"
+				}
+			}
+			s.finalizeRunStatus(parentCtx, linked, finalStatus)
+		}(context.WithoutCancel(ctx), qi, &agentsvc.QueryOutput{}, runCtx)
+		debugf("agents.run async accepted agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
+		return nil
+	}
 	qo := &agentsvc.QueryOutput{}
 	result := s.executeChildRun(ctx, qi, qo, runCtx)
 	if result.err != nil {
@@ -238,6 +256,49 @@ func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo
 		}
 	}
 	return childRunResult{err: runErr}
+}
+
+func (s *Service) cancelMethod(ctx context.Context, in, out interface{}) error {
+	ci, ok := in.(*CancelInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	co, ok := out.(*CancelOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	conversationID := strings.TrimSpace(ci.ConversationID)
+	if conversationID == "" {
+		return fmt.Errorf("conversationId is required")
+	}
+	if s != nil && s.cancelReg != nil && s.cancelReg.CancelConversation(conversationID) {
+		co.Status = "canceled"
+		return nil
+	}
+	if s == nil || s.conv == nil {
+		return svc.NewMethodNotFoundError("conversation not found: " + conversationID)
+	}
+	conv, err := s.conv.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil {
+		return err
+	}
+	if conv == nil {
+		return svc.NewMethodNotFoundError("conversation not found: " + conversationID)
+	}
+	co.Status = strings.TrimSpace(ptrString(conv.Status))
+	if co.Status == "" {
+		transcript := conv.GetTranscript()
+		if len(transcript) > 0 {
+			last := transcript[len(transcript)-1]
+			if last != nil {
+				co.Status = strings.TrimSpace(last.Status)
+			}
+		}
+	}
+	if co.Status == "" {
+		co.Status = "unknown"
+	}
+	return nil
 }
 
 func delegatedToolAllowList(ri *RunInput) []string {
@@ -533,6 +594,10 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 	items, err := s.collectStatusItems(ctx, si)
 	if err != nil {
 		return err
+	}
+	if convID := strings.TrimSpace(si.ConversationID); convID != "" && len(items) > 0 {
+		so.ConversationID = convID
+		so.Status = strings.TrimSpace(items[0].Status)
 	}
 	so.Items = items
 	return nil
