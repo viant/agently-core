@@ -17,7 +17,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // TestFinishModelCallSetsCost_DataDriven verifies cost calculation is stored

@@ -12,7 +12,7 @@ import (
 	agmodel "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type fakeMCPProvider struct {

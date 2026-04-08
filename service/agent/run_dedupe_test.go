@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type dedupeConvClient struct {

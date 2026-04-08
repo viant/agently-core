@@ -13,7 +13,7 @@ import (
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/internal/textutil"
 	agmodel "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func writeFileFS(t *testing.T, rootFS, rel string, content []byte) {

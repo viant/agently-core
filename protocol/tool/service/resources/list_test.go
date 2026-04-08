@@ -13,7 +13,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	agmodel "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func tempDirURL(t *testing.T) string {

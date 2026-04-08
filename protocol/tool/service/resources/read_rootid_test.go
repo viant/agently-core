@@ -10,7 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	agmodel "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestRead_RootID_Local_TextMode_MaxBytesApplied_WhenNoMaxLines(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/protocol/prompt"
-	"github.com/viant/agently-core/runtime/memory"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {
