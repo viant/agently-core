@@ -621,9 +621,10 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 			if tool != nil {
 				r.mu.Lock()
 				fullSlash := qualifiedToolName(svc, strings.TrimSpace(t.Name))
+				methods := r.internalCacheable[svc]
 				tool.Name = fullSlash
 				_ = maybeInjectTimeoutMs(tool, injectTimeoutMs)
-				r.applyCacheableOverride(tool, svc)
+				r.applyCacheableOverrideWithMethods(tool, svc, methods)
 				entry := newToolCacheEntry(tool, t, injectTimeoutMs)
 				// cache both aliases and the exact name used
 				if entry != nil {
@@ -1158,8 +1159,9 @@ func (r *Registry) Initialize(ctx context.Context) {
 			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 				def.Name = full
 				r.mu.Lock()
+				methods := r.internalCacheable[s]
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-				r.applyCacheableOverride(def, s)
+				r.applyCacheableOverrideWithMethods(def, s, methods)
 				if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
 					r.cache[full] = entry
 				}
@@ -2273,6 +2275,13 @@ func (r *Registry) applyCacheableOverride(def *llm.ToolDefinition, serverName st
 	r.mu.RLock()
 	methods := r.internalCacheable[serverName]
 	r.mu.RUnlock()
+	r.applyCacheableOverrideWithMethods(def, serverName, methods)
+}
+
+func (r *Registry) applyCacheableOverrideWithMethods(def *llm.ToolDefinition, serverName string, methods map[string]bool) {
+	if def == nil {
+		return
+	}
 	if len(methods) > 0 {
 		_, method := splitToolName(def.Name)
 		if v, ok := methods[method]; ok {
