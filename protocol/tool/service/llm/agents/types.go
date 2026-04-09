@@ -85,9 +85,11 @@ type StatusItem struct {
 }
 
 type StatusOutput struct {
-	ConversationID string       `json:"conversationId,omitempty"`
-	Status         string       `json:"status,omitempty"`
-	Items          []StatusItem `json:"items,omitempty"`
+	ConversationID    string       `json:"conversationId,omitempty"`
+	Status            string       `json:"status,omitempty"`
+	AssistantResponse string       `json:"assistantResponse,omitempty"`
+	HasFinalResponse  bool         `json:"hasFinalResponse,omitempty"`
+	Items             []StatusItem `json:"items,omitempty"`
 }
 
 type CancelInput struct {

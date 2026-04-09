@@ -136,6 +136,20 @@ func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
 
 func (c *HTTPClient) Mode() Mode { return ModeHTTP }
 
+func (c *HTTPClient) BaseURL() string {
+	if c == nil {
+		return ""
+	}
+	return c.baseURL
+}
+
+func (c *HTTPClient) HTTPClient() *http.Client {
+	if c == nil {
+		return nil
+	}
+	return c.client
+}
+
 func (c *HTTPClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
 	var out agentsvc.QueryOutput
 	if err := c.doJSON(ctx, http.MethodPost, c.queryPath, input, &out); err != nil {

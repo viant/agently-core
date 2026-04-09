@@ -439,12 +439,14 @@ func TestBuildHistory_PopulatesProjectionStateFromRelevanceSelector(t *testing.T
 	require.True(t, ok)
 
 	protected := 1
+	threshold := 0
 	svc := &Service{
 		defaults: &config.Defaults{
 			Projection: config.Projection{
 				Relevance: &config.RelevanceProjection{
 					Enabled:              boolPtr(true),
 					ProtectedRecentTurns: &protected,
+					TokenThreshold:       &threshold,
 				},
 			},
 		},

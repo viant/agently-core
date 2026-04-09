@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/viant/agently-core/genai/llm"
 )
 
 func TestToChatGPTBackendResponsesPayload_Contract(t *testing.T) {
@@ -83,5 +85,97 @@ func TestToChatGPTBackendResponsesPayload_PreservesExplicitInstructions(t *testi
 	}
 	if !foundDeveloperSystem {
 		t.Fatalf("expected transformed developer message with system guidance in input")
+	}
+}
+
+func TestToResponsesPayload_PreservesToolHistoryWithoutPreviousResponseID(t *testing.T) {
+	client := &Client{}
+	req, err := client.ToRequest(&llm.GenerateRequest{
+		Messages: []llm.Message{
+			llm.NewSystemMessage("System guidance"),
+			llm.NewUserMessage("what iris targeting do we have?"),
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:   "call_1",
+					Name: "platform-tree",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "platform-tree",
+						Arguments: `{"Field":"TargetingTree","Operation":"Get"}`,
+					},
+				}},
+			},
+			{
+				Role:       llm.RoleTool,
+				Name:       "platform-tree",
+				ToolCallId: "call_1",
+				Content:    `{"status":"error","message":"unsupported operation"}`,
+			},
+		},
+		Options: &llm.Options{Model: "gpt-5.4"},
+	})
+	if err != nil {
+		t.Fatalf("ToRequest failed: %v", err)
+	}
+
+	payload := ToResponsesPayload(req)
+	if len(payload.Input) != 4 {
+		t.Fatalf("expected full transcript to map to 4 input items, got %d", len(payload.Input))
+	}
+	if payload.Input[2].Type != "function_call" {
+		t.Fatalf("expected assistant tool request to map to function_call, got %#v", payload.Input[2])
+	}
+	if payload.Input[2].CallID != "call_1" || payload.Input[2].Name != "platform-tree" {
+		t.Fatalf("unexpected function_call item: %#v", payload.Input[2])
+	}
+	if payload.Input[3].Type != "function_call_output" {
+		t.Fatalf("expected tool result to map to function_call_output, got %#v", payload.Input[3])
+	}
+	if payload.Input[3].CallID != "call_1" || !strings.Contains(payload.Input[3].Output, "unsupported operation") {
+		t.Fatalf("unexpected function_call_output item: %#v", payload.Input[3])
+	}
+}
+
+func TestToChatGPTBackendResponsesPayload_PreservesToolHistoryWithoutProviderContinuation(t *testing.T) {
+	client := &Client{}
+	req, err := client.ToRequest(&llm.GenerateRequest{
+		Messages: []llm.Message{
+			llm.NewSystemMessage("System guidance"),
+			llm.NewUserMessage("what iris targeting do we have?"),
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:   "call_1",
+					Name: "platform-tree",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "platform-tree",
+						Arguments: `{"Field":"TargetingTree","Operation":"Get"}`,
+					},
+				}},
+			},
+			{
+				Role:       llm.RoleTool,
+				Name:       "platform-tree",
+				ToolCallId: "call_1",
+				Content:    `{"status":"error","message":"unsupported operation"}`,
+			},
+		},
+		Options: &llm.Options{Model: "gpt-5.4"},
+	})
+	if err != nil {
+		t.Fatalf("ToRequest failed: %v", err)
+	}
+
+	payload := ToChatGPTBackendResponsesPayload(req)
+	if len(payload.Input) != 3 {
+		t.Fatalf("expected backend payload to keep user + tool history, got %d items", len(payload.Input))
+	}
+	if payload.Input[1].Type != "function_call" || payload.Input[2].Type != "function_call_output" {
+		t.Fatalf("expected backend payload to preserve function call/output history, got %#v", payload.Input)
+	}
+	if payload.Input[2].CallID != "call_1" || !strings.Contains(payload.Input[2].Output, "unsupported operation") {
+		t.Fatalf("unexpected backend tool output item: %#v", payload.Input[2])
 	}
 }

@@ -712,6 +712,10 @@ func TestService_Status_ByConversationID(t *testing.T) {
 	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-conv"}, &out)
 	require.NoError(t, err)
 	require.Len(t, out.Items, 1)
+	assert.Equal(t, "child-conv", out.ConversationID)
+	assert.Equal(t, "succeeded", out.Status)
+	assert.Equal(t, "final child answer", out.AssistantResponse)
+	assert.True(t, out.HasFinalResponse)
 	assert.Equal(t, "child-conv", out.Items[0].ConversationID)
 	assert.Equal(t, "coder", out.Items[0].AgentID)
 	assert.Equal(t, "succeeded", out.Items[0].Status)
@@ -720,6 +724,46 @@ func TestService_Status_ByConversationID(t *testing.T) {
 	assert.True(t, out.Items[0].HasFinalResponse)
 	assert.Equal(t, parentID, out.Items[0].ParentConversationID)
 	assert.Equal(t, parentTurnID, out.Items[0].ParentTurnID)
+}
+
+func TestService_Status_ByConversationID_UsesPreambleWhileRunning(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-running")
+	childConv.SetAgentId("coder")
+	childConv.SetStatus("running")
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-running")
+	childTurn.SetConversationID("child-running")
+	childTurn.SetStatus("running")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	preamble := convcli.NewMessage()
+	preamble.SetId("child-msg-running")
+	preamble.SetConversationID("child-running")
+	preamble.SetTurnID("child-turn-running")
+	preamble.SetRole("assistant")
+	preamble.SetType("text")
+	preamble.SetInterim(1)
+	preamble.SetPreamble("calling tools")
+	preamble.SetContent("calling tools")
+	require.NoError(t, conv.PatchMessage(ctx, preamble))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-running"}, &out)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	assert.Equal(t, "child-running", out.ConversationID)
+	assert.Equal(t, "running", out.Status)
+	assert.Equal(t, "calling tools", out.AssistantResponse)
+	assert.False(t, out.HasFinalResponse)
+	assert.Equal(t, "calling tools", out.Items[0].LastAssistantPreamble)
+	assert.Empty(t, out.Items[0].LastAssistantResponse)
 }
 
 func TestService_Status_ByParentConversationAndTurn(t *testing.T) {

@@ -58,6 +58,10 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		retErr = fmt.Errorf("turn meta not found")
 		return
 	}
+	if err := waitForAsyncRecallPollWindow(ctx, reg, step, turn); err != nil {
+		retErr = err
+		return
+	}
 	argsJSON := ""
 	if debugConvEnabled() && len(step.Args) > 0 {
 		if b, jErr := json.Marshal(step.Args); jErr == nil {

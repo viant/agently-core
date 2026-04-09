@@ -35,6 +35,8 @@ type OperationRecord struct {
 	ToolCallID                    string
 	ToolMessageID                 string
 	ToolName                      string
+	RequestArgsDigest             string
+	RequestArgs                   map[string]interface{}
 	WaitForResponse               bool
 	State                         State
 	Status                        string
@@ -78,6 +80,8 @@ type RegisterInput struct {
 	ToolCallID                    string
 	ToolMessageID                 string
 	ToolName                      string
+	RequestArgsDigest             string
+	RequestArgs                   map[string]interface{}
 	WaitForResponse               bool
 	Status                        string
 	Message                       string
@@ -126,6 +130,8 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) *OperationRec
 		ToolCallID:                    strings.TrimSpace(input.ToolCallID),
 		ToolMessageID:                 strings.TrimSpace(input.ToolMessageID),
 		ToolName:                      strings.TrimSpace(input.ToolName),
+		RequestArgsDigest:             strings.TrimSpace(input.RequestArgsDigest),
+		RequestArgs:                   cloneMap(input.RequestArgs),
 		WaitForResponse:               input.WaitForResponse,
 		Status:                        strings.TrimSpace(input.Status),
 		Message:                       strings.TrimSpace(input.Message),
@@ -239,6 +245,20 @@ func (m *Manager) ActiveOps(_ context.Context, convID, turnID string) []*Operati
 	return result
 }
 
+func (m *Manager) OperationsForTurn(_ context.Context, convID, turnID string) []*OperationRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := turnKey(convID, turnID)
+	var result []*OperationRecord
+	for _, rec := range m.ops {
+		if turnKey(rec.ParentConvID, rec.ParentTurnID) != key {
+			continue
+		}
+		result = append(result, cloneRecord(rec))
+	}
+	return result
+}
+
 func (m *Manager) HasActiveWaitOps(ctx context.Context, convID, turnID string) bool {
 	for _, rec := range m.ActiveOps(ctx, convID, turnID) {
 		if rec.WaitForResponse {
@@ -246,6 +266,21 @@ func (m *Manager) HasActiveWaitOps(ctx context.Context, convID, turnID string) b
 		}
 	}
 	return false
+}
+
+func (m *Manager) ActiveWaitOps(ctx context.Context, convID, turnID string) []*OperationRecord {
+	ops := m.ActiveOps(ctx, convID, turnID)
+	if len(ops) == 0 {
+		return nil
+	}
+	result := make([]*OperationRecord, 0, len(ops))
+	for _, rec := range ops {
+		if rec == nil || !rec.WaitForResponse {
+			continue
+		}
+		result = append(result, rec)
+	}
+	return result
 }
 
 func (m *Manager) TerminalFailure(_ context.Context, convID, turnID string) (*OperationRecord, bool) {
@@ -285,6 +320,72 @@ func (m *Manager) WaitForChange(ctx context.Context, convID, turnID string) erro
 	}
 }
 
+func (m *Manager) WaitForNextPoll(ctx context.Context, convID, turnID string) error {
+	waitOps := m.ActiveWaitOps(ctx, convID, turnID)
+	if len(waitOps) == 0 {
+		return nil
+	}
+	now := time.Now()
+	var delay time.Duration
+	for _, rec := range waitOps {
+		if rec == nil {
+			continue
+		}
+		intervalMs := rec.PollIntervalMs
+		if intervalMs <= 0 {
+			continue
+		}
+		nextAt := rec.UpdatedAt.Add(time.Duration(intervalMs) * time.Millisecond)
+		if !nextAt.After(now) {
+			return nil
+		}
+		nextDelay := time.Until(nextAt)
+		if delay == 0 || nextDelay < delay {
+			delay = nextDelay
+		}
+	}
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *Manager) FindActiveByRequest(_ context.Context, convID, turnID, toolName, requestArgsDigest string) (*OperationRecord, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	convID = strings.TrimSpace(convID)
+	turnID = strings.TrimSpace(turnID)
+	toolName = strings.TrimSpace(toolName)
+	requestArgsDigest = strings.TrimSpace(requestArgsDigest)
+	if convID == "" || turnID == "" || toolName == "" || requestArgsDigest == "" {
+		return nil, false
+	}
+	key := turnKey(convID, turnID)
+	for _, rec := range m.ops {
+		if rec == nil || rec.Terminal() {
+			continue
+		}
+		if !rec.WaitForResponse || turnKey(rec.ParentConvID, rec.ParentTurnID) != key {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(rec.ToolName), toolName) {
+			continue
+		}
+		if rec.RequestArgsDigest != requestArgsDigest {
+			continue
+		}
+		return cloneRecord(rec), true
+	}
+	return nil, false
+}
+
 func (m *Manager) ConsumeChanged(convID, turnID string) []*OperationRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -308,6 +409,7 @@ func cloneRecord(rec *OperationRecord) *OperationRecord {
 	copyRec.Percent = cloneIntPtr(rec.Percent)
 	copyRec.LastSignaledPercent = cloneIntPtr(rec.LastSignaledPercent)
 	copyRec.KeyData = cloneJSON(rec.KeyData)
+	copyRec.RequestArgs = cloneMap(rec.RequestArgs)
 	if rec.LastReinforcementAt != nil {
 		t := *rec.LastReinforcementAt
 		copyRec.LastReinforcementAt = &t
@@ -387,7 +489,7 @@ func DeriveState(status, errMsg string, requested State) State {
 		return requested
 	}
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "completed", "succeeded", "success", "done":
+	case "completed", "complete", "succeeded", "success", "done":
 		return StateCompleted
 	case "failed", "error", "rejected":
 		return StateFailed
@@ -458,6 +560,17 @@ func clonePrompt(p *PromptConfig) *PromptConfig {
 	}
 	copyPrompt := *p
 	return &copyPrompt
+}
+
+func cloneMap(input map[string]interface{}) map[string]interface{} {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func changeDigest(status, message string, state State, keyData json.RawMessage) string {

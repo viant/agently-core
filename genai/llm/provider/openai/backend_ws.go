@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -20,31 +19,28 @@ import (
 )
 
 type backendWSState struct {
-	mu             sync.Mutex
-	conn           *websocket.Conn
-	lastInput      []InputItem
-	lastResponseID string
-	turnState      string
+	mu        sync.Mutex
+	conn      *websocket.Conn
+	turnState string
 }
 
 var backendWSCache sync.Map    // key: baseURL+"|"+conversationID -> *backendWSState
 var backendWSDisabled sync.Map // key: normalized baseURL -> disabledUntil (time.Time)
 
 type backendWSCreateRequest struct {
-	Type               string          `json:"type"`
-	Model              string          `json:"model"`
-	Instructions       string          `json:"instructions"`
-	Input              []InputItem     `json:"input"`
-	Tools              []ResponsesTool `json:"tools,omitempty"`
-	ToolChoice         interface{}     `json:"tool_choice,omitempty"`
-	ParallelToolCalls  bool            `json:"parallel_tool_calls,omitempty"`
-	Reasoning          interface{}     `json:"reasoning,omitempty"`
-	PreviousResponseID string          `json:"previous_response_id,omitempty"`
-	Store              bool            `json:"store"`
-	Stream             bool            `json:"stream"`
-	Include            []string        `json:"include,omitempty"`
-	PromptCacheKey     string          `json:"prompt_cache_key,omitempty"`
-	Text               *TextControls   `json:"text,omitempty"`
+	Type              string          `json:"type"`
+	Model             string          `json:"model"`
+	Instructions      string          `json:"instructions"`
+	Input             []InputItem     `json:"input"`
+	Tools             []ResponsesTool `json:"tools,omitempty"`
+	ToolChoice        interface{}     `json:"tool_choice,omitempty"`
+	ParallelToolCalls bool            `json:"parallel_tool_calls,omitempty"`
+	Reasoning         interface{}     `json:"reasoning,omitempty"`
+	Store             bool            `json:"store"`
+	Stream            bool            `json:"stream"`
+	Include           []string        `json:"include,omitempty"`
+	PromptCacheKey    string          `json:"prompt_cache_key,omitempty"`
+	Text              *TextControls   `json:"text,omitempty"`
 }
 
 func backendWebsocketEnabled() bool {
@@ -163,18 +159,6 @@ func buildBackendWSURL(baseURL string) (string, error) {
 	return u.String(), nil
 }
 
-func hasInputPrefix(full []InputItem, prefix []InputItem) bool {
-	if len(prefix) == 0 || len(prefix) > len(full) {
-		return false
-	}
-	for i := 0; i < len(prefix); i++ {
-		if !reflect.DeepEqual(full[i], prefix[i]) {
-			return false
-		}
-	}
-	return true
-}
-
 func (c *Client) backendWSDial(ctx context.Context, conversationID string, turnState string) (*websocket.Conn, string, error) {
 	apiKey, err := c.apiKey(ctx)
 	if err != nil {
@@ -271,12 +255,6 @@ func (c *Client) streamViaBackendWebSocket(ctx context.Context, req *Request, or
 		Text:              payload.Text,
 	}
 
-	// Incremental parity: reuse previous response when current input is a strict append.
-	if strings.TrimSpace(state.lastResponseID) != "" && hasInputPrefix(payload.Input, state.lastInput) && len(payload.Input) > len(state.lastInput) {
-		create.PreviousResponseID = strings.TrimSpace(state.lastResponseID)
-		create.Input = payload.Input[len(state.lastInput):]
-	}
-
 	body, err := json.Marshal(create)
 	if err != nil {
 		return err
@@ -286,8 +264,6 @@ func (c *Client) streamViaBackendWebSocket(ctx context.Context, req *Request, or
 		state.conn = nil
 		return err
 	}
-	state.lastInput = payload.Input
-
 	observer := mcbuf.ObserverFromContext(ctx)
 	p := &streamProcessor{
 		client:   c,
@@ -311,16 +287,6 @@ func (c *Client) streamViaBackendWebSocket(ctx context.Context, req *Request, or
 			continue
 		}
 		eventType := backendEventType(raw)
-		if eventType == "response.created" || eventType == "response.in_progress" {
-			var e struct {
-				Response struct {
-					ID string `json:"id"`
-				} `json:"response"`
-			}
-			if json.Unmarshal(raw, &e) == nil && strings.TrimSpace(e.Response.ID) != "" {
-				state.lastResponseID = strings.TrimSpace(e.Response.ID)
-			}
-		}
 		if !p.handleEvent(eventType, string(raw)) {
 			p.finalize(nil)
 			return nil

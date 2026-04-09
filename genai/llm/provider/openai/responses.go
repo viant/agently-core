@@ -36,6 +36,10 @@ type InputItem struct {
 	Role string `json:"role,omitempty"`
 	// Name is not supported by Responses API and must be omitted.
 	Content []ResponsesContentItem `json:"content,omitempty"`
+	// Function-call item fields.
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Status    string `json:"status,omitempty"`
 	// ToolCallID is required by OpenAI when role == "tool" to associate
 	// the tool result with a prior assistant tool_call request.
 	ToolCallID string `json:"tool_call_id,omitempty"`
@@ -190,107 +194,45 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		}
 
 		isAssistant := role == "assistant"
-		var items []ResponsesContentItem
+		items := toResponsesContentItems(m.Content, isAssistant)
 
-		// Special-case: tool result messages → append function_call_output item directly
+		// Preserve assistant tool-call history as explicit function_call items.
+		if isAssistant && len(m.ToolCalls) > 0 {
+			if len(items) > 0 {
+				out.Input = append(out.Input, InputItem{Type: "message", Role: role, Content: items})
+			}
+			for _, tc := range m.ToolCalls {
+				callID := strings.TrimSpace(tc.ID)
+				name := strings.TrimSpace(tc.Function.Name)
+				if name == "" {
+					name = strings.TrimSpace(tc.ID)
+				}
+				args := strings.TrimSpace(tc.Function.Arguments)
+				if args == "" {
+					args = "{}"
+				}
+				out.Input = append(out.Input, InputItem{
+					Type:      "function_call",
+					CallID:    callID,
+					Name:      name,
+					Arguments: args,
+					Status:    "completed",
+				})
+			}
+			continue
+		}
+
+		// Preserve tool results as explicit function_call_output items, even
+		// when replaying the full transcript without previous_response_id.
 		if strings.TrimSpace(m.ToolCallId) != "" || strings.ToLower(m.Role) == "tool" {
 			var outTxt string
-			switch content := m.Content.(type) {
-			case string:
-				outTxt = strings.TrimSpace(content)
-			case []ContentItem:
-				var sb strings.Builder
-				for _, it := range content {
-					if it.Text != "" {
-						sb.WriteString(it.Text)
-					}
-				}
-				outTxt = strings.TrimSpace(sb.String())
-			}
-			// Only emit function_call_output when continuing a stored response
-			if strings.TrimSpace(req.PreviousResponseID) != "" && strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
+			outTxt = strings.TrimSpace(extractMessageText(m))
+			if strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
 				out.Input = append(out.Input, InputItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
 				continue
 			}
-			// Otherwise fall through to normal message mapping (as input_text),
-			// since function_call_output requires a previous_response_id.
-		} else {
-			switch content := m.Content.(type) {
-			case string:
-				t := "input_text"
-				if isAssistant {
-					t = "output_text"
-				}
-				if strings.TrimSpace(content) != "" {
-					items = append(items, ResponsesContentItem{Type: t, Text: strings.TrimSpace(content)})
-				}
-			case []ContentItem:
-				for _, it := range content {
-					switch strings.ToLower(it.Type) {
-					case "text":
-						t := "input_text"
-						if isAssistant {
-							t = "output_text"
-						}
-						if txt := strings.TrimSpace(coalesce(it.Text)); txt != "" {
-							items = append(items, ResponsesContentItem{Type: t, Text: txt})
-						}
-					case "image_url":
-						var detail string
-						if it.ImageURL != nil {
-							detail = it.ImageURL.Detail
-						}
-						url := ""
-						if it.ImageURL != nil {
-							url = it.ImageURL.URL
-						}
-						items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
-					case "file":
-						if it.File != nil && it.File.FileID != "" {
-							items = append(items, ResponsesContentItem{Type: "input_file", FileID: it.File.FileID})
-						} else if it.File != nil {
-							items = append(items, ResponsesContentItem{Type: "input_file", FileName: it.File.FileName, FileData: it.File.FileData})
-						}
-					default:
-						t := "input_text"
-						if isAssistant {
-							t = "output_text"
-						}
-						if txt := strings.TrimSpace(it.Text); txt != "" {
-							items = append(items, ResponsesContentItem{Type: t, Text: txt})
-						}
-					}
-				}
-			case []interface{}:
-				for _, raw := range content {
-					if mp, ok := raw.(map[string]interface{}); ok {
-						typ, _ := mp["type"].(string)
-						switch strings.ToLower(typ) {
-						case "text":
-							t := "input_text"
-							if isAssistant {
-								t = "output_text"
-							}
-							if v, _ := mp["text"].(string); strings.TrimSpace(v) != "" {
-								items = append(items, ResponsesContentItem{Type: t, Text: strings.TrimSpace(v)})
-							}
-						case "image_url":
-							var url, detail string
-							if iu, ok := mp["image_url"].(map[string]interface{}); ok {
-								if u, _ := iu["url"].(string); u != "" {
-									url = u
-								}
-								if d, _ := iu["detail"].(string); d != "" {
-									detail = d
-								}
-							}
-							if url != "" {
-								items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
-							}
-						}
-					}
-				}
-			}
+			// Tool messages without a call id cannot be associated to a prior
+			// function call item, so fall back to normal message mapping below.
 		}
 
 		// Skip messages with no content. Responses API rejects null content.
@@ -403,6 +345,87 @@ func normalizeText(s string) string {
 	}
 	fields := strings.Fields(trimmed)
 	return strings.Join(fields, " ")
+}
+
+func toResponsesContentItems(content interface{}, isAssistant bool) []ResponsesContentItem {
+	var items []ResponsesContentItem
+	switch content := content.(type) {
+	case string:
+		t := "input_text"
+		if isAssistant {
+			t = "output_text"
+		}
+		if strings.TrimSpace(content) != "" {
+			items = append(items, ResponsesContentItem{Type: t, Text: strings.TrimSpace(content)})
+		}
+	case []ContentItem:
+		for _, it := range content {
+			switch strings.ToLower(it.Type) {
+			case "text":
+				t := "input_text"
+				if isAssistant {
+					t = "output_text"
+				}
+				if txt := strings.TrimSpace(coalesce(it.Text)); txt != "" {
+					items = append(items, ResponsesContentItem{Type: t, Text: txt})
+				}
+			case "image_url":
+				var detail string
+				if it.ImageURL != nil {
+					detail = it.ImageURL.Detail
+				}
+				url := ""
+				if it.ImageURL != nil {
+					url = it.ImageURL.URL
+				}
+				items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
+			case "file":
+				if it.File != nil && it.File.FileID != "" {
+					items = append(items, ResponsesContentItem{Type: "input_file", FileID: it.File.FileID})
+				} else if it.File != nil {
+					items = append(items, ResponsesContentItem{Type: "input_file", FileName: it.File.FileName, FileData: it.File.FileData})
+				}
+			default:
+				t := "input_text"
+				if isAssistant {
+					t = "output_text"
+				}
+				if txt := strings.TrimSpace(it.Text); txt != "" {
+					items = append(items, ResponsesContentItem{Type: t, Text: txt})
+				}
+			}
+		}
+	case []interface{}:
+		for _, raw := range content {
+			if mp, ok := raw.(map[string]interface{}); ok {
+				typ, _ := mp["type"].(string)
+				switch strings.ToLower(typ) {
+				case "text":
+					t := "input_text"
+					if isAssistant {
+						t = "output_text"
+					}
+					if v, _ := mp["text"].(string); strings.TrimSpace(v) != "" {
+						items = append(items, ResponsesContentItem{Type: t, Text: strings.TrimSpace(v)})
+					}
+				case "image_url":
+					var url, detail string
+					if iu, ok := mp["image_url"].(map[string]interface{}); ok {
+						if u, _ := iu["url"].(string); u != "" {
+							url = u
+						}
+						if d, _ := iu["detail"].(string); d != "" {
+							detail = d
+						}
+					}
+					if url != "" {
+						items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
+					}
+				}
+			}
+		}
+	}
+	return items
 }
 
 // ToLLMSFromResponses converts a Responses API response to llm.GenerateResponse.

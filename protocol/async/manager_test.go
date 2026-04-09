@@ -187,6 +187,42 @@ func TestManager_TryRecordReinforcement_RateLimited(t *testing.T) {
 	require.Equal(t, 1, rec.ReinforcementCount)
 }
 
+func TestManager_FindActiveByRequest(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:                "op-1",
+		ParentConvID:      "conv-1",
+		ParentTurnID:      "turn-1",
+		ToolName:          "forecasting:TotalV1",
+		RequestArgsDigest: `{"viewId":"TOTAL"}`,
+		WaitForResponse:   true,
+		Status:            "WAITING",
+	})
+
+	rec, ok := manager.FindActiveByRequest(context.Background(), "conv-1", "turn-1", "forecasting:TotalV1", `{"viewId":"TOTAL"}`)
+	require.True(t, ok)
+	require.NotNil(t, rec)
+	require.Equal(t, "op-1", rec.ID)
+}
+
+func TestManager_WaitForNextPoll(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:              "op-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "forecasting:TotalV1",
+		WaitForResponse: true,
+		PollIntervalMs:  50,
+		Status:          "WAITING",
+	})
+
+	started := time.Now()
+	err := manager.WaitForNextPoll(context.Background(), "conv-1", "turn-1")
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, time.Since(started), 40*time.Millisecond)
+}
+
 func TestManager_RecordPollFailure_TransientRetriesThenFails(t *testing.T) {
 	manager := NewManager()
 	manager.Register(context.Background(), RegisterInput{
@@ -214,6 +250,10 @@ func TestManager_RecordPollFailure_TransientRetriesThenFails(t *testing.T) {
 	require.NotNil(t, rec)
 	require.Equal(t, StateFailed, rec.State)
 	require.Len(t, manager.ConsumeChanged("conv-1", "turn-1"), 1)
+}
+
+func TestDeriveState_CompleteAlias(t *testing.T) {
+	require.Equal(t, StateCompleted, DeriveState("COMPLETE", "", ""))
 }
 
 func intPtr(value int) *int {

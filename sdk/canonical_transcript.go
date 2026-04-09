@@ -186,28 +186,26 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 	// Attach its content to the last page.
 	if len(pages) > 0 {
 		lastPage := pages[len(pages)-1]
-		if !lastPage.FinalResponse || strings.TrimSpace(lastPage.Content) == "" {
-			for i := len(turn.Message) - 1; i >= 0; i-- {
-				msg := turn.Message[i]
-				if msg == nil {
-					continue
-				}
-				if isSummaryAssistantMessage(msg) {
-					continue
-				}
-				role := strings.ToLower(strings.TrimSpace(msg.Role))
-				if role != "assistant" || msg.Interim != 0 {
-					continue
-				}
-				content := visibleContentOrEmpty(msg.Content)
-				if content == "" {
-					continue
-				}
-				lastPage.Content = content
-				lastPage.FinalResponse = true
-				lastPage.FinalAssistantMessageID = msg.Id
-				break
+		for i := len(turn.Message) - 1; i >= 0; i-- {
+			msg := turn.Message[i]
+			if msg == nil {
+				continue
 			}
+			if isSummaryAssistantMessage(msg) {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(msg.Role))
+			if role != "assistant" || msg.Interim != 0 {
+				continue
+			}
+			content := visibleContentOrEmpty(msg.Content)
+			if content == "" {
+				continue
+			}
+			lastPage.Content = content
+			lastPage.FinalResponse = true
+			lastPage.FinalAssistantMessageID = msg.Id
+			break
 		}
 	}
 	return pages

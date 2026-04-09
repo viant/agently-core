@@ -210,10 +210,10 @@ type RelevanceProjection struct {
 	Prompt               *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 }
 
-// IsEnabled reports whether relevance projection is enabled. Default: false.
+// IsEnabled reports whether relevance projection is enabled. Default: true.
 func (r *RelevanceProjection) IsEnabled() bool {
 	if r == nil || r.Enabled == nil {
-		return false
+		return true
 	}
 	return *r.Enabled
 }
@@ -227,10 +227,10 @@ func (r *RelevanceProjection) ProtectedTurns() int {
 }
 
 // Threshold returns the approximate token threshold that must be exceeded
-// before selector-based relevance projection runs. Default: 0 (always eligible).
+// before selector-based relevance projection runs. Default: 20000.
 func (r *RelevanceProjection) Threshold() int {
 	if r == nil || r.TokenThreshold == nil || *r.TokenThreshold < 0 {
-		return 0
+		return 20000
 	}
 	return *r.TokenThreshold
 }

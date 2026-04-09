@@ -314,6 +314,30 @@ func (s *Service) replaceInterimContentForElicitation(ctx context.Context, turn 
 	_ = s.conversation.PatchMessage(ctx, msg)
 }
 
+func (s *Service) markAssistantMessageInterim(ctx context.Context, turn *runtimerequestctx.TurnMeta, genOutput *core.GenerateOutput) {
+	if s == nil || s.conversation == nil || turn == nil {
+		return
+	}
+	msgID := ""
+	if genOutput != nil {
+		msgID = strings.TrimSpace(genOutput.MessageID)
+	}
+	if msgID == "" {
+		msgID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	}
+	if msgID == "" {
+		msgID = s.findLastAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
+	}
+	if msgID == "" {
+		return
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(msgID)
+	msg.SetConversationID(turn.ConversationID)
+	msg.SetInterim(1)
+	_ = s.conversation.PatchMessage(ctx, msg)
+}
+
 func (s *Service) findLastInterimAssistantMessageID(ctx context.Context, conversationID, turnID string) string {
 	if s.conversation == nil || conversationID == "" || turnID == "" {
 		return ""
@@ -342,6 +366,37 @@ func (s *Service) findLastInterimAssistantMessageID(ctx context.Context, convers
 			lastMsgID = msg.Id
 		}
 		return lastMsgID
+	}
+	return ""
+}
+
+func (s *Service) findLastAssistantMessageID(ctx context.Context, conversationID, turnID string) string {
+	if s.conversation == nil || conversationID == "" || turnID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return ""
+	}
+	transcript := conv.GetTranscript()
+	for i := len(transcript) - 1; i >= 0; i-- {
+		t := transcript[i]
+		if t == nil || strings.TrimSpace(t.Id) != turnID {
+			continue
+		}
+		for j := len(t.Message) - 1; j >= 0; j-- {
+			msg := t.Message[j]
+			if msg == nil {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if strings.TrimSpace(msg.Id) != "" {
+				return msg.Id
+			}
+		}
+		return ""
 	}
 	return ""
 }
