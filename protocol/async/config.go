@@ -27,9 +27,11 @@ type RunConfig struct {
 }
 
 type StatusConfig struct {
-	Tool           string   `json:"tool" yaml:"tool"`
-	OperationIDArg string   `json:"operationIdArg" yaml:"operationIdArg"`
-	Selector       Selector `json:"selector" yaml:"selector"`
+	Tool           string                 `json:"tool" yaml:"tool"`
+	OperationIDArg string                 `json:"operationIdArg" yaml:"operationIdArg"`
+	ReuseRunArgs   bool                   `json:"reuseRunArgs,omitempty" yaml:"reuseRunArgs,omitempty"`
+	ExtraArgs      map[string]interface{} `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
+	Selector       Selector               `json:"selector" yaml:"selector"`
 }
 
 type CancelConfig struct {

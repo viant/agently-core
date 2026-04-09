@@ -127,6 +127,24 @@ func TestApplyToolCallSupersession_CurrentTurnKeepsLast2(t *testing.T) {
 	assert.Equal(t, "call4", *result[1].msg.Content)
 }
 
+func TestApplyToolCallSupersession_CurrentTurnExactDuplicateShapeKeepsLast2(t *testing.T) {
+	reg := &stubCacheableRegistry{defs: map[string]*llm.ToolDefinition{
+		"platform:tree": {Name: "platform:tree", Cacheable: true},
+	}}
+	args := strPtr(`{"Body":{"advertiserIds":[],"channelV2s":[],"channels":[],"treeLookupParam":[0],"treeModelParam":{"channels":[],"channelsV2":[],"forecasting":true}},"Field":"TargetingTree","Operation":"Get"}`)
+	msgs := []normalizedMsg{
+		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 1")},
+		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 2")},
+		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 3")},
+		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 4")},
+		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 5")},
+	}
+	result := applyToolCallSupersession(msgs, 0, reg, &config.Projection{})
+	require.Len(t, result, 2, "current turn should keep only the latest two exact duplicate cacheable calls")
+	assert.Equal(t, "unsupported operation 4", *result[0].msg.Content)
+	assert.Equal(t, "unsupported operation 5", *result[1].msg.Content)
+}
+
 func TestApplyToolCallSupersession_DisabledLeavesAllIntact(t *testing.T) {
 	reg := &stubCacheableRegistry{defs: map[string]*llm.ToolDefinition{
 		"resources/read": {Name: "resources/read", Cacheable: true},

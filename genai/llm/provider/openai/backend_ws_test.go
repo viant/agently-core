@@ -1,6 +1,10 @@
 package openai
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestBuildBackendWSURL(t *testing.T) {
 	got, err := buildBackendWSURL("https://chatgpt.com/backend-api/codex")
@@ -13,18 +17,25 @@ func TestBuildBackendWSURL(t *testing.T) {
 	}
 }
 
-func TestHasInputPrefix(t *testing.T) {
-	full := []InputItem{
-		{Type: "message", Role: "user"},
-		{Type: "message", Role: "assistant"},
+func TestBackendWSCreateRequest_DoesNotCarryProviderContinuationFields(t *testing.T) {
+	req := backendWSCreateRequest{
+		Type:         "response.create",
+		Model:        "gpt-5.4",
+		Instructions: "Use the transcript as provided.",
+		Input: []InputItem{
+			{Type: "message", Role: "user", Content: []ResponsesContentItem{{Type: "input_text", Text: "hello"}}},
+			{Type: "function_call", CallID: "call_1", Name: "platform-tree", Arguments: `{"Field":"TargetingTree","Operation":"Get"}`},
+			{Type: "function_call_output", CallID: "call_1", Output: `{"status":"error","message":"unsupported operation"}`},
+		},
+		Store:  false,
+		Stream: true,
 	}
-	prefix := []InputItem{
-		{Type: "message", Role: "user"},
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
 	}
-	if !hasInputPrefix(full, prefix) {
-		t.Fatalf("expected prefix match")
-	}
-	if hasInputPrefix(prefix, full) {
-		t.Fatalf("expected non-prefix mismatch")
+	body := string(data)
+	if strings.Contains(body, `"previous_response_id"`) {
+		t.Fatalf("backend websocket request must not inject previous_response_id: %s", body)
 	}
 }

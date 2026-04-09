@@ -62,3 +62,17 @@ compaction:
 	require.Equal(t, 5, got.Projection.SupersessionHistoryLimit())
 	require.Equal(t, 6, got.Projection.SupersessionTurnLimit())
 }
+
+func TestRelevanceProjection_Defaults(t *testing.T) {
+	var relevance *RelevanceProjection
+	require.True(t, relevance.IsEnabled())
+	require.Equal(t, 1, relevance.ProtectedTurns())
+	require.Equal(t, 20000, relevance.Threshold())
+	require.Equal(t, 0, relevance.Chunk())
+	require.Equal(t, 1, relevance.Concurrency())
+
+	relevance = &RelevanceProjection{}
+	require.True(t, relevance.IsEnabled())
+	require.Equal(t, 1, relevance.ProtectedTurns())
+	require.Equal(t, 20000, relevance.Threshold())
+}

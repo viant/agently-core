@@ -105,6 +105,26 @@ func TestBuildContinuationRequest_SkipsWhenToolResultDropped(t *testing.T) {
 	assert.Nil(t, cont, "continuation should be skipped when anchor tool call count exceeds selected tool results")
 }
 
+func TestBuildContinuationRequest_SkipsWhenSystemHistoryMessagePresent(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	history := &prompt.History{
+		Traces:       map[string]*prompt.Trace{},
+		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	}
+	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.NewSystemMessage("Forecasting job is still pending. Call the same tool again with the same request."),
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "forecasting-Total"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"jobStatus":"WAITING"}`},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	assert.Nil(t, cont, "continuation should be skipped when system history messages are present")
+}
+
 // TestBuildContinuationRequest_ThreeIterations simulates three sequential
 // model iterations to verify continuation works across all of them:
 //   - Iteration 1: full request (no anchor) → model produces resp_A with op-1

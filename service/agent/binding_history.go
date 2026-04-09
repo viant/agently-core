@@ -606,11 +606,19 @@ func (s *Service) collectNormalizedMessages(
 			if baseMsg.Content != nil && *baseMsg.Content != "" {
 				mtype := strings.ToLower(strings.TrimSpace(baseMsg.Type))
 				isElicitationType := mtype == "elicitation_request" || mtype == "elicitation_response"
+				mode := ""
+				if baseMsg.Mode != nil {
+					mode = strings.ToLower(strings.TrimSpace(*baseMsg.Mode))
+				}
 				// Steer/follow-up inputs are persisted as user task messages on the
 				// active turn. They must enter prompt history for the next iteration,
 				// otherwise the loop can detect late steer but the model never sees it.
 				if mtype == "text" || mtype == "task" || isElicitationType {
 					role := strings.ToLower(strings.TrimSpace(baseMsg.Role))
+					if role == "system" && mode == asyncMessageMode {
+						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+						continue
+					}
 					if currentElicitation && lastElicitationMessage != nil && (role == "user" || role == "assistant") {
 						if baseMsg.Id == lastElicitationMessage.Id && baseMsg.Content != nil {
 							kind := prompt.MessageKindElicitAnswer

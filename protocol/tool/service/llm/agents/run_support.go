@@ -598,9 +598,23 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 	if convID := strings.TrimSpace(si.ConversationID); convID != "" && len(items) > 0 {
 		so.ConversationID = convID
 		so.Status = strings.TrimSpace(items[0].Status)
+		so.AssistantResponse = statusItemAnswer(items[0])
+		so.HasFinalResponse = items[0].HasFinalResponse
 	}
 	so.Items = items
 	return nil
+}
+
+func statusItemAnswer(item StatusItem) string {
+	if item.HasFinalResponse {
+		if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
+			return text
+		}
+	}
+	if text := strings.TrimSpace(item.LastAssistantPreamble); text != "" {
+		return text
+	}
+	return strings.TrimSpace(item.LastAssistantResponse)
 }
 
 func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]StatusItem, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -62,19 +63,52 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 	if !ok {
 		return nil
 	}
-	cfg, ok := asyncConfigForStep(ctx, reg, step.Name)
-	if !ok || cfg == nil {
-		return nil
-	}
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
 		return nil
 	}
+	cfg, ok := asyncConfigForStep(ctx, reg, step.Name)
+	if !ok || cfg == nil {
+		debugConvf("tool async skip convo=%q turn=%q op_id=%q tool=%q reason=no_async_config", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name))
+		return nil
+	}
+	requestDigest := requestArgsDigest(cfg, step.Args)
+	var matched *asynccfg.OperationRecord
+	if sameToolName(step.Name, cfg.Run.Tool) && sameToolName(step.Name, cfg.Status.Tool) && cfg.Status.ReuseRunArgs {
+		matched, _ = manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest)
+		if matched != nil {
+			infoConvf("tool async same-tool recall matched convo=%q turn=%q op_id=%q tool=%q async_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(matched.ID))
+		}
+	}
 	switch {
-	case sameToolName(step.Name, cfg.Run.Tool):
-		opID, err := asynccfg.ExtractOperationID(toolResult, cfg.Run.OperationIDPath)
-		if err != nil || strings.TrimSpace(opID) == "" {
+	case matched != nil:
+		payload, err := asynccfg.ExtractPayload(toolResult, cfg.Status.Selector)
+		if err != nil || payload == nil {
+			warnConvf("tool async same-tool recall ignored convo=%q turn=%q op_id=%q tool=%q async_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(matched.ID), err)
 			return nil
+		}
+		rec, changed := manager.Update(ctx, asynccfg.UpdateInput{
+			ID:      matched.ID,
+			Status:  payload.Status,
+			Message: payload.Message,
+			Percent: payload.Percent,
+			KeyData: cloneRaw(payload.KeyData),
+			Error:   payload.Error,
+		})
+		if rec != nil {
+			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
+		}
+		if rec != nil {
+			asyncwait.MarkAfterStatus(ctx, matched.ID)
+		}
+		if changed {
+			publishAsyncUpdateEvent(ctx, step.Name, matched.ID, payload, rec)
+		}
+		return nil
+	case sameToolName(step.Name, cfg.Run.Tool):
+		opID := strings.TrimSpace(extractAsyncOperationID(toolResult, cfg.Run.OperationIDPath))
+		if opID == "" {
+			opID = synthesizeAsyncOperationID(step, requestDigest)
 		}
 		extracted := &asynccfg.Extracted{}
 		if cfg.Run.Selector != nil {
@@ -82,6 +116,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 				extracted = payload
 			}
 		}
+		normalizeAsyncExtracted(toolResult, extracted)
 		rec := manager.Register(ctx, asynccfg.RegisterInput{
 			ID:                            opID,
 			ParentConvID:                  turn.ConversationID,
@@ -89,6 +124,8 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			ToolCallID:                    step.ID,
 			ToolMessageID:                 strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
 			ToolName:                      step.Name,
+			RequestArgsDigest:             requestDigest,
+			RequestArgs:                   normalizedAsyncArgs(cfg, step.Args),
 			WaitForResponse:               cfg.WaitForResponse,
 			Status:                        extracted.Status,
 			Message:                       extracted.Message,
@@ -102,14 +139,23 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			Reinforcement:                 cfg.Reinforcement,
 			ReinforcementPrompt:           cfg.ReinforcementPrompt,
 		})
+		infoConvf("tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		publishAsyncLifecycleEvent(ctx, step.Name, opID, streaming.EventTypeToolCallStarted, extracted)
+		if rec != nil && rec.Terminal() {
+			publishAsyncUpdateEvent(ctx, step.Name, opID, extracted, rec)
+			return nil
+		}
 		if state := asynccfg.DeriveState(extracted.Status, extracted.Error, ""); state == asynccfg.StateWaiting || state == asynccfg.StateRunning || state == asynccfg.StateStarted {
 			publishAsyncLifecycleEvent(ctx, step.Name, opID, streaming.EventTypeToolCallWaiting, extracted)
 		}
-		go PollAsyncOperation(context.WithoutCancel(ctx), manager, reg, cfg, turn, opID, convFromContext(ctx))
 		return rec
 	case sameToolName(step.Name, cfg.Status.Tool):
 		opID := strings.TrimSpace(stringArg(step.Args, cfg.Status.OperationIDArg))
+		if opID == "" && cfg.Status.ReuseRunArgs {
+			if rec, ok := manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest); ok && rec != nil {
+				opID = rec.ID
+			}
+		}
 		if opID == "" {
 			return nil
 		}
@@ -117,6 +163,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if err != nil || payload == nil {
 			return nil
 		}
+		normalizeAsyncExtracted(toolResult, payload)
 		rec, changed := manager.Update(ctx, asynccfg.UpdateInput{
 			ID:      opID,
 			Status:  payload.Status,
@@ -128,7 +175,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
-		if rec != nil && !rec.Terminal() {
+		if rec != nil {
 			asyncwait.MarkAfterStatus(ctx, opID)
 		}
 		if changed {
@@ -136,6 +183,144 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		}
 	}
 	return nil
+}
+
+func normalizeAsyncExtracted(raw string, extracted *asynccfg.Extracted) {
+	if extracted == nil {
+		return
+	}
+	if strings.TrimSpace(extracted.Status) != "" || strings.TrimSpace(extracted.Error) != "" {
+		return
+	}
+	if len(extracted.KeyData) > 0 {
+		extracted.Status = "completed"
+		return
+	}
+	var root interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &root); err != nil || root == nil {
+		return
+	}
+	switch root.(type) {
+	case []interface{}:
+		extracted.Status = "completed"
+		extracted.KeyData = json.RawMessage(strings.TrimSpace(raw))
+	}
+}
+
+func waitForAsyncRecallPollWindow(ctx context.Context, reg tool.Registry, step StepInfo, turn runtimerequestctx.TurnMeta) error {
+	manager, ok := AsyncManagerFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	cfg, ok := asyncConfigForStep(ctx, reg, step.Name)
+	if !ok || cfg == nil {
+		return nil
+	}
+	if !cfg.Status.ReuseRunArgs || !sameToolName(step.Name, cfg.Run.Tool) || !sameToolName(step.Name, cfg.Status.Tool) {
+		return nil
+	}
+	requestDigest := requestArgsDigest(cfg, step.Args)
+	if requestDigest == "" {
+		return nil
+	}
+	rec, ok := manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest)
+	if !ok || rec == nil || rec.Terminal() {
+		return nil
+	}
+	delay := nextAsyncPollDelay(rec)
+	if delay <= 0 {
+		return nil
+	}
+	infoConvf("tool async recall wait convo=%q turn=%q op_id=%q tool=%q async_id=%q delay=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(rec.ID), delay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func extractAsyncOperationID(toolResult string, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	opID, err := asynccfg.ExtractOperationID(toolResult, path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(opID)
+}
+
+func requestArgsDigest(cfg *asynccfg.Config, args map[string]interface{}) string {
+	normalized := normalizedAsyncArgs(cfg, args)
+	if len(normalized) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func nextAsyncPollDelay(rec *asynccfg.OperationRecord) time.Duration {
+	if rec == nil {
+		return 0
+	}
+	intervalMs := rec.PollIntervalMs
+	if intervalMs <= 0 {
+		return 0
+	}
+	nextAt := rec.UpdatedAt.Add(time.Duration(intervalMs) * time.Millisecond)
+	if !nextAt.After(time.Now()) {
+		return 0
+	}
+	return time.Until(nextAt)
+}
+
+func normalizedAsyncArgs(cfg *asynccfg.Config, args map[string]interface{}) map[string]interface{} {
+	if len(args) == 0 {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(args))
+	for key, value := range args {
+		if key == "timeoutMs" {
+			continue
+		}
+		cloned[key] = value
+	}
+	if cfg != nil {
+		for key := range cfg.Run.ExtraArgs {
+			delete(cloned, key)
+		}
+		for key := range cfg.Status.ExtraArgs {
+			delete(cloned, key)
+		}
+	}
+	if len(cloned) == 0 {
+		return nil
+	}
+	return cloned
+}
+
+func synthesizeAsyncOperationID(step StepInfo, requestDigest string) string {
+	if id := strings.TrimSpace(step.ID); id != "" {
+		return id
+	}
+	name := strings.TrimSpace(step.Name)
+	if requestDigest == "" {
+		if name == "" {
+			return "async"
+		}
+		return "async:" + name
+	}
+	if name == "" {
+		return fmt.Sprintf("async:%x", []byte(requestDigest))
+	}
+	return name + ":" + requestDigest
 }
 
 func sameToolName(actual, expected string) bool {

@@ -12,9 +12,12 @@ type AsyncManager interface {
 	Register(ctx context.Context, input asynccfg.RegisterInput) *asynccfg.OperationRecord
 	Update(ctx context.Context, input asynccfg.UpdateInput) (*asynccfg.OperationRecord, bool)
 	Get(ctx context.Context, id string) (*asynccfg.OperationRecord, bool)
+	ActiveWaitOps(ctx context.Context, convID, turnID string) []*asynccfg.OperationRecord
+	FindActiveByRequest(ctx context.Context, convID, turnID, toolName, requestArgsDigest string) (*asynccfg.OperationRecord, bool)
 	TerminalFailure(ctx context.Context, convID, turnID string) (*asynccfg.OperationRecord, bool)
 	RecordPollFailure(ctx context.Context, id, errMsg string, transient bool) (*asynccfg.OperationRecord, bool)
 	ResetPollFailures(ctx context.Context, id string) (*asynccfg.OperationRecord, bool)
+	WaitForNextPoll(ctx context.Context, convID, turnID string) error
 }
 
 func WithAsyncManager(ctx context.Context, manager AsyncManager) context.Context {

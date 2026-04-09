@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -102,12 +103,29 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 			msgs = append(msgs, entry)
 		}
 		debugtrace.LogToFile("llm", "request", map[string]interface{}{
-			"model":     strings.TrimSpace(input.Model),
-			"msgCount":  len(request.Messages),
-			"toolCount": len(toolNames),
-			"tools":     strings.Join(toolNames, ","),
-			"messages":  msgs,
+			"model":        strings.TrimSpace(input.Model),
+			"msgCount":     len(request.Messages),
+			"toolCount":    len(toolNames),
+			"tools":        strings.Join(toolNames, ","),
+			"messages":     msgs,
+			"fullMessages": request.Messages,
+			"instructions": request.Instructions,
 		})
+	}
+	if debugtrace.Enabled() {
+		payload := map[string]interface{}{
+			"model":        strings.TrimSpace(input.Model),
+			"instructions": request.Instructions,
+			"messages":     request.Messages,
+			"options":      request.Options,
+		}
+		if data, mErr := json.MarshalIndent(payload, "", "  "); mErr == nil {
+			traceID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+			if traceID == "" {
+				traceID = strings.TrimSpace(input.Model)
+			}
+			_ = debugtrace.WritePayload("llm-request", traceID, data)
+		}
 	}
 	return request, model, nil
 }
