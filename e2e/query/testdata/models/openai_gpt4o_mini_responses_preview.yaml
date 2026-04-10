@@ -1,0 +1,14 @@
+id: openai_gpt4o_mini_responses_preview
+name: gpt-4o-mini (OpenAI Responses Preview)
+description: OpenAI gpt-4o-mini model using the Responses API with continuation preview format enabled
+intelligence: 0.80
+speed: 0.95
+options:
+  provider: openai
+  model: gpt-4o-mini
+  envKey: OPENAI_API_KEY
+  contextContinuation: true
+  enableContinuationFormat: true
+  maxTokens: 16384
+  inputTokenPrice: 0.00015
+  outputTokenPrice: 0.0006
