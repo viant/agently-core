@@ -280,11 +280,58 @@ export function reconcileFromTranscript(
     buf: MessageBuffer,
     turns: Turn[],
 ): void {
-    for (const turn of turns) {
+    for (const turn of turns as any[]) {
+        const conversationId = String(turn?.conversationId || '').trim();
+        const turnId = String(turn?.turnId || turn?.id || '').trim();
+        const canonicalUser = turn?.user;
+        if (canonicalUser?.messageId) {
+            buf.byId.set(String(canonicalUser.messageId).trim(), {
+                id: String(canonicalUser.messageId).trim(),
+                conversationId,
+                turnId,
+                role: 'user',
+                type: 'text',
+                content: String(canonicalUser?.content || '').trim(),
+                interim: 0,
+                createdAt: String(turn?.createdAt || '').trim(),
+                status: String(turn?.status || '').trim(),
+            } as Partial<Message>);
+        }
+        const canonicalAssistant = turn?.assistant?.final;
+        if (canonicalAssistant?.messageId) {
+            buf.byId.set(String(canonicalAssistant.messageId).trim(), {
+                id: String(canonicalAssistant.messageId).trim(),
+                conversationId,
+                turnId,
+                role: 'assistant',
+                type: 'text',
+                content: String(canonicalAssistant?.content || '').trim(),
+                interim: 0,
+                createdAt: String(turn?.createdAt || '').trim(),
+                status: String(turn?.status || '').trim(),
+            } as Partial<Message>);
+        }
+        const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+        for (const page of pages) {
+            const pageMessageId = String(page?.assistantMessageId || page?.pageId || '').trim();
+            if (!pageMessageId) continue;
+            buf.byId.set(pageMessageId, {
+                id: pageMessageId,
+                conversationId,
+                turnId,
+                role: 'assistant',
+                type: 'text',
+                content: String(page?.content || '').trim(),
+                preamble: String(page?.preamble || '').trim(),
+                interim: Boolean(page?.finalResponse) ? 0 : 1,
+                createdAt: String(page?.createdAt || turn?.createdAt || '').trim(),
+                status: String(page?.status || turn?.status || '').trim(),
+            } as Partial<Message>);
+        }
         for (const m of turn.message || []) {
             if (!m?.id) continue;
             const role = (m.role || '').toLowerCase();
-            if (role === 'assistant' && m.content) {
+            if ((role === 'assistant' && m.content) || role === 'user') {
                 buf.byId.set(m.id, m);
             }
         }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, ConversationStreamTracker, filterExplicitLiveRowsAgainstTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, overlayLiveAssistantTransientState, projectLiveAssistantRows, selectLiveAssistantRowsForTurn } from '../conversationStream';
+import { buildEffectiveLiveAssistantRows, buildEffectiveLiveRows, ConversationStreamTracker, filterExplicitLiveRowsAgainstTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow, latestLiveAssistantRowForTurn, latestLiveAssistantRowForTurnWithTransientState, overlayLiveAssistantTransientState, projectLiveAssistantRows, projectTrackerToTurns, selectLiveAssistantRowsForTurn } from '../conversationStream';
 import type { Message, SSEEvent, Turn } from '../types';
 
 describe('ConversationStreamTracker', () => {
@@ -255,6 +255,76 @@ describe('ConversationStreamTracker', () => {
 
         expect(first[0]?.createdAt).toBeTruthy();
         expect(second[0]?.createdAt).toBe(first[0]?.createdAt);
+    });
+
+    it('projects tracker snapshots into canonical turns with execution, linked conversations, and elicitation', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'text_delta',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            id: 'msg-1',
+            assistantMessageId: 'msg-1',
+            content: 'Hello',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'tool_call_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            assistantMessageId: 'msg-1',
+            toolCallId: 'call-1',
+            toolMessageId: 'tool-msg-1',
+            toolName: 'llm/agents/run',
+            status: 'running',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'linked_conversation_attached',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            assistantMessageId: 'msg-1',
+            toolCallId: 'call-1',
+            linkedConversationId: 'child-1',
+            linkedConversationAgentId: 'critic',
+            linkedConversationTitle: 'Critic Review',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'elicitation_requested',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            elicitationId: 'elic-1',
+            content: 'Need input',
+            callbackUrl: '/resolve',
+            elicitationData: { requestedSchema: { type: 'object' } },
+        } as SSEEvent);
+
+        const turns = projectTrackerToTurns(tracker.canonicalState, 'conv-1');
+        expect(turns).toEqual([
+            expect.objectContaining({
+                turnId: 'turn-1',
+                conversationId: 'conv-1',
+                status: 'waiting_for_user',
+                execution: {
+                    pages: [
+                        expect.objectContaining({
+                            assistantMessageId: 'msg-1',
+                            turnId: 'turn-1',
+                        }),
+                    ],
+                },
+                linkedConversations: [
+                    expect.objectContaining({
+                        conversationId: 'child-1',
+                        agentId: 'critic',
+                        title: 'Critic Review',
+                    }),
+                ],
+                elicitation: expect.objectContaining({
+                    elicitationId: 'elic-1',
+                    message: 'Need input',
+                    callbackUrl: '/resolve',
+                }),
+            }),
+        ]);
     });
 
     it('overlays transient live assistant state onto projected tracker rows', () => {
