@@ -237,6 +237,18 @@ func TestMergeStreamContent(t *testing.T) {
 			incoming: "world",
 			expect:   "Hello world",
 		},
+		{
+			name:     "preserves whitespace-only streamed chunk",
+			current:  "Hello",
+			incoming: " ",
+			expect:   "Hello ",
+		},
+		{
+			name:     "preserves trailing space in cumulative snapshot",
+			current:  "Hello",
+			incoming: "Hello ",
+			expect:   "Hello ",
+		},
 	}
 
 	for _, tc := range cases {
@@ -263,14 +275,24 @@ func TestService_handleTypedStreamEvent_TurnCompletedUsesFinalResponseContent(t 
 	event := &llm.StreamEvent{
 		Kind: llm.StreamEventTurnCompleted,
 		Response: &llm.GenerateResponse{
-			Choices: []llm.Choice{{
-				Index: 0,
-				Message: llm.Message{
-					Role:    llm.RoleAssistant,
-					Content: `{"type":"elicitation","message":"Please provide your favorite color so I can describe it in 3 sentences.","requestedSchema":{"type":"object","properties":{"favoriteColor":{"type":"string"}},"required":["favoriteColor"]}}`,
+			Choices: []llm.Choice{
+				{
+					Index: 0,
+					Message: llm.Message{
+						Role:    llm.RoleAssistant,
+						Content: `I will call python_user_visible.exec to create a PDF file containing the 20-word description and save it to /mnt/data/mouse_description.pdf.`,
+					},
+					FinishReason: "",
 				},
-				FinishReason: "stop",
-			}},
+				{
+					Index: 1,
+					Message: llm.Message{
+						Role:    llm.RoleAssistant,
+						Content: `I created the PDF with the 20-word description.` + "\n\n" + `Here is the sentence used:` + "\n" + `A small nocturnal rodent with soft gray fur, long whiskers, keen hearing, curious nature, quick agile movements, and sharp teeth.` + "\n\n" + `[Download the PDF](sandbox:/mnt/data/mouse_description.pdf)`,
+					},
+					FinishReason: "stop",
+				},
+			},
 		},
 	}
 
@@ -278,7 +300,27 @@ func TestService_handleTypedStreamEvent_TurnCompletedUsesFinalResponseContent(t 
 	require.NoError(t, err)
 	require.NotNil(t, genOutput.Response)
 	assert.Equal(t, event.Response, genOutput.Response)
-	assert.Equal(t, event.Response.Choices[0].Message.Content, genOutput.Content)
+	assert.Equal(t, event.Response.Choices[1].Message.Content, genOutput.Content)
+}
+
+func TestService_handleTypedStreamEvent_TextDeltaPreservesWhitespaceOnlyChunks(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{}
+	genOutput := &core2.GenerateOutput{}
+	aPlan := plan.New()
+	nextStepIdx := 0
+	var wg sync.WaitGroup
+	var mux sync.Mutex
+
+	for _, delta := range []string{"Hello", " ", "world"} {
+		err := service.handleTypedStreamEvent(ctx, &llm.StreamEvent{
+			Kind:  llm.StreamEventTextDelta,
+			Delta: delta,
+		}, &mux, genOutput, aPlan, &nextStepIdx, &wg, nil, nil)
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, "Hello world", genOutput.Content)
 }
 
 // patchCountingClient wraps a conversation client and counts PatchMessage calls.

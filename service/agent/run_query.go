@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/debugtrace"
+	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
@@ -673,7 +675,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					msg := apiconv.NewMessage()
 					msg.SetId(msgID)
 					msg.SetConversationID(turn.ConversationID)
-					msg.SetContent(strings.TrimSpace(genOutput.Content))
+					msg.SetContent(strings.TrimSpace(s.rewriteGeneratedFileLinks(ctx, turn.ConversationID, turn.TurnID, msgID, genOutput.Content)))
 					msg.SetInterim(0)
 					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
 						errorf("runPlan-final patching msg=%q err=%v", msgID, err)
@@ -715,4 +717,95 @@ func deriveProviderFromModelRef(modelRef string) string {
 		return strings.TrimSpace(v[:idx])
 	}
 	return ""
+}
+
+var sandboxMarkdownLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\((sandbox:[^)]+)\)`)
+
+func (s *Service) rewriteGeneratedFileLinks(ctx context.Context, conversationID, turnID, msgID, content string) string {
+	value := strings.TrimSpace(content)
+	if value == "" || !strings.Contains(strings.ToLower(value), "sandbox:/") {
+		fmt.Printf("###TODO sandobx:/ not found\n")
+		return strings.TrimSpace(content)
+	}
+
+	fmt.Printf("###TODO sandobx:/ FOUND OK\n")
+
+	store, ok := s.conversation.(apiconv.GeneratedFileClient)
+	if !ok {
+		return strings.TrimSpace(content)
+	}
+	in := &gfread.Input{
+		ConversationID: strings.TrimSpace(conversationID),
+		TurnID:         strings.TrimSpace(turnID),
+		MessageID:      strings.TrimSpace(msgID),
+		Has: &gfread.Has{
+			ConversationID: true,
+			TurnID:         strings.TrimSpace(turnID) != "",
+			MessageID:      strings.TrimSpace(msgID) != "",
+		},
+	}
+	files, err := store.GetGeneratedFiles(ctx, in)
+	if err != nil || len(files) == 0 {
+		return strings.TrimSpace(content)
+	}
+	return rewriteSandboxMarkdownLinks(strings.TrimSpace(content), files)
+}
+
+func rewriteSandboxMarkdownLinks(content string, files []*gfread.GeneratedFileView) string {
+	if strings.TrimSpace(content) == "" || len(files) == 0 {
+		return content
+	}
+	return sandboxMarkdownLinkPattern.ReplaceAllStringFunc(content, func(match string) string {
+		parts := sandboxMarkdownLinkPattern.FindStringSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		label := parts[1]
+		sandboxURL := strings.TrimSpace(parts[2])
+		href := resolveGeneratedFileDownloadHref(sandboxURL, files)
+		if href == "" {
+			return match
+		}
+		return fmt.Sprintf("[%s](%s)", label, href)
+	})
+}
+
+func resolveGeneratedFileDownloadHref(sandboxURL string, files []*gfread.GeneratedFileView) string {
+	filename := normalizeSandboxFilename(sandboxURL)
+	if filename == "" {
+		return ""
+	}
+	want := strings.ToLower(filename)
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		id := strings.TrimSpace(file.ID)
+		name := strings.ToLower(strings.TrimSpace(optionalString(file.Filename)))
+		if id == "" || name == "" || name != want {
+			continue
+		}
+		return fmt.Sprintf("/v1/api/generated-files/%s/download", id)
+	}
+	return ""
+}
+
+func normalizeSandboxFilename(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" || !strings.HasPrefix(strings.ToLower(value), "sandbox:/") {
+		return ""
+	}
+	value = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(value, "sandbox:///"), "sandbox://"), "sandbox:/")
+	name := strings.TrimSpace(path.Base(value))
+	if name == "." || name == "/" {
+		return ""
+	}
+	return name
+}
+
+func optionalString(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
 }
