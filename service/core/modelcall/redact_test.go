@@ -3,6 +3,7 @@ package modelcall
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,67 @@ func TestRedactGenerateRequestForTranscript_DataDriven(t *testing.T) {
 						assert.EqualValues(t, len(b64), int(got.Messages[0].Items[0].Metadata["base64Len"].(float64)))
 						assert.EqualValues(t, "hello", got.Messages[0].Items[1].Data)
 					}
+				}
+			},
+		},
+		{
+			name: "previews oversized replayed tool result",
+			request: &llm.GenerateRequest{
+				Messages: []llm.Message{
+					{
+						Role: llm.RoleAssistant,
+						ToolCalls: []llm.ToolCall{{
+							ID:     "call_1",
+							Name:   "mcplarge-large_result",
+							Result: strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512),
+						}},
+					},
+					{
+						Role:       llm.RoleTool,
+						ToolCallId: "call_1",
+						Content:    strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512),
+					},
+				},
+				Options: &llm.Options{
+					Metadata: map[string]interface{}{
+						"toolResultPreviewLimit": 256,
+					},
+				},
+			},
+			assertFunc: func(t *testing.T, raw []byte) {
+				var got llm.GenerateRequest
+				assert.EqualValues(t, nil, json.Unmarshal(raw, &got))
+				if assert.EqualValues(t, 2, len(got.Messages)) {
+					assert.Contains(t, got.Messages[0].ToolCalls[0].Result, "useToolToSeeMore: message-show")
+					assert.Contains(t, got.Messages[1].Content, "useToolToSeeMore: message-show")
+					assert.Contains(t, got.Messages[1].Content, "[... omitted middle ...]")
+					assert.NotContains(t, got.Messages[1].Content, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))
+				}
+			},
+		},
+		{
+			name: "preserves native continuation response",
+			request: &llm.GenerateRequest{
+				Messages: []llm.Message{
+					{
+						Role:       llm.RoleTool,
+						ToolCallId: "call_1",
+						Content:    `{"body":"` + strings.Repeat("A", 400) + `MID` + strings.Repeat("Z", 400) + `","continuation":{"hasMore":true,"remaining":4096,"returned":512,"nextRange":{"bytes":{"offset":512,"length":512}}}}`,
+					},
+				},
+				Options: &llm.Options{
+					Metadata: map[string]interface{}{
+						"toolResultPreviewLimit": 256,
+					},
+				},
+			},
+			assertFunc: func(t *testing.T, raw []byte) {
+				var got llm.GenerateRequest
+				assert.EqualValues(t, nil, json.Unmarshal(raw, &got))
+				if assert.EqualValues(t, 1, len(got.Messages)) {
+					assert.Contains(t, got.Messages[0].Content, `"continuation":{"hasMore":true`)
+					assert.Contains(t, got.Messages[0].Content, "[... omitted middle ...]")
+					assert.NotContains(t, got.Messages[0].Content, "useToolToSeeMore: message-show")
 				}
 			},
 		},
