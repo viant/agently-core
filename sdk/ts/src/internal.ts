@@ -1,5 +1,6 @@
 export {
     ConversationStreamTracker,
+    projectTrackerToTurns,
     projectLiveAssistantRows,
     overlayLiveAssistantTransientState,
     filterExplicitLiveRowsAgainstTracker,
@@ -16,6 +17,7 @@ export type {
     CanonicalConversationSnapshot,
     CanonicalLiveAssistantRow,
     LiveAssistantTransientOverlay,
+    ProjectedConversationTurn,
 } from './conversationStream';
 
 export {

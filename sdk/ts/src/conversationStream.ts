@@ -1,7 +1,7 @@
 import { ElicitationTracker, type PendingElicitation as TrackedElicitation } from './elicitation';
 import { applyExecutionStreamEventToGroups } from './executionGroups';
 import { FeedTracker } from './feedTracker';
-import { compareTemporalEntries } from './ordering';
+import { compareExecutionGroups, compareTemporalEntries, firstString, temporalTimeValue } from './ordering';
 import {
     applyEvent as applyMessageEvent,
     newMessageBuffer,
@@ -11,6 +11,47 @@ import {
 } from './reconcile';
 import { resolveEventConversationId } from './streamIdentity';
 import type { ActiveFeed, JSONObject, LiveExecutionGroup, LiveExecutionGroupsById, Message, SSEEvent, Turn } from './types';
+
+export interface ProjectedConversationTurn extends Partial<Turn> {
+    turnId: string;
+    conversationId: string;
+    status: string;
+    createdAt: string;
+    user?: {
+        messageId?: string;
+        content?: string;
+    };
+    assistant?: {
+        final?: {
+            messageId?: string;
+            content?: string;
+        };
+        preamble?: {
+            messageId?: string;
+            content?: string;
+        };
+    };
+    execution?: {
+        pages?: Partial<LiveExecutionGroup>[];
+    };
+    linkedConversations?: Array<{
+        conversationId: string;
+        agentId?: string;
+        title?: string;
+        status?: string;
+        response?: string;
+        createdAt?: string;
+        updatedAt?: string;
+    }>;
+    elicitation?: {
+        elicitationId?: string;
+        status?: string;
+        message?: string;
+        requestedSchema?: JSONObject | null;
+        callbackUrl?: string;
+        callbackURL?: string;
+    };
+}
 
 export interface ConversationStreamSnapshot {
     conversationId: string;
@@ -168,6 +209,182 @@ function projectLiveAssistantRow(
     } satisfies CanonicalLiveAssistantRow;
 }
 
+function normalizeProjectedTurnStatus(
+    turnId: string,
+    activeTurnId: string | null | undefined,
+    pendingElicitation: TrackedElicitation | null | undefined,
+    pages: Partial<LiveExecutionGroup>[] = [],
+    assistantEntries: Partial<Message>[] = [],
+): string {
+    const pendingForTurn = pendingElicitation && String(pendingElicitation?.turnId || '').trim() === turnId;
+    if (pendingForTurn) return 'waiting_for_user';
+    const pageStatuses = pages.map((page) => String(page?.status || '').trim().toLowerCase()).filter(Boolean);
+    if (pageStatuses.some((status) => ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(status))) {
+        return pageStatuses[pageStatuses.length - 1] || 'running';
+    }
+    const entryStatuses = assistantEntries.map((entry) => String(entry?.status || '').trim().toLowerCase()).filter(Boolean);
+    if (entryStatuses.some((status) => ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user'].includes(status))) {
+        return entryStatuses[entryStatuses.length - 1] || 'running';
+    }
+    const hasFinalPage = pages.some((page) => Boolean(page?.finalResponse));
+    const hasFinalAssistant = assistantEntries.some((entry) => Number(entry?.interim ?? 1) === 0 && String(entry?.content || '').trim() !== '');
+    if (hasFinalPage || hasFinalAssistant) {
+        return pageStatuses[pageStatuses.length - 1] || entryStatuses[entryStatuses.length - 1] || 'completed';
+    }
+    if (String(activeTurnId || '').trim() === turnId) return 'running';
+    return pageStatuses[pageStatuses.length - 1] || entryStatuses[entryStatuses.length - 1] || 'running';
+}
+
+function normalizeProjectedTurnCreatedAt(
+    pages: Partial<LiveExecutionGroup>[] = [],
+    entries: Partial<Message>[] = [],
+): string {
+    const candidates = [
+        ...entries.map((entry) => String(entry?.createdAt || '').trim()).filter(Boolean),
+        ...pages.flatMap((page) => [
+            String(page?.createdAt || '').trim(),
+            String(page?.startedAt || '').trim(),
+            String(page?.completedAt || '').trim(),
+        ]).filter(Boolean),
+    ];
+    if (candidates.length === 0) return '';
+    candidates.sort((left, right) => temporalTimeValue({ createdAt: left }) - temporalTimeValue({ createdAt: right }));
+    return candidates[0] || '';
+}
+
+function collectProjectedLinkedConversations(pages: Partial<LiveExecutionGroup>[] = []) {
+    const out = new Map<string, {
+        conversationId: string;
+        agentId?: string;
+        title?: string;
+        status?: string;
+        response?: string;
+        createdAt?: string;
+        updatedAt?: string;
+    }>();
+    for (const page of Array.isArray(pages) ? pages : []) {
+        for (const step of Array.isArray(page?.toolSteps) ? page.toolSteps : []) {
+            const conversationId = String(step?.linkedConversationId || '').trim();
+            if (!conversationId) continue;
+            const existing = out.get(conversationId) || { conversationId };
+            out.set(conversationId, {
+                ...existing,
+                conversationId,
+                agentId: firstString(step?.linkedConversationAgentId, existing.agentId),
+                title: firstString(step?.linkedConversationTitle, existing.title),
+                status: firstString(step?.status, existing.status),
+                response: firstString(
+                    typeof step?.asyncOperation?.response === 'string' ? step.asyncOperation.response : '',
+                    existing.response,
+                ),
+                createdAt: firstString(page?.createdAt, existing.createdAt),
+                updatedAt: firstString(page?.completedAt, page?.updatedAt, existing.updatedAt),
+            });
+        }
+    }
+    return Array.from(out.values());
+}
+
+export function projectTrackerToTurns(
+    snapshot: CanonicalConversationSnapshot | null | undefined,
+    conversationId = '',
+): ProjectedConversationTurn[] {
+    const targetConversationId = String(conversationId || snapshot?.conversationId || '').trim();
+    if (!targetConversationId) return [];
+
+    const buffered = Array.isArray(snapshot?.bufferedMessages) ? snapshot.bufferedMessages : [];
+    const groups = Object.values(snapshot?.liveExecutionGroupsById || {})
+        .filter((group) => String(group?.turnId || '').trim() !== '')
+        .sort(compareExecutionGroups);
+
+    const turnIds = new Set<string>();
+    buffered.forEach((entry) => {
+        const entryConversationId = String(entry?.conversationId || '').trim();
+        const turnId = String(entry?.turnId || '').trim();
+        if (!turnId) return;
+        if (entryConversationId && entryConversationId !== targetConversationId) return;
+        turnIds.add(turnId);
+    });
+    groups.forEach((group) => {
+        const turnId = String(group?.turnId || '').trim();
+        if (turnId) turnIds.add(turnId);
+    });
+    const pendingTurnId = String(snapshot?.pendingElicitation?.turnId || '').trim();
+    if (pendingTurnId) turnIds.add(pendingTurnId);
+
+    const turns = Array.from(turnIds).map((turnId) => {
+        const turnEntries = buffered
+            .filter((entry) => {
+                const entryConversationId = String(entry?.conversationId || '').trim();
+                return String(entry?.turnId || '').trim() === turnId
+                    && (!entryConversationId || entryConversationId === targetConversationId);
+            })
+            .sort(compareTemporalEntries);
+        const turnPages = groups
+            .filter((group) => String(group?.turnId || '').trim() === turnId)
+            .map((group) => ({
+                ...group,
+                turnId,
+                pageId: firstString(group?.pageId, group?.assistantMessageId, group?.modelMessageId),
+                assistantMessageId: firstString(group?.assistantMessageId, group?.pageId, group?.modelMessageId),
+                parentMessageId: firstString(group?.parentMessageId),
+            }));
+        const userEntry = turnEntries.find((entry) => String(entry?.role || '').trim().toLowerCase() === 'user') || null;
+        const assistantEntries = turnEntries.filter((entry) => String(entry?.role || '').trim().toLowerCase() === 'assistant');
+        const finalAssistant = [...assistantEntries].reverse().find((entry) => Number(entry?.interim ?? 1) === 0 && String(entry?.content || '').trim() !== '') || null;
+        const preambleAssistant = [...assistantEntries].reverse().find((entry) => String(entry?.preamble || '').trim() !== '') || null;
+        const turnCreatedAt = normalizeProjectedTurnCreatedAt(turnPages, turnEntries);
+        const linkedConversations = collectProjectedLinkedConversations(turnPages);
+        const pendingElicitation = snapshot?.pendingElicitation && String(snapshot.pendingElicitation?.turnId || '').trim() === turnId
+            ? snapshot.pendingElicitation
+            : null;
+
+        return {
+            turnId,
+            id: turnId,
+            conversationId: targetConversationId,
+            status: normalizeProjectedTurnStatus(turnId, snapshot?.activeTurnId, pendingElicitation, turnPages, assistantEntries),
+            createdAt: turnCreatedAt,
+            user: userEntry
+                ? {
+                    messageId: String(userEntry?.id || '').trim(),
+                    content: String(userEntry?.content || '').trim(),
+                }
+                : undefined,
+            assistant: {
+                final: finalAssistant
+                    ? {
+                        messageId: String(finalAssistant?.id || '').trim(),
+                        content: String(finalAssistant?.content || '').trim(),
+                    }
+                    : undefined,
+                preamble: preambleAssistant
+                    ? {
+                        messageId: String(preambleAssistant?.id || '').trim(),
+                        content: String(preambleAssistant?.preamble || '').trim(),
+                    }
+                    : undefined,
+            },
+            execution: {
+                pages: turnPages,
+            },
+            linkedConversations,
+            elicitation: pendingElicitation
+                ? {
+                    elicitationId: pendingElicitation.elicitationId,
+                    status: 'pending',
+                    message: pendingElicitation.message,
+                    requestedSchema: pendingElicitation.requestedSchema || null,
+                    callbackUrl: pendingElicitation.callbackURL || '',
+                    callbackURL: pendingElicitation.callbackURL || '',
+                }
+                : undefined,
+        } satisfies ProjectedConversationTurn;
+    });
+
+    return turns.sort((left, right) => temporalTimeValue({ createdAt: left.createdAt }) - temporalTimeValue({ createdAt: right.createdAt }));
+}
+
 export class ConversationStreamTracker {
     private readonly _messages: MessageBuffer;
     private _executionGroupsById: LiveExecutionGroupsById;
@@ -265,6 +482,23 @@ export class ConversationStreamTracker {
             this._conversationId = String(firstTurn.conversationId).trim();
         }
         reconcileFromTranscript(this._messages, turns);
+        const transcriptGroups = Array.isArray(turns)
+            ? turns.flatMap((turn: any) => Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [])
+            : [];
+        if (transcriptGroups.length > 0) {
+            const nextGroups: LiveExecutionGroupsById = { ...this._executionGroupsById };
+            for (const page of transcriptGroups) {
+                const key = String(page?.assistantMessageId || page?.pageId || '').trim();
+                if (!key) continue;
+                nextGroups[key] = {
+                    ...(nextGroups[key] || {}),
+                    ...page,
+                    assistantMessageId: String(page?.assistantMessageId || page?.pageId || '').trim(),
+                    turnId: String(page?.turnId || nextGroups[key]?.turnId || '').trim(),
+                };
+            }
+            this._executionGroupsById = nextGroups;
+        }
     }
 
     applyTranscript(turns: Turn[]): void {

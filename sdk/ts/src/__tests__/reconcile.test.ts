@@ -380,7 +380,9 @@ describe('reconcileFromTranscript', () => {
 
         reconcileFromTranscript(buf, turns);
         expect(buf.byId.get('msg_1')?.content).toBe('server content');
-        // User messages should not be buffered
-        expect(buf.byId.has('msg_2')).toBe(false);
+        expect(buf.byId.get('msg_2')).toMatchObject({
+            role: 'user',
+            content: 'user msg',
+        });
     });
 });
