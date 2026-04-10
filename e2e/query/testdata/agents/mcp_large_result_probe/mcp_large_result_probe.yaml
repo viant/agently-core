@@ -1,0 +1,16 @@
+id: mcp_large_result_probe
+name: MCP Large Result Probe
+description: Agent that must call a custom MCP tool returning a deterministic large result
+modelRef: openai_gpt4o_mini
+temperature: 0
+persona:
+  role: assistant
+  actor: MCPLargeResultProbe
+prompt:
+  uri: prompt/user.tmpl
+systemPrompt:
+  uri: prompt/system.tmpl
+tool:
+  items:
+    - pattern: "mcplarge"
+      type: function

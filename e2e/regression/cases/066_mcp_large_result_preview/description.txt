@@ -1,0 +1,7 @@
+- custom MCP tool returns a deterministic 128k result
+- first turn stores the large MCP tool result
+- second turn reuses conversation tool exposure
+- second turn model request payload must contain overflow preview markers instead of the raw 128k result
+
+Why this exists:
+- Protects the tool-result preview enforcement path from regression for large MCP outputs.

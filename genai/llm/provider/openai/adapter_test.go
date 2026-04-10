@@ -1,12 +1,28 @@
 package openai
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
 	basecfg "github.com/viant/agently-core/genai/llm/provider/base"
 )
+
+func messageTextContent(content interface{}) string {
+	switch actual := content.(type) {
+	case string:
+		return actual
+	case []ContentItem:
+		var parts []string
+		for _, item := range actual {
+			parts = append(parts, item.Text)
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
+}
 
 func TestToRequest_StreamFlag(t *testing.T) {
 	testCases := []struct {
@@ -300,4 +316,76 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), "unsupported uploaded binary content item mime type")
 		}
 	})
+}
+
+func TestToRequest_PreviewsLargeToolResultReplay(t *testing.T) {
+	large := strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512)
+	in := llm.GenerateRequest{
+		Messages: []llm.Message{
+			llm.NewUserMessage("probe"),
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:   "call_1",
+					Name: "mcplarge-large_result",
+					Type: "function",
+					Function: llm.FunctionCall{
+						Name:      "mcplarge-large_result",
+						Arguments: `{}`,
+					},
+				}},
+			},
+			{
+				Role:       llm.RoleTool,
+				Name:       "mcplarge-large_result",
+				ToolCallId: "call_1",
+				Content:    large,
+			},
+		},
+		Options: &llm.Options{
+			Model: "gpt-4o-mini",
+			Metadata: map[string]interface{}{
+				"toolResultPreviewLimit": 256,
+			},
+		},
+	}
+
+	got := ToRequest(&in)
+	if assert.Len(t, got.Messages, 3) {
+		text := messageTextContent(got.Messages[2].Content)
+		assert.Contains(t, text, "overflow: true")
+		assert.Contains(t, text, "useToolToSeeMore: message-show")
+		assert.Contains(t, text, "messageId: call_1")
+		assert.Contains(t, text, "[... omitted middle ...]")
+		assert.NotContains(t, text, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))
+	}
+}
+
+func TestToRequest_PreservesNativeContinuationShape(t *testing.T) {
+	large := strings.Repeat("A", 400) + "MIDPOINT" + strings.Repeat("Z", 400)
+	body := `{"body":"` + large + `","continuation":{"hasMore":true,"remaining":4096,"returned":512,"nextRange":{"bytes":{"offset":512,"length":512}}}}`
+	in := llm.GenerateRequest{
+		Messages: []llm.Message{
+			{
+				Role:       llm.RoleTool,
+				ToolCallId: "call_1",
+				Content:    body,
+			},
+		},
+		Options: &llm.Options{
+			Model: "gpt-4o-mini",
+			Metadata: map[string]interface{}{
+				"toolResultPreviewLimit": 256,
+			},
+		},
+	}
+
+	got := ToRequest(&in)
+	if assert.Len(t, got.Messages, 1) {
+		text := messageTextContent(got.Messages[0].Content)
+		assert.Contains(t, text, `"continuation":{"hasMore":true`)
+		assert.Contains(t, text, `"nextRange":{"bytes":{"length":512,"offset":512}}`)
+		assert.NotContains(t, text, "useToolToSeeMore: message-show")
+		assert.Contains(t, text, "[... omitted middle ...]")
+	}
 }

@@ -1,0 +1,120 @@
+pipeline:
+  setupTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    TimeoutMs: 240000
+    description: "mcp large result preview - first turn should call custom MCP tool"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: mcp_large_result_probe
+          UserId: e2e-large-result
+          Query: Produce the large MCP result.
+          ModelOverride: openai_gpt4o_mini_responses_preview
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@conversationId": true
+            "@exists@messageId": true
+            content: LARGE_RESULT_OK
+
+  verifyToolTurn1:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp large result preview - first turn should persist a tool_op"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&types=tool_op
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0]": true
+          Body: '/LARGE_RESULT_SENTINEL/'
+
+  probeTurn2:
+    when: $sdkKey != ''
+    action: http/runner:send
+    TimeoutMs: 240000
+    description: "mcp large result preview - second turn should see prior tool call and skip new tool use"
+    requests:
+      - Method: POST
+        URL: ${serverURL}/v1/agent/query
+        Header:
+          Connection: [close]
+        JSONBody:
+          AgentID: tool_exposure_probe
+          ConversationID: ${setupTurn1.Responses[0].JSONBody.conversationId}
+          UserId: e2e-large-result
+          Query: probe
+          ToolCallExposure: conversation
+          ModelOverride: openai_gpt4o_mini_responses_preview
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@messageId": true
+            content: SKIPPED
+
+  turn2Message:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp large result preview - resolve turn2 id from response message id"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&id=${probeTurn2.Responses[0].JSONBody.messageId}
+        Expect:
+          Code: 200
+          JSONBody:
+            "@exists@Rows[0].TurnId": true
+
+  transcriptTurn2:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp large result preview - fetch transcript and extract second turn model request payload id"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/conversations/${setupTurn1.Responses[0].JSONBody.conversationId}/transcript?includeModelCalls=true&includeToolCalls=true
+        extract:
+          - key: requestPayloadId
+            regExpr: '(?s)"turnId":"${turn2Message.Responses[0].JSONBody.Rows[0].TurnId}".*?"requestPayloadId":"([^"]+)"'
+            required: true
+        Expect:
+          Code: 200
+
+  turn2RequestPayloadOverflow:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp large result preview - second turn request payload should contain overflow marker"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${transcriptTurn2.Data.requestPayloadId}?inline=1
+        Expect:
+          Code: 200
+          JSONBody:
+            Id: ${transcriptTurn2.Data.requestPayloadId}
+            "@exists@InlineBody": true
+          Body: /overflow:[[:space:]]true/
+
+  turn2RequestPayloadShowTool:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp large result preview - second turn request payload should expose message-show helper"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${transcriptTurn2.Data.requestPayloadId}?inline=1
+        Expect:
+          Code: 200
+          Body: /useToolToSeeMore:[[:space:]]message-show/
+
+  turn2RequestPayloadNoRawLargeBody:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: "mcp large result preview - second turn request payload should not carry the raw 128k MCP result"
+    requests:
+      - Method: GET
+        URL: ${serverURL}/v1/api/payload/${transcriptTurn2.Data.requestPayloadId}?inline=1
+        Expect:
+          Code: 200
+          Body: '!/CHUNK-1500 LARGE_RESULT_SENTINEL/'
