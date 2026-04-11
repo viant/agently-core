@@ -1,7 +1,7 @@
 import { ElicitationTracker, type PendingElicitation as TrackedElicitation } from './elicitation';
 import { applyExecutionStreamEventToGroups } from './executionGroups';
 import { FeedTracker } from './feedTracker';
-import { compareExecutionGroups, compareTemporalEntries, firstString, temporalTimeValue } from './ordering';
+import { compareExecutionGroups, compareTemporalEntries, firstString, temporalSequenceValue, temporalTimeValue } from './ordering';
 import {
     applyEvent as applyMessageEvent,
     newMessageBuffer,
@@ -229,7 +229,8 @@ function normalizeProjectedTurnStatus(
     const hasFinalPage = pages.some((page) => Boolean(page?.finalResponse));
     const hasFinalAssistant = assistantEntries.some((entry) => Number(entry?.interim ?? 1) === 0 && String(entry?.content || '').trim() !== '');
     if (hasFinalPage || hasFinalAssistant) {
-        return pageStatuses[pageStatuses.length - 1] || entryStatuses[entryStatuses.length - 1] || 'completed';
+        const terminalStatus = pageStatuses[pageStatuses.length - 1] || entryStatuses[entryStatuses.length - 1];
+        return terminalStatus || 'completed';
     }
     if (String(activeTurnId || '').trim() === turnId) return 'running';
     return pageStatuses[pageStatuses.length - 1] || entryStatuses[entryStatuses.length - 1] || 'running';
@@ -250,6 +251,18 @@ function normalizeProjectedTurnCreatedAt(
     if (candidates.length === 0) return '';
     candidates.sort((left, right) => temporalTimeValue({ createdAt: left }) - temporalTimeValue({ createdAt: right }));
     return candidates[0] || '';
+}
+
+function normalizeProjectedTurnSequence(
+    pages: Partial<LiveExecutionGroup>[] = [],
+    entries: Partial<Message>[] = [],
+): number {
+    const values = [
+        ...entries.map((entry) => temporalSequenceValue(entry || {})).filter((value) => Number.isFinite(value)),
+        ...pages.map((page) => temporalSequenceValue(page || {})).filter((value) => Number.isFinite(value)),
+    ];
+    if (values.length === 0) return 0;
+    return Math.min(...values);
 }
 
 function collectProjectedLinkedConversations(pages: Partial<LiveExecutionGroup>[] = []) {
@@ -334,6 +347,7 @@ export function projectTrackerToTurns(
         const finalAssistant = [...assistantEntries].reverse().find((entry) => Number(entry?.interim ?? 1) === 0 && String(entry?.content || '').trim() !== '') || null;
         const preambleAssistant = [...assistantEntries].reverse().find((entry) => String(entry?.preamble || '').trim() !== '') || null;
         const turnCreatedAt = normalizeProjectedTurnCreatedAt(turnPages, turnEntries);
+        const turnSequence = normalizeProjectedTurnSequence(turnPages, turnEntries);
         const linkedConversations = collectProjectedLinkedConversations(turnPages);
         const pendingElicitation = snapshot?.pendingElicitation && String(snapshot.pendingElicitation?.turnId || '').trim() === turnId
             ? snapshot.pendingElicitation
@@ -345,6 +359,7 @@ export function projectTrackerToTurns(
             conversationId: targetConversationId,
             status: normalizeProjectedTurnStatus(turnId, snapshot?.activeTurnId, pendingElicitation, turnPages, assistantEntries),
             createdAt: turnCreatedAt,
+            sequence: turnSequence,
             user: userEntry
                 ? {
                     messageId: String(userEntry?.id || '').trim(),
@@ -382,7 +397,15 @@ export function projectTrackerToTurns(
         } satisfies ProjectedConversationTurn;
     });
 
-    return turns.sort((left, right) => temporalTimeValue({ createdAt: left.createdAt }) - temporalTimeValue({ createdAt: right.createdAt }));
+    return turns.sort((left, right) => {
+        const leftTime = temporalTimeValue({ createdAt: left.createdAt });
+        const rightTime = temporalTimeValue({ createdAt: right.createdAt });
+        if (leftTime !== rightTime) return leftTime - rightTime;
+        const leftSeq = temporalSequenceValue({ sequence: (left as any)?.sequence });
+        const rightSeq = temporalSequenceValue({ sequence: (right as any)?.sequence });
+        if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+        return String(left?.turnId || '').localeCompare(String(right?.turnId || ''));
+    });
 }
 
 export class ConversationStreamTracker {
@@ -638,14 +661,16 @@ export function latestLiveAssistantRowForTurnWithTransientState(
 ): CanonicalLiveAssistantRow | null {
     const targetTurnId = String(turnId || '').trim();
     if (!targetTurnId) return null;
-    const trackerRow = latestLiveAssistantRowForTurn(snapshot, conversationId, targetTurnId);
+    const trackerRows = selectLiveAssistantRowsForTurn(snapshot, conversationId, targetTurnId);
+    const trackerRow = trackerRows.length > 0 ? trackerRows[trackerRows.length - 1] : null;
     if (!trackerRow) return null;
     const trackerId = String(trackerRow?.id || '').trim();
     const sameTurnLiveRows = selectExplicitLiveAssistantRowsForTurn(liveRows, targetTurnId);
     const exactLiveRow = trackerId
         ? sameTurnLiveRows.find((row) => String(row?.id || '').trim() === trackerId)
         : null;
-    const matchingLiveRow = exactLiveRow || sameTurnLiveRows.at(-1) || null;
+    const matchingLiveRow = exactLiveRow
+        || ((trackerRows.length === 1 && sameTurnLiveRows.length === 1) ? sameTurnLiveRows[0] : null);
     return matchingLiveRow
         ? ({
             ...trackerRow,

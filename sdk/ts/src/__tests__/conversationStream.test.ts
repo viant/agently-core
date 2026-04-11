@@ -327,6 +327,33 @@ describe('ConversationStreamTracker', () => {
         ]);
     });
 
+    it('sorts projected turns deterministically by createdAt, then sequence, then turnId, and marks final rows completed when status is absent', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'assistant_final',
+            conversationId: 'conv-1',
+            turnId: 'turn-b',
+            messageId: 'msg-b',
+            assistantMessageId: 'msg-b',
+            content: 'Second',
+            eventSeq: 2,
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'assistant_final',
+            conversationId: 'conv-1',
+            turnId: 'turn-a',
+            messageId: 'msg-a',
+            assistantMessageId: 'msg-a',
+            content: 'First',
+            eventSeq: 1,
+        } as SSEEvent);
+
+        const turns = projectTrackerToTurns(tracker.canonicalState, 'conv-1');
+        expect(turns.map((turn) => turn.turnId)).toEqual(['turn-a', 'turn-b']);
+        expect(turns[0]).toMatchObject({ status: 'completed' });
+        expect(turns[1]).toMatchObject({ status: 'completed' });
+    });
+
     it('overlays transient live assistant state onto projected tracker rows', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
@@ -463,7 +490,7 @@ describe('ConversationStreamTracker', () => {
         ]);
     });
 
-    it('returns the latest tracker row overlaid with the latest same-turn transient live state', () => {
+    it('does not apply same-turn transient overlay when multiple explicit assistant rows exist without an exact id match', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
             type: 'assistant_preamble',
@@ -501,11 +528,11 @@ describe('ConversationStreamTracker', () => {
         );
 
         expect(row).toMatchObject({
-            id: 'assistant-newer',
+            id: 'msg-tracker',
             content: 'Tracker canonical row',
-            _streamContent: 'newer transient stream',
-            isStreaming: true,
         });
+        expect(row?._streamContent).toBeUndefined();
+        expect(row?.isStreaming).toBeUndefined();
     });
 
     it('falls back to the latest explicit live assistant row when tracker has no row for the turn', () => {

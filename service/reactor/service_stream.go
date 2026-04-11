@@ -206,7 +206,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		}
 		mux.Lock()
 		defer mux.Unlock()
-		if content := strings.TrimSpace(choice.Message.Content); content != "" {
+		if content := choice.Message.Content; content != "" {
 			genOutput.Content = mergeStreamContent(genOutput.Content, content)
 		}
 		s.publishPlannedToolCallsEvent(runCtx, event.Response.ResponseID, &choice)
@@ -232,7 +232,7 @@ func (s *Service) handleTypedStreamEvent(
 	switch event.Kind {
 	case llm.StreamEventTextDelta:
 		mux.Lock()
-		genOutput.Content = mergeStreamContent(genOutput.Content, event.Delta)
+		genOutput.Content += event.Delta
 		mux.Unlock()
 	case llm.StreamEventToolCallCompleted:
 		mux.Lock()
@@ -262,7 +262,8 @@ func (s *Service) handleTypedStreamEvent(
 		mux.Lock()
 		if event.Response != nil {
 			genOutput.Response = event.Response
-			for _, choice := range event.Response.Choices {
+			for idx := len(event.Response.Choices) - 1; idx >= 0; idx-- {
+				choice := event.Response.Choices[idx]
 				if len(choice.Message.ToolCalls) > 0 {
 					continue
 				}

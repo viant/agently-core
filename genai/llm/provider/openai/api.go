@@ -141,6 +141,7 @@ func emitResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
 	ev := llm.StreamEvent{Response: lr, ResponseID: lr.ResponseID}
 	if len(lr.Choices) > 0 {
 		choice := lr.Choices[0]
+		content := choice.Message.Content
 		if len(choice.Message.ToolCalls) > 0 {
 			tc := choice.Message.ToolCalls[0]
 			ev.Kind = llm.StreamEventToolCallCompleted
@@ -149,7 +150,7 @@ func emitResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) {
 			ev.ToolName = tc.Name
 			ev.Arguments = tc.Arguments
 			ev.FinishReason = choice.FinishReason
-		} else if content := strings.TrimSpace(choice.Message.Content); content != "" && choice.FinishReason == "" {
+		} else if content != "" && choice.FinishReason == "" {
 			ev.Kind = llm.StreamEventTextDelta
 			ev.Delta = content
 		} else if choice.FinishReason != "" {
