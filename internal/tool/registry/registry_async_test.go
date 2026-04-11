@@ -21,7 +21,7 @@ func TestRegistry_AsyncConfig_InternalServices(t *testing.T) {
 	require.NoError(t, reg.AddInternalService(agents.New(nil)))
 	require.NoError(t, reg.AddInternalService(execsvc.New()))
 
-	agentCfg, ok := reg.AsyncConfig("llm/agents:run")
+	agentCfg, ok := reg.AsyncConfig("llm/agents:start")
 	require.True(t, ok)
 	require.NotNil(t, agentCfg)
 	require.Equal(t, "conversationId", agentCfg.Run.OperationIDPath)

@@ -185,11 +185,11 @@ func TestResolveDefinitionsWithOptions_AsyncConfig(t *testing.T) {
 		ID: "agents_async",
 		Match: []llm.Tool{
 			{
-				Name: "llm/agents:run",
+				Name: "llm/agents:start",
 				Async: &asynccfg.Config{
 					WaitForResponse: true,
 					Run: asynccfg.RunConfig{
-						Tool:            "llm/agents:run",
+						Tool:            "llm/agents:start",
 						OperationIDPath: "conversationId",
 					},
 					Status: asynccfg.StatusConfig{
@@ -202,14 +202,14 @@ func TestResolveDefinitionsWithOptions_AsyncConfig(t *testing.T) {
 		},
 	}
 	matchFn := func(pattern string) []*llm.ToolDefinition {
-		if pattern == "llm/agents:run" || pattern == "llm/agents/run" {
-			return []*llm.ToolDefinition{{Name: "llm/agents:run"}}
+		if pattern == "llm/agents:start" || pattern == "llm/agents/start" {
+			return []*llm.ToolDefinition{{Name: "llm/agents:start"}}
 		}
 		return nil
 	}
 
 	actual := ResolveDefinitionsWithOptions(bundle, matchFn)
-	rule, ok := actual.AsyncByID[normalizedApprovalKey("llm/agents:run")]
+	rule, ok := actual.AsyncByID[normalizedApprovalKey("llm/agents:start")]
 	if assert.True(t, ok) {
 		assert.NotNil(t, rule)
 		assert.NotNil(t, rule.Async)
