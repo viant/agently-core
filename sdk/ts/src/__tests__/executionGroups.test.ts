@@ -131,6 +131,36 @@ describe('executionGroups', () => {
         });
     });
 
+    it('preserves leading-space text deltas in live execution group content', () => {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
+            type: 'model_started',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            status: 'running',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
+            type: 'text_delta',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            content: 'Milo',
+        }));
+        const live3 = applyExecutionStreamEventToGroups(live2, event({
+            type: 'text_delta',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            content: ' was',
+        }));
+        const live4 = applyExecutionStreamEventToGroups(live3, event({
+            type: 'text_delta',
+            assistantMessageId: 'a1',
+            turnId: 'turn-1',
+            content: ' curious',
+        }));
+
+        expect(live4.a1?.content).toBe('Milo was curious');
+    });
+
     it('prefers live execution group over transcript group for the same assistant page', () => {
         const transcript: Array<Partial<ExecutionPage>> = [{
             assistantMessageId: 'a1',

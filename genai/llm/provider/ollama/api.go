@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -186,7 +185,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				return
 			}
 			choice := lr.Choices[0]
-			if content := strings.TrimSpace(choice.Message.Content); content != "" {
+			if content := choice.Message.Content; content != "" {
 				events <- llm.StreamEvent{Kind: llm.StreamEventTextDelta, Delta: content}
 			}
 			if choice.FinishReason != "" {
@@ -225,7 +224,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				if observer != nil {
 					// Extract plain text content from first choice
 					if lr != nil && len(lr.Choices) > 0 {
-						if txt := strings.TrimSpace(lr.Choices[0].Message.Content); txt != "" {
+						if txt := lr.Choices[0].Message.Content; txt != "" {
 							if obErr := observer.OnStreamDelta(ctx, []byte(txt)); obErr != nil {
 								events <- llm.StreamEvent{Err: fmt.Errorf("observer OnStreamDelta failed: %w", obErr)}
 								break

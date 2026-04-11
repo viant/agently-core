@@ -58,7 +58,7 @@ type pendingFuncCall struct {
 
 func firstResponseText(items ...string) string {
 	for _, item := range items {
-		if strings.TrimSpace(item) != "" {
+		if item != "" {
 			return item
 		}
 	}
@@ -70,7 +70,7 @@ func extractOutputTextFromContentItems(items []struct {
 	Text string `json:"text"`
 }) string {
 	for _, item := range items {
-		if strings.EqualFold(strings.TrimSpace(item.Type), "output_text") && strings.TrimSpace(item.Text) != "" {
+		if strings.EqualFold(strings.TrimSpace(item.Type), "output_text") && item.Text != "" {
 			return item.Text
 		}
 	}
@@ -78,7 +78,7 @@ func extractOutputTextFromContentItems(items []struct {
 }
 
 func (p *streamProcessor) emitAssistantTextDeltaWithObserver(itemID, delta string, notifyObserver bool) bool {
-	if strings.TrimSpace(delta) == "" {
+	if delta == "" {
 		return true
 	}
 	if notifyObserver && p.observer != nil {
@@ -249,7 +249,7 @@ func (p *streamProcessor) markAssistantTextEmitted(txt string) {
 }
 
 func (p *streamProcessor) markAssistantTextEmittedForItem(itemID, txt string) {
-	if strings.TrimSpace(txt) == "" {
+	if txt == "" {
 		return
 	}
 	p.state.emittedAssistantText = true

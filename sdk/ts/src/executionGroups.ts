@@ -2,6 +2,14 @@ import type { ExecutionPage, LiveExecutionGroup, LiveExecutionGroupsById, ModelS
 import { compareExecutionGroups, firstNumber, firstPositiveNumber, firstString } from './ordering';
 import { eventIterationValue, eventSequenceValue, executionGroupStatusForEvent, modelStepStatusForEvent, terminalStatusForType } from './streamEventMeta';
 
+function rawText(value: unknown): string {
+    return value == null ? '' : String(value);
+}
+
+function appendText(existing: unknown, incoming: unknown): string {
+    return `${rawText(existing)}${rawText(incoming)}`;
+}
+
 export function normalizeExecutionPageSize(value: string | number | null | undefined): '1' | '5' | '10' | 'all' {
     const text = String(value || '1').trim().toLowerCase();
     if (text === 'all') return 'all';
@@ -274,7 +282,7 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         current.preamble = type === 'reasoning_delta'
-            ? `${firstString(current.preamble)}${firstString(event?.content)}`
+            ? appendText(current.preamble, event?.content)
             : firstString(event?.content, event?.preamble, current.preamble);
         current.status = firstString(event?.status, current.status, 'running');
         mergePrimaryModelStep(current, event, current.status || 'running');
@@ -298,7 +306,7 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         current.content = type === 'text_delta'
-            ? `${firstString(current.content)}${firstString(event?.content)}`
+            ? appendText(current.content, event?.content)
             : firstString(event?.content, current.content);
         current.preamble = firstString(event?.preamble, current.preamble);
         current.errorMessage = firstString(event?.error, current.errorMessage);

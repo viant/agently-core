@@ -273,6 +273,63 @@ func TestStream_ResponseAlternativeTextEventsDoNotReplayAfterOutputTextDelta(t *
 	}
 }
 
+func TestStream_ResponseOutputTextDeltaPreservesWhitespaceOnlyChunks(t *testing.T) {
+	lines := []string{
+		"event: response.output_text.delta",
+		`data: {"item_id":"msg_1","delta":"Hello"}`,
+		"event: response.output_text.delta",
+		`data: {"item_id":"msg_1","delta":" "}`,
+		"event: response.output_text.delta",
+		`data: {"item_id":"msg_1","delta":"world"}`,
+		"event: response.completed",
+		`data: {"response":{"id":"resp_1","status":"completed","model":"gpt-5.4","output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello world"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	observer := &recordingObserver{}
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-5.4"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ctx = mcbuf.WithObserver(ctx, observer)
+	ch, err := c.Stream(ctx, &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}})
+	if err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	var gotTextDeltas []string
+	var final *llm.GenerateResponse
+	for ev := range ch {
+		if ev.Err != nil {
+			t.Fatalf("streaming error: %v", ev.Err)
+		}
+		if ev.Kind == llm.StreamEventTextDelta {
+			gotTextDeltas = append(gotTextDeltas, ev.Delta)
+		}
+		if ev.Response != nil {
+			final = ev.Response
+		}
+	}
+
+	assert.Equal(t, []string{"Hello", " ", "world"}, gotTextDeltas)
+	assert.Equal(t, []string{"Hello", " ", "world"}, observer.deltas)
+	if assert.NotNil(t, final) {
+		assert.Equal(t, "Hello world", llm.MessageText(final.Choices[0].Message))
+	}
+}
+
 func TestStream_ResponseFailed_ErrorMessage(t *testing.T) {
 	lines := []string{
 		"event: response.created",
