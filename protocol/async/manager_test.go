@@ -63,7 +63,7 @@ func TestManager_TerminalFailure(t *testing.T) {
 		ID:           "op-fail",
 		ParentConvID: "conv-1",
 		ParentTurnID: "turn-1",
-		ToolName:     "llm/agents:run",
+		ToolName:     "llm/agents:start",
 		Status:       "running",
 	})
 	_, changed := manager.Update(context.Background(), UpdateInput{

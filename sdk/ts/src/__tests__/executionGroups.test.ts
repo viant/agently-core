@@ -251,7 +251,7 @@ describe('executionGroups', () => {
             turnId: 'turn-1',
             toolCallId: 'tc1',
             toolMessageId: 'tm1',
-            toolName: 'llm/agents:run',
+            toolName: 'llm/agents:start',
             operationId: 'child-1',
             status: 'running',
         }));
@@ -261,7 +261,7 @@ describe('executionGroups', () => {
             turnId: 'turn-1',
             toolCallId: 'tc1',
             toolMessageId: 'tm1',
-            toolName: 'llm/agents:run',
+            toolName: 'llm/agents:start',
             operationId: 'child-1',
             status: 'failed',
             error: 'boom',
@@ -272,7 +272,7 @@ describe('executionGroups', () => {
             errorMessage: 'boom',
         });
         expect(live3.a1.toolSteps[0]).toMatchObject({
-            toolName: 'llm/agents:run',
+            toolName: 'llm/agents:start',
             operationId: 'child-1',
             status: 'failed',
             errorMessage: 'boom',
