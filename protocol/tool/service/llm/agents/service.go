@@ -144,9 +144,8 @@ func (s *Service) AsyncConfigs() []*asynccfg.Config {
 			TimeoutMs:       int((5 * time.Minute) / time.Millisecond),
 			PollIntervalMs:  int((2 * time.Second) / time.Millisecond),
 			Run: asynccfg.RunConfig{
-				Tool:            "llm/agents:run",
+				Tool:            "llm/agents:start",
 				OperationIDPath: "conversationId",
-				ExtraArgs:       map[string]interface{}{"async": true},
 				Selector:        &asynccfg.Selector{StatusPath: "status"},
 			},
 			Status: asynccfg.StatusConfig{
@@ -193,8 +192,14 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&CancelOutput{}),
 		},
 		{
+			Name:        "start",
+			Description: "Start an agent asynchronously and return its conversation handle for later status polling",
+			Input:       reflect.TypeOf(&StartInput{}),
+			Output:      reflect.TypeOf(&RunOutput{}),
+		},
+		{
 			Name:        "run",
-			Description: "Run an agent by id with an objective and optional context",
+			Description: "Run an agent by id synchronously with an objective and optional context",
 			Input:       reflect.TypeOf(&RunInput{}),
 			Output:      reflect.TypeOf(&RunOutput{}),
 		},
@@ -212,6 +217,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.statusMethod, nil
 	case "cancel":
 		return s.cancelMethod, nil
+	case "start":
+		return s.start, nil
 	case "run":
 		return s.run, nil
 	default:
@@ -228,7 +235,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	lo.ReuseNote = "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed."
-	lo.RunUsage = "To delegate, call llm/agents:run with {agentId, objective}. You may call multiple llm/agents:run in parallel within the same response to run agents concurrently."
+	lo.RunUsage = "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need the delegated result returned synchronously in the current turn."
 	if s.dirProvider != nil {
 		lo.Items = s.dirProvider()
 		return nil
@@ -341,6 +348,22 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	return s.runInternal(ctx, ri, ro, convID, depth)
+}
+
+// start launches an agent asynchronously and returns a conversation handle.
+func (s *Service) start(ctx context.Context, in, out interface{}) error {
+	si, ok := in.(*StartInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	ro, ok := out.(*RunOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	cloned := *si
+	asyncFlag := true
+	cloned.Async = &asyncFlag
+	return s.run(ctx, &cloned, ro)
 }
 
 func (s *Service) directorySource(agentID string) string {
