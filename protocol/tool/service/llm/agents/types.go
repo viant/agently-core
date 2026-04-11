@@ -48,6 +48,10 @@ type RunInput struct {
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 }
 
+// StartInput launches an agent asynchronously and returns a conversation handle.
+// It shares the same public fields as RunInput, but the service forces async=true.
+type StartInput = RunInput
+
 // RunOutput defines the response payload for agents:run.
 // Depending on routing (internal vs external), different handles will be set.
 type RunOutput struct {

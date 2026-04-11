@@ -77,9 +77,18 @@ func expectedListOutput(items []ListItem) *ListOutput {
 	return &ListOutput{
 		Items:      items,
 		ReuseNote:  "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed.",
-		RunUsage:   "To delegate, call llm/agents:run with {agentId, objective}. You may call multiple llm/agents:run in parallel within the same response to run agents concurrently.",
+		RunUsage:   "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need the delegated result returned synchronously in the current turn.",
 		NextAction: "",
 	}
+}
+
+func TestService_DoesNotExposeAutoAsyncConfigForRun(t *testing.T) {
+	svc := New(nil)
+
+	assert.Nil(t, svc.AsyncConfig("llm/agents:run"))
+	assert.NotNil(t, svc.AsyncConfig("llm/agents:start"))
+	assert.NotNil(t, svc.AsyncConfig("llm/agents:status"))
+	assert.NotNil(t, svc.AsyncConfig("llm/agents:cancel"))
 }
 
 func TestService_Run_External_DataDriven(t *testing.T) {
@@ -828,9 +837,9 @@ func TestService_Cancel_ReturnsConversationStatusWhenAlreadyTerminal(t *testing.
 
 func TestService_AsyncConfig(t *testing.T) {
 	svc := New(nil)
-	cfg := svc.AsyncConfig("llm/agents:run")
+	cfg := svc.AsyncConfig("llm/agents:start")
 	require.NotNil(t, cfg)
-	assert.Equal(t, "llm/agents:run", cfg.Run.Tool)
+	assert.Equal(t, "llm/agents:start", cfg.Run.Tool)
 	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
 	assert.Equal(t, "llm/agents:status", cfg.Status.Tool)
 	assert.Equal(t, "conversationId", cfg.Status.OperationIDArg)
