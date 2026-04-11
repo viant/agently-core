@@ -686,6 +686,47 @@ func setupOAuthCookieServer(t *testing.T, pubPath, privPath string) *httptest.Se
 	return httptest.NewServer(protected)
 }
 
+func setupOAuthConfigServer(t *testing.T, authCfg *svcauth.Config) *httptest.Server {
+	t.Helper()
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	testdataDir, err := filepath.Abs("../query/testdata")
+	require.NoError(t, err)
+
+	fs := afs.New()
+	wsMeta := meta.New(fs, testdataDir)
+	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
+	agentFndr := agentfinder.New(agentfinder.WithLoader(agentLdr))
+	modelLdr := modelloader.New(wsfs.WithMetaService[provider.Config](wsMeta))
+	modelFndr := modelfinder.New(modelfinder.WithConfigLoader(modelLdr))
+	mcpMgr, err := mcpmgr.New(&stubMCPProvider{})
+	require.NoError(t, err)
+	registry, err := tool.NewDefaultRegistry(mcpMgr)
+	require.NoError(t, err)
+
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(agentFndr).
+		WithModelFinder(modelFndr).
+		WithRegistry(registry).
+		WithMCPManager(mcpMgr).
+		WithDefaults(&config.Defaults{Model: "openai_gpt4o_mini"}).
+		Build(ctx)
+	require.NoError(t, err)
+
+	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	require.NoError(t, err)
+
+	sessions := svcauth.NewManager(7*24*time.Hour, nil)
+	handler := sdk.NewHandler(client, sdk.WithAuth(authCfg, sessions))
+	protected := svcauth.Protect(authCfg, sessions)(handler)
+	return httptest.NewServer(protected)
+}
+
 func TestOAuthCookie_UnauthenticatedRequest_Returns401(t *testing.T) {
 	keyDir := t.TempDir()
 	privPath, pubPath := generateRSAKeyPair(t, keyDir)
@@ -832,6 +873,37 @@ func TestOAuthCookie_AnonymousCookie_Blocked(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
 		"anonymous query should be blocked when auth is enabled")
+}
+
+func TestOAuthCookie_ConfigEndpoint_ExposesEncryptedConfigURLAndRedirectMode(t *testing.T) {
+	authCfg := &svcauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-ip-hash-key",
+		CookieName: "agently_session",
+		OAuth: &svcauth.OAuth{
+			Label:           "Viant",
+			Mode:            "bff",
+			RedirectSameTab: true,
+			Client: &svcauth.OAuthClient{
+				ConfigURL: "idp_viant.enc|blowfish://default",
+				Scopes:    []string{"openid"},
+			},
+		},
+	}
+
+	srv := setupOAuthConfigServer(t, authCfg)
+	defer srv.Close()
+
+	resp := doRequest(t, "GET", srv.URL+"/v1/api/auth/oauth/config", "", nil)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var cfg map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
+	assert.Equal(t, "bff", cfg["mode"])
+	assert.Equal(t, "idp_viant.enc|blowfish://default", cfg["configURL"])
+	assert.Equal(t, true, cfg["redirectSameTab"])
+	require.Contains(t, cfg, "scopes")
 }
 
 // setupBFFCookieServer creates an httptest.Server simulating a BFF OAuth

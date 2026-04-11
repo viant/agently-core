@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -117,10 +119,73 @@ func LoadWorkspaceConfig(workspaceRoot string) (*Config, error) {
 	if err := cfg.DecodeAuth(ret); err != nil {
 		return nil, fmt.Errorf("decode auth config: %w", err)
 	}
+	expandAuthEnvTemplates(ret)
 	if ret.Enabled || ret.CookieName != "" || ret.Local != nil || ret.OAuth != nil || ret.JWT != nil {
 		return ret, nil
 	}
 	return nil, nil
+}
+
+var authEnvTemplate = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
+
+func expandAuthEnvTemplates(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	cfg.CookieName = expandAuthEnvString(cfg.CookieName)
+	cfg.DefaultUsername = expandAuthEnvString(cfg.DefaultUsername)
+	cfg.IpHashKey = expandAuthEnvString(cfg.IpHashKey)
+	cfg.RedirectPath = expandAuthEnvString(cfg.RedirectPath)
+	for i := range cfg.TrustedProxies {
+		cfg.TrustedProxies[i] = expandAuthEnvString(cfg.TrustedProxies[i])
+	}
+	if cfg.OAuth != nil {
+		cfg.OAuth.Mode = expandAuthEnvString(cfg.OAuth.Mode)
+		cfg.OAuth.Name = expandAuthEnvString(cfg.OAuth.Name)
+		cfg.OAuth.Label = expandAuthEnvString(cfg.OAuth.Label)
+		if cfg.OAuth.Client != nil {
+			cfg.OAuth.Client.ConfigURL = expandAuthEnvString(cfg.OAuth.Client.ConfigURL)
+			cfg.OAuth.Client.DiscoveryURL = expandAuthEnvString(cfg.OAuth.Client.DiscoveryURL)
+			cfg.OAuth.Client.JWKSURL = expandAuthEnvString(cfg.OAuth.Client.JWKSURL)
+			cfg.OAuth.Client.RedirectURI = expandAuthEnvString(cfg.OAuth.Client.RedirectURI)
+			cfg.OAuth.Client.ClientID = expandAuthEnvString(cfg.OAuth.Client.ClientID)
+			cfg.OAuth.Client.Issuer = expandAuthEnvString(cfg.OAuth.Client.Issuer)
+			for i := range cfg.OAuth.Client.Scopes {
+				cfg.OAuth.Client.Scopes[i] = expandAuthEnvString(cfg.OAuth.Client.Scopes[i])
+			}
+			for i := range cfg.OAuth.Client.Audiences {
+				cfg.OAuth.Client.Audiences[i] = expandAuthEnvString(cfg.OAuth.Client.Audiences[i])
+			}
+		}
+	}
+	if cfg.JWT != nil {
+		cfg.JWT.HMAC = expandAuthEnvString(cfg.JWT.HMAC)
+		cfg.JWT.CertURL = expandAuthEnvString(cfg.JWT.CertURL)
+		cfg.JWT.RSAPrivateKey = expandAuthEnvString(cfg.JWT.RSAPrivateKey)
+		for i := range cfg.JWT.RSA {
+			cfg.JWT.RSA[i] = expandAuthEnvString(cfg.JWT.RSA[i])
+		}
+	}
+}
+
+func expandAuthEnvString(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.Contains(value, "${") {
+		return value
+	}
+	return authEnvTemplate.ReplaceAllStringFunc(value, func(match string) string {
+		parts := authEnvTemplate.FindStringSubmatch(match)
+		if len(parts) < 2 {
+			return match
+		}
+		if current, ok := os.LookupEnv(parts[1]); ok && current != "" {
+			return current
+		}
+		if len(parts) >= 4 {
+			return parts[3]
+		}
+		return ""
+	})
 }
 
 func (r *Runtime) JWTService() *JWTService {

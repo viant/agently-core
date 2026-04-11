@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"runtime/pprof"
 	"sort"
@@ -1527,7 +1529,7 @@ func (r *Registry) discoveryFailureFor(server, scope string) error {
 	if r == nil {
 		return nil
 	}
-	key := discoveryIdentityKey(server, scope)
+	key := r.discoveryFailureKey(server, scope)
 	now := time.Now()
 	r.mu.RLock()
 	until := r.discoveryFailUntil[key]
@@ -1553,7 +1555,10 @@ func (r *Registry) noteDiscoveryFailure(server, scope string, err error) {
 	if ttl <= 0 {
 		ttl = 30 * time.Second
 	}
-	key := discoveryIdentityKey(server, scope)
+	key := r.discoveryFailureKey(server, scope)
+	if r.isLoopbackMCPServer(server) && ttl < 5*time.Minute {
+		ttl = 5 * time.Minute
+	}
 	r.mu.Lock()
 	if r.discoveryFailUntil == nil {
 		r.discoveryFailUntil = map[string]time.Time{}
@@ -1570,7 +1575,7 @@ func (r *Registry) clearDiscoveryFailure(server, scope string) {
 	if r == nil {
 		return
 	}
-	key := discoveryIdentityKey(server, scope)
+	key := r.discoveryFailureKey(server, scope)
 	r.mu.Lock()
 	delete(r.discoveryFailUntil, key)
 	delete(r.discoveryFailErr, key)
@@ -1905,12 +1910,53 @@ func (r *Registry) warnDiscoveryListIssue(server, scope, stage string, err error
 		scope = discoveryCtxMissing
 	}
 	kind := classifyDiscoveryError(err)
-	key := fmt.Sprintf("discovery_issue:%s:%s:%s:%s:%s:%v", server, scope, strings.TrimSpace(stage), kind, strings.TrimSpace(userID), useID)
+	if kind == "transport" && r.isLoopbackMCPServer(server) && strings.EqualFold(strings.TrimSpace(stage), "cooldown") {
+		return
+	}
+	warnScope := scope
+	if kind == "transport" && r.isLoopbackMCPServer(server) {
+		warnScope = "loopback"
+	}
+	key := fmt.Sprintf("discovery_issue:%s:%s:%s:%s:%s:%v", server, warnScope, strings.TrimSpace(stage), kind, strings.TrimSpace(userID), useID)
 	r.warnDiscoveryf(key, "discovery client issue server=%q scope=%q stage=%s kind=%s user=%q use_id_token=%v token=%s err=%v", server, scope, stage, kind, strings.TrimSpace(userID), useID, tokenFP, err)
 }
 
 func discoveryIdentityKey(server, scope string) string {
 	return strings.TrimSpace(server) + "|" + strings.TrimSpace(scope)
+}
+
+func (r *Registry) discoveryFailureKey(server, scope string) string {
+	if r != nil && r.isLoopbackMCPServer(server) {
+		return strings.TrimSpace(server)
+	}
+	return discoveryIdentityKey(server, scope)
+}
+
+func (r *Registry) isLoopbackMCPServer(server string) bool {
+	if r == nil || r.mgr == nil {
+		return false
+	}
+	opts, err := r.mgr.Options(context.Background(), strings.TrimSpace(server))
+	if err != nil || opts == nil || opts.ClientOptions == nil {
+		return false
+	}
+	rawURL := strings.TrimSpace(opts.ClientOptions.Transport.URL)
+	if rawURL == "" {
+		return false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func shouldSuppressMissingMCPConfigWarning(server string, err error) bool {
