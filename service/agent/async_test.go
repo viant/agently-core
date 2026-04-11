@@ -34,7 +34,7 @@ func TestInjectAsyncReinforcement_AddsSystemMessage(t *testing.T) {
 		ID:              "op-1",
 		ParentConvID:    "conv-1",
 		ParentTurnID:    "turn-1",
-		ToolName:        "llm/agents:run",
+		ToolName:        "llm/agents:start",
 		WaitForResponse: true,
 		Status:          "running",
 		Message:         "still working",

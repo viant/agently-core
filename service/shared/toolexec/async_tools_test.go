@@ -57,7 +57,7 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 		WaitForResponse: true,
 		PollIntervalMs:  5,
 		Run: asynccfg.RunConfig{
-			Tool:            "llm/agents:run",
+			Tool:            "llm/agents:start",
 			OperationIDPath: "conversationId",
 			Selector:        &asynccfg.Selector{StatusPath: "status"},
 		},
@@ -86,7 +86,7 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
-		Name: "llm/agents:run",
+		Name: "llm/agents:start",
 		Args: map[string]interface{}{"agentId": "coder", "objective": "analyze"},
 	}, &stubConv{})
 	require.NoError(t, err)
@@ -322,7 +322,7 @@ func TestExecuteToolStep_AsyncStartDoesNotCompleteImmediately(t *testing.T) {
 		WaitForResponse: true,
 		PollIntervalMs:  50,
 		Run: asynccfg.RunConfig{
-			Tool:            "llm/agents:run",
+			Tool:            "llm/agents:start",
 			OperationIDPath: "conversationId",
 			Selector:        &asynccfg.Selector{StatusPath: "status"},
 		},
@@ -348,7 +348,7 @@ func TestExecuteToolStep_AsyncStartDoesNotCompleteImmediately(t *testing.T) {
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
-		Name: "llm/agents:run",
+		Name: "llm/agents:start",
 		Args: map[string]interface{}{"agentId": "coder", "objective": "analyze"},
 	}, conv)
 	require.NoError(t, err)
@@ -370,7 +370,7 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 		WaitForResponse: true,
 		PollIntervalMs:  5,
 		Run: asynccfg.RunConfig{
-			Tool:            "llm/agents:run",
+			Tool:            "llm/agents:start",
 			OperationIDPath: "conversationId",
 			Selector:        &asynccfg.Selector{StatusPath: "status"},
 		},
@@ -399,7 +399,7 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
-		Name: "llm/agents:run",
+		Name: "llm/agents:start",
 		Args: map[string]interface{}{"agentId": "coder", "objective": "analyze"},
 	}, conv)
 	require.NoError(t, err)
