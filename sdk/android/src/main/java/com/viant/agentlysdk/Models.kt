@@ -3,6 +3,7 @@ package com.viant.agentlysdk
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class AuthProvider(
@@ -92,7 +93,9 @@ data class CreateSessionOutput(
 
 @Serializable
 data class OOBLoginInput(
-    val accessToken: String,
+    val secretsURL: String? = null,
+    val scopes: List<String> = emptyList(),
+    val accessToken: String? = null,
     val idToken: String? = null,
     val refreshToken: String? = null,
     val username: String? = null
@@ -581,7 +584,8 @@ data class ApprovalMeta(
 data class ApprovalCallbackPayload(
     val approval: ApprovalMeta? = null,
     val editedFields: JsonElement? = null,
-    val originalArgs: JsonElement? = null
+    val originalArgs: JsonElement? = null,
+    val action: String? = null
 )
 
 @Serializable
@@ -848,6 +852,15 @@ data class ActiveFeedState(
     val title: String,
     val itemCount: Int,
     val data: JsonElement? = null
+)
+
+@Serializable
+data class FeedDataResponse(
+    val feedId: String? = null,
+    val title: String? = null,
+    val data: JsonElement? = null,
+    val dataSources: JsonObject? = null,
+    val ui: JsonObject? = null
 )
 
 @Serializable

@@ -281,6 +281,48 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `getFeedData keeps top level feed metadata alongside data field`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "feedId": "plan",
+                  "title": "Plan",
+                  "data": {
+                    "output": {
+                      "plan": [
+                        { "status": "pending", "step": "Ship Android feed UI" }
+                      ]
+                    }
+                  },
+                  "dataSources": {
+                    "planInfo": { "source": "output" }
+                  },
+                  "ui": {
+                    "title": "Plan",
+                    "containers": [
+                      { "id": "header", "items": [{ "id": "explanation", "type": "label" }] }
+                    ]
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.getFeedData("plan", "conv-1")
+
+        assertEquals("plan", result.feedId)
+        assertEquals("Plan", result.title)
+        assertNotNull(result.data)
+        assertNotNull(result.dataSources)
+        assertNotNull(result.ui)
+        val request = server.takeRequest()
+        assertEquals("/v1/feeds/plan/data?conversationId=conv-1", request.path)
+    }
+
+    @Test
     fun `listConversations builds query parameters`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

@@ -1205,11 +1205,12 @@ describe('Auth', () => {
     });
 
     it('getOAuthConfig sends GET', async () => {
-        const f = mockFetch(200, { mode: 'bff', clientId: 'c1' });
+        const f = mockFetch(200, { mode: 'bff', clientId: 'c1', redirectSameTab: true });
         const c = client(f);
         const res = await c.getOAuthConfig();
 
         expect(res.mode).toBe('bff');
+        expect(res.redirectSameTab).toBe(true);
         const call = lastCall(f);
         expect(call.method).toBe('GET');
         expect(call.url).toContain('/api/auth/oauth/config');

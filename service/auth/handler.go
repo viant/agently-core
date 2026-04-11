@@ -272,9 +272,11 @@ func (h *Handler) handleOAuthConfig() http.HandlerFunc {
 		}
 		c := h.cfg.OAuth.Client
 		resp := map[string]interface{}{
-			"mode":     h.cfg.OAuth.Mode,
-			"clientId": c.ClientID,
-			"scopes":   c.Scopes,
+			"mode":            h.cfg.OAuth.Mode,
+			"configURL":       c.ConfigURL,
+			"clientId":        c.ClientID,
+			"redirectSameTab": h.cfg.OAuth.RedirectSameTab,
+			"scopes":          c.Scopes,
 		}
 		if c.DiscoveryURL != "" {
 			resp["discoveryUrl"] = c.DiscoveryURL

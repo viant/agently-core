@@ -44,7 +44,12 @@ class AgentlyClient(
     private val restClient = RestClient(endpoints)
 
     suspend fun authProviders(): List<AuthProvider> = withContext(Dispatchers.IO) {
-        get("/v1/api/auth/providers", AuthProvidersEnvelope.serializer()).providers
+        val root = parseJson(restClient.get(endpointName, "/v1/api/auth/providers") { it })
+        when (root) {
+            is JsonArray -> json.decodeFromJsonElement(ListSerializer(AuthProvider.serializer()), root)
+            is JsonObject -> decode(root, AuthProvidersEnvelope.serializer()).providers
+            else -> emptyList()
+        }
     }
 
     suspend fun authMe(): AuthUser = withContext(Dispatchers.IO) {
@@ -122,12 +127,28 @@ class AgentlyClient(
         get(buildTranscriptPath(input), ConversationStateResponse.serializer())
     }
 
-    suspend fun getLiveState(conversationId: String): ConversationStateResponse = withContext(Dispatchers.IO) {
-        get("/v1/conversations/${encodePath(conversationId)}/live-state", ConversationStateResponse.serializer())
+    suspend fun getLiveState(conversationId: String, includeFeeds: Boolean = false): ConversationStateResponse = withContext(Dispatchers.IO) {
+        val query = linkedMapOf<String, String>()
+        if (includeFeeds) {
+            query["includeFeeds"] = "true"
+        }
+        get(
+            appendQuery("/v1/conversations/${encodePath(conversationId)}/live-state", query),
+            ConversationStateResponse.serializer()
+        )
     }
 
     suspend fun listLinkedConversations(input: ListLinkedConversationsInput): LinkedConversationPage = withContext(Dispatchers.IO) {
         get(buildLinkedConversationPath(input), LinkedConversationPage.serializer())
+    }
+
+    suspend fun getFeedData(feedId: String, conversationId: String): FeedDataResponse = withContext(Dispatchers.IO) {
+        val query = linkedMapOf<String, String>()
+        if (conversationId.isNotBlank()) {
+            query["conversationId"] = conversationId
+        }
+        val root = parseJson(restClient.get(endpointName, appendQuery("/v1/feeds/${encodePath(feedId)}/data", query)) { it })
+        json.decodeFromJsonElement(FeedDataResponse.serializer(), root)
     }
 
     suspend fun listPendingElicitations(input: ListPendingElicitationsInput): List<PendingElicitationRecord> = withContext(Dispatchers.IO) {
@@ -316,7 +337,7 @@ class AgentlyClient(
 
     fun trackConversation(conversationId: String): Flow<ConversationStreamSnapshot> = flow {
         val tracker = ConversationStreamTracker(conversationId)
-        tracker.hydrate(getLiveState(conversationId))
+        tracker.hydrate(getLiveState(conversationId, includeFeeds = true))
         emit(tracker.snapshot())
         streamEvents(conversationId).collect { event ->
             tracker.applyEvent(event)
