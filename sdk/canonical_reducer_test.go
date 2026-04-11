@@ -238,7 +238,7 @@ func TestReduce_AsyncToolLifecycleAttachesOperation(t *testing.T) {
 		TurnID:         "turn-1",
 		ToolCallID:     "call-1",
 		ToolMessageID:  "tool-msg-1",
-		ToolName:       "llm/agents:run",
+		ToolName:       "llm/agents:start",
 		Status:         "running",
 		CreatedAt:      now,
 	})
