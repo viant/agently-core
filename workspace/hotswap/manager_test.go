@@ -38,22 +38,22 @@ func TestManager_AddOrUpdate(t *testing.T) {
 	}
 	defer mgr.Stop()
 
-	// Allow watcher to initialize.
-	time.Sleep(100 * time.Millisecond)
+	// fsnotify watcher startup is external and has no readiness callback.
+	time.Sleep(25 * time.Millisecond)
 
 	// Create a YAML file.
 	if err := os.WriteFile(filepath.Join(agentsDir, "simple.yaml"), []byte("id: simple"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Wait for debounce + dispatch.
-	time.Sleep(300 * time.Millisecond)
+	waitUntil(t, time.Second, 10*time.Millisecond, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(received) > 0
+	}, "expected at least one AddOrUpdate change, got none")
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(received) == 0 {
-		t.Fatal("expected at least one AddOrUpdate change, got none")
-	}
 	last := received[len(received)-1]
 	if last.Name != "simple" {
 		t.Errorf("expected name 'simple', got %q", last.Name)
@@ -100,14 +100,24 @@ func TestManager_Delete(t *testing.T) {
 	}
 	defer mgr.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	// fsnotify watcher startup is external and has no readiness callback.
+	time.Sleep(25 * time.Millisecond)
 
 	// Delete the file.
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(300 * time.Millisecond)
+	waitUntil(t, time.Second, 10*time.Millisecond, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, ch := range received {
+			if ch.Name == "gpt4" && ch.Action == ActionDelete {
+				return true
+			}
+		}
+		return false
+	}, "expected Delete change for 'gpt4'")
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -148,7 +158,8 @@ func TestManager_Debounce(t *testing.T) {
 	}
 	defer mgr.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	// fsnotify watcher startup is external and has no readiness callback.
+	time.Sleep(25 * time.Millisecond)
 
 	file := filepath.Join(agentsDir, "rapid.yaml")
 	// Rapid writes within the debounce window.
@@ -156,11 +167,12 @@ func TestManager_Debounce(t *testing.T) {
 		if err := os.WriteFile(file, []byte("v: "+string(rune('0'+i))), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Wait for debounce to fire.
-	time.Sleep(500 * time.Millisecond)
+	// This test validates debounce behavior, so we must wait slightly longer than
+	// the configured debounce window for the timer to fire.
+	time.Sleep(300 * time.Millisecond)
 
 	got := atomic.LoadInt64(&count)
 	if got > 2 {
@@ -193,18 +205,17 @@ func TestManager_IgnoresNonYAML(t *testing.T) {
 	}
 	defer mgr.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	// fsnotify watcher startup is external and has no readiness callback.
+	time.Sleep(25 * time.Millisecond)
 
 	// Write a non-YAML file.
 	if err := os.WriteFile(filepath.Join(agentsDir, "notes.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(300 * time.Millisecond)
-
-	if got := atomic.LoadInt64(&count); got != 0 {
-		t.Errorf("expected 0 dispatches for .txt file, got %d", got)
-	}
+	assertNever(t, 150*time.Millisecond, 10*time.Millisecond, func() bool {
+		return atomic.LoadInt64(&count) != 0
+	}, "expected 0 dispatches for .txt file")
 }
 
 // reloadableFunc is a test helper that adapts a function to the Reloadable interface.

@@ -16,7 +16,7 @@ func TestWaitDiscoveryStage_NoHeartbeatBeforeInterval(t *testing.T) {
 	reg := &Registry{discoveryWaitEvery: 80 * time.Millisecond}
 
 	err := reg.waitDiscoveryStage(context.Background(), "operation", "wait_test_fast", func(ctx context.Context) error {
-		time.Sleep(15 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
 	if err != nil {
@@ -34,7 +34,7 @@ func TestWaitDiscoveryStage_EmitsFirstHeartbeatThenThrottles(t *testing.T) {
 	reg := &Registry{discoveryWaitEvery: 25 * time.Millisecond}
 
 	err := reg.waitDiscoveryStage(context.Background(), "operation", "wait_test_slow", func(ctx context.Context) error {
-		time.Sleep(90 * time.Millisecond)
+		time.Sleep(60 * time.Millisecond)
 		return nil
 	})
 	if err != nil {
@@ -53,7 +53,7 @@ func TestWaitDiscoveryStage_LegacyWhenSchedulerDebugDisabled(t *testing.T) {
 	reg := &Registry{discoveryWaitEvery: 25 * time.Millisecond}
 
 	err := reg.waitDiscoveryStage(context.Background(), "operation", "wait_test_legacy", func(ctx context.Context) error {
-		time.Sleep(90 * time.Millisecond)
+		time.Sleep(60 * time.Millisecond)
 		return nil
 	})
 	if err != nil {
@@ -101,16 +101,22 @@ func TestWaitDiscoveryStage_CancelsChildContextOnParentCancel(t *testing.T) {
 	defer parentCancel()
 
 	childDone := make(chan error, 1)
+	started := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- reg.waitDiscoveryStage(parentCtx, "guardian", "wait_test_child_cancel", func(ctx context.Context) error {
+			close(started)
 			<-ctx.Done()
 			childDone <- ctx.Err()
 			return ctx.Err()
 		})
 	}()
 
-	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-started:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("discovery stage did not start")
+	}
 	parentCancel()
 
 	select {
