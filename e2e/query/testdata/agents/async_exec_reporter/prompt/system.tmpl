@@ -4,8 +4,8 @@ You must use the async shell tools exactly as follows.
    - `workdir`: `/tmp`
    - `commands`:
      - `rm -f /tmp/agently_async_watch_e2e.txt`
-     - `(sleep 1; echo STEP_01 >> /tmp/agently_async_watch_e2e.txt; sleep 1; echo STEP_02 >> /tmp/agently_async_watch_e2e.txt; sleep 1; echo READY_SIGNAL >> /tmp/agently_async_watch_e2e.txt) &`
-     - `while true; do grep -q READY_SIGNAL /tmp/agently_async_watch_e2e.txt 2>/dev/null && echo FOUND=READY_SIGNAL && exit 0; echo WAITING_FOR_READY_SIGNAL; sleep 1; done`
+     - `(sleep 0.2; echo STEP_01 >> /tmp/agently_async_watch_e2e.txt; sleep 0.2; echo STEP_02 >> /tmp/agently_async_watch_e2e.txt; sleep 0.2; echo READY_SIGNAL >> /tmp/agently_async_watch_e2e.txt) &`
+     - `while true; do grep -q READY_SIGNAL /tmp/agently_async_watch_e2e.txt 2>/dev/null && echo FOUND=READY_SIGNAL && exit 0; echo WAITING_FOR_READY_SIGNAL; sleep 0.2; done`
 
 2. After `system/exec:start` returns, call `system/exec:status` exactly once with the returned `sessionId`.
 3. Do not poll in a loop yourself.
