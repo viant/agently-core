@@ -1,39 +1,39 @@
 package sdk
 
-import "github.com/viant/agently-core/sdkapi"
+import api "github.com/viant/agently-core/sdk/api"
 
-type ActiveFeedState = sdkapi.ActiveFeedState
-type ConversationState = sdkapi.ConversationState
-type TurnState = sdkapi.TurnState
-type TurnStatus = sdkapi.TurnStatus
-type UserMessageState = sdkapi.UserMessageState
-type AssistantState = sdkapi.AssistantState
-type AssistantMessageState = sdkapi.AssistantMessageState
-type ExecutionState = sdkapi.ExecutionState
-type ExecutionPageState = sdkapi.ExecutionPageState
-type ModelStepState = sdkapi.ModelStepState
-type ToolStepState = sdkapi.ToolStepState
-type AsyncOperationState = sdkapi.AsyncOperationState
-type ElicitationState = sdkapi.ElicitationState
-type ElicitationStatus = sdkapi.ElicitationStatus
-type LinkedConversationState = sdkapi.LinkedConversationState
-type PlanFeedPayload = sdkapi.PlanFeedPayload
-type PlanStep = sdkapi.PlanStep
-type UsageSummary = sdkapi.UsageSummary
-type ConversationStateResponse = sdkapi.ConversationStateResponse
+type ActiveFeedState = api.ActiveFeedState
+type ConversationState = api.ConversationState
+type TurnState = api.TurnState
+type TurnStatus = api.TurnStatus
+type UserMessageState = api.UserMessageState
+type AssistantState = api.AssistantState
+type AssistantMessageState = api.AssistantMessageState
+type ExecutionState = api.ExecutionState
+type ExecutionPageState = api.ExecutionPageState
+type ModelStepState = api.ModelStepState
+type ToolStepState = api.ToolStepState
+type AsyncOperationState = api.AsyncOperationState
+type ElicitationState = api.ElicitationState
+type ElicitationStatus = api.ElicitationStatus
+type LinkedConversationState = api.LinkedConversationState
+type PlanFeedPayload = api.PlanFeedPayload
+type PlanStep = api.PlanStep
+type UsageSummary = api.UsageSummary
+type ConversationStateResponse = api.ConversationStateResponse
 
 const (
-	TurnStatusQueued         = sdkapi.TurnStatusQueued
-	TurnStatusRunning        = sdkapi.TurnStatusRunning
-	TurnStatusWaitingForUser = sdkapi.TurnStatusWaitingForUser
-	TurnStatusCompleted      = sdkapi.TurnStatusCompleted
-	TurnStatusFailed         = sdkapi.TurnStatusFailed
-	TurnStatusCanceled       = sdkapi.TurnStatusCanceled
+	TurnStatusQueued         = api.TurnStatusQueued
+	TurnStatusRunning        = api.TurnStatusRunning
+	TurnStatusWaitingForUser = api.TurnStatusWaitingForUser
+	TurnStatusCompleted      = api.TurnStatusCompleted
+	TurnStatusFailed         = api.TurnStatusFailed
+	TurnStatusCanceled       = api.TurnStatusCanceled
 )
 
 const (
-	ElicitationStatusPending  = sdkapi.ElicitationStatusPending
-	ElicitationStatusAccepted = sdkapi.ElicitationStatusAccepted
-	ElicitationStatusDeclined = sdkapi.ElicitationStatusDeclined
-	ElicitationStatusCanceled = sdkapi.ElicitationStatusCanceled
+	ElicitationStatusPending  = api.ElicitationStatusPending
+	ElicitationStatusAccepted = api.ElicitationStatusAccepted
+	ElicitationStatusDeclined = api.ElicitationStatusDeclined
+	ElicitationStatusCanceled = api.ElicitationStatusCanceled
 )

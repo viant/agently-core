@@ -10,11 +10,22 @@ public final class AgentlyClient: Sendable {
     public init(
         endpoints: [String: EndpointConfig],
         endpointName: String = "appAPI",
+        sessionDebug: SessionDebugOptions? = nil,
         session: URLSession = .shared,
         decoder: JSONDecoder = .agently(),
         encoder: JSONEncoder = .agently()
     ) {
-        self.endpoints = endpoints
+        if let sessionDebug {
+            self.endpoints = endpoints.mapValues { endpoint in
+                var copy = endpoint
+                for (name, value) in sessionDebug.headerFields() {
+                    copy.headers[name] = value
+                }
+                return copy
+            }
+        } else {
+            self.endpoints = endpoints
+        }
         self.endpointName = endpointName
         self.session = session
         self.decoder = decoder
@@ -41,8 +52,24 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/api/auth/oauth/config", as: OAuthConfigOutput.self)
     }
 
-    public func getWorkspaceMetadata() async throws -> WorkspaceMetadata {
-        try await get("/v1/workspace/metadata", as: WorkspaceMetadata.self)
+    public func getWorkspaceMetadata(_ targetContext: MetadataTargetContext? = nil) async throws -> WorkspaceMetadata {
+        var query: [URLQueryItem] = []
+        if let platform = targetContext?.platform?.trimmingCharacters(in: .whitespacesAndNewlines), !platform.isEmpty {
+            query.append(URLQueryItem(name: "platform", value: platform))
+        }
+        if let formFactor = targetContext?.formFactor?.trimmingCharacters(in: .whitespacesAndNewlines), !formFactor.isEmpty {
+            query.append(URLQueryItem(name: "formFactor", value: formFactor))
+        }
+        if let surface = targetContext?.surface?.trimmingCharacters(in: .whitespacesAndNewlines), !surface.isEmpty {
+            query.append(URLQueryItem(name: "surface", value: surface))
+        }
+        for capability in targetContext?.capabilities ?? [] {
+            let trimmed = capability.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                query.append(URLQueryItem(name: "capabilities", value: trimmed))
+            }
+        }
+        return try await get("/v1/workspace/metadata", query: query, as: WorkspaceMetadata.self)
     }
 
     public func query(_ input: QueryInput) async throws -> QueryOutput {

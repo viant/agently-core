@@ -1,4 +1,4 @@
-package sdkapi
+package api
 
 // FeedSpec describes a tool feed loaded from workspace YAML.
 type FeedSpec struct {

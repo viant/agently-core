@@ -844,6 +844,48 @@ describe('Workspace Metadata', () => {
         expect(call.method).toBe('GET');
         expect(call.url).toBe('http://localhost:8585/v1/workspace/metadata');
     });
+
+    it('getWorkspaceMetadata appends shared target context query params when provided', async () => {
+        const f = mockFetch(200, { defaultAgent: 'coder' });
+        const c = client(f);
+
+        await c.getWorkspaceMetadata({
+            platform: 'web',
+            formFactor: 'desktop',
+            surface: 'browser',
+            capabilities: ['markdown', 'chart'],
+        });
+
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/v1/workspace/metadata?');
+        expect(call.url).toContain('platform=web');
+        expect(call.url).toContain('formFactor=desktop');
+        expect(call.url).toContain('surface=browser');
+        expect(call.url).toContain('capabilities=markdown');
+        expect(call.url).toContain('capabilities=chart');
+    });
+
+    it('sends session debug headers when configured on the client', async () => {
+        const f = mockFetch(200, { defaultAgent: 'coder' });
+        const c = new AgentlyClient({
+            baseURL: 'http://localhost:8585/v1',
+            fetchImpl: f,
+            timeoutMs: 0,
+            sessionDebug: {
+                enabled: true,
+                level: 'trace',
+                components: ['conversation', 'reactor'],
+            },
+        });
+
+        await c.getWorkspaceMetadata();
+
+        const call = lastCall(f);
+        expect(call.headers?.['X-Agently-Debug']).toBe('true');
+        expect(call.headers?.['X-Agently-Debug-Level']).toBe('trace');
+        expect(call.headers?.['X-Agently-Debug-Components']).toBe('conversation,reactor');
+    });
 });
 
 // ─── Payload ──────────────────────────────────────────────────────────────────

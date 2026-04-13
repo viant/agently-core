@@ -1,4 +1,4 @@
-package sdkapi
+package api
 
 import (
 	"encoding/json"

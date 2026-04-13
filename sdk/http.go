@@ -86,11 +86,24 @@ func WithTokenProvider(p TokenProvider) HTTPOption {
 	}
 }
 
+// WithSessionDebug enables request-scoped debug logging headers for all
+// requests issued by this HTTP client instance.
+func WithSessionDebug(level string, components ...string) HTTPOption {
+	return func(c *HTTPClient) {
+		c.sessionDebug = &SessionDebugConfig{
+			Enabled:    true,
+			Level:      level,
+			Components: components,
+		}
+	}
+}
+
 type HTTPClient struct {
 	baseURL           string
 	client            *http.Client
 	authToken         string
 	tokenProvider     TokenProvider
+	sessionDebug      *SessionDebugConfig
 	queryPath         string
 	conversationsPath string
 	messagesPath      string
@@ -159,7 +172,32 @@ func (c *HTTPClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*ag
 }
 
 func (c *HTTPClient) GetWorkspaceMetadata(ctx context.Context) (*WorkspaceMetadata, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/v1/workspace/metadata", nil, "")
+	return c.GetWorkspaceMetadataWithTarget(ctx, nil)
+}
+
+func (c *HTTPClient) GetWorkspaceMetadataWithTarget(ctx context.Context, target *MetadataTargetContext) (*WorkspaceMetadata, error) {
+	query := url.Values{}
+	if target != nil {
+		if value := strings.TrimSpace(target.Platform); value != "" {
+			query.Set("platform", value)
+		}
+		if value := strings.TrimSpace(target.FormFactor); value != "" {
+			query.Set("formFactor", value)
+		}
+		if value := strings.TrimSpace(target.Surface); value != "" {
+			query.Set("surface", value)
+		}
+		for _, capability := range target.Capabilities {
+			if value := strings.TrimSpace(capability); value != "" {
+				query.Add("capabilities", value)
+			}
+		}
+	}
+	path := "/v1/workspace/metadata"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -991,6 +1029,15 @@ func (c *HTTPClient) newRequest(ctx context.Context, method, path string, body i
 	req.Header.Set("Accept", "application/json")
 	if strings.TrimSpace(contentType) != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	if cfg := c.sessionDebug; cfg != nil && cfg.Enabled {
+		req.Header.Set(HeaderDebugEnabled, "true")
+		if level := strings.TrimSpace(cfg.Level); level != "" {
+			req.Header.Set(HeaderDebugLevel, level)
+		}
+		if components := strings.Join(cfg.normalizedComponents(), ","); components != "" {
+			req.Header.Set(HeaderDebugComponents, components)
+		}
 	}
 	return req, nil
 }

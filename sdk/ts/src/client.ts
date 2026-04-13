@@ -23,7 +23,7 @@ import type {
     FileEntry, UploadFileOutput,
     Resource, ResourceRef, RunView,
     Schedule, ScheduleListOutput,
-    WorkspaceMetadata, PayloadView, GetPayloadOptions,
+    WorkspaceMetadata, PayloadView, GetPayloadOptions, MetadataTargetContext,
     ListLinkedConversationsInput, LinkedConversationPage,
     AuthProvider, AuthUser, LocalLoginInput, LocalLoginOutput,
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
@@ -37,6 +37,12 @@ import { normalizeStreamEventIdentity } from './streamIdentity';
 // ─── Options ───────────────────────────────────────────────────────────────────
 
 export type TokenProvider = () => Promise<string | null> | string | null;
+
+export interface SessionDebugOptions {
+    enabled?: boolean;
+    level?: 'error' | 'warn' | 'warning' | 'info' | 'debug' | 'trace' | string;
+    components?: string[];
+}
 
 export interface ClientOptions {
     /** Base URL including /v1 prefix, e.g. "http://localhost:8585/v1" */
@@ -61,6 +67,8 @@ export interface ClientOptions {
     onError?: (error: HttpError) => void;
     /** Called on 401 responses (for login redirects, token refresh, etc.) */
     onUnauthorized?: (error: HttpError) => void;
+    /** Request-scoped debug logging sent to the server for this client/session. */
+    sessionDebug?: SessionDebugOptions;
 }
 
 type RequestBody = JSONValue | undefined;
@@ -80,6 +88,7 @@ export class AgentlyClient {
     private fetchImpl: typeof fetch;
     private onErrorHook?: (error: HttpError) => void;
     private onUnauthorizedHook?: (error: HttpError) => void;
+    private sessionDebug?: SessionDebugOptions;
 
     constructor(opts: ClientOptions) {
         this.baseURL = opts.baseURL.replace(/\/+$/, '');
@@ -93,6 +102,7 @@ export class AgentlyClient {
         this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
         this.onErrorHook = opts.onError;
         this.onUnauthorizedHook = opts.onUnauthorized;
+        this.sessionDebug = opts.sessionDebug;
     }
 
     // ── Conversations ────────────────────────────────────────────────────────
@@ -655,8 +665,15 @@ export class AgentlyClient {
     // ── Workspace Metadata ────────────────────────────────────────────────────
 
     /** Get workspace metadata (available agents, models, defaults, capabilities). */
-    async getWorkspaceMetadata(): Promise<WorkspaceMetadata> {
-        return this.get<WorkspaceMetadata>('/workspace/metadata');
+    async getWorkspaceMetadata(targetContext?: MetadataTargetContext): Promise<WorkspaceMetadata> {
+        const q = new URLSearchParams();
+        if (targetContext?.platform) q.set('platform', targetContext.platform);
+        if (targetContext?.formFactor) q.set('formFactor', targetContext.formFactor);
+        if (targetContext?.surface) q.set('surface', targetContext.surface);
+        for (const capability of Array.isArray(targetContext?.capabilities) ? targetContext.capabilities : []) {
+            if (capability) q.append('capabilities', capability);
+        }
+        return this.get<WorkspaceMetadata>('/workspace/metadata', q);
     }
 
     // ── Payload ─────────────────────────────────────────────────────────────
@@ -1018,6 +1035,24 @@ export class AgentlyClient {
         const token = this.tokenProvider ? await this.tokenProvider() : null;
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (this.sessionDebug?.enabled !== false) {
+            const hasDebug = !!this.sessionDebug && (
+                !!String(this.sessionDebug.level || '').trim()
+                || (Array.isArray(this.sessionDebug.components) && this.sessionDebug.components.length > 0)
+                || this.sessionDebug.enabled === true
+            );
+            if (hasDebug) {
+                headers['X-Agently-Debug'] = 'true';
+                const level = String(this.sessionDebug?.level || '').trim();
+                if (level) headers['X-Agently-Debug-Level'] = level;
+                const components = (Array.isArray(this.sessionDebug?.components) ? this.sessionDebug.components : [])
+                    .map((value) => String(value || '').trim())
+                    .filter(Boolean);
+                if (components.length > 0) {
+                    headers['X-Agently-Debug-Components'] = components.join(',');
+                }
+            }
         }
         return headers;
     }

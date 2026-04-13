@@ -10,17 +10,17 @@ import (
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
-	"github.com/viant/agently-core/sdkapi"
+	api "github.com/viant/agently-core/sdk/api"
 	"github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
 
-type FeedSpec = sdkapi.FeedSpec
-type FeedMatch = sdkapi.FeedMatch
-type FeedActivation = sdkapi.FeedActivation
-type FeedState = sdkapi.FeedState
+type FeedSpec = api.FeedSpec
+type FeedMatch = api.FeedMatch
+type FeedActivation = api.FeedActivation
+type FeedState = api.FeedState
 
 // FeedRegistry loads feed specs from workspace and matches tool calls.
 type FeedRegistry struct {

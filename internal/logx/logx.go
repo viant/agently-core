@@ -148,6 +148,18 @@ func enabledAtWithContext(ctx context.Context, level Level) bool {
 	return EnabledAt(level)
 }
 
+// EnabledAtWithContextForTest exposes context-scoped level evaluation for
+// package-internal tests that need to verify request-scoped debug wiring.
+func EnabledAtWithContextForTest(ctx context.Context, level Level) bool {
+	return enabledAtWithContext(ctx, level)
+}
+
+// ComponentEnabledWithContextForTest exposes component filtering for
+// package-internal tests that need to verify request-scoped debug wiring.
+func ComponentEnabledWithContextForTest(ctx context.Context, component string) bool {
+	return componentEnabledWithContext(ctx, component)
+}
+
 func Debugf(component, format string, args ...any) {
 	if !EnabledAt(LevelDebug) {
 		return

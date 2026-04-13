@@ -8,7 +8,7 @@
 
 // Client
 export { AgentlyClient } from './client';
-export type { ClientOptions, TokenProvider } from './client';
+export type { ClientOptions, TokenProvider, SessionDebugOptions } from './client';
 
 // Errors
 export { HttpError } from './errors';

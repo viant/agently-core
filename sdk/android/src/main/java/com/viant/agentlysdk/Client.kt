@@ -38,8 +38,9 @@ class AgentlyClient(
     constructor(
         endpoints: Map<String, EndpointConfig>,
         endpointName: String = "appAPI",
-        json: Json = Json { ignoreUnknownKeys = true }
-    ) : this(EndpointRegistry(endpoints), endpointName, json)
+        json: Json = Json { ignoreUnknownKeys = true },
+        sessionDebug: SessionDebugOptions? = null
+    ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json)
 
     private val restClient = RestClient(endpoints)
 
@@ -88,8 +89,18 @@ class AgentlyClient(
         post("/v1/api/auth/idp/delegate", emptyMap<String, JsonElement>(), IDPDelegateOutput.serializer())
     }
 
-    suspend fun getWorkspaceMetadata(): WorkspaceMetadata = withContext(Dispatchers.IO) {
-        val root = parseJson(restClient.get(endpointName, "/v1/workspace/metadata") { it })
+    suspend fun getWorkspaceMetadata(targetContext: MetadataTargetContext? = null): WorkspaceMetadata = withContext(Dispatchers.IO) {
+        val query = linkedMapOf<String, String>()
+        targetContext?.platform?.takeIf { it.isNotBlank() }?.let { query["platform"] = it }
+        targetContext?.formFactor?.takeIf { it.isNotBlank() }?.let { query["formFactor"] = it }
+        targetContext?.surface?.takeIf { it.isNotBlank() }?.let { query["surface"] = it }
+        targetContext?.capabilities
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { query["capabilities"] = it.joinToString(",") }
+        val path = appendQuery("/v1/workspace/metadata", query)
+        val root = parseJson(restClient.get(endpointName, path) { it })
         val payload = (root as? JsonObject)?.get("data") ?: root
         val metadata = decode(payload, WorkspaceMetadata.serializer())
         metadata.copy(
@@ -510,6 +521,29 @@ class AgentlyClient(
         is SendA2AMessageRequest -> SendA2AMessageRequest.serializer() as KSerializer<T>
         is Map<*, *> -> MapSerializer(String.serializer(), JsonElement.serializer()) as KSerializer<T>
         else -> error("Unsupported payload type: ${payload?.let { it::class.qualifiedName } ?: "null"}")
+    }
+}
+
+private fun applySessionDebug(
+    endpoints: Map<String, EndpointConfig>,
+    sessionDebug: SessionDebugOptions?
+): Map<String, EndpointConfig> {
+    val headers = sessionDebug?.headerMap().orEmpty()
+    if (headers.isEmpty()) return endpoints
+    return endpoints.mapValues { (_, endpoint) ->
+        val existingProvider = endpoint.defaultHeadersProvider
+        endpoint.copy(
+            defaultHeadersProvider = {
+                val base = linkedMapOf<String, String>()
+                existingProvider?.invoke()?.forEach { (name, value) ->
+                    if (name.isNotBlank() && value.isNotBlank()) {
+                        base[name] = value
+                    }
+                }
+                headers.forEach { (name, value) -> base[name] = value }
+                base
+            }
+        )
     }
 }
 

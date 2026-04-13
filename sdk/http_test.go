@@ -63,6 +63,67 @@ func TestHTTPClient_GetConversation(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_GetWorkspaceMetadataWithTarget_QueryParams(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(&WorkspaceMetadata{DefaultAgent: "coder"})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	_, err = c.GetWorkspaceMetadataWithTarget(context.Background(), &MetadataTargetContext{
+		Platform:     "web",
+		FormFactor:   "desktop",
+		Surface:      "browser",
+		Capabilities: []string{"markdown", "chart"},
+	})
+	if err != nil {
+		t.Fatalf("GetWorkspaceMetadataWithTarget: %v", err)
+	}
+	if gotPath != "/v1/workspace/metadata" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotQuery.Get("platform") != "web" || gotQuery.Get("formFactor") != "desktop" || gotQuery.Get("surface") != "browser" {
+		t.Fatalf("unexpected target query values: %#v", gotQuery)
+	}
+	caps := gotQuery["capabilities"]
+	if len(caps) != 2 || caps[0] != "markdown" || caps[1] != "chart" {
+		t.Fatalf("unexpected capabilities query values: %#v", caps)
+	}
+}
+
+func TestHTTPClient_WithSessionDebug_SendsDebugHeaders(t *testing.T) {
+	var gotHeaders http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header.Clone()
+		_ = json.NewEncoder(w).Encode(&WorkspaceMetadata{DefaultAgent: "coder"})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL, WithSessionDebug("trace", "conversation", "reactor"))
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	if _, err := c.GetWorkspaceMetadata(context.Background()); err != nil {
+		t.Fatalf("GetWorkspaceMetadata: %v", err)
+	}
+	if gotHeaders.Get(HeaderDebugEnabled) != "true" {
+		t.Fatalf("expected %s header", HeaderDebugEnabled)
+	}
+	if gotHeaders.Get(HeaderDebugLevel) != "trace" {
+		t.Fatalf("unexpected %s header: %q", HeaderDebugLevel, gotHeaders.Get(HeaderDebugLevel))
+	}
+	if gotHeaders.Get(HeaderDebugComponents) != "conversation,reactor" {
+		t.Fatalf("unexpected %s header: %q", HeaderDebugComponents, gotHeaders.Get(HeaderDebugComponents))
+	}
+}
+
 func TestHTTPClient_GetPayloads_FallbacksPerID(t *testing.T) {
 	var gotPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

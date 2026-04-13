@@ -19,6 +19,32 @@ data class AuthProvider(
 )
 
 @Serializable
+data class MetadataTargetContext(
+    val platform: String? = null,
+    val formFactor: String? = null,
+    val surface: String? = null,
+    val capabilities: List<String> = emptyList()
+)
+
+@Serializable
+data class SessionDebugOptions(
+    val enabled: Boolean = true,
+    val level: String? = null,
+    val components: List<String> = emptyList()
+) {
+    fun headerMap(): Map<String, String> {
+        if (!enabled) return emptyMap()
+        val result = linkedMapOf("X-Agently-Debug" to "true")
+        level?.trim()?.takeIf { it.isNotEmpty() }?.let { result["X-Agently-Debug-Level"] = it }
+        components.map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .takeIf { it.isNotEmpty() }
+            ?.let { result["X-Agently-Debug-Components"] = it.joinToString(",") }
+        return result
+    }
+}
+
+@Serializable
 data class AuthUser(
     val subject: String? = null,
     val username: String? = null,
