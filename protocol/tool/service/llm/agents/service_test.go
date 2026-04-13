@@ -868,12 +868,13 @@ func TestService_Run_Internal_AsyncReturnsConversationHandle(t *testing.T) {
 	})
 
 	asyncFlag := true
+	release := make(chan struct{})
 	fake := &fakeAgentRuntime{
 		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
 			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
 		}},
 		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
-			time.Sleep(200 * time.Millisecond)
+			<-release
 			if out != nil {
 				out.Content = "done"
 				out.ConversationID = in.ConversationID
@@ -891,6 +892,7 @@ func TestService_Run_Internal_AsyncReturnsConversationHandle(t *testing.T) {
 		Objective: "do async work",
 		Async:     &asyncFlag,
 	}, &out)
+	close(release)
 
 	require.NoError(t, err)
 	assert.Equal(t, "running", out.Status)

@@ -163,7 +163,8 @@ func TestInjectAsyncReinforcement_IncludesExplicitStatusToolInstruction(t *testi
 	content := strings.TrimSpace(*client.lastMessage.Content)
 	require.Contains(t, content, "system/exec:status")
 	require.Contains(t, content, `{"sessionId":"sess-1"}`)
-	require.NotContains(t, content, "call `system/exec:start` again")
+	require.Contains(t, content, "Do not call `system/exec:start` again while `system/exec:status` is available.")
+	require.NotContains(t, content, "If the integration uses in-band polling on the same tool")
 }
 
 func TestInjectAsyncReinforcement_TerminalPromptTellsModelToAnswer(t *testing.T) {
