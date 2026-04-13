@@ -179,6 +179,7 @@ func TestQuerySimple(t *testing.T) {
 
 func TestQueryWithLocalKnowledge(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -201,6 +202,7 @@ func TestQueryWithLocalKnowledge(t *testing.T) {
 
 func TestQueryWithSystemKnowledge(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -270,6 +272,7 @@ func TestQueryWithForcedToolUsage(t *testing.T) {
 
 func TestQueryWithToolUsage(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 	expectedHome := strings.TrimSpace(os.Getenv("HOME"))
@@ -654,6 +657,7 @@ func matchesExecTool(toolName, action string) bool {
 
 func TestQueryMultiTurn(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -689,6 +693,7 @@ func TestQueryMultiTurn(t *testing.T) {
 
 func TestQueryLLMSourcedElicitationFavoriteColor(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -736,6 +741,7 @@ func TestQueryLLMSourcedElicitationFavoriteColor(t *testing.T) {
 
 func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -774,6 +780,7 @@ func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 
 func TestQueryOpenAIResponsesPDFInlineAttachment(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -793,6 +800,7 @@ func TestQueryOpenAIResponsesPDFInlineAttachment(t *testing.T) {
 
 func TestQueryOpenAIResponsesPDFRefAttachment(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -812,6 +820,7 @@ func TestQueryOpenAIResponsesPDFRefAttachment(t *testing.T) {
 
 func TestQueryOpenAIResponsesGeneratedImageOutput(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
@@ -843,6 +852,7 @@ func TestQueryOpenAIResponsesGeneratedImageOutput(t *testing.T) {
 
 func TestQueryLinkedConversationCriticReview(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
 	ctx := context.Background()
 
