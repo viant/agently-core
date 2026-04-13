@@ -779,6 +779,14 @@ func TestService_Status_ByParentConversationAndTurn(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()
 
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
 	for i, id := range []string{"child-a", "child-b"} {
 		childConv := convcli.NewConversation()
 		childConv.SetId(id)

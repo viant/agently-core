@@ -125,6 +125,29 @@ func TestBuildContinuationRequest_SkipsWhenSystemHistoryMessagePresent(t *testin
 	assert.Nil(t, cont, "continuation should be skipped when system history messages are present")
 }
 
+func TestBuildContinuationRequest_SkipsWhenSystemMessagePresentForCompleteMultiToolIteration(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	history := &prompt.History{
+		Traces:       map[string]*prompt.Trace{},
+		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	}
+	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+	history.Traces[prompt.KindToolCall.Key("call-2")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.NewSystemMessage("The previous iteration is still pending. Call the status tool before answering."),
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "forecasting-Total"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"jobStatus":"WAITING","item":"a"}`},
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-2", Name: "forecasting-Total"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-2", Content: `{"jobStatus":"WAITING","item":"b"}`},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	assert.Nil(t, cont, "continuation should be skipped when a fresh system message is present, even if all tool results for the anchored iteration are available")
+}
+
 // TestBuildContinuationRequest_ThreeIterations simulates three sequential
 // model iterations to verify continuation works across all of them:
 //   - Iteration 1: full request (no anchor) → model produces resp_A with op-1
