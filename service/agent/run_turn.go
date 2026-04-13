@@ -8,13 +8,23 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 )
+
+func shouldSkipConversationStatusPatch(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	skip, _ := ctx.Value(skipConversationStatusPatchKey{}).(bool)
+	return skip
+}
 
 func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta, scheduleID string) error {
 	rec := apiconv.NewTurn()
@@ -32,7 +42,10 @@ func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta
 	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	turnErr := s.conversation.PatchTurn(ctx, rec)
 	runErr := s.ensureRunRecord(ctx, turn, "running", strings.TrimSpace(scheduleID))
-	convErr := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
+	var convErr error
+	if !shouldSkipConversationStatusPatch(ctx) {
+		convErr = s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
+	}
 	if turnErr == nil && convErr == nil && runErr == nil {
 		return nil
 	}
@@ -164,7 +177,10 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if runPatchErr != nil {
 		errorf("agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
 	}
-	conversationPatchErr := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
+	var conversationPatchErr error
+	if !shouldSkipConversationStatusPatch(ctx) {
+		conversationPatchErr = s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
+	}
 	if conversationPatchErr != nil {
 		errorf("agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
@@ -417,12 +433,22 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn runtimerequest
 }
 
 func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimerequestctx.TurnMeta) (bool, error) {
-	if s == nil || s.conversation == nil {
+	if s == nil {
 		return false, nil
 	}
 	conversationID := strings.TrimSpace(turn.ConversationID)
 	turnID := strings.TrimSpace(turn.TurnID)
 	if conversationID == "" || turnID == "" {
+		return false, nil
+	}
+	if s.dataService != nil {
+		waiting, err := s.turnAwaitingUserActionData(ctx, conversationID, turnID)
+		if err != nil {
+			return false, err
+		}
+		return waiting, nil
+	}
+	if s.conversation == nil {
 		return false, nil
 	}
 	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
@@ -450,6 +476,29 @@ func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimereques
 	return false, nil
 }
 
+func (s *Service) turnAwaitingUserActionData(ctx context.Context, conversationID, turnID string) (bool, error) {
+	page, err := s.dataService.GetMessagesPage(context.Background(), &agmessagelist.MessageRowsInput{
+		ConversationId: conversationID,
+		TurnId:         turnID,
+		Has: &agmessagelist.MessageRowsInputHas{
+			ConversationId: true,
+			TurnId:         true,
+		},
+	}, &data.PageInput{Limit: 1000, Direction: data.DirectionLatest})
+	if err != nil {
+		return false, fmt.Errorf("load turn messages %s/%s: %w", conversationID, turnID, err)
+	}
+	if page == nil {
+		return false, nil
+	}
+	for _, msg := range page.Rows {
+		if messageRowAwaitingUserAction(msg) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func messageAwaitingUserAction(msg *apiconv.Message) bool {
 	if msg == nil {
 		return false
@@ -466,6 +515,13 @@ func messageAwaitingUserAction(msg *apiconv.Message) bool {
 		}
 	}
 	return false
+}
+
+func messageRowAwaitingUserAction(msg *agmessagelist.MessageRowsView) bool {
+	if msg == nil {
+		return false
+	}
+	return statusIndicatesAwaitingUser(valueOrEmpty(msg.Status))
 }
 
 func statusIndicatesAwaitingUser(status string) bool {

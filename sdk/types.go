@@ -1,441 +1,71 @@
 package sdk
 
-import (
-	"time"
+import "github.com/viant/agently-core/sdkapi"
 
-	"github.com/viant/agently-core/app/store/data"
-	"github.com/viant/agently-core/runtime/streaming"
-)
-
-// Pagination re-exports from data layer.
-type PageInput = data.PageInput
-type Direction = data.Direction
+type PageInput = sdkapi.PageInput
+type Direction = sdkapi.Direction
 
 const (
-	DirectionBefore = data.DirectionBefore
-	DirectionAfter  = data.DirectionAfter
-	DirectionLatest = data.DirectionLatest
+	DirectionBefore = sdkapi.DirectionBefore
+	DirectionAfter  = sdkapi.DirectionAfter
+	DirectionLatest = sdkapi.DirectionLatest
 )
 
-// MessagePage is the paginated result from GetMessages.
-type MessagePage = data.MessagePage
-
-// ConversationPage is the paginated result from ListConversations.
-type ConversationPage = data.ConversationPage
-
-// GetMessagesInput controls which messages are returned for a conversation.
-type GetMessagesInput struct {
-	ConversationID string
-	Page           *PageInput
-	// Optional filters
-	ID     string
-	TurnID string
-	Roles  []string
-	Types  []string
-}
-
-// ListConversationsInput controls the conversation listing query.
-type ListConversationsInput struct {
-	AgentID          string
-	ParentID         string
-	ParentTurnID     string
-	ExcludeScheduled bool
-	Query            string
-	Status           string
-	Page             *PageInput
-}
-
-type ListLinkedConversationsInput struct {
-	ParentConversationID string
-	ParentTurnID         string
-	Page                 *PageInput
-}
-
-type LinkedConversationEntry struct {
-	ConversationID       string     `json:"conversationId"`
-	ParentConversationID string     `json:"parentConversationId,omitempty"`
-	ParentTurnID         string     `json:"parentTurnId,omitempty"`
-	AgentID              string     `json:"agentId,omitempty"`
-	Title                string     `json:"title,omitempty"`
-	Status               string     `json:"status,omitempty"`
-	Response             string     `json:"response,omitempty"`
-	CreatedAt            time.Time  `json:"createdAt"`
-	UpdatedAt            *time.Time `json:"updatedAt,omitempty"`
-}
-
-type LinkedConversationPage struct {
-	Rows       []*LinkedConversationEntry `json:"rows"`
-	NextCursor string                     `json:"nextCursor,omitempty"`
-	PrevCursor string                     `json:"prevCursor,omitempty"`
-	HasMore    bool                       `json:"hasMore"`
-}
-
-type SteerTurnInput struct {
-	ConversationID string `json:"conversationId"`
-	TurnID         string `json:"turnId"`
-	Content        string `json:"content"`
-	Role           string `json:"role,omitempty"` // default "user"
-}
-
-type SteerTurnOutput struct {
-	MessageID      string `json:"messageId"`
-	TurnID         string `json:"turnId,omitempty"`
-	Status         string `json:"status,omitempty"`
-	CanceledTurnID string `json:"canceledTurnId,omitempty"`
-}
-
-type MoveQueuedTurnInput struct {
-	ConversationID string `json:"conversationId"`
-	TurnID         string `json:"turnId"`
-	Direction      string `json:"direction"` // up|down
-}
-
-type EditQueuedTurnInput struct {
-	ConversationID string `json:"conversationId"`
-	TurnID         string `json:"turnId"`
-	Content        string `json:"content"`
-}
-
-// CreateConversationInput holds fields needed to create a new conversation.
-type CreateConversationInput struct {
-	AgentID              string                 `json:"agentId,omitempty"`
-	Title                string                 `json:"title,omitempty"`
-	Metadata             map[string]interface{} `json:"metadata,omitempty"`
-	ParentConversationID string                 `json:"parentConversationId,omitempty"`
-	ParentTurnID         string                 `json:"parentTurnId,omitempty"`
-}
-
-// UpdateConversationInput updates mutable conversation fields.
-// At least one of Title, Visibility, or Shareable must be provided.
-type UpdateConversationInput struct {
-	ConversationID string `json:"-"`
-	Title          string `json:"title,omitempty"`
-	Visibility     string `json:"visibility,omitempty"` // private|public
-	Shareable      *bool  `json:"shareable,omitempty"`
-}
-
-// StreamEventsInput controls which streaming events to subscribe to.
-type StreamEventsInput struct {
-	ConversationID string
-	Filter         streaming.Filter
-}
-
-// ResolveElicitationInput carries the user response for an elicitation prompt.
-type ResolveElicitationInput struct {
-	ConversationID string
-	ElicitationID  string
-	Action         string
-	Payload        map[string]interface{}
-}
-
-// ListPendingElicitationsInput controls pending elicitation lookup.
-type ListPendingElicitationsInput struct {
-	ConversationID string
-}
-
-// PendingElicitation represents one pending elicitation message.
-type PendingElicitation struct {
-	ConversationID string                 `json:"conversationId"`
-	ElicitationID  string                 `json:"elicitationId"`
-	MessageID      string                 `json:"messageId"`
-	Status         string                 `json:"status"`
-	Role           string                 `json:"role"`
-	Type           string                 `json:"type"`
-	CreatedAt      time.Time              `json:"createdAt"`
-	Content        string                 `json:"content,omitempty"`
-	Elicitation    map[string]interface{} `json:"elicitation,omitempty"`
-}
-
-type WorkspaceDefaults struct {
-	Agent           string `json:"agent,omitempty"`
-	Model           string `json:"model,omitempty"`
-	Embedder        string `json:"embedder,omitempty"`
-	AutoSelectTools bool   `json:"autoSelectTools,omitempty"`
-}
-
-// WorkspaceCapabilities advertises optional backend contracts so clients can
-// adapt UX without probing unsupported features.
-type WorkspaceCapabilities struct {
-	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
-	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
-	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
-	CompactConversation   bool `json:"compactConversation,omitempty"`
-	PruneConversation     bool `json:"pruneConversation,omitempty"`
-	AnonymousSession      bool `json:"anonymousSession,omitempty"`
-	MessageCursor         bool `json:"messageCursor,omitempty"`
-	StructuredElicitation bool `json:"structuredElicitation,omitempty"`
-	TurnStartedEvent      bool `json:"turnStartedEvent,omitempty"`
-}
-
-// StarterTask describes an agent-specific suggested starter prompt for empty
-// chat state.
-type StarterTask struct {
-	ID          string `json:"id,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Prompt      string `json:"prompt,omitempty"`
-	Description string `json:"description,omitempty"`
-	Icon        string `json:"icon,omitempty"`
-}
-
-// WorkspaceAgentInfo describes a UI-facing agent entry returned by
-// GET /v1/workspace/metadata.
-type WorkspaceAgentInfo struct {
-	ID           string        `json:"id,omitempty"`
-	Name         string        `json:"name,omitempty"`
-	ModelRef     string        `json:"modelRef,omitempty"`
-	StarterTasks []StarterTask `json:"starterTasks,omitempty"`
-}
-
-// WorkspaceModelInfo describes a UI-facing model entry returned by
-// GET /v1/workspace/metadata.
-type WorkspaceModelInfo struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
-}
-
-// WorkspaceMetadata is the workspace bootstrap payload returned by
-// GET /v1/workspace/metadata.
-type WorkspaceMetadata struct {
-	WorkspaceRoot   string                `json:"workspaceRoot,omitempty"`
-	DefaultAgent    string                `json:"defaultAgent,omitempty"`
-	DefaultModel    string                `json:"defaultModel,omitempty"`
-	DefaultEmbedder string                `json:"defaultEmbedder,omitempty"`
-	Defaults        *WorkspaceDefaults    `json:"defaults,omitempty"`
-	Capabilities    WorkspaceCapabilities `json:"capabilities,omitempty"`
-	Agents          []string              `json:"agents,omitempty"`
-	Models          []string              `json:"models,omitempty"`
-	AgentInfos      []WorkspaceAgentInfo  `json:"agentInfos,omitempty"`
-	ModelInfos      []WorkspaceModelInfo  `json:"modelInfos,omitempty"`
-	Version         string                `json:"version,omitempty"`
-}
-
-type ListPendingToolApprovalsInput struct {
-	UserID         string
-	ConversationID string
-	Status         string
-	Limit          int
-	Offset         int
-}
-
-type PendingToolApproval struct {
-	ID             string                 `json:"id"`
-	UserID         string                 `json:"userId"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	TurnID         string                 `json:"turnId,omitempty"`
-	MessageID      string                 `json:"messageId,omitempty"`
-	ToolName       string                 `json:"toolName"`
-	Title          string                 `json:"title,omitempty"`
-	Arguments      map[string]interface{} `json:"arguments,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-	Status         string                 `json:"status"`
-	Decision       string                 `json:"decision,omitempty"`
-	CreatedAt      time.Time              `json:"createdAt"`
-	UpdatedAt      *time.Time             `json:"updatedAt,omitempty"`
-	ErrorMessage   string                 `json:"errorMessage,omitempty"`
-}
-
-type ApprovalOption struct {
-	ID          string      `json:"id"`
-	Label       string      `json:"label"`
-	Description string      `json:"description,omitempty"`
-	Item        interface{} `json:"item,omitempty"`
-	Selected    bool        `json:"selected"`
-}
-
-type ApprovalEditor struct {
-	Name        string            `json:"name"`
-	Kind        string            `json:"kind"`
-	Path        string            `json:"path,omitempty"`
-	Label       string            `json:"label,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Options     []*ApprovalOption `json:"options,omitempty"`
-}
-
-type ApprovalCallback struct {
-	ElementID string `json:"elementId,omitempty"`
-	Event     string `json:"event,omitempty"`
-	Handler   string `json:"handler,omitempty"`
-}
-
-type ApprovalForgeView struct {
-	WindowRef    string              `json:"windowRef,omitempty"`
-	ContainerRef string              `json:"containerRef,omitempty"`
-	DataSource   string              `json:"dataSource,omitempty"`
-	Callbacks    []*ApprovalCallback `json:"callbacks,omitempty"`
-}
-
-type ApprovalMeta struct {
-	Type        string             `json:"type,omitempty"`
-	ToolName    string             `json:"toolName,omitempty"`
-	Title       string             `json:"title,omitempty"`
-	Message     string             `json:"message,omitempty"`
-	AcceptLabel string             `json:"acceptLabel,omitempty"`
-	RejectLabel string             `json:"rejectLabel,omitempty"`
-	CancelLabel string             `json:"cancelLabel,omitempty"`
-	Editors     []*ApprovalEditor  `json:"editors,omitempty"`
-	Forge       *ApprovalForgeView `json:"forge,omitempty"`
-}
-
-type ApprovalCallbackPayload struct {
-	Approval     *ApprovalMeta          `json:"approval,omitempty"`
-	EditedFields map[string]interface{} `json:"editedFields,omitempty"`
-	OriginalArgs map[string]interface{} `json:"originalArgs,omitempty"`
-}
-
-type ApprovalCallbackResult struct {
-	EditedFields map[string]interface{} `json:"editedFields,omitempty"`
-	Action       string                 `json:"action,omitempty"`
-}
-
-type PendingToolApprovalPage struct {
-	Rows    []*PendingToolApproval `json:"rows"`
-	Total   int                    `json:"total"`
-	Offset  int                    `json:"offset"`
-	Limit   int                    `json:"limit"`
-	HasMore bool                   `json:"hasMore"`
-}
-
-type DecideToolApprovalInput struct {
-	ID           string                 `json:"id"`
-	Action       string                 `json:"action"` // approve|reject|cancel
-	UserID       string                 `json:"userId,omitempty"`
-	Reason       string                 `json:"reason,omitempty"`
-	Note         string                 `json:"note,omitempty"`
-	EditedFields map[string]interface{} `json:"editedFields,omitempty"`
-	Payload      map[string]interface{} `json:"payload,omitempty"`
-}
-
-type DecideToolApprovalOutput struct {
-	Status string `json:"status"`
-}
-
-// UploadFileInput describes a file to upload.
-type UploadFileInput struct {
-	ConversationID string
-	Name           string
-	ContentType    string
-	Data           []byte
-}
-
-// UploadFileOutput is the result of a file upload.
-type UploadFileOutput struct {
-	ID  string
-	URI string
-}
-
-// DownloadFileInput identifies a file to download.
-type DownloadFileInput struct {
-	ConversationID string
-	FileID         string
-}
-
-// DownloadFileOutput carries the downloaded file contents.
-type DownloadFileOutput struct {
-	Name        string
-	ContentType string
-	Data        []byte
-}
-
-// ListFilesInput controls which files are listed.
-type ListFilesInput struct {
-	ConversationID string
-}
-
-// FileEntry describes a single file in a conversation.
-type FileEntry struct {
-	ID          string
-	Name        string
-	ContentType string
-	Size        int64
-}
-
-// ListFilesOutput is the result of listing files.
-type ListFilesOutput struct {
-	Files []*FileEntry
-}
-
-// ToolDefinitionInfo is a tool definition returned by ListToolDefinitions.
-type ToolDefinitionInfo struct {
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description,omitempty"`
-	Parameters   map[string]interface{} `json:"parameters,omitempty"`
-	Required     []string               `json:"required,omitempty"`
-	OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
-	Cacheable    bool                   `json:"cacheable,omitempty"`
-}
-
-// ResourceRef identifies a workspace resource by kind and name.
-type ResourceRef struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
-}
-
-// ListResourcesInput controls which resources are listed.
-type ListResourcesInput struct {
-	Kind string `json:"kind"`
-}
-
-// ListResourcesOutput is the result of listing workspace resources.
-type ListResourcesOutput struct {
-	Names []string `json:"names"`
-}
-
-// GetResourceOutput carries the raw content of a workspace resource.
-type GetResourceOutput struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
-	Data []byte `json:"data"`
-}
-
-// SaveResourceInput describes a workspace resource to create or update.
-type SaveResourceInput struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
-	Data []byte `json:"data"`
-}
-
-// Resource is a single workspace resource used for bulk import/export.
-type Resource struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
-	Data []byte `json:"data"`
-}
-
-// ExportResourcesInput controls which resources are exported.
-type ExportResourcesInput struct {
-	Kinds []string `json:"kinds"` // nil = all
-}
-
-// ExportResourcesOutput carries the exported resources.
-type ExportResourcesOutput struct {
-	Resources []Resource `json:"resources"`
-}
-
-// ImportResourcesInput carries resources to import in bulk.
-type ImportResourcesInput struct {
-	Resources []Resource `json:"resources"`
-	Replace   bool       `json:"replace"`
-}
-
-// ImportResourcesOutput summarises the import operation.
-type ImportResourcesOutput struct {
-	Imported int `json:"imported"`
-	Skipped  int `json:"skipped"`
-}
-
-// GetTranscriptInput controls which transcript turns are returned for a conversation.
-type GetTranscriptInput struct {
-	ConversationID    string
-	Since             string // optional: turn ID or message ID cursor
-	IncludeModelCalls bool
-	IncludeToolCalls  bool
-}
-
-type QuerySelector struct {
-	Limit   int    `json:"limit,omitempty"`
-	Offset  int    `json:"offset,omitempty"`
-	OrderBy string `json:"orderBy,omitempty"`
-}
+type MessagePage = sdkapi.MessagePage
+type ConversationPage = sdkapi.ConversationPage
+type GetMessagesInput = sdkapi.GetMessagesInput
+type ListConversationsInput = sdkapi.ListConversationsInput
+type ListLinkedConversationsInput = sdkapi.ListLinkedConversationsInput
+type LinkedConversationEntry = sdkapi.LinkedConversationEntry
+type LinkedConversationPage = sdkapi.LinkedConversationPage
+type SteerTurnInput = sdkapi.SteerTurnInput
+type SteerTurnOutput = sdkapi.SteerTurnOutput
+type MoveQueuedTurnInput = sdkapi.MoveQueuedTurnInput
+type EditQueuedTurnInput = sdkapi.EditQueuedTurnInput
+type CreateConversationInput = sdkapi.CreateConversationInput
+type UpdateConversationInput = sdkapi.UpdateConversationInput
+type StreamEventsInput = sdkapi.StreamEventsInput
+type ResolveElicitationInput = sdkapi.ResolveElicitationInput
+type ListPendingElicitationsInput = sdkapi.ListPendingElicitationsInput
+type PendingElicitation = sdkapi.PendingElicitation
+type WorkspaceDefaults = sdkapi.WorkspaceDefaults
+type WorkspaceCapabilities = sdkapi.WorkspaceCapabilities
+type StarterTask = sdkapi.StarterTask
+type WorkspaceAgentInfo = sdkapi.WorkspaceAgentInfo
+type WorkspaceModelInfo = sdkapi.WorkspaceModelInfo
+type WorkspaceMetadata = sdkapi.WorkspaceMetadata
+type ListPendingToolApprovalsInput = sdkapi.ListPendingToolApprovalsInput
+type PendingToolApproval = sdkapi.PendingToolApproval
+type ApprovalOption = sdkapi.ApprovalOption
+type ApprovalEditor = sdkapi.ApprovalEditor
+type ApprovalCallback = sdkapi.ApprovalCallback
+type ApprovalForgeView = sdkapi.ApprovalForgeView
+type ApprovalMeta = sdkapi.ApprovalMeta
+type ApprovalCallbackPayload = sdkapi.ApprovalCallbackPayload
+type ApprovalCallbackResult = sdkapi.ApprovalCallbackResult
+type PendingToolApprovalPage = sdkapi.PendingToolApprovalPage
+type DecideToolApprovalInput = sdkapi.DecideToolApprovalInput
+type DecideToolApprovalOutput = sdkapi.DecideToolApprovalOutput
+type UploadFileInput = sdkapi.UploadFileInput
+type UploadFileOutput = sdkapi.UploadFileOutput
+type DownloadFileInput = sdkapi.DownloadFileInput
+type DownloadFileOutput = sdkapi.DownloadFileOutput
+type ListFilesInput = sdkapi.ListFilesInput
+type FileEntry = sdkapi.FileEntry
+type ListFilesOutput = sdkapi.ListFilesOutput
+type ToolDefinitionInfo = sdkapi.ToolDefinitionInfo
+type ResourceRef = sdkapi.ResourceRef
+type ListResourcesInput = sdkapi.ListResourcesInput
+type ListResourcesOutput = sdkapi.ListResourcesOutput
+type GetResourceOutput = sdkapi.GetResourceOutput
+type SaveResourceInput = sdkapi.SaveResourceInput
+type Resource = sdkapi.Resource
+type ExportResourcesInput = sdkapi.ExportResourcesInput
+type ExportResourcesOutput = sdkapi.ExportResourcesOutput
+type ImportResourcesInput = sdkapi.ImportResourcesInput
+type ImportResourcesOutput = sdkapi.ImportResourcesOutput
+type GetTranscriptInput = sdkapi.GetTranscriptInput
+type QuerySelector = sdkapi.QuerySelector
 
 type TranscriptOption func(*transcriptOptions)
 
@@ -475,9 +105,6 @@ func WithTranscriptSelector(name string, selector *QuerySelector) TranscriptOpti
 	}
 }
 
-// WithIncludeFeeds enables tool feed resolution in the transcript response.
-// When enabled, matching tool calls are scanned and their response payloads
-// fetched to populate the Feeds field on ConversationState.
 func WithIncludeFeeds() TranscriptOption {
 	return func(o *transcriptOptions) {
 		o.includeFeeds = true

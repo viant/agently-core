@@ -18,12 +18,20 @@ conversation history and answer the user. Do not call the async tool again.
 {{- end }}
 {{- else -}}
 Async operation {{$op.id}} for {{$op.toolName}} is still in progress ({{$op.status}}).
-If the integration exposes a dedicated status tool, call it to fetch the latest
-result before answering. If the integration uses in-band polling on the same
-tool, call the same tool again with the same request before answering.
+{{- if $op.statusToolName }}
+Call `{{$op.statusToolName}}` next to fetch the latest status before answering.
+{{- if $op.statusToolArgsJSON }}
+Use these exact arguments:
+{{$op.statusToolArgsJSON}}
+{{- end }}
+Do not call `{{$op.toolName}}` again while `{{$op.statusToolName}}` is available.
+{{- else }}
+If the integration uses in-band polling on the same tool, call `{{$op.toolName}}`
+again with the same request before answering.
 {{- if $op.requestArgsJSON }}
 Reuse these exact request arguments:
 {{$op.requestArgsJSON}}
+{{- end }}
 {{- end }}
 Do not re-run unrelated discovery or resource-reading tools before that retry
 unless the user request changed or the exact request arguments are unavailable.

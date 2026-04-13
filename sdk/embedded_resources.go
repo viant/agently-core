@@ -12,7 +12,7 @@ import (
 	"github.com/viant/agently-core/workspace"
 )
 
-func (c *EmbeddedClient) UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error) {
+func (c *backendClient) UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error) {
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
 	}
@@ -69,7 +69,7 @@ func (c *EmbeddedClient) UploadFile(ctx context.Context, input *UploadFileInput)
 	return &UploadFileOutput{ID: fileID}, nil
 }
 
-func (c *EmbeddedClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {
+func (c *backendClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -107,7 +107,7 @@ func (c *EmbeddedClient) DownloadFile(ctx context.Context, input *DownloadFileIn
 	return nil, nil
 }
 
-func (c *EmbeddedClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {
+func (c *backendClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -135,7 +135,7 @@ func (c *EmbeddedClient) ListFiles(ctx context.Context, input *ListFilesInput) (
 	return out, nil
 }
 
-func (c *EmbeddedClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
+func (c *backendClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
 	if c.store == nil {
 		return nil, errors.New("workspace store not configured")
 	}
@@ -149,7 +149,7 @@ func (c *EmbeddedClient) ListResources(ctx context.Context, input *ListResources
 	return &ListResourcesOutput{Names: names}, nil
 }
 
-func (c *EmbeddedClient) GetResource(ctx context.Context, input *ResourceRef) (*GetResourceOutput, error) {
+func (c *backendClient) GetResource(ctx context.Context, input *ResourceRef) (*GetResourceOutput, error) {
 	if c.store == nil {
 		return nil, errors.New("workspace store not configured")
 	}
@@ -163,7 +163,7 @@ func (c *EmbeddedClient) GetResource(ctx context.Context, input *ResourceRef) (*
 	return &GetResourceOutput{Kind: input.Kind, Name: input.Name, Data: data}, nil
 }
 
-func (c *EmbeddedClient) SaveResource(ctx context.Context, input *SaveResourceInput) error {
+func (c *backendClient) SaveResource(ctx context.Context, input *SaveResourceInput) error {
 	if c.store == nil {
 		return errors.New("workspace store not configured")
 	}
@@ -173,7 +173,7 @@ func (c *EmbeddedClient) SaveResource(ctx context.Context, input *SaveResourceIn
 	return c.store.Save(ctx, input.Kind, input.Name, input.Data)
 }
 
-func (c *EmbeddedClient) DeleteResource(ctx context.Context, input *ResourceRef) error {
+func (c *backendClient) DeleteResource(ctx context.Context, input *ResourceRef) error {
 	if c.store == nil {
 		return errors.New("workspace store not configured")
 	}
@@ -183,7 +183,7 @@ func (c *EmbeddedClient) DeleteResource(ctx context.Context, input *ResourceRef)
 	return c.store.Delete(ctx, input.Kind, input.Name)
 }
 
-func (c *EmbeddedClient) ExportResources(ctx context.Context, input *ExportResourcesInput) (*ExportResourcesOutput, error) {
+func (c *backendClient) ExportResources(ctx context.Context, input *ExportResourcesInput) (*ExportResourcesOutput, error) {
 	if c.store == nil {
 		return nil, errors.New("workspace store not configured")
 	}
@@ -208,7 +208,7 @@ func (c *EmbeddedClient) ExportResources(ctx context.Context, input *ExportResou
 	return out, nil
 }
 
-func (c *EmbeddedClient) ImportResources(ctx context.Context, input *ImportResourcesInput) (*ImportResourcesOutput, error) {
+func (c *backendClient) ImportResources(ctx context.Context, input *ImportResourcesInput) (*ImportResourcesOutput, error) {
 	if c.store == nil {
 		return nil, errors.New("workspace store not configured")
 	}

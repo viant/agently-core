@@ -136,6 +136,36 @@ func TestInjectAsyncReinforcement_RendersReinforcementPromptTemplate(t *testing.
 	require.Equal(t, `status=WAITING args={"DealsPmpIncl":[142133]}`, strings.TrimSpace(*client.lastMessage.Content))
 }
 
+func TestInjectAsyncReinforcement_IncludesExplicitStatusToolInstruction(t *testing.T) {
+	ctx := context.Background()
+	client := &recordingConvClient{}
+	svc := &Service{
+		conversation: client,
+		asyncManager: asynccfg.NewManager(),
+	}
+
+	turn := &memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
+	svc.asyncManager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "sess-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "system/exec:start",
+		StatusToolName:  "system/exec:status",
+		StatusArgs:      map[string]interface{}{"sessionId": "sess-1"},
+		WaitForResponse: true,
+		Status:          "running",
+	})
+
+	svc.injectAsyncReinforcement(ctx, turn)
+
+	require.NotNil(t, client.lastMessage)
+	require.NotNil(t, client.lastMessage.Content)
+	content := strings.TrimSpace(*client.lastMessage.Content)
+	require.Contains(t, content, "system/exec:status")
+	require.Contains(t, content, `{"sessionId":"sess-1"}`)
+	require.NotContains(t, content, "call `system/exec:start` again")
+}
+
 func TestInjectAsyncReinforcement_TerminalPromptTellsModelToAnswer(t *testing.T) {
 	ctx := context.Background()
 	client := &recordingConvClient{}

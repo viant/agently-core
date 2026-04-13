@@ -172,6 +172,15 @@ public struct WorkspaceAgentInfo: Codable, Sendable, Identifiable {
         self.internalAgent = internalAgent
         self.starterTasks = starterTasks
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.agentID = try container.decodeIfPresent(String.self, forKey: .agentID)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.modelRef = try container.decodeIfPresent(String.self, forKey: .modelRef)
+        self.internalAgent = try container.decodeIfPresent(Bool.self, forKey: .internalAgent)
+        self.starterTasks = try container.decodeIfPresent([StarterTask].self, forKey: .starterTasks) ?? []
+    }
 }
 
 public struct WorkspaceModelInfo: Codable, Sendable, Identifiable {
@@ -378,17 +387,28 @@ public struct QueryOutput: Codable, Sendable {
     }
 }
 
-public struct ConversationStateResponse: Codable, Sendable {
+public struct ConversationStateResponse: Decodable, Sendable {
     public let conversation: ConversationState?
     public let feeds: [ActiveFeedState]
+
+    enum CodingKeys: String, CodingKey {
+        case conversation
+        case feeds
+    }
 
     public init(conversation: ConversationState? = nil, feeds: [ActiveFeedState] = []) {
         self.conversation = conversation
         self.feeds = feeds
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.conversation = try container.decodeIfPresent(ConversationState.self, forKey: .conversation)
+        self.feeds = try container.decodeIfPresent([ActiveFeedState].self, forKey: .feeds) ?? []
+    }
 }
 
-public struct ConversationState: Codable, Sendable {
+public struct ConversationState: Decodable, Sendable {
     public let conversationID: String
     public let turns: [ConversationTurn]
     public let feeds: [ActiveFeedState]
@@ -398,13 +418,62 @@ public struct ConversationState: Codable, Sendable {
         case turns
         case feeds
     }
+
+    public init(
+        conversationID: String,
+        turns: [ConversationTurn] = [],
+        feeds: [ActiveFeedState] = []
+    ) {
+        self.conversationID = conversationID
+        self.turns = turns
+        self.feeds = feeds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.conversationID = try container.decode(String.self, forKey: .conversationID)
+        self.turns = try container.decodeIfPresent([ConversationTurn].self, forKey: .turns) ?? []
+        self.feeds = try container.decodeIfPresent([ActiveFeedState].self, forKey: .feeds) ?? []
+    }
 }
 
-public struct ConversationTurn: Codable, Sendable, Identifiable {
+public struct ConversationTurn: Decodable, Sendable, Identifiable {
     public let id: String
     public let createdAt: String?
     public let user: ConversationMessagePart?
     public let assistant: AssistantTurnPart?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case turnID = "turnId"
+        case createdAt
+        case user
+        case assistant
+    }
+
+    public init(
+        id: String,
+        createdAt: String? = nil,
+        user: ConversationMessagePart? = nil,
+        assistant: AssistantTurnPart? = nil
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.user = user
+        self.assistant = assistant
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id =
+            try container.decodeIfPresent(String.self, forKey: .id) ??
+            container.decodeIfPresent(String.self, forKey: .turnID) ??
+            container.decodeIfPresent(ConversationMessagePart.self, forKey: .user)?.messageID ??
+            UUID().uuidString
+        self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        self.user = try container.decodeIfPresent(ConversationMessagePart.self, forKey: .user)
+        self.assistant = try container.decodeIfPresent(AssistantTurnPart.self, forKey: .assistant)
+    }
 }
 
 public struct ConversationMessagePart: Codable, Sendable {
@@ -505,6 +574,14 @@ public struct ListPendingElicitationsInput: Codable, Sendable {
     }
 }
 
+public struct PendingElicitationRows: Codable, Sendable {
+    public let rows: [PendingElicitationRecord]
+
+    public init(rows: [PendingElicitationRecord] = []) {
+        self.rows = rows
+    }
+}
+
 public struct ResolveElicitationInput: Codable, Sendable {
     public let conversationID: String
     public let elicitationID: String
@@ -571,6 +648,14 @@ public struct ListPendingToolApprovalsInput: Codable, Sendable {
     }
 }
 
+public struct PendingToolApprovalRows: Codable, Sendable {
+    public let rows: [PendingToolApproval]
+
+    public init(rows: [PendingToolApproval] = []) {
+        self.rows = rows
+    }
+}
+
 public struct DecideToolApprovalInput: Codable, Sendable {
     public let id: String
     public let action: String
@@ -588,6 +673,94 @@ public struct ApprovalMeta: Codable, Sendable {
     public let toolName: String?
     public let title: String?
     public let message: String?
+    public let acceptLabel: String?
+    public let rejectLabel: String?
+    public let cancelLabel: String?
+    public let forge: ApprovalForgeView?
+    public let editors: [ApprovalEditor]?
+
+    public init(type: String? = nil, toolName: String? = nil, title: String? = nil,
+                message: String? = nil, acceptLabel: String? = nil,
+                rejectLabel: String? = nil, cancelLabel: String? = nil,
+                forge: ApprovalForgeView? = nil,
+                editors: [ApprovalEditor]? = nil) {
+        self.type = type
+        self.toolName = toolName
+        self.title = title
+        self.message = message
+        self.acceptLabel = acceptLabel
+        self.rejectLabel = rejectLabel
+        self.cancelLabel = cancelLabel
+        self.forge = forge
+        self.editors = editors
+    }
+}
+
+public struct ApprovalForgeView: Codable, Sendable {
+    public let windowRef: String?
+    public let containerRef: String?
+    public let dataSource: String?
+    public let callbacks: [ApprovalCallback]?
+
+    public init(
+        windowRef: String? = nil,
+        containerRef: String? = nil,
+        dataSource: String? = nil,
+        callbacks: [ApprovalCallback]? = nil
+    ) {
+        self.windowRef = windowRef
+        self.containerRef = containerRef
+        self.dataSource = dataSource
+        self.callbacks = callbacks
+    }
+}
+
+public struct ApprovalCallback: Codable, Sendable {
+    public let event: String?
+    public let handler: String?
+    public let args: [String: JSONValue]?
+
+    public init(event: String? = nil, handler: String? = nil, args: [String: JSONValue]? = nil) {
+        self.event = event
+        self.handler = handler
+        self.args = args
+    }
+}
+
+public struct ApprovalEditor: Codable, Sendable {
+    public let name: String
+    public let kind: String?       // "radio", "multiSelect", "text"
+    public let path: String?
+    public let label: String?
+    public let description: String?
+    public let options: [ApprovalOption]?
+
+    public init(name: String, kind: String? = nil, path: String? = nil, label: String? = nil,
+                description: String? = nil, options: [ApprovalOption]? = nil) {
+        self.name = name
+        self.kind = kind
+        self.path = path
+        self.label = label
+        self.description = description
+        self.options = options
+    }
+}
+
+public struct ApprovalOption: Codable, Sendable {
+    public let id: String
+    public let label: String?
+    public let description: String?
+    public let item: JSONValue?
+    public let selected: Bool?
+
+    public init(id: String, label: String? = nil, description: String? = nil,
+                item: JSONValue? = nil, selected: Bool? = nil) {
+        self.id = id
+        self.label = label
+        self.description = description
+        self.item = item
+        self.selected = selected
+    }
 }
 
 public struct GeneratedFileEntry: Codable, Sendable, Identifiable {
@@ -623,11 +796,24 @@ public struct ListFilesInput: Codable, Sendable {
     }
 }
 
-public struct ListFilesOutput: Codable, Sendable {
+public struct ListFilesOutput: Decodable, Sendable {
     public let files: [FileEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case files
+        case capitalizedFiles = "Files"
+    }
 
     public init(files: [FileEntry] = []) {
         self.files = files
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.files =
+            try container.decodeIfPresent([FileEntry].self, forKey: .files) ??
+            container.decodeIfPresent([FileEntry].self, forKey: .capitalizedFiles) ??
+            []
     }
 }
 

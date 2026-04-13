@@ -22,6 +22,7 @@ import (
 	provider "github.com/viant/agently-core/genai/llm/provider"
 	embedderfinder "github.com/viant/agently-core/internal/finder/embedder"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	"github.com/viant/agently-core/internal/sdkbackend"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	"github.com/viant/agently-core/protocol/tool"
@@ -104,8 +105,8 @@ func serve(args []string) {
 		scheduler.WithTokenProvider(rt.TokenProvider),
 		scheduler.WithAuthConfig(authCfg),
 	)
-	if embedded, ok := client.(*sdk.EmbeddedClient); ok {
-		embedded.SetScheduler(schedSvc)
+	if schedulerAware, ok := client.(interface{ SetScheduler(*scheduler.Service) }); ok {
+		schedulerAware.SetScheduler(schedSvc)
 	}
 	schedHandler := scheduler.NewHandler(schedSvc)
 	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-core-e2e")
@@ -148,7 +149,7 @@ func serve(args []string) {
 	}
 }
 
-func newRuntime(ctx context.Context) (*executor.Runtime, sdk.Client, error) {
+func newRuntime(ctx context.Context) (*executor.Runtime, sdk.Backend, error) {
 	fs := afs.New()
 	wsMeta := meta.New(fs, workspace.Root())
 	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
@@ -168,7 +169,7 @@ func newRuntime(ctx context.Context) (*executor.Runtime, sdk.Client, error) {
 		return nil, nil, err
 	}
 	registerInternalMCPServices(rt)
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	if err != nil {
 		return nil, nil, err
 	}

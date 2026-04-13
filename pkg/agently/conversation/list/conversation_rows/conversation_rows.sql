@@ -10,5 +10,6 @@
             ELSE ''
         END AS stage
     FROM conversation c
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    WHERE (c.conversation_parent_id IS NULL OR (c.conversation_parent_turn_id IS NOT NULL AND EXISTS (SELECT 1 FROM conversation p WHERE p.id = c.conversation_parent_id) AND EXISTS (SELECT 1 FROM turn pt WHERE pt.id = c.conversation_parent_turn_id AND pt.conversation_id = c.conversation_parent_id)))
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
     ORDER BY COALESCE(c.last_activity, c.updated_at, c.created_at) DESC, c.id DESC )

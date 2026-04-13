@@ -7,7 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/data"
 	memconv "github.com/viant/agently-core/internal/service/conversation/memory"
+	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
+	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -228,6 +231,39 @@ func TestService_TurnAwaitingUserAction(t *testing.T) {
 	require.False(t, waiting)
 }
 
+func TestService_TurnAwaitingUserAction_UsesDataService(t *testing.T) {
+	ctx := context.Background()
+	svc := &Service{
+		conversation: panicAwaitingConversationClient{},
+		dataService: &awaitingUserDataService{
+			turn: &agturnbyid.TurnLookupView{
+				Id:             "t-await",
+				ConversationId: "c-await",
+				Status:         "running",
+			},
+			page: &data.MessagePage{
+				Rows: []*agmessagelist.MessageRowsView{
+					{
+						Id:             "m-tool",
+						ConversationId: "c-await",
+						TurnId:         strPtrAwaiting("t-await"),
+						Role:           "tool",
+						Type:           "tool_op",
+						Status:         strPtrAwaiting("queued"),
+					},
+				},
+			},
+		},
+	}
+
+	waiting, err := svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-await",
+		TurnID:         "t-await",
+	})
+	require.NoError(t, err)
+	require.True(t, waiting)
+}
+
 func TestService_FinalizeTurn_PatchesConversationBeforeTurnTerminalEvent(t *testing.T) {
 	ctx := context.Background()
 	rec := &orderingConvClient{}
@@ -271,6 +307,78 @@ func seedTurnState(t *testing.T, ctx context.Context, client *memconv.Client, co
 
 type orderingConvClient struct {
 	calls []string
+}
+
+type panicAwaitingConversationClient struct{}
+
+func (panicAwaitingConversationClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) PatchConversations(context.Context, *apiconv.MutableConversation) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) GetPayload(context.Context, string) (*apiconv.Payload, error) {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) PatchMessage(context.Context, *apiconv.MutableMessage) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) GetMessageByElicitation(context.Context, string, string) (*apiconv.Message, error) {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) PatchModelCall(context.Context, *apiconv.MutableModelCall) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) PatchToolCall(context.Context, *apiconv.MutableToolCall) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) PatchTurn(context.Context, *apiconv.MutableTurn) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) DeleteConversation(context.Context, string) error {
+	panic("conversation client should not be used")
+}
+
+func (panicAwaitingConversationClient) DeleteMessage(context.Context, string, string) error {
+	panic("conversation client should not be used")
+}
+
+type awaitingUserDataService struct {
+	data.Service
+	turn *agturnbyid.TurnLookupView
+	page *data.MessagePage
+}
+
+func (s *awaitingUserDataService) GetTurnByID(context.Context, *agturnbyid.TurnLookupInput, ...data.Option) (*agturnbyid.TurnLookupView, error) {
+	return s.turn, nil
+}
+
+func (s *awaitingUserDataService) GetMessagesPage(context.Context, *agmessagelist.MessageRowsInput, *data.PageInput, ...data.Option) (*data.MessagePage, error) {
+	return s.page, nil
+}
+
+func strPtrAwaiting(value string) *string {
+	return &value
 }
 
 func (o *orderingConvClient) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {

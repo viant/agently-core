@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	_ Client = (*EmbeddedClient)(nil)
-	_ Client = (*HTTPClient)(nil)
+	_ Client  = (*backendClient)(nil)
+	_ Client  = (*HTTPClient)(nil)
+	_ Backend = (*backendClient)(nil)
 )
 
 type Mode string
@@ -149,4 +150,11 @@ type Client interface {
 
 	// RunScheduleNow triggers immediate execution of a schedule.
 	RunScheduleNow(ctx context.Context, id string) error
+}
+
+// Backend is the server-side implementation contract used by SDK HTTP handlers.
+// It is intentionally separate from the caller-facing Client concept, even though
+// today it currently embeds the same operation surface.
+type Backend interface {
+	Client
 }

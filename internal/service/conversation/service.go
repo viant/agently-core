@@ -12,6 +12,7 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
+	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convdel "github.com/viant/agently-core/pkg/agently/conversation/delete"
@@ -178,14 +179,61 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 
 // GetConversations implements conversation.API using the generated component and returns SDK Conversation.
 func (s *Service) GetConversations(ctx context.Context, input *convcli.Input) ([]*convcli.Conversation, error) {
-	// Default: filter to non-scheduled conversations only via Scheduled=0
-	if input.Has == nil {
-		input.Has = &agconv.ConversationInputHas{}
+	listInput := &convlist.ConversationRowsInput{
+		Has: &convlist.ConversationRowsInputHas{},
 	}
-	input.IncludeTranscript = true
-	input.Has.IncludeTranscript = true
+	if input != nil && input.Has != nil {
+		if input.Has.AgentId {
+			listInput.AgentId = input.AgentId
+			listInput.Has.AgentId = true
+		}
+		if input.Has.ParentId {
+			listInput.ParentId = input.ParentId
+			listInput.Has.ParentId = true
+		}
+		if input.Has.ParentTurnId {
+			listInput.ParentTurnId = input.ParentTurnId
+			listInput.Has.ParentTurnId = true
+		}
+		if input.Has.ExcludeChildren {
+			listInput.ExcludeChildren = input.ExcludeChildren
+			listInput.Has.ExcludeChildren = true
+		}
+		if input.Has.ExcludeScheduled {
+			listInput.ExcludeScheduled = input.ExcludeScheduled
+			listInput.Has.ExcludeScheduled = true
+		}
+		if input.Has.ScheduleId {
+			listInput.ScheduleId = input.ScheduleId
+			listInput.Has.ScheduleId = true
+		}
+		if input.Has.ScheduleRunId {
+			listInput.ScheduleRunId = input.ScheduleRunId
+			listInput.Has.ScheduleRunId = true
+		}
+		if input.Has.Query {
+			listInput.Query = input.Query
+			listInput.Has.Query = true
+		}
+		if input.Has.StatusFilter {
+			listInput.StatusFilter = input.StatusFilter
+			listInput.Has.StatusFilter = true
+		}
+	}
+	if !listInput.Has.ParentId && !listInput.Has.ParentTurnId && !listInput.Has.ExcludeChildren {
+		listInput.ExcludeChildren = true
+		listInput.Has.ExcludeChildren = true
+	}
+	if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
+		listInput.DefaultPredicate = "1"
+		listInput.Has.DefaultPredicate = true
+	}
 	out := &convlist.ConversationRowsOutput{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(convlist.ConversationRowsPathURI), datly.WithInput(input)); err != nil {
+	if _, err := s.dao.Operate(ctx,
+		datly.WithOutput(out),
+		datly.WithURI(convlist.ConversationRowsPathURI),
+		datly.WithInput(listInput),
+	); err != nil {
 		return nil, err
 	}
 	result := make([]*convcli.Conversation, 0, len(out.Data))

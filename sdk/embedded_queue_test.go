@@ -3,15 +3,13 @@ package sdk
 import (
 	"context"
 	"io"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
-	convsvc "github.com/viant/agently-core/internal/service/conversation"
+	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	"github.com/viant/agently-core/protocol/tool"
@@ -95,29 +93,20 @@ func TestEmbeddedClient_DecideToolApproval_CancelSystemOSEnvCompletesTurn(t *tes
 	require.Equal(t, "tool execution was not approved by user", queueTestStringValue(messages[3].Content))
 }
 
-func newQueueApprovalTestClient(t *testing.T, toolResult string) *EmbeddedClient {
+func newQueueApprovalTestClient(t *testing.T, toolResult string) *backendClient {
 	t.Helper()
 
-	ctx := context.Background()
-	root := t.TempDir()
-	t.Setenv("AGENTLY_DB_DSN", filepath.Join(root, "db", "agently-core.db"))
+	convClient := convmem.New()
 
-	dao, err := data.NewDatlyFromWorkspace(ctx, root)
-	require.NoError(t, err)
-
-	convClient, err := convsvc.New(ctx, dao)
-	require.NoError(t, err)
-
-	return &EmbeddedClient{
+	return &backendClient{
 		conv: convClient,
-		data: data.NewService(dao),
 		registry: &stubRegistry{
 			result: toolResult,
 		},
 	}
 }
 
-func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *EmbeddedClient, conversationID, turnID, approvalID, envName string) *queueWrite.ToolApprovalQueue {
+func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *backendClient, conversationID, turnID, approvalID, envName string) *queueWrite.ToolApprovalQueue {
 	t.Helper()
 
 	conv := conversation.NewConversation()

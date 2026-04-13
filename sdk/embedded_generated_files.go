@@ -23,7 +23,7 @@ var (
 	errGeneratedFileNoContent = errors.New("generated file has no content")
 )
 
-func (c *EmbeddedClient) ListGeneratedFiles(ctx context.Context, conversationID string) ([]*gfread.GeneratedFileView, error) {
+func (c *backendClient) ListGeneratedFiles(ctx context.Context, conversationID string) ([]*gfread.GeneratedFileView, error) {
 	convID := strings.TrimSpace(conversationID)
 	if convID == "" {
 		return nil, errors.New("conversation ID is required")
@@ -41,7 +41,7 @@ func (c *EmbeddedClient) ListGeneratedFiles(ctx context.Context, conversationID 
 	return nil, errors.New("generated file storage is not configured")
 }
 
-func (c *EmbeddedClient) DownloadGeneratedFile(ctx context.Context, id string) ([]byte, string, string, error) {
+func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([]byte, string, string, error) {
 	store, ok := c.conv.(convstore.GeneratedFileClient)
 	if !ok {
 		return nil, "", "", errGeneratedFileNotFound
@@ -112,7 +112,7 @@ func (c *EmbeddedClient) DownloadGeneratedFile(ctx context.Context, id string) (
 	return body, contentType, filename, nil
 }
 
-func (c *EmbeddedClient) persistGeneratedFilePayload(ctx context.Context, body []byte, contentType string) (string, error) {
+func (c *backendClient) persistGeneratedFilePayload(ctx context.Context, body []byte, contentType string) (string, error) {
 	if len(body) == 0 {
 		return "", errGeneratedFileNoContent
 	}
@@ -133,7 +133,7 @@ func (c *EmbeddedClient) persistGeneratedFilePayload(ctx context.Context, body [
 	return payloadID, nil
 }
 
-func (c *EmbeddedClient) patchGeneratedFileDownloadState(ctx context.Context, generatedFileID, status, errorMsg, payloadID, mimeType string, sizeBytes int, checksum string) error {
+func (c *backendClient) patchGeneratedFileDownloadState(ctx context.Context, generatedFileID, status, errorMsg, payloadID, mimeType string, sizeBytes int, checksum string) error {
 	store, ok := c.conv.(convstore.GeneratedFileClient)
 	if !ok {
 		return nil

@@ -85,12 +85,21 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		metadata     *string
 		exists       bool
 	)
-	aConversation, err := s.conversation.GetConversation(ctx, convID)
-	if err != nil {
-		return fmt.Errorf("failed to load conversation: %w", err)
+	var aConversation *apiconv.Conversation
+	if !isFreshEmbeddedConversation(ctx) {
+		var err error
+		aConversation, err = s.conversation.GetConversation(ctx, convID)
+		if err != nil {
+			return fmt.Errorf("failed to load conversation: %w", err)
+		}
+	} else if strings.TrimSpace(input.ConversationID) != "" {
+		exists = true
 	}
 
 	isNewConversation := aConversation == nil
+	if isFreshEmbeddedConversation(ctx) && exists {
+		isNewConversation = true
+	}
 	if aConversation != nil && aConversation.UpdatedAt == nil {
 		switch {
 		case aConversation.LastActivity == nil:
@@ -103,7 +112,10 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	}
 	input.IsNewConversation = isNewConversation
 
-	if exists = aConversation != nil; exists {
+	if aConversation != nil {
+		exists = true
+	}
+	if exists && aConversation != nil {
 		defaultModel = aConversation.DefaultModel
 		agentIDPtr = aConversation.AgentId
 		metadata = aConversation.Metadata

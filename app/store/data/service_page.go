@@ -2,8 +2,10 @@ package data
 
 import (
 	"context"
-	"reflect"
+	"database/sql"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -227,143 +229,257 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 	callOpts := collectOptions(opts)
 	if callOpts.principal != "" {
 		ctx = authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: callOpts.principal})
-	} else if input.Has != nil {
-		// Preserve prior unscoped list behavior for callers that don't set a principal.
-		input.DefaultPredicate = "1"
-		input.Has.DefaultPredicate = true
 	}
-	// Make the generated input available to predicate handlers such as
-	// *conversationlist.Filter, which resolve visibility constraints from
-	// InputFromContext(ctx). Without this, principal-aware visibility is applied
-	// only after the SQL page is already truncated, causing underfilled pages
-	// when recent rows belong to other users (for example scheduler traffic).
-	ctx = context.WithValue(ctx, reflect.TypeOf(&agconvlist.ConversationRowsInput{}), &input)
-	queryInput := input
-	if queryInput.Has != nil && queryInput.Has.ExcludeScheduled {
-		hasCopy := *queryInput.Has
-		hasCopy.ExcludeScheduled = false
-		queryInput.Has = &hasCopy
+	if !input.Has.ParentId && !input.Has.ParentTurnId {
+		input.ExcludeChildren = true
+		input.Has.ExcludeChildren = true
 	}
-
-	filterVisible := func(rows []*agconvlist.ConversationRowsView) []*agconvlist.ConversationRowsView {
-		if callOpts.principal == "" || callOpts.isAdmin {
-			filtered := make([]*agconvlist.ConversationRowsView, 0, len(rows))
-			for _, row := range rows {
-				if row == nil {
-					continue
-				}
-				if input.ExcludeScheduled && row.ScheduleId != nil && strings.TrimSpace(*row.ScheduleId) != "" {
-					continue
-				}
-				if (in == nil || in.Has == nil || !in.Has.ParentId) && row.ConversationParentId != nil && strings.TrimSpace(*row.ConversationParentId) != "" {
-					continue
-				}
-				filtered = append(filtered, row)
-			}
-			return filtered
-		}
-		filtered := make([]*agconvlist.ConversationRowsView, 0, len(rows))
-		for _, row := range rows {
-			if row == nil {
-				continue
-			}
-			if input.ExcludeScheduled && row.ScheduleId != nil && strings.TrimSpace(*row.ScheduleId) != "" {
-				continue
-			}
-			if (in == nil || in.Has == nil || !in.Has.ParentId) && row.ConversationParentId != nil && strings.TrimSpace(*row.ConversationParentId) != "" {
-				continue
-			}
-			if strings.EqualFold(row.Visibility, "public") {
-				filtered = append(filtered, row)
-				continue
-			}
-			if row.CreatedByUserId != nil && *row.CreatedByUserId == callOpts.principal {
-				filtered = append(filtered, row)
-			}
-		}
-		return filtered
-	}
-
-	fetchPage := func(batchInput *agconvlist.ConversationRowsInput) ([]*agconvlist.ConversationRowsView, bool, string, string, error) {
-		out := &agconvlist.ConversationRowsOutput{}
-		selectorOpts := append([]Option{buildPageSelector("ConversationRows", limit)}, opts...)
-		operateOpts := append([]datly.OperateOption{
-			datly.WithURI(agconvlist.ConversationRowsPathURI),
-			datly.WithInput(batchInput),
-			datly.WithOutput(out),
-		}, toOperateOptions(selectorOpts)...)
-		if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
-			return nil, false, "", "", err
-		}
-		page := buildConversationPage(out.Data, limit)
-		return out.Data, page.HasMore, page.NextCursor, page.PrevCursor, nil
-	}
-
-	rawRows, rawHasMore, nextCursor, prevCursor, err := fetchPage(&queryInput)
+	rows, err := s.queryConversationRows(ctx, &input, limit+1, callOpts)
 	if err != nil {
 		return nil, err
 	}
-	rows := filterVisible(rawRows)
 	sortConversationRows(rows)
-	if callOpts.principal == "" || callOpts.isAdmin || len(rows) > limit || !rawHasMore {
-		page := buildConversationPage(rows, limit)
-		if !page.HasMore {
-			page.HasMore = rawHasMore && len(rows) == limit
+	result := buildConversationPage(rows, limit)
+	if direction == DirectionAfter {
+		sortConversationRows(result.Rows)
+	}
+	return result, nil
+}
+
+func (s *datlyService) queryConversationRows(ctx context.Context, input *agconvlist.ConversationRowsInput, limit int, callOpts *options) ([]*agconvlist.ConversationRowsView, error) {
+	db, err := s.db()
+	if err != nil {
+		return nil, err
+	}
+	query, args := buildConversationRowsQuery(input, limit, callOpts)
+	sqlRows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer sqlRows.Close()
+
+	rows := make([]*agconvlist.ConversationRowsView, 0, limit)
+	for sqlRows.Next() {
+		row, scanErr := scanConversationRowsView(sqlRows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
-		return page, nil
+		rows = append(rows, row)
+	}
+	if err := sqlRows.Err(); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit int, callOpts *options) (string, []interface{}) {
+	var builder strings.Builder
+	builder.WriteString(`SELECT
+		(SELECT id FROM turn t WHERE t.conversation_id = c.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS last_turn_id,
+		CASE
+			WHEN LOWER(COALESCE(c.status, '')) IN ('failed', 'error', 'terminated') THEN 'error'
+			WHEN LOWER(COALESCE(c.status, '')) IN ('canceled', 'cancelled') THEN 'canceled'
+			WHEN LOWER(COALESCE(c.status, '')) IN ('completed', 'succeeded', 'success', 'done', 'compacted', 'pruned') THEN 'done'
+			WHEN LOWER(COALESCE(c.status, '')) IN ('waiting_for_user', 'blocked') THEN 'elicitation'
+			WHEN LOWER(COALESCE(c.status, '')) IN ('running', 'thinking', 'processing', 'in_progress', 'queued', 'pending', 'open') THEN 'executing'
+			ELSE ''
+		END AS stage,
+		c.id,
+		c.summary,
+		c.last_activity,
+		c.usage_input_tokens,
+		c.usage_output_tokens,
+		c.usage_embedding_tokens,
+		c.created_at,
+		c.updated_at,
+		c.created_by_user_id,
+		c.agent_id,
+		c.default_model_provider,
+		c.default_model,
+		c.default_model_params,
+		c.title,
+		c.conversation_parent_id,
+		c.conversation_parent_turn_id,
+		c.metadata,
+		c.visibility,
+		c.shareable,
+		c.status,
+		c.scheduled,
+		c.schedule_id,
+		c.schedule_run_id,
+		c.schedule_kind,
+		c.schedule_timezone,
+		c.schedule_cron_expr,
+		c.external_task_ref
+	FROM conversation c
+	WHERE (c.conversation_parent_id IS NULL OR (
+		c.conversation_parent_turn_id IS NOT NULL
+		AND EXISTS (SELECT 1 FROM conversation p WHERE p.id = c.conversation_parent_id)
+		AND EXISTS (SELECT 1 FROM turn pt WHERE pt.id = c.conversation_parent_turn_id AND pt.conversation_id = c.conversation_parent_id)
+	))`)
+	args := make([]interface{}, 0, 24)
+
+	if callOpts == nil || (callOpts.principal == "" && !callOpts.isAdmin) {
+		// Unscoped internal readers preserve previous behavior and bypass visibility filtering.
+	} else if !callOpts.isAdmin {
+		builder.WriteString(" AND (COALESCE(c.visibility, '') <> ? OR c.created_by_user_id = ?)")
+		args = append(args, "private", callOpts.principal)
 	}
 
-	visible := append([]*agconvlist.ConversationRowsView{}, rows...)
-	hasMoreRaw := rawHasMore
-
-	for hasMoreRaw && len(visible) <= limit {
-		nextInput := input
-		if nextInput.Has == nil {
-			nextInput.Has = &agconvlist.ConversationRowsInputHas{}
-		} else {
-			hasCopy := *nextInput.Has
-			nextInput.Has = &hasCopy
+	if input != nil && input.Has != nil {
+		if input.Has.AgentId && strings.TrimSpace(input.AgentId) != "" {
+			builder.WriteString(" AND c.agent_id = ?")
+			args = append(args, strings.TrimSpace(input.AgentId))
 		}
-		switch direction {
-		case DirectionAfter:
-			if prevCursor == "" {
-				hasMoreRaw = false
-				continue
-			}
-			nextInput.CursorAfter = prevCursor
-			nextInput.Has.CursorAfter = true
-			nextInput.CursorBefore = ""
-			nextInput.Has.CursorBefore = false
-		default:
-			if nextCursor == "" {
-				hasMoreRaw = false
-				continue
-			}
-			nextInput.CursorBefore = nextCursor
-			nextInput.Has.CursorBefore = true
-			nextInput.CursorAfter = ""
-			nextInput.Has.CursorAfter = false
+		if input.Has.ParentId && strings.TrimSpace(input.ParentId) != "" {
+			builder.WriteString(" AND c.conversation_parent_id = ?")
+			args = append(args, strings.TrimSpace(input.ParentId))
 		}
-		nextQueryInput := nextInput
-		if nextQueryInput.Has != nil && nextQueryInput.Has.ExcludeScheduled {
-			hasCopy := *nextQueryInput.Has
-			hasCopy.ExcludeScheduled = false
-			nextQueryInput.Has = &hasCopy
+		if input.Has.ParentTurnId && strings.TrimSpace(input.ParentTurnId) != "" {
+			builder.WriteString(" AND c.conversation_parent_turn_id = ?")
+			args = append(args, strings.TrimSpace(input.ParentTurnId))
 		}
-		ctx = context.WithValue(ctx, reflect.TypeOf(&agconvlist.ConversationRowsInput{}), &nextInput)
-		rawRows, rawHasMore, nextCursor, prevCursor, err = fetchPage(&nextQueryInput)
-		if err != nil {
-			return nil, err
+		if input.Has.ExcludeChildren && input.ExcludeChildren {
+			builder.WriteString(" AND c.conversation_parent_id IS NULL")
 		}
-		visible = append(visible, filterVisible(rawRows)...)
-		hasMoreRaw = rawHasMore
+		if input.Has.ExcludeScheduled && input.ExcludeScheduled {
+			builder.WriteString(" AND c.schedule_id IS NULL")
+		}
+		if input.Has.ScheduleId && strings.TrimSpace(input.ScheduleId) != "" {
+			builder.WriteString(" AND c.schedule_id = ?")
+			args = append(args, strings.TrimSpace(input.ScheduleId))
+		}
+		if input.Has.ScheduleRunId && strings.TrimSpace(input.ScheduleRunId) != "" {
+			builder.WriteString(" AND c.schedule_run_id = ?")
+			args = append(args, strings.TrimSpace(input.ScheduleRunId))
+		}
+		if input.Has.Query && strings.TrimSpace(input.Query) != "" {
+			builder.WriteString(" AND LOWER(c.id || ' ' || COALESCE(c.title, '') || ' ' || COALESCE(c.summary, '')) LIKE '%' || LOWER(?) || '%'")
+			args = append(args, strings.TrimSpace(input.Query))
+		}
+		if input.Has.StatusFilter && strings.TrimSpace(input.StatusFilter) != "" {
+			builder.WriteString(" AND c.status = ?")
+			args = append(args, strings.TrimSpace(input.StatusFilter))
+		}
+		if input.Has.CreatedSince && !input.CreatedSince.IsZero() {
+			builder.WriteString(" AND c.created_at >= ?")
+			args = append(args, input.CreatedSince)
+		}
+		if input.Has.CreatedBefore && !input.CreatedBefore.IsZero() {
+			builder.WriteString(" AND c.created_at <= ?")
+			args = append(args, input.CreatedBefore)
+		}
+		if input.Has.CursorBefore && strings.TrimSpace(input.CursorBefore) != "" {
+			builder.WriteString(` AND EXISTS (
+				SELECT 1 FROM conversation x
+				WHERE x.id = ?
+				  AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id))
+			)`)
+			args = append(args, strings.TrimSpace(input.CursorBefore))
+		}
+		if input.Has.CursorAfter && strings.TrimSpace(input.CursorAfter) != "" {
+			builder.WriteString(` AND EXISTS (
+				SELECT 1 FROM conversation x
+				WHERE x.id = ?
+				  AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id))
+			)`)
+			args = append(args, strings.TrimSpace(input.CursorAfter))
+		}
 	}
-	sortConversationRows(visible)
 
-	result := buildConversationPage(visible, limit)
-	if len(visible) > limit {
-		result.HasMore = true
+	builder.WriteString(" ORDER BY COALESCE(c.last_activity, c.updated_at, c.created_at) DESC, c.id DESC")
+	if limit > 0 {
+		builder.WriteString(" LIMIT ?")
+		args = append(args, limit)
 	}
+	return builder.String(), args
+}
+
+func scanConversationRowsView(rows *sql.Rows) (*agconvlist.ConversationRowsView, error) {
+	result := &agconvlist.ConversationRowsView{}
+	var (
+		lastTurnID               sql.NullString
+		summary                  sql.NullString
+		lastActivity             sql.NullTime
+		usageInputTokens         sql.NullInt64
+		usageOutputTokens        sql.NullInt64
+		usageEmbeddingTokens     sql.NullInt64
+		updatedAt                sql.NullTime
+		createdByUserID          sql.NullString
+		agentID                  sql.NullString
+		defaultModelProvider     sql.NullString
+		defaultModel             sql.NullString
+		defaultModelParams       sql.NullString
+		title                    sql.NullString
+		conversationParentID     sql.NullString
+		conversationParentTurnID sql.NullString
+		metadata                 sql.NullString
+		status                   sql.NullString
+		scheduled                sql.NullInt64
+		scheduleID               sql.NullString
+		scheduleRunID            sql.NullString
+		scheduleKind             sql.NullString
+		scheduleTimezone         sql.NullString
+		scheduleCronExpr         sql.NullString
+		externalTaskRef          sql.NullString
+	)
+	if err := rows.Scan(
+		&lastTurnID,
+		&result.Stage,
+		&result.Id,
+		&summary,
+		&lastActivity,
+		&usageInputTokens,
+		&usageOutputTokens,
+		&usageEmbeddingTokens,
+		&result.CreatedAt,
+		&updatedAt,
+		&createdByUserID,
+		&agentID,
+		&defaultModelProvider,
+		&defaultModel,
+		&defaultModelParams,
+		&title,
+		&conversationParentID,
+		&conversationParentTurnID,
+		&metadata,
+		&result.Visibility,
+		&result.Shareable,
+		&status,
+		&scheduled,
+		&scheduleID,
+		&scheduleRunID,
+		&scheduleKind,
+		&scheduleTimezone,
+		&scheduleCronExpr,
+		&externalTaskRef,
+	); err != nil {
+		return nil, err
+	}
+	result.LastTurnId = nullableStringPointer(lastTurnID)
+	result.Summary = nullableStringPointer(summary)
+	result.LastActivity = nullableTimePointer(lastActivity)
+	result.UsageInputTokens = nullableIntPointer(usageInputTokens)
+	result.UsageOutputTokens = nullableIntPointer(usageOutputTokens)
+	result.UsageEmbeddingTokens = nullableIntPointer(usageEmbeddingTokens)
+	result.UpdatedAt = nullableTimePointer(updatedAt)
+	result.CreatedByUserId = nullableStringPointer(createdByUserID)
+	result.AgentId = nullableStringPointer(agentID)
+	result.DefaultModelProvider = nullableStringPointer(defaultModelProvider)
+	result.DefaultModel = nullableStringPointer(defaultModel)
+	result.DefaultModelParams = nullableStringPointer(defaultModelParams)
+	result.Title = nullableStringPointer(title)
+	result.ConversationParentId = nullableStringPointer(conversationParentID)
+	result.ConversationParentTurnId = nullableStringPointer(conversationParentTurnID)
+	result.Metadata = nullableStringPointer(metadata)
+	result.Status = nullableStringPointer(status)
+	result.Scheduled = nullableIntPointer(scheduled)
+	result.ScheduleId = nullableStringPointer(scheduleID)
+	result.ScheduleRunId = nullableStringPointer(scheduleRunID)
+	result.ScheduleKind = nullableStringPointer(scheduleKind)
+	result.ScheduleTimezone = nullableStringPointer(scheduleTimezone)
+	result.ScheduleCronExpr = nullableStringPointer(scheduleCronExpr)
+	result.ExternalTaskRef = nullableStringPointer(externalTaskRef)
 	return result, nil
 }
 
@@ -395,7 +511,6 @@ func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.Me
 			input.Has.CursorBefore = true
 		}
 	}
-
 	out := &agmessagelist.MessageRowsOutput{}
 	selectorOpts := opts
 	if !hasNamedSelector(opts, "message_rows", "MessageRows") {
@@ -425,6 +540,48 @@ func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.Me
 		rows = filtered
 	}
 	return buildMessagePage(rows, limit), nil
+}
+
+func nullableStringPointer(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	v := value.String
+	return &v
+}
+
+func nullableIntPointer(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	v, err := strconv.Atoi(strconv.FormatInt(value.Int64, 10))
+	if err != nil {
+		v = int(value.Int64)
+	}
+	return &v
+}
+
+func nullableTimePointer(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	v := value.Time
+	return &v
+}
+
+func (s *datlyService) db() (*sql.DB, error) {
+	if s == nil || s.dao == nil {
+		return nil, fmt.Errorf("data service is not initialized")
+	}
+	conn, err := s.dao.Resource().Connector("agently")
+	if err != nil {
+		return nil, fmt.Errorf("lookup agently connector: %w", err)
+	}
+	db, err := conn.DB()
+	if err != nil {
+		return nil, fmt.Errorf("open agently connector db: %w", err)
+	}
+	return db, nil
 }
 
 func (s *datlyService) GetTurnsPage(ctx context.Context, in *agturnlistall.TurnRowsInput, page *PageInput, opts ...Option) (*TurnPage, error) {

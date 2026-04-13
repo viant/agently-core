@@ -13,11 +13,18 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-func (c *EmbeddedClient) FeedRegistry() *FeedRegistry {
+func (c *backendClient) FeedRegistry() *FeedRegistry {
 	return c.feeds
 }
 
-func (c *EmbeddedClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, conversationID string) (interface{}, error) {
+func (c *backendClient) ListFeedSpecs() []*FeedSpec {
+	if c.feeds == nil {
+		return nil
+	}
+	return c.feeds.Specs()
+}
+
+func (c *backendClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, conversationID string) (interface{}, error) {
 	if spec == nil || conversationID == "" || c.conv == nil {
 		return nil, nil
 	}
@@ -56,7 +63,7 @@ func (c *EmbeddedClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, co
 	return nil, nil
 }
 
-func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL string) error {
+func (c *backendClient) RecordOOBAuthElicitation(ctx context.Context, authURL string) error {
 	if c.elicSvc == nil {
 		return fmt.Errorf("elicitation service not configured")
 	}
@@ -81,7 +88,7 @@ func (c *EmbeddedClient) RecordOOBAuthElicitation(ctx context.Context, authURL s
 }
 
 // Deprecated: use resolveActiveFeedsFromState instead.
-func (c *EmbeddedClient) resolveActiveFeeds(ctx context.Context, turns conversation.Transcript) []*ActiveFeedState {
+func (c *backendClient) resolveActiveFeeds(ctx context.Context, turns conversation.Transcript) []*ActiveFeedState {
 	if c.feeds == nil || len(turns) == 0 {
 		return nil
 	}
@@ -125,7 +132,7 @@ func (c *EmbeddedClient) resolveActiveFeeds(ctx context.Context, turns conversat
 	return result
 }
 
-func (c *EmbeddedClient) findLastToolCallPayload(ctx context.Context, turns conversation.Transcript, targetTool string) string {
+func (c *backendClient) findLastToolCallPayload(ctx context.Context, turns conversation.Transcript, targetTool string) string {
 	target := strings.ToLower(strings.TrimSpace(targetTool))
 	for i := len(turns) - 1; i >= 0; i-- {
 		turn := turns[i]
@@ -153,7 +160,7 @@ func (c *EmbeddedClient) findLastToolCallPayload(ctx context.Context, turns conv
 	return ""
 }
 
-func (c *EmbeddedClient) fetchToolCallResponsePayload(ctx context.Context, messageID string) string {
+func (c *backendClient) fetchToolCallResponsePayload(ctx context.Context, messageID string) string {
 	if c.conv == nil || messageID == "" {
 		return ""
 	}
@@ -176,7 +183,7 @@ func (c *EmbeddedClient) fetchToolCallResponsePayload(ctx context.Context, messa
 	return ""
 }
 
-func (c *EmbeddedClient) GetPayload(ctx context.Context, id string) (*conversation.Payload, error) {
+func (c *backendClient) GetPayload(ctx context.Context, id string) (*conversation.Payload, error) {
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
 	}
@@ -189,7 +196,7 @@ func (c *EmbeddedClient) GetPayload(ctx context.Context, id string) (*conversati
 
 // GetPayloads fetches multiple payloads by ID in one call.
 // IDs that are empty or not found are silently omitted from the result.
-func (c *EmbeddedClient) GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error) {
+func (c *backendClient) GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error) {
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
 	}

@@ -279,9 +279,20 @@ type turnTaskCheckpoint struct {
 	Found     bool
 }
 
+func shouldSkipTaskCheckpointLoad(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	flag, _ := ctx.Value(skipTaskCheckpointLoadKey{}).(bool)
+	return flag
+}
+
 func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequestctx.TurnMeta) (turnTaskCheckpoint, error) {
 	checkpoint := turnTaskCheckpoint{}
 	if s == nil {
+		return checkpoint, nil
+	}
+	if shouldSkipTaskCheckpointLoad(ctx) {
 		return checkpoint, nil
 	}
 	conversationID := strings.TrimSpace(turn.ConversationID)

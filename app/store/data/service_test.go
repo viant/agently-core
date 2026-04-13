@@ -2276,7 +2276,7 @@ func TestDataService_ConversationPermissions_PagedVisibleRows_DataDriven(t *test
 			principal: "u2",
 			page:      &PageInput{Limit: 3, Direction: DirectionLatest},
 			wantIDs:   []string{"c-u2-recent", "c-u2-private", "c-u2-public"},
-			wantMore:  true,
+			wantMore:  false,
 		},
 	}
 
@@ -2338,18 +2338,42 @@ func TestDataService_LinkedConversationList_ExcludesOrphans(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForLinkedConversationOrphans)
 
-	page, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		ParentId: "parent-1",
-		Has:      &agconvlist.ConversationRowsInputHas{ParentId: true},
-	}, &PageInput{Limit: 10, Direction: DirectionLatest})
-	if err != nil {
-		t.Fatalf("ListConversations(parent) error: %v", err)
+	testCases := []struct {
+		name  string
+		input *agconvlist.ConversationRowsInput
+		want  []string
+	}{
+		{
+			name: "by parent",
+			input: &agconvlist.ConversationRowsInput{
+				ParentId: "parent-1",
+				Has:      &agconvlist.ConversationRowsInputHas{ParentId: true},
+			},
+			want: []string{"child-valid"},
+		},
+		{
+			name: "by parent turn",
+			input: &agconvlist.ConversationRowsInput{
+				ParentTurnId: "parent-turn-1",
+				Has:          &agconvlist.ConversationRowsInputHas{ParentTurnId: true},
+			},
+			want: []string{"child-valid"},
+		},
 	}
-	got := make([]string, 0, len(page.Rows))
-	for _, row := range page.Rows {
-		got = append(got, row.Id)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := svc.ListConversations(ctx, tc.input, &PageInput{Limit: 10, Direction: DirectionLatest})
+			if err != nil {
+				t.Fatalf("ListConversations(%s) error: %v", tc.name, err)
+			}
+			got := make([]string, 0, len(page.Rows))
+			for _, row := range page.Rows {
+				got = append(got, row.Id)
+			}
+			assertIDs(t, got, tc.want)
+		})
 	}
-	assertIDs(t, got, []string{"child-valid"})
 }
 
 func TestDataService_ReadPermissions_MessageTurnRun(t *testing.T) {
@@ -2688,6 +2712,9 @@ func seedForLinkedConversationOrphans(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-valid", "2026-01-01T09:02:00Z", "private", "parent-1", "parent-turn-1"}},
 		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-orphan-conv", "2026-01-01T09:03:00Z", "private", "missing-parent", "parent-turn-1"}},
 		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-orphan-turn", "2026-01-01T09:04:00Z", "private", "parent-1", "missing-parent-turn"}},
+		{SQL: `INSERT INTO conversation (id, created_at, visibility) VALUES (?, ?, ?)`, Params: []interface{}{"other-parent", "2026-01-01T09:05:00Z", "private"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"other-turn", "other-parent", "2026-01-01T09:06:00Z", "completed"}},
+		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-mismatch-turn", "2026-01-01T09:07:00Z", "private", "parent-1", "other-turn"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }

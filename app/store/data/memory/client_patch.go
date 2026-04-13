@@ -32,8 +32,14 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	if src.Has.Visibility && src.Visibility != nil {
 		dst.Visibility = *src.Visibility
 	}
+	if src.Has.Shareable {
+		dst.Shareable = src.Shareable
+	}
 	if src.Has.CreatedAt && src.CreatedAt != nil {
 		dst.CreatedAt = *src.CreatedAt
+	}
+	if src.Has.UpdatedAt && src.UpdatedAt != nil {
+		dst.UpdatedAt = src.UpdatedAt
 	}
 	if src.Has.LastActivity && src.LastActivity != nil {
 		dst.LastActivity = src.LastActivity
@@ -61,6 +67,30 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	}
 	if src.Has.Metadata {
 		dst.Metadata = src.Metadata
+	}
+	if src.Has.Status {
+		dst.Status = src.Status
+	}
+	if src.Has.Scheduled {
+		dst.Scheduled = src.Scheduled
+	}
+	if src.Has.ScheduleId {
+		dst.ScheduleId = src.ScheduleId
+	}
+	if src.Has.ScheduleRunId {
+		dst.ScheduleRunId = src.ScheduleRunId
+	}
+	if src.Has.ScheduleKind {
+		dst.ScheduleKind = src.ScheduleKind
+	}
+	if src.Has.ScheduleTimezone {
+		dst.ScheduleTimezone = src.ScheduleTimezone
+	}
+	if src.Has.ScheduleCronExpr {
+		dst.ScheduleCronExpr = src.ScheduleCronExpr
+	}
+	if src.Has.ExternalTaskRef {
+		dst.ExternalTaskRef = src.ExternalTaskRef
 	}
 }
 

@@ -35,8 +35,12 @@ type ConversationInput struct {
 	AgentId           string                `parameter:",kind=query,in=agentId" predicate:"expr,group=0,t.agent_id = ?"`
 	ParentId          string                `parameter:",kind=query,in=parentId" predicate:"expr,group=0,t.conversation_parent_id = ?"`
 	ParentTurnId      string                `parameter:",kind=query,in=parentTurnId" predicate:"expr,group=0,t.conversation_parent_turn_id = ?"`
+	ExcludeChildren   bool                  `parameter:",kind=query,in=excludeChildren" predicate:"expr,group=0,t.conversation_parent_id IS NULL"`
+	ExcludeScheduled  bool                  `parameter:",kind=query,in=excludeScheduled" predicate:"expr,group=0,t.schedule_id IS NULL"`
 	ScheduleId        string                `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
 	ScheduleRunId     string                `parameter:",kind=query,in=scheduleRunId" predicate:"expr,group=0,t.schedule_run_id = ?"`
+	Query             string                `parameter:",kind=query,in=q" predicate:"expr,group=0,LOWER(t.id || ' ' || (CASE WHEN t.title IS NULL THEN '' ELSE t.title END) || ' ' || (CASE WHEN t.summary IS NULL THEN '' ELSE t.summary END)) LIKE '%' || LOWER(?) || '%'"`
+	StatusFilter      string                `parameter:",kind=query,in=status" predicate:"expr,group=0,t.status = ?"`
 	HasScheduleId     bool                  `parameter:",kind=query,in=hasScheduleId" predicate:"expr,group=0,t.schedule_id IS NOT NULL"`
 	Has               *ConversationInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
@@ -50,8 +54,12 @@ type ConversationInputHas struct {
 	AgentId           bool
 	ParentId          bool
 	ParentTurnId      bool
+	ExcludeChildren   bool
+	ExcludeScheduled  bool
 	ScheduleId        bool
 	ScheduleRunId     bool
+	Query             bool
+	StatusFilter      bool
 	HasScheduleId     bool
 }
 

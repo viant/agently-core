@@ -22,7 +22,7 @@ import (
 type APIOptions struct {
 	Version          string
 	Runtime          *executor.Runtime
-	Client           sdk.Client
+	Client           sdk.Backend
 	AgentFinder      agentmodel.Finder
 	AgentIDs         []string
 	AuthRuntime      *svcauth.Runtime

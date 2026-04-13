@@ -102,9 +102,10 @@ func setupSDK(t *testing.T) sdk.Client {
 	require.NoError(t, err, "build runtime")
 	tool.AddInternalService(rt.Registry, llmagents.New(rt.Agent, llmagents.WithConversationClient(rt.Conversation)))
 
-	// 7. Embedded SDK client
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
-	require.NoError(t, err, "create SDK client")
+	// 7. Endpoint-backed local SDK client
+	client, closeClient, err := sdk.NewLocalHTTPFromRuntime(ctx, rt)
+	require.NoError(t, err, "create local HTTP SDK client")
+	t.Cleanup(closeClient)
 	return client
 }
 

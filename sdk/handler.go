@@ -78,7 +78,7 @@ func WithA2AHandler(h *svca2a.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.a2aHandler = h }
 }
 
-func NewHandler(client Client, opts ...HandlerOption) http.Handler {
+func NewHandler(client Backend, opts ...HandlerOption) http.Handler {
 	h, err := NewHandlerWithContext(context.Background(), client, opts...)
 	if err == nil {
 		return h
@@ -89,7 +89,7 @@ func NewHandler(client Client, opts ...HandlerOption) http.Handler {
 	})
 }
 
-func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOption) (http.Handler, error) {
+func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerOption) (http.Handler, error) {
 	cfg := &handlerConfig{}
 	for _, o := range opts {
 		if o != nil {
@@ -112,7 +112,7 @@ func NewHandlerWithContext(ctx context.Context, client Client, opts ...HandlerOp
 	return handler, nil
 }
 
-func registerCoreRoutes(mux *http.ServeMux, client Client, cfg *handlerConfig) {
+func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) {
 	mux.HandleFunc("GET /healthz", handleHealth())
 	mux.HandleFunc("GET /health", handleHealth())
 

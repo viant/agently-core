@@ -33,6 +33,9 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	if model := strings.TrimSpace(o.start.Model); model != "" {
 		upd.SetModel(model)
 	}
+	if modelKind := strings.TrimSpace(o.start.ModelKind); modelKind != "" {
+		upd.SetModelKind(modelKind)
+	}
 	if strings.TrimSpace(info.Err) != "" {
 		upd.SetErrorMessage(info.Err)
 	}

@@ -62,7 +62,11 @@ public final class AgentlyClient: Sendable {
     }
 
     public func listPendingElicitations(_ input: ListPendingElicitationsInput) async throws -> [PendingElicitationRecord] {
-        try await get("/v1/elicitations", query: queryItems(from: input), as: [PendingElicitationRecord].self)
+        let data = try await rawDataRequest(path: "/v1/elicitations", method: "GET", query: queryItems(from: input))
+        if let rows = try? decoder.decode([PendingElicitationRecord].self, from: data) {
+            return rows
+        }
+        return try decoder.decode(PendingElicitationRows.self, from: data).rows
     }
 
     public func resolveElicitation(_ input: ResolveElicitationInput) async throws {
@@ -74,7 +78,11 @@ public final class AgentlyClient: Sendable {
     }
 
     public func listPendingToolApprovals(_ input: ListPendingToolApprovalsInput = ListPendingToolApprovalsInput()) async throws -> [PendingToolApproval] {
-        try await get("/v1/tool-approvals/pending", query: queryItems(from: input), as: [PendingToolApproval].self)
+        let data = try await rawDataRequest(path: "/v1/tool-approvals/pending", method: "GET", query: queryItems(from: input))
+        if let rows = try? decoder.decode([PendingToolApproval].self, from: data) {
+            return rows
+        }
+        return try decoder.decode(PendingToolApprovalRows.self, from: data).rows
     }
 
     public func decideToolApproval(_ input: DecideToolApprovalInput) async throws {
@@ -192,6 +200,31 @@ public final class AgentlyClient: Sendable {
             contentType: contentType
         )
         let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func rawDataRequest(
+        path: String,
+        method: String,
+        query: [URLQueryItem] = [],
+        body: Data? = nil,
+        contentType: String = "application/json"
+    ) async throws -> Data {
+        let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
+        let request = try builder.makeRequest(
+            path: path,
+            method: method,
+            queryItems: query,
+            body: body,
+            contentType: contentType
+        )
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return data
+    }
+
+    private func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw AgentlySDKError.invalidResponse
         }
@@ -200,7 +233,6 @@ public final class AgentlyClient: Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             throw AgentlySDKError.httpStatus(http.statusCode, message)
         }
-        return try decoder.decode(T.self, from: data)
     }
 
     private func queryItems<Body: Encodable>(from value: Body) throws -> [URLQueryItem] {

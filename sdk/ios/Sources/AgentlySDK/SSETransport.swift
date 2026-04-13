@@ -9,20 +9,18 @@ public func openEventStream(
     AsyncThrowingStream { continuation in
         let task = Task {
             do {
-                var components = URLComponents(url: endpoint.baseURL, resolvingAgainstBaseURL: false)
-                components?.path = endpoint.baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty
-                    ? path
-                    : endpoint.baseURL.path + path
-                guard let url = components?.url else {
+                guard let url = makeEventStreamURL(baseURL: endpoint.baseURL, path: path) else {
                     throw URLError(.badURL)
                 }
 
+                let streamingSession = makeStreamingSession(from: session)
                 var request = URLRequest(url: url)
                 request.httpMethod = "GET"
+                request.timeoutInterval = 60 * 60 * 24
                 request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                 endpoint.headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
-                let (bytes, response) = try await session.bytes(for: request)
+                let (bytes, response) = try await streamingSession.bytes(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw AgentlySDKError.invalidResponse
                 }
@@ -57,6 +55,40 @@ public func openEventStream(
             task.cancel()
         }
     }
+}
+
+private func makeStreamingSession(from session: URLSession) -> URLSession {
+    guard let configuration = session.configuration.copy() as? URLSessionConfiguration else {
+        let fallback = URLSessionConfiguration.default
+        fallback.timeoutIntervalForRequest = 60 * 60 * 24
+        fallback.timeoutIntervalForResource = 60 * 60 * 24
+        fallback.waitsForConnectivity = false
+        return URLSession(configuration: fallback)
+    }
+    configuration.timeoutIntervalForRequest = 60 * 60 * 24
+    configuration.timeoutIntervalForResource = 60 * 60 * 24
+    configuration.waitsForConnectivity = false
+    return URLSession(configuration: configuration)
+}
+
+private func makeEventStreamURL(baseURL: URL, path: String) -> URL? {
+    guard let relative = URLComponents(string: path) else {
+        return nil
+    }
+    var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+    let basePath = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    let relativePath = relative.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+    if basePath.isEmpty {
+        components?.path = "/" + relativePath
+    } else if relativePath.isEmpty {
+        components?.path = "/" + basePath
+    } else {
+        components?.path = "/" + basePath + "/" + relativePath
+    }
+
+    components?.percentEncodedQuery = relative.percentEncodedQuery
+    return components?.url
 }
 
 private func decodeSSEPayload(_ payload: String, conversationID: String) -> SSEEvent? {

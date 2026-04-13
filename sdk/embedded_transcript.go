@@ -14,7 +14,7 @@ import (
 	hstate "github.com/viant/xdatly/handler/state"
 )
 
-func (c *EmbeddedClient) latestAssistantResponse(ctx context.Context, conversationID string) string {
+func (c *backendClient) latestAssistantResponse(ctx context.Context, conversationID string) string {
 	resp, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
 	if err != nil || resp == nil || resp.Conversation == nil {
 		return ""
@@ -38,7 +38,7 @@ func (c *EmbeddedClient) latestAssistantResponse(ctx context.Context, conversati
 	return ""
 }
 
-func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
+func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -93,7 +93,7 @@ func (c *EmbeddedClient) GetTranscript(ctx context.Context, input *GetTranscript
 //
 // The cursor is an RFC3339Nano timestamp captured just before the snapshot fetch,
 // so any event published concurrently will be at or after the cursor.
-func (c *EmbeddedClient) GetLiveState(ctx context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
+func (c *backendClient) GetLiveState(ctx context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
 	cursor := time.Now().UTC().Format(time.RFC3339Nano)
 	resp, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID}, options...)
 	if err != nil {
@@ -103,7 +103,7 @@ func (c *EmbeddedClient) GetLiveState(ctx context.Context, conversationID string
 	return resp, nil
 }
 
-func (c *EmbeddedClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {
+func (c *backendClient) getTranscriptConversation(ctx context.Context, conversationID, sinceTurnID string, input *GetTranscriptInput, optsState *transcriptOptions) (*conversation.Conversation, error) {
 	selectors := map[string]*QuerySelector(nil)
 	if optsState != nil {
 		selectors = optsState.selectors
@@ -169,7 +169,7 @@ func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstat
 	return result
 }
 
-func (c *EmbeddedClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {
+func (c *backendClient) enrichTranscriptElicitations(ctx context.Context, turns conversation.Transcript) {
 	for _, turn := range turns {
 		if turn == nil || len(turn.Message) == 0 {
 			continue
@@ -233,7 +233,7 @@ func shouldDropTranscriptMessage(msg *agconv.MessageView) bool {
 	return !(msg.ModelCall != nil || len(msg.ToolMessage) > 0)
 }
 
-func (c *EmbeddedClient) resolveMessageElicitation(ctx context.Context, msg *agconv.MessageView) map[string]interface{} {
+func (c *backendClient) resolveMessageElicitation(ctx context.Context, msg *agconv.MessageView) map[string]interface{} {
 	if msg == nil || msg.ElicitationId == nil || strings.TrimSpace(*msg.ElicitationId) == "" {
 		return nil
 	}
@@ -243,7 +243,7 @@ func (c *EmbeddedClient) resolveMessageElicitation(ctx context.Context, msg *agc
 	return c.resolveElicitationPayload(ctx, strings.TrimSpace(*msg.ElicitationId), valueOrEmpty(msg.ElicitationPayloadId), valueOrEmpty(msg.Content))
 }
 
-func (c *EmbeddedClient) resolveElicitationPayload(ctx context.Context, elicitationID, payloadID, content string) map[string]interface{} {
+func (c *backendClient) resolveElicitationPayload(ctx context.Context, elicitationID, payloadID, content string) map[string]interface{} {
 	elicitationID = strings.TrimSpace(elicitationID)
 	if elicitationID == "" {
 		return nil

@@ -10,43 +10,17 @@ import (
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
+	"github.com/viant/agently-core/sdkapi"
 	"github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
 
-// FeedSpec describes a tool feed loaded from workspace YAML.
-type FeedSpec struct {
-	ID         string                 `yaml:"id" json:"id"`
-	Title      string                 `yaml:"title,omitempty" json:"title,omitempty"`
-	Match      FeedMatch              `yaml:"match" json:"match"`
-	Activation FeedActivation         `yaml:"activation,omitempty" json:"activation,omitempty"`
-	DataSource map[string]interface{} `yaml:"dataSource,omitempty" json:"dataSource,omitempty"`
-	UI         interface{}            `yaml:"ui,omitempty" json:"ui,omitempty"`
-}
-
-// FeedMatch defines which tool calls trigger this feed.
-type FeedMatch struct {
-	Service string `yaml:"service" json:"service"`
-	Method  string `yaml:"method" json:"method"`
-}
-
-// FeedActivation controls how feed data is gathered.
-type FeedActivation struct {
-	Kind    string `yaml:"kind,omitempty" json:"kind,omitempty"`       // "history" (default) or "tool_call"
-	Scope   string `yaml:"scope,omitempty" json:"scope,omitempty"`     // "last" (default) or "all"
-	Service string `yaml:"service,omitempty" json:"service,omitempty"` // optional data-source service for tool_call activation
-	Method  string `yaml:"method,omitempty" json:"method,omitempty"`   // optional data-source method for tool_call activation
-}
-
-// FeedState tracks active feeds for a conversation.
-type FeedState struct {
-	FeedID    string `json:"feedId"`
-	Title     string `json:"title"`
-	ItemCount int    `json:"itemCount"`
-	ToolName  string `json:"toolName,omitempty"`
-}
+type FeedSpec = sdkapi.FeedSpec
+type FeedMatch = sdkapi.FeedMatch
+type FeedActivation = sdkapi.FeedActivation
+type FeedState = sdkapi.FeedState
 
 // FeedRegistry loads feed specs from workspace and matches tool calls.
 type FeedRegistry struct {

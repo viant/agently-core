@@ -211,6 +211,72 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 	assert.EqualValues(t, expected, items)
 }
 
+func TestClient_GetConversations_AppliesListFilters(t *testing.T) {
+	ctx := context.Background()
+	c := mem.New()
+
+	parent := convcli.NewConversation()
+	parent.SetId("parent-1")
+	parent.SetCreatedAt(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	parent.SetVisibility("public")
+	require.NoError(t, c.PatchConversations(ctx, parent))
+
+	parentTurn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-1")
+	parentTurn.SetStatus("completed")
+	require.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(parentTurn)))
+
+	root := convcli.NewConversation()
+	root.SetId("root-1")
+	root.SetAgentId("agent-a")
+	root.SetTitle("Favorite Colors")
+	root.SetStatus("active")
+	root.SetCreatedAt(time.Date(2025, 1, 1, 0, 1, 0, 0, time.UTC))
+	root.SetVisibility("public")
+	require.NoError(t, c.PatchConversations(ctx, root))
+
+	scheduled := convcli.NewConversation()
+	scheduled.SetId("scheduled-1")
+	scheduled.SetAgentId("agent-a")
+	scheduled.SetTitle("Favorite Colors Scheduled")
+	scheduled.SetStatus("active")
+	scheduled.SetScheduleId("sched-1")
+	scheduled.SetCreatedAt(time.Date(2025, 1, 1, 0, 2, 0, 0, time.UTC))
+	scheduled.SetVisibility("public")
+	require.NoError(t, c.PatchConversations(ctx, scheduled))
+
+	child := convcli.NewConversation()
+	child.SetId("child-1")
+	child.SetAgentId("agent-a")
+	child.SetTitle("Favorite Colors Child")
+	child.SetStatus("active")
+	child.SetConversationParentId("parent-1")
+	child.SetConversationParentTurnId("turn-1")
+	child.SetCreatedAt(time.Date(2025, 1, 1, 0, 3, 0, 0, time.UTC))
+	child.SetVisibility("public")
+	require.NoError(t, c.PatchConversations(ctx, child))
+
+	query := &convcli.Input{
+		AgentId:          "agent-a",
+		ExcludeChildren:  true,
+		ExcludeScheduled: true,
+		Query:            "favorite",
+		StatusFilter:     "active",
+		Has: &agconv.ConversationInputHas{
+			AgentId:          true,
+			ExcludeChildren:  true,
+			ExcludeScheduled: true,
+			Query:            true,
+			StatusFilter:     true,
+		},
+	}
+	items, err := c.GetConversations(ctx, query)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "root-1", items[0].Id)
+}
+
 func TestClient_DeleteConversation_DataDriven(t *testing.T) {
 	ctx := context.Background()
 	c := mem.New()
