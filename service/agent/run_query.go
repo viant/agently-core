@@ -733,11 +733,8 @@ var sandboxMarkdownLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\((sandbox:[^)]
 func (s *Service) rewriteGeneratedFileLinks(ctx context.Context, conversationID, turnID, msgID, content string) string {
 	value := strings.TrimSpace(content)
 	if value == "" || !strings.Contains(strings.ToLower(value), "sandbox:/") {
-		fmt.Printf("###TODO sandobx:/ not found\n")
 		return strings.TrimSpace(content)
 	}
-
-	fmt.Printf("###TODO sandobx:/ FOUND OK\n")
 
 	store, ok := s.conversation.(apiconv.GeneratedFileClient)
 	if !ok {

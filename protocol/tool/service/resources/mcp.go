@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/viant/afs"
@@ -65,12 +64,12 @@ func (s *Service) expandMCPResources(ctx context.Context, base *agmodel.Resource
 	}
 	opts, err := s.mcpMgr.Options(ctx, server)
 	if err != nil || opts == nil {
-		fmt.Printf("resources: mcp include server=%q err=%v\n", server, err)
+		debugf("mcp include server=%q err=%v", server, err)
 		return nil
 	}
 	roots := mcpcfg.ResourceRoots(opts.Metadata)
 	if len(roots) == 0 {
-		fmt.Printf("resources: mcp include server=%q no roots\n", server)
+		debugf("mcp include server=%q no roots", server)
 		return nil
 	}
 	selectors := make([]string, 0, len(base.Roots))

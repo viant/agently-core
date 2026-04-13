@@ -195,7 +195,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	rootCtx, err := s.newRootContext(ctx, rootURI, rootID, allowed)
 	if err != nil {
-		fmt.Printf("resources: list resolve error rootId=%q root=%q err=%v\n", input.RootID, input.RootURI, err)
+		debugf("list resolve error rootId=%q root=%q err=%v", input.RootID, input.RootURI, err)
 		return err
 	}
 	rootBase := rootCtx.Base()
