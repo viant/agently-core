@@ -15,6 +15,10 @@ type EmbedFunc = func(ctx context.Context, texts []string) ([][]float32, error)
 var ModelMessageIDKey = runtimerequestctx.ModelMessageIDKey
 var ToolMessageIDKey = runtimerequestctx.ToolMessageIDKey
 
+func WithModelMessageID(ctx context.Context, messageID string) context.Context {
+	return runtimerequestctx.WithModelMessageID(ctx, messageID)
+}
+
 func ModelMessageIDFromContext(ctx context.Context) string {
 	return runtimerequestctx.ModelMessageIDFromContext(ctx)
 }

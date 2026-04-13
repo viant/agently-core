@@ -163,6 +163,49 @@ parallelToolCalls: false  # disable parallel, use sequential
 
 When omitted, the agent inherits the default (true).
 
+## Async Mechanism
+
+`agently-core` has a built-in async tool mechanism for tools that return an
+operation handle immediately and then require status polling to finish. This is
+used today by the internal `system/exec` and `llm/agents` services.
+
+The mechanism has four parts:
+
+1. Tool async config
+   A tool declares a `run` tool, `status` tool, optional `cancel` tool, and the
+   extraction rules for operation id, status, progress, result data, and errors.
+2. Runtime operation manager
+   When the `run` tool returns, the executor registers an operation record keyed
+   by the extracted operation id and associates it with the parent
+   conversation/turn and tool call.
+3. Polling / held-turn behavior
+   For true `start/status/cancel` tools where `run.tool != status.tool`,
+   `async.start` activates a runtime poller immediately. Same-tool reuse
+   patterns remain model-mediated unless explicitly extended later.
+4. Transcript + canonical state integration
+   Async updates are persisted back into tool-call rows and emitted as tool
+   lifecycle SSE events so transcript snapshots and live UI state stay aligned.
+
+Current internal async-configured tools:
+
+| Tool family | Start | Status | Cancel | Operation id |
+|-------------|-------|--------|--------|--------------|
+| Shell exec | `system/exec:start` | `system/exec:status` | `system/exec:cancel` | `sessionId` |
+| Child agents | `llm/agents:start` | `llm/agents:status` | `llm/agents:cancel` | `conversationId` |
+
+Runtime behavior:
+
+- `start` registers the async operation
+- distinct `status` tools start one runtime poller per operation
+- status changes update persisted tool-call state
+- active wait ops can keep the parent ReAct turn open
+- async reinforcement is driven by operation state changes, not by the start
+  call itself
+- previous-response continuation is unaffected because continuation anchors come
+  from persisted transcript trace ids, not async SSE identity
+
+Detailed documentation: [async.md](./async.md)
+
 ## Workspace
 
 Workspace root defaults to `.agently` under the current directory unless overridden

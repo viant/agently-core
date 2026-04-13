@@ -124,6 +124,11 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn runtimerequestctx
 	var wrappedCancel func()
 	wrappedCancel = func() {
 		cancel()
+		// Stop any autonomous pollers that belong to this turn so they do not
+		// continue emitting async updates after the turn is explicitly canceled.
+		if s.asyncManager != nil {
+			s.asyncManager.CancelTurnPollers(context.Background(), turn.ConversationID, turn.TurnID)
+		}
 		if s.conversation != nil {
 			upd := apiconv.NewTurn()
 			upd.SetId(turn.TurnID)

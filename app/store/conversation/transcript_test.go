@@ -8,6 +8,20 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
+func TestTranscriptHistory_EmptyTranscript(t *testing.T) {
+	var tr Transcript
+
+	require.Nil(t, (&tr).History(false))
+	require.Nil(t, (&tr).History(true))
+}
+
+func TestTranscriptHistory_NilTranscript(t *testing.T) {
+	var tr *Transcript
+
+	require.Nil(t, tr.History(false))
+	require.Nil(t, tr.History(true))
+}
+
 func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryMode(t *testing.T) {
 	now := time.Now().UTC()
 

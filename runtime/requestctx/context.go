@@ -38,6 +38,16 @@ type modelMessageIDKey string
 
 var ModelMessageIDKey = modelMessageIDKey("modelMessageID")
 
+func WithModelMessageID(ctx context.Context, messageID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if messageID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ModelMessageIDKey, messageID)
+}
+
 func ModelMessageIDFromContext(ctx context.Context) string {
 	value := ctx.Value(ModelMessageIDKey)
 	if value == nil {

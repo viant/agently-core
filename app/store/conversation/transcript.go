@@ -28,6 +28,9 @@ func (t *Turn) ToolCalls() Messages {
 }
 
 func (t *Transcript) History(minimal bool) []*prompt.Message {
+	if t == nil || len(*t) == 0 {
+		return nil
+	}
 
 	transcript := *t
 	if minimal {

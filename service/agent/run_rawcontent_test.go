@@ -48,7 +48,8 @@ func TestService_addUserMessageRawContent(t *testing.T) {
 func ptr(v string) *string { return &v }
 
 type recordingConvClient struct {
-	lastMessage *apiconv.MutableMessage
+	lastMessage  *apiconv.MutableMessage
+	messageCount int
 }
 
 func (r *recordingConvClient) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -74,6 +75,7 @@ func (r *recordingConvClient) PatchPayload(ctx context.Context, payload *apiconv
 func (r *recordingConvClient) PatchMessage(ctx context.Context, message *apiconv.MutableMessage) error {
 	copy := *message
 	r.lastMessage = &copy
+	r.messageCount++
 	return nil
 }
 
