@@ -62,6 +62,13 @@ type Defaults struct {
 
 	// ---- Resources defaults (optional) ---------------------------
 	Resources ResourcesDefaults `yaml:"resources,omitempty" json:"resources,omitempty"`
+
+	// ---- Async reinforcement prompt (optional) ------------------
+	// AsyncReinforcementPrompt overrides the embedded default prompt used to
+	// guide the model when async operations are active. When nil the runtime
+	// falls back to the built-in embedded template. Supports inline Text or a
+	// file/URL via URI; Engine defaults to "go" (Go text/template).
+	AsyncReinforcementPrompt *prompt.Prompt `yaml:"asyncReinforcementPrompt,omitempty" json:"asyncReinforcementPrompt,omitempty"`
 }
 
 // UnmarshalYAML supports both the current and legacy router keys:
@@ -111,6 +118,8 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 		Match     MatchDefaults     `yaml:"match,omitempty"`
 		Resources ResourcesDefaults `yaml:"resources,omitempty"`
+
+		AsyncReinforcementPrompt *prompt.Prompt `yaml:"asyncReinforcementPrompt,omitempty"`
 	}
 
 	var tmp raw
@@ -141,6 +150,8 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 		Match:     tmp.Match,
 		Resources: tmp.Resources,
+
+		AsyncReinforcementPrompt: tmp.AsyncReinforcementPrompt,
 	}
 
 	if hasKey("agentAutoSelection") {

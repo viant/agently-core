@@ -18,6 +18,14 @@ type AsyncManager interface {
 	RecordPollFailure(ctx context.Context, id, errMsg string, transient bool) (*asynccfg.OperationRecord, bool)
 	ResetPollFailures(ctx context.Context, id string) (*asynccfg.OperationRecord, bool)
 	WaitForNextPoll(ctx context.Context, convID, turnID string) error
+	TryStartPoller(ctx context.Context, id string) bool
+	FinishPoller(ctx context.Context, id string)
+	// StorePollerCancel associates a cancel function with an operation id so that
+	// CancelTurnPollers can stop the poller from outside the goroutine.
+	StorePollerCancel(ctx context.Context, id string, cancel context.CancelFunc)
+	// CancelTurnPollers cancels all autonomous pollers belonging to the given turn.
+	// Called by the service layer when the turn is explicitly canceled.
+	CancelTurnPollers(ctx context.Context, convID, turnID string)
 }
 
 func WithAsyncManager(ctx context.Context, manager AsyncManager) context.Context {

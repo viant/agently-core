@@ -29,33 +29,37 @@ const (
 )
 
 type OperationRecord struct {
-	ID                            string
-	ParentConvID                  string
-	ParentTurnID                  string
-	ToolCallID                    string
-	ToolMessageID                 string
-	ToolName                      string
-	StatusToolName                string
-	StatusArgs                    map[string]interface{}
-	CancelToolName                string
-	RequestArgsDigest             string
-	RequestArgs                   map[string]interface{}
-	WaitForResponse               bool
-	State                         State
-	Status                        string
-	Message                       string
-	Percent                       *int
-	LastSignaledPercent           *int
-	KeyData                       json.RawMessage
-	Error                         string
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
-	TimeoutAt                     *time.Time
-	TimeoutMs                     int
-	PollIntervalMs                int
-	PollFailures                  int
-	ReinforcementPrompt           string
-	Reinforcement                 *PromptConfig
+	ID                  string
+	ParentConvID        string
+	ParentTurnID        string
+	ToolCallID          string
+	ToolMessageID       string
+	ToolName            string
+	StatusToolName      string
+	StatusArgs          map[string]interface{}
+	CancelToolName      string
+	RequestArgsDigest   string
+	RequestArgs         map[string]interface{}
+	WaitForResponse     bool
+	State               State
+	Status              string
+	Message             string
+	Percent             *int
+	LastSignaledPercent *int
+	KeyData             json.RawMessage
+	Error               string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	TimeoutAt           *time.Time
+	TimeoutMs           int
+	PollIntervalMs      int
+	PollFailures        int
+	// Instruction is per-operation guidance for non-terminal state, surfaced in
+	// the centralized batch reinforcement template.
+	Instruction string
+	// TerminalInstruction is per-operation guidance once the operation reaches a
+	// terminal state, surfaced in the centralized batch reinforcement template.
+	TerminalInstruction           string
 	MaxReinforcementsPerOperation int
 	MinIntervalBetweenMs          int
 	ReinforcementCount            int
@@ -96,8 +100,8 @@ type RegisterInput struct {
 	Error                         string
 	TimeoutMs                     int
 	PollIntervalMs                int
-	Reinforcement                 *PromptConfig
-	ReinforcementPrompt           string
+	Instruction                   string
+	TerminalInstruction           string
 	MaxReinforcementsPerOperation int
 	MinIntervalBetweenMs          int
 }
@@ -113,15 +117,89 @@ type UpdateInput struct {
 }
 
 type Manager struct {
-	mu      sync.Mutex
-	ops     map[string]*OperationRecord
-	waiters map[string][]chan struct{}
+	mu            sync.Mutex
+	ops           map[string]*OperationRecord
+	pollers       map[string]struct{}
+	pollerCancels map[string]context.CancelFunc
+	waiters       map[string][]chan struct{}
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		ops:     map[string]*OperationRecord{},
-		waiters: map[string][]chan struct{}{},
+		ops:           map[string]*OperationRecord{},
+		pollers:       map[string]struct{}{},
+		pollerCancels: map[string]context.CancelFunc{},
+		waiters:       map[string][]chan struct{}{},
+	}
+}
+
+func (m *Manager) TryStartPoller(_ context.Context, id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	if m.pollers == nil {
+		m.pollers = map[string]struct{}{}
+	}
+	if _, exists := m.pollers[id]; exists {
+		return false
+	}
+	m.pollers[id] = struct{}{}
+	return true
+}
+
+func (m *Manager) FinishPoller(_ context.Context, id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pollers == nil {
+		return
+	}
+	id = strings.TrimSpace(id)
+	delete(m.pollers, id)
+	// Clean up the stored cancel function; calling it here is intentionally
+	// safe (context.CancelFunc is idempotent).
+	if m.pollerCancels != nil {
+		if cancel, ok := m.pollerCancels[id]; ok {
+			cancel()
+			delete(m.pollerCancels, id)
+		}
+	}
+}
+
+// StorePollerCancel registers a cancel function for the given operation so that
+// CancelTurnPollers can reach it. Called immediately after TryStartPoller succeeds.
+func (m *Manager) StorePollerCancel(_ context.Context, id string, cancel context.CancelFunc) {
+	if cancel == nil || strings.TrimSpace(id) == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pollerCancels == nil {
+		m.pollerCancels = map[string]context.CancelFunc{}
+	}
+	m.pollerCancels[strings.TrimSpace(id)] = cancel
+}
+
+// CancelTurnPollers cancels every autonomous poller that belongs to the given
+// conversation/turn. It is safe to call when no pollers are running (no-op).
+// The service layer calls this when a turn is explicitly canceled so pollers do
+// not outlive the turn they belong to.
+func (m *Manager) CancelTurnPollers(_ context.Context, convID, turnID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := turnKey(convID, turnID)
+	for _, rec := range m.ops {
+		if turnKey(rec.ParentConvID, rec.ParentTurnID) != key {
+			continue
+		}
+		if m.pollerCancels == nil {
+			continue
+		}
+		if cancel, ok := m.pollerCancels[rec.ID]; ok {
+			cancel()
+		}
 	}
 }
 
@@ -154,8 +232,8 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) *OperationRec
 		PollIntervalMs:                input.PollIntervalMs,
 		MaxReinforcementsPerOperation: input.MaxReinforcementsPerOperation,
 		MinIntervalBetweenMs:          input.MinIntervalBetweenMs,
-		ReinforcementPrompt:           strings.TrimSpace(input.ReinforcementPrompt),
-		Reinforcement:                 clonePrompt(input.Reinforcement),
+		Instruction:                   strings.TrimSpace(input.Instruction),
+		TerminalInstruction:           strings.TrimSpace(input.TerminalInstruction),
 		pendingChange:                 true,
 	}
 	if input.TimeoutMs > 0 {
@@ -424,7 +502,6 @@ func cloneRecord(rec *OperationRecord) *OperationRecord {
 		t := *rec.LastReinforcementAt
 		copyRec.LastReinforcementAt = &t
 	}
-	copyRec.Reinforcement = clonePrompt(rec.Reinforcement)
 	return &copyRec
 }
 
@@ -562,14 +639,6 @@ func equalIntPtr(a, b *int) bool {
 
 func jsonEqual(a, b json.RawMessage) bool {
 	return string(a) == string(b)
-}
-
-func clonePrompt(p *PromptConfig) *PromptConfig {
-	if p == nil {
-		return nil
-	}
-	copyPrompt := *p
-	return &copyPrompt
 }
 
 func cloneMap(input map[string]interface{}) map[string]interface{} {

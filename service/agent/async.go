@@ -3,10 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"github.com/viant/agently-core/internal/logx"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/logx"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/prompt"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -29,10 +29,14 @@ func (s *Service) injectAsyncReinforcement(ctx context.Context, turn *runtimereq
 	s.injectAsyncReinforcementForRecords(ctx, turn, changed)
 }
 
+// injectAsyncReinforcementForRecords emits a single batched system message
+// covering all eligible changed operations. All records use the centralized
+// shared template; per-operation prompt overrides are not supported.
 func (s *Service) injectAsyncReinforcementForRecords(ctx context.Context, turn *runtimerequestctx.TurnMeta, records []*asynccfg.OperationRecord) {
 	if s == nil || turn == nil || len(records) == 0 {
 		return
 	}
+	var eligible []*asynccfg.OperationRecord
 	for _, rec := range records {
 		if rec == nil {
 			continue
@@ -40,153 +44,123 @@ func (s *Service) injectAsyncReinforcementForRecords(ctx context.Context, turn *
 		if _, ok := s.asyncManager.TryRecordReinforcement(ctx, rec.ID); !ok {
 			continue
 		}
-		content := s.renderAsyncReinforcement(ctx, rec)
-		if strings.TrimSpace(content) == "" {
-			continue
-		}
-		_, _ = s.addMessage(ctx, turn, string(llm.RoleSystem), asyncMessageActor, content, nil, asyncMessageMode, "")
+		eligible = append(eligible, rec)
 	}
+	if len(eligible) == 0 {
+		return
+	}
+	content := s.renderBatchedAsyncReinforcement(ctx, eligible)
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	_, _ = s.addMessage(ctx, turn, string(llm.RoleSystem), asyncMessageActor, content, nil, asyncMessageMode, "")
 }
 
-func (s *Service) renderAsyncReinforcement(ctx context.Context, rec *asynccfg.OperationRecord) string {
-	if rec == nil {
+// renderBatchedAsyncReinforcement renders one turn-level reinforcement message
+// for all eligible changed operations using the centralized prompt.
+func (s *Service) renderBatchedAsyncReinforcement(ctx context.Context, records []*asynccfg.OperationRecord) string {
+	if len(records) == 0 {
 		return ""
 	}
-	if text := strings.TrimSpace(rec.ReinforcementPrompt); text != "" {
-		rec.Reinforcement = &asynccfg.PromptConfig{
-			Text:   text,
-			Engine: "go",
-		}
-	}
-
-	p := rec.Reinforcement
-	if p == nil {
-		p = &asynccfg.PromptConfig{
-			Text:   prompts.AsyncReinforcement,
-			Engine: "go",
-		}
-	}
-	turnAsync, requestGroup := s.buildAsyncPromptContext(ctx, rec)
+	pp := s.resolveAsyncReinforcementPrompt()
 	binding := &prompt.Binding{
-		Context: map[string]interface{}{
-			"operation": map[string]interface{}{
-				"id":                  strings.TrimSpace(rec.ID),
-				"toolName":            strings.TrimSpace(rec.ToolName),
-				"statusToolName":      strings.TrimSpace(rec.StatusToolName),
-				"statusToolArgs":      rec.StatusArgs,
-				"statusToolArgsJSON":  mustJSONText(rec.StatusArgs),
-				"cancelToolName":      strings.TrimSpace(rec.CancelToolName),
-				"status":              firstNonEmptyAsyncValue(strings.TrimSpace(rec.Status), strings.TrimSpace(string(rec.State))),
-				"state":               strings.TrimSpace(string(rec.State)),
-				"message":             strings.TrimSpace(rec.Message),
-				"error":               strings.TrimSpace(rec.Error),
-				"waitForResponse":     rec.WaitForResponse,
-				"terminal":            rec.Terminal(),
-				"timeoutMs":           rec.TimeoutMs,
-				"pollIntervalMs":      rec.PollIntervalMs,
-				"percent":             rec.Percent,
-				"response":            rec.KeyData,
-				"responseJSON":        rawJSONText(rec.KeyData),
-				"requestArgs":         rec.RequestArgs,
-				"requestArgsJSON":     mustJSONText(rec.RequestArgs),
-				"turnPending":         turnAsync["pending"],
-				"turnAllResolved":     turnAsync["allResolved"],
-				"turnAllCompleted":    turnAsync["allCompleted"],
-				"pendingRequestsJSON": mustJSONText(turnAsync["pendingRequests"]),
-				"turnpending":         turnAsync["pending"],
-				"turnallresolved":     turnAsync["allResolved"],
-				"turnallcompleted":    turnAsync["allCompleted"],
-				"pendingrequestsjson": mustJSONText(turnAsync["pendingRequests"]),
-			},
-			"tool": map[string]interface{}{
-				"name":        strings.TrimSpace(rec.ToolName),
-				"displayName": strings.TrimSpace(rec.ToolName),
-			},
-			"async": map[string]interface{}{
-				"timeoutMs":      rec.TimeoutMs,
-				"pollIntervalMs": rec.PollIntervalMs,
-			},
-			"turnAsync":    turnAsync,
-			"requestGroup": requestGroup,
-		},
-	}
-	pp := &prompt.Prompt{
-		Text:   p.Text,
-		URI:    p.URI,
-		Engine: p.Engine,
+		Context: s.buildBatchedAsyncContext(ctx, records),
 	}
 	rendered, err := pp.Generate(ctx, binding)
 	if err == nil && strings.TrimSpace(rendered) != "" {
 		return strings.TrimSpace(rendered)
 	}
 	if err != nil {
-		logx.Warnf("conversation", "agent.async reinforcement prompt render failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(rec.ToolName), err)
-	} else {
-		logx.Warnf("conversation", "agent.async reinforcement prompt rendered empty op_id=%q tool=%q", strings.TrimSpace(rec.ID), strings.TrimSpace(rec.ToolName))
+		logx.Warnf("conversation", "agent.async reinforcement render failed err=%v", err)
 	}
 	return ""
 }
 
-func (s *Service) buildAsyncPromptContext(ctx context.Context, rec *asynccfg.OperationRecord) (map[string]interface{}, map[string]interface{}) {
+// resolveAsyncReinforcementPrompt returns the workspace/defaults-configured
+// prompt when set, falling back to the embedded default.
+func (s *Service) resolveAsyncReinforcementPrompt() *prompt.Prompt {
+	if s != nil && s.defaults != nil && s.defaults.AsyncReinforcementPrompt != nil {
+		p := *s.defaults.AsyncReinforcementPrompt
+		return &p
+	}
+	return &prompt.Prompt{
+		Text:   prompts.AsyncReinforcement,
+		Engine: "go",
+	}
+}
+
+// buildBatchedAsyncContext builds the template context for the centralized
+// reinforcement template: turn-level counts plus a minimal per-operation
+// control-plane view (no raw payloads, no status tool args for runtime-polled ops).
+func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*asynccfg.OperationRecord) map[string]interface{} {
 	turnAsync := map[string]interface{}{
-		"total":        0,
-		"active":       0,
-		"pending":      0,
-		"completed":    0,
-		"failed":       0,
-		"canceled":     0,
-		"allResolved":  true,
-		"allCompleted": true,
+		"total": 0, "active": 0, "pending": 0,
+		"completed": 0, "failed": 0, "canceled": 0,
+		"allResolved": true, "allCompleted": true,
 	}
-	requestGroup := map[string]interface{}{
-		"toolName":        strings.TrimSpace(rec.ToolName),
-		"requestArgs":     rec.RequestArgs,
-		"requestArgsJSON": mustJSONText(rec.RequestArgs),
-		"total":           0,
-		"active":          0,
-		"pending":         0,
-		"completed":       0,
-		"failed":          0,
-		"canceled":        0,
-		"allResolved":     true,
-		"allCompleted":    true,
+	if s != nil && s.asyncManager != nil && len(records) > 0 {
+		if first := records[0]; first != nil {
+			for _, op := range s.asyncManager.OperationsForTurn(ctx, first.ParentConvID, first.ParentTurnID) {
+				if op == nil || !op.WaitForResponse {
+					continue
+				}
+				turnAsync["total"] = turnAsync["total"].(int) + 1
+				countAsyncState(turnAsync, op)
+			}
+		}
 	}
-	if s == nil || s.asyncManager == nil || rec == nil {
-		return turnAsync, requestGroup
-	}
-	ops := s.asyncManager.OperationsForTurn(ctx, rec.ParentConvID, rec.ParentTurnID)
-	turnPendingRequests := make([]map[string]interface{}, 0)
-	groupPendingRequests := make([]map[string]interface{}, 0)
-	toolName := strings.TrimSpace(rec.ToolName)
-	requestDigest := strings.TrimSpace(rec.RequestArgsDigest)
-	for _, item := range ops {
-		if item == nil || !item.WaitForResponse {
+
+	changedOps := make([]map[string]interface{}, 0, len(records))
+	hasSameToolReuse := false
+	for _, rec := range records {
+		if rec == nil {
 			continue
 		}
-		turnAsync["total"] = turnAsync["total"].(int) + 1
-		countAsyncState(turnAsync, item)
-		if matchesRequestGroup(item, toolName, requestDigest) {
-			requestGroup["total"] = requestGroup["total"].(int) + 1
-			countAsyncState(requestGroup, item)
+		statusTool := strings.TrimSpace(rec.StatusToolName)
+		toolName := strings.TrimSpace(rec.ToolName)
+
+		// sameToolReuse: status tool == run tool → model-mediated polling.
+		sameToolReuse := statusTool != "" && strings.EqualFold(statusTool, toolName)
+		// runtimePolled: distinct status tool → autonomous poller owns the calls;
+		// do NOT surface the status tool to the model.
+		runtimePolled := statusTool != "" && !sameToolReuse
+
+		if !rec.Terminal() && sameToolReuse {
+			hasSameToolReuse = true
 		}
-		if !item.Terminal() {
-			entry := map[string]interface{}{
-				"id":              strings.TrimSpace(item.ID),
-				"toolName":        strings.TrimSpace(item.ToolName),
-				"status":          strings.TrimSpace(item.Status),
-				"state":           strings.TrimSpace(string(item.State)),
-				"requestArgs":     item.RequestArgs,
-				"requestArgsJSON": mustJSONText(item.RequestArgs),
-			}
-			turnPendingRequests = append(turnPendingRequests, entry)
-			if matchesRequestGroup(item, toolName, requestDigest) {
-				groupPendingRequests = append(groupPendingRequests, entry)
-			}
+
+		op := map[string]interface{}{
+			"id":            strings.TrimSpace(rec.ID),
+			"toolName":      toolName,
+			"status":        firstNonEmptyAsyncValue(strings.TrimSpace(rec.Status), strings.TrimSpace(string(rec.State))),
+			"terminal":      rec.Terminal(),
+			"sameToolReuse": sameToolReuse,
+			"runtimePolled": runtimePolled,
 		}
+		if sameToolReuse {
+			op["requestArgsJSON"] = mustJSONText(rec.RequestArgs)
+		}
+		if msg := strings.TrimSpace(rec.Message); msg != "" && !rec.Terminal() {
+			op["message"] = msg
+		}
+		if errMsg := strings.TrimSpace(rec.Error); errMsg != "" && rec.Terminal() {
+			op["error"] = errMsg
+		}
+		if inst := strings.TrimSpace(rec.Instruction); inst != "" && !rec.Terminal() {
+			op["instruction"] = inst
+		}
+		if termInst := strings.TrimSpace(rec.TerminalInstruction); termInst != "" && rec.Terminal() {
+			op["terminalInstruction"] = termInst
+		}
+		changedOps = append(changedOps, op)
 	}
-	turnAsync["pendingRequests"] = turnPendingRequests
-	requestGroup["pendingRequests"] = groupPendingRequests
-	return turnAsync, requestGroup
+
+	turnAsync["hasSameToolReuse"] = hasSameToolReuse
+
+	return map[string]interface{}{
+		"turnAsync":         turnAsync,
+		"changedOperations": changedOps,
+	}
 }
 
 func countAsyncState(target map[string]interface{}, rec *asynccfg.OperationRecord) {
@@ -214,23 +188,10 @@ func countAsyncState(target map[string]interface{}, rec *asynccfg.OperationRecor
 	target["allCompleted"] = false
 }
 
-func matchesRequestGroup(rec *asynccfg.OperationRecord, toolName, requestDigest string) bool {
-	if rec == nil {
-		return false
-	}
-	if !strings.EqualFold(strings.TrimSpace(rec.ToolName), toolName) {
-		return false
-	}
-	if requestDigest == "" {
-		return strings.TrimSpace(rec.RequestArgsDigest) == ""
-	}
-	return strings.TrimSpace(rec.RequestArgsDigest) == requestDigest
-}
-
 func firstNonEmptyAsyncValue(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
+	for _, v := range values {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
 		}
 	}
 	return ""
@@ -245,11 +206,4 @@ func mustJSONText(value interface{}) string {
 		return ""
 	}
 	return string(data)
-}
-
-func rawJSONText(value json.RawMessage) string {
-	if len(value) == 0 {
-		return ""
-	}
-	return string(value)
 }

@@ -1,38 +1,61 @@
-{{- $op := .Context.operation -}}
-{{- if $op.terminal -}}
-Async operation {{$op.id}} for {{$op.toolName}} changed to {{$op.status}}.
-{{- if and (eq $op.state "completed") $op.response }}
-The latest tool result is already available. Do not call the async tool again.
-Answer the user from the latest result.
-{{- else if eq $op.state "completed" }}
-The async operation completed. Use the latest completed result already in the
-conversation history and answer the user. Do not call the async tool again just
-to confirm completion.
-{{- else if or (eq $op.state "failed") (eq $op.state "canceled") }}
-Do not retry the async tool automatically. Explain the terminal status to the
-user and include the latest error or status details. Only retry if the user
-explicitly asks for it.
-{{- else }}
-The operation is terminal. Use the latest terminal result already in the
-conversation history and answer the user. Do not call the async tool again.
-{{- end }}
-{{- else -}}
-Async operation {{$op.id}} for {{$op.toolName}} is still in progress ({{$op.status}}).
-{{- if $op.statusToolName }}
-Call `{{$op.statusToolName}}` next to fetch the latest status before answering.
-{{- if $op.statusToolArgsJSON }}
-Use these exact arguments:
-{{$op.statusToolArgsJSON}}
-{{- end }}
-Do not call `{{$op.toolName}}` again while `{{$op.statusToolName}}` is available.
-{{- else }}
-If the integration uses in-band polling on the same tool, call `{{$op.toolName}}`
-again with the same request before answering.
-{{- if $op.requestArgsJSON }}
-Reuse these exact request arguments:
-{{$op.requestArgsJSON}}
-{{- end }}
-{{- end }}
-Do not re-run unrelated discovery or resource-reading tools before that retry
-unless the user request changed or the exact request arguments are unavailable.
-{{- end -}}
+You are managing asynchronous tool operations for the current turn.
+
+Rules:
+1. If there are no changed or active async operations, continue normal reasoning.
+2. If a non-terminal operation has `sameToolReuse: true`, call the same tool again
+   with the provided `requestArgsJSON` before answering.
+3. If a non-terminal operation has `runtimePolled: true`, the runtime is already
+   calling its status tool autonomously — do not call the status tool yourself.
+   Wait for the next async state update.
+4. Do not call the original start tool again for any non-terminal operation.
+5. If an operation is terminal, do not poll it again.
+6. When all operations are resolved, use the latest results already in
+   conversation history to answer.
+7. Prefer changed operations over unchanged active ones.
+8. Do not retry failed or canceled operations automatically unless the user
+   explicitly asks.
+
+Turn async summary:
+- pending: {{.Context.turnAsync.pending}}
+- active: {{.Context.turnAsync.active}}
+- completed: {{.Context.turnAsync.completed}}
+- failed: {{.Context.turnAsync.failed}}
+- canceled: {{.Context.turnAsync.canceled}}
+- allResolved: {{.Context.turnAsync.allResolved}}
+{{- if .Context.changedOperations}}
+
+Changed async operations:
+{{- range .Context.changedOperations}}
+- id: `{{.id}}`
+  tool: `{{.toolName}}`
+  status: `{{.status}}`
+  terminal: {{.terminal}}
+  {{- if .runtimePolled}}
+  runtime polled: true (do not call the status tool yourself)
+  {{- end}}
+  {{- if .sameToolReuse}}
+  same-tool reuse args: `{{.requestArgsJSON}}`
+  {{- end}}
+  {{- if .message}}
+  message: {{.message}}
+  {{- end}}
+  {{- if and .terminal .error}}
+  error: {{.error}}
+  {{- end}}
+  {{- if and (not .terminal) .instruction}}
+  instruction: {{.instruction}}
+  {{- end}}
+  {{- if and .terminal .terminalInstruction}}
+  terminal instruction: {{.terminalInstruction}}
+  {{- end}}
+{{- end}}
+{{- end}}
+
+Behavior:
+{{- if .Context.turnAsync.allResolved}}
+All async operations reached terminal state. Use the latest results in conversation history to answer the user. Do not poll again unless explicitly asked.
+{{- else if .Context.turnAsync.hasSameToolReuse}}
+At least one operation requires same-tool polling. Call the same tool with the exact `requestArgsJSON` shown above before answering.
+{{- else}}
+Active operations are being handled autonomously by the runtime. Do not call any status tools yourself. Wait for the next async state update before answering.
+{{- end}}

@@ -256,6 +256,190 @@ func TestDeriveState_CompleteAlias(t *testing.T) {
 	require.Equal(t, StateCompleted, DeriveState("COMPLETE", "", ""))
 }
 
+func TestManager_CancelTurnPollers_StopsRegisteredCancels(t *testing.T) {
+	type testCase struct {
+		name         string
+		convID       string
+		turnID       string
+		cancelConv   string
+		cancelTurn   string
+		wantCanceled []string
+		wantAlive    []string
+	}
+	cases := []testCase{
+		{
+			name:         "cancels all pollers for the target turn",
+			convID:       "conv-1",
+			turnID:       "turn-1",
+			cancelConv:   "conv-1",
+			cancelTurn:   "turn-1",
+			wantCanceled: []string{"op-a", "op-b"},
+		},
+		{
+			name:       "does not cancel pollers belonging to a different turn",
+			convID:     "conv-1",
+			turnID:     "turn-2",
+			cancelConv: "conv-1",
+			cancelTurn: "turn-1",
+			wantAlive:  []string{"op-c"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			manager := NewManager()
+
+			ops := []string{"op-a", "op-b"}
+			if len(tc.wantAlive) > 0 {
+				ops = tc.wantAlive
+			}
+
+			canceled := make(map[string]bool)
+			for _, id := range ops {
+				manager.Register(ctx, RegisterInput{
+					ID:           id,
+					ParentConvID: tc.convID,
+					ParentTurnID: tc.turnID,
+					ToolName:     "tool:start",
+					Status:       "running",
+				})
+				opID := id // capture
+				ok := manager.TryStartPoller(ctx, opID)
+				require.True(t, ok)
+				localCancel := func() { canceled[opID] = true }
+				manager.StorePollerCancel(ctx, opID, localCancel)
+			}
+
+			manager.CancelTurnPollers(ctx, tc.cancelConv, tc.cancelTurn)
+
+			for _, id := range tc.wantCanceled {
+				require.True(t, canceled[id], "expected %q to be canceled", id)
+			}
+			for _, id := range tc.wantAlive {
+				require.False(t, canceled[id], "expected %q to remain alive", id)
+			}
+		})
+	}
+}
+
+func TestManager_FinishPoller_CleansCancelFunc(t *testing.T) {
+	ctx := context.Background()
+	manager := NewManager()
+	manager.Register(ctx, RegisterInput{
+		ID:           "op-1",
+		ParentConvID: "conv-1",
+		ParentTurnID: "turn-1",
+		ToolName:     "tool:start",
+		Status:       "running",
+	})
+	ok := manager.TryStartPoller(ctx, "op-1")
+	require.True(t, ok)
+
+	called := false
+	manager.StorePollerCancel(ctx, "op-1", func() { called = true })
+
+	manager.FinishPoller(ctx, "op-1")
+
+	// Cancel should have been invoked by FinishPoller.
+	require.True(t, called, "FinishPoller must invoke the stored cancel func")
+
+	// After FinishPoller, TryStartPoller should succeed again (slot freed).
+	ok = manager.TryStartPoller(ctx, "op-1")
+	require.True(t, ok, "TryStartPoller should succeed after FinishPoller clears the slot")
+}
+
+func TestManager_CancelTurnPollers_NoOpWhenNoPollers(t *testing.T) {
+	ctx := context.Background()
+	manager := NewManager()
+	manager.Register(ctx, RegisterInput{
+		ID:           "op-1",
+		ParentConvID: "conv-1",
+		ParentTurnID: "turn-1",
+		ToolName:     "tool:start",
+		Status:       "running",
+	})
+	// No poller started — CancelTurnPollers must not panic.
+	require.NotPanics(t, func() {
+		manager.CancelTurnPollers(ctx, "conv-1", "turn-1")
+	})
+}
+
+func TestManager_RegisterStoresInstructionFields(t *testing.T) {
+	type testCase struct {
+		name                string
+		instruction         string
+		terminalInstruction string
+	}
+	cases := []testCase{
+		{
+			name:                "both fields set",
+			instruction:         "Do not call start again.",
+			terminalInstruction: "Answer from child result.",
+		},
+		{
+			name:                "only Instruction set",
+			instruction:         "Poll status tool next.",
+			terminalInstruction: "",
+		},
+		{
+			name:                "only TerminalInstruction set",
+			instruction:         "",
+			terminalInstruction: "Use cached result.",
+		},
+		{
+			name:                "neither set",
+			instruction:         "",
+			terminalInstruction: "",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			manager := NewManager()
+			rec := manager.Register(context.Background(), RegisterInput{
+				ID:                  "op-1",
+				ParentConvID:        "conv-1",
+				ParentTurnID:        "turn-1",
+				ToolName:            "llm/agents:start",
+				Status:              "running",
+				Instruction:         tc.instruction,
+				TerminalInstruction: tc.terminalInstruction,
+			})
+			require.NotNil(t, rec)
+			require.Equal(t, tc.instruction, rec.Instruction)
+			require.Equal(t, tc.terminalInstruction, rec.TerminalInstruction)
+
+			// Verify the values survive Get (clone path).
+			got, ok := manager.Get(context.Background(), "op-1")
+			require.True(t, ok)
+			require.Equal(t, tc.instruction, got.Instruction)
+			require.Equal(t, tc.terminalInstruction, got.TerminalInstruction)
+		})
+	}
+}
+
+func TestManager_InstructionNotMutatedByClone(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:                  "op-1",
+		ParentConvID:        "conv-1",
+		ParentTurnID:        "turn-1",
+		ToolName:            "system/exec:start",
+		Status:              "running",
+		Instruction:         "original instruction",
+		TerminalInstruction: "original terminal",
+	})
+
+	rec1, _ := manager.Get(context.Background(), "op-1")
+	rec2, _ := manager.Get(context.Background(), "op-1")
+
+	// Mutating the clone must not affect the stored record.
+	rec1.Instruction = "mutated"
+	require.Equal(t, "original instruction", rec2.Instruction, "clone mutation should not propagate")
+}
+
 func intPtr(value int) *int {
 	return &value
 }

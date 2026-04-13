@@ -1,22 +1,20 @@
 package async
 
-type PromptConfig struct {
-	Text   string `json:"text,omitempty" yaml:"text,omitempty"`
-	URI    string `json:"uri,omitempty" yaml:"uri,omitempty"`
-	Engine string `json:"engine,omitempty" yaml:"engine,omitempty"`
-}
-
 type Config struct {
-	Run                           RunConfig     `json:"run" yaml:"run"`
-	Status                        StatusConfig  `json:"status" yaml:"status"`
-	Cancel                        *CancelConfig `json:"cancel,omitempty" yaml:"cancel,omitempty"`
-	Reinforcement                 *PromptConfig `json:"reinforcement,omitempty" yaml:"reinforcement,omitempty"`
-	ReinforcementPrompt           string        `json:"reinforcementPrompt,omitempty" yaml:"reinforcementPrompt,omitempty"`
-	WaitForResponse               bool          `json:"waitForResponse,omitempty" yaml:"waitForResponse,omitempty"`
-	MaxReinforcementsPerOperation int           `json:"maxReinforcementsPerOperation,omitempty" yaml:"maxReinforcementsPerOperation,omitempty"`
-	MinIntervalBetweenMs          int           `json:"minIntervalBetweenMs,omitempty" yaml:"minIntervalBetweenMs,omitempty"`
-	TimeoutMs                     int           `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty"`
-	PollIntervalMs                int           `json:"pollIntervalMs,omitempty" yaml:"pollIntervalMs,omitempty"`
+	Run    RunConfig     `json:"run" yaml:"run"`
+	Status StatusConfig  `json:"status" yaml:"status"`
+	Cancel *CancelConfig `json:"cancel,omitempty" yaml:"cancel,omitempty"`
+	// Instruction is per-operation guidance for non-terminal state, surfaced in
+	// the centralized batch reinforcement template.
+	Instruction string `json:"instruction,omitempty" yaml:"instruction,omitempty"`
+	// TerminalInstruction is per-operation guidance once the operation reaches a
+	// terminal state, surfaced in the centralized batch reinforcement template.
+	TerminalInstruction           string `json:"terminalInstruction,omitempty" yaml:"terminalInstruction,omitempty"`
+	WaitForResponse               bool   `json:"waitForResponse,omitempty" yaml:"waitForResponse,omitempty"`
+	MaxReinforcementsPerOperation int    `json:"maxReinforcementsPerOperation,omitempty" yaml:"maxReinforcementsPerOperation,omitempty"`
+	MinIntervalBetweenMs          int    `json:"minIntervalBetweenMs,omitempty" yaml:"minIntervalBetweenMs,omitempty"`
+	TimeoutMs                     int    `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty"`
+	PollIntervalMs                int    `json:"pollIntervalMs,omitempty" yaml:"pollIntervalMs,omitempty"`
 }
 
 type RunConfig struct {

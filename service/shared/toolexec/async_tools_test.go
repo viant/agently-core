@@ -81,8 +81,10 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	manager := asynccfg.NewManager()
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
 	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = memory.WithModelMessageID(ctx, "assistant-1")
 	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
 	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, &stubConv{})
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
@@ -92,7 +94,7 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return len(pub.events) >= 2
+		return len(pub.events) >= 3
 	}, time.Second, 10*time.Millisecond)
 	require.NotEmpty(t, pub.events)
 
@@ -104,6 +106,8 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 		if event.OperationID != "child-1" {
 			continue
 		}
+		require.Equal(t, "call-1", event.ToolCallID)
+		require.Equal(t, "assistant-1", event.AssistantMessageID)
 		switch event.Type {
 		case streaming.EventTypeToolCallStarted:
 			sawStarted = true
@@ -115,15 +119,15 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	}
 	require.True(t, sawStarted)
 	require.True(t, sawWaiting)
-	require.False(t, sawCompleted)
-	require.Equal(t, 1, reg.calls)
-	rec, ok := manager.Get(context.Background(), "child-1")
-	require.True(t, ok)
-	require.NotNil(t, rec)
-	require.False(t, rec.Terminal())
+	require.True(t, sawCompleted)
+	require.Eventually(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "child-1")
+		return ok && rec != nil && rec.Terminal()
+	}, time.Second, 10*time.Millisecond)
+	require.GreaterOrEqual(t, reg.calls, 2)
 }
 
-func TestExecuteToolStep_AsyncDoesNotAutoCancelWithoutLLMStatusCall(t *testing.T) {
+func TestExecuteToolStep_AsyncAutoCancelsOnTimeout(t *testing.T) {
 	cfg := &asynccfg.Config{
 		WaitForResponse: true,
 		TimeoutMs:       20,
@@ -157,7 +161,7 @@ func TestExecuteToolStep_AsyncDoesNotAutoCancelWithoutLLMStatusCall(t *testing.T
 	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
 	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
 	ctx = WithAsyncManager(ctx, manager)
-
+	ctx = WithAsyncConversation(ctx, &stubConv{})
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
 		Name: "system/exec:start",
@@ -166,24 +170,18 @@ func TestExecuteToolStep_AsyncDoesNotAutoCancelWithoutLLMStatusCall(t *testing.T
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		rec, ok := manager.Get(context.Background(), "sess-1")
-		return ok && rec != nil
+		return ok && rec != nil && rec.Terminal()
 	}, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool {
-		rec, ok := manager.Get(context.Background(), "sess-1")
-		if !ok || rec == nil {
-			return true
-		}
-		return rec.Terminal() || reg.cancelCalls != 0 || reg.calls != 1
-	}, 150*time.Millisecond, 10*time.Millisecond)
 	rec, ok := manager.Get(context.Background(), "sess-1")
 	require.True(t, ok)
 	require.NotNil(t, rec)
-	require.False(t, rec.Terminal())
-	require.Equal(t, 0, reg.cancelCalls)
-	require.Equal(t, 1, reg.calls)
+	require.True(t, rec.Terminal())
+	require.Equal(t, asynccfg.StateFailed, rec.State)
+	require.Equal(t, 1, reg.cancelCalls)
+	require.GreaterOrEqual(t, reg.calls, 2)
 }
 
-func TestExecuteToolStep_AsyncDoesNotAutoPollWithoutLLMStatusCall(t *testing.T) {
+func TestExecuteToolStep_AsyncAutoPollsToCompletion(t *testing.T) {
 	cfg := &asynccfg.Config{
 		WaitForResponse: true,
 		PollIntervalMs:  5,
@@ -214,6 +212,7 @@ func TestExecuteToolStep_AsyncDoesNotAutoPollWithoutLLMStatusCall(t *testing.T) 
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
 	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
 	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, &stubConv{})
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
@@ -223,21 +222,15 @@ func TestExecuteToolStep_AsyncDoesNotAutoPollWithoutLLMStatusCall(t *testing.T) 
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		rec, ok := manager.Get(context.Background(), "sess-1")
-		return ok && rec != nil
+		return ok && rec != nil && rec.Terminal()
 	}, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool {
-		rec, ok := manager.Get(context.Background(), "sess-1")
-		if !ok || rec == nil {
-			return true
-		}
-		return rec.Terminal() || rec.PollFailures != 0 || reg.calls != 1
-	}, 150*time.Millisecond, 10*time.Millisecond)
 	rec, ok := manager.Get(context.Background(), "sess-1")
 	require.True(t, ok)
 	require.NotNil(t, rec)
-	require.False(t, rec.Terminal())
+	require.True(t, rec.Terminal())
+	require.Equal(t, asynccfg.StateCompleted, rec.State)
 	require.Equal(t, 0, rec.PollFailures)
-	require.Equal(t, 1, reg.calls)
+	require.GreaterOrEqual(t, reg.calls, 4)
 }
 
 func TestExecuteToolStep_SameToolRecallWaitsForPollWindow(t *testing.T) {
@@ -858,6 +851,263 @@ func TestExecuteToolStep_AsyncStartTerminalDoesNotRemainRunning(t *testing.T) {
 		lastStatus = patched.Status
 	}
 	require.Equal(t, "completed", lastStatus, "expected terminal async-start tool call to complete immediately")
+}
+
+// ---------------------------------------------------------------------------
+// Tests for P1 fixes: status-args reuse and poll-context propagation
+// ---------------------------------------------------------------------------
+
+// argsCapturingRegistry records the args and context passed to each Execute call.
+type argsCapturingRegistry struct {
+	asyncRegistry
+	capturedArgs   []map[string]interface{}
+	capturedHasPub []bool // whether the stream publisher was present in ctx
+}
+
+func (r *argsCapturingRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	argsCopy := make(map[string]interface{}, len(args))
+	for k, v := range args {
+		argsCopy[k] = v
+	}
+	r.capturedArgs = append(r.capturedArgs, argsCopy)
+	_, hasPub := modelcallctx.StreamPublisherFromContext(ctx)
+	r.capturedHasPub = append(r.capturedHasPub, hasPub)
+	return r.asyncRegistry.Execute(ctx, name, args)
+}
+
+func (r *argsCapturingRegistry) AsyncConfig(name string) (*asynccfg.Config, bool) {
+	return r.asyncRegistry.AsyncConfig(name)
+}
+
+func TestResolvePollerStatusArgs_UsesStoredRecordArgs(t *testing.T) {
+	// Verifies that resolvePollerStatusArgs prefers the fully-prepared StatusArgs
+	// stored on the OperationRecord over a stripped config-derived fallback.
+	cfg := &asynccfg.Config{
+		Status: asynccfg.StatusConfig{
+			Tool:           "system/exec:status",
+			OperationIDArg: "sessionId",
+			ExtraArgs:      map[string]interface{}{"workspace": "ws-1"},
+		},
+	}
+	manager := asynccfg.NewManager()
+	ctx := context.Background()
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:           "sess-1",
+		ParentConvID: "conv-1",
+		ParentTurnID: "turn-1",
+		ToolName:     "system/exec:start",
+		StatusArgs: map[string]interface{}{
+			"sessionId": "sess-1",
+			"workspace": "ws-1",
+		},
+		Status: "running",
+	})
+
+	args := resolvePollerStatusArgs(ctx, manager, cfg, "sess-1")
+
+	require.Equal(t, "sess-1", args["sessionId"], "operation id must be present")
+	require.Equal(t, "ws-1", args["workspace"], "ExtraArg from stored StatusArgs must be preserved")
+}
+
+func TestResolvePollerStatusArgs_FallsBackToConfigWhenNoRecord(t *testing.T) {
+	cfg := &asynccfg.Config{
+		Status: asynccfg.StatusConfig{
+			Tool:           "system/exec:status",
+			OperationIDArg: "sessionId",
+			ExtraArgs:      map[string]interface{}{"workspace": "ws-fallback"},
+		},
+	}
+	manager := asynccfg.NewManager()
+	// No record registered — fallback path must still produce correct args.
+	args := resolvePollerStatusArgs(context.Background(), manager, cfg, "sess-x")
+
+	require.Equal(t, "sess-x", args["sessionId"])
+	require.Equal(t, "ws-fallback", args["workspace"])
+}
+
+func TestPollAsyncOperation_UsesStoredStatusArgsNotBareOpID(t *testing.T) {
+	// The poller must pass the fully-prepared StatusArgs (including ExtraArgs)
+	// to each status-tool call, not just {OperationIDArg: opID}.
+	cfg := &asynccfg.Config{
+		WaitForResponse: true,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "system/exec:start",
+			OperationIDPath: "sessionId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "system/exec:status",
+			OperationIDArg: "sessionId",
+			ExtraArgs:      map[string]interface{}{"workspace": "ws-1"},
+			Selector:       asynccfg.Selector{StatusPath: "status"},
+		},
+	}
+	reg := &argsCapturingRegistry{
+		asyncRegistry: asyncRegistry{
+			scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+				{result: `{"status":"running","sessionId":"sess-1"}`},
+				{result: `{"status":"completed"}`},
+			}},
+			cfg: cfg,
+		},
+	}
+	pub := &captureStreamPublisher{}
+	manager := asynccfg.NewManager()
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, &stubConv{})
+
+	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-1",
+		Name: "system/exec:start",
+		Args: map[string]interface{}{"commands": []string{"echo hi"}},
+	}, &stubConv{})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "sess-1")
+		return ok && rec != nil && rec.Terminal()
+	}, time.Second, 10*time.Millisecond)
+
+	// The first Execute call is the start tool (no status args check needed).
+	// Subsequent calls are status polls — they must include the ExtraArg.
+	var statusCalls int
+	for i, args := range reg.capturedArgs {
+		// start call is index 0; status calls follow
+		if i == 0 {
+			continue
+		}
+		statusCalls++
+		require.Equal(t, "sess-1", args["sessionId"],
+			"status call %d must carry operationId", i)
+		require.Equal(t, "ws-1", args["workspace"],
+			"status call %d must carry ExtraArg from stored StatusArgs", i)
+	}
+	require.Greater(t, statusCalls, 0, "at least one status poll must have occurred")
+}
+
+func TestPollAsyncOperation_PassesPollContextToStatusTool(t *testing.T) {
+	// The poller must pass `ctx` (which carries the stream publisher and other
+	// request-scoped values from detachedAsyncPollContext) to reg.Execute, not
+	// a fresh context.Background() that strips those values.
+	cfg := &asynccfg.Config{
+		WaitForResponse: true,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector:       asynccfg.Selector{StatusPath: "status"},
+		},
+	}
+	reg := &argsCapturingRegistry{
+		asyncRegistry: asyncRegistry{
+			scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+				{result: `{"status":"running","conversationId":"child-1"}`},
+				{result: `{"status":"completed"}`},
+			}},
+			cfg: cfg,
+		},
+	}
+	pub := &captureStreamPublisher{}
+	manager := asynccfg.NewManager()
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, &stubConv{})
+
+	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-1",
+		Name: "llm/agents:start",
+		Args: map[string]interface{}{"agentId": "coder"},
+	}, &stubConv{})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "child-1")
+		return ok && rec != nil && rec.Terminal()
+	}, time.Second, 10*time.Millisecond)
+
+	// Every status-tool call (indices > 0) must have received a context that
+	// carries the stream publisher assembled by detachedAsyncPollContext.
+	var statusCalls int
+	for i, hasPub := range reg.capturedHasPub {
+		if i == 0 {
+			continue // start tool call — publisher may or may not be set
+		}
+		statusCalls++
+		require.True(t, hasPub,
+			"status poll %d must receive a context with the stream publisher", i)
+	}
+	require.Greater(t, statusCalls, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Test: poller stops when CancelTurnPollers is called (P1 fix)
+// ---------------------------------------------------------------------------
+
+func TestPollAsyncOperation_StopsWhenTurnCanceled(t *testing.T) {
+	// The poller should stop as soon as CancelTurnPollers fires on the manager,
+	// even if the status tool never returns a terminal state.
+	cfg := &asynccfg.Config{
+		WaitForResponse: true,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "system/exec:start",
+			OperationIDPath: "sessionId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "system/exec:status",
+			OperationIDArg: "sessionId",
+			Selector:       asynccfg.Selector{StatusPath: "status"},
+		},
+	}
+	// Return "running" forever — the poller must not reach terminal on its own.
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","sessionId":"sess-1"}`},
+			{result: `{"status":"running"}`},
+			{result: `{"status":"running"}`},
+			{result: `{"status":"running"}`},
+			{result: `{"status":"running"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, &stubConv{})
+
+	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-1",
+		Name: "system/exec:start",
+		Args: map[string]interface{}{"commands": []string{"sleep 9999"}},
+	}, &stubConv{})
+	require.NoError(t, err)
+
+	// Wait for at least one poll to confirm the poller is running.
+	require.Eventually(t, func() bool {
+		return reg.calls >= 2
+	}, time.Second, 5*time.Millisecond, "poller should have polled at least once")
+
+	// Cancel the turn — this must stop the poller.
+	manager.CancelTurnPollers(ctx, "conv-1", "turn-1")
+
+	// The poller's slot should be freed promptly (FinishPoller fires on ctx.Done()).
+	require.Eventually(t, func() bool {
+		// TryStartPoller returns true only when no poller holds the slot.
+		return manager.TryStartPoller(context.Background(), "sess-1")
+	}, time.Second, 10*time.Millisecond, "poller should have exited after CancelTurnPollers")
 }
 
 var _ apiconv.Client = (*stubConv)(nil)

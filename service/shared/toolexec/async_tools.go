@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
@@ -103,7 +104,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			asyncwait.MarkAfterStatus(ctx, matched.ID)
 		}
 		if changed {
-			publishAsyncUpdateEvent(ctx, step.Name, matched.ID, payload, rec)
+			publishAsyncUpdateEvent(ctx, step.Name, matched.ToolCallID, matched.ID, payload, rec)
 		}
 		return nil
 	case sameToolName(step.Name, cfg.Run.Tool):
@@ -140,18 +141,19 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			PollIntervalMs:                cfg.PollIntervalMs,
 			MaxReinforcementsPerOperation: cfg.MaxReinforcementsPerOperation,
 			MinIntervalBetweenMs:          cfg.MinIntervalBetweenMs,
-			Reinforcement:                 cfg.Reinforcement,
-			ReinforcementPrompt:           cfg.ReinforcementPrompt,
+			Instruction:                   cfg.Instruction,
+			TerminalInstruction:           cfg.TerminalInstruction,
 		})
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
-		publishAsyncLifecycleEvent(ctx, step.Name, opID, streaming.EventTypeToolCallStarted, extracted)
+		publishAsyncLifecycleEvent(ctx, step.Name, step.ID, opID, streaming.EventTypeToolCallStarted, extracted)
 		if rec != nil && rec.Terminal() {
-			publishAsyncUpdateEvent(ctx, step.Name, opID, extracted, rec)
+			publishAsyncUpdateEvent(ctx, step.Name, step.ID, opID, extracted, rec)
 			return nil
 		}
 		if state := asynccfg.DeriveState(extracted.Status, extracted.Error, ""); state == asynccfg.StateWaiting || state == asynccfg.StateRunning || state == asynccfg.StateStarted {
-			publishAsyncLifecycleEvent(ctx, step.Name, opID, streaming.EventTypeToolCallWaiting, extracted)
+			publishAsyncLifecycleEvent(ctx, step.Name, step.ID, opID, streaming.EventTypeToolCallWaiting, extracted)
 		}
+		maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
 		return rec
 	case sameToolName(step.Name, cfg.Status.Tool):
 		opID := strings.TrimSpace(stringArg(step.Args, cfg.Status.OperationIDArg))
@@ -183,7 +185,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			asyncwait.MarkAfterStatus(ctx, opID)
 		}
 		if changed {
-			publishAsyncUpdateEvent(ctx, step.Name, opID, payload, rec)
+			publishAsyncUpdateEvent(ctx, step.Name, step.ID, opID, payload, rec)
 		}
 	}
 	return nil
@@ -331,17 +333,115 @@ func sameToolName(actual, expected string) bool {
 	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(actual)), strings.TrimSpace(mcpname.Canonical(expected)))
 }
 
+func shouldAutoPollAsync(cfg *asynccfg.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if strings.TrimSpace(cfg.Status.Tool) == "" {
+		return false
+	}
+	if sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs {
+		return false
+	}
+	return !sameToolName(cfg.Run.Tool, cfg.Status.Tool)
+}
+
+func maybeStartAsyncPoller(ctx context.Context, manager AsyncManager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+	if !shouldAutoPollAsync(cfg) || manager == nil || reg == nil || strings.TrimSpace(opID) == "" {
+		return
+	}
+	if !manager.TryStartPoller(ctx, opID) {
+		return
+	}
+	// Create a cancelable context rooted at Background so the poller outlives
+	// the parent HTTP request, while still being stoppable via CancelTurnPollers.
+	pollCtx, cancel := context.WithCancel(context.Background())
+	pollCtx = rehydrateAsyncPollContext(ctx, pollCtx, turn)
+	// Register the cancel so the service layer can stop this poller when the
+	// parent turn is explicitly canceled.
+	manager.StorePollerCancel(ctx, opID, cancel)
+	go func() {
+		defer cancel() // idempotent — ensures cleanup if PollAsyncOperation returns early
+		PollAsyncOperation(pollCtx, manager, reg, cfg, turn, opID, conv)
+	}()
+}
+
+// rehydrateAsyncPollContext copies the request-scoped values that the autonomous
+// poller needs from src into dst. dst must already be a cancelable background
+// context created by the caller.
+//
+// Values carried over:
+//   - conversation/turn/message identity (for SSE event routing)
+//   - request mode and stream publisher (for live updates)
+//   - auth identity and token bundle (for status tools that need credentials)
+func rehydrateAsyncPollContext(src context.Context, dst context.Context, turn runtimerequestctx.TurnMeta) context.Context {
+	if strings.TrimSpace(turn.ConversationID) != "" {
+		dst = runtimerequestctx.WithConversationID(dst, strings.TrimSpace(turn.ConversationID))
+	}
+	dst = runtimerequestctx.WithTurnMeta(dst, turn)
+	if msgID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(src)); msgID != "" {
+		dst = runtimerequestctx.WithToolMessageID(dst, msgID)
+	}
+	assistantMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(src))
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(runtimerequestctx.TurnModelMessageID(turn.TurnID))
+	}
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(turn.ParentMessageID)
+	}
+	if assistantMessageID != "" {
+		dst = runtimerequestctx.WithModelMessageID(dst, assistantMessageID)
+	}
+	if mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(src)); mode != "" {
+		dst = runtimerequestctx.WithRequestMode(dst, mode)
+	}
+	if pub, ok := modelcallctx.StreamPublisherFromContext(src); ok {
+		dst = modelcallctx.WithStreamPublisher(dst, pub)
+	}
+	// Auth context — required for status tools that make authenticated outbound
+	// calls (e.g. generic MCP/external async tools).
+	if user := iauth.User(src); user != nil {
+		dst = iauth.WithUserInfo(dst, user)
+	}
+	if tokens := iauth.TokensFromContext(src); tokens != nil {
+		dst = iauth.WithTokens(dst, tokens)
+	}
+	if provider := iauth.Provider(src); provider != "" {
+		dst = iauth.WithProvider(dst, provider)
+	}
+	return dst
+}
+
+// detachedAsyncPollContext is kept for call sites that pre-date the cancelable
+// poller design. New code should use rehydrateAsyncPollContext with an explicit
+// cancelable base context.
+func detachedAsyncPollContext(ctx context.Context, turn runtimerequestctx.TurnMeta) context.Context {
+	return rehydrateAsyncPollContext(ctx, context.Background(), turn)
+}
+
 func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
 	if cfg == nil || manager == nil || reg == nil || strings.TrimSpace(opID) == "" {
 		return
 	}
+	defer manager.FinishPoller(ctx, opID)
 	interval := time.Duration(cfg.PollIntervalMs) * time.Millisecond
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	statusArgs := map[string]interface{}{cfg.Status.OperationIDArg: opID}
+
+	// Resolve status args from the registered record so that ReuseRunArgs and
+	// ExtraArgs contributions from asyncStatusArgs() are honoured. Fall back to
+	// the config-derived minimal set only when the record is unavailable.
+	statusArgs := resolvePollerStatusArgs(context.Background(), manager, cfg, opID)
+
+	// cancelArgs only need the operation handle; CancelConfig has no ExtraArgs field.
+	cancelArgs := map[string]interface{}{}
+	if cfg.Cancel != nil && strings.TrimSpace(cfg.Cancel.OperationIDArg) != "" {
+		cancelArgs[cfg.Cancel.OperationIDArg] = opID
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -349,8 +449,7 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 		case <-ticker.C:
 			if rec, ok := manager.Get(context.Background(), opID); ok && rec != nil && rec.TimeoutAt != nil && time.Now().After(*rec.TimeoutAt) {
 				if cfg.Cancel != nil && strings.TrimSpace(cfg.Cancel.Tool) != "" {
-					cancelArgs := map[string]interface{}{cfg.Cancel.OperationIDArg: opID}
-					_, _ = reg.Execute(runtimerequestctx.WithConversationID(context.Background(), turn.ConversationID), cfg.Cancel.Tool, cancelArgs)
+					_, _ = reg.Execute(ctx, cfg.Cancel.Tool, cancelArgs)
 				}
 				payload := &asynccfg.Extracted{
 					Status: "failed",
@@ -363,15 +462,18 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 					State:  asynccfg.StateFailed,
 				})
 				patchAsyncToolPersistence(context.Background(), conv, rec, "operation timed out", nil)
-				publishAsyncUpdateEvent(ctx, cfg.Run.Tool, opID, payload, rec)
+				publishAsyncUpdateEvent(ctx, cfg.Run.Tool, rec.ToolCallID, opID, payload, rec)
 				return
 			}
-			result, err := reg.Execute(runtimerequestctx.WithConversationID(context.Background(), turn.ConversationID), cfg.Status.Tool, statusArgs)
+			// Use the poll context (ctx) so that the registry receives the same
+			// conversation/turn/message/mode/publisher values assembled by
+			// detachedAsyncPollContext, rather than a bare context.Background().
+			result, err := reg.Execute(ctx, cfg.Status.Tool, statusArgs)
 			if err != nil {
 				rec, terminal := manager.RecordPollFailure(context.Background(), opID, err.Error(), isTransientPollError(err))
 				if terminal {
 					patchAsyncToolPersistence(context.Background(), conv, rec, err.Error(), nil)
-					publishAsyncUpdateEvent(ctx, cfg.Status.Tool, opID, &asynccfg.Extracted{Status: "failed", Error: err.Error()}, rec)
+					publishAsyncUpdateEvent(ctx, cfg.Status.Tool, rec.ToolCallID, opID, &asynccfg.Extracted{Status: "failed", Error: err.Error()}, rec)
 					return
 				}
 				if !waitPollBackoff(ctx, pollBackoff(interval, rec)) {
@@ -393,12 +495,37 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 				Error:   payload.Error,
 			})
 			patchAsyncToolPersistence(context.Background(), conv, rec, "", payload)
-			publishAsyncUpdateEvent(ctx, cfg.Status.Tool, opID, payload, rec)
+			publishAsyncUpdateEvent(ctx, cfg.Status.Tool, rec.ToolCallID, opID, payload, rec)
 			if rec != nil && rec.Terminal() {
 				return
 			}
 		}
 	}
+}
+
+// resolvePollerStatusArgs returns the status arguments the poller should use for
+// every subsequent status-tool call. It prefers the fully-prepared StatusArgs
+// already stored on the OperationRecord (which captures ReuseRunArgs and
+// ExtraArgs), and falls back to deriving the minimal set from cfg when the
+// record is not available.
+func resolvePollerStatusArgs(ctx context.Context, manager AsyncManager, cfg *asynccfg.Config, opID string) map[string]interface{} {
+	if rec, ok := manager.Get(ctx, opID); ok && rec != nil && len(rec.StatusArgs) > 0 {
+		// Clone so the poller has a stable, immutable copy.
+		args := make(map[string]interface{}, len(rec.StatusArgs))
+		for k, v := range rec.StatusArgs {
+			args[k] = v
+		}
+		return args
+	}
+	// Fallback: reconstruct from config alone (no ReuseRunArgs support in this path).
+	args := map[string]interface{}{}
+	if arg := strings.TrimSpace(cfg.Status.OperationIDArg); arg != "" {
+		args[arg] = strings.TrimSpace(opID)
+	}
+	for k, v := range cfg.Status.ExtraArgs {
+		args[k] = v
+	}
+	return args
 }
 
 func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *asynccfg.OperationRecord, fallbackErr string, payload *asynccfg.Extracted) {
@@ -526,7 +653,7 @@ func asyncCancelToolName(cfg *asynccfg.Config) string {
 	return strings.TrimSpace(cfg.Cancel.Tool)
 }
 
-func publishAsyncUpdateEvent(ctx context.Context, toolName, opID string, payload *asynccfg.Extracted, rec *asynccfg.OperationRecord) {
+func publishAsyncUpdateEvent(ctx context.Context, toolName, toolCallID, opID string, payload *asynccfg.Extracted, rec *asynccfg.OperationRecord) {
 	if payload == nil {
 		return
 	}
@@ -543,26 +670,35 @@ func publishAsyncUpdateEvent(ctx context.Context, toolName, opID string, payload
 			eventType = streaming.EventTypeToolCallWaiting
 		}
 	}
-	publishAsyncLifecycleEvent(ctx, toolName, opID, eventType, payload)
+	publishAsyncLifecycleEvent(ctx, toolName, toolCallID, opID, eventType, payload)
 }
 
-func publishAsyncLifecycleEvent(ctx context.Context, toolName, opID string, eventType streaming.EventType, payload *asynccfg.Extracted) {
+func publishAsyncLifecycleEvent(ctx context.Context, toolName, toolCallID, opID string, eventType streaming.EventType, payload *asynccfg.Extracted) {
 	pub, ok := modelcallctx.StreamPublisherFromContext(ctx)
 	if !ok {
 		return
 	}
 	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(runtimerequestctx.TurnModelMessageID(turn.TurnID))
+	}
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(turn.ParentMessageID)
+	}
 	event := &streaming.Event{
-		Type:           eventType,
-		ConversationID: strings.TrimSpace(turn.ConversationID),
-		StreamID:       strings.TrimSpace(turn.ConversationID),
-		TurnID:         strings.TrimSpace(turn.TurnID),
-		MessageID:      strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
-		ToolMessageID:  strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
-		ToolCallID:     strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
-		OperationID:    strings.TrimSpace(opID),
-		ToolName:       strings.TrimSpace(toolName),
-		CreatedAt:      time.Now(),
+		Type:               eventType,
+		ConversationID:     strings.TrimSpace(turn.ConversationID),
+		StreamID:           strings.TrimSpace(turn.ConversationID),
+		TurnID:             strings.TrimSpace(turn.TurnID),
+		MessageID:          strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+		ToolMessageID:      strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+		ToolCallID:         strings.TrimSpace(toolCallID),
+		OperationID:        strings.TrimSpace(opID),
+		ToolName:           strings.TrimSpace(toolName),
+		AssistantMessageID: assistantMessageID,
+		ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
+		CreatedAt:          time.Now(),
 	}
 	if payload != nil {
 		event.Status = strings.TrimSpace(payload.Status)
