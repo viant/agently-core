@@ -91,10 +91,9 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	}, &stubConv{})
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(time.Second)
-	for len(pub.events) < 2 && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
+	require.Eventually(t, func() bool {
+		return len(pub.events) >= 2
+	}, time.Second, 10*time.Millisecond)
 	require.NotEmpty(t, pub.events)
 
 	var sawStarted, sawWaiting, sawCompleted bool
@@ -165,7 +164,17 @@ func TestExecuteToolStep_AsyncDoesNotAutoCancelWithoutLLMStatusCall(t *testing.T
 		Args: map[string]interface{}{"commands": []string{"sleep 30"}},
 	}, &stubConv{})
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "sess-1")
+		return ok && rec != nil
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "sess-1")
+		if !ok || rec == nil {
+			return true
+		}
+		return rec.Terminal() || reg.cancelCalls != 0 || reg.calls != 1
+	}, 150*time.Millisecond, 10*time.Millisecond)
 	rec, ok := manager.Get(context.Background(), "sess-1")
 	require.True(t, ok)
 	require.NotNil(t, rec)
@@ -212,7 +221,17 @@ func TestExecuteToolStep_AsyncDoesNotAutoPollWithoutLLMStatusCall(t *testing.T) 
 		Args: map[string]interface{}{"commands": []string{"sleep 30"}},
 	}, &stubConv{})
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "sess-1")
+		return ok && rec != nil
+	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "sess-1")
+		if !ok || rec == nil {
+			return true
+		}
+		return rec.Terminal() || rec.PollFailures != 0 || reg.calls != 1
+	}, 150*time.Millisecond, 10*time.Millisecond)
 	rec, ok := manager.Get(context.Background(), "sess-1")
 	require.True(t, ok)
 	require.NotNil(t, rec)
@@ -404,19 +423,17 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 	}, conv)
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		for _, call := range conv.patchedToolCalls {
 			if call == nil || call.ResponsePayloadID == nil {
 				continue
 			}
 			if strings.TrimSpace(*call.ResponsePayloadID) != "" {
-				return
+				return true
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for async completion response payload persistence")
+		return false
+	}, time.Second, 10*time.Millisecond, "timed out waiting for async completion response payload persistence")
 }
 
 func TestMaybeHandleAsyncTool_StatusPublishesFailedLifecycleEvent(t *testing.T) {

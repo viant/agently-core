@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -106,19 +107,10 @@ func TestConversationStreamTracker_TrackSubscription(t *testing.T) {
 		t.Fatalf("publish failed: %v", err)
 	}
 
-	deadline := time.After(2 * time.Second)
-	for {
+	require.Eventually(t, func() bool {
 		state := tracker.State()
-		if state != nil && len(state.Turns) == 1 && state.Turns[0].TurnID == "turn-1" {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("tracker did not apply subscription event: %#v", tracker.State())
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
+		return state != nil && len(state.Turns) == 1 && state.Turns[0].TurnID == "turn-1"
+	}, 2*time.Second, 10*time.Millisecond, "tracker did not apply subscription event")
 
 	cancel()
 	select {

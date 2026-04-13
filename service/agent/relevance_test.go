@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor/config"
@@ -80,6 +80,8 @@ func TestRunRelevanceSelectors_RespectsMaxConcurrency(t *testing.T) {
 	concurrency := 2
 	var current atomic.Int32
 	var maxSeen atomic.Int32
+	release := make(chan struct{})
+	var releaseOnce sync.Once
 	svc := &Service{
 		defaults: &config.Defaults{
 			Projection: config.Projection{
@@ -97,7 +99,12 @@ func TestRunRelevanceSelectors_RespectsMaxConcurrency(t *testing.T) {
 					break
 				}
 			}
-			time.Sleep(20 * time.Millisecond)
+			if inFlight == int32(concurrency) {
+				releaseOnce.Do(func() {
+					close(release)
+				})
+			}
+			<-release
 			current.Add(-1)
 			return &relevanceSelectorOutput{TurnIDs: []string{input.Candidates[0].TurnID}}, nil
 		},
