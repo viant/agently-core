@@ -728,6 +728,13 @@ export interface WorkspaceDefaults {
     autoSelectTools?: boolean;
 }
 
+export interface MetadataTargetContext {
+    platform?: 'web' | 'android' | 'ios' | string;
+    formFactor?: 'desktop' | 'tablet' | 'phone' | string;
+    surface?: 'browser' | 'app' | string;
+    capabilities?: string[];
+}
+
 export interface WorkspaceMetadata {
     defaultAgent?: string;
     defaultModel?: string;

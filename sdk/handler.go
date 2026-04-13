@@ -106,10 +106,21 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 	registerOptionalRoutes(mux, cfg)
 
 	var handler http.Handler = mux
+	handler = withDebugHeaders(handler)
 	if cfg.authCfg != nil && cfg.authCfg.Enabled && cfg.authSessions != nil {
-		handler = svcauth.Protect(cfg.authCfg, cfg.authSessions)(mux)
+		handler = svcauth.Protect(cfg.authCfg, cfg.authSessions)(handler)
 	}
 	return handler, nil
+}
+
+func withDebugHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if next == nil {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(debugContextFromHeaders(r.Context(), r)))
+	})
 }
 
 func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) {

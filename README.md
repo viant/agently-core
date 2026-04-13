@@ -334,10 +334,27 @@ go test ./e2e/auth/ -v
 go test ./sdk/ -v
 ```
 
-Debug logging is controlled by `AGENTLY_DEBUG`. When enabled, all debug
+Debug logging is controlled globally by `AGENTLY_DEBUG`. When enabled, all debug
 components are shown by default. To narrow output, optionally set
 `AGENTLY_DEBUG_COMPONENTS` to a comma-separated list of component names such as
 `conversation,sse`.
+
+For SDK callers, request-scoped logging is also available without changing
+global process state:
+
+- Go HTTP SDK: `sdk.WithSessionDebug("trace", "conversation", "reactor")`
+- TypeScript SDK: `new AgentlyClient({ ..., sessionDebug: { level: "trace", components: ["conversation", "reactor"] } })`
+- iOS SDK: `AgentlyClient(..., sessionDebug: SessionDebugOptions(level: "trace", components: ["conversation", "reactor"]))`
+- Android SDK: `AgentlyClient(..., sessionDebug = SessionDebugOptions(level = "trace", components = listOf("conversation", "reactor")))`
+
+These SDK options emit request-scoped headers:
+
+- `X-Agently-Debug`
+- `X-Agently-Debug-Level`
+- `X-Agently-Debug-Components`
+
+The server maps those headers into context-scoped debug logging for that
+client/session without requiring `AGENTLY_DEBUG` for the whole process.
 
 ## Related Projects
 

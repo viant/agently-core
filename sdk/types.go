@@ -1,71 +1,77 @@
 package sdk
 
-import "github.com/viant/agently-core/sdkapi"
+import api "github.com/viant/agently-core/sdk/api"
 
-type PageInput = sdkapi.PageInput
-type Direction = sdkapi.Direction
+type PageInput = api.PageInput
+type Direction = api.Direction
 
 const (
-	DirectionBefore = sdkapi.DirectionBefore
-	DirectionAfter  = sdkapi.DirectionAfter
-	DirectionLatest = sdkapi.DirectionLatest
+	DirectionBefore = api.DirectionBefore
+	DirectionAfter  = api.DirectionAfter
+	DirectionLatest = api.DirectionLatest
 )
 
-type MessagePage = sdkapi.MessagePage
-type ConversationPage = sdkapi.ConversationPage
-type GetMessagesInput = sdkapi.GetMessagesInput
-type ListConversationsInput = sdkapi.ListConversationsInput
-type ListLinkedConversationsInput = sdkapi.ListLinkedConversationsInput
-type LinkedConversationEntry = sdkapi.LinkedConversationEntry
-type LinkedConversationPage = sdkapi.LinkedConversationPage
-type SteerTurnInput = sdkapi.SteerTurnInput
-type SteerTurnOutput = sdkapi.SteerTurnOutput
-type MoveQueuedTurnInput = sdkapi.MoveQueuedTurnInput
-type EditQueuedTurnInput = sdkapi.EditQueuedTurnInput
-type CreateConversationInput = sdkapi.CreateConversationInput
-type UpdateConversationInput = sdkapi.UpdateConversationInput
-type StreamEventsInput = sdkapi.StreamEventsInput
-type ResolveElicitationInput = sdkapi.ResolveElicitationInput
-type ListPendingElicitationsInput = sdkapi.ListPendingElicitationsInput
-type PendingElicitation = sdkapi.PendingElicitation
-type WorkspaceDefaults = sdkapi.WorkspaceDefaults
-type WorkspaceCapabilities = sdkapi.WorkspaceCapabilities
-type StarterTask = sdkapi.StarterTask
-type WorkspaceAgentInfo = sdkapi.WorkspaceAgentInfo
-type WorkspaceModelInfo = sdkapi.WorkspaceModelInfo
-type WorkspaceMetadata = sdkapi.WorkspaceMetadata
-type ListPendingToolApprovalsInput = sdkapi.ListPendingToolApprovalsInput
-type PendingToolApproval = sdkapi.PendingToolApproval
-type ApprovalOption = sdkapi.ApprovalOption
-type ApprovalEditor = sdkapi.ApprovalEditor
-type ApprovalCallback = sdkapi.ApprovalCallback
-type ApprovalForgeView = sdkapi.ApprovalForgeView
-type ApprovalMeta = sdkapi.ApprovalMeta
-type ApprovalCallbackPayload = sdkapi.ApprovalCallbackPayload
-type ApprovalCallbackResult = sdkapi.ApprovalCallbackResult
-type PendingToolApprovalPage = sdkapi.PendingToolApprovalPage
-type DecideToolApprovalInput = sdkapi.DecideToolApprovalInput
-type DecideToolApprovalOutput = sdkapi.DecideToolApprovalOutput
-type UploadFileInput = sdkapi.UploadFileInput
-type UploadFileOutput = sdkapi.UploadFileOutput
-type DownloadFileInput = sdkapi.DownloadFileInput
-type DownloadFileOutput = sdkapi.DownloadFileOutput
-type ListFilesInput = sdkapi.ListFilesInput
-type FileEntry = sdkapi.FileEntry
-type ListFilesOutput = sdkapi.ListFilesOutput
-type ToolDefinitionInfo = sdkapi.ToolDefinitionInfo
-type ResourceRef = sdkapi.ResourceRef
-type ListResourcesInput = sdkapi.ListResourcesInput
-type ListResourcesOutput = sdkapi.ListResourcesOutput
-type GetResourceOutput = sdkapi.GetResourceOutput
-type SaveResourceInput = sdkapi.SaveResourceInput
-type Resource = sdkapi.Resource
-type ExportResourcesInput = sdkapi.ExportResourcesInput
-type ExportResourcesOutput = sdkapi.ExportResourcesOutput
-type ImportResourcesInput = sdkapi.ImportResourcesInput
-type ImportResourcesOutput = sdkapi.ImportResourcesOutput
-type GetTranscriptInput = sdkapi.GetTranscriptInput
-type QuerySelector = sdkapi.QuerySelector
+type MessagePage = api.MessagePage
+type ConversationPage = api.ConversationPage
+type GetMessagesInput = api.GetMessagesInput
+type ListConversationsInput = api.ListConversationsInput
+type ListLinkedConversationsInput = api.ListLinkedConversationsInput
+type LinkedConversationEntry = api.LinkedConversationEntry
+type LinkedConversationPage = api.LinkedConversationPage
+type SteerTurnInput = api.SteerTurnInput
+type SteerTurnOutput = api.SteerTurnOutput
+type MoveQueuedTurnInput = api.MoveQueuedTurnInput
+type EditQueuedTurnInput = api.EditQueuedTurnInput
+type CreateConversationInput = api.CreateConversationInput
+type UpdateConversationInput = api.UpdateConversationInput
+type StreamEventsInput = api.StreamEventsInput
+type ResolveElicitationInput = api.ResolveElicitationInput
+type ListPendingElicitationsInput = api.ListPendingElicitationsInput
+type PendingElicitation = api.PendingElicitation
+type WorkspaceDefaults = api.WorkspaceDefaults
+type WorkspaceCapabilities = api.WorkspaceCapabilities
+type MetadataTargetContext struct {
+	Platform     string
+	FormFactor   string
+	Surface      string
+	Capabilities []string
+}
+type StarterTask = api.StarterTask
+type WorkspaceAgentInfo = api.WorkspaceAgentInfo
+type WorkspaceModelInfo = api.WorkspaceModelInfo
+type WorkspaceMetadata = api.WorkspaceMetadata
+type ListPendingToolApprovalsInput = api.ListPendingToolApprovalsInput
+type PendingToolApproval = api.PendingToolApproval
+type ApprovalOption = api.ApprovalOption
+type ApprovalEditor = api.ApprovalEditor
+type ApprovalCallback = api.ApprovalCallback
+type ApprovalForgeView = api.ApprovalForgeView
+type ApprovalMeta = api.ApprovalMeta
+type ApprovalCallbackPayload = api.ApprovalCallbackPayload
+type ApprovalCallbackResult = api.ApprovalCallbackResult
+type PendingToolApprovalPage = api.PendingToolApprovalPage
+type DecideToolApprovalInput = api.DecideToolApprovalInput
+type DecideToolApprovalOutput = api.DecideToolApprovalOutput
+type UploadFileInput = api.UploadFileInput
+type UploadFileOutput = api.UploadFileOutput
+type DownloadFileInput = api.DownloadFileInput
+type DownloadFileOutput = api.DownloadFileOutput
+type ListFilesInput = api.ListFilesInput
+type FileEntry = api.FileEntry
+type ListFilesOutput = api.ListFilesOutput
+type ToolDefinitionInfo = api.ToolDefinitionInfo
+type ResourceRef = api.ResourceRef
+type ListResourcesInput = api.ListResourcesInput
+type ListResourcesOutput = api.ListResourcesOutput
+type GetResourceOutput = api.GetResourceOutput
+type SaveResourceInput = api.SaveResourceInput
+type Resource = api.Resource
+type ExportResourcesInput = api.ExportResourcesInput
+type ExportResourcesOutput = api.ExportResourcesOutput
+type ImportResourcesInput = api.ImportResourcesInput
+type ImportResourcesOutput = api.ImportResourcesOutput
+type GetTranscriptInput = api.GetTranscriptInput
+type QuerySelector = api.QuerySelector
 
 type TranscriptOption func(*transcriptOptions)
 

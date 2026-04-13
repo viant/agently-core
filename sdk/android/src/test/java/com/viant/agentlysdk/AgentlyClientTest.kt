@@ -53,6 +53,52 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `getWorkspaceMetadata appends target context query params when provided`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"workspaceRoot":"/tmp/workspace"}"""))
+        server.start()
+        val client = client()
+
+        client.getWorkspaceMetadata(
+            MetadataTargetContext(
+                platform = "android",
+                formFactor = "tablet",
+                surface = "app",
+                capabilities = listOf("markdown", "chart")
+            )
+        )
+
+        val path = server.takeRequest().path!!
+        assertTrue(path.startsWith("/v1/workspace/metadata?"))
+        assertTrue(path.contains("platform=android"))
+        assertTrue(path.contains("formFactor=tablet"))
+        assertTrue(path.contains("surface=app"))
+        assertTrue(path.contains("capabilities=markdown%2Cchart") || path.contains("capabilities=markdown,chart"))
+    }
+
+    @Test
+    fun `session debug options append debug headers`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"workspaceRoot":"/tmp/workspace"}"""))
+        server.start()
+        val client = AgentlyClient(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(baseUrl = server.url("/").toString().trimEnd('/'))
+            ),
+            sessionDebug = SessionDebugOptions(
+                enabled = true,
+                level = "trace",
+                components = listOf("conversation", "reactor")
+            )
+        )
+
+        client.getWorkspaceMetadata()
+
+        val request = server.takeRequest()
+        assertEquals("true", request.getHeader("X-Agently-Debug"))
+        assertEquals("trace", request.getHeader("X-Agently-Debug-Level"))
+        assertEquals("conversation,reactor", request.getHeader("X-Agently-Debug-Components"))
+    }
+
+    @Test
     fun `listPendingToolApprovals accepts bare array response`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

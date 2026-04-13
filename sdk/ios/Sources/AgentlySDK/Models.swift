@@ -78,6 +78,53 @@ public struct WorkspaceDefaults: Codable, Sendable {
     }
 }
 
+public struct MetadataTargetContext: Codable, Sendable {
+    public let platform: String?
+    public let formFactor: String?
+    public let surface: String?
+    public let capabilities: [String]
+
+    public init(
+        platform: String? = nil,
+        formFactor: String? = nil,
+        surface: String? = nil,
+        capabilities: [String] = []
+    ) {
+        self.platform = platform
+        self.formFactor = formFactor
+        self.surface = surface
+        self.capabilities = capabilities
+    }
+}
+
+public struct SessionDebugOptions: Codable, Sendable {
+    public let enabled: Bool
+    public let level: String?
+    public let components: [String]
+
+    public init(enabled: Bool = true, level: String? = nil, components: [String] = []) {
+        self.enabled = enabled
+        self.level = level
+        self.components = components
+    }
+
+    public func headerFields() -> [String: String] {
+        guard enabled else { return [:] }
+        var headers: [String: String] = ["X-Agently-Debug": "true"]
+        let trimmedLevel = level?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedLevel.isEmpty {
+            headers["X-Agently-Debug-Level"] = trimmedLevel
+        }
+        let cleanedComponents = components
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !cleanedComponents.isEmpty {
+            headers["X-Agently-Debug-Components"] = cleanedComponents.joined(separator: ",")
+        }
+        return headers
+    }
+}
+
 public struct WorkspaceCapabilities: Codable, Sendable {
     public let agentAutoSelection: Bool?
     public let modelAutoSelection: Bool?

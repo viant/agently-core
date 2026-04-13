@@ -8,7 +8,6 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
 	forgeHandlers "github.com/viant/forge/backend/handlers"
-	fileSvc "github.com/viant/forge/backend/service/file"
 	metaSvc "github.com/viant/forge/backend/service/meta"
 )
 
@@ -19,15 +18,14 @@ func NewEmbeddedHandler(root string, efs *embed.FS) http.Handler {
 }
 
 func newHandler(root string, efs *embed.FS) http.Handler {
-	var fsvc *fileSvc.Service
-	if efs == nil {
-		fsvc = fileSvc.New(root)
-	} else {
-		fsvc = fileSvc.New(root, efs)
-	}
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/navigation", forgeHandlers.NavigationHandler(fsvc, root))
+	var rootMSvc *metaSvc.Service
+	if efs == nil {
+		rootMSvc = metaSvc.New(afs.New(), root)
+	} else {
+		rootMSvc = metaSvc.New(afs.New(), root, efs)
+	}
+	mux.HandleFunc("/navigation", forgeHandlers.NavigationHandler(rootMSvc, root))
 
 	windowBase := "/window/"
 	windowRoot := root
