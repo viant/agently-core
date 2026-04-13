@@ -56,24 +56,17 @@ func TestServiceStartStatusCompleted(t *testing.T) {
 	require.NotEmpty(t, startOut.SessionID)
 	require.Equal(t, "running", startOut.Status)
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var statusOut StatusOutput
+	var statusOut StatusOutput
+	require.Eventually(t, func() bool {
 		err = svc.status(context.Background(), &StatusInput{SessionID: startOut.SessionID}, &statusOut)
-		require.NoError(t, err)
-		if statusOut.Status != "running" {
-			require.Equal(t, "completed", statusOut.Status)
-			require.Equal(t, startOut.SessionID, statusOut.SessionID)
-			require.NotNil(t, statusOut.ExitCode)
-			require.Equal(t, 0, *statusOut.ExitCode)
-			require.Contains(t, statusOut.Stdout, "hello")
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for detached command completion")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil && statusOut.Status != "running"
+	}, 5*time.Second, 10*time.Millisecond, "timed out waiting for detached command completion")
+	require.NoError(t, err)
+	require.Equal(t, "completed", statusOut.Status)
+	require.Equal(t, startOut.SessionID, statusOut.SessionID)
+	require.NotNil(t, statusOut.ExitCode)
+	require.Equal(t, 0, *statusOut.ExitCode)
+	require.Contains(t, statusOut.Stdout, "hello")
 }
 
 func TestServiceStartStatusRunningAndCancel(t *testing.T) {
@@ -85,37 +78,23 @@ func TestServiceStartStatusRunningAndCancel(t *testing.T) {
 	require.NotEmpty(t, startOut.ProcessID)
 
 	var runningOut StatusOutput
-	deadline := time.Now().Add(3 * time.Second)
-	for {
+	require.Eventually(t, func() bool {
 		err = svc.status(context.Background(), &StatusInput{SessionID: startOut.SessionID}, &runningOut)
-		require.NoError(t, err)
-		if runningOut.Status == "running" && strings.Contains(runningOut.Stdout, "hello") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for detached command buffered running output, last status=%q stdout=%q", runningOut.Status, runningOut.Stdout)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+		return err == nil && runningOut.Status == "running" && strings.Contains(runningOut.Stdout, "hello")
+	}, 3*time.Second, 10*time.Millisecond, "timed out waiting for detached command buffered running output")
+	require.NoError(t, err)
 
 	var cancelOut CancelOutput
 	err = svc.cancel(context.Background(), &CancelInput{SessionID: startOut.SessionID}, &cancelOut)
 	require.NoError(t, err)
 	require.Equal(t, "canceled", cancelOut.Status)
 
-	deadline = time.Now().Add(7 * time.Second)
-	for {
-		var statusOut StatusOutput
+	var statusOut StatusOutput
+	require.Eventually(t, func() bool {
 		err = svc.status(context.Background(), &StatusInput{SessionID: startOut.SessionID}, &statusOut)
-		require.NoError(t, err)
-		if statusOut.Status == "canceled" {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for detached command cancellation, last status=%q", statusOut.Status)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		return err == nil && statusOut.Status == "canceled"
+	}, 7*time.Second, 10*time.Millisecond, "timed out waiting for detached command cancellation")
+	require.NoError(t, err)
 }
 
 func TestServiceStatus_ByProcessID(t *testing.T) {
@@ -125,19 +104,12 @@ func TestServiceStatus_ByProcessID(t *testing.T) {
 	err := svc.start(context.Background(), &StartInput{Commands: []string{"echo hello", "sleep 1"}}, &startOut)
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		var statusOut StatusOutput
+	var statusOut StatusOutput
+	require.Eventually(t, func() bool {
 		err = svc.status(context.Background(), &StatusInput{ProcessID: startOut.ProcessID}, &statusOut)
-		require.NoError(t, err)
-		if statusOut.ProcessID == startOut.ProcessID {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for status by processId")
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+		return err == nil && statusOut.ProcessID == startOut.ProcessID
+	}, 3*time.Second, 10*time.Millisecond, "timed out waiting for status by processId")
+	require.NoError(t, err)
 }
 
 func TestServiceStatus_StreamByteRangeContinuation(t *testing.T) {
@@ -147,32 +119,25 @@ func TestServiceStatus_StreamByteRangeContinuation(t *testing.T) {
 	err := svc.start(context.Background(), &StartInput{Commands: []string{"printf 'abcdefghijklmnopqrstuvwxyz'"}}, &startOut)
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var statusOut StatusOutput
+	var statusOut StatusOutput
+	require.Eventually(t, func() bool {
 		err = svc.status(context.Background(), &StatusInput{
 			SessionID: startOut.SessionID,
 			Stream:    "stdout",
 			ByteRange: intRange(2, 6),
 		}, &statusOut)
-		require.NoError(t, err)
-		if statusOut.Status != "running" {
-			require.Equal(t, "stdout", statusOut.Stream)
-			require.Equal(t, "cdef", statusOut.Content)
-			require.Equal(t, 2, statusOut.Offset)
-			require.Equal(t, 4, statusOut.Limit)
-			require.Equal(t, 26, statusOut.Size)
-			require.NotNil(t, statusOut.Continuation)
-			require.NotNil(t, statusOut.Continuation.NextRange)
-			require.NotNil(t, statusOut.Continuation.NextRange.Bytes)
-			require.Equal(t, 6, statusOut.Continuation.NextRange.Bytes.Offset)
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for detached command completion for status paging test")
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+		return err == nil && statusOut.Status != "running"
+	}, 5*time.Second, 10*time.Millisecond, "timed out waiting for detached command completion for status paging test")
+	require.NoError(t, err)
+	require.Equal(t, "stdout", statusOut.Stream)
+	require.Equal(t, "cdef", statusOut.Content)
+	require.Equal(t, 2, statusOut.Offset)
+	require.Equal(t, 4, statusOut.Limit)
+	require.Equal(t, 26, statusOut.Size)
+	require.NotNil(t, statusOut.Continuation)
+	require.NotNil(t, statusOut.Continuation.NextRange)
+	require.NotNil(t, statusOut.Continuation.NextRange.Bytes)
+	require.Equal(t, 6, statusOut.Continuation.NextRange.Bytes.Offset)
 }
 
 func TestServiceStatus_StreamCombinedAndStderr(t *testing.T) {
@@ -184,24 +149,18 @@ func TestServiceStatus_StreamCombinedAndStderr(t *testing.T) {
 	}, &startOut)
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		var combined StatusOutput
+	var combined StatusOutput
+	var stderrOnly StatusOutput
+	require.Eventually(t, func() bool {
 		err = svc.status(context.Background(), &StatusInput{SessionID: startOut.SessionID, Stream: "combined"}, &combined)
-		require.NoError(t, err)
-		var stderrOnly StatusOutput
+		if err != nil {
+			return false
+		}
 		err = svc.status(context.Background(), &StatusInput{SessionID: startOut.SessionID, Stream: "stderr"}, &stderrOnly)
-		require.NoError(t, err)
-		if strings.Contains(combined.Content, "out") && strings.Contains(combined.Content, "err") && stderrOnly.Content == "err" {
-			require.Equal(t, "combined", combined.Stream)
-			require.Equal(t, "stderr", stderrOnly.Stream)
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for buffered combined/stderr output")
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+		return err == nil && strings.Contains(combined.Content, "out") && strings.Contains(combined.Content, "err") && stderrOnly.Content == "err"
+	}, 3*time.Second, 10*time.Millisecond, "timed out waiting for buffered combined/stderr output")
+	require.Equal(t, "combined", combined.Stream)
+	require.Equal(t, "stderr", stderrOnly.Stream)
 }
 
 func TestService_AsyncConfig(t *testing.T) {

@@ -67,7 +67,7 @@ func TestPollingWatcher_DetectChanges(t *testing.T) {
 		{Kind: "agents", Name: "a1", UpdatedAt: now},
 	})
 
-	watcher := NewPollingWatcher(store, WithPollInterval(50*time.Millisecond))
+	watcher := NewPollingWatcher(store, WithPollInterval(10*time.Millisecond))
 
 	var mu sync.Mutex
 	var changes []Change
@@ -85,8 +85,10 @@ func TestPollingWatcher_DetectChanges(t *testing.T) {
 		})
 	}()
 
-	// Let the initial snapshot build.
-	time.Sleep(100 * time.Millisecond)
+	// PollingWatcher builds its initial snapshot inside Watch before the first
+	// ticker cycle. Give the goroutine one short interval to establish that
+	// baseline before mutating the store.
+	time.Sleep(25 * time.Millisecond)
 
 	// Add a new entry and update existing.
 	store.setEntries("agents", []workspace.Entry{
@@ -94,8 +96,23 @@ func TestPollingWatcher_DetectChanges(t *testing.T) {
 		{Kind: "agents", Name: "a2", UpdatedAt: now},
 	})
 
-	// Wait for poll cycle.
-	time.Sleep(150 * time.Millisecond)
+	waitUntil(t, 300*time.Millisecond, 10*time.Millisecond, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(changes) < 2 {
+			return false
+		}
+		foundA1, foundA2 := false, false
+		for _, ch := range changes {
+			if ch.Name == "a1" && ch.Action == ActionAddOrUpdate {
+				foundA1 = true
+			}
+			if ch.Name == "a2" && ch.Action == ActionAddOrUpdate {
+				foundA2 = true
+			}
+		}
+		return foundA1 && foundA2
+	}, "expected update for a1 and add for a2")
 
 	mu.Lock()
 	snapshot := append([]Change{}, changes...)
@@ -131,7 +148,16 @@ func TestPollingWatcher_DetectChanges(t *testing.T) {
 		{Kind: "agents", Name: "a1", UpdatedAt: now.Add(time.Second)},
 	})
 
-	time.Sleep(150 * time.Millisecond)
+	waitUntil(t, 300*time.Millisecond, 10*time.Millisecond, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, ch := range changes {
+			if ch.Name == "a2" && ch.Action == ActionDelete {
+				return true
+			}
+		}
+		return false
+	}, "expected delete change for a2")
 
 	mu.Lock()
 	snapshot = append([]Change{}, changes...)
