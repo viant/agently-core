@@ -23,6 +23,7 @@ type linkedRun struct {
 	parent              runtimerequestctx.TurnMeta
 	childConversationID string
 	statusMessageID     string
+	statusToolName      string
 }
 
 type childRunResult struct {
@@ -723,7 +724,12 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 		}
 		runCtx.childConversationID = childConversationID
 	}
-	runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, strings.TrimSpace(ri.AgentID), route)
+	statusToolName := "llm/agents:run"
+	if ri != nil && ri.Async != nil && *ri.Async {
+		statusToolName = "llm/agents:start"
+	}
+	runCtx.statusToolName = statusToolName
+	runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, strings.TrimSpace(ri.AgentID), route, statusToolName)
 	return runCtx, nil
 }
 
@@ -803,11 +809,15 @@ func (s *Service) assignConversationAgent(ctx context.Context, conversationID, a
 	}
 }
 
-func (s *Service) startRunStatus(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, childAgentID, route string) string {
+func (s *Service) startRunStatus(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, childAgentID, route, toolName string) string {
 	if s == nil || s.status == nil || strings.TrimSpace(parent.ConversationID) == "" {
 		return ""
 	}
-	mid, err := s.status.Start(ctx, parent, "llm/agents:run", "assistant", "tool", "exec")
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		toolName = "llm/agents:run"
+	}
+	mid, err := s.status.Start(ctx, parent, toolName, "assistant", "tool", "exec")
 	if err != nil {
 		errorf("agents.run %s status start error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
 		return ""

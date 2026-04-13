@@ -31,7 +31,7 @@ func (stubModel) Generate(context.Context, *llm.GenerateRequest) (*llm.GenerateR
 
 func (stubModel) Implements(string) bool { return false }
 
-func TestBuilderBuild_DefaultCancelRegistrySharedWithEmbeddedClient(t *testing.T) {
+func TestBuilderBuild_DefaultCancelRegistrySharedWithLocalHTTPClient(t *testing.T) {
 	rt, err := executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
@@ -43,10 +43,11 @@ func TestBuilderBuild_DefaultCancelRegistrySharedWithEmbeddedClient(t *testing.T
 		t.Fatalf("Runtime.CancelRegistry is nil")
 	}
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, closeClient, err := sdk.NewLocalHTTPFromRuntime(context.Background(), rt)
 	if err != nil {
-		t.Fatalf("NewEmbeddedFromRuntime() error = %v", err)
+		t.Fatalf("NewLocalHTTPFromRuntime() error = %v", err)
 	}
+	t.Cleanup(closeClient)
 
 	called := false
 	rt.CancelRegistry.Register("conv-1", "turn-1", func() { called = true })

@@ -69,3 +69,78 @@ func TestService_BuildBinding_FetchesTranscriptModelAndToolCalls(t *testing.T) {
 		t.Fatalf("expected IncludeTranscript to be true")
 	}
 }
+
+type panicConversationClient struct{}
+
+func (p *panicConversationClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
+	panic("unexpected GetConversation call")
+}
+
+func (p *panicConversationClient) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
+	return nil, nil
+}
+
+func (p *panicConversationClient) PatchConversations(context.Context, *apiconv.MutableConversation) error {
+	return nil
+}
+
+func (p *panicConversationClient) GetPayload(context.Context, string) (*apiconv.Payload, error) {
+	return nil, nil
+}
+
+func (p *panicConversationClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+	return nil
+}
+
+func (p *panicConversationClient) PatchMessage(context.Context, *apiconv.MutableMessage) error {
+	return nil
+}
+
+func (p *panicConversationClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
+	return nil, nil
+}
+
+func (p *panicConversationClient) GetMessageByElicitation(context.Context, string, string) (*apiconv.Message, error) {
+	return nil, nil
+}
+
+func (p *panicConversationClient) PatchModelCall(context.Context, *apiconv.MutableModelCall) error {
+	return nil
+}
+
+func (p *panicConversationClient) PatchToolCall(context.Context, *apiconv.MutableToolCall) error {
+	return nil
+}
+
+func (p *panicConversationClient) PatchTurn(context.Context, *apiconv.MutableTurn) error {
+	return nil
+}
+
+func (p *panicConversationClient) DeleteConversation(context.Context, string) error {
+	return nil
+}
+
+func (p *panicConversationClient) DeleteMessage(context.Context, string, string) error {
+	return nil
+}
+
+func TestService_BuildBinding_SkipBindingConversationLoad(t *testing.T) {
+	service := &Service{conversation: &panicConversationClient{}}
+	binding, err := service.BuildBinding(WithFreshEmbeddedConversation(context.Background()), &QueryInput{
+		ConversationID: "conv-1",
+		Agent: &agentmdl.Agent{
+			Identity:       agentmdl.Identity{ID: "agent-1"},
+			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.2"},
+		},
+		Query: "hello",
+	})
+	if err != nil {
+		t.Fatalf("BuildBinding error: %v", err)
+	}
+	if binding == nil {
+		t.Fatalf("expected binding")
+	}
+	if got := len(binding.History.Messages); got != 0 {
+		t.Fatalf("expected empty history, got %d messages", got)
+	}
+}

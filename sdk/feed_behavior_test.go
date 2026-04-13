@@ -172,7 +172,7 @@ func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := loadBuiltinFeedSpec(t, tc.specName)
-			client := &EmbeddedClient{
+			client := &backendClient{
 				conv:  newPayloadOnlyConversationClient(tc.payloads),
 				feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 			}
@@ -316,7 +316,7 @@ func TestEmbeddedClient_GetTranscript_WithIncludeFeeds_BuiltinBehavior(t *testin
 			},
 		},
 	}
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv:  newConversationWithPayloadsClient(conv, payloads),
 		feeds: &FeedRegistry{specs: []*FeedSpec{loadBuiltinFeedSpec(t, "explorer")}},
 	}
@@ -387,7 +387,7 @@ func TestHandleGetFeedData_ReturnsResolvedBuiltinFeed(t *testing.T) {
 		},
 	}
 	spec := loadBuiltinFeedSpec(t, "terminal")
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv:  newConversationWithPayloadsClient(conv, payloads),
 		feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 	}
@@ -534,7 +534,7 @@ ui:
 	reg.Reload()
 	require.Len(t, reg.Specs(), 2)
 
-	client := &EmbeddedClient{feeds: reg}
+	client := &backendClient{feeds: reg}
 	req := httptest.NewRequest("GET", "/v1/feeds", nil)
 	rec := httptest.NewRecorder()
 	handleListFeeds(client).ServeHTTP(rec, req)
@@ -581,7 +581,7 @@ func TestEmbeddedFeedHelpers_DeprecatedAndPayloadAccess(t *testing.T) {
 		Title: "Terminal",
 		Match: FeedMatch{Service: "system/exec", Method: "execute"},
 	}
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv:  newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{(*agconv.TranscriptView)(turn)}}, nil),
 		feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 	}
@@ -614,7 +614,7 @@ func TestEmbeddedFeedHelpers_FetchToolCallPayloadAndGetPayloads(t *testing.T) {
 			},
 		},
 	}
-	client := &EmbeddedClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{"m1": msg}, payloads)}
+	client := &backendClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{"m1": msg}, payloads)}
 
 	assert.Equal(t, payloads["p1"], client.fetchToolCallResponsePayload(context.Background(), "m1"))
 	got, err := client.GetPayload(context.Background(), "p1")
@@ -628,13 +628,13 @@ func TestEmbeddedFeedHelpers_FetchToolCallPayloadAndGetPayloads(t *testing.T) {
 }
 
 func TestRecordOOBAuthElicitation(t *testing.T) {
-	client := &EmbeddedClient{}
+	client := &backendClient{}
 	err := client.RecordOOBAuthElicitation(context.Background(), "https://example.com/auth")
 	require.Error(t, err)
 
 	fakeConv := newMessagesAndPayloadsClient(nil, nil)
 	elicSvc := elicitation.New(fakeConv, nil, elicrouter.New(), nil)
-	client = &EmbeddedClient{elicSvc: elicSvc}
+	client = &backendClient{elicSvc: elicSvc}
 	err = client.RecordOOBAuthElicitation(context.Background(), "https://example.com/auth")
 	require.Error(t, err)
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-auth", TurnID: "turn-auth"})
@@ -652,7 +652,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 			Match:      FeedMatch{Service: "system/exec", Method: "execute"},
 			Activation: FeedActivation{Scope: "all"},
 		}
-		client := &EmbeddedClient{
+		client := &backendClient{
 			conv:  newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1"}, nil),
 			feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 		}
@@ -686,7 +686,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 				{Id: "m2", Role: "assistant", ToolName: &toolName, Content: &valid},
 			},
 		}
-		client := &EmbeddedClient{
+		client := &backendClient{
 			conv: newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{turn1, turn2}}, nil),
 		}
 		got, err := client.ResolveFeedData(context.Background(), spec, "conv-1")
@@ -705,7 +705,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		msg.ToolMessage = []*agconv.ToolMessageView{
 			{ToolCall: &agconv.ToolCallView{MessageId: "tm1", ResponsePayloadId: stringPtr("p1")}},
 		}
-		client := &EmbeddedClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{msgID: msg}, payloads)}
+		client := &backendClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{msgID: msg}, payloads)}
 		turn := &conversation.Turn{Message: []*agconv.MessageView{{Id: msgID, ToolName: &toolName}}}
 		assert.Equal(t, payloads["p1"], client.findLastToolCallPayload(context.Background(), conversation.Transcript{turn}, toolName))
 	})
@@ -715,7 +715,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		content := `{"commands":[{"input":"pwd","output":"/tmp"}]}`
 		turn1 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName}}}
 		turn2 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName, Content: &content}}}
-		got := (&EmbeddedClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn1, turn2}, toolName)
+		got := (&backendClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn1, turn2}, toolName)
 		assert.Equal(t, content, got)
 	})
 
@@ -724,12 +724,12 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		content := `{"commands":[{"input":"pwd","output":"/tmp"}]}`
 		turn1 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName, Content: &content}}}
 		turn2 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName}}}
-		got := (&EmbeddedClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn1, turn2}, toolName)
+		got := (&backendClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn1, turn2}, toolName)
 		assert.Equal(t, content, got)
 	})
 
 	t.Run("GetPayload validation errors", func(t *testing.T) {
-		client := &EmbeddedClient{}
+		client := &backendClient{}
 		_, err := client.GetPayload(context.Background(), "")
 		require.Error(t, err)
 		client.conv = newPayloadOnlyConversationClient(nil)
@@ -737,24 +737,24 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		require.Error(t, err)
 		_, err = client.GetPayloads(context.Background(), []string{"p1"})
 		require.NoError(t, err)
-		client = &EmbeddedClient{}
+		client = &backendClient{}
 		_, err = client.GetPayloads(context.Background(), []string{"p1"})
 		require.Error(t, err)
 	})
 
 	t.Run("fetch helpers tolerate empty inputs", func(t *testing.T) {
-		client := &EmbeddedClient{conv: newPayloadOnlyConversationClient(nil)}
+		client := &backendClient{conv: newPayloadOnlyConversationClient(nil)}
 		assert.Equal(t, "", client.fetchPayloadContent(context.Background(), ""))
 		assert.Equal(t, "", client.fetchToolCallResponsePayload(context.Background(), ""))
-		client = &EmbeddedClient{conv: errConversationClient{err: errors.New("boom")}}
+		client = &backendClient{conv: errConversationClient{err: errors.New("boom")}}
 		assert.Equal(t, "", client.fetchPayloadContent(context.Background(), "p1"))
 	})
 
 	t.Run("fetchToolCallResponsePayload missing branches", func(t *testing.T) {
-		client := &EmbeddedClient{conv: newMessagesAndPayloadsClient(nil, nil)}
+		client := &backendClient{conv: newMessagesAndPayloadsClient(nil, nil)}
 		assert.Equal(t, "", client.fetchToolCallResponsePayload(context.Background(), "missing"))
 		msg := &conversation.Message{Id: "m1", ToolMessage: []*agconv.ToolMessageView{{ToolCall: &agconv.ToolCallView{MessageId: "tm1"}}}}
-		client = &EmbeddedClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{"m1": msg}, nil)}
+		client = &backendClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{"m1": msg}, nil)}
 		assert.Equal(t, "", client.fetchToolCallResponsePayload(context.Background(), "m1"))
 	})
 
@@ -764,7 +764,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 			Title: "Terminal",
 			Match: FeedMatch{Service: "system/exec", Method: "execute"},
 		}
-		client := &EmbeddedClient{}
+		client := &backendClient{}
 		got, err := client.ResolveFeedData(context.Background(), spec, "conv-1")
 		require.NoError(t, err)
 		assert.Nil(t, got)
@@ -779,7 +779,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 				{Id: "m1", Role: "assistant", Interim: 1, ToolName: &toolName, Content: &content},
 			},
 		}
-		client = &EmbeddedClient{
+		client = &backendClient{
 			conv: newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{(*agconv.TranscriptView)(turn)}}, nil),
 		}
 		got, err = client.ResolveFeedData(context.Background(), spec, "conv-1")
@@ -789,21 +789,21 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 
 	t.Run("ResolveFeedData get conversation error", func(t *testing.T) {
 		spec := &FeedSpec{ID: "terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}
-		client := &EmbeddedClient{conv: errConversationClient{err: errors.New("boom")}}
+		client := &backendClient{conv: errConversationClient{err: errors.New("boom")}}
 		_, err := client.ResolveFeedData(context.Background(), spec, "conv-1")
 		require.Error(t, err)
 	})
 
 	t.Run("ResolveFeedData nil conversation result", func(t *testing.T) {
 		spec := &FeedSpec{ID: "terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}
-		client := &EmbeddedClient{conv: nilConversationClient{}}
+		client := &backendClient{conv: nilConversationClient{}}
 		got, err := client.ResolveFeedData(context.Background(), spec, "conv-1")
 		require.NoError(t, err)
 		assert.Nil(t, got)
 	})
 
 	t.Run("resolveActiveFeeds empty and no-match", func(t *testing.T) {
-		client := &EmbeddedClient{feeds: &FeedRegistry{specs: []*FeedSpec{{ID: "terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}}}}
+		client := &backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{{ID: "terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}}}}
 		assert.Nil(t, client.resolveActiveFeeds(context.Background(), nil))
 		turn := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant"}}}
 		assert.Nil(t, client.resolveActiveFeeds(context.Background(), conversation.Transcript{turn}))
@@ -812,7 +812,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 	t.Run("resolveActiveFeeds skips malformed json content", func(t *testing.T) {
 		toolName := "system_exec-execute"
 		bad := `not-json`
-		client := &EmbeddedClient{feeds: &FeedRegistry{specs: []*FeedSpec{{ID: "terminal", Title: "Terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}}}}
+		client := &backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{{ID: "terminal", Title: "Terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}}}}
 		turn := &conversation.Turn{
 			Message: []*agconv.MessageView{
 				{
@@ -830,14 +830,14 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 	})
 
 	t.Run("GetPayloads duplicate and nil payload branches", func(t *testing.T) {
-		client := &EmbeddedClient{conv: nilPayloadConversationClient{}}
+		client := &backendClient{conv: nilPayloadConversationClient{}}
 		got, err := client.GetPayloads(context.Background(), []string{"p1", "p1", ""})
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
 
 	t.Run("GetPayloads keeps successful payloads around errors", func(t *testing.T) {
-		client := &EmbeddedClient{conv: mixedPayloadConversationClient{
+		client := &backendClient{conv: mixedPayloadConversationClient{
 			payloads: map[string]*conversation.Payload{
 				"ok": {Id: "ok"},
 			},
@@ -855,7 +855,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		toolName := "system_exec-execute"
 		other := "resources-grepFiles"
 		turn := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &other}}}
-		assert.Equal(t, "", (&EmbeddedClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn}, toolName))
+		assert.Equal(t, "", (&backendClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn}, toolName))
 	})
 }
 
@@ -1037,7 +1037,7 @@ func TestAdditionalLinkedFeedMergeBranches(t *testing.T) {
 		ItemCount: 1,
 		Data:      marshalToRawJSON(map[string]interface{}{"output": map[string]interface{}{"plan": []interface{}{map[string]interface{}{"step": "old"}}}}),
 	}}
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv: newConversationWithPayloadsClient(&conversation.Conversation{
 			Id: "child-conv",
 			Transcript: []*agconv.TranscriptView{
@@ -1105,13 +1105,13 @@ func TestAdditionalLinkedFeedMergeBranches(t *testing.T) {
 	assert.Nil(t, client.mergeLinkedConversationFeeds(context.Background(), nil, nil, map[string]struct{}{}))
 	assert.Empty(t, client.mergeLinkedConversationFeeds(context.Background(), nil, &ConversationState{}, map[string]struct{}{}))
 
-	badClient := &EmbeddedClient{
+	badClient := &backendClient{
 		conv:  errConversationClient{err: errors.New("boom")},
 		feeds: client.feeds,
 	}
 	assert.Empty(t, badClient.resolveLinkedChildStates(context.Background(), state, map[string]struct{}{}))
 
-	noFeedClient := &EmbeddedClient{
+	noFeedClient := &backendClient{
 		conv:  newConversationWithPayloadsClient(&conversation.Conversation{Id: "child-conv"}, nil),
 		feeds: client.feeds,
 	}
@@ -1123,7 +1123,7 @@ func TestResolveActiveFeedsWithVisited_ScopeAllAndSkipBranches(t *testing.T) {
 	spec := loadBuiltinFeedSpec(t, "terminal")
 	spec.Activation.Kind = "history"
 	spec.Activation.Scope = "all"
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv: newPayloadOnlyConversationClient(map[string]string{
 			"p1": `{"commands":[{"input":"pwd","output":"/tmp"}]}`,
 			"p2": `{"commands":[{"input":"ls","output":"a\nb"}]}`,
@@ -1157,11 +1157,11 @@ func TestResolveActiveFeedsWithVisited_ScopeAllAndSkipBranches(t *testing.T) {
 	assert.Equal(t, 2, feeds[0].ItemCount)
 	assert.JSONEq(t, `{"input":{},"output":{"commands":[{"input":"pwd","output":"/tmp"},{"input":"ls","output":"a\nb"}]}}`, string(feeds[0].Data))
 
-	client = &EmbeddedClient{feeds: &FeedRegistry{specs: []*FeedSpec{spec}}}
+	client = &backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{spec}}}
 	assert.Nil(t, client.resolveActiveFeedsWithVisited(context.Background(), nil, map[string]struct{}{}))
 	assert.Nil(t, client.resolveActiveFeedsWithVisited(context.Background(), &ConversationState{}, map[string]struct{}{}))
 
-	client = &EmbeddedClient{feeds: &FeedRegistry{specs: []*FeedSpec{nil, {}}}}
+	client = &backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{nil, {}}}}
 	stateSkip := &ConversationState{
 		ConversationID: "conv-skip",
 		Turns: []*TurnState{{
@@ -1174,7 +1174,7 @@ func TestResolveActiveFeedsWithVisited_ScopeAllAndSkipBranches(t *testing.T) {
 	assert.Nil(t, client.resolveActiveFeedsWithVisited(context.Background(), stateSkip, map[string]struct{}{}))
 
 	spec.Activation.Scope = ""
-	client = &EmbeddedClient{
+	client = &backendClient{
 		conv: newPayloadOnlyConversationClient(map[string]string{
 			"p1": `{"commands":[{"input":"pwd","output":"/tmp"}]}`,
 			"p2": `{"commands":[{"input":"ls","output":"a\nb"}]}`,
@@ -1188,7 +1188,7 @@ func TestResolveActiveFeedsWithVisited_ScopeAllAndSkipBranches(t *testing.T) {
 }
 
 func TestFeedRegistryGetterAndEmptyHandlers(t *testing.T) {
-	client := &EmbeddedClient{}
+	client := &backendClient{}
 	assert.Nil(t, client.FeedRegistry())
 
 	req := httptest.NewRequest("GET", "/v1/feeds", nil)
@@ -1202,25 +1202,25 @@ func TestHandleGetFeedData_ErrorBranches(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/feeds//data", nil)
 	req.SetPathValue("id", "")
 	rec := httptest.NewRecorder()
-	handleGetFeedData(&EmbeddedClient{}).ServeHTTP(rec, req)
+	handleGetFeedData(&backendClient{}).ServeHTTP(rec, req)
 	require.Equal(t, 400, rec.Code)
 
 	req = httptest.NewRequest("GET", "/v1/feeds/terminal/data", nil)
 	req.SetPathValue("id", "terminal")
 	rec = httptest.NewRecorder()
-	handleGetFeedData(&EmbeddedClient{}).ServeHTTP(rec, req)
+	handleGetFeedData(&backendClient{}).ServeHTTP(rec, req)
 	require.Equal(t, 404, rec.Code)
 
 	req = httptest.NewRequest("GET", "/v1/feeds/missing/data", nil)
 	req.SetPathValue("id", "missing")
 	rec = httptest.NewRecorder()
-	handleGetFeedData(&EmbeddedClient{feeds: &FeedRegistry{specs: []*FeedSpec{loadBuiltinFeedSpec(t, "terminal")}}}).ServeHTTP(rec, req)
+	handleGetFeedData(&backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{loadBuiltinFeedSpec(t, "terminal")}}}).ServeHTTP(rec, req)
 	require.Equal(t, 404, rec.Code)
 
 	req = httptest.NewRequest("GET", "/v1/feeds/terminal/data?conversationId=conv-none", nil)
 	req.SetPathValue("id", "terminal")
 	rec = httptest.NewRecorder()
-	handleGetFeedData(&EmbeddedClient{
+	handleGetFeedData(&backendClient{
 		conv:  nilConversationClient{},
 		feeds: &FeedRegistry{specs: []*FeedSpec{loadBuiltinFeedSpec(t, "terminal")}},
 	}).ServeHTTP(rec, req)
@@ -1264,7 +1264,7 @@ func TestLinkedChildFeedHelpers(t *testing.T) {
 			},
 		},
 	}
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv:  newConversationWithPayloadsClient(childConv, map[string]string{"p1": `{"explanation":"Ship it","plan":[{"status":"completed","step":"Write tests"},{"status":"pending","step":"Review PR"}]}`}),
 		feeds: &FeedRegistry{specs: []*FeedSpec{loadBuiltinFeedSpec(t, "plan")}},
 	}

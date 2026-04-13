@@ -10,7 +10,7 @@ import (
 
 func TestEmbeddedClient_UploadFileRegistersPayloadAndGeneratedFile(t *testing.T) {
 	store := memdata.New()
-	client := &EmbeddedClient{
+	client := &backendClient{
 		conv: store,
 	}
 

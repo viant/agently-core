@@ -22,6 +22,7 @@ import (
 	provider "github.com/viant/agently-core/genai/llm/provider"
 	embedderfinder "github.com/viant/agently-core/internal/finder/embedder"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	"github.com/viant/agently-core/internal/sdkbackend"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/sdk"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -39,7 +40,11 @@ type RuntimeOptions struct {
 	ConfigureRuntime  func(context.Context, *executor.Runtime, string)
 }
 
-func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.Runtime, *sdk.EmbeddedClient, agentmodel.Finder, error) {
+type oobAuthRecorder interface {
+	RecordOOBAuthElicitation(context.Context, string) error
+}
+
+func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.Runtime, sdk.Backend, agentmodel.Finder, error) {
 	fs := afs.New()
 	workspaceRoot := strings.TrimSpace(opts.WorkspaceRoot)
 	wsMeta := meta.New(fs, workspaceRoot)
@@ -54,7 +59,7 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 	mcpRepo := mcprepo.New(fs)
 	cookieProvider := mcpcookies.New(fs, mcpRepo)
 	jarProvider := cookieProvider.Jar
-	var embeddedClient *sdk.EmbeddedClient
+	var recorder oobAuthRecorder
 	var (
 		rtMu     sync.Mutex
 		rtByUser = map[string]*transport.RoundTripper{}
@@ -81,8 +86,8 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 				if opts.RecordOOBAuthURL != nil {
 					return opts.RecordOOBAuthURL(ctx, authURL)
 				}
-				if embeddedClient != nil {
-					return embeddedClient.RecordOOBAuthElicitation(ctx, authURL)
+				if recorder != nil {
+					return recorder.RecordOOBAuthElicitation(ctx, authURL)
 				}
 				log.Printf("[mcp-auth] OAuth URL (client not ready): %s", authURL)
 				return nil
@@ -110,10 +115,12 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 	if opts.ConfigureRuntime != nil {
 		opts.ConfigureRuntime(ctx, rt, workspaceRoot)
 	}
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	embeddedClient = client
+	if value, ok := client.(oobAuthRecorder); ok {
+		recorder = value
+	}
 	return rt, client, agentFndr, nil
 }

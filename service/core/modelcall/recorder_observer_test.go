@@ -20,6 +20,16 @@ import (
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
+type captureModelCallClient struct {
+	apiconv.Client
+	patches []*apiconv.MutableModelCall
+}
+
+func (c *captureModelCallClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
+	c.patches = append(c.patches, modelCall)
+	return c.Client.PatchModelCall(ctx, modelCall)
+}
+
 // TestFinishModelCallSetsCost_DataDriven verifies cost calculation is stored
 // with per-1k pricing using a data-driven table of scenarios.
 func TestFinishModelCallSetsCost_DataDriven(t *testing.T) {
@@ -222,6 +232,36 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			assert.EqualValues(t, tc.expectInterim, msg.Interim)
 		})
 	}
+}
+
+func TestRecorderObserver_OnCallEnd_PreservesModelKind(t *testing.T) {
+	baseClient := convmem.New()
+	client := &captureModelCallClient{Client: baseClient}
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	ctx := WithRecorderObserver(base, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "openai",
+		Model:      "gpt-4o-mini",
+		ModelKind:  "chat",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	err = ob.OnCallEnd(ctx2, Info{
+		Model:       "gpt-4o-mini",
+		ModelKind:   "chat",
+		LLMResponse: &llm.GenerateResponse{},
+	})
+	require.NoError(t, err)
+	require.Len(t, client.patches, 2)
+	require.NotNil(t, client.patches[1].Has)
+	require.True(t, client.patches[1].Has.ModelKind)
+	require.Equal(t, "chat", client.patches[1].ModelKind)
 }
 
 func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {

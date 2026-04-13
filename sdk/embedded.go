@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
@@ -53,7 +55,7 @@ type turnQueuePatcher interface {
 	PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error
 }
 
-type EmbeddedClient struct {
+type backendClient struct {
 	agent          *agentsvc.Service
 	conv           conversation.Client
 	data           data.Service
@@ -67,23 +69,44 @@ type EmbeddedClient struct {
 	a2aSvc         *a2a.Service
 	schedulerSvc   *scheduler.Service
 	feeds          *FeedRegistry
+	recentCreates  sync.Map
 }
 
-func NewEmbedded(agent *agentsvc.Service, conv conversation.Client) (*EmbeddedClient, error) {
+func newBackend(agent *agentsvc.Service, conv conversation.Client) (*backendClient, error) {
 	if agent == nil {
-		return nil, errors.New("embedded sdk requires non-nil agent service")
+		return nil, errors.New("in-process backend requires non-nil agent service")
 	}
 	if conv == nil {
-		return nil, errors.New("embedded sdk requires non-nil conversation client")
+		return nil, errors.New("in-process backend requires non-nil conversation client")
 	}
-	return &EmbeddedClient{agent: agent, conv: conv}, nil
+	return &backendClient{agent: agent, conv: conv}, nil
 }
 
-func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
+// Deprecated: use NewBackendFromRuntime for server wiring and
+// NewLocalHTTPFromRuntime for SDK callers.
+//
+// NewEmbedded builds the legacy in-process backend wrapper.
+// Prefer NewBackendFromRuntime for server wiring and NewLocalHTTPFromRuntime
+// for SDK callers that should exercise the public endpoint contract.
+func NewEmbedded(agent *agentsvc.Service, conv conversation.Client) (Backend, error) {
+	return newBackend(agent, conv)
+}
+
+// Deprecated: use NewBackendFromRuntime for server wiring and
+// NewLocalHTTPFromRuntime for SDK callers.
+//
+// NewEmbeddedFromRuntime builds an in-process backend over a runtime.
+// Prefer NewLocalHTTPFromRuntime for SDK callers that should exercise the
+// public endpoint contract instead of calling services directly.
+func NewEmbeddedFromRuntime(rt *executor.Runtime) (Backend, error) {
+	return newBackendFromRuntime(rt)
+}
+
+func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	if rt == nil {
 		return nil, errors.New("runtime was nil")
 	}
-	c, err := NewEmbedded(rt.Agent, rt.Conversation)
+	c, err := newBackend(rt.Agent, rt.Conversation)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +142,16 @@ func NewEmbeddedFromRuntime(rt *executor.Runtime) (*EmbeddedClient, error) {
 	return c, nil
 }
 
-func (c *EmbeddedClient) Mode() Mode { return ModeEmbedded }
+func (c *backendClient) Mode() Mode { return ModeEmbedded }
 
-func (c *EmbeddedClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+func (c *backendClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+	if input != nil {
+		if convID := strings.TrimSpace(input.ConversationID); convID != "" {
+			if _, ok := c.recentCreates.LoadAndDelete(convID); ok {
+				ctx = agentsvc.WithFreshEmbeddedConversation(ctx)
+			}
+		}
+	}
 	if c.feeds != nil && c.streaming != nil {
 		ctx = toolexec.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
 	}
@@ -132,11 +162,11 @@ func (c *EmbeddedClient) Query(ctx context.Context, input *agentsvc.QueryInput) 
 	return out, nil
 }
 
-func (c *EmbeddedClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
+func (c *backendClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
 	return c.conv.GetConversation(ctx, id)
 }
 
-func (c *EmbeddedClient) UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error) {
+func (c *backendClient) UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error) {
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
 	}
@@ -179,7 +209,7 @@ func (c *EmbeddedClient) UpdateConversation(ctx context.Context, input *UpdateCo
 	return c.conv.GetConversation(ctx, conversationID)
 }
 
-func (c *EmbeddedClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
+func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -297,7 +327,7 @@ func normalizeMessagePage(page *MessagePage) {
 	}
 }
 
-func (c *EmbeddedClient) StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
+func (c *backendClient) StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
 	if c.streaming == nil {
 		return nil, errors.New("streaming bus not configured")
 	}
@@ -314,7 +344,7 @@ func (c *EmbeddedClient) StreamEvents(ctx context.Context, input *StreamEventsIn
 	return c.streaming.Subscribe(ctx, filter)
 }
 
-func (c *EmbeddedClient) CreateConversation(ctx context.Context, input *CreateConversationInput) (*conversation.Conversation, error) {
+func (c *backendClient) CreateConversation(ctx context.Context, input *CreateConversationInput) (*conversation.Conversation, error) {
 	if input == nil {
 		return nil, errors.New("input is required")
 	}
@@ -348,10 +378,23 @@ func (c *EmbeddedClient) CreateConversation(ctx context.Context, input *CreateCo
 	if err := c.conv.PatchConversations(ctx, (*conversation.MutableConversation)(row)); err != nil {
 		return nil, err
 	}
-	return c.conv.GetConversation(ctx, id)
+	out := &conversation.Conversation{
+		Id:                       id,
+		CreatedAt:                time.Now(),
+		AgentId:                  row.AgentId,
+		Title:                    row.Title,
+		ConversationParentId:     row.ConversationParentId,
+		ConversationParentTurnId: row.ConversationParentTurnId,
+		CreatedByUserId:          row.CreatedByUserID,
+		Metadata:                 row.Metadata,
+		Visibility:               "private",
+		Shareable:                0,
+	}
+	c.recentCreates.Store(id, struct{}{})
+	return out, nil
 }
 
-func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConversationsInput) (*ConversationPage, error) {
+func (c *backendClient) ListConversations(ctx context.Context, input *ListConversationsInput) (*ConversationPage, error) {
 	in := &agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}}
 	var page *PageInput
 	agentID := ""
@@ -400,28 +443,42 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 	if c.conv == nil {
 		return nil, errors.New("data service not configured")
 	}
-	list, err := c.conv.GetConversations(ctx, &conversation.Input{})
+	queryInput := &conversation.Input{Has: &agconv.ConversationInputHas{}}
+	if agentID != "" {
+		queryInput.AgentId = agentID
+		queryInput.Has.AgentId = true
+	}
+	if strings.TrimSpace(in.ParentId) != "" {
+		queryInput.ParentId = strings.TrimSpace(in.ParentId)
+		queryInput.Has.ParentId = true
+	}
+	if strings.TrimSpace(in.ParentTurnId) != "" {
+		queryInput.ParentTurnId = strings.TrimSpace(in.ParentTurnId)
+		queryInput.Has.ParentTurnId = true
+	}
+	if in.ExcludeScheduled {
+		queryInput.ExcludeScheduled = true
+		queryInput.Has.ExcludeScheduled = true
+	}
+	if query != "" {
+		queryInput.Query = query
+		queryInput.Has.Query = true
+	}
+	if status != "" {
+		queryInput.StatusFilter = status
+		queryInput.Has.StatusFilter = true
+	}
+	if !queryInput.Has.ParentId && !queryInput.Has.ParentTurnId {
+		queryInput.ExcludeChildren = true
+		queryInput.Has.ExcludeChildren = true
+	}
+	list, err := c.conv.GetConversations(ctx, queryInput)
 	if err != nil {
 		return nil, err
 	}
 	rows := make([]*agconvlist.ConversationRowsView, 0, len(list))
 	for _, item := range list {
 		if item == nil {
-			continue
-		}
-		if agentID != "" && strings.TrimSpace(valueOrEmpty(item.AgentId)) != agentID {
-			continue
-		}
-		if status != "" && !strings.EqualFold(strings.TrimSpace(valueOrEmpty(item.Status)), status) {
-			continue
-		}
-		if query != "" {
-			text := strings.ToLower(strings.TrimSpace(valueOrEmpty(item.Title) + " " + valueOrEmpty(item.Summary) + " " + item.Id))
-			if !strings.Contains(text, strings.ToLower(query)) {
-				continue
-			}
-		}
-		if input != nil && input.ExcludeScheduled && item.ScheduleId != nil && strings.TrimSpace(*item.ScheduleId) != "" {
 			continue
 		}
 		rows = append(rows, &agconvlist.ConversationRowsView{
@@ -441,7 +498,7 @@ func (c *EmbeddedClient) ListConversations(ctx context.Context, input *ListConve
 	return &ConversationPage{Rows: rows, NextCursor: "", PrevCursor: "", HasMore: false}, nil
 }
 
-func (c *EmbeddedClient) ListLinkedConversations(ctx context.Context, input *ListLinkedConversationsInput) (*LinkedConversationPage, error) {
+func (c *backendClient) ListLinkedConversations(ctx context.Context, input *ListLinkedConversationsInput) (*LinkedConversationPage, error) {
 	if input == nil {
 		return nil, errors.New("input is required")
 	}
@@ -450,64 +507,120 @@ func (c *EmbeddedClient) ListLinkedConversations(ctx context.Context, input *Lis
 	if parentID == "" && parentTurnID == "" {
 		return nil, errors.New("parent conversation ID or parent turn ID is required")
 	}
-	page, err := c.ListConversations(ctx, &ListConversationsInput{
-		ParentID:     parentID,
-		ParentTurnID: parentTurnID,
-		Page:         input.Page,
-	})
+	if c.conv == nil {
+		return nil, errors.New("conversation client not configured")
+	}
+	query := &conversation.Input{Has: &agconv.ConversationInputHas{}}
+	if parentID != "" {
+		query.ParentId = parentID
+		query.Has.ParentId = true
+	}
+	if parentTurnID != "" {
+		query.ParentTurnId = parentTurnID
+		query.Has.ParentTurnId = true
+	}
+	list, err := c.conv.GetConversations(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	result := &LinkedConversationPage{
-		Rows:       make([]*LinkedConversationEntry, 0, len(page.Rows)),
-		NextCursor: page.NextCursor,
-		PrevCursor: page.PrevCursor,
-		HasMore:    page.HasMore,
-	}
-	for _, row := range page.Rows {
-		if row == nil {
+	rows := make([]*LinkedConversationEntry, 0, len(list))
+	for _, item := range list {
+		if item == nil {
 			continue
 		}
+		entryParentID := strings.TrimSpace(valueOrEmpty(item.ConversationParentId))
+		entryParentTurnID := strings.TrimSpace(valueOrEmpty(item.ConversationParentTurnId))
 		entry := &LinkedConversationEntry{
-			ConversationID: row.Id,
-			AgentID:        strings.TrimSpace(valueOrEmpty(row.AgentId)),
-			Title:          strings.TrimSpace(valueOrEmpty(row.Title)),
-			CreatedAt:      row.CreatedAt,
-			UpdatedAt:      row.UpdatedAt,
+			ConversationID:       item.Id,
+			ParentConversationID: entryParentID,
+			ParentTurnID:         entryParentTurnID,
+			AgentID:              strings.TrimSpace(valueOrEmpty(item.AgentId)),
+			Title:                strings.TrimSpace(valueOrEmpty(item.Title)),
+			Status:               strings.TrimSpace(valueOrEmpty(item.Status)),
+			CreatedAt:            item.CreatedAt,
+			UpdatedAt:            item.UpdatedAt,
 		}
-		if row.ConversationParentId != nil {
-			entry.ParentConversationID = strings.TrimSpace(*row.ConversationParentId)
+		entry.Response = strings.TrimSpace(c.latestAssistantResponse(ctx, item.Id))
+		if entry.Response == "" && item.Summary != nil {
+			entry.Response = strings.TrimSpace(*item.Summary)
 		}
-		if row.ConversationParentTurnId != nil {
-			entry.ParentTurnID = strings.TrimSpace(*row.ConversationParentTurnId)
-		}
-		if row.Status != nil {
-			entry.Status = strings.TrimSpace(*row.Status)
-		}
-		entry.Response = strings.TrimSpace(c.latestAssistantResponse(ctx, row.Id))
-		if entry.Response == "" && row.Summary != nil {
-			entry.Response = strings.TrimSpace(*row.Summary)
-		}
-		result.Rows = append(result.Rows, entry)
+		rows = append(rows, entry)
 	}
-	return result, nil
+	sort.SliceStable(rows, func(i, j int) bool {
+		return lessTimeAndID(rows[j].CreatedAt, rows[j].ConversationID, rows[i].CreatedAt, rows[i].ConversationID)
+	})
+	return paginateLinkedConversationEntries(rows, input.Page), nil
 }
 
-func (c *EmbeddedClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error) {
+func paginateLinkedConversationEntries(rows []*LinkedConversationEntry, page *PageInput) *LinkedConversationPage {
+	limit := 50
+	direction := DirectionBefore
+	cursor := ""
+	if page != nil {
+		if page.Limit > 0 {
+			limit = page.Limit
+		}
+		if page.Direction != "" {
+			direction = page.Direction
+		}
+		cursor = strings.TrimSpace(page.Cursor)
+	}
+	start := 0
+	if cursor != "" {
+		index := -1
+		for i, row := range rows {
+			if row != nil && strings.TrimSpace(row.ConversationID) == cursor {
+				index = i
+				break
+			}
+		}
+		if index >= 0 {
+			switch direction {
+			case DirectionAfter:
+				if index-limit+1 > 0 {
+					start = index - limit + 1
+				}
+				rows = rows[start : index+1]
+				start = 0
+			case DirectionLatest:
+				start = 0
+			default:
+				start = index + 1
+			}
+		}
+	}
+	if start > len(rows) {
+		start = len(rows)
+	}
+	sliced := rows[start:]
+	pageOut := &LinkedConversationPage{Rows: []*LinkedConversationEntry{}}
+	if len(sliced) > limit {
+		pageOut.HasMore = true
+		sliced = sliced[:limit]
+	}
+	pageOut.Rows = sliced
+	if len(sliced) > 0 {
+		pageOut.PrevCursor = sliced[0].ConversationID
+		pageOut.NextCursor = sliced[len(sliced)-1].ConversationID
+	}
+	return pageOut
+}
+
+func (c *backendClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error) {
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
 	return c.data.GetRun(ctx, id, nil)
 }
 
-func (c *EmbeddedClient) CancelTurn(ctx context.Context, turnID string) (bool, error) {
+func (c *backendClient) CancelTurn(ctx context.Context, turnID string) (bool, error) {
 	if c.cancelRegistry == nil {
 		return false, nil
 	}
 	return c.cancelRegistry.CancelTurn(turnID), nil
 }
 
-func (c *EmbeddedClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*SteerTurnOutput, error) {
+func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*SteerTurnOutput, error) {
 	if input == nil {
 		return nil, errors.New("input is required")
 	}
@@ -558,7 +671,7 @@ func (c *EmbeddedClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (
 	return &SteerTurnOutput{MessageID: msg.Id, TurnID: input.TurnID, Status: "accepted"}, nil
 }
 
-func (c *EmbeddedClient) CancelQueuedTurn(ctx context.Context, conversationID, turnID string) error {
+func (c *backendClient) CancelQueuedTurn(ctx context.Context, conversationID, turnID string) error {
 	if c.data == nil || c.conv == nil {
 		return errors.New("data service not configured")
 	}
@@ -605,31 +718,31 @@ func (c *EmbeddedClient) CancelQueuedTurn(ctx context.Context, conversationID, t
 	return nil
 }
 
-func (c *EmbeddedClient) MoveQueuedTurn(ctx context.Context, input *MoveQueuedTurnInput) error {
+func (c *backendClient) MoveQueuedTurn(ctx context.Context, input *MoveQueuedTurnInput) error {
 	return moveQueuedTurn(c, ctx, input)
 }
-func (c *EmbeddedClient) EditQueuedTurn(ctx context.Context, input *EditQueuedTurnInput) error {
+func (c *backendClient) EditQueuedTurn(ctx context.Context, input *EditQueuedTurnInput) error {
 	return editQueuedTurn(c, ctx, input)
 }
-func (c *EmbeddedClient) ForceSteerQueuedTurn(ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error) {
+func (c *backendClient) ForceSteerQueuedTurn(ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error) {
 	return forceSteerQueuedTurn(c, ctx, conversationID, turnID)
 }
-func (c *EmbeddedClient) ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error {
+func (c *backendClient) ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error {
 	return resolveElicitation(c, ctx, input)
 }
-func (c *EmbeddedClient) ListPendingElicitations(ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error) {
+func (c *backendClient) ListPendingElicitations(ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error) {
 	return listPendingElicitations(c, ctx, input)
 }
-func (c *EmbeddedClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
+func (c *backendClient) ListPendingToolApprovals(ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
 	return listPendingToolApprovals(c, ctx, input)
 }
-func (c *EmbeddedClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
+func (c *backendClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
 	return decideToolApproval(c, ctx, input)
 }
-func (c *EmbeddedClient) ListToolDefinitions(_ context.Context) ([]ToolDefinitionInfo, error) {
+func (c *backendClient) ListToolDefinitions(_ context.Context) ([]ToolDefinitionInfo, error) {
 	return listToolDefinitions(c)
 }
-func (c *EmbeddedClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+func (c *backendClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	return executeTool(c, ctx, name, args)
 }
 

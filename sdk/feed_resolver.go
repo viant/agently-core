@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-func (c *EmbeddedClient) resolveActiveFeedsFromState(ctx context.Context, state *ConversationState) []*ActiveFeedState {
+func (c *backendClient) resolveActiveFeedsFromState(ctx context.Context, state *ConversationState) []*ActiveFeedState {
 	return c.resolveActiveFeedsWithVisited(ctx, state, map[string]struct{}{})
 }
 
-func (c *EmbeddedClient) resolveActiveFeedsWithVisited(ctx context.Context, state *ConversationState, visited map[string]struct{}) []*ActiveFeedState {
+func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state *ConversationState, visited map[string]struct{}) []*ActiveFeedState {
 	if c.feeds == nil || state == nil || len(state.Turns) == 0 {
 		return nil
 	}
@@ -209,7 +209,7 @@ func feedPayloadMatch(spec *FeedSpec) (string, string) {
 	return spec.Match.Service, spec.Match.Method
 }
 
-func (c *EmbeddedClient) fetchPayloadContent(ctx context.Context, payloadID string) string {
+func (c *backendClient) fetchPayloadContent(ctx context.Context, payloadID string) string {
 	if c.conv == nil || strings.TrimSpace(payloadID) == "" {
 		return ""
 	}
@@ -222,7 +222,7 @@ func (c *EmbeddedClient) fetchPayloadContent(ctx context.Context, payloadID stri
 // resolveLinkedChildStates fetches canonical state for all unique linked child
 // conversations referenced in state.Turns. Each child is fetched at most once
 // (visited tracking prevents cycles). Returns a map of conversationID → ConversationState.
-func (c *EmbeddedClient) resolveLinkedChildStates(ctx context.Context, state *ConversationState, visited map[string]struct{}) map[string]*ConversationState {
+func (c *backendClient) resolveLinkedChildStates(ctx context.Context, state *ConversationState, visited map[string]struct{}) map[string]*ConversationState {
 	result := map[string]*ConversationState{}
 	if state == nil {
 		return result
@@ -263,7 +263,7 @@ func (c *EmbeddedClient) resolveLinkedChildStates(ctx context.Context, state *Co
 // mergeLinkedConversationFeeds resolves feeds from linked child conversations and
 // merges them into the parent feed list. It batch-fetches all child states before
 // resolving feeds so feed resolution itself does no additional transcript fetching.
-func (c *EmbeddedClient) mergeLinkedConversationFeeds(ctx context.Context, feeds []*ActiveFeedState, state *ConversationState, visited map[string]struct{}) []*ActiveFeedState {
+func (c *backendClient) mergeLinkedConversationFeeds(ctx context.Context, feeds []*ActiveFeedState, state *ConversationState, visited map[string]struct{}) []*ActiveFeedState {
 	if state == nil || len(state.Turns) == 0 {
 		return feeds
 	}

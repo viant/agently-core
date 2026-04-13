@@ -38,7 +38,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func moveQueuedTurn(c *EmbeddedClient, ctx context.Context, input *MoveQueuedTurnInput) error {
+func moveQueuedTurn(c *backendClient, ctx context.Context, input *MoveQueuedTurnInput) error {
 	if input == nil {
 		return errors.New("input is required")
 	}
@@ -158,7 +158,7 @@ func moveQueuedTurn(c *EmbeddedClient, ctx context.Context, input *MoveQueuedTur
 	return nil
 }
 
-func editQueuedTurn(c *EmbeddedClient, ctx context.Context, input *EditQueuedTurnInput) error {
+func editQueuedTurn(c *backendClient, ctx context.Context, input *EditQueuedTurnInput) error {
 	if input == nil {
 		return errors.New("input is required")
 	}
@@ -198,7 +198,7 @@ func editQueuedTurn(c *EmbeddedClient, ctx context.Context, input *EditQueuedTur
 	return c.conv.PatchMessage(ctx, msg)
 }
 
-func forceSteerQueuedTurn(c *EmbeddedClient, ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error) {
+func forceSteerQueuedTurn(c *backendClient, ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error) {
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -263,7 +263,7 @@ func forceSteerQueuedTurn(c *EmbeddedClient, ctx context.Context, conversationID
 	return out, nil
 }
 
-func resolveElicitation(c *EmbeddedClient, ctx context.Context, input *ResolveElicitationInput) error {
+func resolveElicitation(c *backendClient, ctx context.Context, input *ResolveElicitationInput) error {
 	if input == nil {
 		return errors.New("input is required")
 	}
@@ -277,7 +277,7 @@ func resolveElicitation(c *EmbeddedClient, ctx context.Context, input *ResolveEl
 	return errors.New("elicitation resolver not configured")
 }
 
-func listPendingElicitations(c *EmbeddedClient, ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error) {
+func listPendingElicitations(c *backendClient, ctx context.Context, input *ListPendingElicitationsInput) ([]*PendingElicitation, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
@@ -382,7 +382,7 @@ func listPendingElicitations(c *EmbeddedClient, ctx context.Context, input *List
 	return out, nil
 }
 
-func listPendingToolApprovals(c *EmbeddedClient, ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
+func listPendingToolApprovals(c *backendClient, ctx context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
 	lister, ok := c.conv.(toolApprovalQueueLister)
 	if !ok || lister == nil {
 		return nil, errors.New("tool approval queue not configured")
@@ -477,7 +477,7 @@ func listPendingToolApprovals(c *EmbeddedClient, ctx context.Context, input *Lis
 	}, nil
 }
 
-func decideToolApproval(c *EmbeddedClient, ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
+func decideToolApproval(c *backendClient, ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
 	if input == nil || strings.TrimSpace(input.ID) == "" {
 		return nil, errors.New("approval id is required")
 	}
@@ -715,7 +715,7 @@ func resolvedQueueToolResult(result string, err error) string {
 	return ""
 }
 
-func synthesizeQueueDecisionResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, result string) error {
+func synthesizeQueueDecisionResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, result string) error {
 	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -736,7 +736,7 @@ func synthesizeQueueDecisionResult(ctx context.Context, c *EmbeddedClient, row *
 	}, result)
 }
 
-func continueQueueConversation(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, instruction string) error {
+func continueQueueConversation(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, instruction string) error {
 	if c == nil || c.agent == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -800,7 +800,7 @@ func isSystemOSEnvTool(name string) bool {
 	return mcpname.Canonical(strings.TrimSpace(name)) == mcpname.Canonical("system/os/getEnv")
 }
 
-func persistSystemOSEnvAssistantResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, toolResult string) error {
+func persistSystemOSEnvAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, toolResult string) error {
 	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -811,11 +811,11 @@ func persistSystemOSEnvAssistantResult(ctx context.Context, c *EmbeddedClient, r
 	return persistQueueAssistantResult(ctx, c, row, content)
 }
 
-func persistSystemOSEnvDeniedAssistantResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView) error {
+func persistSystemOSEnvDeniedAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView) error {
 	return persistQueueAssistantResult(ctx, c, row, formatSystemOSEnvDeniedResult(row))
 }
 
-func persistQueueAssistantResult(ctx context.Context, c *EmbeddedClient, row *queueRead.QueueRowView, content string) error {
+func persistQueueAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, content string) error {
 	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -931,7 +931,7 @@ func formatSystemOSEnvDeniedResult(row *queueRead.QueueRowView) string {
 	return "I couldn't retrieve the requested environment variable because approval was not granted."
 }
 
-func completeResolvedQueueTurn(ctx context.Context, c *EmbeddedClient, conversationID, turnID string) error {
+func completeResolvedQueueTurn(ctx context.Context, c *backendClient, conversationID, turnID string) error {
 	conversationID = strings.TrimSpace(conversationID)
 	turnID = strings.TrimSpace(turnID)
 	if c == nil || c.conv == nil || conversationID == "" || turnID == "" {
@@ -1063,7 +1063,7 @@ func nullableString(value interface{}) interface{} {
 	return text
 }
 
-func listToolDefinitions(c *EmbeddedClient) ([]ToolDefinitionInfo, error) {
+func listToolDefinitions(c *backendClient) ([]ToolDefinitionInfo, error) {
 	if c.registry == nil {
 		return nil, nil
 	}
@@ -1075,7 +1075,7 @@ func listToolDefinitions(c *EmbeddedClient) ([]ToolDefinitionInfo, error) {
 	return out, nil
 }
 
-func executeTool(c *EmbeddedClient, ctx context.Context, name string, args map[string]interface{}) (string, error) {
+func executeTool(c *backendClient, ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	if c.registry == nil {
 		return "", errors.New("tool registry not configured")
 	}

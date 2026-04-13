@@ -31,7 +31,7 @@ require (
 	github.com/viant/mcp-protocol v0.11.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.30.0
-	github.com/viant/velty v0.4.0
+	github.com/viant/velty v0.4.1-0.20260408224432-5a1c31e1bd87
 	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
 	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
 	github.com/viant/xdatly/types/core v0.0.0-20250307183722-8c84fc717b52
@@ -39,6 +39,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.32.0
+	golang.org/x/text v0.30.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.45.0
 )
@@ -149,9 +150,9 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.0 // indirect
-	github.com/viant/sqlparser v0.11.1-0.20260224194657-0470849e3588 // indirect
-	github.com/viant/sqlx v0.22.0 // indirect
-	github.com/viant/structology v0.8.0 // indirect
+	github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 // indirect
+	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372 // indirect
+	github.com/viant/structology v0.9.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
@@ -161,7 +162,7 @@ require (
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect
 	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
-	github.com/viant/xunsafe v0.10.3 // indirect
+	github.com/viant/xunsafe v0.11.0 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
@@ -184,7 +185,6 @@ require (
 	golang.org/x/net v0.46.1-0.20251013234738-63d1a5100f82 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/api v0.201.0 // indirect

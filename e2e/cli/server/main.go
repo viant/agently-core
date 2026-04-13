@@ -19,6 +19,7 @@ import (
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/genai/llm/provider"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	"github.com/viant/agently-core/internal/sdkbackend"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	"github.com/viant/agently-core/sdk"
@@ -81,9 +82,9 @@ func main() {
 		log.Fatalf("build runtime: %v", err)
 	}
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	if err != nil {
-		log.Fatalf("create embedded client: %v", err)
+		log.Fatalf("create backend client: %v", err)
 	}
 
 	handler := sdk.NewHandler(client)

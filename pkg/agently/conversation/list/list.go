@@ -30,6 +30,7 @@ type ConversationRowsInput struct {
 	AgentId          string                    `parameter:",kind=query,in=agentId" predicate:"equal,group=0,c,agent_id"`
 	ParentId         string                    `parameter:",kind=query,in=parentId" predicate:"equal,group=0,c,conversation_parent_id"`
 	ParentTurnId     string                    `parameter:",kind=query,in=parentTurnId" predicate:"equal,group=0,c,conversation_parent_turn_id"`
+	ExcludeChildren  bool                      `parameter:",kind=query,in=excludeChildren" predicate:"expr,group=0,c.conversation_parent_id IS NULL"`
 	ExcludeScheduled bool                      `parameter:",kind=query,in=excludeScheduled" predicate:"expr,group=0,c.schedule_id IS NULL"`
 	ScheduleId       string                    `parameter:",kind=query,in=scheduleId" predicate:"equal,group=0,c,schedule_id"`
 	ScheduleRunId    string                    `parameter:",kind=query,in=scheduleRunId" predicate:"equal,group=0,c,schedule_run_id"`
@@ -39,7 +40,7 @@ type ConversationRowsInput struct {
 	CreatedBefore    time.Time                 `parameter:",kind=query,in=createdBefore" predicate:"less_or_equal,group=0,c,created_at"`
 	CursorBefore     string                    `parameter:",kind=query,in=cursorBefore" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id)))"`
 	CursorAfter      string                    `parameter:",kind=query,in=cursorAfter" predicate:"expr,group=0,EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id)))"`
-	DefaultPredicate string                    `parameter:",kind=const,in=value" predicate:"handler,group=0,*conversationlist.Filter" value:"0"`
+	DefaultPredicate string                    `parameter:",kind=const,in=value" predicate:"handler,group=0,ensure=true,*conversationlist.Filter" value:"0"`
 	Has              *ConversationRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -47,6 +48,7 @@ type ConversationRowsInputHas struct {
 	AgentId          bool
 	ParentId         bool
 	ParentTurnId     bool
+	ExcludeChildren  bool
 	ExcludeScheduled bool
 	ScheduleId       bool
 	ScheduleRunId    bool

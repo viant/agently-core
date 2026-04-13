@@ -1,14 +1,19 @@
 package sdk
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 )
 
 func handleListFeeds(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if ec, ok := client.(*EmbeddedClient); ok && ec.feeds != nil {
-			specs := ec.feeds.Specs()
+		if backend, ok := client.(interface{ ListFeedSpecs() []*FeedSpec }); ok {
+			specs := backend.ListFeedSpecs()
+			if specs == nil {
+				httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": []interface{}{}})
+				return
+			}
 			type feedSummary struct {
 				ID    string    `json:"id"`
 				Title string    `json:"title"`
@@ -33,13 +38,21 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("feed id required"))
 			return
 		}
-		ec, ok := client.(*EmbeddedClient)
-		if !ok || ec.feeds == nil {
+		backend, ok := client.(interface {
+			ListFeedSpecs() []*FeedSpec
+			GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error)
+		})
+		if !ok {
+			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
+			return
+		}
+		specs := backend.ListFeedSpecs()
+		if specs == nil {
 			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
 			return
 		}
 		var spec *FeedSpec
-		for _, s := range ec.feeds.Specs() {
+		for _, s := range specs {
 			if s.ID == feedID {
 				spec = s
 				break
@@ -49,7 +62,7 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
 			return
 		}
-		transcript, err := ec.GetTranscript(r.Context(), &GetTranscriptInput{
+		transcript, err := backend.GetTranscript(r.Context(), &GetTranscriptInput{
 			ConversationID:    convID,
 			IncludeModelCalls: true,
 			IncludeToolCalls:  true,

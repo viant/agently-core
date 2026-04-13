@@ -1175,7 +1175,7 @@ func TestStartRunStatus_EmitsLinkedConversationAttachedForToolMessageID(t *testi
 
 	ctx = memory.WithToolMessageID(ctx, "tool-msg-123")
 	parent := memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"}
-	statusMsgID := svc.startRunStatus(ctx, parent, "child-conv", "guardian", "external")
+	statusMsgID := svc.startRunStatus(ctx, parent, "child-conv", "guardian", "external", "llm/agents:run")
 	require.NotEmpty(t, statusMsgID)
 
 	var linkedEvent *streaming.Event
@@ -1302,8 +1302,7 @@ func TestService_Run_StatusToolNameFormat(t *testing.T) {
 			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
 		}},
 	}
-	s := &Service{agent: fake, conv: conv}
-	s.linker = nil // no linker → no child conversation created
+	s := &Service{agent: fake, conv: conv, status: statussvc.New(conv), linker: linksvc.New(conv)}
 	// Set up status service to capture the tool name
 	// (we verify via the persisted message's ToolName field)
 
@@ -1326,4 +1325,56 @@ func TestService_Run_StatusToolNameFormat(t *testing.T) {
 				"status message tool name should use colon separator, not dash")
 		}
 	}
+}
+
+func TestService_Start_StatusToolNameFormat(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
+		}},
+	}
+	s := &Service{agent: fake, conv: conv, status: statussvc.New(conv), linker: linksvc.New(conv)}
+
+	var out RunOutput
+	err := s.start(runCtx, &StartInput{AgentID: "worker", Objective: "work"}, &out)
+	assert.NoError(t, err)
+
+	gotConv, err := conv.GetConversation(ctx, "parent-conv")
+	require.NoError(t, err)
+
+	var foundStart bool
+	for _, tr := range gotConv.Transcript {
+		if tr == nil {
+			continue
+		}
+		for _, msg := range tr.Message {
+			if msg == nil || msg.ToolName == nil {
+				continue
+			}
+			assert.NotContains(t, *msg.ToolName, "agents-run",
+				"status message tool name should use colon separator, not dash")
+			if *msg.ToolName == "llm/agents/start" {
+				foundStart = true
+			}
+		}
+	}
+
+	assert.True(t, foundStart, "async start should persist llm/agents/start as the status tool name")
 }

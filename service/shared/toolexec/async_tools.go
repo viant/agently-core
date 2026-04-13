@@ -124,6 +124,9 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			ToolCallID:                    step.ID,
 			ToolMessageID:                 strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
 			ToolName:                      step.Name,
+			StatusToolName:                strings.TrimSpace(cfg.Status.Tool),
+			StatusArgs:                    asyncStatusArgs(cfg, opID, step.Args),
+			CancelToolName:                asyncCancelToolName(cfg),
 			RequestArgsDigest:             requestDigest,
 			RequestArgs:                   normalizedAsyncArgs(cfg, step.Args),
 			WaitForResponse:               cfg.WaitForResponse,
@@ -494,6 +497,32 @@ func cloneRaw(v json.RawMessage) json.RawMessage {
 	copyBuf := make([]byte, len(v))
 	copy(copyBuf, v)
 	return copyBuf
+}
+
+func asyncStatusArgs(cfg *asynccfg.Config, opID string, stepArgs map[string]interface{}) map[string]interface{} {
+	if cfg == nil {
+		return nil
+	}
+	args := map[string]interface{}{}
+	if cfg.Status.ReuseRunArgs {
+		for key, value := range normalizedAsyncArgs(cfg, stepArgs) {
+			args[key] = value
+		}
+	}
+	if arg := strings.TrimSpace(cfg.Status.OperationIDArg); arg != "" && strings.TrimSpace(opID) != "" {
+		args[arg] = strings.TrimSpace(opID)
+	}
+	for key, value := range cfg.Status.ExtraArgs {
+		args[key] = value
+	}
+	return args
+}
+
+func asyncCancelToolName(cfg *asynccfg.Config) string {
+	if cfg == nil || cfg.Cancel == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Cancel.Tool)
 }
 
 func publishAsyncUpdateEvent(ctx context.Context, toolName, opID string, payload *asynccfg.Extracted, rec *asynccfg.OperationRecord) {

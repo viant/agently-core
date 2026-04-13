@@ -39,7 +39,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 	fetchStart := time.Now()
 	debugf("agent.BuildBinding fetchConversation start convo=%q", convoID)
-	conv, err := s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
+	conv, err := s.bindingConversation(ctx, input)
 	if err != nil {
 		debugf("agent.BuildBinding fetchConversation error convo=%q elapsed=%s err=%v", convoID, time.Since(fetchStart).String(), err)
 		return nil, err
@@ -211,6 +211,13 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 		})
 	}
 	return b, nil
+}
+
+func (s *Service) bindingConversation(ctx context.Context, input *QueryInput) (*apiconv.Conversation, error) {
+	if isFreshEmbeddedConversation(ctx) {
+		return &apiconv.Conversation{Id: strings.TrimSpace(input.ConversationID)}, nil
+	}
+	return s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
 }
 
 func resolveToolCallExposure(input *QueryInput) agent.ToolCallExposure {

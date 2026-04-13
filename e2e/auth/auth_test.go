@@ -24,6 +24,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm/provider"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	"github.com/viant/agently-core/internal/sdkbackend"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
@@ -118,7 +119,7 @@ func setupAuthServer(t *testing.T, pubPath string, privPath string) *httptest.Se
 		Build(ctx)
 	require.NoError(t, err)
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
 	// Auth configuration with JWT
@@ -389,7 +390,7 @@ func TestLocalAuth_SessionCookie(t *testing.T) {
 		Build(ctx)
 	require.NoError(t, err)
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
 	authCfg := &svcauth.Config{
@@ -474,7 +475,7 @@ func TestNoAuth_AllEndpointsAccessible(t *testing.T) {
 		Build(ctx)
 	require.NoError(t, err)
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
 	// No auth config
@@ -661,7 +662,7 @@ func setupOAuthCookieServer(t *testing.T, pubPath, privPath string) *httptest.Se
 		Build(ctx)
 	require.NoError(t, err)
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
 	// Cookie-based local auth with JWT keys also configured.
@@ -718,7 +719,7 @@ func setupOAuthConfigServer(t *testing.T, authCfg *svcauth.Config) *httptest.Ser
 		Build(ctx)
 	require.NoError(t, err)
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
 	sessions := svcauth.NewManager(7*24*time.Hour, nil)
@@ -942,7 +943,7 @@ func setupBFFCookieServer(t *testing.T, pubPath, privPath string) *httptest.Serv
 		Build(ctx)
 	require.NoError(t, err)
 
-	client, err := sdk.NewEmbeddedFromRuntime(rt)
+	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
 	// BFF cookie mode with JWT keys also configured — both cookie and Bearer

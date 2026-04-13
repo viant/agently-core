@@ -8,7 +8,7 @@ import (
 )
 
 func TestEmbeddedClient_CancelTurn_NoRegistry(t *testing.T) {
-	client := &EmbeddedClient{}
+	client := &backendClient{}
 
 	cancelled, err := client.CancelTurn(context.Background(), "missing-turn")
 	if err != nil {
@@ -24,7 +24,7 @@ func TestEmbeddedClient_CancelTurn_WithRegistry(t *testing.T) {
 	called := false
 	reg.Register("conv-1", "turn-1", func() { called = true })
 
-	client := &EmbeddedClient{cancelRegistry: reg}
+	client := &backendClient{cancelRegistry: reg}
 
 	cancelled, err := client.CancelTurn(context.Background(), "turn-1")
 	if err != nil {

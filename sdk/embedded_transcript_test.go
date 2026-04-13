@@ -28,7 +28,7 @@ func TestFilterTranscriptSinceMessage_Inclusive(t *testing.T) {
 }
 
 func TestResolveElicitationPayload_ContentFallback(t *testing.T) {
-	client := &EmbeddedClient{}
+	client := &backendClient{}
 	got := client.resolveElicitationPayload(context.Background(), "elic-1", "", `{"message":"Pick one","requestedSchema":{"type":"object","properties":{"color":{"type":"string"}}}}`)
 	require.NotNil(t, got)
 	require.Equal(t, "elic-1", got["elicitationId"])
@@ -49,7 +49,7 @@ func TestNormalizeMessagePage_CanonicalizesToolName(t *testing.T) {
 }
 
 func TestEnrichTranscriptElicitations_NormalizesContentFromStructuredPayload(t *testing.T) {
-	client := &EmbeddedClient{}
+	client := &backendClient{}
 	elicitationID := "elic-1"
 	msg := &agconv.MessageView{
 		Id:            "m1",

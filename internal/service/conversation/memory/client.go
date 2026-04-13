@@ -125,6 +125,65 @@ func (c *Client) GetConversations(ctx context.Context, input *convcli.Input) ([]
 		if v == nil {
 			continue
 		}
+		if input != nil && input.Has != nil {
+			if input.Has.AgentId && strings.TrimSpace(stringValue(v.AgentId)) != strings.TrimSpace(input.AgentId) {
+				continue
+			}
+			if input.Has.ParentId && strings.TrimSpace(stringValue(v.ConversationParentId)) != strings.TrimSpace(input.ParentId) {
+				continue
+			}
+			if input.Has.ParentTurnId && strings.TrimSpace(stringValue(v.ConversationParentTurnId)) != strings.TrimSpace(input.ParentTurnId) {
+				continue
+			}
+			if input.Has.ExcludeChildren && input.ExcludeChildren && strings.TrimSpace(stringValue(v.ConversationParentId)) != "" {
+				continue
+			}
+			if input.Has.ExcludeScheduled && input.ExcludeScheduled && strings.TrimSpace(stringValue(v.ScheduleId)) != "" {
+				continue
+			}
+			if input.Has.ScheduleId && strings.TrimSpace(stringValue(v.ScheduleId)) != strings.TrimSpace(input.ScheduleId) {
+				continue
+			}
+			if input.Has.ScheduleRunId && strings.TrimSpace(stringValue(v.ScheduleRunId)) != strings.TrimSpace(input.ScheduleRunId) {
+				continue
+			}
+			if input.Has.Query {
+				text := strings.ToLower(strings.TrimSpace(v.Id + " " + stringValue(v.Title) + " " + stringValue(v.Summary)))
+				if !strings.Contains(text, strings.ToLower(strings.TrimSpace(input.Query))) {
+					continue
+				}
+			}
+			if input.Has.StatusFilter && !strings.EqualFold(strings.TrimSpace(stringValue(v.Status)), strings.TrimSpace(input.StatusFilter)) {
+				continue
+			}
+			if input.Has.HasScheduleId {
+				hasScheduleID := strings.TrimSpace(stringValue(v.ScheduleId)) != ""
+				if input.HasScheduleId != hasScheduleID {
+					continue
+				}
+			}
+			if input.Has.ParentId || input.Has.ParentTurnId {
+				parentID := strings.TrimSpace(stringValue(v.ConversationParentId))
+				parentTurnID := strings.TrimSpace(stringValue(v.ConversationParentTurnId))
+				if parentID == "" || parentTurnID == "" {
+					continue
+				}
+				parentConv, ok := c.conversations[parentID]
+				if !ok || parentConv == nil {
+					continue
+				}
+				validParentTurn := false
+				for _, transcript := range parentConv.Transcript {
+					if transcript != nil && strings.TrimSpace(transcript.Id) == parentTurnID {
+						validParentTurn = true
+						break
+					}
+				}
+				if !validParentTurn {
+					continue
+				}
+			}
+		}
 		if userID != "" {
 			if v.CreatedByUserId == nil || strings.TrimSpace(*v.CreatedByUserId) != userID {
 				continue
@@ -807,6 +866,13 @@ func toClientConversation(v *agconv.ConversationView) *convcli.Conversation {
 	return &c
 }
 
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func toClientMessage(v *agconv.MessageView) *convcli.Message {
 	if v == nil {
 		return nil
@@ -893,6 +959,9 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	if src.Has.CreatedAt && src.CreatedAt != nil {
 		dst.CreatedAt = *src.CreatedAt
 	}
+	if src.Has.UpdatedAt && src.UpdatedAt != nil {
+		dst.UpdatedAt = src.UpdatedAt
+	}
 	if src.Has.LastActivity && src.LastActivity != nil {
 		dst.LastActivity = src.LastActivity
 	}
@@ -919,6 +988,30 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	}
 	if src.Has.Metadata {
 		dst.Metadata = src.Metadata
+	}
+	if src.Has.Status {
+		dst.Status = src.Status
+	}
+	if src.Has.Scheduled {
+		dst.Scheduled = src.Scheduled
+	}
+	if src.Has.ScheduleId {
+		dst.ScheduleId = src.ScheduleId
+	}
+	if src.Has.ScheduleRunId {
+		dst.ScheduleRunId = src.ScheduleRunId
+	}
+	if src.Has.ScheduleKind {
+		dst.ScheduleKind = src.ScheduleKind
+	}
+	if src.Has.ScheduleTimezone {
+		dst.ScheduleTimezone = src.ScheduleTimezone
+	}
+	if src.Has.ScheduleCronExpr {
+		dst.ScheduleCronExpr = src.ScheduleCronExpr
+	}
+	if src.Has.ExternalTaskRef {
+		dst.ExternalTaskRef = src.ExternalTaskRef
 	}
 }
 

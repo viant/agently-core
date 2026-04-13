@@ -37,6 +37,9 @@ import (
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
+type skipConversationStatusPatchKey struct{}
+type skipTaskCheckpointLoadKey struct{}
+
 var queueDrainGuards = &convGuardMap{m: make(map[string]*int32)}
 
 type convGuardMap struct {
@@ -82,6 +85,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	if input != nil && strings.TrimSpace(input.MessageID) == "" {
 		input.MessageID = uuid.New().String()
+	}
+	if isFreshEmbeddedConversation(ctx) {
+		ctx = context.WithValue(ctx, skipConversationStatusPatchKey{}, true)
+	}
+	if isFreshEmbeddedConversation(ctx) {
+		ctx = context.WithValue(ctx, skipTaskCheckpointLoadKey{}, true)
 	}
 
 	envStarted := time.Now()

@@ -35,6 +35,9 @@ type OperationRecord struct {
 	ToolCallID                    string
 	ToolMessageID                 string
 	ToolName                      string
+	StatusToolName                string
+	StatusArgs                    map[string]interface{}
+	CancelToolName                string
 	RequestArgsDigest             string
 	RequestArgs                   map[string]interface{}
 	WaitForResponse               bool
@@ -80,6 +83,9 @@ type RegisterInput struct {
 	ToolCallID                    string
 	ToolMessageID                 string
 	ToolName                      string
+	StatusToolName                string
+	StatusArgs                    map[string]interface{}
+	CancelToolName                string
 	RequestArgsDigest             string
 	RequestArgs                   map[string]interface{}
 	WaitForResponse               bool
@@ -130,6 +136,9 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) *OperationRec
 		ToolCallID:                    strings.TrimSpace(input.ToolCallID),
 		ToolMessageID:                 strings.TrimSpace(input.ToolMessageID),
 		ToolName:                      strings.TrimSpace(input.ToolName),
+		StatusToolName:                strings.TrimSpace(input.StatusToolName),
+		StatusArgs:                    cloneMap(input.StatusArgs),
+		CancelToolName:                strings.TrimSpace(input.CancelToolName),
 		RequestArgsDigest:             strings.TrimSpace(input.RequestArgsDigest),
 		RequestArgs:                   cloneMap(input.RequestArgs),
 		WaitForResponse:               input.WaitForResponse,
@@ -410,6 +419,7 @@ func cloneRecord(rec *OperationRecord) *OperationRecord {
 	copyRec.LastSignaledPercent = cloneIntPtr(rec.LastSignaledPercent)
 	copyRec.KeyData = cloneJSON(rec.KeyData)
 	copyRec.RequestArgs = cloneMap(rec.RequestArgs)
+	copyRec.StatusArgs = cloneMap(rec.StatusArgs)
 	if rec.LastReinforcementAt != nil {
 		t := *rec.LastReinforcementAt
 		copyRec.LastReinforcementAt = &t

@@ -71,6 +71,10 @@ func (s *Service) renderAsyncReinforcement(ctx context.Context, rec *asynccfg.Op
 			"operation": map[string]interface{}{
 				"id":                  strings.TrimSpace(rec.ID),
 				"toolName":            strings.TrimSpace(rec.ToolName),
+				"statusToolName":      strings.TrimSpace(rec.StatusToolName),
+				"statusToolArgs":      rec.StatusArgs,
+				"statusToolArgsJSON":  mustJSONText(rec.StatusArgs),
+				"cancelToolName":      strings.TrimSpace(rec.CancelToolName),
 				"status":              firstNonEmptyAsyncValue(strings.TrimSpace(rec.Status), strings.TrimSpace(string(rec.State))),
 				"state":               strings.TrimSpace(string(rec.State)),
 				"message":             strings.TrimSpace(rec.Message),
