@@ -115,10 +115,15 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		if !i.UserPromptAlreadyInHistory {
 			shouldAppend := true
 			trimmed := strings.TrimSpace(currentPrompt)
-			if trimmed != "" && len(i.Binding.History.Past) > 0 {
+			if trimmed != "" {
 				h := &i.Binding.History
-				for ti := len(h.Past) - 1; ti >= 0 && shouldAppend; ti-- {
-					turn := h.Past[ti]
+				turns := make([]*prompt.Turn, 0, len(h.Past)+1)
+				turns = append(turns, h.Past...)
+				if h.Current != nil {
+					turns = append(turns, h.Current)
+				}
+				for ti := len(turns) - 1; ti >= 0 && shouldAppend; ti-- {
+					turn := turns[ti]
 					if turn == nil || len(turn.Messages) == 0 {
 						continue
 					}
@@ -163,6 +168,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			msgs = filtered
 		}
 		i.Message = append(i.Message, msgs...)
+		i.ensureExpandedUserPromptPresent()
 	}
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
@@ -195,6 +201,41 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (i *GenerateInput) ensureExpandedUserPromptPresent() {
+	trimmed := strings.TrimSpace(i.ExpandedUserPrompt)
+	if trimmed == "" {
+		return
+	}
+	for idx := len(i.Message) - 1; idx >= 0; idx-- {
+		msg := i.Message[idx]
+		if msg.Role != llm.RoleUser {
+			continue
+		}
+		if strings.TrimSpace(msg.Content) == trimmed {
+			return
+		}
+	}
+	msg := llm.NewUserMessage(i.ExpandedUserPrompt)
+	if i.Binding != nil && len(i.Binding.Task.Attachments) > 0 {
+		attachments := make([]*llm.AttachmentItem, 0, len(i.Binding.Task.Attachments))
+		for _, attachment := range i.Binding.Task.Attachments {
+			if attachment == nil || len(attachment.Data) == 0 {
+				continue
+			}
+			attachments = append(attachments, &llm.AttachmentItem{
+				Name:     attachment.Name,
+				MimeType: attachment.Mime,
+				Data:     attachment.Data,
+				Content:  attachment.Content,
+			})
+		}
+		if len(attachments) > 0 {
+			msg = llm.NewMessageWithBinaries(llm.RoleUser, attachments, i.ExpandedUserPrompt)
+		}
+	}
+	i.Message = append(i.Message, msg)
 }
 
 func sortAttachments(attachments []*prompt.Attachment) {

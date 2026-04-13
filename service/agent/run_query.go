@@ -520,7 +520,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			Binding:        binding,
 			ModelSelection: modelSelection,
 		}
-		genInput.UserPromptAlreadyInHistory = true
+		genInput.UserPromptAlreadyInHistory = false
 		genInput.UserID = strings.TrimSpace(input.UserId)
 		if input.Agent != nil {
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
