@@ -98,7 +98,7 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 	if snapURI, rootURI, ok := s.resolveSnapshot(location); ok {
 		return s.listSnapshot(ctx, location, snapURI, rootURI)
 	}
-	fmt.Printf("mcpfs: list start location=%q\n", location)
+	debugf("list start location=%q", location)
 	server, prefix := mcpuri.Parse(location)
 	if strings.TrimSpace(server) == "" {
 		return nil, fmt.Errorf("mcpfs: invalid location: %s", location)
@@ -145,9 +145,9 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 		cursor = res.NextCursor
 	}
 	if prefix != "" && matched == 0 {
-		fmt.Printf("mcpfs: warning: no resources matched prefix %q on server %q\n", prefix, server)
+		debugf("warning: no resources matched prefix %q on server %q", prefix, server)
 	}
-	fmt.Printf("mcpfs: list done location=%q matched=%d total=%d\n", location, matched, len(out))
+	debugf("list done location=%q matched=%d total=%d", location, matched, len(out))
 	return out, nil
 }
 

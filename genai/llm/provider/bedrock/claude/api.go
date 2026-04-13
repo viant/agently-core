@@ -127,8 +127,6 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		ContentType: aws.String("application/json"),
 	}
 
-	//	fmt.Printf("req: %v\n", string(data))
-
 	// Observer start
 	observer := mcbuf.ObserverFromContext(ctx)
 	if observer != nil {
@@ -166,8 +164,6 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 	// Set the model name in the response
 	apiResp.Model = c.Model
-
-	//fmt.Printf("resp: %v\n", string(resp.Body))
 
 	// Convert Response to llms.GenerateResponse
 	llmsResp := ToLLMSResponse(&apiResp)

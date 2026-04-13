@@ -113,17 +113,17 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	}
 	target, err := s.resolveReadTarget(ctx, input, s.agentAllowed(ctx))
 	if err != nil {
-		fmt.Printf("resources: read resolve error rootId=%q root=%q uri=%q err=%v\n", input.RootID, input.RootURI, input.URI, err)
+		debugf("read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
 		return err
 	}
 	data, err := s.downloadResource(ctx, target.fullURI)
 	if err != nil {
-		fmt.Printf("resources: read download error uri=%q err=%v\n", target.fullURI, err)
+		debugf("read download error uri=%q err=%v", target.fullURI, err)
 		return err
 	}
 	selection, err := applyReadSelection(data, input)
 	if err != nil {
-		fmt.Printf("resources: read selection error uri=%q err=%v\n", target.fullURI, err)
+		debugf("read selection error uri=%q err=%v", target.fullURI, err)
 		return err
 	}
 	limitRequested := readLimitRequested(input)
@@ -242,7 +242,7 @@ func (s *Service) downloadResource(ctx context.Context, uri string) ([]byte, err
 		if err == nil {
 			return data, nil
 		}
-		fmt.Printf("resources: download direct failed uri=%q err=%v; falling back to snapshot\n", uri, err)
+		debugf("download direct failed uri=%q err=%v; falling back to snapshot", uri, err)
 		return mfs.Download(ctx, mcpfs.NewObjectFromURI(uri))
 	}
 	fs := afs.New()

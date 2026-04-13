@@ -92,11 +92,11 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 	}
 	conv, err := h.conversations.GetConversation(ctx, conversationID)
 	if err != nil {
-		fmt.Printf("[elicit-handler] GetConversation(%s) error: %v\n", conversationID, err)
+		debugf("GetConversation(%s) error: %v", conversationID, err)
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("get conversation: %v", err), nil)
 	}
 	if conv == nil {
-		fmt.Printf("[elicit-handler] conversation %s NOT found — creating ephemeral, waitForResolution=false\n", conversationID)
+		debugf("conversation %s not found, creating ephemeral waitForResolution=false", conversationID)
 		seed := apiconv.NewConversation()
 		seed.SetId(conversationID)
 		if patchErr := h.conversations.PatchConversations(ctx, seed); patchErr != nil {
@@ -107,7 +107,7 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 		// handshake; record pending elicitation and return immediately.
 		waitForResolution = false
 	} else {
-		fmt.Printf("[elicit-handler] conversation %s found, waitForResolution=true\n", conversationID)
+		debugf("conversation %s found, waitForResolution=true", conversationID)
 	}
 	elic := &agentplan.Elicitation{ElicitRequestParams: params}
 	turn := &runtimerequestctx.TurnMeta{ConversationID: conversationID}
@@ -119,17 +119,17 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("record elicitation: %v", err), nil)
 	}
 	if !waitForResolution {
-		fmt.Printf("[elicit-handler] AUTO-ACCEPT (no wait) convID=%s elicitID=%s\n", conversationID, elic.ElicitationId)
+		debugf("auto-accept convID=%s elicitID=%s", conversationID, elic.ElicitationId)
 		return &mcpschema.ElicitResult{Action: mcpschema.ElicitResultActionAccept}, nil
 	}
-	fmt.Printf("[elicit-handler] WAITING for resolution convID=%s elicitID=%s\n", conversationID, elic.ElicitationId)
+	debugf("waiting for resolution convID=%s elicitID=%s", conversationID, elic.ElicitationId)
 	status, payload, err := h.elicitation.Wait(ctx, conversationID, elic.ElicitationId)
 	if err != nil {
-		fmt.Printf("[elicit-handler] Wait error convID=%s elicitID=%s err=%v\n", conversationID, elic.ElicitationId, err)
+		debugf("wait error convID=%s elicitID=%s err=%v", conversationID, elic.ElicitationId, err)
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("wait elicitation: %v", err), nil)
 	}
 	payloadJSON, _ := json.Marshal(payload)
-	fmt.Printf("[elicit-handler] resolved convID=%s elicitID=%s status=%s payload=%s\n", conversationID, elic.ElicitationId, status, string(payloadJSON))
+	debugf("resolved convID=%s elicitID=%s status=%s payload=%s", conversationID, elic.ElicitationId, status, string(payloadJSON))
 	return &mcpschema.ElicitResult{
 		Action:  mcpschema.ElicitResultAction(status),
 		Content: payload,

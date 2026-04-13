@@ -281,10 +281,10 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	fmt.Printf("resources: match request query=%q roots=%v rootIds=%v path=%q\n", input.Query, input.Roots, input.RootIDs, input.Path)
+	debugf("match request query=%q roots=%v rootIds=%v path=%q", input.Query, input.Roots, input.RootIDs, input.Path)
 	res, err := s.buildAugmentedDocuments(ctx, input)
 	if err != nil {
-		fmt.Printf("resources: match error query=%q err=%v\n", input.Query, err)
+		debugf("match error query=%q err=%v", input.Query, err)
 		return err
 	}
 
@@ -313,7 +313,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if hasNext {
 		output.NextCursor = cursor + 1
 	}
-	fmt.Printf("resources: match response query=%q docs=%d cursor=%d next=%d\n", input.Query, len(pageDocs), output.Cursor, output.NextCursor)
+	debugf("match response query=%q docs=%d cursor=%d next=%d", input.Query, len(pageDocs), output.Cursor, output.NextCursor)
 	return nil
 }
 
@@ -349,7 +349,7 @@ func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	fmt.Printf("resources: matchDocuments request query=%q rootIds=%v path=%q\n", input.Query, input.RootIDs, input.Path)
+	debugf("matchDocuments request query=%q rootIds=%v path=%q", input.Query, input.RootIDs, input.Path)
 	maxDocs := input.MaxDocuments
 	if maxDocs <= 0 {
 		maxDocs = 5
@@ -364,17 +364,17 @@ func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error
 	}
 	res, err := s.buildAugmentedDocuments(ctx, matchInput)
 	if err != nil {
-		fmt.Printf("resources: matchDocuments error query=%q err=%v\n", input.Query, err)
+		debugf("matchDocuments error query=%q err=%v", input.Query, err)
 		return err
 	}
 	docs := res.documents
 	ranked := uniqueMatchedDocuments(docs, maxDocs)
 	if len(ranked) == 0 {
 		output.Documents = nil
-		fmt.Printf("resources: matchDocuments response query=%q docs=0\n", input.Query)
+		debugf("matchDocuments response query=%q docs=0", input.Query)
 		return nil
 	}
 	output.Documents = ranked
-	fmt.Printf("resources: matchDocuments response query=%q docs=%d\n", input.Query, len(ranked))
+	debugf("matchDocuments response query=%q docs=%d", input.Query, len(ranked))
 	return nil
 }

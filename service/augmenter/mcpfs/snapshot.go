@@ -514,7 +514,7 @@ func buildManifest(cache *snapshotCache) (map[string]manifestEntry, error) {
 		}
 		scanned++
 		if scanned%5000 == 0 {
-			fmt.Printf("mcpfs: manifest progress path=%q scanned=%d total=%d\n", cache.path, scanned, total)
+			debugf("manifest progress path=%q scanned=%d total=%d", cache.path, scanned, total)
 		}
 	}
 	cache.manifestMu.Lock()
