@@ -266,12 +266,15 @@ type ApprovalCallbackResult struct {
 }
 
 type PendingToolApprovalPage struct {
-	Rows  []*PendingToolApproval `json:"rows"`
-	Total int                    `json:"total"`
-	Limit int                    `json:"limit"`
+	Rows    []*PendingToolApproval `json:"rows"`
+	Total   int                    `json:"total"`
+	Limit   int                    `json:"limit"`
+	Offset  int                    `json:"offset,omitempty"`
+	HasMore bool                   `json:"hasMore,omitempty"`
 }
 
 type DecideToolApprovalInput struct {
+	ID            string                 `json:"-"`
 	Decision      string                 `json:"decision"`
 	EditedFields  map[string]interface{} `json:"editedFields,omitempty"`
 	CallbackState map[string]interface{} `json:"callbackState,omitempty"`
@@ -283,13 +286,15 @@ type DecideToolApprovalOutput struct {
 }
 
 type UploadFileInput struct {
-	Path        string
-	Name        string
-	ContentType string
-	Data        []byte
+	ConversationID string
+	Path           string
+	Name           string
+	ContentType    string
+	Data           []byte
 }
 
 type UploadFileOutput struct {
+	ID       string `json:"id,omitempty"`
 	URI      string `json:"uri"`
 	Name     string `json:"name"`
 	Size     int64  `json:"size"`
@@ -297,7 +302,9 @@ type UploadFileOutput struct {
 }
 
 type DownloadFileInput struct {
-	URI string
+	ConversationID string
+	FileID         string
+	URI            string
 }
 
 type DownloadFileOutput struct {
@@ -307,11 +314,13 @@ type DownloadFileOutput struct {
 }
 
 type ListFilesInput struct {
-	Prefix string
-	Page   *PageInput
+	ConversationID string
+	Prefix         string
+	Page           *PageInput
 }
 
 type FileEntry struct {
+	ID          string    `json:"id,omitempty"`
 	URI         string    `json:"uri"`
 	Name        string    `json:"name"`
 	Size        int64     `json:"size"`
@@ -321,8 +330,9 @@ type FileEntry struct {
 }
 
 type ListFilesOutput struct {
-	Rows []*FileEntry `json:"rows"`
-	Page *PageInput   `json:"page,omitempty"`
+	Files []*FileEntry `json:"files,omitempty"`
+	Rows  []*FileEntry `json:"rows,omitempty"`
+	Page  *PageInput   `json:"page,omitempty"`
 }
 
 type ToolDefinitionInfo struct {
@@ -340,16 +350,21 @@ type ListResourcesInput struct {
 }
 
 type ListResourcesOutput struct {
+	Names     []string       `json:"names,omitempty"`
 	Resources []*ResourceRef `json:"resources"`
 }
 
 type GetResourceOutput struct {
-	Resource *Resource `json:"resource"`
+	Kind     string    `json:"kind,omitempty"`
+	Name     string    `json:"name,omitempty"`
+	Data     []byte    `json:"data,omitempty"`
+	Resource *Resource `json:"resource,omitempty"`
 }
 
 type SaveResourceInput struct {
 	Kind        string
 	Name        string
+	Data        []byte
 	Content     []byte
 	ContentType string
 }
@@ -357,6 +372,7 @@ type SaveResourceInput struct {
 type Resource struct {
 	Kind        string    `json:"kind"`
 	Name        string    `json:"name"`
+	Data        []byte    `json:"data,omitempty"`
 	ContentType string    `json:"contentType,omitempty"`
 	Content     []byte    `json:"content,omitempty"`
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
@@ -367,19 +383,26 @@ type ExportResourcesInput struct {
 }
 
 type ExportResourcesOutput struct {
-	Data []byte `json:"data"`
+	Data      []byte     `json:"data,omitempty"`
+	Resources []Resource `json:"resources,omitempty"`
 }
 
 type ImportResourcesInput struct {
-	Data []byte
+	Data      []byte     `json:"data,omitempty"`
+	Resources []Resource `json:"resources,omitempty"`
+	Replace   bool       `json:"replace,omitempty"`
 }
 
 type ImportResourcesOutput struct {
+	Skipped  int `json:"skipped,omitempty"`
 	Imported int `json:"imported"`
 }
 
 type GetTranscriptInput struct {
-	ConversationID string
+	ConversationID    string
+	Since             string
+	IncludeModelCalls bool
+	IncludeToolCalls  bool
 }
 
 type QuerySelector struct {
