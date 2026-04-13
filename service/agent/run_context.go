@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,13 +41,13 @@ func (s *Service) addMessage(ctx context.Context, turn *runtimerequestctx.TurnMe
 	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
 	}
-	infof("agent.addMessage start convo=%q turn_id=%q role=%q actor=%q mode=%q id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), strings.TrimSpace(id), len(content), headString(content, 512), tailString(content, 512))
+	logx.Infof("conversation", "agent.addMessage start convo=%q turn_id=%q role=%q actor=%q mode=%q id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), strings.TrimSpace(id), len(content), textutil.Head(content, 512), textutil.Tail(content, 512))
 	msg, err := apiconv.AddMessage(ctx, s.conversation, turn, opts...)
 	if err != nil {
-		errorf("agent.addMessage error convo=%q turn_id=%q role=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), err)
+		logx.Errorf("conversation", "agent.addMessage error convo=%q turn_id=%q role=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), err)
 		return "", fmt.Errorf("failed to add message: %w", err)
 	}
-	infof("agent.addMessage ok convo=%q turn_id=%q role=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(msg.Id))
+	logx.Infof("conversation", "agent.addMessage ok convo=%q turn_id=%q role=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(role), strings.TrimSpace(msg.Id))
 	return msg.Id, nil
 }
 
@@ -165,7 +167,7 @@ func (s *Service) ensureEnvironment(ctx context.Context, input *QueryInput) erro
 		input.AutoSelectTools = &autoTools
 		input.ToolsAllowed = nil
 		input.DisableChains = true
-		infof("agent.ensureEnvironment forced capability mode convo=%q query_head=%q", strings.TrimSpace(input.ConversationID), headString(input.Query, 256))
+		logx.Infof("conversation", "agent.ensureEnvironment forced capability mode convo=%q query_head=%q", strings.TrimSpace(input.ConversationID), textutil.Head(input.Query, 256))
 	}
 	if err := s.ensureAgent(ctx, input); err != nil {
 		return err

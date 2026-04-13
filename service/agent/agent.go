@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 
 	"github.com/viant/agently-core/app/executor/config"
@@ -35,7 +37,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 			qi.AgentID = agentID
 			qi.AutoSelected = autoSelected
 			qi.RoutingReason = strings.TrimSpace(routingReason)
-			infof("agent.ensureAgent resolved convo=%q selected=%q auto=%v reason=%q query_head=%q", strings.TrimSpace(qi.ConversationID), agentID, autoSelected, qi.RoutingReason, headString(qi.Query, 256))
+			logx.Infof("conversation", "agent.ensureAgent resolved convo=%q selected=%q auto=%v reason=%q query_head=%q", strings.TrimSpace(qi.ConversationID), agentID, autoSelected, qi.RoutingReason, textutil.Head(qi.Query, 256))
 		}
 		if agentID != "" {
 			a, err := s.loadResolvedAgent(ctx, agentID)
@@ -48,7 +50,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				qi.AutoSelectTools = &autoTools
 				qi.ToolsAllowed = nil
 				qi.DisableChains = true
-				infof("agent.ensureAgent capability_mode convo=%q agent_id=%q", strings.TrimSpace(qi.ConversationID), agentID)
+				logx.Infof("conversation", "agent.ensureAgent capability_mode convo=%q agent_id=%q", strings.TrimSpace(qi.ConversationID), agentID)
 			}
 		}
 	}

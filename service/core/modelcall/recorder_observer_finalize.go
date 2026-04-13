@@ -18,10 +18,10 @@ import (
 // finishModelCall persists final model call updates, including response payloads and usage.
 func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status string, info Info, streamTxt string) error {
 	hasResp := info.LLMResponse != nil
-	debugf("finishModelCall start msg=%q status=%q has_llm_response=%v provider_resp_bytes=%d stream_bytes=%d", strings.TrimSpace(msgID), strings.TrimSpace(status), hasResp, len(info.ResponseJSON), len(streamTxt))
-	if DebugEnabled() && info.LLMResponse != nil {
+	logx.Infof("conversation", "finishModelCall start msg=%q status=%q has_llm_response=%v provider_resp_bytes=%d stream_bytes=%d", strings.TrimSpace(msgID), strings.TrimSpace(status), hasResp, len(info.ResponseJSON), len(streamTxt))
+	if logx.Enabled() && info.LLMResponse != nil {
 		for idx, choice := range info.LLMResponse.Choices {
-			debugf("finishModelCall choice[%d] finish_reason=%q tool_calls=%d content_head=%q", idx, strings.TrimSpace(choice.FinishReason), len(choice.Message.ToolCalls), textutil.RuneTruncate(strings.TrimSpace(messageText(choice.Message)), 200))
+			logx.Infof("conversation", "finishModelCall choice[%d] finish_reason=%q tool_calls=%d content_head=%q", idx, strings.TrimSpace(choice.FinishReason), len(choice.Message.ToolCalls), textutil.RuneTruncate(strings.TrimSpace(messageText(choice.Message)), 200))
 		}
 	}
 	upd := apiconv.NewModelCall()
@@ -50,7 +50,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		if rb, mErr := json.Marshal(info.LLMResponse); mErr == nil {
 			respID, err := o.upsertInlinePayload(ctx, "", "model_response", "application/json", rb)
 			if err != nil {
-				errorf("finishModelCall response payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
+				logx.Errorf("conversation", "finishModelCall response payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 				return err
 			}
 			upd.SetResponsePayloadID(respID)
@@ -73,7 +73,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	if len(info.ResponseJSON) > 0 {
 		provID, err := o.upsertInlinePayload(ctx, "", "provider_response", "application/json", []byte(info.ResponseJSON))
 		if err != nil {
-			errorf("finishModelCall provider response payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
+			logx.Errorf("conversation", "finishModelCall provider response payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		upd.SetProviderResponsePayloadID(provID)
@@ -85,7 +85,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 			sid = uuid.New().String()
 		}
 		if _, err := o.upsertInlinePayload(ctx, sid, "model_stream", "text/plain", []byte(streamTxt)); err != nil {
-			errorf("finishModelCall stream payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
+			logx.Errorf("conversation", "finishModelCall stream payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		upd.SetStreamPayloadID(sid)
@@ -147,10 +147,10 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		})
 	}
 	if err := o.client.PatchModelCall(patchCtx, upd); err != nil {
-		errorf("finishModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
+		logx.Errorf("conversation", "finishModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
 		return err
 	}
-	debugf("finishModelCall ok msg=%q status=%q", strings.TrimSpace(msgID), strings.TrimSpace(status))
+	logx.Infof("conversation", "finishModelCall ok msg=%q status=%q", strings.TrimSpace(msgID), strings.TrimSpace(status))
 	return nil
 }
 
@@ -205,8 +205,8 @@ func valueOrEmptyPtr(ptr *string) string {
 	return *ptr
 }
 
-// --- transient debug helpers (enabled with AGENTLY_DEBUG_PRICING=1) ---
-func debugPricingEnabled() bool { return logx.EnabledFor("AGENTLY_DEBUG_PRICING") }
+// --- transient debug helpers (enabled with AGENTLY_DEBUG) ---
+func debugPricingEnabled() bool { return logx.Enabled() }
 func debugPricingf(format string, args ...interface{}) {
 	if !debugPricingEnabled() {
 		return

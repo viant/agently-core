@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/internal/agent/systemdoc"
+	"github.com/viant/agently-core/internal/logx"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	aug "github.com/viant/agently-core/service/augmenter"
@@ -281,10 +282,10 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	debugf("match request query=%q roots=%v rootIds=%v path=%q", input.Query, input.Roots, input.RootIDs, input.Path)
+	logx.Debugf("resources", "match request query=%q roots=%v rootIds=%v path=%q", input.Query, input.Roots, input.RootIDs, input.Path)
 	res, err := s.buildAugmentedDocuments(ctx, input)
 	if err != nil {
-		debugf("match error query=%q err=%v", input.Query, err)
+		logx.Debugf("resources", "match error query=%q err=%v", input.Query, err)
 		return err
 	}
 
@@ -313,7 +314,7 @@ func (s *Service) match(ctx context.Context, in, out interface{}) error {
 	if hasNext {
 		output.NextCursor = cursor + 1
 	}
-	debugf("match response query=%q docs=%d cursor=%d next=%d", input.Query, len(pageDocs), output.Cursor, output.NextCursor)
+	logx.Debugf("resources", "match response query=%q docs=%d cursor=%d next=%d", input.Query, len(pageDocs), output.Cursor, output.NextCursor)
 	return nil
 }
 
@@ -349,7 +350,7 @@ func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	debugf("matchDocuments request query=%q rootIds=%v path=%q", input.Query, input.RootIDs, input.Path)
+	logx.Debugf("resources", "matchDocuments request query=%q rootIds=%v path=%q", input.Query, input.RootIDs, input.Path)
 	maxDocs := input.MaxDocuments
 	if maxDocs <= 0 {
 		maxDocs = 5
@@ -364,17 +365,17 @@ func (s *Service) matchDocuments(ctx context.Context, in, out interface{}) error
 	}
 	res, err := s.buildAugmentedDocuments(ctx, matchInput)
 	if err != nil {
-		debugf("matchDocuments error query=%q err=%v", input.Query, err)
+		logx.Debugf("resources", "matchDocuments error query=%q err=%v", input.Query, err)
 		return err
 	}
 	docs := res.documents
 	ranked := uniqueMatchedDocuments(docs, maxDocs)
 	if len(ranked) == 0 {
 		output.Documents = nil
-		debugf("matchDocuments response query=%q docs=0", input.Query)
+		logx.Debugf("resources", "matchDocuments response query=%q docs=0", input.Query)
 		return nil
 	}
 	output.Documents = ranked
-	debugf("matchDocuments response query=%q docs=%d", input.Query, len(ranked))
+	logx.Debugf("resources", "matchDocuments response query=%q docs=%d", input.Query, len(ranked))
 	return nil
 }

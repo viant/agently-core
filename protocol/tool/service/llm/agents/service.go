@@ -9,6 +9,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
+	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
@@ -298,11 +299,11 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	ro.ConversationID = convID
-	debugf("agents.run start convo=%q agent_id=%q objective_len=%d objective_head=%q objective_tail=%q context_keys=%d", strings.TrimSpace(convID), strings.TrimSpace(ri.AgentID), len(ri.Objective), headString(ri.Objective, 512), tailString(ri.Objective, 512), len(ri.Context))
+	logx.Infof("conversation", "agents.run start convo=%q agent_id=%q objective_len=%d objective_head=%q objective_tail=%q context_keys=%d", strings.TrimSpace(convID), strings.TrimSpace(ri.AgentID), len(ri.Objective), headString(ri.Objective, 512), tailString(ri.Objective, 512), len(ri.Context))
 	// Strict routing: require id present in directory
 	if s.strict {
 		if _, ok := s.allowed[strings.TrimSpace(ri.AgentID)]; !ok {
-			errorf("agents.run strict reject agent_id=%q", strings.TrimSpace(ri.AgentID))
+			logx.Errorf("conversation", "agents.run strict reject agent_id=%q", strings.TrimSpace(ri.AgentID))
 			return svc.NewMethodNotFoundError("agent not registered in directory: " + strings.TrimSpace(ri.AgentID))
 		}
 	}
@@ -316,13 +317,13 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	if intended == "" {
 		intended = s.directorySource(strings.TrimSpace(ri.AgentID))
 	}
-	debugf("agents.run routing agent_id=%q intended=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(intended))
+	logx.Infof("conversation", "agents.run routing agent_id=%q intended=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(intended))
 
 	// Directory/source routing is authoritative. External/A2A agents must fail
 	// explicitly when external execution is unavailable; they must never fall
 	// back to local agent loading.
 	internalKnown := s.isInternalAgent(ctx, strings.TrimSpace(ri.AgentID))
-	debugf("agents.run route check agent_id=%q internal_known=%v external_enabled=%v", strings.TrimSpace(ri.AgentID), internalKnown, s.runExternal != nil)
+	logx.Infof("conversation", "agents.run route check agent_id=%q internal_known=%v external_enabled=%v", strings.TrimSpace(ri.AgentID), internalKnown, s.runExternal != nil)
 	if intended == "external" {
 		if s.runExternal == nil {
 			return svc.NewMethodNotFoundError("external agent route unavailable for: " + strings.TrimSpace(ri.AgentID))
@@ -553,7 +554,7 @@ func attachLinkedConversation(ctx context.Context, conv apiconv.Client, parent r
 		patch.SetTurnID(strings.TrimSpace(parent.TurnID))
 		patch.SetLinkedConversationID(strings.TrimSpace(linkedConversationID))
 		if err := conv.PatchMessage(ctx, patch); err != nil {
-			errorf("agents.run attach linked conversation error message_id=%q linked_convo=%q err=%v", messageID, strings.TrimSpace(linkedConversationID), err)
+			logx.Errorf("conversation", "agents.run attach linked conversation error message_id=%q linked_convo=%q err=%v", messageID, strings.TrimSpace(linkedConversationID), err)
 		}
 	}
 }

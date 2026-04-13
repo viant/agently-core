@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	toolpol "github.com/viant/agently-core/protocol/tool"
@@ -58,10 +59,10 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 		extCtx = runtimerequestctx.WithConversationID(ctx, runCtx.childConversationID)
 		ro.ConversationID = runCtx.childConversationID
 	}
-	debugf("agents.run external invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
+	logx.Infof("conversation", "agents.run external invoke agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
 	ans, st, taskID, ctxID, streamSupp, warns, err := s.runExternal(extCtx, ri.AgentID, ri.Objective, ri.Context)
 	if err != nil {
-		errorf("agents.run external error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
+		logx.Errorf("conversation", "agents.run external error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
 		s.finalizeRunStatus(ctx, runCtx, "failed")
 		if intended == "external" {
 			return true, err
@@ -71,7 +72,7 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 	if taskID == "" && st == "" {
 		return false, nil
 	}
-	debugf("agents.run external ok agent_id=%q child_convo=%q status=%q task_id=%q context_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(st), strings.TrimSpace(taskID), strings.TrimSpace(ctxID))
+	logx.Infof("conversation", "agents.run external ok agent_id=%q child_convo=%q status=%q task_id=%q context_id=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(st), strings.TrimSpace(taskID), strings.TrimSpace(ctxID))
 	ro.Answer = ans
 	ro.Status = st
 	ro.TaskID = taskID
@@ -96,7 +97,7 @@ const DefaultChildAgentTimeout = 15 * time.Minute
 
 func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, convID string, depth int) error {
 	if s.agent == nil {
-		errorf("agents.run internal error: agent runtime not configured")
+		logx.Errorf("conversation", "agents.run internal error: agent runtime not configured")
 		return svc.NewMethodNotFoundError("agent runtime not configured")
 	}
 	runCtx, err := s.prepareLinkedRun(ctx, ri, "internal", true)
@@ -149,7 +150,7 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 			}
 			s.finalizeRunStatus(parentCtx, linked, finalStatus)
 		}(context.WithoutCancel(ctx), qi, &agentsvc.QueryOutput{}, runCtx)
-		debugf("agents.run async accepted agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
+		logx.Infof("conversation", "agents.run async accepted agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
 		return nil
 	}
 	qo := &agentsvc.QueryOutput{}
@@ -167,7 +168,7 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	}
 	ro.MessageID = result.messageID
 	s.finalizeRunStatus(ctx, runCtx, result.status)
-	debugf("agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
+	logx.Infof("conversation", "agents.run done convo=%q agent_id=%q status=%q", strings.TrimSpace(ro.ConversationID), strings.TrimSpace(ri.AgentID), strings.TrimSpace(ro.Status))
 	return nil
 }
 
@@ -202,12 +203,12 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 	}
 	childCtx, childCancel := context.WithTimeout(childCtx, childTimeout)
 	defer childCancel()
-	debugf("agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), childTimeout)
+	logx.Infof("conversation", "agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), childTimeout)
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
-		errorf("agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
+		logx.Errorf("conversation", "agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
 		return s.resolveChildRunError(ctx, runCtx, qo, err)
 	}
-	debugf("agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
+	logx.Infof("conversation", "agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
 	return childRunResult{
 		answer:         qo.Content,
 		status:         "succeeded",
@@ -710,7 +711,7 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 	if strings.EqualFold(strings.TrimSpace(route), "internal") {
 		scope = s.agentConversationScope(ctx, strings.TrimSpace(ri.AgentID))
 	}
-	debugf("agents.run %s scope agent_id=%q scope=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
+	logx.Infof("conversation", "agents.run %s scope agent_id=%q scope=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
 	if strings.EqualFold(strings.TrimSpace(route), "internal") {
 		runCtx.childConversationID = s.resolveReusableChildConversation(ctx, ri.AgentID, runCtx.parent, scope, route)
 	}
@@ -767,9 +768,9 @@ func (s *Service) resolveReusableChildConversation(ctx context.Context, agentID 
 		input.ParentTurnId = parent.TurnID
 		input.Has.ParentTurnId = true
 	}
-	debugf("agents.run %s reuse lookup agent_id=%q parent_convo=%q parent_turn=%q scope=%q", route, strings.TrimSpace(agentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(scope))
+	logx.Infof("conversation", "agents.run %s reuse lookup agent_id=%q parent_convo=%q parent_turn=%q scope=%q", route, strings.TrimSpace(agentID), strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(scope))
 	if cid := s.lookupReusableChildConversation(ctx, input); strings.TrimSpace(cid) != "" {
-		debugf("agents.run %s reuse hit agent_id=%q child_convo=%q", route, strings.TrimSpace(agentID), strings.TrimSpace(cid))
+		logx.Infof("conversation", "agents.run %s reuse hit agent_id=%q child_convo=%q", route, strings.TrimSpace(agentID), strings.TrimSpace(cid))
 		return cid
 	}
 	return ""
@@ -781,16 +782,16 @@ func (s *Service) createChildConversation(ctx context.Context, agentID, objectiv
 	}
 	cid, err := s.linker.CreateLinkedConversation(ctx, parent, false, nil)
 	if err != nil {
-		errorf("agents.run %s create child error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
+		logx.Errorf("conversation", "agents.run %s create child error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
 		return "", nil
 	}
-	debugf("agents.run %s created child_convo=%q parent_convo=%q", route, strings.TrimSpace(cid), strings.TrimSpace(parent.ConversationID))
+	logx.Infof("conversation", "agents.run %s created child_convo=%q parent_convo=%q", route, strings.TrimSpace(cid), strings.TrimSpace(parent.ConversationID))
 	if strings.EqualFold(strings.TrimSpace(route), "internal") {
 		s.assignConversationAgent(ctx, cid, agentID, route)
 	}
 	if waitForConversation {
 		if err := s.waitForConversation(ctx, cid); err != nil {
-			errorf("agents.run %s wait child error child_convo=%q err=%v", route, strings.TrimSpace(cid), err)
+			logx.Errorf("conversation", "agents.run %s wait child error child_convo=%q err=%v", route, strings.TrimSpace(cid), err)
 			return "", err
 		}
 	}
@@ -805,7 +806,7 @@ func (s *Service) assignConversationAgent(ctx context.Context, conversationID, a
 	upd.SetId(strings.TrimSpace(conversationID))
 	upd.SetAgentId(strings.TrimSpace(agentID))
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); err != nil {
-		errorf("agents.run %s set agent error child_convo=%q agent_id=%q err=%v", route, strings.TrimSpace(conversationID), strings.TrimSpace(agentID), err)
+		logx.Errorf("conversation", "agents.run %s set agent error child_convo=%q agent_id=%q err=%v", route, strings.TrimSpace(conversationID), strings.TrimSpace(agentID), err)
 	}
 }
 
@@ -819,7 +820,7 @@ func (s *Service) startRunStatus(ctx context.Context, parent runtimerequestctx.T
 	}
 	mid, err := s.status.Start(ctx, parent, toolName, "assistant", "tool", "exec")
 	if err != nil {
-		errorf("agents.run %s status start error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
+		logx.Errorf("conversation", "agents.run %s status start error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
 		return ""
 	}
 	attachLinkedConversation(ctx, s.conv, parent, mid, childConversationID)
@@ -830,7 +831,7 @@ func (s *Service) startRunStatus(ctx context.Context, parent runtimerequestctx.T
 		}
 		s.linker.EmitLinkedConversationAttached(ctx, parent, childConversationID, eventToolCallID, childAgentID, "")
 	}
-	debugf("agents.run %s status start parent_convo=%q message_id=%q", route, strings.TrimSpace(parent.ConversationID), strings.TrimSpace(mid))
+	logx.Infof("conversation", "agents.run %s status start parent_convo=%q message_id=%q", route, strings.TrimSpace(parent.ConversationID), strings.TrimSpace(mid))
 	return mid
 }
 

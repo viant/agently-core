@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/viant/afs/storage"
+	"github.com/viant/agently-core/internal/logx"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 )
 
@@ -514,7 +515,7 @@ func buildManifest(cache *snapshotCache) (map[string]manifestEntry, error) {
 		}
 		scanned++
 		if scanned%5000 == 0 {
-			debugf("manifest progress path=%q scanned=%d total=%d", cache.path, scanned, total)
+			logx.Debugf("mcpfs", "manifest progress path=%q scanned=%d total=%d", cache.path, scanned, total)
 		}
 	}
 	cache.manifestMu.Lock()

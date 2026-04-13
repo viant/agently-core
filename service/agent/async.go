@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/internal/logx"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -119,9 +120,9 @@ func (s *Service) renderAsyncReinforcement(ctx context.Context, rec *asynccfg.Op
 		return strings.TrimSpace(rendered)
 	}
 	if err != nil {
-		warnf("agent.async reinforcement prompt render failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(rec.ToolName), err)
+		logx.Warnf("conversation", "agent.async reinforcement prompt render failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(rec.ToolName), err)
 	} else {
-		warnf("agent.async reinforcement prompt rendered empty op_id=%q tool=%q", strings.TrimSpace(rec.ID), strings.TrimSpace(rec.ToolName))
+		logx.Warnf("conversation", "agent.async reinforcement prompt rendered empty op_id=%q tool=%q", strings.TrimSpace(rec.ID), strings.TrimSpace(rec.ToolName))
 	}
 	return ""
 }

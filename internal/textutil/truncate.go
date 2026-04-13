@@ -15,3 +15,27 @@ func RuneTruncate(s string, n int) string {
 	}
 	return s
 }
+
+// Head returns the first n bytes of s when it is longer than n.
+// When n <= 0 it returns an empty string.
+func Head(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+// Tail returns the last n bytes of s when it is longer than n.
+// When n <= 0 it returns an empty string.
+func Tail(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}

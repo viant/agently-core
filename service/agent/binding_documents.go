@@ -13,6 +13,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	intmodel "github.com/viant/agently-core/internal/finder/model"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/prompt"
 	padapter "github.com/viant/agently-core/protocol/prompt/adapter"
@@ -22,28 +23,28 @@ import (
 
 func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput, docs *prompt.Documents) {
 	if s == nil || input == nil || input.Agent == nil || docs == nil {
-		debugf("delegation.directory skip missing service/input/agent/docs")
+		logx.Infof("conversation", "delegation.directory skip missing service/input/agent/docs")
 		return
 	}
 	if !isCapabilityAgentID(strings.TrimSpace(input.Agent.ID)) && (input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled) {
-		debugf("delegation.directory disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		logx.Infof("conversation", "delegation.directory disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
 	// Avoid duplicate injection.
 	const sourceURI = "internal://llm/agents/list"
 	if hasDocumentURI(docs.Items, sourceURI) {
-		debugf("delegation.directory skip already_present agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		logx.Infof("conversation", "delegation.directory skip already_present agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
 	items, err := s.listPublishedAgents(ctx)
 	if err != nil {
-		infof("agent.directory error convo=%q agent_id=%q err=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), err)
-		debugf("delegation.directory list_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
+		logx.Infof("conversation", "agent.directory error convo=%q agent_id=%q err=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), err)
+		logx.Infof("conversation", "delegation.directory list_error agent_id=%q err=%v", strings.TrimSpace(input.Agent.ID), err)
 		return
 	}
 	if len(items) == 0 {
-		infof("agent.directory empty convo=%q agent_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID))
-		debugf("delegation.directory list_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		logx.Infof("conversation", "agent.directory empty convo=%q agent_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID))
+		logx.Infof("conversation", "delegation.directory list_empty agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
 	var bld strings.Builder
@@ -81,8 +82,8 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 		Metadata:    map[string]string{"kind": "agents_directory"},
 	}
 	docs.Items = append(docs.Items, doc)
-	infof("agent.directory injected convo=%q agent_id=%q count=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), len(items))
-	debugf("delegation.directory injected agent_id=%q count=%d", strings.TrimSpace(input.Agent.ID), len(items))
+	logx.Infof("conversation", "agent.directory injected convo=%q agent_id=%q count=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), len(items))
+	logx.Infof("conversation", "delegation.directory injected agent_id=%q count=%d", strings.TrimSpace(input.Agent.ID), len(items))
 }
 
 func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, error) {
@@ -100,13 +101,13 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 				filtered = append(filtered, item)
 			}
 			if len(filtered) > 0 {
-				infof("agent.directory source=finder count=%d", len(filtered))
+				logx.Infof("conversation", "agent.directory source=finder count=%d", len(filtered))
 				return filtered, nil
 			}
 			if len(items) == 0 {
-				infof("agent.directory source=finder empty")
+				logx.Infof("conversation", "agent.directory source=finder empty")
 			} else {
-				infof("agent.directory source=finder no_published count=%d", len(items))
+				logx.Infof("conversation", "agent.directory source=finder no_published count=%d", len(items))
 			}
 		}
 	}
@@ -136,7 +137,7 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 		return nil, err
 	}
 	if len(lo.Items) == 0 {
-		infof("agent.directory source=tool empty")
+		logx.Infof("conversation", "agent.directory source=tool empty")
 		return nil, nil
 	}
 	result := make([]*agent.Agent, 0, len(lo.Items))
@@ -167,7 +168,7 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 		}
 		result = append(result, a)
 	}
-	infof("agent.directory source=tool count=%d", len(result))
+	logx.Infof("conversation", "agent.directory source=tool count=%d", len(result))
 	return result, nil
 }
 
@@ -265,8 +266,8 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 			if err := json.Unmarshal([]byte(raw), &payload); err != nil || len(payload) == 0 {
 				continue
 			}
-			if elicitation.DebugEnabled() {
-				infof("[elicitation] merge payloadKeys=%v", elicitation.PayloadKeys(payload))
+			if logx.Enabled() {
+				logx.Infof("conversation", "[elicitation] merge payloadKeys=%v", elicitation.PayloadKeys(payload))
 			}
 			for k, v := range payload {
 				ctx[k] = v
@@ -303,8 +304,8 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 					ctx["descriptionStyle"] = v
 				}
 			}
-			if elicitation.DebugEnabled() {
-				infof("[elicitation] ctxKeys=%v", elicitation.PayloadKeys(ctx))
+			if logx.Enabled() {
+				logx.Infof("conversation", "[elicitation] ctxKeys=%v", elicitation.PayloadKeys(ctx))
 			}
 		}
 	}

@@ -195,10 +195,10 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		}
 		madeVisible, err := o.patchAssistantMessageFromInfo(persistCtx, msgID, infoWithStream)
 		if err != nil {
-			warnf("patchAssistantMessageFromInfo failed message=%q err=%v", strings.TrimSpace(msgID), err)
+			logx.Warnf("conversation", "patchAssistantMessageFromInfo failed message=%q err=%v", strings.TrimSpace(msgID), err)
 		} else if !madeVisible {
 			if err := o.patchInterimFlag(persistCtx, msgID); err != nil {
-				warnf("patchInterimFlag failed message=%q err=%v", strings.TrimSpace(msgID), err)
+				logx.Warnf("conversation", "patchInterimFlag failed message=%q err=%v", strings.TrimSpace(msgID), err)
 			}
 		}
 	}
@@ -224,7 +224,7 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		errs = append(errs, fmt.Errorf("finish model call: %w", err))
 	}
 	if err := o.persistOpenAIGeneratedFiles(persistCtx, msgID, turn, info); err != nil {
-		warnf("persistOpenAIGeneratedFiles failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		logx.Warnf("conversation", "persistOpenAIGeneratedFiles failed message=%q err=%v", strings.TrimSpace(msgID), err)
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -235,7 +235,7 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 
 func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, msgID string, info Info) (bool, error) {
 	if strings.TrimSpace(msgID) == "" {
-		debugf("patchAssistant skip empty msgID")
+		logx.Infof("conversation", "patchAssistant skip empty msgID")
 		return false, nil
 	}
 	resp := info.LLMResponse
@@ -252,15 +252,15 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	content, hasToolCalls := AssistantContentFromResponse(resp)
 	content = strings.TrimSpace(content)
 	streamTxt := strings.TrimSpace(info.StreamText)
-	debugf("patchAssistant msg=%s respChoices=%d contentFromResp=%d streamText=%d hasToolCalls=%v finishReason=%q",
+	logx.Infof("conversation", "patchAssistant msg=%s respChoices=%d contentFromResp=%d streamText=%d hasToolCalls=%v finishReason=%q",
 		msgID, respChoices, len(content), len(streamTxt), hasToolCalls, info.FinishReason)
 	// Fall back to accumulated stream text when LLMResponse has no content
 	if content == "" && streamTxt != "" {
 		content = streamTxt
-		debugf("patchAssistant msg=%s using streamText fallback contentLen=%d", msgID, len(content))
+		logx.Infof("conversation", "patchAssistant msg=%s using streamText fallback contentLen=%d", msgID, len(content))
 	}
 	if !hasToolCalls && looksLikeElicitationContent(content) {
-		debugf("patchAssistant msg=%s skip elicitation content", msgID)
+		logx.Infof("conversation", "patchAssistant msg=%s skip elicitation content", msgID)
 		return false, nil
 	}
 	if hasToolCalls && o.isLikelyUserEcho(ctx, content) {
@@ -271,7 +271,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 		content = preamble
 	}
 	if content == "" && !hasToolCalls {
-		debugf("patchAssistant msg=%s skip empty content after all fallbacks", msgID)
+		logx.Infof("conversation", "patchAssistant msg=%s skip empty content after all fallbacks", msgID)
 		return false, nil
 	}
 	// When the model response has tool calls but no text content, synthesize
@@ -281,7 +281,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	// correct model-call iteration.
 	if content == "" && hasToolCalls {
 		content = synthesizeToolPreamble(resp)
-		debugf("patchAssistant msg=%s synthesized preamble for tool-only response: %q", msgID, content)
+		logx.Infof("conversation", "patchAssistant msg=%s synthesized preamble for tool-only response: %q", msgID, content)
 	}
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
@@ -316,7 +316,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	}
 	finishLower := strings.ToLower(finishReason)
 	isToolCallResponse := hasToolCalls || strings.Contains(finishLower, "tool")
-	debugf("patchAssistant msg=%s finishReason=%q isToolCall=%v -> interim=%d contentHead=%q",
+	logx.Infof("conversation", "patchAssistant msg=%s finishReason=%q isToolCall=%v -> interim=%d contentHead=%q",
 		msgID, finishReason, isToolCallResponse, func() int {
 			if isToolCallResponse {
 				return 1
@@ -407,7 +407,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			upd.SetMessageID(msgID)
 			upd.SetStatus("streaming")
 			if err := o.client.PatchModelCall(ctx, upd); err != nil {
-				warnf("patchModelCall streaming status failed message=%q err=%v", strings.TrimSpace(msgID), err)
+				logx.Warnf("conversation", "patchModelCall streaming status failed message=%q err=%v", strings.TrimSpace(msgID), err)
 			}
 		}
 	}
@@ -424,7 +424,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 func (o *recorderObserver) handleStreamDeltaImmediate(ctx context.Context, msgID string) error {
 	id := o.resolveStreamPayloadID(ctx, msgID)
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", []byte(o.acc.String())); err != nil {
-		warnf("stream delta payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		logx.Warnf("conversation", "stream delta payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
 		return nil
 	}
 	o.linkStreamPayload(ctx, msgID, id)
@@ -444,7 +444,7 @@ func (o *recorderObserver) handleStreamDeltaBuffered(ctx context.Context, msgID 
 		return nil
 	}
 	if _, err := o.upsertInlinePayload(ctx, id, "model_stream", "text/plain", []byte(o.acc.String())); err != nil {
-		warnf("buffered stream payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
+		logx.Warnf("conversation", "buffered stream payload update failed message=%q err=%v", strings.TrimSpace(msgID), err)
 		return nil
 	}
 	o.lastFlushAt = now
@@ -477,7 +477,7 @@ func (o *recorderObserver) linkStreamPayload(ctx context.Context, msgID, payload
 	upd.SetMessageID(msgID)
 	upd.SetStreamPayloadID(payloadID)
 	if err := o.client.PatchModelCall(ctx, upd); err != nil {
-		warnf("stream payload link failed message=%q payload=%q err=%v", strings.TrimSpace(msgID), strings.TrimSpace(payloadID), err)
+		logx.Warnf("conversation", "stream payload link failed message=%q payload=%q err=%v", strings.TrimSpace(msgID), strings.TrimSpace(payloadID), err)
 		return
 	}
 	o.streamLinked = true

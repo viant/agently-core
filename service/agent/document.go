@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	"io"
 	"os"
 	"sort"
@@ -27,12 +29,12 @@ func (s *Service) matchDocuments(ctx context.Context, input *QueryInput, knowled
 	if useMatch {
 		mode = "match"
 	}
-	debugf("agent.matchDocuments mode=%s embedding_model=%q query_len=%d query_head=%q query_tail=%q knowledge_entries=%d",
+	logx.Infof("conversation", "agent.matchDocuments mode=%s embedding_model=%q query_len=%d query_head=%q query_tail=%q knowledge_entries=%d",
 		mode,
 		strings.TrimSpace(input.EmbeddingModel),
 		len(input.Query),
-		headString(strings.TrimSpace(input.Query), 160),
-		tailString(strings.TrimSpace(input.Query), 160),
+		textutil.Head(strings.TrimSpace(input.Query), 160),
+		textutil.Tail(strings.TrimSpace(input.Query), 160),
 		len(knowledge),
 	)
 	if !useMatch {
@@ -65,7 +67,7 @@ func (s *Service) fullKnowledge(ctx context.Context, knowledge []*agent.Knowledg
 		if kn == nil || strings.TrimSpace(kn.URL) == "" {
 			continue
 		}
-		debugf("agent.fullKnowledge include location=%q inclusionMode=%q minScore=%v maxFiles=%d",
+		logx.Infof("conversation", "agent.fullKnowledge include location=%q inclusionMode=%q minScore=%v maxFiles=%d",
 			strings.TrimSpace(kn.URL),
 			strings.TrimSpace(kn.InclusionMode),
 			kn.MinScore,
@@ -94,7 +96,7 @@ func (s *Service) fullKnowledge(ctx context.Context, knowledge []*agent.Knowledg
 
 	// Sort deterministically by path
 	sort.Strings(files)
-	debugf("agent.fullKnowledge collected_files=%d", len(files))
+	logx.Infof("conversation", "agent.fullKnowledge collected_files=%d", len(files))
 
 	// Load file contents into schema.Document with metadata["path"] = file path
 	out := make([]embSchema.Document, 0, len(files))
@@ -123,7 +125,7 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if kn == nil {
 			continue
 		}
-		debugf("agent.onlyNeededKnowledge start location=%q minScore=%v maxFiles=%d filter=%+v",
+		logx.Infof("conversation", "agent.onlyNeededKnowledge start location=%q minScore=%v maxFiles=%d filter=%+v",
 			strings.TrimSpace(kn.URL),
 			kn.MinScore,
 			kn.EffectiveMaxFiles(),
@@ -137,12 +139,12 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if err != nil {
 			return nil, fmt.Errorf("failed to augment with knowledge %s: %w", kn.URL, err)
 		}
-		debugf("agent.onlyNeededKnowledge augmented location=%q docs_before_minScore=%d",
+		logx.Infof("conversation", "agent.onlyNeededKnowledge augmented location=%q docs_before_minScore=%d",
 			strings.TrimSpace(kn.URL),
 			len(augmenterOutput.Documents),
 		)
 		for i, d := range augmenterOutput.Documents {
-			debugf("agent.onlyNeededKnowledge candidate location=%q idx=%d score=%.4f source=%q",
+			logx.Infof("conversation", "agent.onlyNeededKnowledge candidate location=%q idx=%d score=%.4f source=%q",
 				strings.TrimSpace(kn.URL),
 				i,
 				d.Score,
@@ -161,7 +163,7 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 				}
 			}
 			augmenterOutput.Documents = filtered
-			debugf("agent.onlyNeededKnowledge minScore_applied location=%q threshold=%.4f kept=%d dropped=%d",
+			logx.Infof("conversation", "agent.onlyNeededKnowledge minScore_applied location=%q threshold=%.4f kept=%d dropped=%d",
 				strings.TrimSpace(kn.URL),
 				*kn.MinScore,
 				len(filtered),
@@ -196,13 +198,13 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		if limit > 0 && len(augmenterOutput.Documents) > limit {
 			augmenterOutput.Documents = augmenterOutput.Documents[:limit]
 		}
-		debugf("agent.onlyNeededKnowledge post_limit location=%q limit=%d kept=%d",
+		logx.Infof("conversation", "agent.onlyNeededKnowledge post_limit location=%q limit=%d kept=%d",
 			strings.TrimSpace(kn.URL),
 			limit,
 			len(augmenterOutput.Documents),
 		)
 		for i, d := range augmenterOutput.Documents {
-			debugf("agent.onlyNeededKnowledge selected location=%q idx=%d score=%.4f source=%q",
+			logx.Infof("conversation", "agent.onlyNeededKnowledge selected location=%q idx=%d score=%.4f source=%q",
 				strings.TrimSpace(kn.URL),
 				i,
 				d.Score,
@@ -216,7 +218,7 @@ func (s *Service) onlyNeededKnowledge(ctx context.Context, input *QueryInput, kn
 		}
 		allDocuments = append(allDocuments, loaded...)
 	}
-	debugf("agent.onlyNeededKnowledge loaded_docs_total=%d", len(allDocuments))
+	logx.Infof("conversation", "agent.onlyNeededKnowledge loaded_docs_total=%d", len(allDocuments))
 	return allDocuments, nil
 }
 
@@ -234,10 +236,10 @@ func (s *Service) shouldUseMatch(ctx context.Context, knowledge []*agent.Knowled
 	mode := strings.ToLower(strings.TrimSpace(knowledge[0].InclusionMode))
 	switch mode {
 	case "match":
-		debugf("agent.shouldUseMatch explicit mode=match")
+		logx.Infof("conversation", "agent.shouldUseMatch explicit mode=match")
 		return true
 	case "full":
-		debugf("agent.shouldUseMatch explicit mode=full (minScore ignored in full mode)")
+		logx.Infof("conversation", "agent.shouldUseMatch explicit mode=full (minScore ignored in full mode)")
 		return false
 	}
 	// Auto/default
@@ -264,11 +266,11 @@ func (s *Service) shouldUseMatch(ctx context.Context, knowledge []*agent.Knowled
 			return true, nil
 		})
 		if count > limit {
-			debugf("agent.shouldUseMatch auto location=%q count=%d limit=%d => mode=match", strings.TrimSpace(kn.URL), count, limit)
+			logx.Infof("conversation", "agent.shouldUseMatch auto location=%q count=%d limit=%d => mode=match", strings.TrimSpace(kn.URL), count, limit)
 			return true // prefer match when too many resources
 		}
 	}
-	debugf("agent.shouldUseMatch auto => mode=full")
+	logx.Infof("conversation", "agent.shouldUseMatch auto => mode=full")
 	return false // small sets -> full mode OK
 }
 

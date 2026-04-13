@@ -8,6 +8,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -93,7 +94,7 @@ func looksLikeElicitationContent(content string) bool {
 
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
 func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, msgID string, payload []byte, mode string) error {
-	debugf("patchInterimRequestMessage start convo=%q turn=%q msg=%q mode=%q payload_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(mode), len(payload))
+	logx.Infof("conversation", "patchInterimRequestMessage start convo=%q turn=%q msg=%q mode=%q payload_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(mode), len(payload))
 	opts := []apiconv.MessageOption{
 		apiconv.WithId(msgID),
 		apiconv.WithMode(mode),
@@ -107,9 +108,9 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 	}
 	_, err := apiconv.AddMessage(ctx, o.client, &turn, opts...)
 	if err != nil {
-		errorf("patchInterimRequestMessage error convo=%q turn=%q msg=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), err)
+		logx.Errorf("conversation", "patchInterimRequestMessage error convo=%q turn=%q msg=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), err)
 	} else {
-		debugf("patchInterimRequestMessage ok convo=%q turn=%q msg=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID))
+		logx.Infof("conversation", "patchInterimRequestMessage ok convo=%q turn=%q msg=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID))
 	}
 	return err
 }
@@ -124,16 +125,16 @@ func (o *recorderObserver) patchInterimFlag(ctx context.Context, msgID string) e
 	msg.SetInterim(1)
 	err := o.client.PatchMessage(ctx, msg)
 	if err != nil {
-		errorf("patchInterimFlag error msg=%q err=%v", strings.TrimSpace(msgID), err)
+		logx.Errorf("conversation", "patchInterimFlag error msg=%q err=%v", strings.TrimSpace(msgID), err)
 	} else {
-		debugf("patchInterimFlag ok msg=%q", strings.TrimSpace(msgID))
+		logx.Infof("conversation", "patchInterimFlag ok msg=%q", strings.TrimSpace(msgID))
 	}
 	return err
 }
 
 // beginModelCall persists the initial model call and associated request payloads.
 func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, turn runtimerequestctx.TurnMeta, info Info) error {
-	debugf("beginModelCall start convo=%q turn=%q msg=%q provider=%q model=%q kind=%q req_bytes=%d provider_req_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(info.Provider), strings.TrimSpace(info.Model), strings.TrimSpace(info.ModelKind), len(info.Payload), len(info.RequestJSON))
+	logx.Infof("conversation", "beginModelCall start convo=%q turn=%q msg=%q provider=%q model=%q kind=%q req_bytes=%d provider_req_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(info.Provider), strings.TrimSpace(info.Model), strings.TrimSpace(info.ModelKind), len(info.Payload), len(info.RequestJSON))
 	mc := apiconv.NewModelCall()
 	mc.SetMessageID(msgID)
 	if turn.TurnID != "" {
@@ -157,7 +158,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 	if len(info.Payload) > 0 {
 		reqID, err := o.upsertInlinePayload(ctx, "", "model_request", "application/json", info.Payload)
 		if err != nil {
-			errorf("beginModelCall request payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
+			logx.Errorf("conversation", "beginModelCall request payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		mc.SetRequestPayloadID(reqID)
@@ -165,17 +166,17 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 	if len(info.RequestJSON) > 0 {
 		prID, err := o.upsertInlinePayload(ctx, "", "provider_request", "application/json", info.RequestJSON)
 		if err != nil {
-			errorf("beginModelCall provider payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
+			logx.Errorf("conversation", "beginModelCall provider payload error msg=%q err=%v", strings.TrimSpace(msgID), err)
 			return err
 		}
 		mc.SetProviderRequestPayloadID(prID)
 		_ = debugtrace.WritePayload("llm-provider-request", msgID, info.RequestJSON)
 	}
 	if err := o.client.PatchModelCall(ctx, mc); err != nil {
-		errorf("beginModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
+		logx.Errorf("conversation", "beginModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
 		return err
 	}
-	debugf("beginModelCall ok convo=%q turn=%q msg=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID))
+	logx.Infof("conversation", "beginModelCall ok convo=%q turn=%q msg=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID))
 	return nil
 }
 
@@ -186,7 +187,7 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	sizeBytes := len(body)
 	logPayloadDebug := sizeBytes%512 == 0
 	if logPayloadDebug {
-		debugf("upsertInlinePayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(id), strings.TrimSpace(kind), strings.TrimSpace(mime), sizeBytes)
+		logx.Infof("conversation", "upsertInlinePayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(id), strings.TrimSpace(kind), strings.TrimSpace(mime), sizeBytes)
 	}
 	pw := apiconv.NewPayload()
 	pw.SetId(id)
@@ -196,11 +197,11 @@ func (o *recorderObserver) upsertInlinePayload(ctx context.Context, id, kind, mi
 	pw.SetStorage("inline")
 	pw.SetInlineBody(body)
 	if err := o.client.PatchPayload(ctx, pw); err != nil {
-		errorf("upsertInlinePayload error id=%q err=%v", strings.TrimSpace(id), err)
+		logx.Errorf("conversation", "upsertInlinePayload error id=%q err=%v", strings.TrimSpace(id), err)
 		return "", err
 	}
 	if logPayloadDebug {
-		debugf("upsertInlinePayload ok id=%q", strings.TrimSpace(id))
+		logx.Infof("conversation", "upsertInlinePayload ok id=%q", strings.TrimSpace(id))
 	}
 	return id, nil
 }

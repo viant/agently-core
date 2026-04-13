@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	plan "github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
@@ -63,14 +65,14 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		return
 	}
 	argsJSON := ""
-	if debugConvEnabled() && len(step.Args) > 0 {
+	if logx.Enabled() && len(step.Args) > 0 {
 		if b, jErr := json.Marshal(step.Args); jErr == nil {
 			argsJSON = string(b)
 		} else {
 			argsJSON = fmt.Sprintf("{\"marshal_error\":%q}", jErr.Error())
 		}
 	}
-	debugConvf("tool execute start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512))
+	logx.DebugCtxf(ctx, "conversation", "tool execute start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), textutil.Head(argsJSON, 512), textutil.Tail(argsJSON, 512))
 	if debugtrace.Enabled() {
 		debugtrace.Write("executil", "tool_execute_start", map[string]any{
 			"conversationID": strings.TrimSpace(turn.ConversationID),
@@ -116,7 +118,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		if toolCallClosed && strings.EqualFold(status, "completed") && strings.TrimSpace(errMsg) == "" {
 			return
 		}
-		warnConvf("tool force close convo=%q turn=%q op_id=%q tool=%q status=%q ret_err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), strings.TrimSpace(errMsg), strings.TrimSpace(formatContextErr(ctx)))
+		logx.WarnCtxf(ctx, "conversation", "tool force close convo=%q turn=%q op_id=%q tool=%q status=%q ret_err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), strings.TrimSpace(errMsg), strings.TrimSpace(formatContextErr(ctx)))
 		if !toolCallClosed {
 			_ = completeToolCall(finCtx, conv, toolMsgID, step.ID, step.Name, status, time.Now(), "", errMsg)
 		}
@@ -157,11 +159,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	argsTimeoutMs, hasArgsTimeout := timeoutMsFromArgs(step.Args)
 	ctxDeadline, ctxRemaining := formatContextDeadline(ctx)
 	if hasArgsTimeout {
-		debugConvf("tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=%q args_timeout_ms=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String(), wrapperTimeout.String(), argsTimeoutMs)
+		logx.DebugCtxf(ctx, "conversation", "tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=%q args_timeout_ms=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String(), wrapperTimeout.String(), argsTimeoutMs)
 	} else if wrapperTimeoutOK {
-		debugConvf("tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=%q args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String(), wrapperTimeout.String())
+		logx.DebugCtxf(ctx, "conversation", "tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=%q args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String(), wrapperTimeout.String())
 	} else {
-		debugConvf("tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=default args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String())
+		logx.DebugCtxf(ctx, "conversation", "tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=default args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String())
 	}
 	var toolResult string
 	var execErr error
@@ -188,9 +190,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if execErr != nil {
 		errs = append(errs, fmt.Errorf("execute tool: %w", execErr))
 		cause := classifyTimeoutCause(ctx, nil, execErr)
-		warnConvf("tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
+		logx.WarnCtxf(ctx, "conversation", "tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
 	} else if looksLikeAuthElicitation(toolResult) {
-		warnConvf("tool execute auth challenge convo=%q turn=%q op_id=%q tool=%q exec_err=nil result_len=%d result_head=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(toolResult), headString(toolResult, 256))
+		logx.WarnCtxf(ctx, "conversation", "tool execute auth challenge convo=%q turn=%q op_id=%q tool=%q exec_err=nil result_len=%d result_head=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(toolResult), textutil.Head(toolResult, 256))
 	}
 	span.SetEnd(time.Now())
 
@@ -261,9 +263,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			retErr = errors.Join(errs...)
 		}
 		if retErr != nil && len(errs) > 0 {
-			errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult), retErr)
+			logx.ErrorCtxf(ctx, "conversation", "tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult), retErr)
 		} else {
-			infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult))
+			logx.InfoCtxf(ctx, "conversation", "tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult))
 		}
 		return
 	}
@@ -282,9 +284,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 
 	if retErr != nil && len(errs) > 0 {
-		errorConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult), retErr)
+		logx.ErrorCtxf(ctx, "conversation", "tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult), retErr)
 	} else {
-		infoConvf("tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
+		logx.InfoCtxf(ctx, "conversation", "tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	}
 	if debugtrace.Enabled() {
 		debugtrace.Write("executil", "tool_execute_done", map[string]any{
@@ -314,14 +316,14 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 		return fmt.Errorf("turn meta not found")
 	}
 	argsJSON := ""
-	if debugConvEnabled() && len(step.Args) > 0 {
+	if logx.Enabled() && len(step.Args) > 0 {
 		if b, jErr := json.Marshal(step.Args); jErr == nil {
 			argsJSON = string(b)
 		} else {
 			argsJSON = fmt.Sprintf("{\"marshal_error\":%q}", jErr.Error())
 		}
 	}
-	debugConvf("tool synth start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), headString(argsJSON, 512), tailString(argsJSON, 512), len(toolResult))
+	logx.DebugCtxf(ctx, "conversation", "tool synth start convo=%q turn=%q op_id=%q tool=%q args_len=%d args_head=%q args_tail=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(argsJSON), textutil.Head(argsJSON, 512), textutil.Tail(argsJSON, 512), len(toolResult))
 	if debugtrace.Enabled() {
 		debugtrace.Write("executil", "tool_synth_start", map[string]any{
 			"conversationID": strings.TrimSpace(turn.ConversationID),
@@ -367,7 +369,7 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 	if cErr := completeToolCall(finCtx, conv, toolMsgID, step.ID, step.Name, status, completedAt, respID, ""); cErr != nil {
 		return fmt.Errorf("complete tool call: %w", cErr)
 	}
-	debugConvf("tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
+	logx.DebugCtxf(ctx, "conversation", "tool synth done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(status), len(toolResult))
 	if debugtrace.Enabled() {
 		debugtrace.Write("executil", "tool_synth_done", map[string]any{
 			"conversationID": strings.TrimSpace(turn.ConversationID),

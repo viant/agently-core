@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 
 	"github.com/viant/agently-core/protocol/agent/plan"
@@ -17,7 +18,7 @@ func summarizePlanSteps(aPlan *plan.Plan) []map[string]any {
 			"type":       strings.TrimSpace(step.Type),
 			"name":       strings.TrimSpace(step.Name),
 			"args":       step.Args,
-			"reasonHead": headString(strings.TrimSpace(step.Reason), 200),
+			"reasonHead": textutil.Head(strings.TrimSpace(step.Reason), 200),
 		})
 	}
 	return result

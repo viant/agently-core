@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
 	"strings"
 	"time"
 
@@ -40,15 +41,15 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 			modelName = strings.TrimSpace(s.defaults.Model)
 		}
 	}
-	infof("agent.selector config convo=%q agent_auto_model=%q default_model=%q effective_model=%q candidates=%d", strings.TrimSpace(convID(conv)), strings.TrimSpace(valueOrDefaultDefaultsModel(s)), strings.TrimSpace(valueOrDefaultModel(s)), strings.TrimSpace(modelName), len(candidates))
+	logx.Infof("conversation", "agent.selector config convo=%q agent_auto_model=%q default_model=%q effective_model=%q candidates=%d", strings.TrimSpace(convID(conv)), strings.TrimSpace(valueOrDefaultDefaultsModel(s)), strings.TrimSpace(valueOrDefaultModel(s)), strings.TrimSpace(modelName), len(candidates))
 	if modelName == "" {
-		infof("agent.selector skip convo=%q reason=%q", strings.TrimSpace(convID(conv)), "empty_model")
+		logx.Infof("conversation", "agent.selector skip convo=%q reason=%q", strings.TrimSpace(convID(conv)), "empty_model")
 		return "", nil
 	}
 
 	model, err := s.llm.ModelFinder().Find(ctx, modelName)
 	if err != nil || model == nil {
-		infof("agent.selector skip convo=%q reason=%q model=%q err=%v", strings.TrimSpace(convID(conv)), "model_not_found", strings.TrimSpace(modelName), err)
+		logx.Infof("conversation", "agent.selector skip convo=%q reason=%q model=%q err=%v", strings.TrimSpace(convID(conv)), "model_not_found", strings.TrimSpace(modelName), err)
 		return "", nil
 	}
 
@@ -132,7 +133,7 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	var cancel func()
 	runCtx, cancel = context.WithTimeout(runCtx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
-	infof("agent.selector start convo=%q model=%q timeout_sec=%d candidates=%d query_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), timeoutSec, len(candidateLines), len(query))
+	logx.Infof("conversation", "agent.selector start convo=%q model=%q timeout_sec=%d candidates=%d query_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), timeoutSec, len(candidateLines), len(query))
 	in := &core.GenerateInput{
 		UserID: "system",
 		ModelSelection: llm.ModelSelection{
@@ -155,15 +156,15 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	out := &core.GenerateOutput{}
 	err = s.llm.Generate(runCtx, in, out)
 	if err != nil {
-		warnf("agent.selector error convo=%q model=%q elapsed=%s err=%v", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started), err)
+		logx.Warnf("conversation", "agent.selector error convo=%q model=%q elapsed=%s err=%v", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started), err)
 		return "", err
 	}
 	selected := parseSelectedAgentID(responseForContent(out.Response, out.Content), outputKey)
 	if selected == "" {
-		debugf("agent.selector done convo=%q model=%q selected=\"\" elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started))
+		logx.Infof("conversation", "agent.selector done convo=%q model=%q selected=\"\" elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started))
 		return "", nil
 	}
-	infof("agent.selector done convo=%q model=%q selected=%q elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), strings.TrimSpace(selected), time.Since(started))
+	logx.Infof("conversation", "agent.selector done convo=%q model=%q selected=%q elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), strings.TrimSpace(selected), time.Since(started))
 	if strings.EqualFold(strings.TrimSpace(selected), "agent_selector") {
 		return "agent_selector", nil
 	}

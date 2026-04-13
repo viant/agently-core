@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"github.com/viant/agently-core/internal/logx"
 	"path/filepath"
 	"strings"
 
@@ -457,7 +458,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	}
 	out := padapter.ToToolDefinitions(tools)
 	out = dedupeToolDefinitions(out)
-	if DebugEnabled() {
+	if logx.Enabled() {
 		names := make([]string, 0, len(out))
 		for _, item := range out {
 			if item == nil {
@@ -467,7 +468,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 				names = append(names, name)
 			}
 		}
-		debugf("agent.buildToolSignatures agent_id=%q tool_names=%q", strings.TrimSpace(input.Agent.ID), strings.Join(names, ","))
+		logx.Infof("conversation", "agent.buildToolSignatures agent_id=%q tool_names=%q", strings.TrimSpace(input.Agent.ID), strings.Join(names, ","))
 	}
 	return out, nil
 }

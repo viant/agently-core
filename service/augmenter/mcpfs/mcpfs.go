@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/viant/afs/storage"
+	"github.com/viant/agently-core/internal/logx"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -98,7 +99,7 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 	if snapURI, rootURI, ok := s.resolveSnapshot(location); ok {
 		return s.listSnapshot(ctx, location, snapURI, rootURI)
 	}
-	debugf("list start location=%q", location)
+	logx.Debugf("mcpfs", "list start location=%q", location)
 	server, prefix := mcpuri.Parse(location)
 	if strings.TrimSpace(server) == "" {
 		return nil, fmt.Errorf("mcpfs: invalid location: %s", location)
@@ -145,9 +146,9 @@ func (s *Service) List(ctx context.Context, location string) ([]storage.Object, 
 		cursor = res.NextCursor
 	}
 	if prefix != "" && matched == 0 {
-		debugf("warning: no resources matched prefix %q on server %q", prefix, server)
+		logx.Debugf("mcpfs", "warning: no resources matched prefix %q on server %q", prefix, server)
 	}
-	debugf("list done location=%q matched=%d total=%d", location, matched, len(out))
+	logx.Debugf("mcpfs", "list done location=%q matched=%d total=%d", location, matched, len(out))
 	return out, nil
 }
 
