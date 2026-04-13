@@ -16,6 +16,7 @@ import (
 	vertexaiclaude "github.com/viant/agently-core/genai/llm/provider/vertexai/claude"
 	"github.com/viant/agently-core/genai/llm/provider/vertexai/gemini"
 	"github.com/viant/agently-core/internal/genai/provider/openai/chatgptauth"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/scy/cred/secret"
 )
 
@@ -30,7 +31,7 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 	}
 	switch options.Provider {
 	case ProviderOpenAI:
-		loggingEnabled := true
+		loggingEnabled := logx.Enabled()
 		if options.OpenAILogging != nil {
 			loggingEnabled = *options.OpenAILogging
 		}

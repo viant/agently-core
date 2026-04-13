@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
 	"strings"
 	"time"
 
@@ -92,7 +93,7 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 			return false, fmt.Errorf("failed to persist turn queue: %w", err)
 		}
 	}
-	infof("agent.Query queued convo=%q turn_id=%q active_turn=%q queue_seq=%d", conversationID, turnID, strings.TrimSpace(active.Id), queueSeq)
+	logx.Infof("conversation", "agent.Query queued convo=%q turn_id=%q active_turn=%q queue_seq=%d", conversationID, turnID, strings.TrimSpace(active.Id), queueSeq)
 	s.emitTurnQueued(ctx, conversationID, turnID, queueSeq, now, strings.TrimSpace(input.Query))
 	return true, nil
 }
@@ -114,7 +115,7 @@ func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID str
 	}
 	event.NormalizeIdentity(conversationID, turnID)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
-		warnf("turn_queued publish error convo=%q turn=%q err=%v", conversationID, turnID, err)
+		logx.Warnf("conversation", "turn_queued publish error convo=%q turn=%q err=%v", conversationID, turnID, err)
 	}
 }
 
@@ -131,7 +132,7 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn runtimerequestctx
 				s.patchStarterMessageTerminalStatus(context.Background(), turn, "canceled")
 			}
 		}
-		warnf("agent.turn cancel convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+		logx.Warnf("conversation", "agent.turn cancel convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 	if s.cancelReg != nil {
 		s.cancelReg.Register(turn.ConversationID, turn.TurnID, wrappedCancel)
@@ -173,7 +174,7 @@ func (s *Service) triggerQueueDrain(conversationID string) {
 	go func(convID string) {
 		defer queueDrainGuards.release(convID)
 		if err := s.drainQueuedTurns(convID); err != nil {
-			warnf("agent.queueDrain error convo=%q err=%v", convID, err)
+			logx.Warnf("conversation", "agent.queueDrain error convo=%q err=%v", convID, err)
 		}
 	}(conversationID)
 }
@@ -203,7 +204,7 @@ func (s *Service) drainQueuedTurns(conversationID string) error {
 			upd.SetStatus("failed")
 			upd.SetErrorMessage("queued starter message not found")
 			_ = s.conversation.PatchTurn(context.Background(), upd)
-			warnf("agent.queueDrain failed to load starter message convo=%q turn_id=%q starter_id=%q err=%v", conversationID, turnID, starterID, err)
+			logx.Warnf("conversation", "agent.queueDrain failed to load starter message convo=%q turn_id=%q starter_id=%q err=%v", conversationID, turnID, starterID, err)
 			continue
 		}
 
@@ -218,7 +219,7 @@ func (s *Service) drainQueuedTurns(conversationID string) error {
 			upd.SetErrorMessage("queued starter message is empty")
 			_ = s.conversation.PatchTurn(context.Background(), upd)
 			s.patchQueuedStarterMessageStatus(context.Background(), conversationID, turnID, starterID, "failed")
-			warnf("agent.queueDrain empty starter message convo=%q turn_id=%q starter_id=%q", conversationID, turnID, starterID)
+			logx.Warnf("conversation", "agent.queueDrain empty starter message convo=%q turn_id=%q starter_id=%q", conversationID, turnID, starterID)
 			continue
 		}
 
@@ -237,7 +238,7 @@ func (s *Service) drainQueuedTurns(conversationID string) error {
 		out := &QueryOutput{}
 		err = s.Query(context.Background(), input, out)
 		if err != nil {
-			warnf("agent.queueDrain query failed convo=%q turn_id=%q err=%v", conversationID, turnID, err)
+			logx.Warnf("conversation", "agent.queueDrain query failed convo=%q turn_id=%q err=%v", conversationID, turnID, err)
 		}
 
 		refreshed, rErr := s.dataService.GetTurnByID(context.Background(), &agturnbyid.TurnLookupInput{
@@ -263,7 +264,7 @@ func (s *Service) patchQueuedStarterMessageStatus(ctx context.Context, conversat
 	}
 	msg.SetStatus(shared.NormalizeMessageStatus(status))
 	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
-		warnf("agent.queueDrain patch starter message failed convo=%q turn_id=%q starter_id=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(starterID), strings.TrimSpace(status), err)
+		logx.Warnf("conversation", "agent.queueDrain patch starter message failed convo=%q turn_id=%q starter_id=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(starterID), strings.TrimSpace(status), err)
 	}
 }
 

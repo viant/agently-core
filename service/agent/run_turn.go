@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 	"time"
 
@@ -39,7 +41,7 @@ func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta
 	}
 	rec.SetRunID(turn.TurnID)
 	rec.SetCreatedAt(time.Now())
-	debugf("agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	logx.Infof("conversation", "agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	turnErr := s.conversation.PatchTurn(ctx, rec)
 	runErr := s.ensureRunRecord(ctx, turn, "running", strings.TrimSpace(scheduleID))
 	var convErr error
@@ -71,7 +73,7 @@ func (s *Service) addUserMessage(ctx context.Context, turn *runtimerequestctx.Tu
 		rawCopy := raw
 		rawPtr = &rawCopy
 	}
-	debugf("agent.addUserMessage convo=%q turn_id=%q user_id=%q content_len=%d content_head=%q content_tail=%q raw_len=%d raw_head=%q raw_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(userID), len(content), headString(content, 512), tailString(content, 512), len(raw), headString(raw, 512), tailString(raw, 512))
+	logx.Infof("conversation", "agent.addUserMessage convo=%q turn_id=%q user_id=%q content_len=%d content_head=%q content_tail=%q raw_len=%d raw_head=%q raw_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(userID), len(content), textutil.Head(content, 512), textutil.Tail(content, 512), len(raw), textutil.Head(raw, 512), textutil.Tail(raw, 512))
 	_, err := s.addMessage(ctx, turn, "user", userID, content, rawPtr, "task", turn.TurnID)
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
@@ -175,14 +177,14 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 
 	runPatchErr := s.patchRunTerminalState(patchCtx, turn, status, emsg)
 	if runPatchErr != nil {
-		errorf("agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
+		logx.Errorf("conversation", "agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
 	}
 	var conversationPatchErr error
 	if !shouldSkipConversationStatusPatch(ctx) {
 		conversationPatchErr = s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
 	}
 	if conversationPatchErr != nil {
-		errorf("agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
+		logx.Errorf("conversation", "agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
 	// Patch the turn last. PatchTurn emits the terminal SSE event, so this ordering
 	// ensures transcript-level state (conversation + run) is already durable when
@@ -192,12 +194,12 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 		s.patchStarterMessageTerminalStatus(patchCtx, turn, status)
 	}
 	if turnPatchErr != nil {
-		errorf("agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)
+		logx.Errorf("conversation", "agent.finalizeTurn patch turn failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), turnPatchErr)
 	}
 
 	errs := make([]error, 0, 3)
 	if runErr != nil {
-		errorf("agent.finalizeTurn convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runErr)
+		logx.Errorf("conversation", "agent.finalizeTurn convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runErr)
 		errs = append(errs, runErr)
 	}
 	if turnPatchErr != nil {
@@ -213,7 +215,7 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 		return errors.Join(errs...)
 	}
 
-	infof("agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
+	logx.Infof("conversation", "agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	runtimerequestctx.CleanupTurn(turn.TurnID)
 	s.triggerQueueDrain(turn.ConversationID)
 	return nil
@@ -300,7 +302,7 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 	run.SetIteration(iteration)
 	run.SetStatus("running")
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
-		warnf("agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
+		logx.Warnf("conversation", "agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
 }
 

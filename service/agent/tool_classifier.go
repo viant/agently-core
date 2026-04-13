@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
 	"sort"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	conv, _ := s.fetchConversationForRouting(ctx, strings.TrimSpace(input.ConversationID))
 	_, modelName := s.resolveToolRouterModel(ctx, conv)
 	if strings.TrimSpace(modelName) == "" {
-		debugf("agent.toolRouter skip convo=%q message_id=%q reason=no_model elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(started))
+		logx.Infof("conversation", "agent.toolRouter skip convo=%q message_id=%q reason=no_model elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(started))
 		return
 	}
 
@@ -93,7 +94,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		}
 	}
 	if len(lines) == 0 {
-		debugf("agent.toolRouter skip convo=%q message_id=%q reason=no_candidates elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(started))
+		logx.Infof("conversation", "agent.toolRouter skip convo=%q message_id=%q reason=no_candidates elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(started))
 		return
 	}
 
@@ -116,7 +117,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	var cancel func()
 	runCtx, cancel = context.WithTimeout(runCtx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
-	infof("agent.toolRouter start convo=%q message_id=%q model=%q timeout_sec=%d candidates=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), timeoutSec, len(lines))
+	logx.Infof("conversation", "agent.toolRouter start convo=%q message_id=%q model=%q timeout_sec=%d candidates=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), timeoutSec, len(lines))
 	in := &core.GenerateInput{
 		UserID: strings.TrimSpace(input.UserId),
 		ModelSelection: llm.ModelSelection{
@@ -141,7 +142,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 	outGen := &core.GenerateOutput{}
 	err := s.llm.Generate(runCtx, in, outGen)
 	if err != nil {
-		warnf("agent.toolRouter error convo=%q message_id=%q model=%q elapsed=%s err=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), time.Since(started), err)
+		logx.Warnf("conversation", "agent.toolRouter error convo=%q message_id=%q model=%q elapsed=%s err=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), time.Since(started), err)
 		return
 	}
 	selected := parseSelectedToolBundles(responseForContent(outGen.Response, outGen.Content), outputKey)
@@ -169,11 +170,11 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		}
 	}
 	if len(out) == 0 {
-		debugf("agent.toolRouter done convo=%q message_id=%q model=%q selected=0 elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), time.Since(started))
+		logx.Infof("conversation", "agent.toolRouter done convo=%q message_id=%q model=%q selected=0 elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), time.Since(started))
 		return
 	}
 	input.ToolBundles = out
-	infof("agent.toolRouter done convo=%q message_id=%q model=%q selected=%d bundles=%q elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), len(out), strings.Join(out, ","), time.Since(started))
+	logx.Infof("conversation", "agent.toolRouter done convo=%q message_id=%q model=%q selected=%d bundles=%q elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), len(out), strings.Join(out, ","), time.Since(started))
 }
 
 func (s *Service) fetchConversationForRouting(ctx context.Context, conversationID string) (*apiconv.Conversation, error) {

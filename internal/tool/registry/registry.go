@@ -24,6 +24,7 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/logx"
 	tmatch "github.com/viant/agently-core/internal/tool/matcher"
 	transform "github.com/viant/agently-core/internal/transform"
 	mcpnames "github.com/viant/agently-core/pkg/mcpname"
@@ -1623,9 +1624,9 @@ func (r *Registry) waitDiscoveryStage(ctx context.Context, server, stage string,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Legacy mode (default): execute stage directly with no wait-wrapper diagnostics.
-	// Diagnostic wait logging/dumps are enabled only when AGENTLY_SCHEDULER_DEBUG=1.
-	if strings.TrimSpace(os.Getenv("AGENTLY_SCHEDULER_DEBUG")) != "1" {
+	// Default mode: execute stage directly with no wait-wrapper diagnostics.
+	// Diagnostic wait logging/dumps are enabled only when AGENTLY_DEBUG is on.
+	if !logx.Enabled() {
 		return fn(ctx)
 	}
 	callCtx, cancel := context.WithCancel(ctx)
@@ -1963,10 +1964,13 @@ func shouldSuppressMissingMCPConfigWarning(server string, err error) bool {
 	if err == nil {
 		return false
 	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "no mcp servers configured in test" {
+		return true
+	}
 	if strings.TrimSpace(server) != "llm/agents" {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "mcp/llm/agents.yaml") &&
 		strings.Contains(msg, "no such file or directory")
 }

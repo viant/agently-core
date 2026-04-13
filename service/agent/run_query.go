@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	"path"
 	"regexp"
 	"sort"
@@ -81,7 +83,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	ctx = s.bindAuthFromInputContext(ctx, input)
 	ctx = bindEffectiveUserFromInput(ctx, input)
 	if input != nil {
-		infof("agent.Query serviceStart at=%s convo=%q message_id=%q agent_id=%q user_id=%q", queryStarted.Format(time.RFC3339Nano), strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.AgentID), strings.TrimSpace(input.UserId))
+		logx.Infof("conversation", "agent.Query serviceStart at=%s convo=%q message_id=%q agent_id=%q user_id=%q", queryStarted.Format(time.RFC3339Nano), strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.AgentID), strings.TrimSpace(input.UserId))
 	}
 	if input != nil && strings.TrimSpace(input.MessageID) == "" {
 		input.MessageID = uuid.New().String()
@@ -97,7 +99,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.ensureEnvironment(ctx, input); err != nil {
 		return err
 	}
-	infof("agent.Query stage ensureEnvironment convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(envStarted))
+	logx.Infof("conversation", "agent.Query stage ensureEnvironment convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(envStarted))
 	if input == nil || input.Agent == nil {
 		return fmt.Errorf("invalid input: agent is required")
 	}
@@ -115,7 +117,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ParentMessageID: strings.TrimSpace(input.MessageID),
 		Assistant:       strings.TrimSpace(input.AgentID),
 	})
-	infof("agent.Query start convo=%q agent_id=%q user_id=%q query_len=%d query_head=%q query_tail=%q tools_allowed=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), strings.TrimSpace(input.UserId), len(input.Query), headString(input.Query, 512), tailString(input.Query, 512), len(input.ToolsAllowed))
+	logx.Infof("conversation", "agent.Query start convo=%q agent_id=%q user_id=%q query_len=%d query_head=%q query_tail=%q tools_allowed=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Agent.ID), strings.TrimSpace(input.UserId), len(input.Query), textutil.Head(input.Query, 512), textutil.Tail(input.Query, 512), len(input.ToolsAllowed))
 	sysPromptEngine := ""
 	sysPromptURI := ""
 	instructionEngine := ""
@@ -134,7 +136,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		delegEnabled = input.Agent.Delegation.Enabled
 		delegDepth = input.Agent.Delegation.MaxDepth
 	}
-	infof("agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q instruction.engine=%q instruction.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI, instructionEngine, instructionURI)
+	logx.Infof("conversation", "agent.Query config agent_id=%q delegation.enabled=%v delegation.maxDepth=%d systemPrompt.engine=%q systemPrompt.uri=%q instruction.engine=%q instruction.uri=%q", strings.TrimSpace(input.Agent.ID), delegEnabled, delegDepth, sysPromptEngine, sysPromptURI, instructionEngine, instructionURI)
 
 	if s.tokenProvider != nil {
 		userID := authctx.EffectiveUserID(ctx)
@@ -152,7 +154,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 
 	toolRouterStarted := time.Now()
 	s.maybeAutoSelectToolBundles(ctx, input)
-	infof("agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
+	logx.Infof("conversation", "agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
 
 	s.tryMergePromptIntoContext(input)
 	workdir := ensureResolvedWorkdir(input)
@@ -161,8 +163,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err
 	}
-	infof("agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
-	infof("agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
+	logx.Infof("conversation", "agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
+	logx.Infof("conversation", "agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
 
 	ctx, agg := usage.WithAggregator(ctx)
 	turn := runtimerequestctx.TurnMeta{
@@ -229,9 +231,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			return
 		}
 		turnFinalized = true
-		infof("agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
+		logx.Infof("conversation", "agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
 	}()
-	infof("agent.Query startTurn ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	if d := stuckWarnDuration(); d > 0 {
 		warnCtx, warnCancel := context.WithCancel(ctx)
 		defer warnCancel()
@@ -242,7 +244,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			case <-warnCtx.Done():
 				return
 			case <-timer.C:
-				warnf("agent.turn stuck warning convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(convoID), strings.TrimSpace(turnID), dur.String())
+				logx.Warnf("conversation", "agent.turn stuck warning convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(convoID), strings.TrimSpace(turnID), dur.String())
 			}
 		}(turn.ConversationID, turn.TurnID, d)
 	}
@@ -250,39 +252,39 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	content := strings.TrimSpace(input.Query)
 	if input.IsNewConversation && s.llm != nil && input.Agent != nil {
 		bStart := time.Now()
-		debugf("agent.Query BuildBinding start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+		logx.Infof("conversation", "agent.Query BuildBinding start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 		b, berr := s.BuildBinding(ctx, input)
 		if berr != nil {
-			debugf("agent.Query BuildBinding error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String(), berr)
+			logx.Infof("conversation", "agent.Query BuildBinding error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String(), berr)
 		} else {
-			debugf("agent.Query BuildBinding ok convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String())
+			logx.Infof("conversation", "agent.Query BuildBinding ok convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String())
 			var expOut core.ExpandUserPromptOutput
 			expIn := &core.ExpandUserPromptInput{Prompt: input.Agent.Prompt, Binding: b}
 			expStart := time.Now()
-			debugf("agent.Query ExpandUserPrompt start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+			logx.Infof("conversation", "agent.Query ExpandUserPrompt start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 			if err := s.llm.ExpandUserPrompt(ctx, expIn, &expOut); err == nil && strings.TrimSpace(expOut.ExpandedUserPrompt) != "" {
-				debugf("agent.Query ExpandUserPrompt ok convo=%q turn_id=%q elapsed=%s expanded_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), len(expOut.ExpandedUserPrompt))
+				logx.Infof("conversation", "agent.Query ExpandUserPrompt ok convo=%q turn_id=%q elapsed=%s expanded_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), len(expOut.ExpandedUserPrompt))
 				content = expOut.ExpandedUserPrompt
 			} else if err != nil {
-				debugf("agent.Query ExpandUserPrompt error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), err)
+				logx.Infof("conversation", "agent.Query ExpandUserPrompt error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), err)
 			} else {
-				debugf("agent.Query ExpandUserPrompt empty convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String())
+				logx.Infof("conversation", "agent.Query ExpandUserPrompt empty convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String())
 			}
 		}
 	}
 	if input.SkipInitialUserMessage {
-		infof("agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	} else {
 		if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
 			return err
 		}
-		infof("agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err
 	}
-	infof("agent.Query processAttachments ok convo=%q turn_id=%q count=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(input.Attachments))
+	logx.Infof("conversation", "agent.Query processAttachments ok convo=%q turn_id=%q count=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(input.Attachments))
 
 	if s.defaults != nil && s.defaults.ToolCallTimeoutSec > 0 {
 		d := time.Duration(s.defaults.ToolCallTimeoutSec) * time.Second
@@ -297,32 +299,32 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		runPlanStarted := time.Now()
 		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
 		if ckErr != nil {
-			warnf("agent.Query steer checkpoint error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), ckErr)
+			logx.Warnf("conversation", "agent.Query steer checkpoint error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), ckErr)
 		}
 		status, err = s.runPlanAndStatus(ctx, input, output)
 
 		turnStatus = status
 		turnRunErr = err
 
-		infof("agent.Query stage runPlanAndStatus convo=%q turn_id=%q status=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), time.Since(runPlanStarted))
+		logx.Infof("conversation", "agent.Query stage runPlanAndStatus convo=%q turn_id=%q status=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), time.Since(runPlanStarted))
 		if err != nil {
-			errorf("agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
+			logx.Errorf("conversation", "agent.Query runPlan error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
 			break
 		}
-		infof("agent.Query runPlan ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
+		logx.Infof("conversation", "agent.Query runPlan ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 		if !strings.EqualFold(strings.TrimSpace(status), "succeeded") {
 			break
 		}
 		followUpCheckpoint := effectiveFollowUpCheckpoint(checkpoint, output)
 		pending, pErr := s.hasNewTurnTaskSince(ctx, turn, followUpCheckpoint)
 		if pErr != nil {
-			warnf("agent.Query steer follow-up check error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), pErr)
+			logx.Warnf("conversation", "agent.Query steer follow-up check error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), pErr)
 			break
 		}
 		if !pending {
 			break
 		}
-		infof("agent.Query steer follow-up detected convo=%q turn_id=%q rerunning plan loop", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+		logx.Infof("conversation", "agent.Query steer follow-up detected convo=%q turn_id=%q rerunning plan loop", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 
 	if err != nil {
@@ -336,7 +338,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	turnFinalized = true
-	infof("agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
+	logx.Infof("conversation", "agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	_ = s.updateDefaultModel(ctx, turn, output)
 
 	fetchStarted := time.Now()
@@ -344,7 +346,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err != nil {
 		return fmt.Errorf("cannot get conversation: %w", err)
 	}
-	infof("agent.Query stage fetchConversation convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(fetchStarted))
+	logx.Infof("conversation", "agent.Query stage fetchConversation convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(fetchStarted))
 	if conv == nil {
 		return fmt.Errorf("cannot get conversation: not found: %s", strings.TrimSpace(input.ConversationID))
 	}
@@ -356,14 +358,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	if conv.HasConversationParent() || conv.ScheduleId != nil {
-		infof("agent.Query done convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(queryStarted))
+		logx.Infof("conversation", "agent.Query done convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(queryStarted))
 		return nil
 	}
 	err = s.summarizeIfNeeded(ctx, input, conv)
 	if err != nil {
 		return fmt.Errorf("failed summarizing: %w", err)
 	}
-	infof("agent.Query done convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(queryStarted))
+	logx.Infof("conversation", "agent.Query done convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(queryStarted))
 	return nil
 }
 
@@ -454,12 +456,12 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
 		if ckErr != nil {
-			warnf("agent.runPlan checkpoint error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, ckErr)
+			logx.Warnf("conversation", "agent.runPlan checkpoint error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, ckErr)
 		}
 		if queryOutput != nil {
 			queryOutput.lastTaskCheckpoint = checkpoint
 		}
-		debugf("agent.runPlan iter start convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+		logx.Infof("conversation", "agent.runPlan iter start convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
 			return bErr
@@ -537,15 +539,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		genOutput := &core.GenerateOutput{}
 		planStart := time.Now()
 
-		if DebugEnabled() && genInput.Binding != nil {
+		if logx.Enabled() && genInput.Binding != nil {
 			msgs := genInput.Binding.History.LLMMessages()
-			debugf("agent.runPlan iter=%d history_msgs=%d model=%q convo=%q turn_id=%q",
+			logx.Infof("conversation", "agent.runPlan iter=%d history_msgs=%d model=%q convo=%q turn_id=%q",
 				iter, len(msgs), genInput.ModelSelection.Model,
 				strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 			for i, m := range msgs {
-				content := headString(m.Content, 120)
+				content := textutil.Head(m.Content, 120)
 				toolCallCount := len(m.ToolCalls)
-				debugf("  history[%d] role=%s tool_call_id=%q tool_calls=%d content_len=%d content_head=%q",
+				logx.Infof("conversation", "  history[%d] role=%s tool_call_id=%q tool_calls=%d content_len=%d content_head=%q",
 					i, m.Role, m.ToolCallId, toolCallCount, len(m.Content), content)
 			}
 			if debugtrace.Enabled() {
@@ -564,7 +566,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if aPlan != nil {
 			stepCount = len(aPlan.Steps)
 		}
-		debugf("agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d duration=%s",
+		logx.Infof("conversation", "agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d duration=%s",
 			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID),
 			iter, stepCount, time.Since(planStart))
 		if pErr != nil {
@@ -578,13 +580,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if len(changedOps) > 0 {
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
 				if s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
-					infof("agent.runPlan async-wait-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+					logx.Infof("conversation", "agent.runPlan async-wait-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 					if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 						return err
 					}
 					changedOps = s.asyncManager.ActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
 				} else {
-					infof("agent.runPlan async-terminal-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+					logx.Infof("conversation", "agent.runPlan async-terminal-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				}
 				s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
 				queryOutput.Content = ""
@@ -597,7 +599,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		queryOutput.Plan = aPlan
-		debugf("agent.runPlan plan ready convo=%q turn_id=%q iter=%d steps=%d elicitation=%v empty=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, stepCount, aPlan != nil && aPlan.Elicitation != nil, aPlan != nil && aPlan.IsEmpty())
+		logx.Infof("conversation", "agent.runPlan plan ready convo=%q turn_id=%q iter=%d steps=%d elicitation=%v empty=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, stepCount, aPlan != nil && aPlan.Elicitation != nil, aPlan != nil && aPlan.IsEmpty())
 		if debugtrace.Enabled() {
 			debugtrace.Write("agent", "run_plan_result", map[string]any{
 				"conversationID": strings.TrimSpace(turn.ConversationID),
@@ -614,7 +616,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			s.replaceInterimContentForElicitation(ctx, &turn, genOutput, strings.TrimSpace(aPlan.Elicitation.Message))
 
 			if missing := missingRequired(aPlan.Elicitation, binding.Context); len(missing) == 0 {
-				debugf("agent.runPlan elicitation satisfied by context convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+				logx.Infof("conversation", "agent.runPlan elicitation satisfied by context convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				aPlan.Elicitation = nil
 				continue
 			}
@@ -625,7 +627,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				queryOutput.Elicitation = aPlan.Elicitation
 				return nil
 			}
-			debugf("agent.runPlan elicitation start convo=%q turn_id=%q iter=%d elicitation_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(aPlan.Elicitation.ElicitationId))
+			logx.Infof("conversation", "agent.runPlan elicitation start convo=%q turn_id=%q iter=%d elicitation_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(aPlan.Elicitation.ElicitationId))
 			ectx := ctx
 			var cancel func()
 			if s.defaults != nil && s.defaults.ElicitationTimeoutSec > 0 {
@@ -634,9 +636,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 			_, status, elicitPayload, err := s.elicitation.Elicit(ectx, &turn, "assistant", aPlan.Elicitation)
 			if err != nil {
-				errorf("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), err)
+				logx.Errorf("conversation", "agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), err)
 			} else {
-				infof("agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q payload_keys=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), len(elicitPayload))
+				logx.Infof("conversation", "agent.runPlan elicitation done convo=%q turn_id=%q iter=%d status=%q payload_keys=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, strings.TrimSpace(status), len(elicitPayload))
 			}
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -660,7 +662,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		isTerminal := aPlan.IsEmpty()
 		if isTerminal {
 			if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
-				infof("agent.runPlan async-wait-terminal convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+				logx.Infof("conversation", "agent.runPlan async-wait-terminal convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
 				if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 					return err
@@ -678,7 +680,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if msgID == "" {
 					msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
 				}
-				debugf("runPlan-final patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
+				logx.Infof("conversation", "runPlan-final patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
 					msgID, turn.ConversationID, turn.TurnID, len(genOutput.Content))
 				if msgID != "" {
 					msg := apiconv.NewMessage()
@@ -687,19 +689,19 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					msg.SetContent(strings.TrimSpace(s.rewriteGeneratedFileLinks(ctx, turn.ConversationID, turn.TurnID, msgID, genOutput.Content)))
 					msg.SetInterim(0)
 					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
-						errorf("runPlan-final patching msg=%q err=%v", msgID, err)
+						logx.Errorf("conversation", "runPlan-final patching msg=%q err=%v", msgID, err)
 					}
 				}
 			}
 			pending, pErr := s.hasNewTurnTaskSince(ctx, turn, checkpoint)
 			if pErr != nil {
-				warnf("agent.runPlan follow-up check error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, pErr)
+				logx.Warnf("conversation", "agent.runPlan follow-up check error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, pErr)
 			} else if pending {
-				debugf("agent.runPlan steer follow-up convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
+				logx.Infof("conversation", "agent.runPlan steer follow-up convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 				queryOutput.Content = ""
 				continue
 			}
-			debugf("agent.runPlan completed convo=%q turn_id=%q iter=%d content_len=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(genOutput.Content), time.Since(iterStart))
+			logx.Infof("conversation", "agent.runPlan completed convo=%q turn_id=%q iter=%d content_len=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, len(genOutput.Content), time.Since(iterStart))
 			queryOutput.Content = genOutput.Content
 			return nil
 		}
@@ -708,12 +710,12 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			return waitErr
 		}
 		if waitingForUser {
-			debugf("agent.runPlan waiting-for-user convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
+			logx.Infof("conversation", "agent.runPlan waiting-for-user convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 			queryOutput.Content = ""
 			return nil
 		}
 
-		debugf("agent.runPlan continue convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
+		logx.Infof("conversation", "agent.runPlan continue convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 	}
 }
 

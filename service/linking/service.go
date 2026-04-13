@@ -3,12 +3,14 @@ package linking
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/logx"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -40,7 +42,7 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent run
 	if s == nil || s.streamPub == nil {
 		return
 	}
-	debugf("emitLinkedConversationAttached parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
+	logx.Infof("conversation", "emitLinkedConversationAttached parent_convo=%q parent_turn=%q child_convo=%q tool_call=%q", parent.ConversationID, parent.TurnID, childConversationID, toolCallID)
 	toolMessageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
 	modelMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	messageID := toolMessageID
@@ -66,9 +68,9 @@ func (s *Service) emitLinkedConversationAttached(ctx context.Context, parent run
 	}
 	event.NormalizeIdentity(strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID))
 	if err := s.streamPub.Publish(ctx, event); err != nil {
-		warnf("linked_conversation_attached publish error parent_convo=%q child_convo=%q err=%v", parent.ConversationID, childConversationID, err)
+		logx.Warnf("conversation", "linked_conversation_attached publish error parent_convo=%q child_convo=%q err=%v", parent.ConversationID, childConversationID, err)
 	}
-	debugf("emitLinkedConversationAttached ok parent_convo=%q child_convo=%q", parent.ConversationID, childConversationID)
+	logx.Infof("conversation", "emitLinkedConversationAttached ok parent_convo=%q child_convo=%q", parent.ConversationID, childConversationID)
 }
 
 func (s *Service) EmitLinkedConversationAttached(ctx context.Context, parent runtimerequestctx.TurnMeta, childConversationID, toolCallID, childAgentID, childTitle string) {
@@ -81,8 +83,8 @@ func (s *Service) EmitLinkedConversationAttached(ctx context.Context, parent run
 // conversation for context.
 func (s *Service) CreateLinkedConversation(ctx context.Context, parent runtimerequestctx.TurnMeta, cloneTranscript bool, transcript apiconv.Transcript) (string, error) {
 	childID := uuid.New().String()
-	debugf("CreateLinkedConversation parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
-	debugf("CreateLinkedConversation start parent_convo=%q parent_turn=%q child_convo=%q clone=%v transcript_len=%d", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), cloneTranscript, len(transcript))
+	logx.Infof("conversation", "CreateLinkedConversation parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
+	logx.Infof("conversation", "CreateLinkedConversation start parent_convo=%q parent_turn=%q child_convo=%q clone=%v transcript_len=%d", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), cloneTranscript, len(transcript))
 	// Create child conversation and set parent ids
 	w := convw.Conversation{Has: &convw.ConversationHas{}}
 	w.SetId(childID)
@@ -97,17 +99,17 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent runtimere
 		w.SetConversationParentTurnId(parent.TurnID)
 	}
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&w)); err != nil {
-		errorf("CreateLinkedConversation patch error parent_convo=%q parent_turn=%q child_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), err)
+		logx.Errorf("conversation", "CreateLinkedConversation patch error parent_convo=%q parent_turn=%q child_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), err)
 		return "", fmt.Errorf("linking: create conversation failed: %w", err)
 	}
 	if cloneTranscript && transcript != nil {
 		// Clone messages (excluding chain-mode supervised follow-ups) as a single synthetic turn
 		if err := s.cloneMessages(ctx, transcript, childID); err != nil {
-			errorf("CreateLinkedConversation clone error child_convo=%q err=%v", strings.TrimSpace(childID), err)
+			logx.Errorf("conversation", "CreateLinkedConversation clone error child_convo=%q err=%v", strings.TrimSpace(childID), err)
 			return "", err
 		}
 	}
-	debugf("CreateLinkedConversation ok parent_convo=%q parent_turn=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID))
+	logx.Infof("conversation", "CreateLinkedConversation ok parent_convo=%q parent_turn=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID))
 	// ToolMessageID is used as the toolCallId in the SSE event — the UI matches
 	// against both toolCallId and toolMessageId on the step, so this works.
 	return childID, nil
@@ -119,7 +121,7 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent runtimerequestctx.T
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("linking: conversation client not configured")
 	}
-	debugf("AddLinkMessage start parent_convo=%q parent_turn=%q child_convo=%q role=%q actor=%q mode=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childConversationID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), len(content), headString(content, 512), tailString(content, 512))
+	logx.Infof("conversation", "AddLinkMessage start parent_convo=%q parent_turn=%q child_convo=%q role=%q actor=%q mode=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childConversationID), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode), len(content), textutil.Head(content, 512), textutil.Tail(content, 512))
 	if strings.TrimSpace(role) == "" {
 		role = "assistant"
 	}
@@ -139,10 +141,10 @@ func (s *Service) AddLinkMessage(ctx context.Context, parent runtimerequestctx.T
 		apiconv.WithLinkedConversationID(childConversationID),
 	)
 	if err != nil {
-		errorf("AddLinkMessage error parent_convo=%q child_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(childConversationID), err)
+		logx.Errorf("conversation", "AddLinkMessage error parent_convo=%q child_convo=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(childConversationID), err)
 		return fmt.Errorf("linking: add link message failed: %w", err)
 	}
-	debugf("AddLinkMessage ok parent_convo=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(childConversationID))
+	logx.Infof("conversation", "AddLinkMessage ok parent_convo=%q child_convo=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(childConversationID))
 	s.emitLinkedConversationAttached(ctx, parent, childConversationID, "", "", "")
 	return nil
 }
@@ -153,7 +155,7 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 	if len(transcript) == 0 {
 		return nil
 	}
-	debugf("cloneMessages start convo=%q transcript_len=%d", strings.TrimSpace(conversationID), len(transcript))
+	logx.Infof("conversation", "cloneMessages start convo=%q transcript_len=%d", strings.TrimSpace(conversationID), len(transcript))
 	turnID := uuid.New().String()
 	turn := runtimerequestctx.TurnMeta{ParentMessageID: turnID, TurnID: turnID, ConversationID: conversationID}
 	mt := apiconv.NewTurn()
@@ -161,12 +163,12 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 	mt.SetConversationID(turn.ConversationID)
 	mt.SetStatus("running")
 	if err := s.conv.PatchTurn(ctx, mt); err != nil {
-		errorf("cloneMessages patch turn error convo=%q turn=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
+		logx.Errorf("conversation", "cloneMessages patch turn error convo=%q turn=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), err)
 		return fmt.Errorf("linking: start synthetic turn failed: %w", err)
 	}
 	last := transcript[0]
 	msgs := last.GetMessages()
-	debugf("cloneMessages source messages convo=%q count=%d", strings.TrimSpace(conversationID), len(msgs))
+	logx.Infof("conversation", "cloneMessages source messages convo=%q count=%d", strings.TrimSpace(conversationID), len(msgs))
 	cloned := 0
 	for _, m := range msgs {
 		if m.Mode != nil && *m.Mode == "chain" {
@@ -181,7 +183,7 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 			mut.SetStatus(shared.NormalizeMessageStatus(*mut.Status))
 		}
 		if err := s.conv.PatchMessage(ctx, mut); err != nil {
-			errorf("cloneMessages patch message error convo=%q turn=%q msg=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(mut.Id), err)
+			logx.Errorf("conversation", "cloneMessages patch message error convo=%q turn=%q msg=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(mut.Id), err)
 			return fmt.Errorf(
 				"linking: clone message failed (id=%s convo=%s turn=%s role=%s type=%s status=%q): %w",
 				mut.Id,
@@ -200,6 +202,6 @@ func (s *Service) cloneMessages(ctx context.Context, transcript apiconv.Transcri
 		}
 		cloned++
 	}
-	debugf("cloneMessages ok convo=%q turn=%q cloned=%d", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), cloned)
+	logx.Infof("conversation", "cloneMessages ok convo=%q turn=%q cloned=%d", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), cloned)
 	return nil
 }

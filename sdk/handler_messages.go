@@ -84,7 +84,7 @@ func handleListPendingElicitations(client Client) http.HandlerFunc {
 func handleStreamEvents(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		convID := r.URL.Query().Get("conversationId")
-		logx.Debugf("sse", "client connected convo=%q", convID)
+		logx.DebugCtxf(r.Context(), "sse", "client connected convo=%q", convID)
 		input := &StreamEventsInput{ConversationID: convID}
 		sub, err := client.StreamEvents(r.Context(), input)
 		if err != nil {
@@ -110,7 +110,7 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 			select {
 			case ev, open := <-sub.C():
 				if !open {
-					logx.Debugf("sse", "channel closed convo=%q", convID)
+					logx.DebugCtxf(ctx, "sse", "channel closed convo=%q", convID)
 					return
 				}
 				startedAt := ""
@@ -121,7 +121,7 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 				if ev.CompletedAt != nil && !ev.CompletedAt.IsZero() {
 					completedAt = ev.CompletedAt.Format(time.RFC3339Nano)
 				}
-				logx.Debugf("sse", "sending type=%q op=%q convo=%q stream_id=%q turn=%q mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool=%q toolCallId=%q toolMsgId=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q",
+				logx.DebugCtxf(ctx, "sse", "sending type=%q op=%q convo=%q stream_id=%q turn=%q mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool=%q toolCallId=%q toolMsgId=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q",
 					string(ev.Type), ev.Op, ev.ConversationID, ev.StreamID, ev.TurnID, ev.Mode, ev.AgentIDUsed, ev.AgentName, ev.UserMessageID, ev.AssistantMessageID, ev.ParentMessageID, ev.ModelCallID, ev.ToolName, ev.ToolCallID, ev.ToolMessageID, ev.Status, ev.FinalResponse, ev.Iteration, ev.PageIndex, ev.PageCount, ev.LatestPage, ev.LinkedConversationID, ev.FeedID,
 					ev.CreatedAt.Format(time.RFC3339Nano), startedAt, completedAt, time.Now().Format(time.RFC3339Nano), ev.RequestPayloadID, ev.ResponsePayloadID, ev.ProviderRequestPayloadID, ev.ProviderResponsePayloadID, ev.StreamPayloadID)
 				data, _ := json.Marshal(ev)
@@ -135,7 +135,7 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 					flusher.Flush()
 				}
 			case <-ctx.Done():
-				logx.Debugf("sse", "client disconnected convo=%q", convID)
+				logx.DebugCtxf(ctx, "sse", "client disconnected convo=%q", convID)
 				return
 			}
 		}

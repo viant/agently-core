@@ -11,7 +11,7 @@ import (
 )
 
 func TestWaitDiscoveryStage_NoHeartbeatBeforeInterval(t *testing.T) {
-	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "1")
+	t.Setenv("AGENTLY_DEBUG", "debug")
 	buf := captureDiscoveryWaitLogs(t)
 	reg := &Registry{discoveryWaitEvery: 80 * time.Millisecond}
 
@@ -29,7 +29,7 @@ func TestWaitDiscoveryStage_NoHeartbeatBeforeInterval(t *testing.T) {
 }
 
 func TestWaitDiscoveryStage_EmitsFirstHeartbeatThenThrottles(t *testing.T) {
-	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "1")
+	t.Setenv("AGENTLY_DEBUG", "debug")
 	buf := captureDiscoveryWaitLogs(t)
 	reg := &Registry{discoveryWaitEvery: 25 * time.Millisecond}
 
@@ -48,7 +48,7 @@ func TestWaitDiscoveryStage_EmitsFirstHeartbeatThenThrottles(t *testing.T) {
 }
 
 func TestWaitDiscoveryStage_LegacyWhenSchedulerDebugDisabled(t *testing.T) {
-	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "")
+	t.Setenv("AGENTLY_DEBUG", "")
 	buf := captureDiscoveryWaitLogs(t)
 	reg := &Registry{discoveryWaitEvery: 25 * time.Millisecond}
 
@@ -66,7 +66,7 @@ func TestWaitDiscoveryStage_LegacyWhenSchedulerDebugDisabled(t *testing.T) {
 }
 
 func TestWaitDiscoveryStage_ReturnsOnContextDeadlineEvenIfStageIgnoresContext(t *testing.T) {
-	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "1")
+	t.Setenv("AGENTLY_DEBUG", "debug")
 	reg := &Registry{discoveryWaitEvery: 10 * time.Millisecond}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
@@ -94,7 +94,7 @@ func TestWaitDiscoveryStage_ReturnsOnContextDeadlineEvenIfStageIgnoresContext(t 
 }
 
 func TestWaitDiscoveryStage_CancelsChildContextOnParentCancel(t *testing.T) {
-	t.Setenv("AGENTLY_SCHEDULER_DEBUG", "1")
+	t.Setenv("AGENTLY_DEBUG", "debug")
 	reg := &Registry{discoveryWaitEvery: 10 * time.Millisecond}
 
 	parentCtx, parentCancel := context.WithCancel(context.Background())

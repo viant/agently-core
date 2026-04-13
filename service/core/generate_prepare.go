@@ -12,7 +12,6 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/prompt"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
@@ -41,7 +40,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		Options:      input.Options,
 		Instructions: input.Instructions,
 	}
-	if modelcallctx.DebugEnabled() {
+	if logx.Enabled() {
 		toolNames := make([]string, 0)
 		if request.Options != nil {
 			toolNames = make([]string, 0, len(request.Options.Tools))

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
 	"strconv"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if input != nil {
 		convoID = strings.TrimSpace(input.ConversationID)
 	}
-	debugf("agent.BuildBinding start convo=%q", convoID)
+	logx.Infof("conversation", "agent.BuildBinding start convo=%q", convoID)
 	b := &prompt.Binding{}
 	if input.Agent != nil {
 		b.Model = input.Agent.Model
@@ -34,32 +35,32 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 	// Fetch conversation transcript once and reuse; bubble up errors
 	if s.conversation == nil {
-		debugf("agent.BuildBinding error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), "conversation API not configured")
+		logx.Infof("conversation", "agent.BuildBinding error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), "conversation API not configured")
 		return nil, fmt.Errorf("conversation API not configured")
 	}
 	fetchStart := time.Now()
-	debugf("agent.BuildBinding fetchConversation start convo=%q", convoID)
+	logx.Infof("conversation", "agent.BuildBinding fetchConversation start convo=%q", convoID)
 	conv, err := s.bindingConversation(ctx, input)
 	if err != nil {
-		debugf("agent.BuildBinding fetchConversation error convo=%q elapsed=%s err=%v", convoID, time.Since(fetchStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding fetchConversation error convo=%q elapsed=%s err=%v", convoID, time.Since(fetchStart).String(), err)
 		return nil, err
 	}
-	debugf("agent.BuildBinding fetchConversation ok convo=%q elapsed=%s", convoID, time.Since(fetchStart).String())
+	logx.Infof("conversation", "agent.BuildBinding fetchConversation ok convo=%q elapsed=%s", convoID, time.Since(fetchStart).String())
 	if conv == nil {
-		debugf("agent.BuildBinding error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), "conversation not found")
+		logx.Infof("conversation", "agent.BuildBinding error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), "conversation not found")
 		return nil, fmt.Errorf("conversation not found: %s", strings.TrimSpace(input.ConversationID))
 	}
 	ctx = applySchedulerDiscoveryMode(ctx, conv)
 
 	// Compute effective preview limit using service defaults only
 	histStart := time.Now()
-	debugf("agent.BuildBinding buildHistory start convo=%q", convoID)
+	logx.Infof("conversation", "agent.BuildBinding buildHistory start convo=%q", convoID)
 	histResult, err := s.buildHistoryWithLimit(ctx, conv.GetTranscript(), input)
 	if err != nil {
-		debugf("agent.BuildBinding buildHistory error convo=%q elapsed=%s err=%v", convoID, time.Since(histStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding buildHistory error convo=%q elapsed=%s err=%v", convoID, time.Since(histStart).String(), err)
 		return nil, err
 	}
-	debugf("agent.BuildBinding buildHistory ok convo=%q elapsed=%s overflow=%t elicitation=%d", convoID, time.Since(histStart).String(), histResult.Overflow, len(histResult.Elicitation))
+	logx.Infof("conversation", "agent.BuildBinding buildHistory ok convo=%q elapsed=%s overflow=%t elicitation=%d", convoID, time.Since(histStart).String(), histResult.Overflow, len(histResult.Elicitation))
 	b.History = histResult.History
 	// Align History.CurrentTurnID with the in-flight turn when available
 	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -99,13 +100,13 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	b.Task = s.buildTaskBinding(input)
 
 	toolsStart := time.Now()
-	debugf("agent.BuildBinding buildToolSignatures start convo=%q", convoID)
+	logx.Infof("conversation", "agent.BuildBinding buildToolSignatures start convo=%q", convoID)
 	b.Tools.Signatures, err = s.buildToolSignatures(ctx, input)
 	if err != nil {
-		debugf("agent.BuildBinding buildToolSignatures error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding buildToolSignatures error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
 		return nil, err
 	}
-	debugf("agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
+	logx.Infof("conversation", "agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
 
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := resolveToolCallExposure(input)
@@ -113,13 +114,13 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	b.History.ToolExposure = string(exposure)
 
 	execStart := time.Now()
-	debugf("agent.BuildBinding buildToolExecutions start convo=%q exposure=%q", convoID, string(exposure))
+	logx.Infof("conversation", "agent.BuildBinding buildToolExecutions start convo=%q exposure=%q", convoID, string(exposure))
 	execResult, err := s.buildToolExecutions(ctx, input, conv, exposure)
 	if err != nil {
-		debugf("agent.BuildBinding buildToolExecutions error convo=%q elapsed=%s err=%v", convoID, time.Since(execStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding buildToolExecutions error convo=%q elapsed=%s err=%v", convoID, time.Since(execStart).String(), err)
 		return nil, err
 	}
-	debugf("agent.BuildBinding buildToolExecutions ok convo=%q elapsed=%s overflow=%t", convoID, time.Since(execStart).String(), execResult.Overflow)
+	logx.Infof("conversation", "agent.BuildBinding buildToolExecutions ok convo=%q elapsed=%s overflow=%t", convoID, time.Since(execStart).String(), execResult.Overflow)
 
 	// Drive overflow-based helper exposure via binding flag
 	if execResult.Overflow {
@@ -151,14 +152,14 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	s.ensureInternalToolsIfNeeded(ctx, input, b)
 
 	docsStart := time.Now()
-	debugf("agent.BuildBinding buildDocuments start convo=%q", convoID)
+	logx.Infof("conversation", "agent.BuildBinding buildDocuments start convo=%q", convoID)
 	docs, err := s.buildDocumentsBinding(ctx, input, false)
 	if err != nil {
-		debugf("agent.BuildBinding buildDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(docsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding buildDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(docsStart).String(), err)
 		return nil, err
 	}
 
-	debugf("agent.BuildBinding buildDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(docsStart).String(), len(docs.Items))
+	logx.Infof("conversation", "agent.BuildBinding buildDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(docsStart).String(), len(docs.Items))
 	b.Documents = docs
 	// Normalize user doc URIs by trimming workspace root for stable display
 	s.normalizeDocURIs(&b.Documents, workspace.Root())
@@ -166,16 +167,16 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	s.attachNonTextUserDocs(ctx, b)
 
 	sysDocsStart := time.Now()
-	debugf("agent.BuildBinding buildSystemDocuments start convo=%q", convoID)
+	logx.Infof("conversation", "agent.BuildBinding buildSystemDocuments start convo=%q", convoID)
 	b.SystemDocuments, err = s.buildDocumentsBinding(ctx, input, true)
 	if err != nil {
-		debugf("agent.BuildBinding buildSystemDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding buildSystemDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
 		return nil, err
 	}
-	debugf("agent.BuildBinding buildSystemDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(sysDocsStart).String(), len(b.SystemDocuments.Items))
+	logx.Infof("conversation", "agent.BuildBinding buildSystemDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(sysDocsStart).String(), len(b.SystemDocuments.Items))
 	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
 	if err := s.appendToolPlaybooks(ctx, b.Tools.Signatures, &b.SystemDocuments); err != nil {
-		debugf("agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
 		return nil, err
 	}
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
@@ -192,7 +193,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	s.applyWorkdirContext(input, b)
 	s.applyDelegationContext(input, b)
 
-	debugf("agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))
+	logx.Infof("conversation", "agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))
 	if debugtrace.Enabled() {
 		debugtrace.Write("agent", "build_binding", map[string]any{
 			"conversationID": convoID,
@@ -300,11 +301,11 @@ func applyProjectionContext(ctx context.Context, target *map[string]interface{})
 
 func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {
 	if input == nil || b == nil || input.Agent == nil {
-		debugf("delegation.context skip missing input/binding/agent")
+		logx.Infof("conversation", "delegation.context skip missing input/binding/agent")
 		return
 	}
 	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
-		debugf("delegation.context disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
+		logx.Infof("conversation", "delegation.context disabled agent_id=%q", strings.TrimSpace(input.Agent.ID))
 		return
 	}
 	if b.Context == nil {
@@ -331,7 +332,7 @@ func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {
 		remainingDepth = 0
 	}
 	b.Context["DelegationRemainingDepth"] = remainingDepth
-	debugf("delegation.context enabled agent_id=%q maxDepth=%d", strings.TrimSpace(input.Agent.ID), maxDepth)
+	logx.Infof("conversation", "delegation.context enabled agent_id=%q maxDepth=%d", strings.TrimSpace(input.Agent.ID), maxDepth)
 }
 
 func (s *Service) applyWorkdirContext(input *QueryInput, b *prompt.Binding) {

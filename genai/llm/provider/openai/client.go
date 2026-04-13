@@ -67,7 +67,7 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 			Model:      model,
 		},
 		APIKey:        apiKey,
-		EnableLogging: true,
+		EnableLogging: false,
 		storageMgr:    nil,
 	}
 

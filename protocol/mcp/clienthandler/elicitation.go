@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/logx"
 	agentplan "github.com/viant/agently-core/protocol/agent/plan"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
@@ -92,11 +93,11 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 	}
 	conv, err := h.conversations.GetConversation(ctx, conversationID)
 	if err != nil {
-		debugf("GetConversation(%s) error: %v", conversationID, err)
+		logx.Debugf("mcp-clienthandler", "GetConversation(%s) error: %v", conversationID, err)
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("get conversation: %v", err), nil)
 	}
 	if conv == nil {
-		debugf("conversation %s not found, creating ephemeral waitForResolution=false", conversationID)
+		logx.Debugf("mcp-clienthandler", "conversation %s not found, creating ephemeral waitForResolution=false", conversationID)
 		seed := apiconv.NewConversation()
 		seed.SetId(conversationID)
 		if patchErr := h.conversations.PatchConversations(ctx, seed); patchErr != nil {
@@ -107,7 +108,7 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 		// handshake; record pending elicitation and return immediately.
 		waitForResolution = false
 	} else {
-		debugf("conversation %s found, waitForResolution=true", conversationID)
+		logx.Debugf("mcp-clienthandler", "conversation %s found, waitForResolution=true", conversationID)
 	}
 	elic := &agentplan.Elicitation{ElicitRequestParams: params}
 	turn := &runtimerequestctx.TurnMeta{ConversationID: conversationID}
@@ -119,17 +120,17 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("record elicitation: %v", err), nil)
 	}
 	if !waitForResolution {
-		debugf("auto-accept convID=%s elicitID=%s", conversationID, elic.ElicitationId)
+		logx.Debugf("mcp-clienthandler", "auto-accept convID=%s elicitID=%s", conversationID, elic.ElicitationId)
 		return &mcpschema.ElicitResult{Action: mcpschema.ElicitResultActionAccept}, nil
 	}
-	debugf("waiting for resolution convID=%s elicitID=%s", conversationID, elic.ElicitationId)
+	logx.Debugf("mcp-clienthandler", "waiting for resolution convID=%s elicitID=%s", conversationID, elic.ElicitationId)
 	status, payload, err := h.elicitation.Wait(ctx, conversationID, elic.ElicitationId)
 	if err != nil {
-		debugf("wait error convID=%s elicitID=%s err=%v", conversationID, elic.ElicitationId, err)
+		logx.Debugf("mcp-clienthandler", "wait error convID=%s elicitID=%s err=%v", conversationID, elic.ElicitationId, err)
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("wait elicitation: %v", err), nil)
 	}
 	payloadJSON, _ := json.Marshal(payload)
-	debugf("resolved convID=%s elicitID=%s status=%s payload=%s", conversationID, elic.ElicitationId, status, string(payloadJSON))
+	logx.Debugf("mcp-clienthandler", "resolved convID=%s elicitID=%s status=%s payload=%s", conversationID, elic.ElicitationId, status, string(payloadJSON))
 	return &mcpschema.ElicitResult{
 		Action:  mcpschema.ElicitResultAction(status),
 		Content: payload,

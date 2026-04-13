@@ -278,6 +278,9 @@ agently-core/
 # Unit and integration tests
 go test ./...
 
+# Extended live-LLM e2e/query coverage (opt-in)
+AGENTLY_E2E_EXTENDED=1 go test ./e2e/query -count=1
+
 # E2E tests (Endly-driven)
 cd e2e && endly -t=build && endly -t=test
 
@@ -287,6 +290,11 @@ go test ./e2e/auth/ -v
 # SDK unit tests (including auth guard)
 go test ./sdk/ -v
 ```
+
+Debug logging is controlled by `AGENTLY_DEBUG`. When enabled, all debug
+components are shown by default. To narrow output, optionally set
+`AGENTLY_DEBUG_COMPONENTS` to a comma-separated list of component names such as
+`conversation,sse`.
 
 ## Related Projects
 

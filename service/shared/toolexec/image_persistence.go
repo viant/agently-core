@@ -9,6 +9,7 @@ import (
 
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/pkg/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -125,6 +126,6 @@ func addToolAttachment(ctx context.Context, conv apiconv.Client, turn runtimereq
 	if err != nil {
 		return fmt.Errorf("persist attachment message: %w", err)
 	}
-	debugf(ctx, "attached image %q bytes=%d mime=%s to parent=%s (attachment message=%s)", strings.TrimSpace(name), len(data), strings.TrimSpace(mimeType), strings.TrimSpace(parentMsgID), strings.TrimSpace(msg.Id))
+	logx.DebugCtxf(ctx, "executil", "attached image %q bytes=%d mime=%s to parent=%s (attachment message=%s)", strings.TrimSpace(name), len(data), strings.TrimSpace(mimeType), strings.TrimSpace(parentMsgID), strings.TrimSpace(msg.Id))
 	return nil
 }

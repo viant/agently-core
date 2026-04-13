@@ -11,6 +11,7 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
+	"github.com/viant/agently-core/internal/logx"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
@@ -195,7 +196,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	rootCtx, err := s.newRootContext(ctx, rootURI, rootID, allowed)
 	if err != nil {
-		debugf("list resolve error rootId=%q root=%q err=%v", input.RootID, input.RootURI, err)
+		logx.Debugf("resources", "list resolve error rootId=%q root=%q err=%v", input.RootID, input.RootURI, err)
 		return err
 	}
 	rootBase := rootCtx.Base()

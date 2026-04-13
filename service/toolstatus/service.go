@@ -3,9 +3,11 @@ package toolstatus
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -24,7 +26,7 @@ func (s *Service) Start(ctx context.Context, parent runtimerequestctx.TurnMeta, 
 	if s == nil || s.conv == nil {
 		return "", fmt.Errorf("status: conversation client not configured")
 	}
-	debugf("status start parent_convo=%q parent_turn=%q tool=%q role=%q actor=%q mode=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(toolName), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode))
+	logx.Infof("conversation", "status start parent_convo=%q parent_turn=%q tool=%q role=%q actor=%q mode=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(toolName), strings.TrimSpace(role), strings.TrimSpace(actor), strings.TrimSpace(mode))
 	if strings.TrimSpace(role) == "" {
 		role = "assistant"
 	}
@@ -43,10 +45,10 @@ func (s *Service) Start(ctx context.Context, parent runtimerequestctx.TurnMeta, 
 		apiconv.WithToolName(mcpname.Display(toolName)),
 	)
 	if err != nil {
-		errorf("status start error parent_convo=%q tool=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(toolName), err)
+		logx.Errorf("conversation", "status start error parent_convo=%q tool=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(toolName), err)
 		return "", fmt.Errorf("status: start failed: %w", err)
 	}
-	debugf("status start ok parent_convo=%q tool=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(toolName), strings.TrimSpace(m.Id))
+	logx.Infof("conversation", "status start ok parent_convo=%q tool=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(toolName), strings.TrimSpace(m.Id))
 	return m.Id, nil
 }
 
@@ -58,7 +60,7 @@ func (s *Service) Update(ctx context.Context, parent runtimerequestctx.TurnMeta,
 	if strings.TrimSpace(messageID) == "" {
 		return fmt.Errorf("status: empty messageID")
 	}
-	debugf("status update parent_convo=%q parent_turn=%q message_id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(messageID), len(content), headString(content, 512), tailString(content, 512))
+	logx.Infof("conversation", "status update parent_convo=%q parent_turn=%q message_id=%q content_len=%d content_head=%q content_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(messageID), len(content), textutil.Head(content, 512), textutil.Tail(content, 512))
 	mu := apiconv.NewMessage()
 	mu.SetId(messageID)
 	mu.SetConversationID(parent.ConversationID)
@@ -66,10 +68,10 @@ func (s *Service) Update(ctx context.Context, parent runtimerequestctx.TurnMeta,
 	mu.SetContent(content)
 	mu.SetInterim(1)
 	if err := s.conv.PatchMessage(ctx, mu); err != nil {
-		errorf("status update error parent_convo=%q message_id=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), err)
+		logx.Errorf("conversation", "status update error parent_convo=%q message_id=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), err)
 		return fmt.Errorf("status: update failed: %w", err)
 	}
-	debugf("status update ok parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID))
+	logx.Infof("conversation", "status update ok parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID))
 	return nil
 }
 
@@ -82,7 +84,7 @@ func (s *Service) Finalize(ctx context.Context, parent runtimerequestctx.TurnMet
 	if strings.TrimSpace(messageID) == "" {
 		return fmt.Errorf("status: empty messageID")
 	}
-	debugf("status finalize parent_convo=%q parent_turn=%q message_id=%q status=%q preview_len=%d preview_head=%q preview_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(messageID), strings.TrimSpace(status), len(preview), headString(preview, 512), tailString(preview, 512))
+	logx.Infof("conversation", "status finalize parent_convo=%q parent_turn=%q message_id=%q status=%q preview_len=%d preview_head=%q preview_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(messageID), strings.TrimSpace(status), len(preview), textutil.Head(preview, 512), textutil.Tail(preview, 512))
 	mu := apiconv.NewMessage()
 	mu.SetId(messageID)
 	mu.SetConversationID(parent.ConversationID)
@@ -95,10 +97,10 @@ func (s *Service) Finalize(ctx context.Context, parent runtimerequestctx.TurnMet
 		mu.SetStatus(normalizeMessageStatus(status))
 	}
 	if err := s.conv.PatchMessage(ctx, mu); err != nil {
-		errorf("status finalize error parent_convo=%q message_id=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), err)
+		logx.Errorf("conversation", "status finalize error parent_convo=%q message_id=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), err)
 		return fmt.Errorf("status: finalize failed: %w", err)
 	}
-	debugf("status finalize ok parent_convo=%q message_id=%q status=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), strings.TrimSpace(status))
+	logx.Infof("conversation", "status finalize ok parent_convo=%q message_id=%q status=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), strings.TrimSpace(status))
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
+	"github.com/viant/agently-core/internal/logx"
 	agmodel "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
@@ -64,12 +65,12 @@ func (s *Service) expandMCPResources(ctx context.Context, base *agmodel.Resource
 	}
 	opts, err := s.mcpMgr.Options(ctx, server)
 	if err != nil || opts == nil {
-		debugf("mcp include server=%q err=%v", server, err)
+		logx.Debugf("resources", "mcp include server=%q err=%v", server, err)
 		return nil
 	}
 	roots := mcpcfg.ResourceRoots(opts.Metadata)
 	if len(roots) == 0 {
-		debugf("mcp include server=%q no roots", server)
+		logx.Debugf("resources", "mcp include server=%q no roots", server)
 		return nil
 	}
 	selectors := make([]string, 0, len(base.Roots))

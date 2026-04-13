@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
 	"sort"
 	"strings"
 	"time"
@@ -421,7 +422,7 @@ func (s *Service) buildChronologicalHistory(
 			if tc.TraceId != nil {
 				pmsg.ToolTraceID = strings.TrimSpace(*tc.TraceId)
 			}
-			debugf("agent.buildHistory tool_result msg=%q tool=%q len=%d gzip=%t", strings.TrimSpace(msg.Id), strings.TrimSpace(tc.ToolName), len(pmsg.Content), strings.HasPrefix(pmsg.Content, "\x1f\x8b"))
+			logx.Infof("conversation", "agent.buildHistory tool_result msg=%q tool=%q len=%d gzip=%t", strings.TrimSpace(msg.Id), strings.TrimSpace(tc.ToolName), len(pmsg.Content), strings.HasPrefix(pmsg.Content, "\x1f\x8b"))
 		} else {
 			// Classify chat and elicitation messages. For past elicitation
 			// flows, ElicitationId will be set on assistant/user messages;
@@ -647,14 +648,14 @@ func (s *Service) collectNormalizedMessages(
 				}
 				if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
 					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
-				} else if DebugEnabled() {
+				} else if logx.Enabled() {
 					opID := ""
 					toolName := ""
 					if tc := messageToolCall(toolMsg); tc != nil {
 						opID = strings.TrimSpace(tc.OpId)
 						toolName = strings.TrimSpace(tc.ToolName)
 					}
-					warnf("agent.collectNormalizedMessages dropped tool_result with empty body op_id=%q tool=%q turn=%q msg_id=%q", opID, toolName, strings.TrimSpace(turn.Id), strings.TrimSpace(toolMsg.Id))
+					logx.Warnf("conversation", "agent.collectNormalizedMessages dropped tool_result with empty body op_id=%q tool=%q turn=%q msg_id=%q", opID, toolName, strings.TrimSpace(turn.Id), strings.TrimSpace(toolMsg.Id))
 				}
 			}
 		}

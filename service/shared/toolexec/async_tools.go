@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/tool"
@@ -69,7 +70,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 	}
 	cfg, ok := asyncConfigForStep(ctx, reg, step.Name)
 	if !ok || cfg == nil {
-		debugConvf("tool async skip convo=%q turn=%q op_id=%q tool=%q reason=no_async_config", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name))
+		logx.DebugCtxf(ctx, "conversation", "tool async skip convo=%q turn=%q op_id=%q tool=%q reason=no_async_config", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name))
 		return nil
 	}
 	requestDigest := requestArgsDigest(cfg, step.Args)
@@ -77,14 +78,14 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 	if sameToolName(step.Name, cfg.Run.Tool) && sameToolName(step.Name, cfg.Status.Tool) && cfg.Status.ReuseRunArgs {
 		matched, _ = manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest)
 		if matched != nil {
-			infoConvf("tool async same-tool recall matched convo=%q turn=%q op_id=%q tool=%q async_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(matched.ID))
+			logx.InfoCtxf(ctx, "conversation", "tool async same-tool recall matched convo=%q turn=%q op_id=%q tool=%q async_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(matched.ID))
 		}
 	}
 	switch {
 	case matched != nil:
 		payload, err := asynccfg.ExtractPayload(toolResult, cfg.Status.Selector)
 		if err != nil || payload == nil {
-			warnConvf("tool async same-tool recall ignored convo=%q turn=%q op_id=%q tool=%q async_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(matched.ID), err)
+			logx.WarnCtxf(ctx, "conversation", "tool async same-tool recall ignored convo=%q turn=%q op_id=%q tool=%q async_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(matched.ID), err)
 			return nil
 		}
 		rec, changed := manager.Update(ctx, asynccfg.UpdateInput{
@@ -142,7 +143,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			Reinforcement:                 cfg.Reinforcement,
 			ReinforcementPrompt:           cfg.ReinforcementPrompt,
 		})
-		infoConvf("tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
+		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		publishAsyncLifecycleEvent(ctx, step.Name, opID, streaming.EventTypeToolCallStarted, extracted)
 		if rec != nil && rec.Terminal() {
 			publishAsyncUpdateEvent(ctx, step.Name, opID, extracted, rec)
@@ -234,7 +235,7 @@ func waitForAsyncRecallPollWindow(ctx context.Context, reg tool.Registry, step S
 	if delay <= 0 {
 		return nil
 	}
-	infoConvf("tool async recall wait convo=%q turn=%q op_id=%q tool=%q async_id=%q delay=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(rec.ID), delay)
+	logx.InfoCtxf(ctx, "conversation", "tool async recall wait convo=%q turn=%q op_id=%q tool=%q async_id=%q delay=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(rec.ID), delay)
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {

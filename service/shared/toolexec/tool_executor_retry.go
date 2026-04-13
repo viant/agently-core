@@ -8,6 +8,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	plan "github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/tool"
 )
 
@@ -29,9 +30,9 @@ func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo,
 		parentDeadline, parentRemaining := formatContextDeadline(ctx)
 		attemptDeadline, attemptRemaining := formatContextDeadline(attemptCtx)
 		if argsTimeoutMs, ok := timeoutMsFromArgs(step.Args); ok {
-			debugConvf("tool attempt start tool=%q op_id=%q attempt=%d/%d args_timeout_ms=%d parent_deadline=%q parent_remaining=%q attempt_deadline=%q attempt_remaining=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, argsTimeoutMs, parentDeadline, parentRemaining, attemptDeadline, attemptRemaining)
+			logx.DebugCtxf(ctx, "conversation", "tool attempt start tool=%q op_id=%q attempt=%d/%d args_timeout_ms=%d parent_deadline=%q parent_remaining=%q attempt_deadline=%q attempt_remaining=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, argsTimeoutMs, parentDeadline, parentRemaining, attemptDeadline, attemptRemaining)
 		} else {
-			debugConvf("tool attempt start tool=%q op_id=%q attempt=%d/%d args_timeout_ms=none parent_deadline=%q parent_remaining=%q attempt_deadline=%q attempt_remaining=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, parentDeadline, parentRemaining, attemptDeadline, attemptRemaining)
+			logx.DebugCtxf(ctx, "conversation", "tool attempt start tool=%q op_id=%q attempt=%d/%d args_timeout_ms=none parent_deadline=%q parent_remaining=%q attempt_deadline=%q attempt_remaining=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, parentDeadline, parentRemaining, attemptDeadline, attemptRemaining)
 		}
 		started := time.Now()
 		out, result, execErr = executeTool(attemptCtx, reg, step, conv)
@@ -40,14 +41,14 @@ func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo,
 		elapsed := time.Since(started)
 		if execErr != nil {
 			cause := classifyTimeoutCause(ctx, attemptCtxErr, execErr)
-			warnConvf("tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s cause=%q err=%q attempt_ctx_err=%q parent_ctx_err=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String(), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(errorString(attemptCtxErr)), strings.TrimSpace(formatContextErr(ctx)))
+			logx.WarnCtxf(ctx, "conversation", "tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s cause=%q err=%q attempt_ctx_err=%q parent_ctx_err=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String(), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(errorString(attemptCtxErr)), strings.TrimSpace(formatContextErr(ctx)))
 		} else {
-			debugConvf("tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s status=ok", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String())
+			logx.DebugCtxf(ctx, "conversation", "tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s status=ok", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String())
 		}
 		if execErr == nil || !shouldRetryToolCall(ctx, execErr, elapsed, attempt, attempts) {
 			break
 		}
-		debugf(ctx, "tool %s attempt %d/%d failed after %s with %v; retrying", step.Name, attempt, attempts, elapsed, execErr)
+		logx.DebugCtxf(ctx, "executil", "tool %s attempt %d/%d failed after %s with %v; retrying", step.Name, attempt, attempts, elapsed, execErr)
 	}
 	return out, result, execErr
 }

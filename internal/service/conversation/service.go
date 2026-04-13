@@ -13,6 +13,7 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convdel "github.com/viant/agently-core/pkg/agently/conversation/delete"
 	convlist "github.com/viant/agently-core/pkg/agently/conversation/list"
@@ -152,9 +153,9 @@ var componentsByDAO sync.Map
 
 func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
 	if conversations != nil {
-		debugf("PatchConversations start id=%q status=%q visibility=%q", strings.TrimSpace(conversations.Id), strings.TrimSpace(valueOrEmptyStr(conversations.Status)), strings.TrimSpace(valueOrEmptyStr(conversations.Visibility)))
+		logx.Infof("conversation", "PatchConversations start id=%q status=%q visibility=%q", strings.TrimSpace(conversations.Id), strings.TrimSpace(valueOrEmptyStr(conversations.Status)), strings.TrimSpace(valueOrEmptyStr(conversations.Visibility)))
 	} else {
-		debugf("PatchConversations start id=\"\" status=\"\" visibility=\"\" (nil input)")
+		logx.Infof("conversation", "PatchConversations start id=\"\" status=\"\" visibility=\"\" (nil input)")
 	}
 	conv := []*convw.Conversation{(*convw.Conversation)(conversations)}
 	input := &convw.Input{Conversations: conv}
@@ -165,14 +166,14 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 		datly.WithOutput(out),
 	)
 	if err != nil {
-		errorf("PatchConversations error id=%q err=%v", strings.TrimSpace(conversations.Id), err)
+		logx.Errorf("conversation", "PatchConversations error id=%q err=%v", strings.TrimSpace(conversations.Id), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchConversations violation id=%q msg=%q", strings.TrimSpace(conversations.Id), out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchConversations violation id=%q msg=%q", strings.TrimSpace(conversations.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
-	debugf("PatchConversations ok id=%q", strings.TrimSpace(conversations.Id))
+	logx.Infof("conversation", "PatchConversations ok id=%q", strings.TrimSpace(conversations.Id))
 	return nil
 }
 
@@ -345,7 +346,7 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	}
 	logPayloadDebug := payload.SizeBytes%512 == 0
 	if logPayloadDebug {
-		debugf("PatchPayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(payload.Id), strings.TrimSpace(payload.Kind), strings.TrimSpace(payload.MimeType), payload.SizeBytes)
+		logx.Infof("conversation", "PatchPayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(payload.Id), strings.TrimSpace(payload.Kind), strings.TrimSpace(payload.MimeType), payload.SizeBytes)
 	}
 	// MutablePayload is an alias of pkg/agently/payload.Payload
 	pw := (*payloadwrite.Payload)(payload)
@@ -357,15 +358,15 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 		datly.WithOutput(out),
 	)
 	if err != nil {
-		errorf("PatchPayload error id=%q err=%v", strings.TrimSpace(payload.Id), err)
+		logx.Errorf("conversation", "PatchPayload error id=%q err=%v", strings.TrimSpace(payload.Id), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchPayload violation id=%q msg=%q", strings.TrimSpace(payload.Id), out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchPayload violation id=%q msg=%q", strings.TrimSpace(payload.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
 	if logPayloadDebug {
-		debugf("PatchPayload ok id=%q", strings.TrimSpace(payload.Id))
+		logx.Infof("conversation", "PatchPayload ok id=%q", strings.TrimSpace(payload.Id))
 	}
 	return nil
 }
@@ -395,7 +396,7 @@ func (s *Service) PatchGeneratedFile(ctx context.Context, generatedFile *generat
 	if generatedFile == nil {
 		return errors.New("invalid generated file: nil")
 	}
-	debugf("PatchGeneratedFile start id=%q provider=%q mode=%q status=%q", strings.TrimSpace(generatedFile.ID), strings.TrimSpace(generatedFile.Provider), strings.TrimSpace(generatedFile.Mode), strings.TrimSpace(generatedFile.Status))
+	logx.Infof("conversation", "PatchGeneratedFile start id=%q provider=%q mode=%q status=%q", strings.TrimSpace(generatedFile.ID), strings.TrimSpace(generatedFile.Provider), strings.TrimSpace(generatedFile.Mode), strings.TrimSpace(generatedFile.Status))
 	input := &generatedfilewrite.Input{GeneratedFiles: []*generatedfilewrite.GeneratedFile{generatedFile}}
 	out := &generatedfilewrite.Output{}
 	_, err := s.dao.Operate(ctx,
@@ -404,14 +405,14 @@ func (s *Service) PatchGeneratedFile(ctx context.Context, generatedFile *generat
 		datly.WithOutput(out),
 	)
 	if err != nil {
-		errorf("PatchGeneratedFile error id=%q err=%v", strings.TrimSpace(generatedFile.ID), err)
+		logx.Errorf("conversation", "PatchGeneratedFile error id=%q err=%v", strings.TrimSpace(generatedFile.ID), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchGeneratedFile violation id=%q msg=%q", strings.TrimSpace(generatedFile.ID), out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchGeneratedFile violation id=%q msg=%q", strings.TrimSpace(generatedFile.ID), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
-	debugf("PatchGeneratedFile ok id=%q", strings.TrimSpace(generatedFile.ID))
+	logx.Infof("conversation", "PatchGeneratedFile ok id=%q", strings.TrimSpace(generatedFile.ID))
 	return nil
 }
 
@@ -532,9 +533,9 @@ func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, e
 
 func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMessage) error {
 	if message != nil {
-		debugf("PatchMessage start id=%q convo=%q turn=%v role=%q type=%q status=%q", message.Id, message.ConversationID, valueOrEmpty(message.TurnID), strings.TrimSpace(message.Role), strings.TrimSpace(message.Type), strings.TrimSpace(valueOrEmptyStr(message.Status)))
+		logx.Infof("conversation", "PatchMessage start id=%q convo=%q turn=%v role=%q type=%q status=%q", message.Id, message.ConversationID, valueOrEmpty(message.TurnID), strings.TrimSpace(message.Role), strings.TrimSpace(message.Type), strings.TrimSpace(valueOrEmptyStr(message.Status)))
 	} else {
-		debugf("PatchMessage start id=\"\" convo=\"\" turn=\"\" role=\"\" type=\"\" status=\"\" (nil input)")
+		logx.Infof("conversation", "PatchMessage start id=\"\" convo=\"\" turn=\"\" role=\"\" type=\"\" status=\"\" (nil input)")
 	}
 	mm := (*msgwrite.Message)(message)
 	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
@@ -546,7 +547,7 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	)
 	if err != nil {
 		// Augment DB/validation error with key message fields to aid diagnosis
-		errorf("PatchMessage error id=%q convo=%q err=%v", message.Id, message.ConversationID, err)
+		logx.Errorf("conversation", "PatchMessage error id=%q convo=%q err=%v", message.Id, message.ConversationID, err)
 		return fmt.Errorf(
 			"patch message failed (id=%s convo=%s turn=%v role=%s type=%s status=%q): %w",
 			message.Id,
@@ -559,7 +560,7 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 		)
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchMessage violation id=%q convo=%q msg=%q", message.Id, message.ConversationID, out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchMessage violation id=%q convo=%q msg=%q", message.Id, message.ConversationID, out.Violations[0].Message)
 		return fmt.Errorf(
 			"patch message violation (id=%s convo=%s turn=%v role=%s type=%s status=%q): %s",
 			message.Id,
@@ -572,7 +573,7 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 		)
 	}
 	s.publishMessagePatchEvent(ctx, message)
-	debugf("PatchMessage ok id=%q convo=%q", message.Id, message.ConversationID)
+	logx.Infof("conversation", "PatchMessage ok id=%q convo=%q", message.Id, message.ConversationID)
 	return nil
 }
 
@@ -822,7 +823,7 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	if event.CompletedAt != nil && !event.CompletedAt.IsZero() {
 		completedAt = event.CompletedAt.Format(time.RFC3339Nano)
 	}
-	debugf("[emitTimelineEvent] %s type=%q op=%q stream_id=%q convo=%q turn=%q msg=%q seq=%d mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool_call=%q tool_msg=%q tool=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q id=%q",
+	logx.DebugCtxf(ctx, "conversation", "[emitTimelineEvent] %s type=%q op=%q stream_id=%q convo=%q turn=%q msg=%q seq=%d mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool_call=%q tool_msg=%q tool=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q id=%q",
 		action,
 		string(event.Type),
 		event.Op,
@@ -861,7 +862,7 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 		event.ID,
 	)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
-		warnf("%s error type=%q id=%q convo=%q err=%v", action, strings.TrimSpace(string(event.Type)), strings.TrimSpace(event.ID), strings.TrimSpace(event.ConversationID), err)
+		logx.Warnf("conversation", "%s error type=%q id=%q convo=%q err=%v", action, strings.TrimSpace(string(event.Type)), strings.TrimSpace(event.ID), strings.TrimSpace(event.ConversationID), err)
 		return
 	}
 	if debugtrace.Enabled() {
@@ -950,7 +951,7 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 	if modelCall == nil {
 		return errors.New("invalid modelCall: nil")
 	}
-	debugf("PatchModelCall start message_id=%q turn_id=%q provider=%q model=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), strings.TrimSpace(modelCall.Provider), strings.TrimSpace(modelCall.Model), strings.TrimSpace(modelCall.Status))
+	logx.Infof("conversation", "PatchModelCall start message_id=%q turn_id=%q provider=%q model=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), strings.TrimSpace(modelCall.Provider), strings.TrimSpace(modelCall.Model), strings.TrimSpace(modelCall.Status))
 	mc := (*modelcallwrite.ModelCall)(modelCall)
 	input := &modelcallwrite.Input{ModelCalls: []*modelcallwrite.ModelCall{mc}}
 	out := &modelcallwrite.Output{}
@@ -961,15 +962,15 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 	)
 
 	if err != nil {
-		errorf("PatchModelCall error message_id=%q err=%v", strings.TrimSpace(modelCall.MessageID), err)
+		logx.Errorf("conversation", "PatchModelCall error message_id=%q err=%v", strings.TrimSpace(modelCall.MessageID), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchModelCall violation message_id=%q msg=%q", strings.TrimSpace(modelCall.MessageID), out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchModelCall violation message_id=%q msg=%q", strings.TrimSpace(modelCall.MessageID), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
 	s.emitCanonicalModelEvent(ctx, modelCall)
-	debugf("PatchModelCall ok message_id=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(modelCall.Status))
+	logx.Infof("conversation", "PatchModelCall ok message_id=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(modelCall.Status))
 	return nil
 }
 
@@ -980,7 +981,7 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	if toolCall == nil {
 		return errors.New("invalid toolCall: nil")
 	}
-	debugf("PatchToolCall start message_id=%q op_id=%q tool=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.OpID), strings.TrimSpace(toolCall.ToolName), strings.TrimSpace(toolCall.Status))
+	logx.Infof("conversation", "PatchToolCall start message_id=%q op_id=%q tool=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.OpID), strings.TrimSpace(toolCall.ToolName), strings.TrimSpace(toolCall.Status))
 	tc := (*toolcallwrite.ToolCall)(toolCall)
 	input := &toolcallwrite.Input{ToolCalls: []*toolcallwrite.ToolCall{tc}}
 	out := &toolcallwrite.Output{}
@@ -990,17 +991,17 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 		datly.WithOutput(out),
 	)
 	if err != nil {
-		errorf("PatchToolCall error message_id=%q err=%v", strings.TrimSpace(toolCall.MessageID), err)
+		logx.Errorf("conversation", "PatchToolCall error message_id=%q err=%v", strings.TrimSpace(toolCall.MessageID), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchToolCall violation message_id=%q msg=%q", strings.TrimSpace(toolCall.MessageID), out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchToolCall violation message_id=%q msg=%q", strings.TrimSpace(toolCall.MessageID), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
 	if event := toolCallEvent(ctx, toolCall); event != nil {
 		s.emitTimelineEvent(ctx, event, "PatchToolCall publish timeline event")
 	}
-	debugf("PatchToolCall ok message_id=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.Status))
+	logx.Infof("conversation", "PatchToolCall ok message_id=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.Status))
 	return nil
 }
 
@@ -1068,7 +1069,7 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 	if turn == nil {
 		return errors.New("invalid turn: nil")
 	}
-	debugf("PatchTurn start id=%q convo=%q status=%q queue_seq=%v", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.Status), valueOrEmpty(turn.QueueSeq))
+	logx.Infof("conversation", "PatchTurn start id=%q convo=%q status=%q queue_seq=%v", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.Status), valueOrEmpty(turn.QueueSeq))
 	tr := (*turnwrite.Turn)(turn)
 	input := &turnwrite.Input{Turns: []*turnwrite.Turn{tr}}
 	out := &turnwrite.Output{}
@@ -1078,15 +1079,15 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 		datly.WithOutput(out),
 	)
 	if err != nil {
-		errorf("PatchTurn error id=%q err=%v", strings.TrimSpace(turn.Id), err)
+		logx.Errorf("conversation", "PatchTurn error id=%q err=%v", strings.TrimSpace(turn.Id), err)
 		return err
 	}
 	if len(out.Violations) > 0 {
-		warnf("PatchTurn violation id=%q msg=%q", strings.TrimSpace(turn.Id), out.Violations[0].Message)
+		logx.Warnf("conversation", "PatchTurn violation id=%q msg=%q", strings.TrimSpace(turn.Id), out.Violations[0].Message)
 		return errors.New(out.Violations[0].Message)
 	}
 	s.publishTurnEvent(ctx, turn)
-	debugf("PatchTurn ok id=%q status=%q", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.Status))
+	logx.Infof("conversation", "PatchTurn ok id=%q status=%q", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.Status))
 	return nil
 }
 
@@ -1217,7 +1218,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 
 	// Emit preamble event when we have preamble text and the message is interim
 	if preamble != "" && !isFinal {
-		debugf("emitCanonicalAssistantEvents preamble convo=%q turn=%q msg=%q preamble_len=%d", conversationID, turnID, strings.TrimSpace(message.Id), len(preamble))
+		logx.Infof("conversation", "emitCanonicalAssistantEvents preamble convo=%q turn=%q msg=%q preamble_len=%d", conversationID, turnID, strings.TrimSpace(message.Id), len(preamble))
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(message.Id),
 			StreamID:           conversationID,
@@ -1266,12 +1267,12 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
-		debugf("[emitCanonicalModelEvent] SKIP no conversationID msg=%q status=%q", modelCall.MessageID, modelCall.Status)
+		logx.DebugCtxf(ctx, "conversation", "[emitCanonicalModelEvent] SKIP no conversationID msg=%q status=%q", modelCall.MessageID, modelCall.Status)
 		return
 	}
 	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
 	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
-	debugf("[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
+	logx.DebugCtxf(ctx, "conversation", "[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(modelCall.MessageID),

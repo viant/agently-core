@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/viant/afs"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
@@ -113,17 +114,17 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	}
 	target, err := s.resolveReadTarget(ctx, input, s.agentAllowed(ctx))
 	if err != nil {
-		debugf("read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
+		logx.Debugf("resources", "read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
 		return err
 	}
 	data, err := s.downloadResource(ctx, target.fullURI)
 	if err != nil {
-		debugf("read download error uri=%q err=%v", target.fullURI, err)
+		logx.Debugf("resources", "read download error uri=%q err=%v", target.fullURI, err)
 		return err
 	}
 	selection, err := applyReadSelection(data, input)
 	if err != nil {
-		debugf("read selection error uri=%q err=%v", target.fullURI, err)
+		logx.Debugf("resources", "read selection error uri=%q err=%v", target.fullURI, err)
 		return err
 	}
 	limitRequested := readLimitRequested(input)
@@ -242,7 +243,7 @@ func (s *Service) downloadResource(ctx context.Context, uri string) ([]byte, err
 		if err == nil {
 			return data, nil
 		}
-		debugf("download direct failed uri=%q err=%v; falling back to snapshot", uri, err)
+		logx.Debugf("resources", "download direct failed uri=%q err=%v; falling back to snapshot", uri, err)
 		return mfs.Download(ctx, mcpfs.NewObjectFromURI(uri))
 	}
 	fs := afs.New()
