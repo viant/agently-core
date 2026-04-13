@@ -336,6 +336,10 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 
 func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, nextStepIdx *int, wg *sync.WaitGroup, guard *DuplicateGuard, reg tool.Registry, assistantMsgID ...string) {
 	toolCtx := ctx
+	turnID := ""
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(tm.TurnID)
+	}
 	if len(assistantMsgID) > 0 {
 		if id := strings.TrimSpace(assistantMsgID[0]); id != "" {
 			toolCtx = context.WithValue(ctx, runtimerequestctx.ModelMessageIDKey, id)
@@ -405,6 +409,9 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 			}
 			if guard != nil {
 				guard.RegisterResult(step.Name, step.Args, call)
+			}
+			if turnID != "" {
+				s.rememberTurnToolResult(turnID, call)
 			}
 		}()
 	}

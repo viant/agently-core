@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	debugtrace "github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -29,6 +30,13 @@ type Service struct {
 	// Optional builder to produce a GenerateInput identical to agent.runPlanLoop,
 	// with the exception that the user query is provided as `instruction`.
 	buildPlanInput func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core2.GenerateInput, error)
+
+	// turnToolResults carries prior successful tool results across repeated
+	// reactor.Run invocations within the same turn. This protects against
+	// loops when prompt history/transcript does not yet expose prior tool
+	// results back to the model on the next iteration.
+	turnToolResultsMu sync.Mutex
+	turnToolResults   map[string][]llm.ToolCall
 
 	// lastPreamble deduplicates patchStreamingToolPreamble calls: only patches
 	// when the preamble text has actually changed. Keyed by message ID.
@@ -64,6 +72,9 @@ func inContinuationMode(ctx context.Context) bool {
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
 	priorResults := extractPriorToolResults(genInput)
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		priorResults = mergePriorToolResults(priorResults, s.getTurnToolResults(strings.TrimSpace(tm.TurnID)))
+	}
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
@@ -189,10 +200,97 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 
 func New(service *core2.Service, registry tool.Registry, convClient apiconv.Client, finder agentmdl.Finder, builder func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core2.GenerateInput, error)) *Service {
 	return &Service{
-		llm:            service,
-		registry:       registry,
-		convClient:     convClient,
-		agentFinder:    finder,
-		buildPlanInput: builder,
+		llm:             service,
+		registry:        registry,
+		convClient:      convClient,
+		agentFinder:     finder,
+		buildPlanInput:  builder,
+		turnToolResults: make(map[string][]llm.ToolCall),
 	}
+}
+
+func mergePriorToolResults(existing []llm.ToolCall, extra []llm.ToolCall) []llm.ToolCall {
+	if len(extra) == 0 {
+		return existing
+	}
+	if len(existing) == 0 {
+		out := make([]llm.ToolCall, 0, len(extra))
+		out = append(out, extra...)
+		return out
+	}
+	seen := map[string]struct{}{}
+	out := make([]llm.ToolCall, 0, len(existing)+len(extra))
+	keyOf := func(call llm.ToolCall) string {
+		id := strings.TrimSpace(call.ID)
+		if id != "" {
+			return "id:" + id
+		}
+		return strings.TrimSpace(strings.ToLower(call.Name)) + "::" + CanonicalArgs(call.Arguments)
+	}
+	for _, call := range existing {
+		key := keyOf(call)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, call)
+	}
+	for _, call := range extra {
+		key := keyOf(call)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, call)
+	}
+	return out
+}
+
+func (s *Service) getTurnToolResults(turnID string) []llm.ToolCall {
+	if s == nil || strings.TrimSpace(turnID) == "" {
+		return nil
+	}
+	s.turnToolResultsMu.Lock()
+	defer s.turnToolResultsMu.Unlock()
+	stored := s.turnToolResults[strings.TrimSpace(turnID)]
+	if len(stored) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolCall, 0, len(stored))
+	out = append(out, stored...)
+	return out
+}
+
+func (s *Service) rememberTurnToolResult(turnID string, call llm.ToolCall) {
+	if s == nil || strings.TrimSpace(turnID) == "" {
+		return
+	}
+	if strings.TrimSpace(call.Name) == "" {
+		return
+	}
+	s.turnToolResultsMu.Lock()
+	defer s.turnToolResultsMu.Unlock()
+	keyOf := func(call llm.ToolCall) string {
+		id := strings.TrimSpace(call.ID)
+		if id != "" {
+			return "id:" + id
+		}
+		return strings.TrimSpace(strings.ToLower(call.Name)) + "::" + CanonicalArgs(call.Arguments)
+	}
+	key := keyOf(call)
+	current := s.turnToolResults[strings.TrimSpace(turnID)]
+	for i, existing := range current {
+		if keyOf(existing) == key {
+			current[i] = call
+			s.turnToolResults[strings.TrimSpace(turnID)] = current
+			return
+		}
+	}
+	s.turnToolResults[strings.TrimSpace(turnID)] = append(current, call)
 }
