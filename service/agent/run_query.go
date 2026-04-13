@@ -434,6 +434,7 @@ func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.Turn
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	iter := 0
 	var resolvedModel string
+	var loopHistoryMsgs []*prompt.Message
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
@@ -451,6 +452,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	for {
 		iter++
 		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
+		if len(loopHistoryMsgs) > 0 {
+			ctx = withLoopHistoryMessages(ctx, loopHistoryMsgs)
+		}
 		iterStart := time.Now()
 		s.updateRunIteration(ctx, turn, iter)
 
@@ -571,6 +575,30 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			iter, stepCount, time.Since(planStart))
 		if pErr != nil {
 			return pErr
+		}
+		if s.orchestrator != nil {
+			toolCalls := s.orchestrator.TurnToolResults(strings.TrimSpace(turn.TurnID))
+			if len(toolCalls) > 0 {
+				nextHistory := make([]*prompt.Message, 0, len(toolCalls))
+				for _, call := range toolCalls {
+					id := strings.TrimSpace(call.ID)
+					name := strings.TrimSpace(call.Name)
+					if id == "" || name == "" {
+						continue
+					}
+					nextHistory = append(nextHistory, &prompt.Message{
+						Kind:     prompt.MessageKindToolResult,
+						Role:     string(llm.RoleAssistant),
+						ToolOpID: id,
+						ToolName: name,
+						ToolArgs: call.Arguments,
+						Content:  strings.TrimSpace(call.Result),
+					})
+				}
+				if len(nextHistory) > 0 {
+					loopHistoryMsgs = nextHistory
+				}
+			}
 		}
 		if aPlan == nil {
 			return fmt.Errorf("unable to generate plan")
