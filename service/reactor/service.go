@@ -267,6 +267,14 @@ func (s *Service) getTurnToolResults(turnID string) []llm.ToolCall {
 	return out
 }
 
+// TurnToolResults returns a defensive copy of the remembered successful tool
+// results for a turn. Agent.runPlanLoop uses this to rehydrate prompt history
+// across iterations when transcript history is temporarily missing current-turn
+// assistant/tool messages.
+func (s *Service) TurnToolResults(turnID string) []llm.ToolCall {
+	return s.getTurnToolResults(turnID)
+}
+
 func (s *Service) rememberTurnToolResult(turnID string, call llm.ToolCall) {
 	if s == nil || strings.TrimSpace(turnID) == "" {
 		return

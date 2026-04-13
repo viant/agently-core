@@ -72,6 +72,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if len(histResult.Elicitation) > 0 {
 		appendCurrentMessages(&b.History, histResult.Elicitation...)
 	}
+	if extra := loopHistoryMessagesFromContext(ctx); len(extra) > 0 {
+		appendCurrentMessages(&b.History, extra...)
+	}
 	// Populate History.LastResponse using the last assistant message in transcript
 	if conv != nil {
 		tr := conv.GetTranscript()
@@ -266,6 +269,44 @@ func bindingToolNames(defs []*llm.ToolDefinition) []string {
 		}
 	}
 	return result
+}
+
+type loopHistoryContextKey struct{}
+
+func withLoopHistoryMessages(ctx context.Context, msgs []*prompt.Message) context.Context {
+	if len(msgs) == 0 {
+		return ctx
+	}
+	cloned := make([]*prompt.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		copyMsg := *msg
+		if len(msg.Attachment) > 0 {
+			copyMsg.Attachment = append([]*prompt.Attachment(nil), msg.Attachment...)
+		}
+		if len(msg.ToolArgs) > 0 {
+			args := make(map[string]interface{}, len(msg.ToolArgs))
+			for k, v := range msg.ToolArgs {
+				args[k] = v
+			}
+			copyMsg.ToolArgs = args
+		}
+		cloned = append(cloned, &copyMsg)
+	}
+	if len(cloned) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, loopHistoryContextKey{}, cloned)
+}
+
+func loopHistoryMessagesFromContext(ctx context.Context) []*prompt.Message {
+	if ctx == nil {
+		return nil
+	}
+	msgs, _ := ctx.Value(loopHistoryContextKey{}).([]*prompt.Message)
+	return msgs
 }
 
 func cloneContextMap(src map[string]interface{}) map[string]interface{} {
