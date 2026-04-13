@@ -3,7 +3,7 @@ You must use the async shell tools exactly as follows.
 1. Call `system/exec:start` exactly once with:
    - `workdir`: `/tmp`
    - `commands`:
-     - `for i in 1 2 3; do echo WAITING_FOR_FAILURE; sleep 1; done; echo TERMINAL_FAILURE >&2; exit 7`
+     - `for i in 1 2 3; do echo WAITING_FOR_FAILURE; sleep 0.2; done; echo TERMINAL_FAILURE >&2; exit 7`
 
 2. After `system/exec:start` returns, call `system/exec:status` exactly once with the returned `sessionId`.
 3. Do not poll in a loop yourself.

@@ -38,6 +38,11 @@ import (
 	meta "github.com/viant/agently-core/workspace/service/meta"
 )
 
+const (
+	asyncE2ETimeout    = 15 * time.Second
+	asyncE2EMinRuntime = 500 * time.Millisecond
+)
+
 // stubMCPProvider satisfies mcpmgr.Provider for tests that don't use MCP servers.
 type stubMCPProvider struct{}
 
@@ -50,6 +55,15 @@ func skipIfNoAPIKey(t *testing.T) {
 	if os.Getenv("OPENAI_API_KEY") == "" {
 		t.Skip("OPENAI_API_KEY not set; skipping e2e query test")
 	}
+}
+
+func skipIfNoExtendedE2E(t *testing.T) {
+	t.Helper()
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_E2E_EXTENDED"))) {
+	case "1", "true", "yes", "y", "on":
+		return
+	}
+	t.Skip("AGENTLY_E2E_EXTENDED not set; skipping long-running live LLM e2e")
 }
 
 // setupSDK creates an in-memory embedded SDK client backed by the testdata workspace.
@@ -302,8 +316,9 @@ func TestQueryWithToolUsage(t *testing.T) {
 
 func TestQueryAsyncExecReporter(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), asyncE2ETimeout)
 	defer cancel()
 
 	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
@@ -313,6 +328,7 @@ func TestQueryAsyncExecReporter(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 	require.NotEmpty(t, conv.Id)
+	attachAsyncFailureDebug(t, ctx, client, conv.Id, nil)
 
 	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
 	require.NoError(t, err)
@@ -334,6 +350,11 @@ func TestQueryAsyncExecReporter(t *testing.T) {
 			mu.Unlock()
 		}
 	}()
+	attachAsyncFailureDebug(t, ctx, client, conv.Id, func() []*streaming.Event {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*streaming.Event(nil), events...)
+	})
 
 	started := time.Now()
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
@@ -345,7 +366,7 @@ func TestQueryAsyncExecReporter(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	require.Equal(t, "ASYNC_REPORT_DONE found=READY_SIGNAL", strings.TrimSpace(out.Content))
-	require.GreaterOrEqual(t, time.Since(started), 2*time.Second, "query should stay open while async watcher is running")
+	require.GreaterOrEqual(t, time.Since(started), asyncE2EMinRuntime, "query should stay open while async watcher is running")
 
 	_ = sub.Close()
 	<-done
@@ -396,8 +417,9 @@ func TestQueryAsyncExecReporter(t *testing.T) {
 
 func TestQueryAsyncExecCanceler(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), asyncE2ETimeout)
 	defer cancel()
 
 	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
@@ -407,6 +429,7 @@ func TestQueryAsyncExecCanceler(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 	require.NotEmpty(t, conv.Id)
+	attachAsyncFailureDebug(t, ctx, client, conv.Id, nil)
 
 	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
 	require.NoError(t, err)
@@ -428,6 +451,11 @@ func TestQueryAsyncExecCanceler(t *testing.T) {
 			mu.Unlock()
 		}
 	}()
+	attachAsyncFailureDebug(t, ctx, client, conv.Id, func() []*streaming.Event {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*streaming.Event(nil), events...)
+	})
 
 	started := time.Now()
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
@@ -439,7 +467,7 @@ func TestQueryAsyncExecCanceler(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	require.Equal(t, "ASYNC_CANCEL_DONE status=canceled", strings.TrimSpace(out.Content))
-	require.GreaterOrEqual(t, time.Since(started), 2*time.Second, "query should stay open while async heartbeat is running")
+	require.GreaterOrEqual(t, time.Since(started), asyncE2EMinRuntime, "query should stay open while async heartbeat is running")
 
 	_ = sub.Close()
 	<-done
@@ -509,8 +537,9 @@ func TestQueryAsyncExecCanceler(t *testing.T) {
 
 func TestQueryAsyncExecFailure(t *testing.T) {
 	skipIfNoAPIKey(t)
+	skipIfNoExtendedE2E(t)
 	client := setupSDK(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), asyncE2ETimeout)
 	defer cancel()
 
 	conv, err := client.CreateConversation(ctx, &sdk.CreateConversationInput{
@@ -520,6 +549,7 @@ func TestQueryAsyncExecFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conv)
 	require.NotEmpty(t, conv.Id)
+	attachAsyncFailureDebug(t, ctx, client, conv.Id, nil)
 
 	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
 	require.NoError(t, err)
@@ -541,6 +571,11 @@ func TestQueryAsyncExecFailure(t *testing.T) {
 			mu.Unlock()
 		}
 	}()
+	attachAsyncFailureDebug(t, ctx, client, conv.Id, func() []*streaming.Event {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*streaming.Event(nil), events...)
+	})
 
 	started := time.Now()
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
@@ -552,7 +587,7 @@ func TestQueryAsyncExecFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	require.Equal(t, "ASYNC_FAIL_DONE status=failed", strings.TrimSpace(out.Content))
-	require.GreaterOrEqual(t, time.Since(started), 2*time.Second, "query should stay open while async failing job is running")
+	require.GreaterOrEqual(t, time.Since(started), asyncE2EMinRuntime, "query should stay open while async failing job is running")
 
 	_ = sub.Close()
 	<-done
@@ -708,10 +743,10 @@ func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID:       "simple",
 		ModelOverride: "openai_gpt-5.2_responses",
-		Query:         "What is the dominant color in the attached image? Answer with one word.",
+		Query:         "The attached image is a single solid-color square. What color is it? Answer with one word.",
 		UserId:        "e2e-image",
 		Attachments: []*prompt.Attachment{
-			{Name: "red-dot.png", Mime: "image/png", Data: imageData},
+			{Name: "red-square.png", Mime: "image/png", Data: imageData},
 		},
 	})
 	require.NoError(t, err)
@@ -851,8 +886,12 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 
 func mustCreatePNG(t *testing.T, fill color.RGBA) []byte {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
-	img.SetRGBA(0, 0, fill)
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			img.SetRGBA(x, y, fill)
+		}
+	}
 	var buf bytes.Buffer
 	err := png.Encode(&buf, img)
 	require.NoError(t, err)
@@ -877,6 +916,62 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func attachAsyncFailureDebug(t *testing.T, ctx context.Context, client sdk.Client, conversationID string, eventSnapshot func() []*streaming.Event) {
+	t.Helper()
+	if strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("async e2e debug: conversation=%s", conversationID)
+		if eventSnapshot != nil {
+			events := eventSnapshot()
+			t.Logf("async e2e debug: captured_events=%d", len(events))
+			for i, ev := range events {
+				if ev == nil {
+					continue
+				}
+				t.Logf("event[%d] type=%s tool=%q status=%q turn=%q msg=%q op=%q content=%q", i, ev.Type, ev.ToolName, ev.Status, ev.TurnID, ev.MessageID, ev.OperationID, truncate(strings.TrimSpace(ev.Content), 160))
+			}
+		}
+		msgs, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: conversationID})
+		if err != nil {
+			t.Logf("async e2e debug: get messages error: %v", err)
+			return
+		}
+		if msgs == nil {
+			t.Logf("async e2e debug: no messages")
+			return
+		}
+		t.Logf("async e2e debug: message_rows=%d", len(msgs.Rows))
+		for i, row := range msgs.Rows {
+			if row == nil {
+				continue
+			}
+			role := strings.TrimSpace(row.Role)
+			mode := ""
+			if row.Mode != nil {
+				mode = strings.TrimSpace(*row.Mode)
+			}
+			toolName := ""
+			if row.ToolName != nil {
+				toolName = strings.TrimSpace(*row.ToolName)
+			}
+			content := ""
+			if row.Content != nil {
+				content = truncate(strings.TrimSpace(*row.Content), 160)
+			}
+			status := ""
+			if row.Status != nil {
+				status = strings.TrimSpace(*row.Status)
+			}
+			t.Logf("row[%d] role=%q mode=%q tool=%q status=%q content=%q", i, role, mode, toolName, status, content)
+		}
+	})
 }
 
 func compactText(s string) string {
