@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"reflect"
 	"strings"
@@ -823,7 +822,7 @@ func (s *Service) emitTimelineEvent(ctx context.Context, event *streaming.Event,
 	if event.CompletedAt != nil && !event.CompletedAt.IsZero() {
 		completedAt = event.CompletedAt.Format(time.RFC3339Nano)
 	}
-	log.Printf("[emitTimelineEvent] %s type=%q op=%q stream_id=%q convo=%q turn=%q msg=%q seq=%d mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool_call=%q tool_msg=%q tool=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q id=%q",
+	debugf("[emitTimelineEvent] %s type=%q op=%q stream_id=%q convo=%q turn=%q msg=%q seq=%d mode=%q agent=%q agent_name=%q user_msg=%q assistant_msg=%q parent_msg=%q model_call=%q tool_call=%q tool_msg=%q tool=%q status=%q final=%v iter=%d page=%d/%d latest=%v linked=%q feed=%q created_at=%q started_at=%q completed_at=%q sent_at=%q req=%q resp=%q preq=%q presp=%q stream=%q id=%q",
 		action,
 		string(event.Type),
 		event.Op,
@@ -1267,12 +1266,12 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		conversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	if conversationID == "" {
-		log.Printf("[emitCanonicalModelEvent] SKIP no conversationID msg=%q status=%q", modelCall.MessageID, modelCall.Status)
+		debugf("[emitCanonicalModelEvent] SKIP no conversationID msg=%q status=%q", modelCall.MessageID, modelCall.Status)
 		return
 	}
 	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
 	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
-	log.Printf("[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
+	debugf("[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(modelCall.MessageID),

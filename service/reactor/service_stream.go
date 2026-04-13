@@ -38,11 +38,23 @@ func mergeStreamContent(current, incoming string) string {
 	incomingRaw := incoming
 	current = normalizeStreamContentForMerge(currentRaw)
 	incoming = normalizeStreamContentForMerge(incomingRaw)
-	if incoming == "" {
+	if incomingRaw == "" {
 		return currentRaw
 	}
-	if current == "" {
+	if currentRaw == "" {
 		return incomingRaw
+	}
+	// Preserve raw whitespace-only deltas; they are significant in streamed text.
+	if incoming == "" {
+		return currentRaw + incomingRaw
+	}
+	// Prefer exact raw cumulative snapshots before falling back to normalized
+	// comparisons so trailing spaces are not lost.
+	if strings.HasPrefix(incomingRaw, currentRaw) {
+		return incomingRaw
+	}
+	if strings.HasPrefix(currentRaw, incomingRaw) {
+		return currentRaw
 	}
 	if incoming == current {
 		return currentRaw
