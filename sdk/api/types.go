@@ -274,10 +274,15 @@ type PendingToolApprovalPage struct {
 }
 
 type DecideToolApprovalInput struct {
-	ID            string                 `json:"-"`
-	Decision      string                 `json:"decision"`
+	ID            string                 `json:"id,omitempty"`
+	Action        string                 `json:"action,omitempty"`
+	UserID        string                 `json:"userId,omitempty"`
+	Reason        string                 `json:"reason,omitempty"`
+	Note          string                 `json:"note,omitempty"`
+	Decision      string                 `json:"decision,omitempty"`
 	EditedFields  map[string]interface{} `json:"editedFields,omitempty"`
 	CallbackState map[string]interface{} `json:"callbackState,omitempty"`
+	Payload       map[string]interface{} `json:"payload,omitempty"`
 }
 
 type DecideToolApprovalOutput struct {
@@ -336,8 +341,12 @@ type ListFilesOutput struct {
 }
 
 type ToolDefinitionInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty"`
+	Required     []string               `json:"required,omitempty"`
+	OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
+	Cacheable    bool                   `json:"cacheable,omitempty"`
 }
 
 type ResourceRef struct {
@@ -406,5 +415,8 @@ type GetTranscriptInput struct {
 }
 
 type QuerySelector struct {
-	Path string `json:"path,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	Offset  int    `json:"offset,omitempty"`
+	OrderBy string `json:"orderBy,omitempty"`
 }
