@@ -36,16 +36,20 @@ func (r *Runtime) resolveRuntimeOAuthTokenOwner(_ context.Context, sess *Session
 	if r == nil || r.ext == nil || sess == nil {
 		return "", ""
 	}
-	// jwt.sub is the token storage key — no DB lookup needed.
-	subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email))
-	if subject == "" {
+	lookupID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
+	if r.ext.users != nil {
+		if user, err := r.ext.users.GetByUsername(context.Background(), strings.TrimSpace(firstNonEmpty(sess.Username, sess.Subject))); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
+			lookupID = strings.TrimSpace(user.ID)
+		}
+	}
+	if lookupID == "" {
 		return "", ""
 	}
 	provider := strings.TrimSpace(firstNonEmpty(sess.Provider, r.ext.oauthProviderName()))
 	if provider == "" {
 		return "", ""
 	}
-	return subject, provider
+	return lookupID, provider
 }
 
 func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session) *scyauth.Token {
