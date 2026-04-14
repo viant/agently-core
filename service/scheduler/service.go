@@ -29,6 +29,7 @@ type Service struct {
 	tokenProvider   token.Provider
 	scyService      *scy.Service
 	authCfg         *svcauth.Config
+	users           svcauth.UserService
 	userCredAuthCfg *UserCredAuthConfig
 	oauthAuthz      oauthAuthorizer
 	leaseOwner      string
@@ -85,6 +86,12 @@ func WithScyService(sv *scy.Service) Option {
 // WithAuthConfig sets auth configuration used by scheduler OOB user_cred flow.
 func WithAuthConfig(cfg *svcauth.Config) Option {
 	return func(s *Service) { s.authCfg = cfg }
+}
+
+// WithUserService sets the user service used to resolve scheduler subjects to
+// persistent user IDs for the created_by_user_id auth path.
+func WithUserService(users svcauth.UserService) Option {
+	return func(s *Service) { s.users = users }
 }
 
 // Get returns a schedule by ID.
