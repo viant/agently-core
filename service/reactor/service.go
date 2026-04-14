@@ -50,9 +50,7 @@ type ctxKeyPresentedType int
 const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 
 // ctxKeyContinuationMode marks runs that are invoked as part of a
-// continuation/recovery flow (for example, context-limit handling). Duplicate
-// protection is disabled in this mode so message tools can iterate
-// freely when trimming history.
+// continuation/recovery flow (for example, context-limit handling).
 const ctxKeyContinuationMode ctxKeyPresentedType = 2
 
 const (
@@ -62,26 +60,15 @@ const (
 	compactCandidateLimit = 200
 )
 
-func inContinuationMode(ctx context.Context) bool {
-	if v, ok := ctx.Value(ctxKeyContinuationMode).(bool); ok {
-		return v
-	}
-	return false
-}
-
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
 	aPlan := plan.New()
-	priorResults := extractPriorToolResults(genInput)
-	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
-		priorResults = mergePriorToolResults(priorResults, s.getTurnToolResults(strings.TrimSpace(tm.TurnID)))
-	}
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
 	// Binding registry to current conversation (if any) so tool.Execute receives ctx with convID.
 	reg := tool.WithConversation(s.registry, runtimerequestctx.ConversationIDFromContext(ctx))
 	// Do not create child cancels here; errors must not cancel context.
-	streamId := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput, priorResults)
+	streamId := s.registerStreamPlannerHandler(ctx, reg, aPlan, &wg, &nextStepIdx, genOutput)
 	canStream, err := s.canStream(ctx, genInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if model can stream: %w", err)
@@ -207,49 +194,6 @@ func New(service *core2.Service, registry tool.Registry, convClient apiconv.Clie
 		buildPlanInput:  builder,
 		turnToolResults: make(map[string][]llm.ToolCall),
 	}
-}
-
-func mergePriorToolResults(existing []llm.ToolCall, extra []llm.ToolCall) []llm.ToolCall {
-	if len(extra) == 0 {
-		return existing
-	}
-	if len(existing) == 0 {
-		out := make([]llm.ToolCall, 0, len(extra))
-		out = append(out, extra...)
-		return out
-	}
-	seen := map[string]struct{}{}
-	out := make([]llm.ToolCall, 0, len(existing)+len(extra))
-	keyOf := func(call llm.ToolCall) string {
-		id := strings.TrimSpace(call.ID)
-		if id != "" {
-			return "id:" + id
-		}
-		return strings.TrimSpace(strings.ToLower(call.Name)) + "::" + CanonicalArgs(call.Arguments)
-	}
-	for _, call := range existing {
-		key := keyOf(call)
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, call)
-	}
-	for _, call := range extra {
-		key := keyOf(call)
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, call)
-	}
-	return out
 }
 
 func (s *Service) getTurnToolResults(turnID string) []llm.ToolCall {

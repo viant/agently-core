@@ -274,14 +274,15 @@ func (s *datlyService) queryConversationRows(ctx context.Context, input *agconvl
 
 func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit int, callOpts *options) (string, []interface{}) {
 	var builder strings.Builder
+	latestTurnStatusExpr := `(SELECT LOWER(COALESCE(t.status, '')) FROM turn t WHERE t.conversation_id = c.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1)`
 	builder.WriteString(`SELECT
 		(SELECT id FROM turn t WHERE t.conversation_id = c.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS last_turn_id,
 		CASE
-			WHEN LOWER(COALESCE(c.status, '')) IN ('failed', 'error', 'terminated') THEN 'error'
-			WHEN LOWER(COALESCE(c.status, '')) IN ('canceled', 'cancelled') THEN 'canceled'
-			WHEN LOWER(COALESCE(c.status, '')) IN ('completed', 'succeeded', 'success', 'done', 'compacted', 'pruned') THEN 'done'
-			WHEN LOWER(COALESCE(c.status, '')) IN ('waiting_for_user', 'blocked') THEN 'elicitation'
-			WHEN LOWER(COALESCE(c.status, '')) IN ('running', 'thinking', 'processing', 'in_progress', 'queued', 'pending', 'open') THEN 'executing'
+			WHEN COALESCE(` + latestTurnStatusExpr + `, LOWER(COALESCE(c.status, ''))) IN ('failed', 'error', 'terminated') THEN 'error'
+			WHEN COALESCE(` + latestTurnStatusExpr + `, LOWER(COALESCE(c.status, ''))) IN ('canceled', 'cancelled') THEN 'canceled'
+			WHEN COALESCE(` + latestTurnStatusExpr + `, LOWER(COALESCE(c.status, ''))) IN ('completed', 'succeeded', 'success', 'done', 'compacted', 'pruned') THEN 'done'
+			WHEN COALESCE(` + latestTurnStatusExpr + `, LOWER(COALESCE(c.status, ''))) IN ('waiting_for_user', 'blocked') THEN 'elicitation'
+			WHEN COALESCE(` + latestTurnStatusExpr + `, LOWER(COALESCE(c.status, ''))) IN ('running', 'thinking', 'processing', 'in_progress', 'queued', 'pending', 'open') THEN 'executing'
 			ELSE ''
 		END AS stage,
 		c.id,
@@ -303,7 +304,13 @@ func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit i
 		c.metadata,
 		c.visibility,
 		c.shareable,
-		c.status,
+		CASE
+			WHEN ` + latestTurnStatusExpr + ` = 'completed' THEN 'succeeded'
+			WHEN ` + latestTurnStatusExpr + ` = 'success' THEN 'succeeded'
+			WHEN ` + latestTurnStatusExpr + ` = 'done' THEN 'succeeded'
+			WHEN ` + latestTurnStatusExpr + ` <> '' THEN ` + latestTurnStatusExpr + `
+			ELSE c.status
+		END AS status,
 		c.scheduled,
 		c.schedule_id,
 		c.schedule_run_id,

@@ -180,11 +180,9 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return model.Implements(base.CanStream), nil
 }
 
-func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput, prior []llm.ToolCall) string {
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) string {
 	runCtx := ctx
 	var mux sync.Mutex
-	var guard *DuplicateGuard
-	_ = prior
 	var stopped atomic.Bool
 	id := stream.Register(func(callbackCtx context.Context, event *llm.StreamEvent) error {
 		if stopped.Load() || event == nil {
@@ -201,7 +199,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			}
 		}
 		if event.Kind != "" {
-			return s.handleTypedStreamEvent(runCtx, event, &mux, genOutput, aPlan, nextStepIdx, wg, guard, reg)
+			return s.handleTypedStreamEvent(runCtx, event, &mux, genOutput, aPlan, nextStepIdx, wg, reg)
 		}
 		if event.Response == nil || len(event.Response.Choices) == 0 {
 			return nil
@@ -224,7 +222,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		s.publishPlannedToolCallsEvent(runCtx, event.Response.ResponseID, &choice)
 		s.patchStreamingToolPreamble(runCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
-		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, guard, reg, genOutput.MessageID)
+		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, reg, genOutput.MessageID)
 		return nil
 	})
 	return id
@@ -238,7 +236,6 @@ func (s *Service) handleTypedStreamEvent(
 	aPlan *plan.Plan,
 	nextStepIdx *int,
 	wg *sync.WaitGroup,
-	guard *DuplicateGuard,
 	reg tool.Registry,
 ) error {
 	switch event.Kind {
@@ -268,7 +265,7 @@ func (s *Service) handleTypedStreamEvent(
 			})
 		}
 		s.publishTypedToolCallEvent(ctx, event)
-		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, guard, reg, genOutput.MessageID)
+		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, reg, genOutput.MessageID)
 	case llm.StreamEventToolCallStarted:
 	case llm.StreamEventTurnCompleted:
 		mux.Lock()
@@ -334,7 +331,7 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 	})
 }
 
-func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, nextStepIdx *int, wg *sync.WaitGroup, guard *DuplicateGuard, reg tool.Registry, assistantMsgID ...string) {
+func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, nextStepIdx *int, wg *sync.WaitGroup, reg tool.Registry, assistantMsgID ...string) {
 	toolCtx := ctx
 	turnID := ""
 	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -375,25 +372,10 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 					"currentTurn": turnID,
 				})
 			}
-			if guard != nil {
-				if block, prev := guard.ShouldBlock(step.Name, step.Args); block {
-					if debugtrace.Enabled() {
-						debugtrace.Write("reactor", "tool_step_blocked", map[string]any{
-							"stepID":       strings.TrimSpace(step.ID),
-							"name":         strings.TrimSpace(step.Name),
-							"responseID":   strings.TrimSpace(step.ResponseID),
-							"args":         step.Args,
-							"reusedResult": prev.Name != "" && prev.Error == "",
-							"previous":     debugtrace.SummarizeToolCalls([]llm.ToolCall{prev}),
-						})
-					}
-					if prev.Name != "" && prev.Error == "" && s.convClient != nil {
-						_ = toolexec.SynthesizeToolStep(toolCtx, s.convClient, stepInfo, prev.Result)
-					}
-					return
-				}
-			}
 			call, _, err := toolexec.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
+			if logx.Enabled() {
+				logx.Infof("reactor", "tool step executed name=%q result_len=%d err=%v", strings.TrimSpace(step.Name), len(call.Result), err)
+			}
 			if err != nil {
 				logx.Warnf("reactor", "tool step %s execution failed: %v", step.Name, err)
 			}
@@ -406,9 +388,6 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 					"result":     debugtrace.SummarizeToolCalls([]llm.ToolCall{call}),
 					"error":      errorString(err),
 				})
-			}
-			if guard != nil {
-				guard.RegisterResult(step.Name, step.Args, call)
 			}
 			if turnID != "" {
 				s.rememberTurnToolResult(turnID, call)

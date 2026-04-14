@@ -704,7 +704,7 @@ func TestExecuteToolStep_ParentMessageID(t *testing.T) {
 }
 
 // TestSynthesizeToolStep_ParentMessageID verifies that synthesized tool
-// results (from DuplicateGuard reuse) also get the correct parent via context.
+// results also get the correct parent via context.
 func TestSynthesizeToolStep_ParentMessageID(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c1", TurnID: "t1", ParentMessageID: "user-msg-1"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)

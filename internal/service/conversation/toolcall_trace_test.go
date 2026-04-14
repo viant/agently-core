@@ -2,7 +2,6 @@ package conversation
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -14,16 +13,15 @@ import (
 // TestToolCallTraceByOp_SQLite verifies that the Datly view for reading
 // tool_call by op_id returns the persisted trace_id (LLM response.id anchor).
 func TestToolCallTraceByOp_SQLite(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 
 	// Use an isolated workspace with a temp SQLite DB.
 	tmp := t.TempDir()
 	// Ensure path exists; set AGENTLY_WORKSPACE so NewDatly picks sqlite.
-	_ = os.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
 	// Ensure no external DB overrides.
-	_ = os.Unsetenv("AGENTLY_DB_DRIVER")
-	_ = os.Unsetenv("AGENTLY_DB_DSN")
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
 
 	// Create Datly service and conversation API.
 	dao, err := NewDatly(ctx)

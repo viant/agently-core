@@ -142,6 +142,60 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 	}
 }
 
+func TestBuildHistory_PreservesChildToolResultAlongsideUpdatePlan(t *testing.T) {
+	now := time.Now().UTC()
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{
+			Id: "turn-1",
+			Message: []*agconv.MessageView{
+				{
+					Id:             "msg-user",
+					ConversationId: "conv-1",
+					TurnId:         strPtr("turn-1"),
+					Role:           "user",
+					Type:           "text",
+					Content:        strPtr("Recommend sitelists for audience 7180287"),
+					CreatedAt:      now,
+					ToolMessage: []*agconv.ToolMessageView{
+						{
+							Id:        "tool-msg-plan",
+							CreatedAt: now.Add(time.Second),
+							ToolCall: &agconv.ToolCallView{
+								OpId:            "op-plan",
+								ToolName:        "orchestration/updatePlan",
+								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
+							},
+						},
+						{
+							Id:        "tool-msg-child",
+							CreatedAt: now.Add(2 * time.Second),
+							ToolCall: &agconv.ToolCallView{
+								OpId:            "op-child",
+								ToolName:        "llm/agents/run",
+								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"answer":"Child agent found target site list 117385 but matching failed due to access constraints."}`)},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	history, err := (&Service{}).buildHistory(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+	if len(history.Past) != 1 || len(history.Past[0].Messages) != 3 {
+		t.Fatalf("expected user message plus both tool results, got %#v", history.Past)
+	}
+	if history.Past[0].Messages[1].Kind != prompt.MessageKindToolResult {
+		t.Fatalf("expected second message to be tool result, got %v", history.Past[0].Messages[1].Kind)
+	}
+	if got := history.Past[0].Messages[2].ToolName; got != "llm/agents/run" {
+		t.Fatalf("expected preserved child tool result to be llm/agents/run, got %q", got)
+	}
+}
+
 func ptrBytes(value []byte) *[]byte {
 	return &value
 }

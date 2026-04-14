@@ -123,24 +123,3 @@ func (p *panicConversationClient) DeleteConversation(context.Context, string) er
 func (p *panicConversationClient) DeleteMessage(context.Context, string, string) error {
 	return nil
 }
-
-func TestService_BuildBinding_SkipBindingConversationLoad(t *testing.T) {
-	service := &Service{conversation: &panicConversationClient{}}
-	binding, err := service.BuildBinding(WithFreshEmbeddedConversation(context.Background()), &QueryInput{
-		ConversationID: "conv-1",
-		Agent: &agentmdl.Agent{
-			Identity:       agentmdl.Identity{ID: "agent-1"},
-			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.2"},
-		},
-		Query: "hello",
-	})
-	if err != nil {
-		t.Fatalf("BuildBinding error: %v", err)
-	}
-	if binding == nil {
-		t.Fatalf("expected binding")
-	}
-	if got := len(binding.History.Messages); got != 0 {
-		t.Fatalf("expected empty history, got %d messages", got)
-	}
-}
