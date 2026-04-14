@@ -34,6 +34,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		}
 	} else {
 		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "no user_cred_url; using created_by_user_id auth path")
+		runCtx = s.preloadCreatedByUserTokens(runCtx, row, runID)
 	}
 
 	userID := scheduleUserID(runCtx, row)
