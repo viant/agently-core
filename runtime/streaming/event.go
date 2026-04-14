@@ -36,6 +36,9 @@ const (
 	EventTypeAssistantPreamble EventType = "assistant_preamble"
 	EventTypeAssistantFinal    EventType = "assistant_final"
 
+	// Internal/debug prompt expansion.
+	EventTypeUserPromptExpanded EventType = "user_prompt_expanded"
+
 	// Tool call lifecycle.
 	EventTypeToolCallsPlanned  EventType = "tool_calls_planned"
 	EventTypeToolCallStarted   EventType = "tool_call_started"

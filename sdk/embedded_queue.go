@@ -764,6 +764,7 @@ func continueQueueConversation(ctx context.Context, c *backendClient, row *queue
 		ConversationID:         conversationID,
 		UserId:                 userID,
 		Query:                  strings.TrimSpace(instruction),
+		DisplayQuery:           strings.TrimSpace(instruction),
 		MessageID:              turnID,
 		SkipInitialUserMessage: true,
 		DisableChains:          true,

@@ -29,12 +29,13 @@ type QueryInput struct {
 	ConversationTitle string `json:"conversationTitle,omitempty"`
 	// Optional client-supplied identifier for the user message. When empty the
 	// service will generate a UUID.
-	MessageID   string               `json:"messageId,omitempty"`
-	AgentID     string               `json:"agentId"` // Agent ID to use
-	UserId      string               `json:"userId"`
-	Agent       *agentmdl.Agent      `json:"agent"` // Agent to use (alternative to agentId)
-	Query       string               `json:"query"` // The query to submit
-	Attachments []*prompt.Attachment `json:"attachments,omitempty"`
+	MessageID    string               `json:"messageId,omitempty"`
+	AgentID      string               `json:"agentId"` // Agent ID to use
+	UserId       string               `json:"userId"`
+	Agent        *agentmdl.Agent      `json:"agent"`                  // Agent to use (alternative to agentId)
+	Query        string               `json:"query"`                  // Internal query/prompt submitted to the runtime
+	DisplayQuery string               `json:"displayQuery,omitempty"` // Display-safe user task persisted in transcript/UI
+	Attachments  []*prompt.Attachment `json:"attachments,omitempty"`
 
 	MaxResponseSize int    `json:"maxResponseSize"` // Maximum size of the response in bytes
 	MaxDocuments    int    `json:"maxDocuments"`    // Maximum number of documents to retrieve

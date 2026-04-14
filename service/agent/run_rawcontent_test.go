@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/streaming"
 )
 
 func TestService_addUserMessageRawContent(t *testing.T) {
@@ -42,6 +44,29 @@ func TestService_addUserMessageRawContent(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestService_emitExpandedUserPromptEvent(t *testing.T) {
+	t.Parallel()
+	bus := streaming.NewMemoryBus(1)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	svc.emitExpandedUserPromptEvent(context.Background(), "conv-1", "turn-1", "msg-1", "User Query:\nhello", time.Date(2026, 4, 14, 14, 0, 0, 0, time.UTC))
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		assert.Equal(t, streaming.EventTypeUserPromptExpanded, ev.Type)
+		assert.Equal(t, "conv-1", ev.ConversationID)
+		assert.Equal(t, "turn-1", ev.TurnID)
+		assert.Equal(t, "msg-1", ev.MessageID)
+		assert.Equal(t, "User Query:\nhello", ev.Content)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected user_prompt_expanded event")
 	}
 }
 

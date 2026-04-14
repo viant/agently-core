@@ -502,6 +502,10 @@ func (s *Service) buildChronologicalHistory(
 		sort.SliceStable(t.Messages, func(i, j int) bool {
 			return t.Messages[i].CreatedAt.Before(t.Messages[j].CreatedAt)
 		})
+		if currentTurnID != "" && strings.TrimSpace(t.ID) == currentTurnID {
+			out.Current = t
+			continue
+		}
 		out.Past = append(out.Past, t)
 		out.Messages = append(out.Messages, t.Messages...)
 	}
@@ -551,6 +555,15 @@ func (s *Service) collectNormalizedMessages(
 			continue
 		}
 		messages := turn.GetMessages()
+		turnMessageIDs := make(map[string]struct{}, len(messages))
+		for _, tm := range messages {
+			if tm == nil {
+				continue
+			}
+			if id := strings.TrimSpace(tm.Id); id != "" {
+				turnMessageIDs[id] = struct{}{}
+			}
+		}
 		for _, m := range messages {
 			if m == nil {
 				continue
@@ -559,6 +572,22 @@ func (s *Service) collectNormalizedMessages(
 				continue
 			}
 			toolMsgs := s.syntheticToolMessages(ctx, m)
+			if len(toolMsgs) > 0 {
+				filteredToolMsgs := make([]*apiconv.Message, 0, len(toolMsgs))
+				for _, toolMsg := range toolMsgs {
+					if toolMsg == nil {
+						continue
+					}
+					toolMsgID := strings.TrimSpace(toolMsg.Id)
+					if toolMsgID != "" {
+						if _, exists := turnMessageIDs[toolMsgID]; exists {
+							continue
+						}
+					}
+					filteredToolMsgs = append(filteredToolMsgs, toolMsg)
+				}
+				toolMsgs = filteredToolMsgs
+			}
 			baseMsg := cloneMessageWithoutToolMessages(m)
 			if baseMsg == nil {
 				baseMsg = m
@@ -611,10 +640,12 @@ func (s *Service) collectNormalizedMessages(
 				if baseMsg.Mode != nil {
 					mode = strings.ToLower(strings.TrimSpace(*baseMsg.Mode))
 				}
-				// Steer/follow-up inputs are persisted as user task messages on the
-				// active turn. They must enter prompt history for the next iteration,
-				// otherwise the loop can detect late steer but the model never sees it.
-				if mtype == "text" || mtype == "task" || isElicitationType {
+				if messageToolCall(baseMsg) != nil {
+					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+				} else if mtype == "text" || mtype == "task" || isElicitationType {
+					// Steer/follow-up inputs are persisted as user task messages on the
+					// active turn. They must enter prompt history for the next iteration,
+					// otherwise the loop can detect late steer but the model never sees it.
 					role := strings.ToLower(strings.TrimSpace(baseMsg.Role))
 					if role == "system" && mode == asyncMessageMode {
 						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})

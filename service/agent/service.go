@@ -194,6 +194,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 				Agent:          ag,
 				ConversationID: conv.Id,
 				Query:          strings.TrimSpace(instruction),
+				DisplayQuery:   strings.TrimSpace(instruction),
 				RequestTime:    time.Now(),
 			}
 			if isCapabilityAgentID(agentID) {

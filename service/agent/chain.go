@@ -448,6 +448,7 @@ func (s *Service) buildQueryInput(ctx context.Context, parent ChainContext, ch *
 		if err := ch.Query.Init(ctx); err == nil {
 			if q, err := ch.Query.Generate(ctx, b); err == nil {
 				childIn.Query = q
+				childIn.DisplayQuery = strings.TrimSpace(q)
 			}
 		}
 	}
@@ -503,6 +504,7 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 		AgentID:                parent.Agent.ID,
 		UserId:                 strings.TrimSpace(chain.Publish.Name),
 		Query:                  content,
+		DisplayQuery:           content,
 		Context:                map[string]interface{}{},
 		SkipInitialUserMessage: true,
 	}

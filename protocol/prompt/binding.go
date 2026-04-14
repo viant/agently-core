@@ -340,7 +340,9 @@ func (m *Message) ToLLM() llm.Message {
 		role = llm.RoleAssistant
 	}
 	if len(m.Attachment) == 0 {
-		return llm.NewTextMessage(role, m.Content)
+		msg := llm.NewTextMessage(role, m.Content)
+		msg.ID = strings.TrimSpace(m.ID)
+		return msg
 	}
 	// Sort attachments by URI for stable order.
 	sort.Slice(m.Attachment, func(i, j int) bool {
@@ -363,7 +365,7 @@ func (m *Message) ToLLM() llm.Message {
 	if strings.TrimSpace(m.Content) != "" {
 		items = append(items, llm.NewTextContent(m.Content))
 	}
-	return llm.Message{Role: role, Items: items, Content: m.Content}
+	return llm.Message{ID: strings.TrimSpace(m.ID), Role: role, Items: items, Content: m.Content}
 }
 
 func attachmentToLLMContent(a *Attachment) (llm.ContentItem, bool) {
@@ -490,7 +492,9 @@ func toolResultLLMMessages(msg *Message) []llm.Message {
 	result := strings.TrimSpace(msg.Content)
 	call := llm.NewToolCall(opID, name, msg.ToolArgs, result)
 	assistant := llm.NewAssistantMessageWithToolCalls(call)
+	assistant.ID = strings.TrimSpace(msg.ID)
 	tool := newToolResultMessageWithAttachments(call, msg.Attachment)
+	tool.ID = strings.TrimSpace(msg.ID)
 	return []llm.Message{assistant, tool}
 }
 

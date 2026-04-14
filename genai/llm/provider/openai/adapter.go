@@ -73,8 +73,12 @@ func sanitizeToolReplayMessage(msg llm.Message, threshold int) llm.Message {
 		return msg
 	}
 	if msg.Role == llm.RoleTool {
+		refID := strings.TrimSpace(msg.ID)
+		if refID == "" {
+			refID = strings.TrimSpace(msg.ToolCallId)
+		}
 		if body := strings.TrimSpace(msg.Content); body != "" {
-			msg.Content = buildToolResultPreview(body, msg.ToolCallId, threshold)
+			msg.Content = buildToolResultPreview(body, refID, threshold)
 		}
 		if len(msg.Items) > 0 {
 			items := make([]llm.ContentItem, len(msg.Items))
@@ -90,7 +94,7 @@ func sanitizeToolReplayMessage(msg llm.Message, threshold int) llm.Message {
 				if text == "" {
 					continue
 				}
-				preview := buildToolResultPreview(text, msg.ToolCallId, threshold)
+				preview := buildToolResultPreview(text, refID, threshold)
 				items[i].Data = preview
 				items[i].Text = preview
 				break
