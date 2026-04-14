@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,7 +68,6 @@ type backendClient struct {
 	a2aSvc         *a2a.Service
 	schedulerSvc   *scheduler.Service
 	feeds          *FeedRegistry
-	recentCreates  sync.Map
 }
 
 func newBackend(agent *agentsvc.Service, conv conversation.Client) (*backendClient, error) {
@@ -145,13 +143,6 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 func (c *backendClient) Mode() Mode { return ModeEmbedded }
 
 func (c *backendClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
-	if input != nil {
-		if convID := strings.TrimSpace(input.ConversationID); convID != "" {
-			if _, ok := c.recentCreates.LoadAndDelete(convID); ok {
-				ctx = agentsvc.WithFreshEmbeddedConversation(ctx)
-			}
-		}
-	}
 	if c.feeds != nil && c.streaming != nil {
 		ctx = toolexec.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
 	}
@@ -390,7 +381,6 @@ func (c *backendClient) CreateConversation(ctx context.Context, input *CreateCon
 		Visibility:               "private",
 		Shareable:                0,
 	}
-	c.recentCreates.Store(id, struct{}{})
 	return out, nil
 }
 

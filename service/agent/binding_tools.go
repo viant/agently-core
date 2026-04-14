@@ -397,6 +397,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			if tcView == nil {
 				continue
 			}
+			canonicalName := mcpname.Canonical(tcView.ToolName)
 			args := m.ToolCallArguments()
 			// Prepare result content for LLM: derive preview from message content with per-turn limit
 			result := ""
@@ -412,7 +413,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			}
 
 			// Canonicalize tool name so it matches declared tool signatures for providers.
-			tc := llm.NewToolCall(tcView.OpId, mcpname.Canonical(tcView.ToolName), args, result)
+			tc := llm.NewToolCall(tcView.OpId, canonicalName, args, result)
 			out = append(out, &tc)
 		}
 		return out

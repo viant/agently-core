@@ -296,7 +296,7 @@ func TestService_handleTypedStreamEvent_TurnCompletedUsesFinalResponseContent(t 
 		},
 	}
 
-	err := service.handleTypedStreamEvent(ctx, event, &mux, genOutput, aPlan, &nextStepIdx, &wg, nil, nil)
+	err := service.handleTypedStreamEvent(ctx, event, &mux, genOutput, aPlan, &nextStepIdx, &wg, nil)
 	require.NoError(t, err)
 	require.NotNil(t, genOutput.Response)
 	assert.Equal(t, event.Response, genOutput.Response)
@@ -316,7 +316,7 @@ func TestService_handleTypedStreamEvent_TextDeltaPreservesWhitespaceOnlyChunks(t
 		err := service.handleTypedStreamEvent(ctx, &llm.StreamEvent{
 			Kind:  llm.StreamEventTextDelta,
 			Delta: delta,
-		}, &mux, genOutput, aPlan, &nextStepIdx, &wg, nil, nil)
+		}, &mux, genOutput, aPlan, &nextStepIdx, &wg, nil)
 		require.NoError(t, err)
 	}
 

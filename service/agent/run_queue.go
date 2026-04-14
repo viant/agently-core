@@ -22,9 +22,6 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 	if s == nil || s.dataService == nil || s.conversation == nil || input == nil {
 		return false, nil
 	}
-	if isFreshEmbeddedConversation(ctx) {
-		return false, nil
-	}
 	conversationID := strings.TrimSpace(input.ConversationID)
 	turnID := strings.TrimSpace(input.MessageID)
 	if conversationID == "" || turnID == "" {

@@ -26,6 +26,42 @@ func (c *ConversationView) OnRelation(ctx context.Context) {
 	})
 
 	c.Stage = computeStage(c)
+	if status := normalizeConversationStatusFromStage(c.Stage, c.Transcript); status != "" {
+		c.Status = &status
+	}
+}
+
+func normalizeConversationStatusFromStage(stage string, transcript []*TranscriptView) string {
+	if len(transcript) > 0 {
+		for i := len(transcript) - 1; i >= 0; i-- {
+			t := transcript[i]
+			if t == nil {
+				continue
+			}
+			if v := strings.TrimSpace(t.Status); v != "" {
+				switch strings.ToLower(v) {
+				case "completed", "success", "done":
+					return StatusSucceeded
+				default:
+					return v
+				}
+			}
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(stage)) {
+	case StageDone:
+		return StatusSucceeded
+	case StageExecuting:
+		return StatusRunning
+	case StageEliciting:
+		return StatusWaitingForUser
+	case StageError:
+		return StatusFailed
+	case StageCanceled:
+		return StatusCanceled
+	default:
+		return ""
+	}
 }
 
 func computeStage(c *ConversationView) string {

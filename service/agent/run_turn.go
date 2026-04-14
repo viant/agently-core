@@ -20,14 +20,6 @@ import (
 	"github.com/viant/agently-core/service/core"
 )
 
-func shouldSkipConversationStatusPatch(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	skip, _ := ctx.Value(skipConversationStatusPatchKey{}).(bool)
-	return skip
-}
-
 func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta, scheduleID string) error {
 	rec := apiconv.NewTurn()
 	rec.SetId(turn.TurnID)
@@ -44,10 +36,7 @@ func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta
 	logx.Infof("conversation", "agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	turnErr := s.conversation.PatchTurn(ctx, rec)
 	runErr := s.ensureRunRecord(ctx, turn, "running", strings.TrimSpace(scheduleID))
-	var convErr error
-	if !shouldSkipConversationStatusPatch(ctx) {
-		convErr = s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
-	}
+	convErr := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
 	if turnErr == nil && convErr == nil && runErr == nil {
 		return nil
 	}
@@ -179,9 +168,14 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if runPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
 	}
-	var conversationPatchErr error
-	if !shouldSkipConversationStatusPatch(ctx) {
-		conversationPatchErr = s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
+	conversationPatchErr := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
+	if conversationPatchErr == nil && s.dataService != nil {
+		_, dsErr := s.dataService.PatchConversations(patchCtx, []*convw.Conversation{
+			convw.NewConversationStatus(turn.ConversationID, status),
+		})
+		if dsErr != nil {
+			logx.Warnf("conversation", "agent.finalizeTurn patch conversation data-service failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), dsErr)
+		}
 	}
 	if conversationPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)

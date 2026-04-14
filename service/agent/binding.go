@@ -218,9 +218,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 }
 
 func (s *Service) bindingConversation(ctx context.Context, input *QueryInput) (*apiconv.Conversation, error) {
-	if isFreshEmbeddedConversation(ctx) {
-		return &apiconv.Conversation{Id: strings.TrimSpace(input.ConversationID)}, nil
-	}
 	return s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
 }
 

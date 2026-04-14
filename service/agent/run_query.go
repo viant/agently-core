@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/viant/agently-core/internal/logx"
-	"github.com/viant/agently-core/internal/textutil"
 	"path"
 	"regexp"
 	"sort"
@@ -15,6 +13,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -38,9 +39,6 @@ import (
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
-
-type skipConversationStatusPatchKey struct{}
-type skipTaskCheckpointLoadKey struct{}
 
 var queueDrainGuards = &convGuardMap{m: make(map[string]*int32)}
 
@@ -88,13 +86,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input != nil && strings.TrimSpace(input.MessageID) == "" {
 		input.MessageID = uuid.New().String()
 	}
-	if isFreshEmbeddedConversation(ctx) {
-		ctx = context.WithValue(ctx, skipConversationStatusPatchKey{}, true)
-	}
-	if isFreshEmbeddedConversation(ctx) {
-		ctx = context.WithValue(ctx, skipTaskCheckpointLoadKey{}, true)
-	}
-
 	envStarted := time.Now()
 	if err := s.ensureEnvironment(ctx, input); err != nil {
 		return err

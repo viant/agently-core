@@ -86,20 +86,13 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		exists       bool
 	)
 	var aConversation *apiconv.Conversation
-	if !isFreshEmbeddedConversation(ctx) {
-		var err error
-		aConversation, err = s.conversation.GetConversation(ctx, convID)
-		if err != nil {
-			return fmt.Errorf("failed to load conversation: %w", err)
-		}
-	} else if strings.TrimSpace(input.ConversationID) != "" {
-		exists = true
+	var err error
+	aConversation, err = s.conversation.GetConversation(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("failed to load conversation: %w", err)
 	}
 
 	isNewConversation := aConversation == nil
-	if isFreshEmbeddedConversation(ctx) && exists {
-		isNewConversation = true
-	}
 	if aConversation != nil && aConversation.UpdatedAt == nil {
 		switch {
 		case aConversation.LastActivity == nil:

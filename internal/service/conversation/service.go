@@ -310,6 +310,7 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 				// No conversation found; mirror API behavior by returning nil without logging.
 				return nil, nil
 			}
+			baseOut.Data[0].OnRelation(ctx)
 			conv := convcli.Conversation(*baseOut.Data[0])
 			return &conv, nil
 		}
@@ -317,6 +318,7 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 		return nil, nil
 	}
 	// Cast generated to SDK type
+	out.Data[0].OnRelation(ctx)
 	conv := convcli.Conversation(*out.Data[0])
 	return &conv, nil
 }
