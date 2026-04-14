@@ -210,6 +210,66 @@ func (s *TokenStoreDAO) db() (*sql.DB, error) {
 	return conn.DB()
 }
 
+func (s *TokenStoreDAO) dbDialect() (string, error) {
+	db, err := s.db()
+	if err != nil {
+		return "", err
+	}
+	if db == nil {
+		return "", fmt.Errorf("tokenstore: nil db")
+	}
+	return detectDBDialect(db.Driver())
+}
+
+func detectDBDialect(d interface{}) (string, error) {
+	if d == nil {
+		return "", fmt.Errorf("tokenstore: nil db driver")
+	}
+	driverType := fmt.Sprintf("%T", d)
+	switch {
+	case strings.Contains(driverType, "mysql"):
+		return "mysql", nil
+	case strings.Contains(driverType, "sqlite"):
+		return "sqlite", nil
+	default:
+		return "", fmt.Errorf("tokenstore: unsupported db driver %s", driverType)
+	}
+}
+
+func refreshLeaseSQL(dialect string) (string, error) {
+	switch dialect {
+	case "mysql":
+		return `UPDATE user_oauth_token
+		 SET lease_owner = ?, lease_until = UTC_TIMESTAMP() + INTERVAL ? SECOND, refresh_status = 'refreshing'
+		 WHERE user_id = ? AND provider = ?
+		   AND (refresh_status = 'idle' OR lease_until IS NULL OR lease_until < UTC_TIMESTAMP())`, nil
+	case "sqlite":
+		return `UPDATE user_oauth_token
+		 SET lease_owner = ?, lease_until = DATETIME('now', '+' || ? || ' seconds'), refresh_status = 'refreshing'
+		 WHERE user_id = ? AND provider = ?
+		   AND (refresh_status = 'idle' OR lease_until IS NULL OR lease_until < DATETIME('now'))`, nil
+	default:
+		return "", fmt.Errorf("tokenstore: unsupported dialect %q", dialect)
+	}
+}
+
+func casPutSQL(dialect string) (string, error) {
+	switch dialect {
+	case "mysql":
+		return `UPDATE user_oauth_token
+		 SET enc_token = ?, updated_at = UTC_TIMESTAMP(), version = version + 1,
+		     lease_owner = NULL, lease_until = NULL, refresh_status = 'idle'
+		 WHERE user_id = ? AND provider = ? AND version = ? AND lease_owner = ?`, nil
+	case "sqlite":
+		return `UPDATE user_oauth_token
+		 SET enc_token = ?, updated_at = DATETIME('now'), version = version + 1,
+		     lease_owner = NULL, lease_until = NULL, refresh_status = 'idle'
+		 WHERE user_id = ? AND provider = ? AND version = ? AND lease_owner = ?`, nil
+	default:
+		return "", fmt.Errorf("tokenstore: unsupported dialect %q", dialect)
+	}
+}
+
 // TryAcquireRefreshLease atomically attempts to acquire a distributed lease for
 // refreshing the token identified by (username, provider). The lease is granted
 // only when the row is idle or has an expired lease. All timestamp comparisons
@@ -222,6 +282,10 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 	if err != nil {
 		return 0, false, err
 	}
+	dialect, err := s.dbDialect()
+	if err != nil {
+		return 0, false, err
+	}
 
 	ttlSeconds := int64(ttl.Seconds())
 	if ttlSeconds < 1 {
@@ -229,13 +293,11 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 	}
 
 	// Atomically acquire the lease: only succeeds if idle or lease expired.
-	res, err := db.ExecContext(ctx,
-		`UPDATE user_oauth_token
-		 SET lease_owner = ?, lease_until = DATETIME('now', '+' || ? || ' seconds'), refresh_status = 'refreshing'
-		 WHERE user_id = ? AND provider = ?
-		   AND (refresh_status = 'idle' OR lease_until < DATETIME('now'))`,
-		owner, ttlSeconds, username, provider,
-	)
+	query, err := refreshLeaseSQL(dialect)
+	if err != nil {
+		return 0, false, err
+	}
+	res, err := db.ExecContext(ctx, query, owner, ttlSeconds, username, provider)
 	if err != nil {
 		return 0, false, fmt.Errorf("tokenstore: acquire lease: %w", err)
 	}
@@ -293,14 +355,16 @@ func (s *TokenStoreDAO) CASPut(ctx context.Context, token *OAuthToken, expectedV
 	if err != nil {
 		return false, err
 	}
+	dialect, err := s.dbDialect()
+	if err != nil {
+		return false, err
+	}
 
-	res, err := db.ExecContext(ctx,
-		`UPDATE user_oauth_token
-		 SET enc_token = ?, updated_at = DATETIME('now'), version = version + 1,
-		     lease_owner = NULL, lease_until = NULL, refresh_status = 'idle'
-		 WHERE user_id = ? AND provider = ? AND version = ? AND lease_owner = ?`,
-		enc, token.Username, token.Provider, expectedVersion, owner,
-	)
+	query, err := casPutSQL(dialect)
+	if err != nil {
+		return false, err
+	}
+	res, err := db.ExecContext(ctx, query, enc, token.Username, token.Provider, expectedVersion, owner)
 	if err != nil {
 		return false, fmt.Errorf("tokenstore: CAS put: %w", err)
 	}
