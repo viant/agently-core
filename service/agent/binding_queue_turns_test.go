@@ -79,18 +79,11 @@ func TestBuildHistory_SkipsQueuedTurns(t *testing.T) {
 		require.NoError(t, err)
 
 		var userMsgs []string
-		for _, turn := range hist.Past {
-			if turn == nil {
+		for _, m := range hist.LLMMessages() {
+			if !strings.EqualFold(strings.TrimSpace(string(m.Role)), "user") {
 				continue
 			}
-			for _, m := range turn.Messages {
-				if m == nil {
-					continue
-				}
-				if strings.EqualFold(strings.TrimSpace(m.Role), "user") {
-					userMsgs = append(userMsgs, strings.TrimSpace(m.Content))
-				}
-			}
+			userMsgs = append(userMsgs, strings.TrimSpace(m.Content))
 		}
 		require.Equal(t, []string{"first succeeded", "third queued"}, userMsgs)
 	})

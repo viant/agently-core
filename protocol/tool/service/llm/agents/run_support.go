@@ -823,6 +823,14 @@ func (s *Service) startRunStatus(ctx context.Context, parent runtimerequestctx.T
 		logx.Errorf("conversation", "agents.run %s status start error parent_convo=%q err=%v", route, strings.TrimSpace(parent.ConversationID), err)
 		return ""
 	}
+	label := strings.TrimSpace(childAgentID)
+	if label == "" {
+		label = "linked agent"
+	}
+	preview := "Running " + label + "."
+	if err := s.status.Update(ctx, parent, mid, preview); err != nil {
+		logx.Warnf("conversation", "agents.run %s status update error parent_convo=%q message_id=%q err=%v", route, strings.TrimSpace(parent.ConversationID), strings.TrimSpace(mid), err)
+	}
 	attachLinkedConversation(ctx, s.conv, parent, mid, childConversationID)
 	if s.linker != nil {
 		eventToolCallID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))

@@ -338,6 +338,8 @@ export type SSEEventType =
     // Assistant content (aggregated)
     | 'assistant_preamble'
     | 'assistant_final'
+    // Internal/debug prompt expansion
+    | 'user_prompt_expanded'
     // Tool call lifecycle
     | 'tool_call_started'
     | 'tool_call_waiting'

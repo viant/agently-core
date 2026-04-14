@@ -21,11 +21,10 @@ type GenerateInput struct {
 	Message      []llm.Message
 	Instructions string
 
-	ExpandedUserPrompt         string `yaml:"expandedUserPrompt,omitempty" json:"expandedUserPrompt,omitempty"`
-	UserPromptAlreadyInHistory bool   `yaml:"userPromptAlreadyInHistory,omitempty" json:"userPromptAlreadyInHistory,omitempty"`
-	IncludeCurrentHistory      bool   `yaml:"includeCurrentHistory,omitempty" json:"includeCurrentHistory,omitempty"`
-	UserID                     string `yaml:"userID" json:"userID"`
-	AgentID                    string `yaml:"agentID" json:"agentID"`
+	ExpandedUserPrompt    string `yaml:"expandedUserPrompt,omitempty" json:"expandedUserPrompt,omitempty"`
+	IncludeCurrentHistory bool   `yaml:"includeCurrentHistory,omitempty" json:"includeCurrentHistory,omitempty"`
+	UserID                string `yaml:"userID" json:"userID"`
+	AgentID               string `yaml:"agentID" json:"agentID"`
 }
 
 func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
@@ -112,63 +111,19 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	i.ExpandedUserPrompt = currentPrompt
 
 	if i.Binding != nil {
-		if !i.UserPromptAlreadyInHistory {
-			shouldAppend := true
-			trimmed := strings.TrimSpace(currentPrompt)
-			if trimmed != "" {
-				h := &i.Binding.History
-				turns := make([]*prompt.Turn, 0, len(h.Past)+1)
-				turns = append(turns, h.Past...)
-				if h.Current != nil {
-					turns = append(turns, h.Current)
-				}
-				for ti := len(turns) - 1; ti >= 0 && shouldAppend; ti-- {
-					turn := turns[ti]
-					if turn == nil || len(turn.Messages) == 0 {
-						continue
-					}
-					for mi := len(turn.Messages) - 1; mi >= 0; mi-- {
-						m := turn.Messages[mi]
-						if m == nil {
-							continue
-						}
-						if !strings.EqualFold(strings.TrimSpace(m.Role), "user") {
-							continue
-						}
-						if strings.TrimSpace(m.Content) == trimmed {
-							shouldAppend = false
-							break
-						}
-					}
-				}
-			}
-			if shouldAppend {
-				msg := &prompt.Message{
-					Kind:    prompt.MessageKindChatUser,
-					Role:    string(llm.RoleUser),
-					Content: currentPrompt,
-				}
-				if len(i.Binding.Task.Attachments) > 0 {
-					sortAttachments(i.Binding.Task.Attachments)
-					msg.Attachment = i.Binding.Task.Attachments
-				}
-				appendCurrentHistoryMessages(&i.Binding.History, msg)
-			}
-		}
 		for _, doc := range i.Binding.SystemDocuments.Items {
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("system"), doc.PageContent))
 		}
 		for _, doc := range i.Binding.Documents.Items {
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("user"), doc.PageContent))
 		}
-		msgs := i.Binding.History.LLMMessages()
+		msgs := historyLLMMessagesWithExpandedCurrentPrompt(&i.Binding.History, currentPrompt, i.Binding.Task.Attachments)
 		if !i.IncludeCurrentHistory && i.Binding.History.Current != nil {
 			filtered := make([]llm.Message, 0, len(msgs))
 			filtered = append(filtered, msgs...)
 			msgs = filtered
 		}
 		i.Message = append(i.Message, msgs...)
-		i.ensureExpandedUserPromptPresent()
 	}
 
 	if tools := i.Binding.Tools; len(tools.Signatures) > 0 {
@@ -203,50 +158,6 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	return nil
 }
 
-func (i *GenerateInput) ensureExpandedUserPromptPresent() {
-	trimmed := strings.TrimSpace(i.ExpandedUserPrompt)
-	if trimmed == "" {
-		return
-	}
-	for idx := len(i.Message) - 1; idx >= 0; idx-- {
-		msg := i.Message[idx]
-		if msg.Role != llm.RoleUser {
-			continue
-		}
-		if strings.TrimSpace(msg.Content) == trimmed {
-			return
-		}
-	}
-	msg := llm.NewUserMessage(i.ExpandedUserPrompt)
-	if i.Binding != nil && len(i.Binding.Task.Attachments) > 0 {
-		attachments := make([]*llm.AttachmentItem, 0, len(i.Binding.Task.Attachments))
-		for _, attachment := range i.Binding.Task.Attachments {
-			if attachment == nil || len(attachment.Data) == 0 {
-				continue
-			}
-			attachments = append(attachments, &llm.AttachmentItem{
-				Name:     attachment.Name,
-				MimeType: attachment.Mime,
-				Data:     attachment.Data,
-				Content:  attachment.Content,
-			})
-		}
-		if len(attachments) > 0 {
-			msg = llm.NewMessageWithBinaries(llm.RoleUser, attachments, i.ExpandedUserPrompt)
-		}
-	}
-	i.Message = append(i.Message, msg)
-}
-
-func sortAttachments(attachments []*prompt.Attachment) {
-	sort.Slice(attachments, func(i, j int) bool {
-		if attachments[i] == nil || attachments[j] == nil {
-			return false
-		}
-		return strings.Compare(attachments[i].URI, attachments[j].URI) < 0
-	})
-}
-
 func appendCurrentHistoryMessages(h *prompt.History, msgs ...*prompt.Message) {
 	if h == nil || len(msgs) == 0 {
 		return
@@ -269,6 +180,134 @@ func appendCurrentHistoryMessages(h *prompt.History, msgs ...*prompt.Message) {
 		}
 		h.Current.Messages = append(h.Current.Messages, m)
 	}
+}
+
+func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedPrompt string, attachments []*prompt.Attachment) []llm.Message {
+	trimmedPrompt := strings.TrimSpace(expandedPrompt)
+	if h == nil {
+		if trimmedPrompt == "" {
+			return nil
+		}
+		return []llm.Message{newExpandedUserLLMMessage(trimmedPrompt, attachments)}
+	}
+	if trimmedPrompt == "" {
+		return h.LLMMessages()
+	}
+
+	var out []llm.Message
+	appendLLM := func(msg *prompt.Message, omitTools bool) {
+		if msg == nil {
+			return
+		}
+		switch msg.Kind {
+		case prompt.MessageKindToolResult:
+			if omitTools {
+				return
+			}
+			out = append(out, promptToolResultLLMMessages(msg)...)
+		case prompt.MessageKindElicitPrompt, prompt.MessageKindElicitAnswer:
+			return
+		default:
+			out = append(out, msg.ToLLM())
+		}
+	}
+
+	trimmedCurrentID := strings.TrimSpace(h.CurrentTurnID)
+	omitTools := h.ToolExposure == "turn"
+	replacedCurrentUser := false
+	currentTurn := h.Current
+
+	if currentTurn == nil && trimmedCurrentID != "" {
+		for _, t := range h.Past {
+			if t == nil {
+				continue
+			}
+			if strings.TrimSpace(t.ID) == trimmedCurrentID {
+				currentTurn = t
+				break
+			}
+		}
+	}
+
+	if len(h.Past) > 0 || currentTurn != nil {
+		for _, t := range h.Past {
+			if t == nil {
+				continue
+			}
+			if currentTurn != nil && t == currentTurn {
+				continue
+			}
+			isCurrentTurn := trimmedCurrentID != "" && strings.TrimSpace(t.ID) == trimmedCurrentID
+			omitToolsForTurn := omitTools && !isCurrentTurn
+			for _, m := range t.Messages {
+				appendLLM(m, omitToolsForTurn)
+			}
+		}
+		if currentTurn != nil {
+			for _, m := range currentTurn.Messages {
+				if m == nil {
+					continue
+				}
+				if !replacedCurrentUser &&
+					m.Kind == prompt.MessageKindChatUser &&
+					strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) {
+					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
+					replacedCurrentUser = true
+					continue
+				}
+				appendLLM(m, false)
+			}
+		}
+		if !replacedCurrentUser {
+			out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
+		}
+		return out
+	}
+
+	out = append(out, h.LLMMessages()...)
+	out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
+	return out
+}
+
+func promptToolResultLLMMessages(msg *prompt.Message) []llm.Message {
+	if msg == nil {
+		return nil
+	}
+	opID := strings.TrimSpace(msg.ToolOpID)
+	if opID == "" {
+		return nil
+	}
+	rawName := strings.TrimSpace(msg.ToolName)
+	name := rawName
+	if strings.TrimSpace(name) == "" {
+		name = rawName
+	}
+	call := llm.NewToolCall(opID, name, msg.ToolArgs, strings.TrimSpace(msg.Content))
+	assistant := llm.NewAssistantMessageWithToolCalls(call)
+	tool := llm.NewToolResultMessage(call)
+	return []llm.Message{assistant, tool}
+}
+
+func newExpandedUserLLMMessage(content string, attachments []*prompt.Attachment) llm.Message {
+	if len(attachments) == 0 {
+		return llm.NewUserMessage(content)
+	}
+	items := make([]*llm.AttachmentItem, 0, len(attachments))
+	for _, attachment := range attachments {
+		if attachment == nil || len(attachment.Data) == 0 {
+			continue
+		}
+		items = append(items, &llm.AttachmentItem{
+			Name:     attachment.Name,
+			MimeType: attachment.Mime,
+			Data:     attachment.Data,
+			Content:  attachment.Content,
+		})
+	}
+	if len(items) == 0 {
+		return llm.NewUserMessage(content)
+	}
+	return llm.NewMessageWithBinaries(llm.RoleUser, items, content)
 }
 
 func (i *GenerateInput) Validate(ctx context.Context) error {

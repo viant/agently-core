@@ -239,8 +239,13 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			}
 		}(turn.ConversationID, turn.TurnID, d)
 	}
-	rawUserContent := input.Query
-	content := strings.TrimSpace(input.Query)
+	displayQuery := strings.TrimSpace(input.DisplayQuery)
+	if displayQuery == "" {
+		displayQuery = strings.TrimSpace(input.Query)
+	}
+	rawUserContent := displayQuery
+	userContent := displayQuery
+	expandedUserPrompt := ""
 	if input.IsNewConversation && s.llm != nil && input.Agent != nil {
 		bStart := time.Now()
 		logx.Infof("conversation", "agent.Query BuildBinding start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
@@ -255,7 +260,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			logx.Infof("conversation", "agent.Query ExpandUserPrompt start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 			if err := s.llm.ExpandUserPrompt(ctx, expIn, &expOut); err == nil && strings.TrimSpace(expOut.ExpandedUserPrompt) != "" {
 				logx.Infof("conversation", "agent.Query ExpandUserPrompt ok convo=%q turn_id=%q elapsed=%s expanded_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), len(expOut.ExpandedUserPrompt))
-				content = expOut.ExpandedUserPrompt
+				expandedUserPrompt = strings.TrimSpace(expOut.ExpandedUserPrompt)
 			} else if err != nil {
 				logx.Infof("conversation", "agent.Query ExpandUserPrompt error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), err)
 			} else {
@@ -266,8 +271,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input.SkipInitialUserMessage {
 		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	} else {
-		if err := s.addUserMessage(ctx, &turn, input.UserId, content, rawUserContent); err != nil {
+		if err := s.addUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
 			return err
+		}
+		if expandedUserPrompt != "" && expandedUserPrompt != userContent {
+			s.emitExpandedUserPromptEvent(ctx, turn.ConversationID, turn.TurnID, turn.TurnID, expandedUserPrompt, time.Now())
 		}
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
@@ -517,7 +525,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			Binding:        binding,
 			ModelSelection: modelSelection,
 		}
-		genInput.UserPromptAlreadyInHistory = false
 		genInput.UserID = strings.TrimSpace(input.UserId)
 		if input.Agent != nil {
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)

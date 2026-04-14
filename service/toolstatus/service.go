@@ -84,6 +84,10 @@ func (s *Service) Finalize(ctx context.Context, parent runtimerequestctx.TurnMet
 	if strings.TrimSpace(messageID) == "" {
 		return fmt.Errorf("status: empty messageID")
 	}
+	if strings.TrimSpace(preview) == "" {
+		logx.Infof("conversation", "status finalize skip-empty-preview parent_convo=%q parent_turn=%q message_id=%q status=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(messageID), strings.TrimSpace(status))
+		return nil
+	}
 	logx.Infof("conversation", "status finalize parent_convo=%q parent_turn=%q message_id=%q status=%q preview_len=%d preview_head=%q preview_tail=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(messageID), strings.TrimSpace(status), len(preview), textutil.Head(preview, 512), textutil.Tail(preview, 512))
 	mu := apiconv.NewMessage()
 	mu.SetId(messageID)

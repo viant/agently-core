@@ -86,6 +86,9 @@ func (m MessageRole) String() string {
 
 // Message is a generic message suitable for multiple content items and types.
 type Message struct {
+	// ID is an optional stable message identifier from the conversation store.
+	ID string `json:"id,omitempty"`
+
 	// Role of the sender (user, assistant, system, etc.)
 	Role MessageRole `json:"role"`
 

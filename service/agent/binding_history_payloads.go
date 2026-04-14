@@ -24,6 +24,9 @@ func cloneMessageWithoutToolMessages(msg *apiconv.Message) *apiconv.Message {
 	if len(msg.ToolMessage) == 0 {
 		return msg
 	}
+	if strings.EqualFold(strings.TrimSpace(msg.Type), "tool_op") {
+		return msg
+	}
 	clone := *msg
 	clone.ToolMessage = nil
 	return &clone

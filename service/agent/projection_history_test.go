@@ -476,9 +476,14 @@ func TestBuildHistory_PopulatesProjectionStateFromRelevanceSelector(t *testing.T
 	require.Contains(t, snapshot.Reason, "relevance projection")
 	require.Greater(t, snapshot.TokensFreed, 0)
 
-	require.Len(t, result.History.Past, 2)
+	require.Len(t, result.History.Past, 1)
+	require.NotNil(t, result.History.Current)
+	require.Equal(t, "turn-3", result.History.Current.ID)
 	var contents []string
-	for _, turn := range result.History.Past {
+	for _, turn := range append(append([]*prompt.Turn{}, result.History.Past...), result.History.Current) {
+		if turn == nil {
+			continue
+		}
 		for _, msg := range turn.Messages {
 			contents = append(contents, msg.Content)
 		}
