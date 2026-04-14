@@ -184,6 +184,7 @@ func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {
 	go func() {
 		time.Sleep(10 * time.Second)
 		r.refreshExpiringSessions(ctx)
+		r.refreshTokenStore(ctx)
 		lead := r.cfg.tokenRefreshLead()
 		if lead <= 0 {
 			lead = 30 * time.Minute
