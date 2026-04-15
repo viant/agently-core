@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -68,5 +69,38 @@ func TestRefreshedOAuthIDToken_FallsBackToCurrentWhenMissing(t *testing.T) {
 	got := refreshedOAuthIDToken(refreshed, "stale-id-token")
 	if got != "stale-id-token" {
 		t.Fatalf("refreshedOAuthIDToken() = %q, want %q", got, "stale-id-token")
+	}
+}
+
+func TestRuntimeProtect_MixedLocalAndOAuthAcceptsLocalSessionCookie(t *testing.T) {
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			Local:      &Local{Enabled: true},
+			OAuth:      &OAuth{Mode: "bff"},
+		},
+		sessions: NewManager(0, nil),
+	}
+	rt.sessions.Put(nil, &Session{
+		ID:       "sess-1",
+		Username: "awitas",
+		Subject:  "awitas",
+		Provider: "local",
+	})
+
+	handler := rt.protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-1"})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }

@@ -133,7 +133,8 @@ type ToolCall struct {
 	Type     string       `json:"type,omitempty"`
 	Function FunctionCall `json:"function,omitempty"`
 
-	Result string `json:"result,omitempty"`
+	Result          string `json:"result,omitempty"`
+	ResultMessageID string `json:"result_message_id,omitempty"`
 	//Error tool call error
 	Error string `json:"error,omitempty"`
 }

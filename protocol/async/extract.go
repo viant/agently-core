@@ -55,6 +55,11 @@ func ExtractPayload(raw string, selector Selector) (*Extracted, error) {
 			}
 		}
 	}
+	if result.Message == "" && selector.MessagePath != "" {
+		if value, ok := lookup(root, selector.MessagePath); ok && value != nil {
+			result.Message = strings.TrimSpace(fmt.Sprint(value))
+		}
+	}
 	if selector.DataPath != "" {
 		if value, ok := lookup(root, selector.DataPath); ok && value != nil {
 			if data, err := json.Marshal(value); err == nil {

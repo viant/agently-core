@@ -463,6 +463,15 @@ func TestRenderBatchedAsyncReinforcement(t *testing.T) {
 			wantContains: []string{"message: processing step 3"},
 		},
 		{
+			name: "terminal op message surfaced",
+			records: []*asynccfg.OperationRecord{{
+				ID: "op-5b", ParentConvID: "c1", ParentTurnID: "t1",
+				ToolName: "llm/agents:start", WaitForResponse: true,
+				State: asynccfg.StateCompleted, Status: "succeeded", Message: "child agent finished with final summary",
+			}},
+			wantContains: []string{"message: child agent finished with final summary"},
+		},
+		{
 			name: "op with Instruction rendered in output",
 			records: []*asynccfg.OperationRecord{{
 				ID: "op-6", ParentConvID: "c1", ParentTurnID: "t1",

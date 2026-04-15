@@ -138,3 +138,42 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 	assert.Equal(t, llm.RoleAssistant, in.Message[1].Role)
 	assert.Equal(t, "I have the IDs already.", in.Message[1].Content)
 }
+
+func TestGenerateInputInit_PreservesMessageIDForReplayToolResults(t *testing.T) {
+	in := &GenerateInput{
+		ModelSelection: llm.ModelSelection{Model: "mock-model"},
+		UserID:         "user-1",
+		Prompt:         &prompt.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		Binding: &prompt.Binding{
+			Task: prompt.Task{Prompt: "continue"},
+			History: prompt.History{
+				Past: []*prompt.Turn{
+					{
+						ID: "turn-1",
+						Messages: []*prompt.Message{
+							{
+								ID:       "msg-assistant-1",
+								Kind:     prompt.MessageKindToolResult,
+								Role:     string(llm.RoleAssistant),
+								ToolOpID: "call_abc123",
+								ToolName: "message-show",
+								Content:  "{\"content\":\"payload\"}",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := in.Init(context.Background())
+	require.NoError(t, err)
+	require.Len(t, in.Message, 3)
+	require.Equal(t, llm.RoleAssistant, in.Message[0].Role)
+	require.Equal(t, "call_abc123", in.Message[0].ToolCalls[0].ID)
+	require.Equal(t, llm.RoleTool, in.Message[1].Role)
+	assert.Equal(t, "msg-assistant-1", in.Message[1].ID)
+	assert.Equal(t, "call_abc123", in.Message[1].ToolCallId)
+	require.Equal(t, llm.RoleUser, in.Message[2].Role)
+	assert.Equal(t, "continue", in.Message[2].Content)
+}

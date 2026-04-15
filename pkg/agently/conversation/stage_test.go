@@ -233,3 +233,103 @@ func TestComputeTurnStage_FailedTurnStatus(t *testing.T) {
 		assert.EqualValues(t, StageError, computeTurnStage(turn))
 	})
 }
+
+func TestComputeTurnStage_SucceededTurnStatusWinsOverMessageInference(t *testing.T) {
+	now := time.Now()
+	running := "running"
+	turn := &TranscriptView{
+		CreatedAt: now,
+		Status:    "succeeded",
+		Message: []*MessageView{{
+			Id:        "assistant-1",
+			Role:      "assistant",
+			CreatedAt: now,
+			Status:    &running,
+			Type:      "text",
+		}},
+	}
+	assert.EqualValues(t, StageDone, computeTurnStage(turn))
+}
+
+func TestComputeConversationStage_SucceededStatusWinsOverTranscriptInference(t *testing.T) {
+	now := time.Now()
+	running := "running"
+	c := &ConversationView{
+		Status: strPtr("succeeded"),
+		Transcript: []*TranscriptView{{
+			CreatedAt: now,
+			Status:    "running",
+			Message: []*MessageView{{
+				Id:        "assistant-1",
+				Role:      "assistant",
+				CreatedAt: now,
+				Status:    &running,
+				Type:      "text",
+			}},
+		}},
+	}
+	c.OnRelation(nil)
+	assert.EqualValues(t, StageDone, c.Stage)
+	require.NotNil(t, c.Status)
+	assert.Equal(t, StatusSucceeded, *c.Status)
+}
+
+func TestComputeConversationStage_LatestSucceededTurnWinsOverMessageInference(t *testing.T) {
+	now := time.Now()
+	running := "running"
+	c := &ConversationView{Transcript: []*TranscriptView{{
+		CreatedAt: now,
+		Status:    "succeeded",
+		Message: []*MessageView{{
+			Id:        "assistant-1",
+			Role:      "assistant",
+			CreatedAt: now,
+			Status:    &running,
+			Type:      "text",
+		}},
+	}}}
+	c.OnRelation(nil)
+	assert.EqualValues(t, StageDone, c.Stage)
+	require.NotNil(t, c.Status)
+	assert.Equal(t, StatusSucceeded, *c.Status)
+}
+
+func TestComputeTurnStage_RunningStatusWinsOverTranscriptDoneInference(t *testing.T) {
+	now := time.Now()
+	turn := &TranscriptView{
+		CreatedAt: now,
+		Status:    "running",
+		Message: []*MessageView{{
+			Id:        "assistant-1",
+			Role:      "assistant",
+			CreatedAt: now,
+			Type:      "text",
+			Content:   strPtr("already has prose"),
+		}},
+	}
+	assert.EqualValues(t, StageThinking, computeTurnStage(turn))
+}
+
+func TestComputeConversationStage_RunningStatusWinsOverTranscriptDoneInference(t *testing.T) {
+	now := time.Now()
+	c := &ConversationView{
+		Status: strPtr("running"),
+		Transcript: []*TranscriptView{{
+			CreatedAt: now,
+			Status:    "running",
+			Message: []*MessageView{{
+				Id:        "assistant-1",
+				Role:      "assistant",
+				CreatedAt: now,
+				Type:      "text",
+				Content:   strPtr("already has prose"),
+			}},
+		}},
+	}
+	c.OnRelation(nil)
+	assert.EqualValues(t, StageThinking, c.Stage)
+	require.NotNil(t, c.Status)
+	assert.Equal(t, StatusRunning, *c.Status)
+}
+
+func strPtr(v string) *string { return &v }

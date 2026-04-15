@@ -452,6 +452,28 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return fmt.Errorf("invalid tool block; expected sequence or mapping")
 			}
 
+		case "template":
+			if valueNode.Kind != yaml.MappingNode {
+				return fmt.Errorf("template must be a mapping")
+			}
+			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(k)) {
+				case "bundles", "bundle":
+					switch v.Kind {
+					case yaml.ScalarNode:
+						if id := strings.TrimSpace(v.Value); id != "" {
+							agent.Template.Bundles = append(agent.Template.Bundles, id)
+						}
+					case yaml.SequenceNode:
+						agent.Template.Bundles = append(agent.Template.Bundles, asStrings(v)...)
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			agent.Template.Bundles = normalizeStrings(agent.Template.Bundles)
+
 		case "profile":
 			if err := s.parseProfileBlock(valueNode, agent); err != nil {
 				return err

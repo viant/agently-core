@@ -224,7 +224,7 @@ func shouldDropTranscriptMessage(msg *agconv.MessageView) bool {
 	if msg.Interim != 1 || !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
 		return false
 	}
-	if strings.TrimSpace(valueOrEmpty(msg.Content)) != "" || strings.TrimSpace(valueOrEmpty(msg.RawContent)) != "" || strings.TrimSpace(valueOrEmpty(msg.Preamble)) != "" {
+	if valueOrEmpty(msg.Content) != "" || valueOrEmpty(msg.RawContent) != "" || valueOrEmpty(msg.Preamble) != "" {
 		return false
 	}
 	if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {

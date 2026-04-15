@@ -65,9 +65,10 @@ func TestRedactGenerateRequestForTranscript_DataDriven(t *testing.T) {
 					{
 						Role: llm.RoleAssistant,
 						ToolCalls: []llm.ToolCall{{
-							ID:     "call_1",
-							Name:   "mcplarge-large_result",
-							Result: strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512),
+							ID:              "call_1",
+							Name:            "mcplarge-large_result",
+							Result:          strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512),
+							ResultMessageID: "msg_tool_1",
 						}},
 					},
 					{
@@ -87,6 +88,7 @@ func TestRedactGenerateRequestForTranscript_DataDriven(t *testing.T) {
 				assert.EqualValues(t, nil, json.Unmarshal(raw, &got))
 				if assert.EqualValues(t, 2, len(got.Messages)) {
 					assert.Contains(t, got.Messages[0].ToolCalls[0].Result, "useToolToSeeMore: message-show")
+					assert.Contains(t, got.Messages[0].ToolCalls[0].Result, "messageId: msg_tool_1")
 					assert.Contains(t, got.Messages[1].Content, "useToolToSeeMore: message-show")
 					assert.Contains(t, got.Messages[1].Content, "[... omitted middle ...]")
 					assert.NotContains(t, got.Messages[1].Content, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))

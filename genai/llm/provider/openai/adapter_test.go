@@ -326,9 +326,10 @@ func TestToRequest_PreviewsLargeToolResultReplay(t *testing.T) {
 			{
 				Role: llm.RoleAssistant,
 				ToolCalls: []llm.ToolCall{{
-					ID:   "call_1",
-					Name: "mcplarge-large_result",
-					Type: "function",
+					ID:              "call_1",
+					Name:            "mcplarge-large_result",
+					ResultMessageID: "msg_tool_1",
+					Type:            "function",
 					Function: llm.FunctionCall{
 						Name:      "mcplarge-large_result",
 						Arguments: `{}`,

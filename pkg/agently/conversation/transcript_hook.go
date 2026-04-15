@@ -104,11 +104,8 @@ func computeTurnStage(t *TranscriptView) string {
 	if t == nil {
 		return StageWaiting
 	}
-	if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
-		return StageCanceled
-	}
-	if strings.EqualFold(strings.TrimSpace(t.Status), "failed") || strings.EqualFold(strings.TrimSpace(t.Status), "error") {
-		return StageError
+	if stage, ok := stageFromExplicitStatus(strings.TrimSpace(t.Status)); ok {
+		return stage
 	}
 	if len(t.Message) == 0 {
 		return StageWaiting
@@ -208,6 +205,22 @@ func computeTurnStage(t *TranscriptView) string {
 	default:
 		return StageDone
 	}
+}
+
+func stageFromExplicitStatus(status string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "completed", "complete", "success", "done", "ok":
+		return StageDone, true
+	case "failed", "error":
+		return StageError, true
+	case "canceled", "cancelled":
+		return StageCanceled, true
+	case "waiting_for_user", "pending", "open":
+		return StageEliciting, true
+	case "running", "thinking", "processing", "streaming", "in_progress":
+		return StageThinking, true
+	}
+	return "", false
 }
 
 func isToolMessage(m *MessageView) bool {

@@ -26,6 +26,9 @@ func (c *ConversationView) OnRelation(ctx context.Context) {
 	})
 
 	c.Stage = computeStage(c)
+	if c.Status != nil && isTerminalStatus(strings.TrimSpace(*c.Status)) {
+		return
+	}
 	if status := normalizeConversationStatusFromStage(c.Stage, c.Transcript); status != "" {
 		c.Status = &status
 	}
@@ -69,6 +72,15 @@ func computeStage(c *ConversationView) string {
 		return StageWaiting
 	}
 
+	latestStatus := latestTurnStatus(c.Transcript)
+	convStatus := ""
+	if c.Status != nil {
+		convStatus = strings.TrimSpace(*c.Status)
+	}
+	if stage, ok := preferredExplicitConversationStage(convStatus, latestStatus); ok {
+		return stage
+	}
+
 	lastRole := ""
 	lastAssistantElic := false
 	lastAssistantElicStopped := false
@@ -80,20 +92,14 @@ func computeStage(c *ConversationView) string {
 	lastAssistantCanceled := false
 
 	compacting := c.Status != nil && *c.Status == "compacting"
-	if c.Status != nil && strings.EqualFold(strings.TrimSpace(*c.Status), "canceled") {
-		return StageCanceled
-	}
 
 	for ti := len(c.Transcript) - 1; ti >= 0; ti-- {
 		t := c.Transcript[ti]
 		if t == nil {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(t.Status), "canceled") {
-			return StageCanceled
-		}
-		if strings.EqualFold(strings.TrimSpace(t.Status), "failed") || strings.EqualFold(strings.TrimSpace(t.Status), "error") {
-			return StageError
+		if stage, ok := stageFromExplicitStatus(strings.TrimSpace(t.Status)); ok {
+			return stage
 		}
 		if len(t.Message) == 0 {
 			continue
@@ -183,5 +189,53 @@ DONE:
 		return StageError
 	default:
 		return StageDone
+	}
+}
+
+func latestTurnStatus(transcript []*TranscriptView) string {
+	for i := len(transcript) - 1; i >= 0; i-- {
+		t := transcript[i]
+		if t == nil {
+			continue
+		}
+		if status := strings.TrimSpace(t.Status); status != "" {
+			return status
+		}
+	}
+	return ""
+}
+
+func preferredExplicitConversationStage(conversationStatus, latestTurnStatus string) (string, bool) {
+	convStatus := strings.ToLower(strings.TrimSpace(conversationStatus))
+	turnStatus := strings.ToLower(strings.TrimSpace(latestTurnStatus))
+
+	convStage, convOK := stageFromExplicitStatus(convStatus)
+	turnStage, turnOK := stageFromExplicitStatus(turnStatus)
+
+	convTerminal := isTerminalStatus(convStatus)
+	turnTerminal := isTerminalStatus(turnStatus)
+
+	switch {
+	case convTerminal && turnTerminal:
+		return convStage, convOK
+	case convTerminal:
+		return convStage, convOK
+	case turnTerminal:
+		return turnStage, turnOK
+	case turnOK:
+		return turnStage, true
+	case convOK:
+		return convStage, true
+	default:
+		return "", false
+	}
+}
+
+func isTerminalStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "completed", "complete", "success", "done", "ok", "failed", "error", "canceled", "cancelled":
+		return true
+	default:
+		return false
 	}
 }

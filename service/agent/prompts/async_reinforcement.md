@@ -9,10 +9,14 @@ Rules:
    Wait for the next async state update.
 4. Do not call the original start tool again for any non-terminal operation.
 5. If an operation is terminal, do not poll it again.
-6. When all operations are resolved, use the latest results already in
+6. For async child-agent operations specifically: once the child conversation
+   is terminal and has a final result, stop polling that child entirely. Use
+   the latest child result already present in conversation history and move on
+   to synthesis.
+7. When all operations are resolved, use the latest results already in
    conversation history to answer.
-7. Prefer changed operations over unchanged active ones.
-8. Do not retry failed or canceled operations automatically unless the user
+8. Prefer changed operations over unchanged active ones.
+9. Do not retry failed or canceled operations automatically unless the user
    explicitly asks.
 
 Turn async summary:

@@ -127,6 +127,51 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	require.GreaterOrEqual(t, reg.calls, 2)
 }
 
+func TestExecuteToolStep_AsyncUsesExplicitMessagePathForChildStatus(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: true,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "assistantResponse",
+				DataPath:    "items",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","conversationId":"child-1"}`},
+			{result: `{"status":"running","assistantResponse":"platform child matched sites","items":[{"conversationId":"child-1","status":"running","lastAssistantPreamble":"platform child matched sites"}]}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, &stubConv{})
+
+	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-1",
+		Name: "llm/agents:start",
+		Args: map[string]interface{}{"agentId": "coder", "objective": "analyze"},
+	}, &stubConv{})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		rec, ok := manager.Get(context.Background(), "child-1")
+		return ok && rec != nil && strings.TrimSpace(rec.Message) == "platform child matched sites"
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestExecuteToolStep_AsyncAutoCancelsOnTimeout(t *testing.T) {
 	cfg := &asynccfg.Config{
 		WaitForResponse: true,
@@ -390,8 +435,8 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 			Tool:           "llm/agents:status",
 			OperationIDArg: "conversationId",
 			Selector: asynccfg.Selector{
-				StatusPath: "status",
-				DataPath:   "items",
+				StatusPath:  "status",
+				MessagePath: "assistantResponse",
 			},
 		},
 	}
@@ -399,7 +444,7 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 	reg := &asyncRegistry{
 		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
 			{result: `{"status":"running","conversationId":"child-1"}`},
-			{result: `{"status":"completed","items":[{"conversationId":"child-1","status":"completed"}]}`},
+			{result: `{"status":"completed","assistantResponse":"final child answer","items":[{"conversationId":"child-1","status":"completed","lastAssistantResponse":"final child answer"}]}`},
 		}},
 		cfg: cfg,
 	}
@@ -427,6 +472,28 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 		}
 		return false
 	}, time.Second, 10*time.Millisecond, "timed out waiting for async completion response payload persistence")
+
+	require.Eventually(t, func() bool {
+		for _, message := range conv.patchedMessages {
+			if message == nil || message.Content == nil {
+				continue
+			}
+			body := strings.TrimSpace(*message.Content)
+			if body == "" {
+				continue
+			}
+			if !strings.Contains(body, `"conversationId":"child-1"`) {
+				continue
+			}
+			if !strings.Contains(body, `"messageKind":"answer"`) {
+				continue
+			}
+			require.Contains(t, body, `"message":"final child answer"`)
+			require.NotContains(t, body, `"items"`)
+			return true
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "expected normalized async status message content to be persisted on the parent tool message")
 }
 
 func TestMaybeHandleAsyncTool_StatusPublishesFailedLifecycleEvent(t *testing.T) {

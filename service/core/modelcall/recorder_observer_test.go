@@ -157,9 +157,9 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			expectInterim: 1,
 		},
 		{
-			name:          "tool calls without model-authored text synthesize preamble from tool names",
+			name:          "tool calls without model-authored text keep empty preamble",
 			resp:          &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "resources-roots"}}}}}},
-			expected:      "Calling roots.",
+			expected:      "",
 			expectRaw:     true,
 			expectInterim: 1,
 		},
@@ -659,13 +659,16 @@ func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 	msg, err := client.GetMessage(context.Background(), msgID)
 	require.NoError(t, err)
 	require.NotNil(t, msg)
-	// After echo suppression the original content is cleared, but a
-	// synthesized preamble (derived from tool names) ensures the interim
-	// assistant message exists so tool_op messages can reference it as parent.
-	require.NotNil(t, msg.Content)
-	assert.Equal(t, "Calling roots.", *msg.Content)
-	require.NotNil(t, msg.Preamble)
-	assert.Equal(t, "Calling roots.", *msg.Preamble)
+	// After echo suppression the original content is cleared and no synthetic
+	// "Calling ..." preamble is invented for tool-only responses. The recorder
+	// still persists an empty interim assistant message so tool rows can attach
+	// to the iteration cleanly.
+	if msg.Content != nil {
+		assert.Equal(t, "", *msg.Content)
+	}
+	if msg.Preamble != nil {
+		assert.Equal(t, "", *msg.Preamble)
+	}
 
 	var persisted *apiconv.MutableModelCall
 	for _, call := range client.modelCalls {
@@ -767,6 +770,43 @@ func TestRecorderObserver_PatchesAssistantRoleTypeAndMode(t *testing.T) {
 	require.Equal(t, "text", msg.Type)
 	require.NotNil(t, msg.Content)
 	require.Equal(t, "Final answer", *msg.Content)
+}
+
+func TestRecorderObserver_OnCallStart_PersistsInterimAssistantPlaceholder(t *testing.T) {
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-no-blank")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-no-blank", "")))
+
+	ctx := memory.WithTurnMeta(base, memory.TurnMeta{
+		ConversationID:  "conv-no-blank",
+		TurnID:          "turn-1",
+		ParentMessageID: "user-1",
+		Assistant:       "agent-1",
+	})
+	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: "turn-1", Iteration: 1})
+	ctx = WithRecorderObserver(ctx, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	msgID := memory.ModelMessageIDFromContext(ctx2)
+	require.NotEmpty(t, msgID)
+
+	msg, err := client.GetMessage(context.Background(), msgID)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.Equal(t, "assistant", msg.Role)
+	require.Equal(t, "text", msg.Type)
+	require.EqualValues(t, 1, msg.Interim)
+	require.Nil(t, msg.Content)
+	require.Nil(t, msg.RawContent)
+	require.Nil(t, msg.Preamble)
 }
 
 type failingPayloadClient struct {

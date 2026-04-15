@@ -156,6 +156,17 @@ func TestService_Load_ToolExposure(t *testing.T) {
 			assert.EqualValues(t, agent.ToolCallExposure("conversation"), got.Tool.CallExposure)
 		}
 	})
+
+	t.Run("tool.allowOverflowHelpers is parsed", func(t *testing.T) {
+		got, err := service.Load(ctx, "tool_overflow_helpers.yaml")
+		assert.NoError(t, err)
+		if assert.NotNil(t, got) && assert.NotNil(t, got.Tool) {
+			if assert.NotNil(t, got.Tool.AllowOverflowHelpers) {
+				assert.False(t, *got.Tool.AllowOverflowHelpers)
+			}
+			assert.False(t, got.Tool.OverflowHelpersAllowed())
+		}
+	})
 }
 
 func TestService_Load_ToolBundles(t *testing.T) {

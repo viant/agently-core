@@ -46,6 +46,8 @@ const (
 	KindTool             = "tools"
 	KindToolBundle       = "tools/bundles"
 	KindToolInstructions = "tools/instructions"
+	KindTemplate         = "templates"
+	KindTemplateBundle   = "templates/bundles"
 	KindOAuth            = "oauth"
 	KindFeeds            = "feeds"
 	KindA2A              = "a2a"
@@ -55,7 +57,7 @@ const (
 func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow,
-		KindTool, KindToolBundle, KindToolInstructions, KindOAuth, KindFeeds, KindA2A,
+		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindFeeds, KindA2A,
 	}
 }
 

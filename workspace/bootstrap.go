@@ -78,6 +78,8 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 		KindTool,
 		KindToolBundle,
 		KindToolInstructions,
+		KindTemplate,
+		KindTemplateBundle,
 		KindWorkflow,
 		KindMCP,
 		KindEmbedder,

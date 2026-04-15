@@ -534,7 +534,7 @@ func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusI
 	if !ok {
 		return StatusItem{}
 	}
-	return StatusItem{
+	item := StatusItem{
 		ConversationID:        state.conversationID,
 		ParentConversationID:  state.parentConversationID,
 		ParentTurnID:          state.parentTurnID,
@@ -547,6 +547,7 @@ func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusI
 		HasFinalResponse:      state.hasFinalResponse,
 		LastMessageAt:         state.lastMessageAt,
 	}
+	return normalizeStatusItem(item)
 }
 
 func lastAssistantContent(turn *apiconv.Turn) string {
@@ -608,6 +609,7 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 }
 
 func statusItemAnswer(item StatusItem) string {
+	item = normalizeStatusItem(item)
 	if item.HasFinalResponse {
 		if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
 			return text
@@ -617,6 +619,15 @@ func statusItemAnswer(item StatusItem) string {
 		return text
 	}
 	return strings.TrimSpace(item.LastAssistantResponse)
+}
+
+func normalizeStatusItem(item StatusItem) StatusItem {
+	if item.HasFinalResponse {
+		item.LastAssistantPreamble = ""
+		return item
+	}
+	item.LastAssistantResponse = ""
+	return item
 }
 
 func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]StatusItem, error) {
@@ -729,8 +740,14 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 	if ri != nil && ri.Async != nil && *ri.Async {
 		statusToolName = "llm/agents:start"
 	}
+	logx.Infof("conversation", "agents.run %s status routing agent_id=%q child_convo=%q async_present=%v async_value=%v status_tool=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), ri != nil && ri.Async != nil, ri != nil && ri.Async != nil && *ri.Async, strings.TrimSpace(statusToolName))
 	runCtx.statusToolName = statusToolName
-	runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, strings.TrimSpace(ri.AgentID), route, statusToolName)
+	if !strings.EqualFold(statusToolName, "llm/agents:start") {
+		logx.Infof("conversation", "agents.run %s creating status message agent_id=%q child_convo=%q status_tool=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(statusToolName))
+		runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, strings.TrimSpace(ri.AgentID), route, statusToolName)
+	} else {
+		logx.Infof("conversation", "agents.run %s skipping status message for async child agent_id=%q child_convo=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
+	}
 	return runCtx, nil
 }
 

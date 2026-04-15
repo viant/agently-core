@@ -78,6 +78,12 @@ type Client interface {
 	// ExecuteTool invokes a registered tool by name and returns its textual result.
 	ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error)
 
+	// ListTemplates returns output templates available to the current agent/workspace.
+	ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error)
+
+	// GetTemplate resolves one output template by name and can request document inclusion.
+	GetTemplate(ctx context.Context, input *GetTemplateInput) (*GetTemplateOutput, error)
+
 	// ListToolDefinitions returns the set of tool definitions available in the workspace.
 	ListToolDefinitions(ctx context.Context) ([]ToolDefinitionInfo, error)
 

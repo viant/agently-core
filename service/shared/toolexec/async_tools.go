@@ -145,6 +145,9 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			TerminalInstruction:           cfg.TerminalInstruction,
 		})
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
+		if rec != nil {
+			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", extracted)
+		}
 		publishAsyncLifecycleEvent(ctx, step.Name, step.ID, opID, streaming.EventTypeToolCallStarted, extracted)
 		if rec != nil && rec.Terminal() {
 			publishAsyncUpdateEvent(ctx, step.Name, step.ID, opID, extracted, rec)
@@ -532,17 +535,9 @@ func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *as
 	if conv == nil || rec == nil || strings.TrimSpace(rec.ToolMessageID) == "" {
 		return
 	}
-	content := ""
+	content := asyncPersistenceContent(rec, payload)
 	respPayloadID := ""
 	if payload != nil {
-		switch {
-		case rec.Terminal() && len(payload.KeyData) > 0:
-			content = strings.TrimSpace(string(payload.KeyData))
-		case strings.TrimSpace(payload.Message) != "":
-			content = strings.TrimSpace(payload.Message)
-		case strings.TrimSpace(payload.Status) != "":
-			content = strings.TrimSpace(payload.Status)
-		}
 		switch {
 		case len(payload.KeyData) > 0:
 			if id, err := persistResponsePayload(ctx, conv, string(payload.KeyData)); err == nil {
@@ -574,6 +569,47 @@ func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *as
 		return
 	}
 	_ = updateAsyncToolCallState(ctx, conv, rec.ToolMessageID, rec.ToolCallID, rec.ToolName, status, respPayloadID, errMsg)
+}
+
+func asyncPersistenceContent(rec *asynccfg.OperationRecord, payload *asynccfg.Extracted) string {
+	if rec == nil || payload == nil {
+		return ""
+	}
+	toolName := strings.TrimSpace(rec.ToolName)
+	if sameToolName(toolName, "llm/agents:start") || sameToolName(toolName, "llm/agents:status") {
+		kind := "progress"
+		if rec.Terminal() {
+			kind = "answer"
+		}
+		message := strings.TrimSpace(payload.Message)
+		if rec.Terminal() && message == "" {
+			message = strings.TrimSpace(payload.Status)
+		}
+		doc := map[string]interface{}{
+			"conversationId": strings.TrimSpace(rec.ID),
+			"status":         strings.TrimSpace(payload.Status),
+		}
+		if message != "" {
+			doc["message"] = message
+			doc["messageKind"] = kind
+		}
+		if rec.Terminal() {
+			doc["hasFinalResponse"] = strings.TrimSpace(message) != ""
+		}
+		if data, err := json.Marshal(doc); err == nil {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	switch {
+	case rec.Terminal() && len(payload.KeyData) > 0:
+		return strings.TrimSpace(string(payload.KeyData))
+	case strings.TrimSpace(payload.Message) != "":
+		return strings.TrimSpace(payload.Message)
+	case strings.TrimSpace(payload.Status) != "":
+		return strings.TrimSpace(payload.Status)
+	default:
+		return ""
+	}
 }
 
 type asyncConvKey struct{}
