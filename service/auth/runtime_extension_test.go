@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	scyauth "github.com/viant/scy/auth"
 )
 
 func TestRuntimeHandleCreateSession_UsesBearerTokenIdentityWhenBodyTokensMissing(t *testing.T) {
@@ -148,5 +150,51 @@ func TestRuntimeHandleMe_AllowsLocalSessionWhenOAuthBFFAlsoConfigured(t *testing
 	}
 	if got := strings.TrimSpace(out["provider"].(string)); got != "session" {
 		t.Fatalf("provider = %q, want %q", got, "session")
+	}
+}
+
+func TestRuntimeHandleMe_UsesStoredDisplayNameForOAuthSession(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions: NewManager(time.Hour, nil),
+		users: &testUserService{
+			userBySubjectProvider: map[string]*User{
+				"awitas_viant_devtest|oauth": {
+					ID:          "user-42",
+					Username:    "awitas",
+					DisplayName: "Awitas",
+				},
+			},
+		},
+	}
+
+	sess := &Session{
+		ID:        "sess-1",
+		Username:  "awitas",
+		Subject:   "awitas_viant_devtest",
+		Provider:  "oauth",
+		CreatedAt: time.Now(),
+		Tokens:    &scyauth.Token{},
+	}
+	ext.sessions.Put(nil, sess)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: sess.ID})
+	rec := httptest.NewRecorder()
+
+	ext.handleMe().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if got := strings.TrimSpace(out["displayName"].(string)); got != "Awitas" {
+		t.Fatalf("displayName = %q, want %q", got, "Awitas")
 	}
 }
