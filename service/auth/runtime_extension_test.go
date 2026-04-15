@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	scyauth "github.com/viant/scy/auth"
 )
 
 func TestRuntimeHandleCreateSession_UsesBearerTokenIdentityWhenBodyTokensMissing(t *testing.T) {
@@ -154,12 +152,23 @@ func TestRuntimeHandleMe_AllowsLocalSessionWhenOAuthBFFAlsoConfigured(t *testing
 }
 
 func TestRuntimeHandleMe_UsesStoredDisplayNameForOAuthSession(t *testing.T) {
+	store := &testTokenStore{
+		token: &OAuthToken{
+			Username:     "user-42",
+			Provider:     "oauth",
+			AccessToken:  "access",
+			RefreshToken: "refresh",
+			IDToken:      "id",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
 	ext := &authExtension{
 		cfg: &Config{
 			CookieName: "agently_session",
 			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
 		},
-		sessions: NewManager(time.Hour, nil),
+		sessions:   NewManager(time.Hour, nil),
+		tokenStore: store,
 		users: &testUserService{
 			userBySubjectProvider: map[string]*User{
 				"awitas_viant_devtest|oauth": {
@@ -177,7 +186,6 @@ func TestRuntimeHandleMe_UsesStoredDisplayNameForOAuthSession(t *testing.T) {
 		Subject:   "awitas_viant_devtest",
 		Provider:  "oauth",
 		CreatedAt: time.Now(),
-		Tokens:    &scyauth.Token{},
 	}
 	ext.sessions.Put(nil, sess)
 
