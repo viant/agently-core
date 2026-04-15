@@ -17,11 +17,22 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 		sess := a.currentSession(r)
 		if sess == nil {
 			if user := RuntimeUserFromContext(r.Context()); user != nil {
+				displayName := strings.TrimSpace(user.Subject)
+				if a.users != nil {
+					provider := a.oauthProviderName()
+					if resolved, err := a.users.GetBySubjectAndProvider(r.Context(), strings.TrimSpace(user.Subject), provider); err == nil && resolved != nil {
+						if v := strings.TrimSpace(resolved.DisplayName); v != "" {
+							displayName = v
+						} else if v := strings.TrimSpace(resolved.Username); v != "" {
+							displayName = v
+						}
+					}
+				}
 				runtimeJSON(w, http.StatusOK, map[string]any{
 					"subject":     strings.TrimSpace(user.Subject),
 					"username":    strings.TrimSpace(user.Subject),
 					"email":       strings.TrimSpace(user.Email),
-					"displayName": strings.TrimSpace(user.Subject),
+					"displayName": displayName,
 					"provider":    "jwt",
 				})
 				return
@@ -39,11 +50,22 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
 			return
 		}
+		displayName := strings.TrimSpace(sess.Username)
+		if a.users != nil {
+			provider := strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))
+			if resolved, err := a.users.GetBySubjectAndProvider(r.Context(), strings.TrimSpace(sess.Subject), provider); err == nil && resolved != nil {
+				if v := strings.TrimSpace(resolved.DisplayName); v != "" {
+					displayName = v
+				} else if v := strings.TrimSpace(resolved.Username); v != "" {
+					displayName = v
+				}
+			}
+		}
 		runtimeJSON(w, http.StatusOK, map[string]any{
 			"subject":     strings.TrimSpace(sess.Subject),
 			"username":    strings.TrimSpace(sess.Username),
 			"email":       strings.TrimSpace(sess.Email),
-			"displayName": strings.TrimSpace(sess.Username),
+			"displayName": displayName,
 			"provider":    "session",
 		})
 	}
