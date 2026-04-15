@@ -882,9 +882,9 @@ func TestOAuthCookie_ConfigEndpoint_ExposesEncryptedConfigURLAndRedirectMode(t *
 		IpHashKey:  "test-ip-hash-key",
 		CookieName: "agently_session",
 		OAuth: &svcauth.OAuth{
-			Label:           "Viant",
-			Mode:            "bff",
-			RedirectSameTab: true,
+			Label:         "Viant",
+			Mode:          "bff",
+			UsePopupLogin: true,
 			Client: &svcauth.OAuthClient{
 				ConfigURL: "idp_viant.enc|blowfish://default",
 				Scopes:    []string{"openid"},
@@ -903,7 +903,7 @@ func TestOAuthCookie_ConfigEndpoint_ExposesEncryptedConfigURLAndRedirectMode(t *
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
 	assert.Equal(t, "bff", cfg["mode"])
 	assert.Equal(t, "idp_viant.enc|blowfish://default", cfg["configURL"])
-	assert.Equal(t, true, cfg["redirectSameTab"])
+	assert.Equal(t, true, cfg["usePopupLogin"])
 	require.Contains(t, cfg, "scopes")
 }
 

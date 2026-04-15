@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-func TestAuthExtensionHandleOAuthConfig_ExposesRedirectSameTab(t *testing.T) {
+func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	cfg := &Config{
 		OAuth: &OAuth{
-			Mode:            "bff",
-			RedirectSameTab: true,
+			Mode:          "bff",
+			UsePopupLogin: true,
 			Client: &OAuthClient{
 				ConfigURL: "idp_viant.enc|blowfish://default",
 			},
@@ -30,19 +30,19 @@ func TestAuthExtensionHandleOAuthConfig_ExposesRedirectSameTab(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if got, ok := payload["redirectSameTab"].(bool); !ok || !got {
-		t.Fatalf("redirectSameTab = %#v, want true", payload["redirectSameTab"])
+	if got, ok := payload["usePopupLogin"].(bool); !ok || !got {
+		t.Fatalf("usePopupLogin = %#v, want true", payload["usePopupLogin"])
 	}
 	if got := payload["configURL"]; got != "idp_viant.enc|blowfish://default" {
 		t.Fatalf("configURL = %#v, want encrypted config URL", got)
 	}
 }
 
-func TestHandlerHandleOAuthConfig_ExposesRedirectSameTab(t *testing.T) {
+func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	h := NewHandler(&Config{
 		OAuth: &OAuth{
-			Mode:            "bff",
-			RedirectSameTab: true,
+			Mode:          "bff",
+			UsePopupLogin: true,
 			Client: &OAuthClient{
 				ConfigURL: "idp_viant.enc|blowfish://default",
 				ClientID:  "client-id",
@@ -61,8 +61,8 @@ func TestHandlerHandleOAuthConfig_ExposesRedirectSameTab(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if got, ok := payload["redirectSameTab"].(bool); !ok || !got {
-		t.Fatalf("redirectSameTab = %#v, want true", payload["redirectSameTab"])
+	if got, ok := payload["usePopupLogin"].(bool); !ok || !got {
+		t.Fatalf("usePopupLogin = %#v, want true", payload["usePopupLogin"])
 	}
 	if got := payload["clientId"]; got != "client-id" {
 		t.Fatalf("clientId = %#v, want client-id", got)
