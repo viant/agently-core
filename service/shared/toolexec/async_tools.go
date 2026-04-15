@@ -100,7 +100,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
-		if rec != nil {
+		if rec != nil && (rec.WaitForResponse || !changed) {
 			asyncwait.MarkAfterStatus(ctx, matched.ID)
 		}
 		if changed {
@@ -184,7 +184,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
-		if rec != nil {
+		if rec != nil && (rec.WaitForResponse || !changed) {
 			asyncwait.MarkAfterStatus(ctx, opID)
 		}
 		if changed {
@@ -338,6 +338,9 @@ func sameToolName(actual, expected string) bool {
 
 func shouldAutoPollAsync(cfg *asynccfg.Config) bool {
 	if cfg == nil {
+		return false
+	}
+	if !cfg.WaitForResponse {
 		return false
 	}
 	if strings.TrimSpace(cfg.Status.Tool) == "" {
@@ -533,6 +536,9 @@ func resolvePollerStatusArgs(ctx context.Context, manager AsyncManager, cfg *asy
 
 func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *asynccfg.OperationRecord, fallbackErr string, payload *asynccfg.Extracted) {
 	if conv == nil || rec == nil || strings.TrimSpace(rec.ToolMessageID) == "" {
+		return
+	}
+	if !rec.WaitForResponse {
 		return
 	}
 	content := asyncPersistenceContent(rec, payload)

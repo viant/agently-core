@@ -195,16 +195,11 @@ func (a *authExtension) ensureSessionOAuthTokens(ctx context.Context, sess *Sess
 	if a == nil || a.tokenStore == nil {
 		return false
 	}
-	lookupID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
-	if a.users != nil {
-		if user, err := a.users.GetByUsername(ctx, strings.TrimSpace(firstNonEmpty(sess.Username, sess.Subject))); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
-			lookupID = strings.TrimSpace(user.ID)
-		}
-	}
+	provider := a.oauthProviderName()
+	lookupID := resolveOAuthTokenOwnerID(ctx, a.users, provider, sess)
 	if lookupID == "" {
 		return false
 	}
-	provider := a.oauthProviderName()
 	dbTok, err := a.tokenStore.Get(ctx, lookupID, provider)
 	if err != nil || dbTok == nil {
 		return false

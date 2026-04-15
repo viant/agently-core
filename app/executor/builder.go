@@ -20,6 +20,7 @@ import (
 	mcpclienthandler "github.com/viant/agently-core/protocol/mcp/clienthandler"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
+	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
@@ -302,6 +303,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			agentOpts = append(agentOpts, agentsvc.WithDataService(out.Data))
 		}
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
+	}
+	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent, llmagents.WithConversationClient(out.Conversation))); err != nil {
+		return nil, err
 	}
 	// Wire the streaming bus into the agent's internal elicitation service so
 	// LLM-generated elicitation events reach the SSE channel.

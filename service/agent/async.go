@@ -29,6 +29,40 @@ func (s *Service) injectAsyncReinforcement(ctx context.Context, turn *runtimereq
 	s.injectAsyncReinforcementForRecords(ctx, turn, changed)
 }
 
+func asyncModelManaged(rec *asynccfg.OperationRecord) bool {
+	if rec == nil || rec.Terminal() {
+		return false
+	}
+	statusTool := strings.TrimSpace(rec.StatusToolName)
+	toolName := strings.TrimSpace(rec.ToolName)
+	sameToolReuse := statusTool != "" && strings.EqualFold(statusTool, toolName)
+	return sameToolReuse || statusTool != ""
+}
+
+func (s *Service) activeModelManagedAsyncRecords(ctx context.Context, turn *runtimerequestctx.TurnMeta) []*asynccfg.OperationRecord {
+	if s == nil || s.asyncManager == nil || turn == nil {
+		return nil
+	}
+	var result []*asynccfg.OperationRecord
+	for _, rec := range s.asyncManager.OperationsForTurn(ctx, turn.ConversationID, turn.TurnID) {
+		if rec == nil || !asyncModelManaged(rec) {
+			continue
+		}
+		if !rec.WaitForResponse {
+			result = append(result, rec)
+		}
+	}
+	return result
+}
+
+func (s *Service) renderModelManagedAsyncControl(ctx context.Context, turn *runtimerequestctx.TurnMeta) string {
+	records := s.activeModelManagedAsyncRecords(ctx, turn)
+	if len(records) == 0 {
+		return ""
+	}
+	return s.renderBatchedAsyncReinforcement(ctx, records)
+}
+
 // injectAsyncReinforcementForRecords emits a single batched system message
 // covering all eligible changed operations. All records use the centralized
 // shared template; per-operation prompt overrides are not supported.
@@ -39,6 +73,9 @@ func (s *Service) injectAsyncReinforcementForRecords(ctx context.Context, turn *
 	var eligible []*asynccfg.OperationRecord
 	for _, rec := range records {
 		if rec == nil {
+			continue
+		}
+		if !rec.WaitForResponse {
 			continue
 		}
 		if _, ok := s.asyncManager.TryRecordReinforcement(ctx, rec.ID); !ok {
@@ -101,7 +138,10 @@ func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*async
 	if s != nil && s.asyncManager != nil && len(records) > 0 {
 		if first := records[0]; first != nil {
 			for _, op := range s.asyncManager.OperationsForTurn(ctx, first.ParentConvID, first.ParentTurnID) {
-				if op == nil || !op.WaitForResponse {
+				if op == nil {
+					continue
+				}
+				if !op.WaitForResponse && !asyncModelManaged(op) {
 					continue
 				}
 				turnAsync["total"] = turnAsync["total"].(int) + 1
@@ -112,6 +152,7 @@ func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*async
 
 	changedOps := make([]map[string]interface{}, 0, len(records))
 	hasSameToolReuse := false
+	hasExplicitStatusTool := false
 	for _, rec := range records {
 		if rec == nil {
 			continue
@@ -121,12 +162,14 @@ func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*async
 
 		// sameToolReuse: status tool == run tool → model-mediated polling.
 		sameToolReuse := statusTool != "" && strings.EqualFold(statusTool, toolName)
-		// runtimePolled: distinct status tool → autonomous poller owns the calls;
-		// do NOT surface the status tool to the model.
-		runtimePolled := statusTool != "" && !sameToolReuse
+		// runtimePolled: only wait-managed distinct status tools are owned by the runtime.
+		runtimePolled := rec.WaitForResponse && statusTool != "" && !sameToolReuse
 
 		if !rec.Terminal() && sameToolReuse {
 			hasSameToolReuse = true
+		}
+		if !rec.Terminal() && !runtimePolled && !sameToolReuse && statusTool != "" {
+			hasExplicitStatusTool = true
 		}
 
 		op := map[string]interface{}{
@@ -139,6 +182,9 @@ func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*async
 		}
 		if sameToolReuse {
 			op["requestArgsJSON"] = mustJSONText(rec.RequestArgs)
+		} else if !runtimePolled && statusTool != "" {
+			op["statusToolName"] = statusTool
+			op["statusToolArgsJSON"] = mustJSONText(rec.StatusArgs)
 		}
 		if msg := strings.TrimSpace(rec.Message); msg != "" {
 			op["message"] = msg
@@ -156,6 +202,7 @@ func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*async
 	}
 
 	turnAsync["hasSameToolReuse"] = hasSameToolReuse
+	turnAsync["hasExplicitStatusTool"] = hasExplicitStatusTool
 
 	return map[string]interface{}{
 		"turnAsync":         turnAsync,

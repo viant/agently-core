@@ -88,8 +88,6 @@ func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
 	switch svc {
 	case "llm/agents":
 		return 5 * time.Minute, true
-	case "llm/exec":
-		return 30 * time.Minute, true
 	}
 	return 0, false
 }

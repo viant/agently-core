@@ -141,7 +141,7 @@ func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
 func (s *Service) AsyncConfigs() []*asynccfg.Config {
 	return []*asynccfg.Config{
 		{
-			WaitForResponse: true,
+			WaitForResponse: false,
 			TimeoutMs:       int((5 * time.Minute) / time.Millisecond),
 			PollIntervalMs:  int((2 * time.Second) / time.Millisecond),
 			Run: asynccfg.RunConfig{
@@ -204,6 +204,12 @@ func (s *Service) Methods() svc.Signatures {
 			Input:       reflect.TypeOf(&RunInput{}),
 			Output:      reflect.TypeOf(&RunOutput{}),
 		},
+		{
+			Name:        "query",
+			Description: "Execute the full agent query contract with conversation, prompt, tool, attachment, and routing controls",
+			Input:       reflect.TypeOf(&agentsvc.QueryInput{}),
+			Output:      reflect.TypeOf(&agentsvc.QueryOutput{}),
+		},
 	}
 }
 
@@ -222,6 +228,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.start, nil
 	case "run":
 		return s.run, nil
+	case "query":
+		return s.query, nil
 	default:
 		return nil, svc.NewMethodNotFoundError(name)
 	}
@@ -236,7 +244,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	lo.ReuseNote = "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed."
-	lo.RunUsage = "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need the delegated result returned synchronously in the current turn."
+	lo.RunUsage = "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need delegated output returned synchronously. Use llm/agents:query for the full agent query contract."
 	if s.dirProvider != nil {
 		lo.Items = s.dirProvider()
 		return nil
@@ -271,6 +279,21 @@ func (s *Service) me(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) query(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*agentsvc.QueryInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*agentsvc.QueryOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	if isNilAgentRuntime(s.agent) {
+		return svc.NewMethodNotFoundError("agent runtime not configured")
+	}
+	return s.agent.Query(ctx, input, output)
 }
 
 // run executes an internal agent synchronously via the agent runtime.
@@ -370,11 +393,6 @@ func (s *Service) start(ctx context.Context, in, out interface{}) error {
 	}
 	so.ConversationID = strings.TrimSpace(tmp.ConversationID)
 	so.Status = strings.TrimSpace(tmp.Status)
-	if msg := strings.TrimSpace(tmp.Error); msg != "" {
-		so.Message = msg
-	} else if !strings.EqualFold(strings.TrimSpace(tmp.Status), "running") {
-		so.Message = strings.TrimSpace(tmp.Answer)
-	}
 	return nil
 }
 

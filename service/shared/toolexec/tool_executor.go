@@ -18,6 +18,7 @@ import (
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -145,6 +146,18 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			errs = append(errs, fmt.Errorf("persist request payload: %w", pErr))
 		}
 	}
+	var toolResult string
+	var execErr error
+	callStep := step
+	activatedStatusPolling := false
+	if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Status.Tool) {
+		if activatedOut, activatedResult, activatedErr, handled := maybeExecuteActivatedStatusTool(ctx, reg, step, conv, asyncCfg); handled {
+			out = activatedOut
+			toolResult = activatedResult
+			execErr = activatedErr
+			activatedStatusPolling = true
+		}
+	}
 
 	// 4) Execute tool with a bounded context so one stuck call won't hang the run
 	// Apply per-tool timeout when available (scoped registry exposes TimeoutResolver directly).
@@ -165,17 +178,18 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	} else {
 		logx.DebugCtxf(ctx, "conversation", "tool execute context convo=%q turn=%q op_id=%q tool=%q parent_deadline=%q parent_remaining=%q registry_timeout=%q wrapper_timeout=default args_timeout_ms=none", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), ctxDeadline, ctxRemaining, registryTimeout.String())
 	}
-	var toolResult string
-	var execErr error
-	callStep := step
-	if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Run.Tool) {
-		callStep.Args = prepareAsyncStartArgs(asyncCfg, step.Args)
+	if !activatedStatusPolling {
+		if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Run.Tool) {
+			callStep.Args = prepareAsyncStartArgs(asyncCfg, step.Args)
+		}
+		out, toolResult, execErr = executeToolWithRetry(ctx, reg, callStep, conv)
 	}
-	out, toolResult, execErr = executeToolWithRetry(ctx, reg, callStep, conv)
 	// Optionally wrap overflow with YAML helper when native continuation is not supported.
-	if wrapped := maybeWrapOverflow(ctx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
-		toolResult = wrapped
-		out.Result = wrapped
+	if !activatedStatusPolling {
+		if wrapped := maybeWrapOverflow(ctx, reg, step.Name, toolResult, toolMsgID); wrapped != "" {
+			toolResult = wrapped
+			out.Result = wrapped
+		}
 	}
 	if execErr != nil && strings.TrimSpace(toolResult) == "" {
 		// Provide the error text as response payload so the LLM can reason over it.
@@ -196,7 +210,14 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	span.SetEnd(time.Now())
 
-	asyncRecord := maybeHandleAsyncTool(ctx, reg, callStep, toolResult, execErr)
+	var asyncRecord *asynccfg.OperationRecord
+	if !activatedStatusPolling {
+		asyncRecord = maybeHandleAsyncTool(ctx, reg, callStep, toolResult, execErr)
+	}
+	suppressedAfterStatus := ConsumeAsyncWaitAfterStatus(ctx)
+	if len(suppressedAfterStatus) > 0 {
+		out.Result = ""
+	}
 
 	// Debug trace: log tool call result to /tmp/agently-debug.log
 	{
@@ -249,7 +270,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx, toolResult)
-	if asyncRecord != nil {
+	if asyncRecord != nil && asyncRecord.WaitForResponse {
 		forcedStatus = "running"
 		toolCallManagedAsync = true
 		finCtx, cancelFin := detachedFinalizeCtx(ctx)
@@ -302,6 +323,92 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 
 	return
+}
+
+func maybeExecuteActivatedStatusTool(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client, cfg *asynccfg.Config) (plan.ToolCall, string, error, bool) {
+	manager, ok := AsyncManagerFromContext(ctx)
+	if !ok || manager == nil || cfg == nil {
+		return plan.ToolCall{}, "", nil, false
+	}
+	if strings.TrimSpace(cfg.Status.Tool) == "" || !sameToolName(step.Name, cfg.Status.Tool) {
+		return plan.ToolCall{}, "", nil, false
+	}
+	opID := strings.TrimSpace(stringArg(step.Args, cfg.Status.OperationIDArg))
+	if opID == "" && cfg.Status.ReuseRunArgs {
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+			requestDigest := requestArgsDigest(cfg, step.Args)
+			if rec, found := manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest); found && rec != nil {
+				opID = strings.TrimSpace(rec.ID)
+			}
+		}
+	}
+	if opID == "" {
+		return plan.ToolCall{}, "", nil, false
+	}
+	rec, ok := manager.Get(ctx, opID)
+	if !ok || rec == nil || rec.Terminal() || rec.WaitForResponse {
+		return plan.ToolCall{}, "", nil, false
+	}
+
+	callStep := step
+	if len(rec.StatusArgs) > 0 {
+		callStep.Args = cloneInterfaceMap(rec.StatusArgs)
+	}
+
+	for {
+		out, toolResult, execErr := executeToolWithRetry(ctx, reg, callStep, conv)
+		if execErr != nil || strings.TrimSpace(toolResult) == "" {
+			return out, toolResult, execErr, true
+		}
+		payload, err := asynccfg.ExtractPayload(toolResult, cfg.Status.Selector)
+		if err != nil || payload == nil {
+			return out, toolResult, execErr, true
+		}
+		normalizeAsyncExtracted(toolResult, payload)
+		updated, changed := manager.Update(ctx, asynccfg.UpdateInput{
+			ID:      opID,
+			Status:  payload.Status,
+			Message: payload.Message,
+			Percent: payload.Percent,
+			KeyData: cloneRaw(payload.KeyData),
+			Error:   payload.Error,
+		})
+		if updated == nil {
+			return out, toolResult, execErr, true
+		}
+		if changed || updated.Terminal() {
+			return out, toolResult, execErr, true
+		}
+		if updated.TimeoutAt != nil && time.Now().After(*updated.TimeoutAt) {
+			return out, toolResult, execErr, true
+		}
+		delay := nextAsyncPollDelay(updated)
+		if delay <= 0 {
+			intervalMs := updated.PollIntervalMs
+			if intervalMs <= 0 {
+				intervalMs = 2000
+			}
+			delay = time.Duration(intervalMs) * time.Millisecond
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return out, toolResult, ctx.Err(), true
+		case <-timer.C:
+		}
+	}
+}
+
+func cloneInterfaceMap(input map[string]interface{}) map[string]interface{} {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 // SynthesizeToolStep persists a tool call using a precomputed result without

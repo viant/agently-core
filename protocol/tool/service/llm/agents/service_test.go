@@ -77,7 +77,7 @@ func expectedListOutput(items []ListItem) *ListOutput {
 	return &ListOutput{
 		Items:      items,
 		ReuseNote:  "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed.",
-		RunUsage:   "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need the delegated result returned synchronously in the current turn.",
+		RunUsage:   "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need delegated output returned synchronously. Use llm/agents:query for the full agent query contract.",
 		NextAction: "",
 	}
 }
@@ -86,9 +86,46 @@ func TestService_DoesNotExposeAutoAsyncConfigForRun(t *testing.T) {
 	svc := New(nil)
 
 	assert.Nil(t, svc.AsyncConfig("llm/agents:run"))
+	assert.Nil(t, svc.AsyncConfig("llm/agents:query"))
 	assert.NotNil(t, svc.AsyncConfig("llm/agents:start"))
 	assert.NotNil(t, svc.AsyncConfig("llm/agents:status"))
 	assert.NotNil(t, svc.AsyncConfig("llm/agents:cancel"))
+}
+
+func TestService_Query_ForwardsFullQueryInput(t *testing.T) {
+	ctx := context.Background()
+	reasoning := "high"
+	fake := &fakeAgentRuntime{
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			require.Equal(t, "child-conv", in.ConversationID)
+			require.Equal(t, "coder", in.AgentID)
+			require.Equal(t, "inspect repo", in.Query)
+			require.Equal(t, &reasoning, in.ReasoningEffort)
+			if out != nil {
+				out.Content = "done"
+				out.ConversationID = in.ConversationID
+				out.MessageID = "msg-1"
+			}
+			return nil
+		},
+	}
+	s := &Service{agent: fake}
+
+	input := &agentsvc.QueryInput{
+		ConversationID:  "child-conv",
+		AgentID:         "coder",
+		Query:           "inspect repo",
+		ReasoningEffort: &reasoning,
+		Context:         map[string]interface{}{"workdir": "/tmp/repo"},
+	}
+	output := &agentsvc.QueryOutput{}
+
+	err := s.query(ctx, input, output)
+	require.NoError(t, err)
+	require.Same(t, input, fake.lastInput)
+	assert.Equal(t, "done", output.Content)
+	assert.Equal(t, "child-conv", output.ConversationID)
+	assert.Equal(t, "msg-1", output.MessageID)
 }
 
 func TestService_Run_External_DataDriven(t *testing.T) {
@@ -416,7 +453,7 @@ func TestService_Run_Internal_DoesNotInheritParentToolAllowList(t *testing.T) {
 	}
 }
 
-func TestService_Run_Internal_RepoAnalysisUsesBoundedToolAllowList(t *testing.T) {
+func TestService_Run_Internal_RepoAnalysisContextDoesNotRewriteObjectiveOrAllowList(t *testing.T) {
 	streaming := false
 	in := &RunInput{
 		AgentID:   "coder",
@@ -440,37 +477,8 @@ func TestService_Run_Internal_RepoAnalysisUsesBoundedToolAllowList(t *testing.T)
 
 	require.NoError(t, err)
 	require.NotNil(t, fake.lastInput)
-	assert.Contains(t, fake.lastInput.Query, "Use at most one `resources-list` call on the repo root")
-	assert.EqualValues(t, []string{
-		"resources:list",
-		"resources-list",
-		"resources:read",
-		"resources-read",
-		"resources:grepFiles",
-		"resources-grepFiles",
-		"resources:roots",
-		"resources-roots",
-		"resources:match",
-		"resources-match",
-		"resources:matchDocuments",
-		"resources-matchDocuments",
-		"system/exec:execute",
-		"system_exec-execute",
-		"system/os:getEnv",
-		"system_os-getEnv",
-		"message:show",
-		"message-show",
-		"internal/message:show",
-		"internal_message-show",
-		"message:summarize",
-		"message-summarize",
-		"internal/message:summarize",
-		"internal_message-summarize",
-		"message:match",
-		"message-match",
-		"internal/message:match",
-		"internal_message-match",
-	}, fake.lastInput.ToolsAllowed)
+	assert.Equal(t, "analyze /Users/awitas/go/src/github.com/viant/xdatly", fake.lastInput.Query)
+	assert.EqualValues(t, []string{}, fake.lastInput.ToolsAllowed)
 }
 
 func TestService_Run_Internal_ChildFailureReturnsToolResult(t *testing.T) {
@@ -847,6 +855,7 @@ func TestService_AsyncConfig(t *testing.T) {
 	svc := New(nil)
 	cfg := svc.AsyncConfig("llm/agents:start")
 	require.NotNil(t, cfg)
+	assert.False(t, cfg.WaitForResponse)
 	assert.Equal(t, "llm/agents:start", cfg.Run.Tool)
 	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
 	assert.Equal(t, "llm/agents:status", cfg.Status.Tool)

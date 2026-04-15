@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"strings"
 	"time"
 
@@ -10,7 +9,6 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	"github.com/viant/agently-core/protocol/prompt"
-	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/runtime/usage"
 )
@@ -103,19 +101,6 @@ type QueryOutput struct {
 	Projection     *runtimeprojection.ContextProjection `json:"projection,omitempty"`
 
 	lastTaskCheckpoint turnTaskCheckpoint
-}
-
-func (s *Service) query(ctx context.Context, input interface{}, output interface{}) error {
-	// 0. Coerce IO
-	queryInput, ok := input.(*QueryInput)
-	if !ok {
-		return svc.NewInvalidInputError(input)
-	}
-	queryOutput, ok := output.(*QueryOutput)
-	if !ok {
-		return svc.NewInvalidOutputError(output)
-	}
-	return s.Query(ctx, queryInput, queryOutput)
 }
 
 func (i *QueryInput) Actor() string {

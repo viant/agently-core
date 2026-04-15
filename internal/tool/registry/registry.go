@@ -174,8 +174,6 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoveryFailTTL:   30 * time.Second,
 	}
 	// Internal MCP services are app-owned plugins; registries start empty.
-	// Register orchestrator synthetic tool.
-	r.injectOrchestratorVirtualTool()
 	return r, nil
 }
 
@@ -310,7 +308,7 @@ func (r *Registry) InjectVirtualAgentTools(agents []*agent.Agent, domain string)
 			args["agentId"] = ag.ID
 
 			// Execute via MCP-backed registry
-			result, err := r.Execute(ctx, "llm/exec:run_agent", args)
+			result, err := r.Execute(ctx, "llm/agents:run", args)
 			return result, err
 		}
 
@@ -2293,26 +2291,6 @@ func (r *Registry) addInternalMcp() {
 		}
 	}
 
-}
-
-// injectOrchestratorVirtualTool registers the orchestration entry point as a virtual tool.
-func (r *Registry) injectOrchestratorVirtualTool() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	def := llm.ToolDefinition{
-		Name:        "llm/exec:run_agent",
-		Description: "Run an agent by id with a given objective",
-		Parameters:  map[string]interface{}{"type": "object", "properties": map[string]interface{}{"agentId": map[string]interface{}{"type": "string"}, "objective": map[string]interface{}{"type": "string"}, "context": map[string]interface{}{"type": "object"}}, "required": []string{"agentId", "objective"}},
-		OutputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{"answer": map[string]interface{}{"type": "string"}},
-		},
-	}
-	r.virtualDefs[def.Name] = def
-	if r.virtualTimeout == nil {
-		r.virtualTimeout = map[string]timeoutSupport{}
-	}
-	r.virtualTimeout[def.Name] = detectTimeoutSupport(&def)
 }
 
 // applyCacheableOverride sets def.Cacheable based on internal service

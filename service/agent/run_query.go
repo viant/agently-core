@@ -451,8 +451,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	for {
 		iter++
 		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
-		if len(loopHistoryMsgs) > 0 {
-			ctx = withLoopHistoryMessages(ctx, loopHistoryMsgs)
+		iterHistoryMsgs := append([]*prompt.Message(nil), loopHistoryMsgs...)
+		if control := strings.TrimSpace(s.renderModelManagedAsyncControl(ctx, &turn)); control != "" {
+			iterHistoryMsgs = append(iterHistoryMsgs, &prompt.Message{
+				Role:    string(llm.RoleSystem),
+				Content: control,
+			})
+		}
+		if len(iterHistoryMsgs) > 0 {
+			ctx = withLoopHistoryMessages(ctx, iterHistoryMsgs)
 		}
 		iterStart := time.Now()
 		s.updateRunIteration(ctx, turn, iter)
