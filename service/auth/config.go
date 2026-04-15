@@ -23,11 +23,11 @@ type Config struct {
 }
 
 type OAuth struct {
-	Mode            string       `yaml:"mode" json:"mode"`
-	Name            string       `yaml:"name" json:"name"`
-	Label           string       `yaml:"label" json:"label"`
-	RedirectSameTab bool         `yaml:"redirectSameTab,omitempty" json:"redirectSameTab,omitempty"`
-	Client          *OAuthClient `yaml:"client" json:"client"`
+	Mode          string       `yaml:"mode" json:"mode"`
+	Name          string       `yaml:"name" json:"name"`
+	Label         string       `yaml:"label" json:"label"`
+	UsePopupLogin bool         `yaml:"usePopupLogin,omitempty" json:"usePopupLogin,omitempty"`
+	Client        *OAuthClient `yaml:"client" json:"client"`
 }
 
 type OAuthClient struct {
