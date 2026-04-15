@@ -194,6 +194,9 @@ func (r *Runtime) requiresOAuthTokens() bool {
 	if r == nil || r.cfg == nil || r.cfg.OAuth == nil {
 		return false
 	}
+	if r.cfg.Local != nil && r.cfg.Local.Enabled {
+		return false
+	}
 	mode := strings.ToLower(strings.TrimSpace(r.cfg.OAuth.Mode))
 	return mode == "bff" || mode == "mixed"
 }

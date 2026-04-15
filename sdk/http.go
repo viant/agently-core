@@ -608,6 +608,14 @@ func (c *HTTPClient) ExecuteTool(ctx context.Context, name string, args map[stri
 	return out.Result, nil
 }
 
+func (c *HTTPClient) ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error) {
+	return listTemplates(c, ctx, input)
+}
+
+func (c *HTTPClient) GetTemplate(ctx context.Context, input *GetTemplateInput) (*GetTemplateOutput, error) {
+	return getTemplate(c, ctx, input)
+}
+
 func (c *HTTPClient) UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")

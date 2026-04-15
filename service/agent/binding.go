@@ -151,9 +151,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 
 	}
 
-	// Append internal tools needed for continuation flows (no duplicates)
-	s.ensureInternalToolsIfNeeded(ctx, input, b)
-
 	docsStart := time.Now()
 	logx.Infof("conversation", "agent.BuildBinding buildDocuments start convo=%q", convoID)
 	docs, err := s.buildDocumentsBinding(ctx, input, false)

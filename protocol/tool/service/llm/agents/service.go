@@ -153,8 +153,8 @@ func (s *Service) AsyncConfigs() []*asynccfg.Config {
 				Tool:           "llm/agents:status",
 				OperationIDArg: "conversationId",
 				Selector: asynccfg.Selector{
-					StatusPath: "status",
-					DataPath:   "items",
+					StatusPath:  "status",
+					MessagePath: "assistantResponse",
 				},
 			},
 			Cancel: &asynccfg.CancelConfig{
@@ -196,7 +196,7 @@ func (s *Service) Methods() svc.Signatures {
 			Name:        "start",
 			Description: "Start an agent asynchronously and return its conversation handle for later status polling",
 			Input:       reflect.TypeOf(&StartInput{}),
-			Output:      reflect.TypeOf(&RunOutput{}),
+			Output:      reflect.TypeOf(&StartOutput{}),
 		},
 		{
 			Name:        "run",
@@ -357,14 +357,25 @@ func (s *Service) start(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidInputError(in)
 	}
-	ro, ok := out.(*RunOutput)
+	so, ok := out.(*StartOutput)
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
 	cloned := *si
 	asyncFlag := true
 	cloned.Async = &asyncFlag
-	return s.run(ctx, &cloned, ro)
+	tmp := &RunOutput{}
+	if err := s.run(ctx, &cloned, tmp); err != nil {
+		return err
+	}
+	so.ConversationID = strings.TrimSpace(tmp.ConversationID)
+	so.Status = strings.TrimSpace(tmp.Status)
+	if msg := strings.TrimSpace(tmp.Error); msg != "" {
+		so.Message = msg
+	} else if !strings.EqualFold(strings.TrimSpace(tmp.Status), "running") {
+		so.Message = strings.TrimSpace(tmp.Answer)
+	}
+	return nil
 }
 
 func (s *Service) directorySource(agentID string) string {

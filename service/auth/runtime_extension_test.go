@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -107,5 +108,45 @@ func TestRuntimeHandleCreateSession_RejectsNonPOST(t *testing.T) {
 	}
 	if got := rec.Header().Get("Allow"); got != http.MethodPost {
 		t.Fatalf("Allow = %q, want %q", got, http.MethodPost)
+	}
+}
+
+func TestRuntimeHandleMe_AllowsLocalSessionWhenOAuthBFFAlsoConfigured(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			Local:      &Local{Enabled: true},
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions: NewManager(time.Hour, nil),
+	}
+
+	sess := &Session{
+		ID:        "sess-1",
+		Username:  "awitas",
+		Subject:   "awitas",
+		Provider:  "local",
+		CreatedAt: time.Now(),
+	}
+	ext.sessions.Put(nil, sess)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: sess.ID})
+	rec := httptest.NewRecorder()
+
+	ext.handleMe().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if got := strings.TrimSpace(out["username"].(string)); got != "awitas" {
+		t.Fatalf("username = %q, want %q", got, "awitas")
+	}
+	if got := strings.TrimSpace(out["provider"].(string)); got != "session" {
+		t.Fatalf("provider = %q, want %q", got, "session")
 	}
 }

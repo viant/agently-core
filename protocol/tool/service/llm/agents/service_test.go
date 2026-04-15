@@ -728,7 +728,7 @@ func TestService_Status_ByConversationID(t *testing.T) {
 	assert.Equal(t, "child-conv", out.Items[0].ConversationID)
 	assert.Equal(t, "coder", out.Items[0].AgentID)
 	assert.Equal(t, "succeeded", out.Items[0].Status)
-	assert.Equal(t, "calling tools", out.Items[0].LastAssistantPreamble)
+	assert.Empty(t, out.Items[0].LastAssistantPreamble)
 	assert.Equal(t, "final child answer", out.Items[0].LastAssistantResponse)
 	assert.True(t, out.Items[0].HasFinalResponse)
 	assert.Equal(t, parentID, out.Items[0].ParentConversationID)
@@ -1362,7 +1362,7 @@ func TestService_Start_StatusToolNameFormat(t *testing.T) {
 	}
 	s := &Service{agent: fake, conv: conv, status: statussvc.New(conv), linker: linksvc.New(conv)}
 
-	var out RunOutput
+	var out StartOutput
 	err := s.start(runCtx, &StartInput{AgentID: "worker", Objective: "work"}, &out)
 	assert.NoError(t, err)
 
@@ -1386,5 +1386,5 @@ func TestService_Start_StatusToolNameFormat(t *testing.T) {
 		}
 	}
 
-	assert.True(t, foundStart, "async start should persist llm/agents/start as the status tool name")
+	assert.False(t, foundStart, "async start should not create a separate status message row; the compact tool-op payload is now the only child-launch status surface")
 }

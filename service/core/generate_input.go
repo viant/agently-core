@@ -204,7 +204,7 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedProm
 			if omitTools {
 				return
 			}
-			out = append(out, promptToolResultLLMMessages(msg)...)
+			out = append(out, prompt.ToolResultLLMMessages(msg)...)
 		case prompt.MessageKindElicitPrompt, prompt.MessageKindElicitAnswer:
 			return
 		default:
@@ -267,25 +267,6 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedProm
 	out = append(out, h.LLMMessages()...)
 	out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
 	return out
-}
-
-func promptToolResultLLMMessages(msg *prompt.Message) []llm.Message {
-	if msg == nil {
-		return nil
-	}
-	opID := strings.TrimSpace(msg.ToolOpID)
-	if opID == "" {
-		return nil
-	}
-	rawName := strings.TrimSpace(msg.ToolName)
-	name := rawName
-	if strings.TrimSpace(name) == "" {
-		name = rawName
-	}
-	call := llm.NewToolCall(opID, name, msg.ToolArgs, strings.TrimSpace(msg.Content))
-	assistant := llm.NewAssistantMessageWithToolCalls(call)
-	tool := llm.NewToolResultMessage(call)
-	return []llm.Message{assistant, tool}
 }
 
 func newExpandedUserLLMMessage(content string, attachments []*prompt.Attachment) llm.Message {

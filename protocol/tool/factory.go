@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"fmt"
+
 	internal "github.com/viant/agently-core/internal/tool/registry"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/mcp/manager"
@@ -19,9 +21,16 @@ func InjectVirtualAgentTools(reg Registry, agents []*agent.Agent, domain string)
 }
 
 // AddInternalService attempts to register a service as an internal MCP client on the default registry.
-func AddInternalService(reg Registry, s svc.Service) {
+func AddInternalService(reg Registry, s svc.Service) error {
 	type adder interface{ AddInternalService(s svc.Service) error }
 	if v, ok := reg.(adder); ok {
-		_ = v.AddInternalService(s) // bubble up errors to debug logs in registry if any
+		return v.AddInternalService(s)
 	}
+	if reg == nil {
+		return fmt.Errorf("tool registry is nil")
+	}
+	if s == nil {
+		return fmt.Errorf("internal service is nil")
+	}
+	return fmt.Errorf("tool registry does not support internal service registration for %q", s.Name())
 }

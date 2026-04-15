@@ -145,6 +145,28 @@ func TestHistory_LLMMessages_ToolResultIncludesAttachments(t *testing.T) {
 	assert.EqualValues(t, true, sawBinary)
 }
 
+func TestToolResultLLMMessages_PreservesMessageID(t *testing.T) {
+	msg := &Message{
+		ID:       "msg-tool-1",
+		Kind:     MessageKindToolResult,
+		Role:     "assistant",
+		ToolOpID: "call_abc123",
+		ToolName: "message-show",
+		ToolArgs: map[string]interface{}{"byteRange": map[string]int{"from": 10, "to": 20}},
+		Content:  `{"content":"payload"}`,
+	}
+
+	out := ToolResultLLMMessages(msg)
+	assert.Len(t, out, 2)
+	assert.Equal(t, llm.RoleAssistant, out[0].Role)
+	assert.Equal(t, "msg-tool-1", out[0].ID)
+	assert.Len(t, out[0].ToolCalls, 1)
+	assert.Equal(t, "call_abc123", out[0].ToolCalls[0].ID)
+	assert.Equal(t, llm.RoleTool, out[1].Role)
+	assert.Equal(t, "msg-tool-1", out[1].ID)
+	assert.Equal(t, "call_abc123", out[1].ToolCallId)
+}
+
 func extractToolNames(messages []llm.Message) []string {
 	var out []string
 	for _, m := range messages {

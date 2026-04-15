@@ -179,6 +179,9 @@ func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
 }
 
 func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current *apiconv.Turn, b *prompt.Binding) {
+	if input != nil && input.Agent != nil && !input.Agent.Tool.OverflowHelpersAllowed() {
+		return
+	}
 	// Detect token-limit recovery by scanning current turn for an assistant error message
 	tokenLimit := false
 	if current != nil && len(current.Message) > 0 {

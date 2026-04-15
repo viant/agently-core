@@ -180,6 +180,9 @@ func (a *authExtension) requiresOAuthTokens() bool {
 	if a == nil || a.cfg == nil || a.cfg.OAuth == nil {
 		return false
 	}
+	if a.cfg.Local != nil && a.cfg.Local.Enabled {
+		return false
+	}
 	mode := strings.ToLower(strings.TrimSpace(a.cfg.OAuth.Mode))
 	return mode == "bff" || mode == "mixed"
 }

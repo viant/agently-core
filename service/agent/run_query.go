@@ -513,6 +513,21 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				modelSelection.AllowedProviders = []string{prov}
 			}
 		}
+		if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
+			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
+			if len(changedOps) > 0 {
+				s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
+				queryOutput.Content = ""
+				continue
+			}
+			logx.Infof("conversation", "agent.runPlan async-wait-pre-model convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+			if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
+				return err
+			}
+			s.injectAsyncReinforcement(ctx, &turn)
+			queryOutput.Content = ""
+			continue
+		}
 		if modelSelection.Options == nil {
 			modelSelection.Options = &llm.Options{}
 		}
@@ -584,7 +599,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					if id == "" || name == "" {
 						continue
 					}
+					msgID := s.findToolMessageIDByOpID(ctx, turn.ConversationID, turn.TurnID, id)
 					nextHistory = append(nextHistory, &prompt.Message{
+						ID:       msgID,
 						Kind:     prompt.MessageKindToolResult,
 						Role:     string(llm.RoleAssistant),
 						ToolOpID: id,
@@ -743,6 +760,51 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 
 		logx.Infof("conversation", "agent.runPlan continue convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 	}
+}
+
+func (s *Service) findToolMessageIDByOpID(ctx context.Context, conversationID, turnID, opID string) string {
+	if s == nil || s.conversation == nil {
+		return ""
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	turnID = strings.TrimSpace(turnID)
+	opID = strings.TrimSpace(opID)
+	if conversationID == "" || turnID == "" || opID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
+	if err != nil || conv == nil {
+		return ""
+	}
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil || strings.TrimSpace(turn.Id) != turnID {
+			continue
+		}
+		for _, msg := range turn.GetMessages() {
+			if msg == nil {
+				continue
+			}
+			for _, tm := range msg.ToolMessage {
+				if tm == nil || tm.ToolCall == nil {
+					continue
+				}
+				if strings.TrimSpace(tm.ToolCall.OpId) == opID {
+					return strings.TrimSpace(tm.Id)
+				}
+			}
+			if strings.EqualFold(strings.TrimSpace(msg.Type), "tool_op") {
+				for _, tm := range msg.ToolMessage {
+					if tm == nil || tm.ToolCall == nil {
+						continue
+					}
+					if strings.TrimSpace(tm.ToolCall.OpId) == opID {
+						return strings.TrimSpace(msg.Id)
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func deriveProviderFromModelRef(modelRef string) string {

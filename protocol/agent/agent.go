@@ -77,6 +77,8 @@ type (
 		// contract: tool: { items: [], callExposure }.
 		// This preserves backward compatibility while enabling richer config.
 		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+		// Template assigns workspace output-template bundles to this agent.
+		Template Template `yaml:"template,omitempty" json:"template,omitempty"`
 		// Capabilities declares generic agent requirements that can later be
 		// mapped to provider-specific features based on the selected model.
 		Capabilities *Capabilities `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
@@ -248,9 +250,21 @@ func (a *Agent) EffectiveInstructionPrompt() *prompt.Prompt {
 type Tool struct {
 	// Bundles references global tool bundles by id (workspace-driven).
 	// When set, the runtime expands bundles into concrete tool definitions.
-	Bundles      []string         `yaml:"bundles,omitempty" json:"bundles,omitempty"`
-	Items        []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
-	CallExposure ToolCallExposure `yaml:"callExposure,omitempty" json:"callExposure,omitempty"`
+	Bundles              []string         `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+	Items                []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
+	CallExposure         ToolCallExposure `yaml:"callExposure,omitempty" json:"callExposure,omitempty"`
+	AllowOverflowHelpers *bool            `yaml:"allowOverflowHelpers,omitempty" json:"allowOverflowHelpers,omitempty"`
+}
+
+func (t *Tool) OverflowHelpersAllowed() bool {
+	if t == nil || t.AllowOverflowHelpers == nil {
+		return true
+	}
+	return *t.AllowOverflowHelpers
+}
+
+type Template struct {
+	Bundles []string `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
 
 // Capabilities declares optional generic agent capabilities/requirements.

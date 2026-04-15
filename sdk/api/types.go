@@ -186,6 +186,32 @@ type WorkspaceMetadata struct {
 	Version         string                `json:"version,omitempty"`
 }
 
+type ListTemplatesInput struct{}
+
+type TemplateListItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Format      string `json:"format,omitempty"`
+}
+
+type ListTemplatesOutput struct {
+	Items []TemplateListItem `json:"items"`
+}
+
+type GetTemplateInput struct {
+	Name            string `json:"name"`
+	IncludeDocument *bool  `json:"includeDocument,omitempty"`
+}
+
+type GetTemplateOutput struct {
+	Name             string                 `json:"name,omitempty"`
+	Format           string                 `json:"format,omitempty"`
+	Description      string                 `json:"description,omitempty"`
+	Instructions     string                 `json:"instructions,omitempty"`
+	Schema           map[string]interface{} `json:"schema,omitempty"`
+	IncludedDocument bool                   `json:"includedDocument,omitempty"`
+}
+
 type ListPendingToolApprovalsInput struct {
 	UserID         string
 	ConversationID string

@@ -140,7 +140,7 @@ func (s *Service) buildBatchedAsyncContext(ctx context.Context, records []*async
 		if sameToolReuse {
 			op["requestArgsJSON"] = mustJSONText(rec.RequestArgs)
 		}
-		if msg := strings.TrimSpace(rec.Message); msg != "" && !rec.Terminal() {
+		if msg := strings.TrimSpace(rec.Message); msg != "" {
 			op["message"] = msg
 		}
 		if errMsg := strings.TrimSpace(rec.Error); errMsg != "" && rec.Terminal() {

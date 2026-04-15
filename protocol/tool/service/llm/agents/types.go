@@ -52,6 +52,12 @@ type RunInput struct {
 // It shares the same public fields as RunInput, but the service forces async=true.
 type StartInput = RunInput
 
+type StartOutput struct {
+	ConversationID string `json:"conversationId,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Message        string `json:"message,omitempty"`
+}
+
 // RunOutput defines the response payload for agents:run.
 // Depending on routing (internal vs external), different handles will be set.
 type RunOutput struct {

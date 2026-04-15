@@ -437,7 +437,7 @@ func (h *History) LLMMessages() []llm.Message {
 			if omitTools {
 				return
 			}
-			toolMsgs := toolResultLLMMessages(msg)
+			toolMsgs := ToolResultLLMMessages(msg)
 			out = append(out, toolMsgs...)
 		case MessageKindElicitPrompt, MessageKindElicitAnswer:
 			return
@@ -476,7 +476,7 @@ func (h *History) LLMMessages() []llm.Message {
 	return out
 }
 
-func toolResultLLMMessages(msg *Message) []llm.Message {
+func ToolResultLLMMessages(msg *Message) []llm.Message {
 	if msg == nil {
 		return nil
 	}
@@ -491,6 +491,7 @@ func toolResultLLMMessages(msg *Message) []llm.Message {
 	}
 	result := strings.TrimSpace(msg.Content)
 	call := llm.NewToolCall(opID, name, msg.ToolArgs, result)
+	call.ResultMessageID = strings.TrimSpace(msg.ID)
 	assistant := llm.NewAssistantMessageWithToolCalls(call)
 	assistant.ID = strings.TrimSpace(msg.ID)
 	tool := newToolResultMessageWithAttachments(call, msg.Attachment)

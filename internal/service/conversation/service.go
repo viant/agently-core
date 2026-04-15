@@ -310,7 +310,17 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 				// No conversation found; mirror API behavior by returning nil without logging.
 				return nil, nil
 			}
+			pruneBlankAssistantPlaceholders(baseOut.Data[0].Transcript)
 			baseOut.Data[0].OnRelation(ctx)
+			logx.Infof("conversation", "GetConversation base after OnRelation id=%q stage=%q status=%q last_turn_id=%q transcript_len=%d latest_turn_status=%q latest_turn_stage=%q",
+				strings.TrimSpace(baseOut.Data[0].Id),
+				strings.TrimSpace(baseOut.Data[0].Stage),
+				strings.TrimSpace(valueOrEmptyStr(baseOut.Data[0].Status)),
+				strings.TrimSpace(valueOrEmptyStr(baseOut.Data[0].LastTurnId)),
+				len(baseOut.Data[0].Transcript),
+				latestTranscriptStatus(baseOut.Data[0].Transcript),
+				latestTranscriptStage(baseOut.Data[0].Transcript),
+			)
 			conv := convcli.Conversation(*baseOut.Data[0])
 			return &conv, nil
 		}
@@ -318,9 +328,78 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 		return nil, nil
 	}
 	// Cast generated to SDK type
+	pruneBlankAssistantPlaceholders(out.Data[0].Transcript)
 	out.Data[0].OnRelation(ctx)
+	logx.Infof("conversation", "GetConversation after OnRelation id=%q stage=%q status=%q last_turn_id=%q transcript_len=%d latest_turn_status=%q latest_turn_stage=%q",
+		strings.TrimSpace(out.Data[0].Id),
+		strings.TrimSpace(out.Data[0].Stage),
+		strings.TrimSpace(valueOrEmptyStr(out.Data[0].Status)),
+		strings.TrimSpace(valueOrEmptyStr(out.Data[0].LastTurnId)),
+		len(out.Data[0].Transcript),
+		latestTranscriptStatus(out.Data[0].Transcript),
+		latestTranscriptStage(out.Data[0].Transcript),
+	)
 	conv := convcli.Conversation(*out.Data[0])
 	return &conv, nil
+}
+
+func latestTranscriptStatus(transcript []*agconv.TranscriptView) string {
+	for i := len(transcript) - 1; i >= 0; i-- {
+		if transcript[i] == nil {
+			continue
+		}
+		if status := strings.TrimSpace(transcript[i].Status); status != "" {
+			return status
+		}
+	}
+	return ""
+}
+
+func latestTranscriptStage(transcript []*agconv.TranscriptView) string {
+	for i := len(transcript) - 1; i >= 0; i-- {
+		if transcript[i] == nil {
+			continue
+		}
+		if stage := strings.TrimSpace(transcript[i].Stage); stage != "" {
+			return stage
+		}
+	}
+	return ""
+}
+
+func pruneBlankAssistantPlaceholders(turns []*agconv.TranscriptView) {
+	for _, turn := range turns {
+		if turn == nil || len(turn.Message) == 0 {
+			continue
+		}
+		filtered := turn.Message[:0]
+		for _, msg := range turn.Message {
+			if shouldDropBlankAssistantPlaceholder(msg) {
+				continue
+			}
+			filtered = append(filtered, msg)
+		}
+		turn.Message = filtered
+	}
+}
+
+func shouldDropBlankAssistantPlaceholder(msg *agconv.MessageView) bool {
+	if msg == nil {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+		return false
+	}
+	if msg.Interim != 1 {
+		return false
+	}
+	if valueOrEmptyStr(msg.Content) != "" || valueOrEmptyStr(msg.RawContent) != "" || valueOrEmptyStr(msg.Preamble) != "" {
+		return false
+	}
+	if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
+		return false
+	}
+	return !(msg.ModelCall != nil || len(msg.ToolMessage) > 0)
 }
 
 func (s *Service) GetPayload(ctx context.Context, id string) (*convcli.Payload, error) {

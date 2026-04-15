@@ -87,8 +87,9 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	// (which uses the original non-enriched context) can read it for
 	// parent_message_id on tool_op messages.
 	runtimerequestctx.SetTurnModelMessageID(turn.TurnID, msgID)
-
-	// Create interim assistant message to capture request payload in transcript
+	// Create the persisted assistant placeholder row required by model_call
+	// persistence. Blank interim rows are pruned from conversation API output,
+	// so keeping this row durable does not surface a blank bubble to users.
 	if turn.ConversationID != "" {
 		mode := ""
 		if info.LLMRequest != nil && info.LLMRequest.Options != nil {
@@ -274,15 +275,9 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 		logx.Infof("conversation", "patchAssistant msg=%s skip empty content after all fallbacks", msgID)
 		return false, nil
 	}
-	// When the model response has tool calls but no text content, synthesize
-	// a preamble from the tool names so the interim assistant message exists
-	// in the transcript. This allows tool_op messages to reference it as
-	// their parent_message_id, enabling the UI to group tool calls under the
-	// correct model-call iteration.
-	if content == "" && hasToolCalls {
-		content = synthesizeToolPreamble(resp)
-		logx.Infof("conversation", "patchAssistant msg=%s synthesized preamble for tool-only response: %q", msgID, content)
-	}
+	// For tool-only model responses, preserve the absence of model-authored
+	// preamble text instead of inventing "Calling ..." narration. The interim
+	// assistant message may remain empty; tool rows still carry the iteration.
 	msg := apiconv.NewMessage()
 	msg.SetId(msgID)
 	msg.SetRole("assistant")
@@ -336,7 +331,54 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	if err := o.client.PatchMessage(ctx, msg); err != nil {
 		return false, err
 	}
+	if isToolCallResponse {
+		o.archiveOlderInterimAssistantNarratives(ctx, msgID)
+	}
 	return true, nil
+}
+
+func (o *recorderObserver) archiveOlderInterimAssistantNarratives(ctx context.Context, keepMessageID string) {
+	if o == nil || o.client == nil || strings.TrimSpace(keepMessageID) == "" {
+		return
+	}
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
+	if !ok || strings.TrimSpace(turn.ConversationID) == "" || strings.TrimSpace(turn.TurnID) == "" {
+		return
+	}
+	conv, err := o.client.GetConversation(ctx, turn.ConversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return
+	}
+	for _, transcriptTurn := range conv.GetTranscript() {
+		if transcriptTurn == nil || strings.TrimSpace(transcriptTurn.Id) != strings.TrimSpace(turn.TurnID) {
+			continue
+		}
+		for _, existing := range transcriptTurn.Message {
+			if existing == nil {
+				continue
+			}
+			if strings.TrimSpace(existing.Id) == strings.TrimSpace(keepMessageID) {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(existing.Role), "assistant") || existing.Interim != 1 {
+				continue
+			}
+			if existing.Archived != nil && *existing.Archived == 1 {
+				continue
+			}
+			if existing.Mode != nil && strings.TrimSpace(*existing.Mode) != "" {
+				continue
+			}
+			upd := apiconv.NewMessage()
+			upd.SetId(existing.Id)
+			upd.SetConversationID(turn.ConversationID)
+			upd.SetArchived(1)
+			upd.SupersededBy = &keepMessageID
+			upd.Has.SupersededBy = true
+			_ = o.client.PatchMessage(ctx, upd)
+		}
+		return
+	}
 }
 
 // OnStreamDelta aggregates streamed chunks. Persistence strategy is controlled

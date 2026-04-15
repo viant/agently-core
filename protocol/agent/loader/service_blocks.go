@@ -139,6 +139,12 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 				agent.Tool.CallExposure = exp
 				agent.ToolCallExposure = exp
 			}
+		case "allowoverflowhelpers":
+			if v.Kind != yaml.ScalarNode {
+				return fmt.Errorf("tool.allowOverflowHelpers must be a scalar")
+			}
+			val := toBool(v.Value)
+			cfg.AllowOverflowHelpers = &val
 		}
 		return nil
 	}); err != nil {

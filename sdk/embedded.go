@@ -735,6 +735,12 @@ func (c *backendClient) ListToolDefinitions(_ context.Context) ([]ToolDefinition
 func (c *backendClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	return executeTool(c, ctx, name, args)
 }
+func (c *backendClient) ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error) {
+	return listTemplates(c, ctx, input)
+}
+func (c *backendClient) GetTemplate(ctx context.Context, input *GetTemplateInput) (*GetTemplateOutput, error) {
+	return getTemplate(c, ctx, input)
+}
 
 func isToolApprovalQueueDuplicateErr(err error) bool {
 	if err == nil {

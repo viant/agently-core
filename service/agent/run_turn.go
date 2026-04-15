@@ -348,6 +348,47 @@ func (s *Service) markAssistantMessageInterim(ctx context.Context, turn *runtime
 	msg.SetConversationID(turn.ConversationID)
 	msg.SetInterim(1)
 	_ = s.conversation.PatchMessage(ctx, msg)
+	s.archiveOlderInterimAssistantMessages(ctx, turn.ConversationID, turn.TurnID, msgID)
+}
+
+func (s *Service) archiveOlderInterimAssistantMessages(ctx context.Context, conversationID, turnID, keepMessageID string) {
+	if s == nil || s.conversation == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(turnID) == "" || strings.TrimSpace(keepMessageID) == "" {
+		return
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return
+	}
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil || strings.TrimSpace(turn.Id) != strings.TrimSpace(turnID) {
+			continue
+		}
+		for _, message := range turn.Message {
+			if message == nil {
+				continue
+			}
+			if strings.TrimSpace(message.Id) == strings.TrimSpace(keepMessageID) {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") || message.Interim != 1 {
+				continue
+			}
+			if message.Archived != nil && *message.Archived == 1 {
+				continue
+			}
+			if message.Mode != nil && strings.TrimSpace(*message.Mode) != "" {
+				continue
+			}
+			upd := apiconv.NewMessage()
+			upd.SetId(message.Id)
+			upd.SetConversationID(conversationID)
+			upd.SetArchived(1)
+			upd.SupersededBy = &keepMessageID
+			upd.Has.SupersededBy = true
+			_ = s.conversation.PatchMessage(ctx, upd)
+		}
+		return
+	}
 }
 
 func (s *Service) findLastInterimAssistantMessageID(ctx context.Context, conversationID, turnID string) string {

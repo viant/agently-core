@@ -126,3 +126,124 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 		t.Fatalf("expected manual OnRelation to be idempotent for status, got %q -> %#v", beforeStatus, out.Data[0].Status)
 	}
 }
+
+func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	dao, err := NewDatly(ctx)
+	if err != nil {
+		t.Fatalf("NewDatly: %v", err)
+	}
+	svc, err := New(ctx, dao)
+	if err != nil {
+		t.Fatalf("conversation.New: %v", err)
+	}
+
+	convID := "conv_blank_placeholder"
+	conv := &convcli.MutableConversation{}
+	conv.Has = &convwrite.ConversationHas{}
+	conv.SetId(convID)
+	conv.SetStatus("running")
+	conv.SetVisibility("private")
+	if err := svc.PatchConversations(ctx, conv); err != nil {
+		t.Fatalf("PatchConversations: %v", err)
+	}
+
+	turn := convcli.NewTurn()
+	turn.Has = &turnwrite.TurnHas{}
+	turn.SetId("turn_blank_placeholder")
+	turn.SetConversationID(convID)
+	turn.SetStatus("running")
+	turn.SetCreatedAt(time.Now())
+	if err := svc.PatchTurn(ctx, turn); err != nil {
+		t.Fatalf("PatchTurn: %v", err)
+	}
+
+	blank := convcli.NewMessage()
+	blank.SetId("assistant-blank")
+	blank.SetConversationID(convID)
+	blank.SetTurnID("turn_blank_placeholder")
+	blank.SetRole("assistant")
+	blank.SetType("text")
+	blank.SetInterim(1)
+	if err := svc.PatchMessage(ctx, blank); err != nil {
+		t.Fatalf("PatchMessage blank: %v", err)
+	}
+
+	got, err := svc.GetConversation(ctx, convID, convcli.WithIncludeTranscript(true))
+	if err != nil {
+		t.Fatalf("GetConversation: %v", err)
+	}
+	if got == nil || len(got.Transcript) != 1 {
+		t.Fatalf("expected transcript, got %#v", got)
+	}
+	if len(got.Transcript[0].Message) != 0 {
+		t.Fatalf("expected blank assistant placeholder to be pruned, got %d messages", len(got.Transcript[0].Message))
+	}
+}
+
+func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	dao, err := NewDatly(ctx)
+	if err != nil {
+		t.Fatalf("NewDatly: %v", err)
+	}
+	svc, err := New(ctx, dao)
+	if err != nil {
+		t.Fatalf("conversation.New: %v", err)
+	}
+
+	convID := "conv_whitespace_chunk"
+	conv := &convcli.MutableConversation{}
+	conv.Has = &convwrite.ConversationHas{}
+	conv.SetId(convID)
+	conv.SetStatus("running")
+	conv.SetVisibility("private")
+	if err := svc.PatchConversations(ctx, conv); err != nil {
+		t.Fatalf("PatchConversations: %v", err)
+	}
+
+	turn := convcli.NewTurn()
+	turn.Has = &turnwrite.TurnHas{}
+	turn.SetId("turn_whitespace_chunk")
+	turn.SetConversationID(convID)
+	turn.SetStatus("running")
+	turn.SetCreatedAt(time.Now())
+	if err := svc.PatchTurn(ctx, turn); err != nil {
+		t.Fatalf("PatchTurn: %v", err)
+	}
+
+	msg := convcli.NewMessage()
+	msg.SetId("assistant-whitespace")
+	msg.SetConversationID(convID)
+	msg.SetTurnID("turn_whitespace_chunk")
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetInterim(1)
+	msg.SetContent(" ")
+	if err := svc.PatchMessage(ctx, msg); err != nil {
+		t.Fatalf("PatchMessage whitespace: %v", err)
+	}
+
+	got, err := svc.GetConversation(ctx, convID, convcli.WithIncludeTranscript(true))
+	if err != nil {
+		t.Fatalf("GetConversation: %v", err)
+	}
+	if got == nil || len(got.Transcript) != 1 {
+		t.Fatalf("expected transcript, got %#v", got)
+	}
+	if len(got.Transcript[0].Message) != 1 {
+		t.Fatalf("expected whitespace-only chunk to be preserved, got %d messages", len(got.Transcript[0].Message))
+	}
+}

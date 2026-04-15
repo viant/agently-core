@@ -107,7 +107,11 @@ func sanitizeToolReplayMessage(msg llm.Message, threshold int) llm.Message {
 		copy(calls, msg.ToolCalls)
 		for i := range calls {
 			if body := strings.TrimSpace(calls[i].Result); body != "" {
-				calls[i].Result = buildToolResultPreview(body, calls[i].ID, threshold)
+				refID := strings.TrimSpace(calls[i].ResultMessageID)
+				if refID == "" {
+					refID = strings.TrimSpace(calls[i].ID)
+				}
+				calls[i].Result = buildToolResultPreview(body, refID, threshold)
 			}
 		}
 		msg.ToolCalls = calls

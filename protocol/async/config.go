@@ -39,6 +39,7 @@ type CancelConfig struct {
 
 type Selector struct {
 	StatusPath       string   `json:"statusPath" yaml:"statusPath"`
+	MessagePath      string   `json:"messagePath,omitempty" yaml:"messagePath,omitempty"`
 	DataPath         string   `json:"dataPath,omitempty" yaml:"dataPath,omitempty"`
 	ProgressPath     string   `json:"progressPath,omitempty" yaml:"progressPath,omitempty"`
 	ErrorPath        string   `json:"errorPath,omitempty" yaml:"errorPath,omitempty"`
