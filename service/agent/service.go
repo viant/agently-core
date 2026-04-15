@@ -4,7 +4,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,6 @@ import (
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
-	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/augmenter"
 	"github.com/viant/agently-core/service/core"
@@ -33,10 +31,6 @@ import (
 
 // Option customises Service instances.
 type Option func(*Service)
-
-const (
-	name = "llm/agent"
-)
 
 type Service struct {
 	llm          *core.Service
@@ -251,11 +245,6 @@ func (s *Service) SetElicitationStreamPublisher(p streaming.Publisher) {
 	}
 }
 
-// Name returns the service name
-func (s *Service) Name() string {
-	return name
-}
-
 // ResolveElicitation applies an elicitation decision (accept/decline/cancel)
 // and persists status/payload through the elicitation service.
 func (s *Service) ResolveElicitation(ctx context.Context, conversationID, elicitationID, action string, payload map[string]interface{}) error {
@@ -263,25 +252,4 @@ func (s *Service) ResolveElicitation(ctx context.Context, conversationID, elicit
 		return fmt.Errorf("elicitation service not configured")
 	}
 	return s.elicitation.Resolve(ctx, conversationID, elicitationID, action, payload, "")
-}
-
-// Methods returns the service methods
-func (s *Service) Methods() svc.Signatures {
-	return []svc.Signature{
-		{
-			Name:   "query",
-			Input:  reflect.TypeOf(&QueryInput{}),
-			Output: reflect.TypeOf(&QueryOutput{}),
-		},
-	}
-}
-
-// Method returns the specified method
-func (s *Service) Method(name string) (svc.Executable, error) {
-	switch strings.ToLower(name) {
-	case "query":
-		return s.query, nil
-	default:
-		return nil, svc.NewMethodNotFoundError(name)
-	}
 }

@@ -204,12 +204,14 @@ type GetTemplateInput struct {
 }
 
 type GetTemplateOutput struct {
-	Name             string                 `json:"name,omitempty"`
-	Format           string                 `json:"format,omitempty"`
-	Description      string                 `json:"description,omitempty"`
-	Instructions     string                 `json:"instructions,omitempty"`
-	Schema           map[string]interface{} `json:"schema,omitempty"`
-	IncludedDocument bool                   `json:"includedDocument,omitempty"`
+	Name             string                   `json:"name,omitempty"`
+	Format           string                   `json:"format,omitempty"`
+	Description      string                   `json:"description,omitempty"`
+	Instructions     string                   `json:"instructions,omitempty"`
+	Fences           []map[string]interface{} `json:"fences,omitempty"`
+	Schema           map[string]interface{}   `json:"schema,omitempty"`
+	Examples         []map[string]interface{} `json:"examples,omitempty"`
+	IncludedDocument bool                     `json:"includedDocument,omitempty"`
 }
 
 type ListPendingToolApprovalsInput struct {

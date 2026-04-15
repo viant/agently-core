@@ -36,17 +36,12 @@ func (r *Runtime) resolveRuntimeOAuthTokenOwner(_ context.Context, sess *Session
 	if r == nil || r.ext == nil || sess == nil {
 		return "", ""
 	}
-	lookupID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Username))
-	if r.ext.users != nil {
-		if user, err := r.ext.users.GetByUsername(context.Background(), strings.TrimSpace(firstNonEmpty(sess.Username, sess.Subject))); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
-			lookupID = strings.TrimSpace(user.ID)
-		}
-	}
-	if lookupID == "" {
-		return "", ""
-	}
 	provider := strings.TrimSpace(firstNonEmpty(sess.Provider, r.ext.oauthProviderName()))
 	if provider == "" {
+		return "", ""
+	}
+	lookupID := resolveOAuthTokenOwnerID(context.Background(), r.ext.users, provider, sess)
+	if lookupID == "" {
 		return "", ""
 	}
 	return lookupID, provider

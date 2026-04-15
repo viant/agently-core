@@ -91,9 +91,9 @@ func TestDefinitions_UsesCacheOnFailure(t *testing.T) {
 		expected  []string
 	}
 	cases := []testCase{
-		{name: "down with cache", seedCache: true, mode: "down", expected: []string{"db:ping", "llm/exec:run_agent"}},
-		{name: "down without cache", seedCache: false, mode: "down", expected: []string{"llm/exec:run_agent"}},
-		{name: "empty with cache", seedCache: true, mode: "empty", expected: []string{"db:ping", "llm/exec:run_agent"}},
+		{name: "down with cache", seedCache: true, mode: "down", expected: []string{"db:ping"}},
+		{name: "down without cache", seedCache: false, mode: "down", expected: []string{}},
+		{name: "empty with cache", seedCache: true, mode: "empty", expected: []string{"db:ping"}},
 	}
 
 	for _, tc := range cases {

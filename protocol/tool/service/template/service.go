@@ -39,12 +39,14 @@ type GetInput struct {
 }
 
 type GetOutput struct {
-	Name             string                 `json:"name,omitempty"`
-	Format           string                 `json:"format,omitempty"`
-	Description      string                 `json:"description,omitempty"`
-	Instructions     string                 `json:"instructions,omitempty"`
-	Schema           map[string]interface{} `json:"schema,omitempty"`
-	IncludedDocument bool                   `json:"includedDocument,omitempty"`
+	Name             string                   `json:"name,omitempty"`
+	Format           string                   `json:"format,omitempty"`
+	Description      string                   `json:"description,omitempty"`
+	Instructions     string                   `json:"instructions,omitempty"`
+	Fences           []tpldef.Fence           `json:"fences,omitempty"`
+	Schema           map[string]interface{}   `json:"schema,omitempty"`
+	Examples         []tpldef.TemplateExample `json:"examples,omitempty"`
+	IncludedDocument bool                     `json:"includedDocument,omitempty"`
 }
 
 type Service struct {
@@ -150,7 +152,9 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	goo.Format = strings.TrimSpace(selected.Format)
 	goo.Description = strings.TrimSpace(selected.Description)
 	goo.Instructions = strings.TrimSpace(selected.Instructions)
+	goo.Fences = selected.Fences
 	goo.Schema = selected.Schema
+	goo.Examples = selected.Examples
 	if gi.IncludeDocument != nil && *gi.IncludeDocument {
 		if err := s.injectTemplateDocument(ctx, selected); err != nil {
 			return err
@@ -236,7 +240,7 @@ func (s *Service) injectTemplateDocument(ctx context.Context, tpl *tpldef.Templa
 	if !ok || strings.TrimSpace(turn.ConversationID) == "" || strings.TrimSpace(turn.TurnID) == "" {
 		return nil
 	}
-	content := strings.TrimSpace(tpl.Instructions)
+	content := renderTemplateDocument(tpl)
 	if content == "" {
 		return nil
 	}
@@ -251,6 +255,69 @@ func (s *Service) injectTemplateDocument(ctx context.Context, tpl *tpldef.Templa
 		apiconv.WithCreatedAt(time.Now()),
 	)
 	return err
+}
+
+func renderTemplateDocument(tpl *tpldef.Template) string {
+	if tpl == nil {
+		return ""
+	}
+	var builder strings.Builder
+	instructions := strings.TrimSpace(tpl.Instructions)
+	if instructions != "" {
+		builder.WriteString(instructions)
+	}
+	if len(tpl.Fences) > 0 {
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString("Fence contract:\n")
+		for _, fence := range tpl.Fences {
+			builder.WriteString("- lang: `")
+			builder.WriteString(strings.TrimSpace(fence.Lang))
+			builder.WriteString("`")
+			if fence.Required {
+				builder.WriteString(" required")
+			}
+			if fence.Repeatable {
+				builder.WriteString(" repeatable")
+			}
+			if strings.TrimSpace(fence.Description) != "" {
+				builder.WriteString(" — ")
+				builder.WriteString(strings.TrimSpace(fence.Description))
+			}
+			if len(fence.Schema) > 0 {
+				if raw, err := json.MarshalIndent(fence.Schema, "", "  "); err == nil {
+					builder.WriteString("\n  schema:\n")
+					builder.WriteString(string(raw))
+				}
+			}
+			builder.WriteString("\n")
+		}
+	}
+	if len(tpl.Examples) > 0 {
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\nExamples:\n")
+		for _, example := range tpl.Examples {
+			if strings.TrimSpace(example.Title) != "" {
+				builder.WriteString("- ")
+				builder.WriteString(strings.TrimSpace(example.Title))
+				builder.WriteString("\n")
+			}
+			for _, fence := range example.Fences {
+				builder.WriteString("```")
+				builder.WriteString(strings.TrimSpace(fence.Lang))
+				builder.WriteString("\n")
+				if raw, err := json.MarshalIndent(fence.Body, "", "  "); err == nil {
+					builder.WriteString(string(raw))
+					builder.WriteString("\n")
+				}
+				builder.WriteString("```\n")
+			}
+		}
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func (s *Service) filterTemplatesForCurrentTarget(ctx context.Context, templates []*tpldef.Template) []*tpldef.Template {

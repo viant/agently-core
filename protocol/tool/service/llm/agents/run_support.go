@@ -304,98 +304,14 @@ func (s *Service) cancelMethod(ctx context.Context, in, out interface{}) error {
 }
 
 func delegatedToolAllowList(ri *RunInput) []string {
-	if ri == nil {
-		return []string{}
-	}
-	if !shouldUseRepoAnalysisRewrite(ri) {
-		return []string{}
-	}
-	return []string{
-		"resources:list",
-		"resources-list",
-		"resources:read",
-		"resources-read",
-		"resources:grepFiles",
-		"resources-grepFiles",
-		"resources:roots",
-		"resources-roots",
-		"resources:match",
-		"resources-match",
-		"resources:matchDocuments",
-		"resources-matchDocuments",
-		"system/exec:execute",
-		"system_exec-execute",
-		"system/os:getEnv",
-		"system_os-getEnv",
-		"message:show",
-		"message-show",
-		"internal/message:show",
-		"internal_message-show",
-		"message:summarize",
-		"message-summarize",
-		"internal/message:summarize",
-		"internal_message-summarize",
-		"message:match",
-		"message-match",
-		"internal/message:match",
-		"internal_message-match",
-	}
-}
-
-func looksLikeRepoAnalysisObjective(objective string) bool {
-	lower := strings.ToLower(strings.TrimSpace(objective))
-	if lower == "" {
-		return false
-	}
-	if !(strings.Contains(lower, "analyze") ||
-		strings.Contains(lower, "analyse") ||
-		strings.Contains(lower, "inspect") ||
-		strings.Contains(lower, "review") ||
-		strings.Contains(lower, "summarize") ||
-		strings.Contains(lower, "summarise") ||
-		strings.Contains(lower, "explain")) {
-		return false
-	}
-	return strings.Contains(lower, "/") ||
-		strings.Contains(lower, "repo") ||
-		strings.Contains(lower, "repository") ||
-		strings.Contains(lower, "codebase") ||
-		strings.Contains(lower, "project") ||
-		strings.Contains(lower, "directory")
+	return []string{}
 }
 
 func normalizedDelegatedObjective(ri *RunInput) string {
 	if ri == nil {
 		return ""
 	}
-	objective := strings.TrimSpace(ri.Objective)
-	if !shouldUseRepoAnalysisRewrite(ri) {
-		return objective
-	}
-	workdir := strings.TrimSpace(stringValue(ri.Context, "resolvedWorkdir"))
-	if workdir == "" {
-		workdir = strings.TrimSpace(stringValue(ri.Context, "workdir"))
-	}
-	target := workdir
-	if target == "" {
-		target = objective
-	}
-	return strings.TrimSpace(
-		"Analyze the repository at " + target + ". " +
-			"Use at most one `resources-list` call on the repo root, then 1-3 targeted `resources-grepFiles` or `resources-read` calls to answer the task. " +
-			"Do not start another broad discovery round after you already know the repo layout. " +
-			"Return a focused summary covering main modules or entrypoints, any MCP-related implementation patterns you found, and the most important gaps or risks. " +
-			"Once you have enough evidence for that summary, stop tool use and answer.",
-	)
-}
-
-func shouldUseRepoAnalysisRewrite(ri *RunInput) bool {
-	if ri == nil || ri.Context == nil {
-		return false
-	}
-	return boolValue(ri.Context, "repoAnalysis") ||
-		boolValue(ri.Context, "repo_analysis") ||
-		strings.EqualFold(strings.TrimSpace(stringValue(ri.Context, "delegatedMode")), "repo_analysis")
+	return strings.TrimSpace(ri.Objective)
 }
 
 func stringValue(values map[string]interface{}, key string) string {

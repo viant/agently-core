@@ -93,9 +93,10 @@ func TestAuthExtensionPersistOAuthToken_UsesCanonicalUserID(t *testing.T) {
 	}
 }
 
-// TestAuthExtensionEnsureSessionOAuthTokens_UsesCanonicalUserID verifies that
-// session token rehydration resolves the canonical DB user ID before lookup.
-func TestAuthExtensionEnsureSessionOAuthTokens_UsesCanonicalUserID(t *testing.T) {
+// TestAuthExtensionEnsureSessionOAuthTokens_UsesSubjectProviderMapping verifies
+// that session token rehydration resolves the canonical DB user ID from the
+// stable oauth subject/provider mapping before any username fallback.
+func TestAuthExtensionEnsureSessionOAuthTokens_UsesSubjectProviderMapping(t *testing.T) {
 	store := &testTokenStore{
 		token: &OAuthToken{
 			Username:     "user-42",
@@ -110,7 +111,9 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesCanonicalUserID(t *testing.T)
 		cfg:        &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
 		sessions:   NewManager(0, nil),
 		tokenStore: store,
-		users:      &testUserService{userID: "user-42"},
+		users: &testUserService{userBySubjectProvider: map[string]*User{
+			"user-sub-123|oauth": {ID: "user-42", Username: "ppoudyal"},
+		}},
 	}
 	sess := &Session{
 		ID:        "sess-1",
@@ -127,6 +130,15 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesCanonicalUserID(t *testing.T)
 	if store.getUser != "user-42" {
 		t.Fatalf("token lookup user = %q, want canonical user ID %q", store.getUser, "user-42")
 	}
+	if got := ext.users.(*testUserService).lastSubject; got != "user-sub-123" {
+		t.Fatalf("subject lookup = %q, want %q", got, "user-sub-123")
+	}
+	if got := ext.users.(*testUserService).lastProvider; got != "oauth" {
+		t.Fatalf("provider lookup = %q, want %q", got, "oauth")
+	}
+	if got := ext.users.(*testUserService).lastGetName; got != "" {
+		t.Fatalf("username fallback unexpectedly used = %q", got)
+	}
 	if sess.Tokens == nil || sess.Tokens.AccessToken != "access" {
 		t.Fatalf("expected session tokens to be rehydrated")
 	}
@@ -135,13 +147,17 @@ func TestAuthExtensionEnsureSessionOAuthTokens_UsesCanonicalUserID(t *testing.T)
 	}
 }
 
-// TestRuntimeResolveRuntimeOAuthTokenOwner_UsesCanonicalUserID verifies that
-// runtime token ownership resolves to the canonical DB user ID.
-func TestRuntimeResolveRuntimeOAuthTokenOwner_UsesCanonicalUserID(t *testing.T) {
+// TestRuntimeResolveRuntimeOAuthTokenOwner_UsesSubjectProviderMapping verifies
+// that runtime token ownership resolves from subject/provider before username
+// fallback.
+func TestRuntimeResolveRuntimeOAuthTokenOwner_UsesSubjectProviderMapping(t *testing.T) {
+	users := &testUserService{userBySubjectProvider: map[string]*User{
+		"user-sub-123|oauth": {ID: "user-42", Username: "ppoudyal"},
+	}}
 	rt := &Runtime{
 		ext: &authExtension{
 			cfg:   &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
-			users: &testUserService{userID: "user-42"},
+			users: users,
 		},
 	}
 	sess := &Session{
@@ -158,11 +174,17 @@ func TestRuntimeResolveRuntimeOAuthTokenOwner_UsesCanonicalUserID(t *testing.T) 
 	if provider != "oauth" {
 		t.Fatalf("resolved provider = %q, want %q", provider, "oauth")
 	}
+	if users.lastSubject != "user-sub-123" {
+		t.Fatalf("subject lookup = %q, want %q", users.lastSubject, "user-sub-123")
+	}
+	if users.lastGetName != "" {
+		t.Fatalf("username fallback unexpectedly used = %q", users.lastGetName)
+	}
 }
 
-// TestRuntimeEnsureSessionOAuthTokens_UsesCanonicalUserID verifies end-to-end
-// that runtime session token rehydration uses canonical user IDs.
-func TestRuntimeEnsureSessionOAuthTokens_UsesCanonicalUserID(t *testing.T) {
+// TestRuntimeEnsureSessionOAuthTokens_UsesSubjectProviderMapping verifies
+// end-to-end runtime session token rehydration via subject/provider mapping.
+func TestRuntimeEnsureSessionOAuthTokens_UsesSubjectProviderMapping(t *testing.T) {
 	store := &testTokenStore{
 		token: &OAuthToken{
 			Username:     "user-42",
@@ -180,7 +202,9 @@ func TestRuntimeEnsureSessionOAuthTokens_UsesCanonicalUserID(t *testing.T) {
 			cfg:        &Config{OAuth: &OAuth{Name: "oauth", Mode: "bff"}},
 			sessions:   NewManager(0, nil),
 			tokenStore: store,
-			users:      &testUserService{userID: "user-42"},
+			users: &testUserService{userBySubjectProvider: map[string]*User{
+				"user-sub-123|oauth": {ID: "user-42", Username: "ppoudyal"},
+			}},
 		},
 	}
 	sess := &Session{

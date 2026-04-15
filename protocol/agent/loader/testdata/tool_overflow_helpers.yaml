@@ -1,0 +1,6 @@
+id: overflow-helper-demo
+name: Overflow Helper Demo
+model: gpt-4o
+tool:
+  callExposure: conversation
+  allowOverflowHelpers: false

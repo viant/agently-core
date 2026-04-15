@@ -127,6 +127,71 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	require.GreaterOrEqual(t, reg.calls, 2)
 }
 
+func TestShouldAutoPollAsync_DisabledWhenWaitForResponseFalse(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: false,
+		Run: asynccfg.RunConfig{
+			Tool: "llm/agents:start",
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+		},
+	}
+
+	require.False(t, shouldAutoPollAsync(cfg))
+}
+
+func TestExecuteToolStep_DoesNotAutoPollWhenWaitForResponseFalse(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: false,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath: "status",
+				DataPath:   "items",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","conversationId":"child-1"}`},
+			{result: `{"status":"completed","items":[{"conversationId":"child-1","status":"completed"}]}`},
+		}},
+		cfg: cfg,
+	}
+	pub := &captureStreamPublisher{}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = memory.WithModelMessageID(ctx, "assistant-1")
+	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-1",
+		Name: "llm/agents:start",
+		Args: map[string]interface{}{"agentId": "coder", "objective": "analyze"},
+	}, conv)
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+	require.Len(t, reg.callTimes, 1, "start should execute without autonomous status polling")
+	require.NotEmpty(t, conv.patchedToolCalls)
+	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
+	require.NotNil(t, last)
+	require.Equal(t, "completed", strings.TrimSpace(last.Status))
+}
+
 func TestExecuteToolStep_AsyncUsesExplicitMessagePathForChildStatus(t *testing.T) {
 	cfg := &asynccfg.Config{
 		WaitForResponse: true,
@@ -658,6 +723,183 @@ func TestMaybeHandleAsyncTool_StatusMarksRuntimeWaitWithoutSignal(t *testing.T) 
 	require.Equal(t, "running", changed[0].Status)
 }
 
+func TestMaybeHandleAsyncTool_StatusChangedDoesNotMarkAfterStatus(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: false,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "assistantResponse",
+			},
+		},
+	}
+	reg := &asyncRegistry{cfg: cfg}
+	manager := asynccfg.NewManager()
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncWaitState(ctx)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "llm/agents:start",
+		WaitForResponse: false,
+		Status:          "running",
+		Message:         "old message",
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	rec := maybeHandleAsyncTool(ctx, reg, StepInfo{
+		ID:   "call-2",
+		Name: "llm/agents:status",
+		Args: map[string]interface{}{"conversationId": "child-1"},
+	}, `{"status":"running","assistantResponse":"new message"}`, nil)
+	require.Nil(t, rec)
+	require.Empty(t, ConsumeAsyncWaitAfterStatus(ctx))
+}
+
+func TestExecuteToolStep_ActivatedStatusPollerReturnsLatestSnapshotOnTimeout(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: false,
+		TimeoutMs:       20,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "assistantResponse",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","assistantResponse":"same status"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncWaitState(ctx)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolCallID:      "call-start",
+		ToolMessageID:   "tool-msg-start",
+		ToolName:        "llm/agents:start",
+		WaitForResponse: false,
+		Status:          "running",
+		Message:         "same status",
+		TimeoutMs:       20,
+		PollIntervalMs:  5,
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	out, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-status",
+		Name: "llm/agents:status",
+		Args: map[string]interface{}{"conversationId": "child-1"},
+	}, conv)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, reg.calls, 2, "activated status poller should keep polling unchanged snapshots until timeout")
+	require.Contains(t, out.Result, "same status")
+	require.NotEmpty(t, conv.patchedMessages)
+}
+
+func TestExecuteToolStep_ActivatedStatusPollerCompletesOnChangedSnapshot(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: false,
+		PollIntervalMs:  5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "assistantResponse",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","assistantResponse":"same status"}`},
+			{result: `{"status":"running","assistantResponse":"changed status"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncWaitState(ctx)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolCallID:      "call-start",
+		ToolMessageID:   "tool-msg-start",
+		ToolName:        "llm/agents:start",
+		StatusToolName:  "llm/agents:status",
+		StatusArgs:      map[string]interface{}{"conversationId": "child-1"},
+		WaitForResponse: false,
+		Status:          "running",
+		Message:         "same status",
+		PollIntervalMs:  5,
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	out, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-status",
+		Name: "llm/agents:status",
+		Args: map[string]interface{}{"conversationId": "child-1"},
+	}, conv)
+	require.NoError(t, err)
+	require.Equal(t, 2, reg.calls, "activated status poller should keep polling until the snapshot changes")
+	require.Contains(t, out.Result, "changed status")
+	require.NotEmpty(t, conv.patchedToolCalls)
+	require.Equal(t, "running", strings.TrimSpace(conv.patchedToolCalls[0].Status))
+	require.Equal(t, "completed", strings.TrimSpace(conv.patchedToolCalls[len(conv.patchedToolCalls)-1].Status))
+
+	var contents []string
+	for _, msg := range conv.patchedMessages {
+		if msg == nil || msg.Content == nil {
+			continue
+		}
+		contents = append(contents, strings.TrimSpace(*msg.Content))
+	}
+	require.NotEmpty(t, contents)
+	require.Contains(t, contents[len(contents)-1], "changed status")
+	for _, content := range contents {
+		require.NotContains(t, content, `"assistantResponse":"same status"`)
+	}
+}
+
 func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *testing.T) {
 	cfg := &asynccfg.Config{
 		WaitForResponse: true,
@@ -716,6 +958,59 @@ func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *test
 		}
 	}
 	require.True(t, sawFailed, "expected terminal status tool call to patch original async start tool call to failed")
+}
+
+func TestMaybeHandleAsyncTool_StatusDoesNotPatchOriginalToolCallWhenWaitForResponseFalse(t *testing.T) {
+	cfg := &asynccfg.Config{
+		WaitForResponse: false,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "assistantResponse",
+			},
+		},
+	}
+	reg := &asyncRegistry{cfg: cfg}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolCallID:      "call-1",
+		ToolMessageID:   "tool-msg-1",
+		ToolName:        "llm/agents:start",
+		WaitForResponse: false,
+		Status:          "running",
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	rec := maybeHandleAsyncTool(ctx, reg, StepInfo{
+		ID:   "call-2",
+		Name: "llm/agents:status",
+		Args: map[string]interface{}{"conversationId": "child-1"},
+	}, `{"status":"completed","assistantResponse":"child final answer"}`, nil)
+	require.Nil(t, rec)
+
+	stored, ok := manager.Get(context.Background(), "child-1")
+	require.True(t, ok)
+	require.NotNil(t, stored)
+	require.Equal(t, asynccfg.StateCompleted, stored.State)
+	require.Equal(t, "child final answer", stored.Message)
+	require.Empty(t, conv.patchedMessages, "non-wait async ops should not overwrite the start tool message")
+	require.Empty(t, conv.patchedToolCalls, "non-wait async ops should not patch the original start tool call state")
+	require.Empty(t, conv.patchedPayloads, "non-wait async ops should not persist synthetic payloads onto the start tool row")
 }
 
 func TestMaybeHandleAsyncTool_StatusCanceledPatchesOriginalAsyncToolCall(t *testing.T) {

@@ -76,7 +76,7 @@ func TestInjectAsyncReinforcement_ConsumesPendingChange(t *testing.T) {
 	require.Len(t, changed, 0)
 }
 
-func TestInjectAsyncReinforcement_IncludesExplicitStatusToolInstruction(t *testing.T) {
+func TestInjectAsyncReinforcement_RuntimePolledInstruction(t *testing.T) {
 	ctx := context.Background()
 	client := &recordingConvClient{}
 	svc := &Service{
@@ -108,6 +108,30 @@ func TestInjectAsyncReinforcement_IncludesExplicitStatusToolInstruction(t *testi
 	require.NotContains(t, content, "status tool:")
 	require.NotContains(t, content, `{"sessionId":"sess-1"}`)
 	require.NotContains(t, content, "same-tool reuse")
+}
+
+func TestInjectAsyncReinforcement_IncludesExplicitStatusToolInstruction(t *testing.T) {
+	ctx := context.Background()
+	svc := &Service{
+		asyncManager: asynccfg.NewManager(),
+	}
+
+	rec := &asynccfg.OperationRecord{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "llm/agents:start",
+		StatusToolName:  "llm/agents:status",
+		StatusArgs:      map[string]interface{}{"conversationId": "child-1"},
+		WaitForResponse: false,
+		Status:          "running",
+		State:           asynccfg.StateRunning,
+	}
+
+	content := strings.TrimSpace(svc.renderBatchedAsyncReinforcement(ctx, []*asynccfg.OperationRecord{rec}))
+	require.Contains(t, content, "status tool: `llm/agents:status`")
+	require.Contains(t, content, `status tool args: `+"`"+`{"conversationId":"child-1"}`+"`")
+	require.NotContains(t, content, "runtime polled: true")
 }
 
 func TestInjectAsyncReinforcement_TerminalPromptTellsModelToAnswer(t *testing.T) {
@@ -162,18 +186,18 @@ func TestBuildBatchedAsyncContext(t *testing.T) {
 
 	cases := []testCase{
 		{
-			name: "single non-terminal op with distinct status tool",
+			name: "single non-terminal non-wait op with distinct status tool",
 			allOps: []asynccfg.RegisterInput{{
 				ID: "op-1", ParentConvID: "c1", ParentTurnID: "t1",
 				ToolName: "llm/agents:start", StatusToolName: "llm/agents:status",
 				StatusArgs:      map[string]interface{}{"conversationId": "child-1"},
-				WaitForResponse: true, Status: "running",
+				WaitForResponse: false, Status: "running",
 			}},
 			changedRecords: []*asynccfg.OperationRecord{{
 				ID: "op-1", ParentConvID: "c1", ParentTurnID: "t1",
 				ToolName: "llm/agents:start", StatusToolName: "llm/agents:status",
 				StatusArgs:      map[string]interface{}{"conversationId": "child-1"},
-				WaitForResponse: true, State: asynccfg.StateRunning, Status: "running",
+				WaitForResponse: false, State: asynccfg.StateRunning, Status: "running",
 			}},
 			wantPending: 1, wantAllResolved: false, wantOpsLen: 1,
 			wantOpChecks: []func(t *testing.T, ops []map[string]interface{}){
@@ -183,15 +207,11 @@ func TestBuildBatchedAsyncContext(t *testing.T) {
 					require.Equal(t, "llm/agents:start", op["toolName"])
 					require.Equal(t, false, op["terminal"])
 					require.Equal(t, false, op["sameToolReuse"])
-					// Runtime-polled: status tool and args must NOT appear in context
-					// so the model is never prompted to call them redundantly.
-					require.Equal(t, true, op["runtimePolled"])
-					_, hasStatusTool := op["statusToolName"]
-					require.False(t, hasStatusTool, "runtime-polled op must not expose statusToolName")
-					_, hasStatusArgs := op["statusToolArgsJSON"]
-					require.False(t, hasStatusArgs, "runtime-polled op must not expose statusToolArgsJSON")
+					require.Equal(t, false, op["runtimePolled"])
+					require.Equal(t, "llm/agents:status", op["statusToolName"])
+					require.Contains(t, op["statusToolArgsJSON"], "child-1")
 					_, hasRequest := op["requestArgsJSON"]
-					require.False(t, hasRequest, "runtime-polled op must not expose requestArgsJSON")
+					require.False(t, hasRequest, "explicit-status op must not expose requestArgsJSON")
 				},
 			},
 		},
@@ -554,6 +574,24 @@ func TestRenderBatchedAsyncReinforcement(t *testing.T) {
 	}
 }
 
+func TestInjectAsyncReinforcementForRecords_SkipsNonWaitOps(t *testing.T) {
+	ctx := context.Background()
+	client := &recordingConvClient{}
+	mgr := asynccfg.NewManager()
+	turn := &memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
+	svc := &Service{asyncManager: mgr, conversation: client}
+
+	records := []*asynccfg.OperationRecord{{
+		ID: "child-1", ParentConvID: "conv-1", ParentTurnID: "turn-1",
+		ToolName: "llm/agents:start", WaitForResponse: false,
+		State: asynccfg.StateRunning, Status: "running", Message: "child launched",
+	}}
+
+	svc.injectAsyncReinforcementForRecords(ctx, turn, records)
+
+	require.Nil(t, client.lastMessage, "non-wait async ops should not emit async_wait reinforcement")
+}
+
 func TestInjectAsyncReinforcementForRecords_BatchesDefaultTemplateOps(t *testing.T) {
 	// Records without custom prompts should produce exactly ONE system message
 	// (the batch), not one per operation.
@@ -607,16 +645,17 @@ func TestBuildBatchedAsyncContext_RuntimePolledVsSameToolReuse(t *testing.T) {
 	}
 	cases := []testCase{
 		{
-			name: "distinct status tool → runtimePolled, no status tool in context",
+			name: "distinct status tool + non-wait op → explicit status tool in context",
 			rec: &asynccfg.OperationRecord{
 				ID: "op-1", ParentConvID: "c1", ParentTurnID: "t1",
 				ToolName: "llm/agents:start", StatusToolName: "llm/agents:status",
-				WaitForResponse: true, State: asynccfg.StateRunning,
+				StatusArgs:      map[string]interface{}{"conversationId": "child-1"},
+				WaitForResponse: false, State: asynccfg.StateRunning,
 			},
-			wantRuntimePolled: true,
+			wantRuntimePolled: false,
 			wantSameToolReuse: false,
 			wantHasSameTool:   false,
-			wantHasStatusTool: false,
+			wantHasStatusTool: true,
 			wantHasReqArgs:    false,
 		},
 		{
@@ -677,6 +716,31 @@ func TestBuildBatchedAsyncContext_RuntimePolledVsSameToolReuse(t *testing.T) {
 			require.Equal(t, tc.wantHasSameTool, turnAsync["hasSameToolReuse"], "hasSameToolReuse in turnAsync")
 		})
 	}
+}
+
+func TestRenderModelManagedAsyncControl_IncludesExplicitStatusTool(t *testing.T) {
+	ctx := context.Background()
+	mgr := asynccfg.NewManager()
+	svc := &Service{asyncManager: mgr}
+	turn := &memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
+
+	mgr.Register(ctx, asynccfg.RegisterInput{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "llm/agents:start",
+		StatusToolName:  "llm/agents:status",
+		StatusArgs:      map[string]interface{}{"conversationId": "child-1"},
+		WaitForResponse: false,
+		Status:          "running",
+	})
+
+	content := svc.renderModelManagedAsyncControl(ctx, turn)
+	require.Contains(t, content, "status tool: `llm/agents:status`")
+	require.Contains(t, content, "status tool args:")
+	require.Contains(t, content, `"conversationId":"child-1"`)
+	require.Contains(t, content, "separate status function")
+	require.NotContains(t, content, "All async operations reached terminal state")
 }
 
 func TestResolveAsyncReinforcementPrompt_UsesDefaultsWhenConfigured(t *testing.T) {
