@@ -43,6 +43,16 @@ func NewRepoProvider(opts ...RepoProviderOption) *RepoProvider {
 
 func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
 	cfg, err := p.repo.Load(ctx, name)
+	// MCP tool/runtime names can be canonicalized to slash form (for example
+	// "mcp/say/hello/auth") while workspace configs commonly use flat
+	// underscore filenames ("mcp_say_hello_auth.yaml"). Fall back to that flat
+	// alias so production-style flat MCP configs still resolve correctly.
+	if (err != nil || cfg == nil || cfg.ClientOptions == nil) && strings.Contains(strings.TrimSpace(name), "/") {
+		alias := strings.ReplaceAll(strings.TrimSpace(name), "/", "_")
+		if alias != "" && alias != name {
+			cfg, err = p.repo.Load(ctx, alias)
+		}
+	}
 	if err != nil || cfg == nil || cfg.ClientOptions == nil {
 		return cfg, err
 	}
