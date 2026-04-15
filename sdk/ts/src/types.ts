@@ -865,7 +865,7 @@ export interface OAuthConfigOutput {
     clientId?: string;
     discoveryUrl?: string;
     redirectUri?: string;
-    redirectSameTab?: boolean;
+    usePopupLogin?: boolean;
     scopes?: string[];
 }
 
