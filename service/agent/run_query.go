@@ -245,7 +245,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	rawUserContent := displayQuery
 	userContent := displayQuery
-	expandedUserPrompt := ""
 	if input.IsNewConversation && s.llm != nil && input.Agent != nil {
 		bStart := time.Now()
 		logx.Infof("conversation", "agent.Query BuildBinding start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
@@ -260,7 +259,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			logx.Infof("conversation", "agent.Query ExpandUserPrompt start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 			if err := s.llm.ExpandUserPrompt(ctx, expIn, &expOut); err == nil && strings.TrimSpace(expOut.ExpandedUserPrompt) != "" {
 				logx.Infof("conversation", "agent.Query ExpandUserPrompt ok convo=%q turn_id=%q elapsed=%s expanded_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), len(expOut.ExpandedUserPrompt))
-				expandedUserPrompt = strings.TrimSpace(expOut.ExpandedUserPrompt)
 			} else if err != nil {
 				logx.Infof("conversation", "agent.Query ExpandUserPrompt error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), err)
 			} else {
@@ -273,9 +271,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	} else {
 		if err := s.addUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
 			return err
-		}
-		if expandedUserPrompt != "" && expandedUserPrompt != userContent {
-			s.emitExpandedUserPromptEvent(ctx, turn.ConversationID, turn.TurnID, turn.TurnID, expandedUserPrompt, time.Now())
 		}
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
