@@ -9,10 +9,12 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	promptdef "github.com/viant/agently-core/protocol/prompt"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -20,6 +22,7 @@ import (
 	linksvc "github.com/viant/agently-core/service/linking"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	statussvc "github.com/viant/agently-core/service/toolstatus"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 )
 
 const Name = "llm/agents"
@@ -49,6 +52,15 @@ type Service struct {
 	// Zero means use DefaultChildAgentTimeout.
 	ChildTimeout time.Duration
 	cancelReg    cancels.Registry
+	// promptRepo is optional. When set, llm/agents:run expands promptProfileId
+	// into injected instructions + tool bundles before the child turn starts.
+	promptRepo *promptrepo.Repository
+	// mcpMgr is optional. When set, MCP-sourced profiles are rendered via the
+	// MCP server rather than falling back to EffectiveMessages().
+	mcpMgr promptdef.MCPManager
+	// modelFinder is optional. When set, the expansion sidecar (Phase 10) can
+	// call a lightweight LLM to synthesize task-specific profile instructions.
+	modelFinder llm.Finder
 }
 
 // New creates a Service bound to the internal agent runtime.
@@ -72,6 +84,24 @@ func WithAllowedIDs(ids map[string]string) Option { return func(s *Service) { s.
 
 func WithCancelRegistry(reg cancels.Registry) Option {
 	return func(s *Service) { s.cancelReg = reg }
+}
+
+// WithPromptRepo injects a prompt-profile repository so that
+// RunInput.PromptProfileId is resolved before the child turn begins.
+func WithPromptRepo(repo *promptrepo.Repository) Option {
+	return func(s *Service) { s.promptRepo = repo }
+}
+
+// WithMCPManager injects an MCP manager so that MCP-sourced prompt profiles
+// are rendered via the MCP server at delegation time.
+func WithMCPManager(mgr promptdef.MCPManager) Option {
+	return func(s *Service) { s.mcpMgr = mgr }
+}
+
+// WithModelFinder injects a model finder used by the expansion sidecar to call
+// a lightweight LLM that refines generic profile messages into task-specific ones.
+func WithModelFinder(f llm.Finder) Option {
+	return func(s *Service) { s.modelFinder = f }
 }
 
 // WithConversationClient injects the conversation client and initializes linking/status helpers.

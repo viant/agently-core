@@ -58,6 +58,12 @@ const (
 	// Tool feed lifecycle.
 	EventTypeToolFeedActive   EventType = "tool_feed_active"
 	EventTypeToolFeedInactive EventType = "tool_feed_inactive"
+
+	// Conversation metadata.
+	// Emitted whenever server-side code changes conversation-level fields
+	// (title, summary, agentId, …) so clients can update sidebar/header state
+	// without polling. Patch contains only the changed fields.
+	EventTypeConversationMetaUpdated EventType = "conversation_meta_updated"
 )
 
 type EventModel struct {

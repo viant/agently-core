@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	stream "github.com/viant/agently-core/service/core/stream"
@@ -205,8 +205,8 @@ func newStreamInput(streamID string) *StreamInput {
 		GenerateInput: &GenerateInput{
 			ModelSelection: llm.ModelSelection{Model: "mock-model"},
 			UserID:         "user-1",
-			Prompt:         &prompt.Prompt{Text: "hello"},
-			Binding:        &prompt.Binding{},
+			Prompt:         &binding.Prompt{Text: "hello"},
+			Binding:        &binding.Binding{},
 		},
 	}
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 	"gopkg.in/yaml.v3"
 )
@@ -568,7 +568,7 @@ func (s *Service) parseFollowUpsBlock(valueNode *yml.Node, agent *agentmdl.Agent
 				if k == "query" {
 					v := item.Content[i+1]
 					if v.Kind == yaml.ScalarNode {
-						c.Query = &prompt.Prompt{Text: v.Value}
+						c.Query = &binding.Prompt{Text: v.Value}
 					}
 					break
 				}

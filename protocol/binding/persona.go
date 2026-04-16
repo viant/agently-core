@@ -1,4 +1,4 @@
-package prompt
+package binding
 
 type Persona struct {
 	Role    string `yaml:"role,omitempty"  json:"role,omitempty"`

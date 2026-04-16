@@ -25,7 +25,9 @@ import (
 	"github.com/viant/agently-core/service/core"
 	elicitation "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	intakesvc "github.com/viant/agently-core/service/intake"
 	"github.com/viant/agently-core/service/reactor"
+	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
 
@@ -75,6 +77,11 @@ type Service struct {
 	asyncPollers sync.Map
 
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
+
+	// intakeSvc runs the pre-turn intake sidecar when agent.Intake.Enabled is true.
+	intakeSvc *intakesvc.Service
+
+	templateRepo *tplrepo.Repository
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -127,6 +134,12 @@ func WithRelevanceSelector(fn func(context.Context, relevanceSelectorInput) (*re
 	return func(s *Service) { s.relevanceSelector = fn }
 }
 
+// WithIntakeService injects the pre-turn intake sidecar service. When set,
+// agents with Intake.Enabled=true will run the sidecar before the main turn.
+func WithIntakeService(svc *intakesvc.Service) Option {
+	return func(s *Service) { s.intakeSvc = svc }
+}
+
 // New creates a new agent service instance with the given tool registry.
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
 	defaults *config.Defaults,
@@ -152,6 +165,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	if srv.toolBundles == nil {
 		repo := bundlerepo.New(afs.New())
 		srv.toolBundles = func(ctx context.Context) ([]*toolbundle.Bundle, error) { return repo.LoadAll(ctx) }
+	}
+	if srv.templateRepo == nil {
+		srv.templateRepo = tplrepo.New(afs.New())
 	}
 	// Instantiate default conversation API only when caller did not inject one.
 	// Preserving injected clients is required for in-memory/e2e runtimes.

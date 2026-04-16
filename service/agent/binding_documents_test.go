@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
 	agproto "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/protocol/tool"
 )
 
@@ -72,7 +72,7 @@ func TestAppendAgentDirectoryDoc_UsesFinderWithoutRegistryExecution(t *testing.T
 			},
 		},
 	}
-	docs := &prompt.Documents{}
+	docs := &binding.Documents{}
 
 	svc.appendAgentDirectoryDoc(context.Background(), input, docs)
 
@@ -95,7 +95,7 @@ func TestAppendAgentDirectoryDoc_FallsBackToRegistryWhenFinderCacheEmpty(t *test
 			Identity: agproto.Identity{ID: "agent_selector"},
 		},
 	}
-	docs := &prompt.Documents{}
+	docs := &binding.Documents{}
 
 	svc.appendAgentDirectoryDoc(context.Background(), input, docs)
 

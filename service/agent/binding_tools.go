@@ -11,14 +11,14 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
-	padapter "github.com/viant/agently-core/protocol/prompt/adapter"
+	"github.com/viant/agently-core/protocol/binding"
+	padapter "github.com/viant/agently-core/protocol/binding/adapter"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace/repository/toolplaybook"
 )
 
-func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefinition, docs *prompt.Documents) error {
+func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefinition, docs *binding.Documents) error {
 	if docs == nil {
 		return nil
 	}
@@ -37,7 +37,7 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 	if hasDocumentURI(docs.Items, uri) {
 		return nil
 	}
-	doc := &prompt.Document{
+	doc := &binding.Document{
 		Title:       "tools/instructions/webdriver",
 		PageContent: strings.TrimSpace(content),
 		SourceURI:   uri,
@@ -49,7 +49,7 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 	return nil
 }
 
-func hasDocumentURI(items []*prompt.Document, uri string) bool {
+func hasDocumentURI(items []*binding.Document, uri string) bool {
 	u := strings.TrimSpace(uri)
 	if u == "" || len(items) == 0 {
 		return false
@@ -114,7 +114,7 @@ func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[strin
 	return present, services
 }
 
-func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *prompt.Documents) []*llm.ToolDefinition {
+func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *binding.Documents) []*llm.ToolDefinition {
 	if len(defs) == 0 || docs == nil || !hasDocumentURI(docs.Items, "internal://llm/agents/list") {
 		return defs
 	}
@@ -155,6 +155,28 @@ func dedupeToolDefinitions(defs []*llm.ToolDefinition) []*llm.ToolDefinition {
 	return filtered
 }
 
+func filterToolSignaturesByServicePrefix(defs []*llm.ToolDefinition, prefix string) []*llm.ToolDefinition {
+	if len(defs) == 0 {
+		return nil
+	}
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return defs
+	}
+	filtered := make([]*llm.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(mcpname.Canonical(def.Name)))
+		if strings.HasPrefix(name, prefix) {
+			continue
+		}
+		filtered = append(filtered, def)
+	}
+	return filtered
+}
+
 func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
 	if ctx == nil {
 		return map[string]interface{}{}
@@ -178,7 +200,7 @@ func ensureToolsContextMap(ctx map[string]interface{}) map[string]interface{} {
 	return m
 }
 
-func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current *apiconv.Turn, b *prompt.Binding) {
+func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current *apiconv.Turn, b *binding.Binding) {
 	if input != nil && input.Agent != nil && !input.Agent.Tool.OverflowHelpersAllowed() {
 		return
 	}
@@ -280,7 +302,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 	s.appendCallToolResultGuide(ctx, b)
 }
 
-func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Binding) {
+func (s *Service) appendCallToolResultGuide(ctx context.Context, b *binding.Binding) {
 	if s.defaults != nil && strings.TrimSpace(s.defaults.PreviewSettings.SystemGuidePath) != "" {
 		guide := strings.TrimSpace(s.defaults.PreviewSettings.SystemGuidePath)
 		uri := guide
@@ -292,7 +314,7 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Bindi
 			if strings.TrimSpace(title) == "" {
 				title = "Tool Result Guide"
 			}
-			doc := &prompt.Document{Title: title, PageContent: string(data), SourceURI: uri, MimeType: "text/markdown"}
+			doc := &binding.Document{Title: title, PageContent: string(data), SourceURI: uri, MimeType: "text/markdown"}
 			b.SystemDocuments.Items = append(b.SystemDocuments.Items, doc)
 		}
 	}
@@ -302,7 +324,7 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *prompt.Bindi
 // continuation-by-response-id flows so that the model can reference them when
 // continuing a prior response. Tool are appended only when the selected model
 // supports continuation. Duplicates are avoided by canonical name.
-func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *prompt.Binding) {
+func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *binding.Binding) {
 	if s == nil || s.registry == nil || b == nil {
 		return
 	}

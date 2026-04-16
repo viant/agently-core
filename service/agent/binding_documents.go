@@ -15,13 +15,13 @@ import (
 	intmodel "github.com/viant/agently-core/internal/finder/model"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
-	padapter "github.com/viant/agently-core/protocol/prompt/adapter"
+	"github.com/viant/agently-core/protocol/binding"
+	padapter "github.com/viant/agently-core/protocol/binding/adapter"
 	"github.com/viant/agently-core/service/elicitation"
 	"github.com/viant/agently-core/service/shared/toolexec"
 )
 
-func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput, docs *prompt.Documents) {
+func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput, docs *binding.Documents) {
 	if s == nil || input == nil || input.Agent == nil || docs == nil {
 		logx.Infof("conversation", "delegation.directory skip missing service/input/agent/docs")
 		return
@@ -74,7 +74,7 @@ func (s *Service) appendAgentDirectoryDoc(ctx context.Context, input *QueryInput
 		}
 		bld.WriteString("\n")
 	}
-	doc := &prompt.Document{
+	doc := &binding.Document{
 		Title:       "agents/directory",
 		PageContent: strings.TrimSpace(bld.String()),
 		SourceURI:   sourceURI,
@@ -172,8 +172,8 @@ func (s *Service) listPublishedAgents(ctx context.Context) ([]*agent.Agent, erro
 	return result, nil
 }
 
-func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
-	var result = make(map[string]*prompt.Trace)
+func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*binding.Trace {
+	var result = make(map[string]*binding.Trace)
 	for _, turn := range tr {
 		if turn == nil {
 			continue
@@ -191,8 +191,8 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 			if !isInternalAssistant && m.ModelCall != nil && m.ModelCall.TraceId != nil {
 				id := strings.TrimSpace(*m.ModelCall.TraceId)
 				if id != "" {
-					key := prompt.KindResponse.Key(id)
-					result[key] = &prompt.Trace{ID: id, Kind: prompt.KindResponse, At: m.CreatedAt}
+					key := binding.KindResponse.Key(id)
+					result[key] = &binding.Trace{ID: id, Kind: binding.KindResponse, At: m.CreatedAt}
 				}
 				// Fall through to also process ToolMessage children below.
 				// When parent_message_id points to this assistant message,
@@ -216,13 +216,13 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 				if tc.TraceId != nil {
 					respId = strings.TrimSpace(*tc.TraceId)
 				}
-				key := prompt.KindToolCall.Key(opID)
-				result[key] = &prompt.Trace{ID: respId, Kind: prompt.KindToolCall, At: tm.CreatedAt}
+				key := binding.KindToolCall.Key(opID)
+				result[key] = &binding.Trace{ID: respId, Kind: binding.KindToolCall, At: tm.CreatedAt}
 			}
 
 			// User/assistant text message
 			if !isInternalAssistant && strings.ToLower(strings.TrimSpace(m.Type)) == "text" && m.Content != nil && *m.Content != "" {
-				ckey := prompt.KindContent.Key(*m.Content)
+				ckey := binding.KindContent.Key(*m.Content)
 				// Use a stable "effective at" timestamp for queued turns:
 				// queued user messages may be persisted before the prior assistant
 				// response exists, so comparing raw message.CreatedAt to the anchor
@@ -232,7 +232,7 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 				if !turn.CreatedAt.IsZero() && turn.CreatedAt.After(at) {
 					at = turn.CreatedAt
 				}
-				result[ckey] = &prompt.Trace{ID: ckey, Kind: prompt.KindContent, At: at}
+				result[ckey] = &binding.Trace{ID: ckey, Kind: binding.KindContent, At: at}
 			}
 		}
 	}
@@ -243,7 +243,7 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*prompt.Trace {
 // payloads from user elicitation messages into the binding context so
 // downstream plans can see resolved inputs (e.g., workdir). Later
 // messages win on key collision.
-func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]interface{}) {
+func mergeElicitationPayloadIntoContext(h binding.History, ctxPtr *map[string]interface{}) {
 	if ctxPtr == nil {
 		return
 	}
@@ -253,9 +253,9 @@ func mergeElicitationPayloadIntoContext(h prompt.History, ctxPtr *map[string]int
 	ctx := *ctxPtr
 
 	// Helper to process a slice of messages in order.
-	consume := func(msgs []*prompt.Message) {
+	consume := func(msgs []*binding.Message) {
 		for _, m := range msgs {
-			if m == nil || m.Kind != prompt.MessageKindElicitAnswer {
+			if m == nil || m.Kind != binding.MessageKindElicitAnswer {
 				continue
 			}
 			raw := strings.TrimSpace(m.Content)
@@ -425,7 +425,7 @@ func isTransientDBOrNetworkError(err error) bool {
 	return false
 }
 
-func (s *Service) normalizeDocURIs(docs *prompt.Documents, trim string) {
+func (s *Service) normalizeDocURIs(docs *binding.Documents, trim string) {
 	if docs == nil || len(docs.Items) == 0 {
 		return
 	}
@@ -451,7 +451,7 @@ func (s *Service) normalizeDocURIs(docs *prompt.Documents, trim string) {
 	}
 }
 
-func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *prompt.Binding) {
+func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *binding.Binding) {
 	if b == nil {
 		return
 	}
@@ -460,7 +460,7 @@ func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *prompt.Bi
 		return
 	}
 	if b.SystemDocuments.Items == nil {
-		b.SystemDocuments.Items = []*prompt.Document{}
+		b.SystemDocuments.Items = []*binding.Document{}
 	}
 	seen := map[string]bool{}
 	contentHashes := map[string]bool{}
@@ -522,11 +522,11 @@ func (s *Service) allowContinuationPreview(ctx context.Context, input *QueryInpu
 	return false
 }
 
-func transcriptSystemDocuments(tr apiconv.Transcript) []*prompt.Document {
+func transcriptSystemDocuments(tr apiconv.Transcript) []*binding.Document {
 	if len(tr) == 0 {
 		return nil
 	}
-	var docs []*prompt.Document
+	var docs []*binding.Document
 	seen := map[string]bool{}
 	for _, turn := range tr {
 		if turn == nil || len(turn.GetMessages()) == 0 {
@@ -550,7 +550,7 @@ func transcriptSystemDocuments(tr apiconv.Transcript) []*prompt.Document {
 	return docs
 }
 
-func toSystemDocument(turn *apiconv.Turn, msg *apiconv.Message) *prompt.Document {
+func toSystemDocument(turn *apiconv.Turn, msg *apiconv.Message) *binding.Document {
 	if msg == nil || !hasSystemDocTag(msg) {
 		return nil
 	}
@@ -571,7 +571,7 @@ func toSystemDocument(turn *apiconv.Turn, msg *apiconv.Message) *prompt.Document
 	if source != "" {
 		meta["source"] = source
 	}
-	return &prompt.Document{
+	return &binding.Document{
 		Title:       deriveSystemDocTitle(source),
 		PageContent: content,
 		SourceURI:   source,
@@ -647,7 +647,7 @@ func hasSystemDocTag(msg *apiconv.Message) bool {
 	return strings.HasPrefix(content, "file:")
 }
 
-func systemDocKey(doc *prompt.Document) string {
+func systemDocKey(doc *binding.Document) string {
 	if doc == nil {
 		return ""
 	}
@@ -662,7 +662,7 @@ func systemDocKey(doc *prompt.Document) string {
 	return strings.TrimSpace(doc.Title)
 }
 
-func systemDocDedupKey(doc *prompt.Document) string {
+func systemDocDedupKey(doc *binding.Document) string {
 	if doc == nil {
 		return ""
 	}
@@ -678,7 +678,7 @@ func systemDocDedupKey(doc *prompt.Document) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func systemDocContentHash(doc *prompt.Document) string {
+func systemDocContentHash(doc *binding.Document) string {
 	if doc == nil {
 		return ""
 	}
@@ -702,7 +702,7 @@ func baseName(uri string) string {
 
 // attachNonTextUserDocs scans user documents and adds non-text docs as attachments.
 // It avoids duplicating content in user templates, which now render references only.
-func (s *Service) attachNonTextUserDocs(ctx context.Context, b *prompt.Binding) {
+func (s *Service) attachNonTextUserDocs(ctx context.Context, b *binding.Binding) {
 	if b == nil || len(b.Documents.Items) == 0 {
 		return
 	}
@@ -725,7 +725,7 @@ func (s *Service) attachNonTextUserDocs(ctx context.Context, b *prompt.Binding) 
 		if len(data) == 0 {
 			continue
 		}
-		b.Task.Attachments = append(b.Task.Attachments, &prompt.Attachment{
+		b.Task.Attachments = append(b.Task.Attachments, &binding.Attachment{
 			Name: baseName(uri), URI: uri, Mime: mime, Data: data,
 		})
 	}
@@ -760,8 +760,8 @@ func mimeFromExt(ext string) string {
 	}
 }
 
-func (s *Service) buildDocumentsBinding(ctx context.Context, input *QueryInput, isSystem bool) (prompt.Documents, error) {
-	var docs prompt.Documents
+func (s *Service) buildDocumentsBinding(ctx context.Context, input *QueryInput, isSystem bool) (binding.Documents, error) {
+	var docs binding.Documents
 	var knowledge []*agent.Knowledge
 	if isSystem {
 		knowledge = input.Agent.SystemKnowledge

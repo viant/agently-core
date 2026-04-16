@@ -1,0 +1,10 @@
+id: analyst
+name: Data Analyst
+modelRef: gpt-4o
+template:
+  bundles:
+    - analytics-templates
+prompts:
+  bundles:
+    - performance_analysis
+    - inventory_diagnosis

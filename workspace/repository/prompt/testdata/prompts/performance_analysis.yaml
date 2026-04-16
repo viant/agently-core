@@ -1,0 +1,14 @@
+id: performance_analysis
+name: Performance Analysis
+description: "Use when the user asks about pacing or KPI health."
+appliesTo:
+  - performance
+  - pacing
+messages:
+  - role: system
+    text: "You are a performance analyst."
+  - role: user
+    text: "Analyze the campaign hierarchy."
+toolBundles:
+  - steward-performance-tools
+template: analytics_dashboard

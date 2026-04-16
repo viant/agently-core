@@ -10,7 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	core "github.com/viant/agently-core/service/core"
 )
@@ -113,9 +113,9 @@ func TestContinuationRequest_QueuedPromptUsesTurnCreatedAt(t *testing.T) {
 	}
 
 	svc := &Service{}
-	history := &prompt.History{
+	history := &binding.History{
 		Traces:       svc.buildTraces(apiconv.Transcript{turn}),
-		LastResponse: &prompt.Trace{ID: "resp-2", At: anchorAt},
+		LastResponse: &binding.Trace{ID: "resp-2", At: anchorAt},
 	}
 
 	req := &llm.GenerateRequest{Messages: []llm.Message{{Role: llm.RoleUser, Content: promptText}}}
@@ -267,8 +267,8 @@ func TestBuildTraces_SkipsRouterAssistantMessages(t *testing.T) {
 
 	svc := &Service{}
 	traces := svc.buildTraces(tr)
-	require.NotContains(t, traces, prompt.KindResponse.Key(routerTrace))
-	require.NotContains(t, traces, prompt.KindContent.Key(`{"agentId":"chatter"}`))
-	require.Contains(t, traces, prompt.KindResponse.Key(assistantTrace))
-	require.Contains(t, traces, prompt.KindContent.Key("Hi there."))
+	require.NotContains(t, traces, binding.KindResponse.Key(routerTrace))
+	require.NotContains(t, traces, binding.KindContent.Key(`{"agentId":"chatter"}`))
+	require.Contains(t, traces, binding.KindResponse.Key(assistantTrace))
+	require.Contains(t, traces, binding.KindContent.Key("Hi there."))
 }

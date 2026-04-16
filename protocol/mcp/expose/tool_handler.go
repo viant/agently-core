@@ -9,18 +9,32 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/tool/matcher"
 	"github.com/viant/agently-core/pkg/mcpname"
+	promptdef "github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 // ToolHandler exposes executor tool registry via MCP tools/list and tools/call.
 type ToolHandler struct {
-	exec     Executor
-	patterns []string
+	exec        Executor
+	patterns    []string
+	profileRepo ProfileRepo
+	mcpMgr      promptdef.MCPManager
 }
 
-func NewToolHandler(exec Executor, patterns []string) *ToolHandler {
-	return &ToolHandler{exec: exec, patterns: append([]string(nil), patterns...)}
+func NewToolHandler(exec Executor, patterns []string, opts ...func(*ToolHandler)) *ToolHandler {
+	h := &ToolHandler{exec: exec, patterns: append([]string(nil), patterns...)}
+	for _, o := range opts {
+		if o != nil {
+			o(h)
+		}
+	}
+	return h
+}
+
+// WithMCPManager injects an MCP manager so MCP-sourced profiles can be rendered.
+func WithMCPManager(mgr promptdef.MCPManager) func(*ToolHandler) {
+	return func(h *ToolHandler) { h.mcpMgr = mgr }
 }
 
 // ---------------- mcp-protocol/server.Operations ----------------
@@ -113,12 +127,15 @@ func (h *ToolHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest[*m
 	return res, nil
 }
 
-func (h *ToolHandler) ListPrompts(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListPromptsRequest]) (*mcpschema.ListPromptsResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("prompts/list not implemented", nil)
+func (h *ToolHandler) ListPrompts(ctx context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListPromptsRequest]) (*mcpschema.ListPromptsResult, *jsonrpc.Error) {
+	return listPrompts(ctx, h.profileRepo)
 }
 
-func (h *ToolHandler) GetPrompt(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.GetPromptRequest]) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("prompts/get not implemented", nil)
+func (h *ToolHandler) GetPrompt(ctx context.Context, req *jsonrpc.TypedRequest[*mcpschema.GetPromptRequest]) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
+	if req == nil || req.Request == nil {
+		return nil, jsonrpc.NewInvalidRequest("missing request", nil)
+	}
+	return getPrompt(ctx, h.profileRepo, h.mcpMgr, &req.Request.Params)
 }
 
 func (h *ToolHandler) Complete(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.CompleteRequest]) (*mcpschema.CompleteResult, *jsonrpc.Error) {
@@ -133,6 +150,8 @@ func (h *ToolHandler) Implements(method string) bool {
 	switch method {
 	case mcpschema.MethodToolsList, mcpschema.MethodToolsCall:
 		return true
+	case mcpschema.MethodPromptsList, mcpschema.MethodPromptsGet:
+		return h.profileRepo != nil
 	default:
 		return false
 	}

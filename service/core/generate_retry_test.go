@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func TestService_Generate_RetriesOnTransientErrorAndSucceeds(t *testing.T) {
@@ -111,8 +111,8 @@ func newGenerateInput() *GenerateInput {
 	return &GenerateInput{
 		ModelSelection: llm.ModelSelection{Model: "mock-model"},
 		UserID:         "user-1",
-		Prompt:         &prompt.Prompt{Text: "hello"},
-		Binding:        &prompt.Binding{},
+		Prompt:         &binding.Prompt{Text: "hello"},
+		Binding:        &binding.Binding{},
 	}
 }
 

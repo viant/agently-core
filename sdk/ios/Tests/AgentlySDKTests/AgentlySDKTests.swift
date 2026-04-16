@@ -157,4 +157,76 @@ final class AgentlySDKTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
     }
+
+    func testConversationStreamTrackerProgressivelyUpdatesAssistantMessage() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-1"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"assistant_preamble","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Thinking...","status":"running"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Hello "}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"assistant_final","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Hello world","status":"completed","preamble":"Thinking..."}"#))
+
+        XCTAssertEqual(snapshot.conversationID, "conv-1")
+        XCTAssertEqual(snapshot.activeTurnID, "turn-1")
+        XCTAssertEqual(snapshot.bufferedMessages.count, 1)
+        XCTAssertEqual(snapshot.bufferedMessages.first?.id, "msg-1")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.preamble, "Thinking...")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Hello world")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.status, "completed")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.interim, 0)
+    }
+
+    func testConversationStreamTrackerAppliesControlMessagePatchAndExecutionGroup() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"model_started","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","modelCallId":"mc-1","status":"running","model":{"provider":"openai","model":"gpt-5-mini"}}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_feed_active","conversationId":"conv-1","turnId":"turn-1","feedId":"feed-1","feedTitle":"Feed","feedItemCount":2}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"control","op":"message_patch","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","patch":{"content":"Patched","status":"running","toolName":"prompt-get","linkedConversationId":"linked-1"}}"#))
+
+        XCTAssertEqual(snapshot.feeds.count, 1)
+        XCTAssertEqual(snapshot.feeds.first?.feedID, "feed-1")
+        XCTAssertEqual(snapshot.liveExecutionGroupsByID["msg-1"]?.modelSteps.first?.modelCallID, "mc-1")
+        XCTAssertEqual(snapshot.liveExecutionGroupsByID["msg-1"]?.modelSteps.first?.provider, "openai")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Patched")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.toolName, "prompt-get")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.linkedConversationID, "linked-1")
+    }
+
+    func testQueryInputEncodesAndroidWebParityFields() throws {
+        let input = QueryInput(
+            conversationID: "conv-1",
+            parentConversationID: "parent-1",
+            conversationTitle: "Title",
+            messageID: "msg-1",
+            agentID: "chatter",
+            userID: "user-1",
+            query: "hello",
+            attachments: [QueryAttachment(name: "file.csv", uri: "mem://file.csv", size: 12, mime: "text/csv", stagingFolder: "/tmp")],
+            model: "openai_gpt-5-mini",
+            tools: ["system_os-getEnv"],
+            toolBundles: ["prompt", "template"],
+            autoSelectTools: true,
+            context: ["platform": .string("ios")],
+            reasoningEffort: "medium",
+            elicitationMode: "async",
+            autoSummarize: true,
+            disableChains: true,
+            allowedChains: ["chain-a"],
+            toolCallExposure: "conversation"
+        )
+
+        let data = try JSONEncoder.agently().encode(input)
+        let decoded = try JSONDecoder.agently().decode([String: JSONValue].self, from: data)
+
+        XCTAssertEqual(decoded["conversationId"], .string("conv-1"))
+        XCTAssertEqual(decoded["parentConversationId"], .string("parent-1"))
+        XCTAssertEqual(decoded["conversationTitle"], .string("Title"))
+        XCTAssertEqual(decoded["messageId"], .string("msg-1"))
+        XCTAssertEqual(decoded["agentId"], .string("chatter"))
+        XCTAssertEqual(decoded["userId"], .string("user-1"))
+        XCTAssertEqual(decoded["toolBundles"], .array([.string("prompt"), .string("template")]))
+        XCTAssertEqual(decoded["reasoningEffort"], .string("medium"))
+        XCTAssertEqual(decoded["elicitationMode"], .string("async"))
+        XCTAssertEqual(decoded["toolCallExposure"], .string("conversation"))
+    }
 }

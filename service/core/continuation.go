@@ -6,7 +6,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -24,7 +24,7 @@ import (
 //     messages. Fresh system instructions are not replayed as part of the
 //     anchor-only request, so continuing in that case would silently drop
 //     prompt semantics. The safe fallback is the normal full request path.
-func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *prompt.History) *llm.GenerateRequest {
+func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *binding.History) *llm.GenerateRequest {
 	var conversationID string
 	if meta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		conversationID = meta.ConversationID
@@ -135,7 +135,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		}
 
 		if m.ToolCallId != "" {
-			key := prompt.KindToolCall.Key(m.ToolCallId)
+			key := binding.KindToolCall.Key(m.ToolCallId)
 			trace, ok := history.Traces[key]
 			if !ok || trace.ID != anchorID {
 				continue
@@ -151,7 +151,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 				continue
 			}
 
-			key := prompt.KindContent.Key(m.Content)
+			key := binding.KindContent.Key(m.Content)
 			trace, ok := history.Traces[key]
 
 			if !ok || trace.At.Before(anchor.At) || trace.At.Equal(anchor.At) {
@@ -203,7 +203,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	// "No tool output found" from the provider.
 	anchorToolCallIDs := make([]string, 0)
 	for key, trace := range history.Traces {
-		if trace == nil || trace.Kind != prompt.KindToolCall || trace.ID != anchorID {
+		if trace == nil || trace.Kind != binding.KindToolCall || trace.ID != anchorID {
 			continue
 		}
 		// Extract the opID from the key (format "toolcall:<opID>")
@@ -254,7 +254,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	return continuationRequest
 }
 
-func continuationSkipReason(req *llm.GenerateRequest, conversationID string, history *prompt.History) string {
+func continuationSkipReason(req *llm.GenerateRequest, conversationID string, history *binding.History) string {
 	switch {
 	case req == nil:
 		return "nil_request"
@@ -273,13 +273,13 @@ func continuationSkipReason(req *llm.GenerateRequest, conversationID string, his
 	}
 }
 
-func filterToolCallsByAnchor(toolCalls []llm.ToolCall, history *prompt.History, anchorID string) []llm.ToolCall {
+func filterToolCallsByAnchor(toolCalls []llm.ToolCall, history *binding.History, anchorID string) []llm.ToolCall {
 	if len(toolCalls) == 0 || history == nil || anchorID == "" {
 		return nil
 	}
 	var filtered []llm.ToolCall
 	for _, call := range toolCalls {
-		key := prompt.KindToolCall.Key(call.ID)
+		key := binding.KindToolCall.Key(call.ID)
 		trace, ok := history.Traces[key]
 		if !ok || trace.ID != anchorID {
 			continue

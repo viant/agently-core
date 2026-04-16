@@ -14,7 +14,7 @@ import (
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func cloneMessageWithoutToolMessages(msg *apiconv.Message) *apiconv.Message {
@@ -34,6 +34,9 @@ func cloneMessageWithoutToolMessages(msg *apiconv.Message) *apiconv.Message {
 
 func (s *Service) syntheticToolMessages(ctx context.Context, msg *apiconv.Message) []*apiconv.Message {
 	if msg == nil || len(msg.ToolMessage) == 0 {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(msg.Type), "tool_op") {
 		return nil
 	}
 	out := make([]*apiconv.Message, 0, len(msg.ToolMessage))
@@ -213,7 +216,7 @@ func isAttachmentCarrier(msg *apiconv.Message) bool {
 	return len(msg.Attachment) > 0
 }
 
-func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Message, cache map[string]*prompt.Attachment) ([]*prompt.Attachment, error) {
+func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Message, cache map[string]*binding.Attachment) ([]*binding.Attachment, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -267,7 +270,7 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 		uri = strings.TrimSpace(*payload.URI)
 	}
 	mimeType := strings.TrimSpace(payload.MimeType)
-	att := &prompt.Attachment{
+	att := &binding.Attachment{
 		Name: name,
 		URI:  uri,
 		Mime: mimeType,
@@ -281,7 +284,7 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	return attachments, nil
 }
 
-func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
+func attachmentsFromMessageView(msg *apiconv.Message) []*binding.Attachment {
 	if msg == nil || msg.Attachment == nil || len(msg.Attachment) == 0 {
 		return nil
 	}
@@ -289,7 +292,7 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
 	if msg.Content != nil && strings.EqualFold(strings.TrimSpace(msg.Type), "control") {
 		defaultName = strings.TrimSpace(*msg.Content)
 	}
-	var attachments []*prompt.Attachment
+	var attachments []*binding.Attachment
 	for _, av := range msg.Attachment {
 		if av == nil {
 			continue
@@ -312,7 +315,7 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*prompt.Attachment {
 			name = "(attachment)"
 		}
 		mimeType := strings.TrimSpace(av.MimeType)
-		attachments = append(attachments, &prompt.Attachment{
+		attachments = append(attachments, &binding.Attachment{
 			Name: name,
 			URI:  uri,
 			Mime: mimeType,

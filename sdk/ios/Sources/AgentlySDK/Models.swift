@@ -375,46 +375,100 @@ public struct QueryAttachment: Codable, Sendable, Identifiable {
     public let uri: String
     public let size: Int64?
     public let mime: String?
+    public let stagingFolder: String?
 
-    public init(name: String, uri: String, size: Int64? = nil, mime: String? = nil) {
+    public init(name: String, uri: String, size: Int64? = nil, mime: String? = nil, stagingFolder: String? = nil) {
         self.name = name
         self.uri = uri
         self.size = size
         self.mime = mime
+        self.stagingFolder = stagingFolder
     }
 }
 
 public struct QueryInput: Codable, Sendable {
     public let conversationID: String?
+    public let parentConversationID: String?
+    public let conversationTitle: String?
+    public let messageID: String?
     public let agentID: String?
+    public let userID: String?
     public let query: String
     public let attachments: [QueryAttachment]
     public let model: String?
+    public let tools: [String]
+    public let toolBundles: [String]
+    public let autoSelectTools: Bool?
     public let context: [String: JSONValue]
+    public let reasoningEffort: String?
+    public let elicitationMode: String?
+    public let autoSummarize: Bool?
+    public let disableChains: Bool?
+    public let allowedChains: [String]
+    public let toolCallExposure: String?
 
     enum CodingKeys: String, CodingKey {
         case conversationID = "conversationId"
+        case parentConversationID = "parentConversationId"
+        case conversationTitle
+        case messageID = "messageId"
         case agentID = "agentId"
+        case userID = "userId"
         case query
         case attachments
         case model
+        case tools
+        case toolBundles
+        case autoSelectTools
         case context
+        case reasoningEffort
+        case elicitationMode
+        case autoSummarize
+        case disableChains
+        case allowedChains
+        case toolCallExposure
     }
 
     public init(
         conversationID: String? = nil,
+        parentConversationID: String? = nil,
+        conversationTitle: String? = nil,
+        messageID: String? = nil,
         agentID: String? = nil,
+        userID: String? = nil,
         query: String,
         attachments: [QueryAttachment] = [],
         model: String? = nil,
-        context: [String: JSONValue] = [:]
+        tools: [String] = [],
+        toolBundles: [String] = [],
+        autoSelectTools: Bool? = nil,
+        context: [String: JSONValue] = [:],
+        reasoningEffort: String? = nil,
+        elicitationMode: String? = nil,
+        autoSummarize: Bool? = nil,
+        disableChains: Bool? = nil,
+        allowedChains: [String] = [],
+        toolCallExposure: String? = nil
     ) {
         self.conversationID = conversationID
+        self.parentConversationID = parentConversationID
+        self.conversationTitle = conversationTitle
+        self.messageID = messageID
         self.agentID = agentID
+        self.userID = userID
         self.query = query
         self.attachments = attachments
         self.model = model
+        self.tools = tools
+        self.toolBundles = toolBundles
+        self.autoSelectTools = autoSelectTools
         self.context = context
+        self.reasoningEffort = reasoningEffort
+        self.elicitationMode = elicitationMode
+        self.autoSummarize = autoSummarize
+        self.disableChains = disableChains
+        self.allowedChains = allowedChains
+        self.toolCallExposure = toolCallExposure
     }
 }
 
@@ -424,6 +478,10 @@ public struct QueryOutput: Codable, Sendable {
     public let model: String?
     public let messageID: String?
     public let elicitation: JSONValue?
+    public let plan: JSONValue?
+    public let usage: JSONValue?
+    public let warnings: [String]
+    public let projection: JSONValue?
 
     enum CodingKeys: String, CodingKey {
         case conversationID = "conversationId"
@@ -431,6 +489,32 @@ public struct QueryOutput: Codable, Sendable {
         case model
         case messageID = "messageId"
         case elicitation
+        case plan
+        case usage
+        case warnings
+        case projection
+    }
+
+    public init(
+        conversationID: String? = nil,
+        content: String = "",
+        model: String? = nil,
+        messageID: String? = nil,
+        elicitation: JSONValue? = nil,
+        plan: JSONValue? = nil,
+        usage: JSONValue? = nil,
+        warnings: [String] = [],
+        projection: JSONValue? = nil
+    ) {
+        self.conversationID = conversationID
+        self.content = content
+        self.model = model
+        self.messageID = messageID
+        self.elicitation = elicitation
+        self.plan = plan
+        self.usage = usage
+        self.warnings = warnings
+        self.projection = projection
     }
 }
 
@@ -542,27 +626,63 @@ public struct ActiveFeedState: Codable, Sendable, Identifiable {
     public var id: String { feedID ?? UUID().uuidString }
     public let feedID: String?
     public let name: String?
+    public let title: String?
+    public let itemCount: Int?
+    public let conversationID: String?
+    public let turnID: String?
+    public let updatedAt: Int64?
+    public let data: JSONValue?
 
     enum CodingKeys: String, CodingKey {
         case feedID = "feedId"
         case name
+        case title
+        case itemCount
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case updatedAt
+        case data
+    }
+
+    public init(
+        feedID: String? = nil,
+        name: String? = nil,
+        title: String? = nil,
+        itemCount: Int? = nil,
+        conversationID: String? = nil,
+        turnID: String? = nil,
+        updatedAt: Int64? = nil,
+        data: JSONValue? = nil
+    ) {
+        self.feedID = feedID
+        self.name = name
+        self.title = title
+        self.itemCount = itemCount
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.updatedAt = updatedAt
+        self.data = data
     }
 }
 
 public struct PendingElicitation: Codable, Sendable, Identifiable {
     public let elicitationID: String
     public let conversationID: String?
+    public let turnID: String?
     public let message: String?
     public let mode: String?
     public let url: String?
+    public let callbackURL: String?
     public let requestedSchema: JSONValue?
 
     enum CodingKeys: String, CodingKey {
         case elicitationID = "elicitationId"
         case conversationID = "conversationId"
+        case turnID = "turnId"
         case message
         case mode
         case url
+        case callbackURL = "callbackUrl"
         case requestedSchema
     }
 
@@ -571,16 +691,20 @@ public struct PendingElicitation: Codable, Sendable, Identifiable {
     public init(
         elicitationID: String,
         conversationID: String? = nil,
+        turnID: String? = nil,
         message: String? = nil,
         mode: String? = nil,
         url: String? = nil,
+        callbackURL: String? = nil,
         requestedSchema: JSONValue? = nil
     ) {
         self.elicitationID = elicitationID
         self.conversationID = conversationID
+        self.turnID = turnID
         self.message = message
         self.mode = mode
         self.url = url
+        self.callbackURL = callbackURL
         self.requestedSchema = requestedSchema
     }
 }

@@ -13,7 +13,7 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/service/reactor"
@@ -754,7 +754,7 @@ func TestResolveAsyncReinforcementPrompt_UsesDefaultsWhenConfigured(t *testing.T
 		conversation: client,
 		asyncManager: mgr,
 		defaults: &config.Defaults{
-			AsyncReinforcementPrompt: &prompt.Prompt{
+			AsyncReinforcementPrompt: &binding.Prompt{
 				Text:   `CUSTOM-PROMPT op={{.Context.changedOperations}}`,
 				Engine: "go",
 			},
@@ -915,7 +915,7 @@ func TestServiceRunPlanAndStatus_AllowsModelFinalAnswerAfterTerminalAsyncState(t
 					ModelSelection: llm.ModelSelection{
 						Model: "mock-model",
 					},
-					Prompt: &prompt.Prompt{Text: "You are helpful."},
+					Prompt: &binding.Prompt{Text: "You are helpful."},
 				},
 			}
 			output := &QueryOutput{}
@@ -1001,7 +1001,7 @@ func TestServiceRunPlanAndStatus_DoesNotFinalizeWhileAnyAsyncWaitOpRemains(t *te
 			ModelSelection: llm.ModelSelection{
 				Model: "mock-model",
 			},
-			Prompt: &prompt.Prompt{Text: "You are helpful."},
+			Prompt: &binding.Prompt{Text: "You are helpful."},
 		},
 	}
 	output := &QueryOutput{}

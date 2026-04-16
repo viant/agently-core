@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 type GenerateInput struct {
 	llm.ModelSelection
-	SystemPrompt *prompt.Prompt
-	Instruction  *prompt.Prompt
-	Prompt       *prompt.Prompt
-	Binding      *prompt.Binding
+	SystemPrompt *binding.Prompt
+	Instruction  *binding.Prompt
+	Prompt       *binding.Prompt
+	Binding      *binding.Binding
 	Message      []llm.Message
 	Instructions string
 
@@ -99,7 +99,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		i.Message = append(i.Message, llm.NewSystemMessage(expanded))
 	}
 	if i.Prompt == nil {
-		i.Prompt = &prompt.Prompt{}
+		i.Prompt = &binding.Prompt{}
 	}
 	if err := i.Prompt.Init(ctx); err != nil {
 		return err
@@ -137,7 +137,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 			if elicitationMsg == nil {
 				continue
 			}
-			if elicitationMsg.Kind != prompt.MessageKindElicitPrompt && elicitationMsg.Kind != prompt.MessageKindElicitAnswer {
+			if elicitationMsg.Kind != binding.MessageKindElicitPrompt && elicitationMsg.Kind != binding.MessageKindElicitAnswer {
 				continue
 			}
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(elicitationMsg.Role), elicitationMsg.Content))
@@ -158,12 +158,12 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 	return nil
 }
 
-func appendCurrentHistoryMessages(h *prompt.History, msgs ...*prompt.Message) {
+func appendCurrentHistoryMessages(h *binding.History, msgs ...*binding.Message) {
 	if h == nil || len(msgs) == 0 {
 		return
 	}
 	if h.Current == nil {
-		h.Current = &prompt.Turn{ID: h.CurrentTurnID}
+		h.Current = &binding.Turn{ID: h.CurrentTurnID}
 	}
 	for _, m := range msgs {
 		if m == nil {
@@ -182,7 +182,7 @@ func appendCurrentHistoryMessages(h *prompt.History, msgs ...*prompt.Message) {
 	}
 }
 
-func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedPrompt string, attachments []*prompt.Attachment) []llm.Message {
+func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPrompt string, attachments []*binding.Attachment) []llm.Message {
 	trimmedPrompt := strings.TrimSpace(expandedPrompt)
 	if h == nil {
 		if trimmedPrompt == "" {
@@ -195,17 +195,17 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedProm
 	}
 
 	var out []llm.Message
-	appendLLM := func(msg *prompt.Message, omitTools bool) {
+	appendLLM := func(msg *binding.Message, omitTools bool) {
 		if msg == nil {
 			return
 		}
 		switch msg.Kind {
-		case prompt.MessageKindToolResult:
+		case binding.MessageKindToolResult:
 			if omitTools {
 				return
 			}
-			out = append(out, prompt.ToolResultLLMMessages(msg)...)
-		case prompt.MessageKindElicitPrompt, prompt.MessageKindElicitAnswer:
+			out = append(out, binding.ToolResultLLMMessages(msg)...)
+		case binding.MessageKindElicitPrompt, binding.MessageKindElicitAnswer:
 			return
 		default:
 			out = append(out, msg.ToLLM())
@@ -249,7 +249,7 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedProm
 					continue
 				}
 				if !replacedCurrentUser &&
-					m.Kind == prompt.MessageKindChatUser &&
+					m.Kind == binding.MessageKindChatUser &&
 					strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) {
 					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
 					replacedCurrentUser = true
@@ -269,7 +269,7 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *prompt.History, expandedProm
 	return out
 }
 
-func newExpandedUserLLMMessage(content string, attachments []*prompt.Attachment) llm.Message {
+func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment) llm.Message {
 	if len(attachments) == 0 {
 		return llm.NewUserMessage(content)
 	}

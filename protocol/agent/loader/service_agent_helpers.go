@@ -6,14 +6,14 @@ import (
 	"strings"
 
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 	"gopkg.in/yaml.v3"
 )
 
 // normalizeAgent applies generic cleanups that make downstream behavior stable.
 func normalizeAgent(a *agentmdl.Agent) {
-	trim := func(p *prompt.Prompt) {
+	trim := func(p *binding.Prompt) {
 		if p == nil {
 			return
 		}

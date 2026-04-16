@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/service/reactor"
@@ -71,7 +71,7 @@ func TestServiceRunPlanAndStatus_ReturnsCanceledWhenFirstLLMCallIsCanceled(t *te
 			ModelSelection: llm.ModelSelection{
 				Model: "mock-model",
 			},
-			Prompt: &prompt.Prompt{Text: "You are helpful."},
+			Prompt: &binding.Prompt{Text: "You are helpful."},
 		},
 	}
 	output := &QueryOutput{}

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/service/shared/toolexec"
 )
 
@@ -35,7 +35,7 @@ func TestTranscriptSystemDocuments(t *testing.T) {
 	assert.Equal(t, "turn-1", docs[0].Metadata["turnId"])
 
 	// Ensure appendTranscriptSystemDocs dedupes on source URI
-	b := &prompt.Binding{}
+	b := &binding.Binding{}
 	svc := &Service{}
 	svc.appendTranscriptSystemDocs(apiconv.Transcript{turnDup}, b)
 	svc.appendTranscriptSystemDocs(apiconv.Transcript{turnDup}, b)

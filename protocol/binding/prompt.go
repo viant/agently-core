@@ -1,4 +1,4 @@
-package prompt
+package binding
 
 import (
 	"bytes"

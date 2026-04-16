@@ -7,18 +7,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func TestGenerateInputInit_AppendsLiveUserPromptAfterKnowledgeDocsWhenMissingFromHistory(t *testing.T) {
 	in := &GenerateInput{
 		ModelSelection: llm.ModelSelection{Model: "mock-model"},
 		UserID:         "user-1",
-		Prompt:         &prompt.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
-		Binding: &prompt.Binding{
-			Task: prompt.Task{Prompt: "hi"},
-			Documents: prompt.Documents{
-				Items: []*prompt.Document{
+		Prompt:         &binding.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		Binding: &binding.Binding{
+			Task: binding.Task{Prompt: "hi"},
+			Documents: binding.Documents{
+				Items: []*binding.Document{
 					{PageContent: "knowledge block"},
 				},
 			},
@@ -38,21 +38,21 @@ func TestGenerateInputInit_DoesNotDuplicateLiveUserPromptWhenAlreadyInCurrentHis
 	in := &GenerateInput{
 		ModelSelection: llm.ModelSelection{Model: "mock-model"},
 		UserID:         "user-1",
-		Prompt:         &prompt.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
-		Binding: &prompt.Binding{
-			Task: prompt.Task{Prompt: "hi"},
-			Documents: prompt.Documents{
-				Items: []*prompt.Document{
+		Prompt:         &binding.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		Binding: &binding.Binding{
+			Task: binding.Task{Prompt: "hi"},
+			Documents: binding.Documents{
+				Items: []*binding.Document{
 					{PageContent: "knowledge block"},
 				},
 			},
-			History: prompt.History{
+			History: binding.History{
 				CurrentTurnID: "turn-1",
-				Current: &prompt.Turn{
+				Current: &binding.Turn{
 					ID: "turn-1",
-					Messages: []*prompt.Message{
+					Messages: []*binding.Message{
 						{
-							Kind:    prompt.MessageKindChatUser,
+							Kind:    binding.MessageKindChatUser,
 							Role:    string(llm.RoleUser),
 							Content: "hi",
 						},
@@ -73,16 +73,16 @@ func TestGenerateInputInit_ReplacesCurrentTurnDisplayTaskWithExpandedPromptForLL
 	in := &GenerateInput{
 		ModelSelection: llm.ModelSelection{Model: "mock-model"},
 		UserID:         "user-1",
-		Prompt:         &prompt.Prompt{Text: "User Query:\n{{.Task.Prompt}}\n\nEND_OF_USER_PROMPT", Engine: "go"},
-		Binding: &prompt.Binding{
-			Task: prompt.Task{Prompt: "Recommend sitelists for audience 7180287"},
-			History: prompt.History{
+		Prompt:         &binding.Prompt{Text: "User Query:\n{{.Task.Prompt}}\n\nEND_OF_USER_PROMPT", Engine: "go"},
+		Binding: &binding.Binding{
+			Task: binding.Task{Prompt: "Recommend sitelists for audience 7180287"},
+			History: binding.History{
 				CurrentTurnID: "turn-1",
-				Current: &prompt.Turn{
+				Current: &binding.Turn{
 					ID: "turn-1",
-					Messages: []*prompt.Message{
+					Messages: []*binding.Message{
 						{
-							Kind:    prompt.MessageKindChatUser,
+							Kind:    binding.MessageKindChatUser,
 							Role:    string(llm.RoleUser),
 							Content: "Recommend sitelists for audience 7180287",
 						},
@@ -104,22 +104,22 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 	in := &GenerateInput{
 		ModelSelection: llm.ModelSelection{Model: "mock-model"},
 		UserID:         "user-1",
-		Prompt:         &prompt.Prompt{Text: "User Query:\n{{.Task.Prompt}}\n\nEND_OF_USER_PROMPT", Engine: "go"},
-		Binding: &prompt.Binding{
-			Task: prompt.Task{Prompt: "Site-list recommendation workflow for audience 7180287 and matched target site_list_id 117385."},
-			History: prompt.History{
+		Prompt:         &binding.Prompt{Text: "User Query:\n{{.Task.Prompt}}\n\nEND_OF_USER_PROMPT", Engine: "go"},
+		Binding: &binding.Binding{
+			Task: binding.Task{Prompt: "Site-list recommendation workflow for audience 7180287 and matched target site_list_id 117385."},
+			History: binding.History{
 				CurrentTurnID: "turn-1",
-				Past: []*prompt.Turn{
+				Past: []*binding.Turn{
 					{
 						ID: "turn-1",
-						Messages: []*prompt.Message{
+						Messages: []*binding.Message{
 							{
-								Kind:    prompt.MessageKindChatUser,
+								Kind:    binding.MessageKindChatUser,
 								Role:    string(llm.RoleUser),
 								Content: "Site-list recommendation workflow for audience 7180287 and matched target site_list_id 117385.",
 							},
 							{
-								Kind:    prompt.MessageKindChatAssistant,
+								Kind:    binding.MessageKindChatAssistant,
 								Role:    string(llm.RoleAssistant),
 								Content: "I have the IDs already.",
 							},
@@ -143,17 +143,17 @@ func TestGenerateInputInit_PreservesMessageIDForReplayToolResults(t *testing.T) 
 	in := &GenerateInput{
 		ModelSelection: llm.ModelSelection{Model: "mock-model"},
 		UserID:         "user-1",
-		Prompt:         &prompt.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
-		Binding: &prompt.Binding{
-			Task: prompt.Task{Prompt: "continue"},
-			History: prompt.History{
-				Past: []*prompt.Turn{
+		Prompt:         &binding.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		Binding: &binding.Binding{
+			Task: binding.Task{Prompt: "continue"},
+			History: binding.History{
+				Past: []*binding.Turn{
 					{
 						ID: "turn-1",
-						Messages: []*prompt.Message{
+						Messages: []*binding.Message{
 							{
 								ID:       "msg-assistant-1",
-								Kind:     prompt.MessageKindToolResult,
+								Kind:     binding.MessageKindToolResult,
 								Role:     string(llm.RoleAssistant),
 								ToolOpID: "call_abc123",
 								ToolName: "message-show",

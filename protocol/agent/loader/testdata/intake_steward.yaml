@@ -1,0 +1,19 @@
+id: steward
+name: Steward
+modelRef: gpt-4o
+intake:
+  enabled: true
+  scope:
+    - title
+    - entities
+    - intent
+    - clarification
+    - profile
+    - tools
+    - template
+  model: haiku
+  maxTokens: 400
+  confidenceThreshold: 0.85
+  triggerOnTopicShift: true
+  topicShiftThreshold: 0.65
+  timeoutSec: 15

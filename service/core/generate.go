@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
@@ -26,8 +26,8 @@ type GenerateOutput struct {
 // GenerateRequest or calling the model. It mirrors the user-facing portion
 // of GenerateInput.
 type ExpandUserPromptInput struct {
-	Prompt  *prompt.Prompt  `json:"prompt,omitempty"`
-	Binding *prompt.Binding `json:"binding,omitempty"`
+	Prompt  *binding.Prompt  `json:"prompt,omitempty"`
+	Binding *binding.Binding `json:"binding,omitempty"`
 }
 
 // ExpandUserPromptOutput carries the expanded user prompt text.
@@ -61,13 +61,13 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 	}
 	p := input.Prompt
 	if p == nil {
-		p = &prompt.Prompt{}
+		p = &binding.Prompt{}
 	}
 	if err := p.Init(ctx); err != nil {
 		return fmt.Errorf("failed to init prompt: %w", err)
 	}
 	if input.Binding == nil {
-		input.Binding = &prompt.Binding{}
+		input.Binding = &binding.Binding{}
 	}
 	expanded, err := p.Generate(ctx, input.Binding)
 	if err != nil {

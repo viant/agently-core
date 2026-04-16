@@ -7,7 +7,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	core "github.com/viant/agently-core/service/core"
 )
 
@@ -217,9 +217,9 @@ func (s *Service) activeModel() string {
 // buildGenerateInput constructs a GenerateInput for the given parameters.
 func (s *Service) buildGenerateInput(systemPrompt, userText, model string) core.GenerateInput {
 	var in core.GenerateInput
-	in.SystemPrompt = &prompt.Prompt{Text: systemPrompt}
-	in.Prompt = &prompt.Prompt{Text: userText}
-	in.Binding = &prompt.Binding{}
+	in.SystemPrompt = &binding.Prompt{Text: systemPrompt}
+	in.Prompt = &binding.Prompt{Text: userText}
+	in.Binding = &binding.Binding{}
 	in.Model = model
 	in.UserID = "system"
 	return in

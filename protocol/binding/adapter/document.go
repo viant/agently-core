@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	"github.com/viant/afs/asset"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	embSchema "github.com/viant/embedius/schema"
 )
 
-// FromSchemaDocs converts search documents into prompt.Document items.
-func FromSchemaDocs(docs []embSchema.Document) []*prompt.Document {
-	out := make([]*prompt.Document, 0, len(docs))
+// FromSchemaDocs converts search documents into binding.Document items.
+func FromSchemaDocs(docs []embSchema.Document) []*binding.Document {
+	out := make([]*binding.Document, 0, len(docs))
 
 	// Ensure deterministic processing order: sort knowledge by URL
 	sort.SliceStable(docs, func(i, j int) bool {
@@ -24,20 +24,20 @@ func FromSchemaDocs(docs []embSchema.Document) []*prompt.Document {
 	for _, d := range docs {
 		source := extractSource(d.Metadata)
 		title := baseName(source)
-		out = append(out, &prompt.Document{Title: title, PageContent: d.PageContent, SourceURI: source})
+		out = append(out, &binding.Document{Title: title, PageContent: d.PageContent, SourceURI: source})
 	}
 	return out
 }
 
-// FromAssets converts file resources into prompt.Document items.
-func FromAssets(resources []*asset.Resource) []*prompt.Document {
-	out := make([]*prompt.Document, 0, len(resources))
+// FromAssets converts file resources into binding.Document items.
+func FromAssets(resources []*asset.Resource) []*binding.Document {
+	out := make([]*binding.Document, 0, len(resources))
 	for _, r := range resources {
 		if r == nil {
 			continue
 		}
 		title := baseName(r.Name)
-		out = append(out, &prompt.Document{Title: title, PageContent: string(r.Data), SourceURI: r.Name})
+		out = append(out, &binding.Document{Title: title, PageContent: string(r.Data), SourceURI: r.Name})
 	}
 	return out
 }

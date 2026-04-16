@@ -8,7 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
 	asynccfg "github.com/viant/agently-core/protocol/async"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 )
@@ -94,13 +94,13 @@ func (s *Service) injectAsyncReinforcementForRecords(ctx context.Context, turn *
 }
 
 // renderBatchedAsyncReinforcement renders one turn-level reinforcement message
-// for all eligible changed operations using the centralized prompt.
+// for all eligible changed operations using the centralized binding.
 func (s *Service) renderBatchedAsyncReinforcement(ctx context.Context, records []*asynccfg.OperationRecord) string {
 	if len(records) == 0 {
 		return ""
 	}
 	pp := s.resolveAsyncReinforcementPrompt()
-	binding := &prompt.Binding{
+	binding := &binding.Binding{
 		Context: s.buildBatchedAsyncContext(ctx, records),
 	}
 	rendered, err := pp.Generate(ctx, binding)
@@ -115,12 +115,12 @@ func (s *Service) renderBatchedAsyncReinforcement(ctx context.Context, records [
 
 // resolveAsyncReinforcementPrompt returns the workspace/defaults-configured
 // prompt when set, falling back to the embedded default.
-func (s *Service) resolveAsyncReinforcementPrompt() *prompt.Prompt {
+func (s *Service) resolveAsyncReinforcementPrompt() *binding.Prompt {
 	if s != nil && s.defaults != nil && s.defaults.AsyncReinforcementPrompt != nil {
 		p := *s.defaults.AsyncReinforcementPrompt
 		return &p
 	}
-	return &prompt.Prompt{
+	return &binding.Prompt{
 		Text:   prompts.AsyncReinforcement,
 		Engine: "go",
 	}

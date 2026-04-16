@@ -293,6 +293,63 @@ func TestService_Load_StarterTasks(t *testing.T) {
 	assert.Equal(t, "flask", got.StarterTasks[1].Icon)
 }
 
+func TestService_Load_Intake_Orchestrator(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "intake_steward.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	cfg := got.Intake
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "haiku", cfg.Model)
+	assert.Equal(t, 400, cfg.MaxTokens)
+	assert.InDelta(t, 0.85, cfg.ConfidenceThreshold, 0.001)
+	assert.True(t, cfg.TriggerOnTopicShift)
+	assert.InDelta(t, 0.65, cfg.TopicShiftThreshold, 0.001)
+	assert.Equal(t, 15, cfg.TimeoutSec)
+	assert.True(t, cfg.HasScope("profile"))
+	assert.True(t, cfg.HasScope("tools"))
+	assert.True(t, cfg.HasScope("template"))
+	assert.True(t, cfg.HasScope("title"))
+	assert.False(t, cfg.HasScope("unknown"))
+}
+
+func TestService_Load_Intake_Worker(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "intake_worker.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	cfg := got.Intake
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "haiku", cfg.Model)
+	assert.Equal(t, 200, cfg.MaxTokens)
+	assert.True(t, cfg.HasScope("title"))
+	assert.True(t, cfg.HasScope("entities"))
+	assert.True(t, cfg.HasScope("intent"))
+	assert.False(t, cfg.HasScope("profile"))
+	assert.False(t, cfg.HasScope("tools"))
+}
+
+func TestService_Load_PromptBundles(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "prompt_bundles.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	// template bundles still work
+	assert.Equal(t, []string{"analytics-templates"}, got.Template.Bundles)
+
+	// prompts.bundles is a direct allow-list of profile IDs
+	assert.Equal(t, []string{"inventory_diagnosis", "performance_analysis"}, got.Prompts.Bundles)
+}
+
 func TestParseResourceEntry_SystemFlag(t *testing.T) {
 	makeNode := func(doc string) *yml.Node {
 		var root yaml.Node

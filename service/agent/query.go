@@ -8,7 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/runtime/usage"
 )
@@ -27,13 +27,13 @@ type QueryInput struct {
 	ConversationTitle string `json:"conversationTitle,omitempty"`
 	// Optional client-supplied identifier for the user message. When empty the
 	// service will generate a UUID.
-	MessageID    string               `json:"messageId,omitempty"`
-	AgentID      string               `json:"agentId"` // Agent ID to use
-	UserId       string               `json:"userId"`
-	Agent        *agentmdl.Agent      `json:"agent"`                  // Agent to use (alternative to agentId)
-	Query        string               `json:"query"`                  // Internal query/prompt submitted to the runtime
-	DisplayQuery string               `json:"displayQuery,omitempty"` // Display-safe user task persisted in transcript/UI
-	Attachments  []*prompt.Attachment `json:"attachments,omitempty"`
+	MessageID    string                `json:"messageId,omitempty"`
+	AgentID      string                `json:"agentId"` // Agent ID to use
+	UserId       string                `json:"userId"`
+	Agent        *agentmdl.Agent       `json:"agent"`                  // Agent to use (alternative to agentId)
+	Query        string                `json:"query"`                  // Internal query/prompt submitted to the runtime
+	DisplayQuery string                `json:"displayQuery,omitempty"` // Display-safe user task persisted in transcript/UI
+	Attachments  []*binding.Attachment `json:"attachments,omitempty"`
 
 	MaxResponseSize int    `json:"maxResponseSize"` // Maximum size of the response in bytes
 	MaxDocuments    int    `json:"maxDocuments"`    // Maximum number of documents to retrieve
@@ -71,6 +71,12 @@ type QueryInput struct {
 	// ReasoningEffort optionally overrides agent-level Reasoning.Effort for this turn.
 	// Valid values (OpenAI o-series): low | medium | high.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
+
+	// TemplateId optionally pre-selects an output template for this turn.
+	// When set, the runtime will attempt to inject the template document before
+	// the LLM starts so the worker doesn't need to call template:get explicitly.
+	// Populated by the llm/agents runtime when a PromptProfile specifies a template.
+	TemplateId string `json:"templateId,omitempty"`
 
 	// ScheduleId links this query to the schedule that triggered it.
 	// When set, the created conversation will have schedule_id populated.

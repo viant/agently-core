@@ -8,7 +8,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/service/agent/prompts"
 	"github.com/viant/agently-core/service/core"
 )
@@ -49,14 +49,14 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 		transcript[i].SetMessages(messages)
 	}
 
-	bindings := prompt.Binding{}
+	bindings := binding.Binding{}
 	if err := s.BuildHistory(ctx, transcript, &bindings); err != nil {
 		return err
 	}
 	genInput := &core.GenerateInput{
 		Binding: &bindings,
 		UserID:  "system",
-		Prompt: &prompt.Prompt{
+		Prompt: &binding.Prompt{
 			Text: summaryPrompt,
 		},
 	}

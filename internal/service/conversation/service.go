@@ -174,6 +174,7 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 		return errors.New(out.Violations[0].Message)
 	}
 	logx.Infof("conversation", "PatchConversations ok id=%q", strings.TrimSpace(conversations.Id))
+	s.publishConversationMetaEvent(ctx, conversations)
 	return nil
 }
 
@@ -690,6 +691,52 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 	}
 	s.emitTimelineEvent(ctx, event, "PatchMessage publish event")
 	s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+}
+
+// publishConversationMetaEvent emits a conversation_meta_updated event when
+// conversation-level metadata (title, agentId, summary, …) changes.
+// Only fields that were explicitly set in the patch are included in the payload.
+func (s *Service) publishConversationMetaEvent(ctx context.Context, conv *convcli.MutableConversation) {
+	if s == nil || s.streamPub == nil || conv == nil || conv.Has == nil {
+		return
+	}
+	convID := strings.TrimSpace(conv.Id)
+	if convID == "" {
+		return
+	}
+	patch := conversationMetaPatch(conv)
+	if len(patch) == 0 {
+		return
+	}
+	event := &streaming.Event{
+		StreamID:       convID,
+		ConversationID: convID,
+		Type:           streaming.EventTypeConversationMetaUpdated,
+		Patch:          patch,
+	}
+	s.emitTimelineEvent(ctx, event, "PatchConversations publish meta event")
+}
+
+// conversationMetaPatch builds the patch payload from the fields that were
+// explicitly set on the MutableConversation.
+func conversationMetaPatch(conv *convcli.MutableConversation) map[string]interface{} {
+	if conv == nil || conv.Has == nil {
+		return nil
+	}
+	out := map[string]interface{}{}
+	if conv.Has.Title && conv.Title != nil {
+		out["title"] = strings.TrimSpace(*conv.Title)
+	}
+	if conv.Has.AgentId && conv.AgentId != nil {
+		out["agentId"] = strings.TrimSpace(*conv.AgentId)
+	}
+	if conv.Has.Summary && conv.Summary != nil {
+		out["summary"] = strings.TrimSpace(*conv.Summary)
+	}
+	if conv.Has.Status && conv.Status != nil {
+		out["status"] = strings.TrimSpace(*conv.Status)
+	}
+	return out
 }
 
 func shouldSuppressMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) bool {
