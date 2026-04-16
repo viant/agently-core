@@ -135,7 +135,7 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 	assert.Equal(t, "system", client.messages[0].Role)
 	assert.Equal(t, "system_document", valueOrEmpty(client.messages[0].Mode))
 	assert.Equal(t, "system_doc", valueOrEmpty(client.messages[0].Tags))
-	assert.Equal(t, "You are a performance analyst.", valueOrEmpty(client.messages[0].Content))
+	assert.Equal(t, "You are a performance analyst.\nFocus on KPI health, and concise evidence-backed observations.", valueOrEmpty(client.messages[0].Content))
 
 	assert.Equal(t, "user", client.messages[1].Role)
 	assert.Empty(t, valueOrEmpty(client.messages[1].Mode))

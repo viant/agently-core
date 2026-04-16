@@ -6,9 +6,12 @@ appliesTo:
   - pacing
 messages:
   - role: system
-    text: "You are a performance analyst."
+    text: $import(../shared/system.txt)
   - role: user
-    text: "Analyze the campaign hierarchy."
+    text: $import(../shared/user.txt)
 toolBundles:
   - steward-performance-tools
 template: analytics_dashboard
+templates:
+  - analytics_dashboard
+  - site_list_planner

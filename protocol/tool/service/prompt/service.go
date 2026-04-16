@@ -86,6 +86,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			AppliesTo:   p.AppliesTo,
 			ToolBundles: p.ToolBundles,
 			Template:    strings.TrimSpace(p.Template),
+			Templates:   append([]string(nil), p.Templates...),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].ID) < strings.ToLower(items[j].ID) })
@@ -130,6 +131,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	go_.ToolBundles = selected.ToolBundles
 	go_.PreferredTools = selected.PreferredTools
 	go_.Template = strings.TrimSpace(selected.Template)
+	go_.Templates = append([]string(nil), selected.Templates...)
 	go_.Resources = selected.Resources
 
 	// Always render and return messages in the response body.

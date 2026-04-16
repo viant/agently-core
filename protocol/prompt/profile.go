@@ -1,7 +1,7 @@
 package prompt
 
 // Profile is a scenario configuration unit pairing instruction messages,
-// tool bundles, and an output template.
+// tool bundles, and one default plus optional additional output templates.
 type Profile struct {
 	ID           string     `yaml:"id"                       json:"id"`
 	Name         string     `yaml:"name,omitempty"           json:"name,omitempty"`
@@ -15,6 +15,7 @@ type Profile struct {
 	ToolBundles    []string   `yaml:"toolBundles,omitempty"    json:"toolBundles,omitempty"`
 	PreferredTools []string   `yaml:"preferredTools,omitempty" json:"preferredTools,omitempty"`
 	Template       string     `yaml:"template,omitempty"       json:"template,omitempty"`
+	Templates      []string   `yaml:"templates,omitempty"      json:"templates,omitempty"`
 	Resources      []string   `yaml:"resources,omitempty"      json:"resources,omitempty"`
 	Expansion      *Expansion `yaml:"expansion,omitempty"      json:"expansion,omitempty"`
 }
