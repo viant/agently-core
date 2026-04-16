@@ -708,6 +708,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", fmt.Errorf("invalid tool name: %s", name)
 	}
 	var options []mcpclient.RequestOption
+	if r.mgr != nil {
+		ctx = r.mgr.WithAuthTokenContext(ctx, server)
+	}
 	useID := false
 	if r.mgr != nil {
 		useID = r.mgr.UseIDToken(ctx, server)
@@ -1419,6 +1422,9 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if ok && c != nil {
 		px, _ := mcpproxy.NewProxy(ctx, server, c)
 		var opts []mcpclient.RequestOption
+		if r.mgr != nil {
+			ctx = r.mgr.WithAuthTokenContext(ctx, server)
+		}
 		useID := false
 		if r.mgr != nil {
 			useID = r.mgr.UseIDToken(ctx, server)
@@ -1440,6 +1446,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
 	}
+	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	useID := r.mgr.UseIDToken(ctx, server)
 	token := authctx.MCPAuthToken(ctx, useID)
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
@@ -1449,8 +1456,6 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		r.warnDiscoveryListIssue(server, scope, "cooldown", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
-
-	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get", func(callCtx context.Context) error {
 		var getErr error

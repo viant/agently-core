@@ -212,6 +212,16 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.DAO = dao
 	}
+	if out.AuthConfig == nil {
+		authCfg, err := svcauth.LoadWorkspaceConfig(workspace.Root())
+		if err != nil {
+			return nil, err
+		}
+		out.AuthConfig = authCfg
+	}
+	if b.tokenProvider == nil {
+		b.tokenProvider = svcauth.NewCreatedByUserTokenProvider(out.AuthConfig, out.DAO)
+	}
 
 	out.Conversation = b.conversation
 	if out.Conversation == nil {
@@ -377,6 +387,9 @@ func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *el
 	}
 	if b.mcpUserIDFn != nil {
 		opts = append(opts, mcpmgr.WithUserIDExtractor(b.mcpUserIDFn))
+	}
+	if b.tokenProvider != nil {
+		opts = append(opts, mcpmgr.WithTokenProvider(b.tokenProvider))
 	}
 	return mcpmgr.New(mcpmgr.NewRepoProvider(), opts...)
 }

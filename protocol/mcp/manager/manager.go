@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	token "github.com/viant/agently-core/internal/auth/token"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
@@ -74,6 +75,12 @@ func WithUserIDExtractor(fn UserIDExtractor) Option {
 	return func(m *Manager) error { m.userIDFn = fn; return nil }
 }
 
+// WithTokenProvider injects the shared token lifecycle manager so MCP requests
+// can refresh tokens just before outbound auth is attached.
+func WithTokenProvider(tp token.Provider) Option {
+	return func(m *Manager) error { m.tokenProvider = tp; return nil }
+}
+
 // Manager caches MCP clients per (userID:conversationID, serverName) and handles idle reaping.
 type Manager struct {
 	prov           Provider
@@ -84,6 +91,7 @@ type Manager struct {
 	authRT         *authtransport.RoundTripper
 	authRTProvider AuthRTProvider
 	userIDFn       UserIDExtractor
+	tokenProvider  token.Provider
 
 	mu   sync.Mutex
 	pool map[string]map[string]*entry // poolKey -> serverName -> entry

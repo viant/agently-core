@@ -96,6 +96,9 @@ type StatusItem struct {
 	ParentTurnID          string `json:"parentTurnId,omitempty"`
 	AgentID               string `json:"agentId,omitempty"`
 	Status                string `json:"status,omitempty"`
+	RawStatus             string `json:"rawStatus,omitempty"`
+	Terminal              bool   `json:"terminal,omitempty"`
+	Error                 string `json:"error,omitempty"`
 	CreatedAt             string `json:"createdAt,omitempty"`
 	UpdatedAt             string `json:"updatedAt,omitempty"`
 	LastAssistantPreamble string `json:"lastAssistantPreamble,omitempty"`
@@ -107,6 +110,9 @@ type StatusItem struct {
 type StatusOutput struct {
 	ConversationID    string       `json:"conversationId,omitempty"`
 	Status            string       `json:"status,omitempty"`
+	RawStatus         string       `json:"rawStatus,omitempty"`
+	Terminal          bool         `json:"terminal,omitempty"`
+	Error             string       `json:"error,omitempty"`
 	AssistantResponse string       `json:"assistantResponse,omitempty"`
 	HasFinalResponse  bool         `json:"hasFinalResponse,omitempty"`
 	Items             []StatusItem `json:"items,omitempty"`

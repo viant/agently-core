@@ -783,6 +783,151 @@ func TestService_Status_ByConversationID_UsesPreambleWhileRunning(t *testing.T) 
 	assert.Empty(t, out.Items[0].LastAssistantResponse)
 }
 
+func TestService_Status_ByConversationID_TreatsBlockedChildFailureAsTerminal(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-blocked")
+	childConv.SetAgentId("coder")
+	childConv.SetStatus("waiting_for_user")
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-blocked")
+	childTurn.SetConversationID("child-blocked")
+	childTurn.SetStatus("waiting_for_user")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	pending := convcli.NewMessage()
+	pending.SetId("child-msg-pending")
+	pending.SetConversationID("child-blocked")
+	pending.SetTurnID("child-turn-blocked")
+	pending.SetRole("assistant")
+	pending.SetType("text")
+	pending.SetStatus("pending")
+	pending.SetInterim(0)
+	pending.SetContent("MCP server requires authentication. Please sign in to continue.")
+	require.NoError(t, conv.PatchMessage(ctx, pending))
+
+	failedTool := convcli.NewMessage()
+	failedTool.SetId("child-msg-failed-tool")
+	failedTool.SetConversationID("child-blocked")
+	failedTool.SetTurnID("child-turn-blocked")
+	failedTool.SetRole("tool")
+	failedTool.SetType("tool_op")
+	failedTool.SetStatus("failed")
+	failedTool.SetToolName("steward/GlobalSupplyPerformanceCube")
+	failedTool.SetContent("code: -32603, message: BFF auth callback failed: authentication timed out")
+	require.NoError(t, conv.PatchMessage(ctx, failedTool))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-blocked"}, &out)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	assert.Equal(t, "failed", out.Status)
+	assert.Equal(t, "waiting_for_user", out.RawStatus)
+	assert.True(t, out.Terminal)
+	assert.True(t, out.HasFinalResponse)
+	assert.Contains(t, out.AssistantResponse, "blocked waiting for user input")
+	assert.Contains(t, out.AssistantResponse, "GlobalSupplyPerformanceCube")
+	assert.Contains(t, out.Error, "authentication timed out")
+}
+
+func TestService_Status_ByConversationID_TimesOutLongRunningChild(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+	now := time.Date(2026, 4, 16, 8, 0, 0, 0, time.UTC)
+	prevNow := childStatusNow
+	childStatusNow = func() time.Time { return now }
+	defer func() { childStatusNow = prevNow }()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-timeout")
+	childConv.SetAgentId("coder")
+	childConv.SetStatus("running")
+	childConv.SetCreatedAt(now.Add(-30 * time.Minute))
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-timeout")
+	childTurn.SetConversationID("child-timeout")
+	childTurn.SetStatus("running")
+	childTurn.SetCreatedAt(now.Add(-25 * time.Minute))
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	preamble := convcli.NewMessage()
+	preamble.SetId("child-msg-timeout")
+	preamble.SetConversationID("child-timeout")
+	preamble.SetTurnID("child-turn-timeout")
+	preamble.SetRole("assistant")
+	preamble.SetType("text")
+	preamble.SetInterim(1)
+	preamble.SetPreamble("still working")
+	preamble.SetContent("still working")
+	preamble.SetCreatedAt(now.Add(-21 * time.Minute))
+	require.NoError(t, conv.PatchMessage(ctx, preamble))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-timeout"}, &out)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	assert.Equal(t, "failed", out.Status)
+	assert.Equal(t, "running", out.RawStatus)
+	assert.True(t, out.Terminal)
+	assert.True(t, out.HasFinalResponse)
+	assert.Contains(t, out.AssistantResponse, "timed out after 20 minutes")
+	assert.Contains(t, out.Error, "maximum wait time of 20 minutes")
+}
+
+func TestService_Status_ByConversationID_TimesOutWaitingForUserChildAfterFiveMinutes(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+	now := time.Date(2026, 4, 16, 8, 0, 0, 0, time.UTC)
+	prevNow := childStatusNow
+	childStatusNow = func() time.Time { return now }
+	defer func() { childStatusNow = prevNow }()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-wait-timeout")
+	childConv.SetAgentId("coder")
+	childConv.SetStatus("waiting_for_user")
+	childConv.SetCreatedAt(now.Add(-10 * time.Minute))
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-wait-timeout")
+	childTurn.SetConversationID("child-wait-timeout")
+	childTurn.SetStatus("waiting_for_user")
+	childTurn.SetCreatedAt(now.Add(-8 * time.Minute))
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	pending := convcli.NewMessage()
+	pending.SetId("child-msg-wait-timeout")
+	pending.SetConversationID("child-wait-timeout")
+	pending.SetTurnID("child-turn-wait-timeout")
+	pending.SetRole("assistant")
+	pending.SetType("text")
+	pending.SetStatus("pending")
+	pending.SetContent("Please sign in to continue.")
+	pending.SetCreatedAt(now.Add(-6 * time.Minute))
+	require.NoError(t, conv.PatchMessage(ctx, pending))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-wait-timeout"}, &out)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	assert.Equal(t, "failed", out.Status)
+	assert.Equal(t, "waiting_for_user", out.RawStatus)
+	assert.True(t, out.Terminal)
+	assert.True(t, out.HasFinalResponse)
+	assert.Contains(t, out.AssistantResponse, "timed out after 5 minutes")
+	assert.Contains(t, out.Error, "maximum wait time of 5 minutes")
+}
+
 func TestService_Status_ByParentConversationAndTurn(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()
