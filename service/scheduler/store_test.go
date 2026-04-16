@@ -261,6 +261,44 @@ func TestHandler_BatchUpdateUpdatesDescriptionAndTaskPrompt(t *testing.T) {
 	assertScheduleTextFields(t, db, "sched-http-update-1", "after", "goodbye")
 }
 
+func TestHandler_DeleteScheduleRemovesOwnedRow(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRowWithOwner(t, db, "sched-delete-1", "Nightly", "private", "devuser")
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/schedule/sched-delete-1", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "devuser"))
+	rec := httptest.NewRecorder()
+
+	h.handleDeleteSchedule()(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertScheduleCount(t, db, "sched-delete-1", 0)
+}
+
+func TestHandler_DeleteScheduleRejectsOtherUser(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRowWithOwner(t, db, "sched-delete-2", "Nightly", "private", "devuser")
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/schedule/sched-delete-2", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "otheruser"))
+	rec := httptest.NewRecorder()
+
+	h.handleDeleteSchedule()(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertScheduleCount(t, db, "sched-delete-2", 1)
+}
+
 func TestHandler_ListSchedulesSupportsPagination(t *testing.T) {
 	store, db := newTestStore(t)
 	svc := New(store, nil)
