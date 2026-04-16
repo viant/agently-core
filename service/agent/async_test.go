@@ -76,6 +76,33 @@ func TestInjectAsyncReinforcement_ConsumesPendingChange(t *testing.T) {
 	require.Len(t, changed, 0)
 }
 
+func TestInjectAsyncReinforcement_DoesNotFallbackToUnchangedActiveWaitOps(t *testing.T) {
+	ctx := context.Background()
+	client := &recordingConvClient{}
+	svc := &Service{
+		conversation: client,
+		asyncManager: asynccfg.NewManager(),
+	}
+
+	turn := &memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
+	svc.asyncManager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "op-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "system/exec:start",
+		WaitForResponse: true,
+		Status:          "running",
+		Message:         "still working",
+	})
+
+	// Consume the initial change so the op remains active-but-unchanged.
+	_ = svc.asyncManager.ConsumeChanged("conv-1", "turn-1")
+
+	svc.injectAsyncReinforcement(ctx, turn)
+
+	require.Nil(t, client.lastMessage, "unchanged active wait ops must stay in runtime polling and not re-enter model context")
+}
+
 func TestInjectAsyncReinforcement_RuntimePolledInstruction(t *testing.T) {
 	ctx := context.Background()
 	client := &recordingConvClient{}
