@@ -508,7 +508,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 				return err
 			}
-			s.injectAsyncReinforcement(ctx, &turn)
+			changedOps = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
+			s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
 			queryOutput.Content = ""
 			continue
 		}
@@ -617,7 +618,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 						return err
 					}
-					changedOps = s.asyncManager.ActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
+					changedOps = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 				} else {
 					logx.Infof("conversation", "agent.runPlan async-terminal-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				}
@@ -692,7 +693,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 					return err
 				}
-				s.injectAsyncReinforcement(ctx, &turn)
+				changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
+				s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
 				queryOutput.Content = ""
 				continue
 			}

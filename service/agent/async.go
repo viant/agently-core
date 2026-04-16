@@ -23,9 +23,6 @@ func (s *Service) injectAsyncReinforcement(ctx context.Context, turn *runtimereq
 		return
 	}
 	changed := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
-	if len(changed) == 0 {
-		changed = s.asyncManager.ActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
-	}
 	s.injectAsyncReinforcementForRecords(ctx, turn, changed)
 }
 
