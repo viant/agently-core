@@ -53,6 +53,11 @@ func (a *Prompt) Init(ctx context.Context) error {
 			return err
 		}
 		prompt = string(data)
+		// Expand $import(path) directives BEFORE handing to the template
+		// engine. See imports.go for semantics.
+		if prompt, err = ResolveTextImports(ctx, fs, prompt, uri); err != nil {
+			return err
+		}
 	}
 	// Persist resolved prompt text for downstream Generate()
 	if strings.TrimSpace(prompt) != "" {
@@ -77,7 +82,13 @@ func (a *Prompt) Generate(ctx context.Context, binding *Binding) (string, error)
 		if err != nil {
 			return "", err
 		}
-		a.Text = string(data)
+		expanded, err := ResolveTextImports(ctx, fs, string(data), uri)
+		if err != nil {
+			return "", err
+		}
+		// Re-hash downstream to trigger a template reparse when imports
+		// resolved to different content than the previous turn.
+		a.Text = expanded
 	} else {
 		// Fall back to initialisation path when only Text is provided
 		if err := a.Init(ctx); err != nil {
