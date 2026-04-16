@@ -136,10 +136,29 @@ func (s *Service) Upsert(ctx context.Context, schedule *Schedule) error {
 	return s.store.PatchSchedule(ctx, mut)
 }
 
-// Delete is not exposed on the current SDK surface.
-func (s *Service) Delete(id string) error {
-	_ = id
-	return errors.New("scheduler delete is not implemented")
+// Delete removes a schedule when the caller owns it.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("schedule ID is required")
+	}
+	row, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		return errors.New("schedule " + id + " not found")
+	}
+	if row.CreatedByUserId != nil {
+		owner := strings.TrimSpace(*row.CreatedByUserId)
+		if owner != "" {
+			userID := strings.TrimSpace(svcauth.EffectiveUserID(ctx))
+			if userID == "" || userID != owner {
+				return errors.New("schedule delete is only allowed for the owner")
+			}
+		}
+	}
+	return s.store.DeleteSchedule(ctx, id)
 }
 
 // RunNow enqueues and starts an immediate execution for a schedule.
