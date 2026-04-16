@@ -3,8 +3,10 @@ package base
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -143,8 +145,27 @@ func (r *Repository[T]) Load(ctx context.Context, name string) (*T, error) {
 			return nil, err
 		}
 		var v T
-		if err := yaml.Unmarshal(data, &v); err != nil {
-			return nil, err
+		location := name
+		if filepath.Ext(location) == "" {
+			location += ".yaml"
+		}
+		switch strings.ToLower(path.Ext(location)) {
+		case ".json":
+			if err := json.Unmarshal(data, &v); err != nil {
+				return nil, err
+			}
+		default:
+			var node yaml.Node
+			if err := yaml.Unmarshal(data, &node); err != nil {
+				return nil, err
+			}
+			resolvedPath := r.resolveStorePath(name)
+			if err := meta.ResolveImports(ctx, afs.New(), &node, filepath.Dir(resolvedPath)); err != nil {
+				return nil, err
+			}
+			if err := node.Decode(&v); err != nil {
+				return nil, err
+			}
 		}
 		return &v, nil
 	}
@@ -157,6 +178,26 @@ func (r *Repository[T]) Load(ctx context.Context, name string) (*T, error) {
 		return nil, err
 	}
 	return &v, nil
+}
+
+func (r *Repository[T]) resolveStorePath(name string) string {
+	if r == nil || r.store == nil {
+		return name
+	}
+	filename := name
+	if filepath.Ext(filename) == "" {
+		filename += ".yaml"
+	}
+	flat := filepath.Join(r.store.Root(), r.kind, filename)
+	if _, err := os.Stat(flat); err == nil {
+		return flat
+	}
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	nested := filepath.Join(r.store.Root(), r.kind, base, filename)
+	if _, err := os.Stat(nested); err == nil {
+		return nested
+	}
+	return flat
 }
 
 // Save (Add/overwrite) marshals struct to YAML.

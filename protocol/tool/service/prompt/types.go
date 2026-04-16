@@ -14,6 +14,7 @@ type ListItem struct {
 	AppliesTo   []string `json:"appliesTo,omitempty"`
 	ToolBundles []string `json:"toolBundles,omitempty"`
 	Template    string   `json:"template,omitempty"`
+	Templates   []string `json:"templates,omitempty"`
 }
 
 // ListOutput is the response payload for prompt:list.
@@ -38,6 +39,7 @@ type GetOutput struct {
 	ToolBundles    []string  `json:"toolBundles,omitempty"`
 	PreferredTools []string  `json:"preferredTools,omitempty"`
 	Template       string    `json:"template,omitempty"`
+	Templates      []string  `json:"templates,omitempty"`
 	Resources      []string  `json:"resources,omitempty"`
 	Messages       []Message `json:"messages,omitempty"`
 	// Injected is true when includeDocument=true and messages were written into
