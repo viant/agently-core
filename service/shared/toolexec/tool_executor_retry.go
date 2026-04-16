@@ -2,12 +2,17 @@ package toolexec
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	plan "github.com/viant/agently-core/genai/llm"
+	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/tool"
 )
@@ -42,8 +47,10 @@ func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo,
 		if execErr != nil {
 			cause := classifyTimeoutCause(ctx, attemptCtxErr, execErr)
 			logx.WarnCtxf(ctx, "conversation", "tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s cause=%q err=%q attempt_ctx_err=%q parent_ctx_err=%q", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String(), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(errorString(attemptCtxErr)), strings.TrimSpace(formatContextErr(ctx)))
+			debugMCPAuthFailure(ctx, step, "", execErr)
 		} else {
 			logx.DebugCtxf(ctx, "conversation", "tool attempt end tool=%q op_id=%q attempt=%d/%d elapsed=%s status=ok", strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), attempt, attempts, elapsed.String())
+			debugMCPAuthFailure(ctx, step, result, nil)
 		}
 		if execErr == nil || !shouldRetryToolCall(ctx, execErr, elapsed, attempt, attempts) {
 			break
@@ -51,6 +58,55 @@ func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo,
 		logx.DebugCtxf(ctx, "executil", "tool %s attempt %d/%d failed after %s with %v; retrying", step.Name, attempt, attempts, elapsed, execErr)
 	}
 	return out, result, execErr
+}
+
+func debugMCPAuthFailure(ctx context.Context, step StepInfo, result string, execErr error) {
+	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) == "" {
+		return
+	}
+	server := toolServer(strings.TrimSpace(step.Name))
+	msg := ""
+	switch {
+	case execErr != nil:
+		msg = strings.TrimSpace(execErr.Error())
+	case strings.EqualFold(strings.TrimSpace(result), "Unauthorized"):
+		msg = strings.TrimSpace(result)
+	}
+	lower := strings.ToLower(msg)
+	if msg == "" || (!strings.Contains(lower, "unauthorized") && !strings.Contains(lower, "forbidden")) {
+		return
+	}
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	provider := strings.TrimSpace(authctx.Provider(ctx))
+	tb := authctx.TokensFromContext(ctx)
+	accessFP := "none"
+	idFP := "none"
+	if tb != nil {
+		accessFP = tokenFingerprint(tb.AccessToken)
+		idFP = tokenFingerprint(tb.IDToken)
+	}
+	fmt.Fprintf(os.Stderr, "[mcp-auth] stage=tool_unauthorized server=%s tool=%s op_id=%s user=%q provider=%q access_sha=%s id_sha=%s err=%q\n",
+		strings.TrimSpace(server), strings.TrimSpace(step.Name), strings.TrimSpace(step.ID), userID, provider, accessFP, idFP, msg)
+}
+
+func tokenFingerprint(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "none"
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+func toolServer(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if idx := strings.IndexAny(name, "/:"); idx > 0 {
+		return strings.TrimSpace(name[:idx])
+	}
+	return ""
 }
 
 func shouldRetryToolCall(ctx context.Context, execErr error, elapsed time.Duration, attempt, maxAttempts int) bool {
