@@ -109,6 +109,48 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 	}
 }
 
+func TestPublishTurnEvent_RunningTurnWithoutStarterMessageDoesNotFallbackToTurnID(t *testing.T) {
+	bus := streaming.NewMemoryBus(4)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("conv-1")
+	turn.SetStatus("running")
+	turn.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
+	svc.publishTurnEvent(context.Background(), turn)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeControl, ev.Type)
+		require.Equal(t, "turn_started", ev.Op)
+		require.Equal(t, "turn-1", ev.ID)
+		require.Equal(t, "conv-1", ev.StreamID)
+		require.Empty(t, ev.MessageID)
+		_, hasUserMessageID := ev.Patch["userMessageId"]
+		require.False(t, hasUserMessageID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected turn_started control event")
+	}
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeTurnStarted, ev.Type)
+		require.Equal(t, "turn-1", ev.TurnID)
+		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Empty(t, ev.MessageID)
+		require.Empty(t, ev.UserMessageID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected typed turn_started event")
+	}
+}
+
 func TestPublishTurnEvent_SucceededTurnPublishesCompleted(t *testing.T) {
 	bus := streaming.NewMemoryBus(2)
 	svc := &Service{streamPub: bus}
