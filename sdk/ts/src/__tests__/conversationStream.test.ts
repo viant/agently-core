@@ -133,6 +133,27 @@ describe('ConversationStreamTracker', () => {
         });
     });
 
+    it('projects startedByMessageId from turn_started user identity', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+        tracker.applyEvent({
+            type: 'turn_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            userMessageId: 'user-1',
+        } as SSEEvent);
+
+        const turns = projectTrackerToTurns(tracker.canonicalState, 'conv-1');
+        expect(turns).toEqual([
+            expect.objectContaining({
+                turnId: 'turn-1',
+                startedByMessageId: 'user-1',
+                user: expect.objectContaining({
+                    messageId: 'user-1',
+                }),
+            }),
+        ]);
+    });
+
     it('projects tracker canonical state into live assistant rows', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({

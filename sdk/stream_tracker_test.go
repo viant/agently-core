@@ -25,6 +25,9 @@ func TestConversationStreamTracker_ApplyEventAndTranscript(t *testing.T) {
 	if state.Turns[0].User == nil || state.Turns[0].User.MessageID != "user-1" {
 		t.Fatalf("expected user message id, got %#v", state.Turns[0].User)
 	}
+	if state.Turns[0].StartedByMessageID != "user-1" {
+		t.Fatalf("expected startedByMessageID user-1, got %#v", state.Turns[0].StartedByMessageID)
+	}
 
 	replaced := tracker.ApplyTranscript(&ConversationState{
 		ConversationID: "conv-1",

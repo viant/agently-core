@@ -102,10 +102,23 @@ func reduceTurnStarted(state *ConversationState, event *streaming.Event) *Conver
 	if turnID == "" {
 		return state
 	}
+	startedByMessageID := strings.TrimSpace(event.StartedByMessageID)
+	if startedByMessageID == "" {
+		startedByMessageID = strings.TrimSpace(event.UserMessageID)
+	}
 	// Avoid duplicate turns
 	for _, t := range state.Turns {
 		if t.TurnID == turnID {
 			markTurnRunning(t)
+			if startedByMessageID != "" {
+				t.StartedByMessageID = startedByMessageID
+			}
+			if strings.TrimSpace(event.UserMessageID) != "" {
+				if t.User == nil {
+					t.User = &UserMessageState{}
+				}
+				t.User.MessageID = strings.TrimSpace(event.UserMessageID)
+			}
 			return state
 		}
 	}
@@ -113,6 +126,9 @@ func reduceTurnStarted(state *ConversationState, event *streaming.Event) *Conver
 		TurnID:    turnID,
 		Status:    TurnStatusRunning,
 		CreatedAt: event.CreatedAt,
+	}
+	if startedByMessageID != "" {
+		turn.StartedByMessageID = startedByMessageID
 	}
 	if event.UserMessageID != "" {
 		turn.User = &UserMessageState{

@@ -17,6 +17,7 @@ export interface ProjectedConversationTurn extends Partial<Turn> {
     conversationId: string;
     status: string;
     createdAt: string;
+    startedByMessageId?: string;
     user?: {
         messageId?: string;
         content?: string;
@@ -360,6 +361,9 @@ export function projectTrackerToTurns(
             status: normalizeProjectedTurnStatus(turnId, snapshot?.activeTurnId, pendingElicitation, turnPages, assistantEntries),
             createdAt: turnCreatedAt,
             sequence: turnSequence,
+            startedByMessageId: userEntry
+                ? String(userEntry?.id || '').trim()
+                : undefined,
             user: userEntry
                 ? {
                     messageId: String(userEntry?.id || '').trim(),

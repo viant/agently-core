@@ -25,7 +25,7 @@ func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta
 	rec.SetId(turn.TurnID)
 	rec.SetConversationID(turn.ConversationID)
 	rec.SetStatus("running")
-	if starterID := strings.TrimSpace(turn.TurnID); starterID != "" {
+	if starterID := strings.TrimSpace(turn.ParentMessageID); starterID != "" {
 		rec.SetStartedByMessageID(starterID)
 	}
 	if agentID := strings.TrimSpace(turn.Assistant); agentID != "" {
@@ -63,10 +63,11 @@ func (s *Service) addUserMessage(ctx context.Context, turn *runtimerequestctx.Tu
 		rawPtr = &rawCopy
 	}
 	logx.Infof("conversation", "agent.addUserMessage convo=%q turn_id=%q user_id=%q content_len=%d content_head=%q content_tail=%q raw_len=%d raw_head=%q raw_tail=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(userID), len(content), textutil.Head(content, 512), textutil.Tail(content, 512), len(raw), textutil.Head(raw, 512), textutil.Tail(raw, 512))
-	_, err := s.addMessage(ctx, turn, "user", userID, content, rawPtr, "task", turn.TurnID)
+	messageID, err := s.addMessage(ctx, turn, "user", userID, content, rawPtr, "task", "")
 	if err != nil {
 		return fmt.Errorf("failed to add message: %w", err)
 	}
+	turn.ParentMessageID = strings.TrimSpace(messageID)
 	return nil
 }
 
@@ -298,32 +299,6 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
 		logx.Warnf("conversation", "agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
-}
-
-func (s *Service) replaceInterimContentForElicitation(ctx context.Context, turn *runtimerequestctx.TurnMeta, genOutput *core.GenerateOutput, elicitMessage string) {
-	if s.conversation == nil || turn == nil {
-		return
-	}
-	cleanContent := elicitMessage
-	if cleanContent == "" {
-		cleanContent = "Additional input required."
-	}
-	msgID := strings.TrimSpace(genOutput.MessageID)
-	if msgID == "" {
-		msgID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
-	}
-	if msgID == "" {
-		msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
-	}
-	if msgID == "" {
-		return
-	}
-	msg := apiconv.NewMessage()
-	msg.SetId(msgID)
-	msg.SetConversationID(turn.ConversationID)
-	msg.SetContent(cleanContent)
-	msg.SetRawContent(cleanContent)
-	_ = s.conversation.PatchMessage(ctx, msg)
 }
 
 func (s *Service) markAssistantMessageInterim(ctx context.Context, turn *runtimerequestctx.TurnMeta, genOutput *core.GenerateOutput) {

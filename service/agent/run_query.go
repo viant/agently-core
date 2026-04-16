@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -162,7 +161,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		Assistant:       input.Agent.ID,
 		ConversationID:  input.ConversationID,
 		TurnID:          input.MessageID,
-		ParentMessageID: input.MessageID,
+		ParentMessageID: "",
 	}
 	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 	ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID})
@@ -188,43 +187,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	ctx = toolexec.WithAsyncConversation(ctx, s.conversation)
 
-	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
-		return err
-	}
-	if strings.TrimSpace(input.AgentID) != "" {
-		upd := apiconv.NewTurn()
-		upd.SetId(turn.TurnID)
-		upd.SetConversationID(turn.ConversationID)
-		upd.SetAgentIDUsed(strings.TrimSpace(input.AgentID))
-		_ = s.conversation.PatchTurn(ctx, upd)
-	}
-	defer func() {
-		if turnFinalized {
-			return
-		}
-		finalStatus := strings.TrimSpace(turnStatus)
-		finalErr := turnRunErr
-		if finalStatus == "" {
-			if finalErr == nil {
-				finalErr = retErr
-			}
-			finalStatus = "failed"
-			if errors.Is(finalErr, context.Canceled) || errors.Is(finalErr, context.DeadlineExceeded) {
-				finalStatus = "canceled"
-			} else if s.isTurnCanceled(context.WithoutCancel(ctx), turn.ConversationID, turn.TurnID) {
-				finalStatus = "canceled"
-			}
-		}
-		if err := s.finalizeTurn(ctx, turn, finalStatus, finalErr); err != nil {
-			if retErr == nil {
-				retErr = err
-			}
-			return
-		}
-		turnFinalized = true
-		logx.Infof("conversation", "agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
-	}()
-	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	if d := stuckWarnDuration(); d > 0 {
 		warnCtx, warnCancel := context.WithCancel(ctx)
 		defer warnCancel()
@@ -274,6 +236,45 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
+	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
+
+	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.AgentID) != "" {
+		upd := apiconv.NewTurn()
+		upd.SetId(turn.TurnID)
+		upd.SetConversationID(turn.ConversationID)
+		upd.SetAgentIDUsed(strings.TrimSpace(input.AgentID))
+		_ = s.conversation.PatchTurn(ctx, upd)
+	}
+	defer func() {
+		if turnFinalized {
+			return
+		}
+		finalStatus := strings.TrimSpace(turnStatus)
+		finalErr := turnRunErr
+		if finalStatus == "" {
+			if finalErr == nil {
+				finalErr = retErr
+			}
+			finalStatus = "failed"
+			if errors.Is(finalErr, context.Canceled) || errors.Is(finalErr, context.DeadlineExceeded) {
+				finalStatus = "canceled"
+			} else if s.isTurnCanceled(context.WithoutCancel(ctx), turn.ConversationID, turn.TurnID) {
+				finalStatus = "canceled"
+			}
+		}
+		if err := s.finalizeTurn(ctx, turn, finalStatus, finalErr); err != nil {
+			if retErr == nil {
+				retErr = err
+			}
+			return
+		}
+		turnFinalized = true
+		logx.Infof("conversation", "agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
+	}()
+	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q parent_message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(turn.ParentMessageID))
 
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err
@@ -658,8 +659,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 
 		if aPlan.Elicitation != nil {
-			s.replaceInterimContentForElicitation(ctx, &turn, genOutput, strings.TrimSpace(aPlan.Elicitation.Message))
-
 			if missing := missingRequired(aPlan.Elicitation, binding.Context); len(missing) == 0 {
 				logx.Infof("conversation", "agent.runPlan elicitation satisfied by context convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				aPlan.Elicitation = nil
@@ -694,12 +693,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 			if elact.Normalize(status) != elact.Accept {
 				return nil
-			}
-			if len(elicitPayload) > 0 {
-				payloadJSON, _ := json.Marshal(elicitPayload)
-				if len(payloadJSON) > 0 {
-					s.addMessage(ctx, &turn, "user", "", string(payloadJSON), nil, "", "")
-				}
 			}
 			continue
 		}

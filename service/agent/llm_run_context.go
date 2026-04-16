@@ -28,9 +28,6 @@ func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID
 		}
 		turn.TurnID = turnID
 	}
-	if strings.TrimSpace(turn.ParentMessageID) == "" {
-		turn.ParentMessageID = turn.TurnID
-	}
 	if strings.TrimSpace(turn.ConversationID) == "" {
 		turn.ConversationID = conversationID
 	}
