@@ -8,7 +8,7 @@ import (
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	"github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 	"gopkg.in/yaml.v3"
 )
@@ -20,7 +20,7 @@ func (s *Service) resolvePromptURIs(a *agent.Agent) {
 		return
 	}
 	base, _ := url.Split(a.Source.URL, file.Scheme)
-	resolvePath := func(p *prompt.Prompt) {
+	resolvePath := func(p *binding.Prompt) {
 		if p == nil {
 			return
 		}
@@ -46,10 +46,10 @@ func (s *Service) resolvePromptURIs(a *agent.Agent) {
 	}
 }
 
-func (s *Service) getPrompt(valueNode *yml.Node) (*prompt.Prompt, error) {
-	var aPrompt *prompt.Prompt
+func (s *Service) getPrompt(valueNode *yml.Node) (*binding.Prompt, error) {
+	var aPrompt *binding.Prompt
 	if valueNode.Kind == yaml.ScalarNode {
-		aPrompt = &prompt.Prompt{Text: valueNode.Value}
+		aPrompt = &binding.Prompt{Text: valueNode.Value}
 		inferPromptEngine(aPrompt)
 	} else if valueNode.Kind == yaml.MappingNode {
 		var err error
@@ -60,14 +60,14 @@ func (s *Service) getPrompt(valueNode *yml.Node) (*prompt.Prompt, error) {
 	return aPrompt, nil
 }
 
-func parsePrompt(y *yml.Node) (*prompt.Prompt, error) {
+func parsePrompt(y *yml.Node) (*binding.Prompt, error) {
 	if y == nil {
-		return &prompt.Prompt{}, nil
+		return &binding.Prompt{}, nil
 	}
 	if y.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("prompt node should be a mapping")
 	}
-	p := &prompt.Prompt{}
+	p := &binding.Prompt{}
 	if err := y.Pairs(func(key string, v *yml.Node) error {
 		k := strings.ToLower(strings.TrimSpace(key))
 		switch k {
@@ -92,8 +92,8 @@ func parsePrompt(y *yml.Node) (*prompt.Prompt, error) {
 	return p, nil
 }
 
-// inferPromptEngine sets prompt.Engine if empty using URI suffixes or inline text markers.
-func inferPromptEngine(p *prompt.Prompt) {
+// inferPromptEngine sets binding.Engine if empty using URI suffixes or inline text markers.
+func inferPromptEngine(p *binding.Prompt) {
 	if p == nil || strings.TrimSpace(p.Engine) != "" {
 		return
 	}

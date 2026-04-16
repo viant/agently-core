@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/viant/agently-core/internal/logx"
 	"sort"
@@ -9,12 +10,12 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *prompt.Binding) error {
+func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcript, binding *binding.Binding) error {
 	hist, err := s.buildHistory(ctx, transcript)
 	if err != nil {
 		return err
@@ -23,12 +24,12 @@ func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcrip
 	return nil
 }
 
-func (s *Service) buildTaskBinding(input *QueryInput) prompt.Task {
+func (s *Service) buildTaskBinding(input *QueryInput) binding.Task {
 	task := input.Query
 	if directive := runtimeDelegationDirective(input); directive != "" {
 		task = directive + "\n\nUser request:\n" + strings.TrimSpace(task)
 	}
-	return prompt.Task{Prompt: task, Attachments: input.Attachments}
+	return binding.Task{Prompt: task, Attachments: input.Attachments}
 }
 
 func runtimeDelegationDirective(input *QueryInput) string {
@@ -122,10 +123,10 @@ func resolveDelegationWorkdir(input *QueryInput) string {
 // buildHistory derives history from a provided conversation transcript.
 // It maps transcript turns and messages into prompt history without
 // applying any overflow preview logic.
-func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcript) (prompt.History, error) {
+func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcript) (binding.History, error) {
 	result, err := s.buildChronologicalHistory(ctx, transcript, nil, false)
 	if err != nil {
-		return prompt.History{}, err
+		return binding.History{}, err
 	}
 	return result.History, nil
 }
@@ -133,8 +134,8 @@ func (s *Service) buildHistory(ctx context.Context, transcript apiconv.Transcrip
 // HistoryResult holds the combined result of building prompt history with
 // overflow preview and elicitation extraction.
 type HistoryResult struct {
-	History          prompt.History
-	Elicitation      []*prompt.Message
+	History          binding.History
+	Elicitation      []*binding.Message
 	Overflow         bool
 	MaxOverflowBytes int
 }
@@ -165,8 +166,8 @@ func (s *Service) buildChronologicalHistory(
 	input *QueryInput,
 	applyPreview bool,
 ) (*HistoryResult, error) {
-	var out prompt.History
-	var elicitation []*prompt.Message
+	var out binding.History
+	var elicitation []*binding.Message
 	// Empty transcript yields empty history.
 	if len(transcript) == 0 {
 		return &HistoryResult{History: out}, nil
@@ -304,13 +305,13 @@ func (s *Service) buildChronologicalHistory(
 
 	overflow := false
 	maxOverflowBytes := 0
-	turns := make([]*prompt.Turn, len(transcript))
+	turns := make([]*binding.Turn, len(transcript))
 	totalTurns := len(transcript)
-	lastUserByTurn := map[string]*prompt.Message{}
-	pendingUserAttachmentsByTurn := map[string][]*prompt.Attachment{}
-	promptByMessageID := map[string]*prompt.Message{}
-	pendingAttachmentsByMessageID := map[string][]*prompt.Attachment{}
-	payloadAttachmentCache := map[string]*prompt.Attachment{}
+	lastUserByTurn := map[string]*binding.Message{}
+	pendingUserAttachmentsByTurn := map[string][]*binding.Attachment{}
+	promptByMessageID := map[string]*binding.Message{}
+	pendingAttachmentsByMessageID := map[string][]*binding.Attachment{}
+	payloadAttachmentCache := map[string]*binding.Attachment{}
 
 	// Second pass: map normalized messages into prompt turns with optional preview.
 	for _, item := range normalized {
@@ -345,7 +346,7 @@ func (s *Service) buildChronologicalHistory(
 		turnIdx := item.turnIdx
 		pt := turns[turnIdx]
 		if pt == nil {
-			pt = &prompt.Turn{ID: transcript[turnIdx].Id}
+			pt = &binding.Turn{ID: transcript[turnIdx].Id}
 			turns[turnIdx] = pt
 		}
 
@@ -382,7 +383,7 @@ func (s *Service) buildChronologicalHistory(
 				continue
 			}
 			// Fallback: if turn id is missing, append to task-scoped attachments
-			// so the binaries still reach the model with the user prompt.
+			// so the binaries still reach the model with the user binding.
 			if input != nil {
 				input.Attachments = append(input.Attachments, attachments...)
 			}
@@ -397,7 +398,7 @@ func (s *Service) buildChronologicalHistory(
 			pmsgRole = "assistant"
 		}
 
-		pmsg := &prompt.Message{
+		pmsg := &binding.Message{
 			Role:       pmsgRole,
 			Content:    text,
 			Attachment: attachments,
@@ -415,7 +416,7 @@ func (s *Service) buildChronologicalHistory(
 
 		// Classify message kind and, when applicable, attach tool metadata.
 		if tc := messageToolCall(msg); tc != nil {
-			pmsg.Kind = prompt.MessageKindToolResult
+			pmsg.Kind = binding.MessageKindToolResult
 			pmsg.ToolOpID = tc.OpId
 			pmsg.ToolName = tc.ToolName
 			pmsg.ToolArgs = msg.ToolCallArguments()
@@ -430,15 +431,15 @@ func (s *Service) buildChronologicalHistory(
 			// separate elicitation slice and will not reach this block.
 			if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
 				if role == "assistant" {
-					pmsg.Kind = prompt.MessageKindElicitPrompt
+					pmsg.Kind = binding.MessageKindElicitPrompt
 				} else if role == "user" {
-					pmsg.Kind = prompt.MessageKindElicitAnswer
+					pmsg.Kind = binding.MessageKindElicitAnswer
 				}
 			} else {
 				if role == "user" {
-					pmsg.Kind = prompt.MessageKindChatUser
+					pmsg.Kind = binding.MessageKindChatUser
 				} else if role == "assistant" {
-					pmsg.Kind = prompt.MessageKindChatAssistant
+					pmsg.Kind = binding.MessageKindChatAssistant
 				}
 			}
 		}
@@ -521,9 +522,9 @@ func (s *Service) collectNormalizedMessages(
 	currentElicitation bool,
 	lastElicitationMessage *apiconv.Message,
 	projection runtimeprojection.ContextProjection,
-) ([]normalizedMsg, []*prompt.Message) {
+) ([]normalizedMsg, []*binding.Message) {
 	var normalized []normalizedMsg
-	var elicitation []*prompt.Message
+	var elicitation []*binding.Message
 	hiddenTurns := make(map[string]struct{}, len(projection.HiddenTurnIDs))
 	for _, turnID := range projection.HiddenTurnIDs {
 		turnID = strings.TrimSpace(turnID)
@@ -555,15 +556,7 @@ func (s *Service) collectNormalizedMessages(
 			continue
 		}
 		messages := turn.GetMessages()
-		turnMessageIDs := make(map[string]struct{}, len(messages))
-		for _, tm := range messages {
-			if tm == nil {
-				continue
-			}
-			if id := strings.TrimSpace(tm.Id); id != "" {
-				turnMessageIDs[id] = struct{}{}
-			}
-		}
+		syntheticToolMessageIDs := map[string]struct{}{}
 		for _, m := range messages {
 			if m == nil {
 				continue
@@ -573,20 +566,14 @@ func (s *Service) collectNormalizedMessages(
 			}
 			toolMsgs := s.syntheticToolMessages(ctx, m)
 			if len(toolMsgs) > 0 {
-				filteredToolMsgs := make([]*apiconv.Message, 0, len(toolMsgs))
 				for _, toolMsg := range toolMsgs {
 					if toolMsg == nil {
 						continue
 					}
-					toolMsgID := strings.TrimSpace(toolMsg.Id)
-					if toolMsgID != "" {
-						if _, exists := turnMessageIDs[toolMsgID]; exists {
-							continue
-						}
+					if toolMsgID := strings.TrimSpace(toolMsg.Id); toolMsgID != "" {
+						syntheticToolMessageIDs[toolMsgID] = struct{}{}
 					}
-					filteredToolMsgs = append(filteredToolMsgs, toolMsg)
 				}
-				toolMsgs = filteredToolMsgs
 			}
 			baseMsg := cloneMessageWithoutToolMessages(m)
 			if baseMsg == nil {
@@ -640,7 +627,13 @@ func (s *Service) collectNormalizedMessages(
 				if baseMsg.Mode != nil {
 					mode = strings.ToLower(strings.TrimSpace(*baseMsg.Mode))
 				}
-				if messageToolCall(baseMsg) != nil {
+				role := strings.ToLower(strings.TrimSpace(baseMsg.Role))
+				msgID := strings.TrimSpace(baseMsg.Id)
+				if (mtype == "tool_op" || role == "tool") && msgID != "" {
+					if _, exists := syntheticToolMessageIDs[msgID]; !exists {
+						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+					}
+				} else if messageToolCall(baseMsg) != nil {
 					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
 				} else if mtype == "text" || mtype == "task" || isElicitationType {
 					// Steer/follow-up inputs are persisted as user task messages on the
@@ -653,17 +646,17 @@ func (s *Service) collectNormalizedMessages(
 					}
 					if currentElicitation && lastElicitationMessage != nil && (role == "user" || role == "assistant") {
 						if baseMsg.Id == lastElicitationMessage.Id && baseMsg.Content != nil {
-							kind := prompt.MessageKindElicitAnswer
+							kind := binding.MessageKindElicitAnswer
 							if role == "assistant" {
-								kind = prompt.MessageKindElicitPrompt
+								kind = binding.MessageKindElicitPrompt
 							}
-							elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
+							elicitation = append(elicitation, &binding.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
 						} else if lastElicitationMessage.CreatedAt.Before(baseMsg.CreatedAt) && baseMsg.Content != nil {
-							kind := prompt.MessageKindElicitAnswer
+							kind := binding.MessageKindElicitAnswer
 							if role == "assistant" {
-								kind = prompt.MessageKindElicitPrompt
+								kind = binding.MessageKindElicitPrompt
 							}
-							elicitation = append(elicitation, &prompt.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
+							elicitation = append(elicitation, &binding.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
 						} else if role == "user" || role == "assistant" {
 							normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
 						}
@@ -675,6 +668,9 @@ func (s *Service) collectNormalizedMessages(
 
 			for _, toolMsg := range toolMsgs {
 				if _, ok := hiddenMessages[strings.TrimSpace(toolMsg.Id)]; ok {
+					continue
+				}
+				if shouldSkipInjectedDocumentToolResult(toolMsg) {
 					continue
 				}
 				if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
@@ -692,6 +688,28 @@ func (s *Service) collectNormalizedMessages(
 		}
 	}
 	return normalized, elicitation
+}
+
+func shouldSkipInjectedDocumentToolResult(msg *apiconv.Message) bool {
+	if msg == nil {
+		return false
+	}
+	return shouldSkipInjectedDocumentToolResultBody(msg.GetContent())
+}
+
+func shouldSkipInjectedDocumentToolResultBody(body string) bool {
+	body = strings.TrimSpace(body)
+	if body == "" || !strings.HasPrefix(body, "{") {
+		return false
+	}
+	var payload struct {
+		Injected         bool `json:"injected"`
+		IncludedDocument bool `json:"includedDocument"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return false
+	}
+	return payload.Injected || payload.IncludedDocument
 }
 
 func expandHiddenTurnMessageIDs(transcript apiconv.Transcript, turnIDs []string) []string {
@@ -763,12 +781,12 @@ func appendUniqueProjectionIDs(dst []string, values ...string) []string {
 // appendCurrentMessages appends messages to History.Current ensuring
 // CreatedAt is set and non-decreasing within the current turn. It does
 // not modify Past timestamps.
-func appendCurrentMessages(h *prompt.History, msgs ...*prompt.Message) {
+func appendCurrentMessages(h *binding.History, msgs ...*binding.Message) {
 	if h == nil || len(msgs) == 0 {
 		return
 	}
 	if h.Current == nil {
-		h.Current = &prompt.Turn{ID: h.CurrentTurnID}
+		h.Current = &binding.Turn{ID: h.CurrentTurnID}
 	}
 	for _, m := range msgs {
 		if m == nil {

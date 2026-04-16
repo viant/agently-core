@@ -117,6 +117,11 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		qi.Context = childContext
 	}
 	qi.ToolsAllowed = delegatedToolAllowList(ri)
+	// Pre-assign the turn ID so profile messages and the agent turn share the
+	// same ID.  agent.Query reuses qi.MessageID when it is non-empty.
+	if qi.MessageID == "" {
+		qi.MessageID = uuid.NewString()
+	}
 	// Inherit the parent conversation's model selection so child agents use
 	// the same model the user selected, not the system default.
 	childHasModel := qi.Agent != nil && strings.TrimSpace(qi.Agent.ModelSelection.Model) != ""
@@ -134,6 +139,13 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	if strings.TrimSpace(runCtx.childConversationID) != "" {
 		qi.ConversationID = runCtx.childConversationID
 		ro.ConversationID = runCtx.childConversationID
+	}
+	// Expand prompt profile: inject instructions, merge bundles, set template.
+	// Must run after qi.MessageID and qi.ConversationID are both set.
+	if strings.TrimSpace(ri.PromptProfileId) != "" {
+		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {
+			return fmt.Errorf("resolveProfile: %w", err)
+		}
 	}
 	if ri.Async != nil && *ri.Async {
 		ro.Status = "running"

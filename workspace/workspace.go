@@ -47,6 +47,7 @@ const (
 	KindToolBundle       = "tools/bundles"
 	KindToolInstructions = "tools/instructions"
 	KindTemplate         = "templates"
+	KindPrompt           = "prompts"
 	KindTemplateBundle   = "templates/bundles"
 	KindOAuth            = "oauth"
 	KindFeeds            = "feeds"

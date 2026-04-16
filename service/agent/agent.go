@@ -11,7 +11,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptmdl "github.com/viant/agently-core/protocol/prompt"
+	promptmdl "github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/service/agent/prompts"
 )
 

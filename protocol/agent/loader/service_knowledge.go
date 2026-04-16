@@ -118,6 +118,13 @@ func parseInt64(s string) (int64, error) {
 	return n, err
 }
 
+func parseFloat64(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	var f float64
+	_, err := fmt.Sscan(s, &f)
+	return f, err
+}
+
 func toBool(s string) bool {
 	lv := strings.ToLower(strings.TrimSpace(s))
 	return lv == "true" || lv == "yes" || lv == "on" || lv == "1"

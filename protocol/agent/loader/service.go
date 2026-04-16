@@ -14,7 +14,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/shared"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/workspace"
 	meta "github.com/viant/agently-core/workspace/service/meta"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
@@ -474,6 +474,78 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			}
 			agent.Template.Bundles = normalizeStrings(agent.Template.Bundles)
 
+		case "prompts":
+			if valueNode.Kind != yaml.MappingNode {
+				return fmt.Errorf("prompts must be a mapping")
+			}
+			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(k)) {
+				case "bundles", "bundle":
+					switch v.Kind {
+					case yaml.ScalarNode:
+						if id := strings.TrimSpace(v.Value); id != "" {
+							agent.Prompts.Bundles = append(agent.Prompts.Bundles, id)
+						}
+					case yaml.SequenceNode:
+						agent.Prompts.Bundles = append(agent.Prompts.Bundles, asStrings(v)...)
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			agent.Prompts.Bundles = normalizeStrings(agent.Prompts.Bundles)
+
+		case "intake":
+			if valueNode.Kind != yaml.MappingNode {
+				return fmt.Errorf("intake must be a mapping")
+			}
+			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+				switch strings.ToLower(strings.TrimSpace(k)) {
+				case "enabled":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.Enabled = toBool(v.Value)
+					}
+				case "scope":
+					agent.Intake.Scope = asStrings(v)
+				case "model":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.Model = strings.TrimSpace(v.Value)
+					}
+				case "maxtokens":
+					if v.Kind == yaml.ScalarNode {
+						if n, err := parseInt64(v.Value); err == nil {
+							agent.Intake.MaxTokens = int(n)
+						}
+					}
+				case "confidencethreshold":
+					if v.Kind == yaml.ScalarNode {
+						if f, err := parseFloat64(v.Value); err == nil {
+							agent.Intake.ConfidenceThreshold = f
+						}
+					}
+				case "triggerontopicshift":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.TriggerOnTopicShift = toBool(v.Value)
+					}
+				case "topicshiftthreshold":
+					if v.Kind == yaml.ScalarNode {
+						if f, err := parseFloat64(v.Value); err == nil {
+							agent.Intake.TopicShiftThreshold = f
+						}
+					}
+				case "timeoutsec":
+					if v.Kind == yaml.ScalarNode {
+						if n, err := parseInt64(v.Value); err == nil {
+							agent.Intake.TimeoutSec = int(n)
+						}
+					}
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+
 		case "profile":
 			if err := s.parseProfileBlock(valueNode, agent); err != nil {
 				return err
@@ -495,7 +567,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			}
 		case "persona":
 			if valueNode.Kind == yaml.MappingNode {
-				var p prompt.Persona
+				var p binding.Persona
 				if err := (*yaml.Node)(valueNode).Decode(&p); err != nil {
 					return fmt.Errorf("invalid persona definition: %w", err)
 				}

@@ -9,7 +9,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/protocol/tool"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/service/agent/prompts"
@@ -254,11 +254,11 @@ func (s *Service) runRelevanceSelector(ctx context.Context, input relevanceSelec
 	if !s.llm.ModelImplements(ctx, modelName, base.CanUseTools) {
 		return nil, nil
 	}
-	systemPrompt := &prompt.Prompt{Text: prompts.RelevanceProjection}
+	systemPrompt := &binding.Prompt{Text: prompts.RelevanceProjection}
 	if relevance.Prompt != nil {
 		systemPrompt = relevance.Prompt
 	}
-	binding := &prompt.Binding{
+	binding := &binding.Binding{
 		Context: map[string]interface{}{
 			"projection": input,
 		},

@@ -24,9 +24,9 @@ import (
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
+	"github.com/viant/agently-core/protocol/binding"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
-	"github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -751,7 +751,7 @@ func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 		ModelOverride: "openai_gpt-5.2_responses",
 		Query:         "The attached image is a single solid-color square. What color is it? Answer with one word.",
 		UserId:        "e2e-image",
-		Attachments: []*prompt.Attachment{
+		Attachments: []*binding.Attachment{
 			{Name: "red-square.png", Mime: "image/png", Data: imageData},
 		},
 	})
@@ -789,7 +789,7 @@ func TestQueryOpenAIResponsesPDFInlineAttachment(t *testing.T) {
 		AgentID: "pdf_inline",
 		Query:   "What exact token appears in the attached PDF? Answer only with the token.",
 		UserId:  "e2e-pdf-inline",
-		Attachments: []*prompt.Attachment{
+		Attachments: []*binding.Attachment{
 			{Name: "token.pdf", Mime: "application/pdf", Data: pdfData},
 		},
 	})
@@ -809,7 +809,7 @@ func TestQueryOpenAIResponsesPDFRefAttachment(t *testing.T) {
 		AgentID: "pdf_ref",
 		Query:   "What exact token appears in the attached PDF? Answer only with the token.",
 		UserId:  "e2e-pdf-ref",
-		Attachments: []*prompt.Attachment{
+		Attachments: []*binding.Attachment{
 			{Name: "token.pdf", Mime: "application/pdf", Data: pdfData},
 		},
 	})

@@ -8,7 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/service/core"
 )
@@ -110,8 +110,8 @@ func TestFilterDelegationDiscoveryTools_RemovesAgentsListWhenDirectoryDocPresent
 		{Name: "llm/agents:run"},
 		{Name: "system/exec:execute"},
 	}
-	docs := &prompt.Documents{
-		Items: []*prompt.Document{
+	docs := &binding.Documents{
+		Items: []*binding.Document{
 			{SourceURI: "internal://llm/agents/list"},
 		},
 	}
@@ -139,7 +139,7 @@ func TestEnsureInternalToolsIfNeeded_SkipsMessageToolsForCapabilityAgent(t *test
 		registry: reg,
 		llm:      core.New(continuationFinder{}, reg, nil),
 	}
-	binding := &prompt.Binding{Model: "openai_gpt-5.4"}
+	binding := &binding.Binding{Model: "openai_gpt-5.4"}
 	input := &QueryInput{
 		AgentID: "agent_selector",
 		Agent: &agentmdl.Agent{

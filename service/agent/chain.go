@@ -15,7 +15,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/service/shared"
@@ -199,7 +199,7 @@ func (s *Service) evalChainWhen(ctx context.Context, parent ChainContext, spec *
 
 	// Expr path
 	if strings.TrimSpace(spec.Expr) != "" {
-		p := &prompt.Prompt{Text: spec.Expr}
+		p := &binding.Prompt{Text: spec.Expr}
 		expanded, err := p.Generate(ctx, b)
 		if err != nil {
 			return false, err
@@ -327,10 +327,10 @@ func resolveWhenModel(spec *agentmdl.WhenSpec, parent ChainContext) string {
 	return ""
 }
 
-// buildPromptBindingFromParent builds a compact prompt.Binding from ChainContext.
+// buildPromptBindingFromParent builds a compact binding.Binding from ChainContext.
 // When minimal is true, only last user/assistant are attached to History.
-func (s *Service) buildPromptBindingFromParent(ctx context.Context, parent ChainContext, lastTurnOnly bool) *prompt.Binding {
-	b := &prompt.Binding{Context: map[string]interface{}{}}
+func (s *Service) buildPromptBindingFromParent(ctx context.Context, parent ChainContext, lastTurnOnly bool) *binding.Binding {
+	b := &binding.Binding{Context: map[string]interface{}{}}
 	// Provide a compact context map including Inner Context and light meta
 	b.Context = map[string]interface{}{
 		"Context":      parent.Context,
@@ -344,7 +344,7 @@ func (s *Service) buildPromptBindingFromParent(ctx context.Context, parent Chain
 		transcript := parent.Conversation.GetTranscript()
 		msgs := transcript.History(lastTurnOnly)
 		if len(msgs) > 0 {
-			b.History.Past = []*prompt.Turn{{Messages: msgs}}
+			b.History.Past = []*binding.Turn{{Messages: msgs}}
 		}
 	}
 	return b

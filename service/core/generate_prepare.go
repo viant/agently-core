@@ -10,14 +10,14 @@ import (
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
 	input.MatchModelIfNeeded(s.modelMatcher)
 	if input.Binding == nil {
-		input.Binding = &prompt.Binding{}
+		input.Binding = &binding.Binding{}
 	}
 	model, err := s.llmFinder.Find(ctx, input.Model)
 	if err != nil {

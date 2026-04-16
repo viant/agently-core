@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/embedius/matching/option"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
@@ -42,10 +42,10 @@ type (
 		AllowedProviders []string `yaml:"allowedProviders,omitempty" json:"allowedProviders,omitempty"`
 		AllowedModels    []string `yaml:"allowedModels,omitempty" json:"allowedModels,omitempty"`
 
-		Temperature float64        `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
-		Description string         `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
-		Prompt      *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
-		Knowledge   []*Knowledge   `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+		Temperature float64         `yaml:"temperature,omitempty" json:"temperature,omitempty"` // Temperature
+		Description string          `yaml:"description,omitempty" json:"description,omitempty"` // Description of the agent
+		Prompt      *binding.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`           // Prompt template
+		Knowledge   []*Knowledge    `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
 		// Resources: generic resource roots (file paths or MCP URIs)
 		Resources []*Resource `yaml:"resources,omitempty" json:"resources,omitempty"`
 
@@ -64,12 +64,12 @@ type (
 		// completes (done or error). Consumed by the UI via metadata.AgentInfo.
 		RingOnFinish bool `yaml:"ringOnFinish,omitempty" json:"ringOnFinish,omitempty"`
 
-		SystemPrompt *prompt.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
+		SystemPrompt *binding.Prompt `yaml:"systemPrompt,omitempty" json:"systemPrompt,omitempty"`
 		// InstructionPrompt is preferred for top-level model instructions.
-		InstructionPrompt *prompt.Prompt `yaml:"instructionPrompt,omitempty" json:"instructionPrompt,omitempty"`
+		InstructionPrompt *binding.Prompt `yaml:"instructionPrompt,omitempty" json:"instructionPrompt,omitempty"`
 		// Instruction is a backward-compatible alias of InstructionPrompt.
-		Instruction     *prompt.Prompt `yaml:"instruction,omitempty" json:"instruction,omitempty"`
-		SystemKnowledge []*Knowledge   `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
+		Instruction     *binding.Prompt `yaml:"instruction,omitempty" json:"instruction,omitempty"`
+		SystemKnowledge []*Knowledge    `yaml:"systemKnowledge,omitempty" json:"systemKnowledge,omitempty"`
 		// DefaultWorkdir provides a default absolute working directory for
 		// filesystem-bound tools when the model omits workdir explicitly.
 		DefaultWorkdir string `yaml:"defaultWorkdir,omitempty" json:"defaultWorkdir,omitempty"`
@@ -79,6 +79,13 @@ type (
 		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
 		// Template assigns workspace output-template bundles to this agent.
 		Template Template `yaml:"template,omitempty" json:"template,omitempty"`
+		// Prompts restricts which prompt profiles are visible to this agent via
+		// prompt:list.  Prompts.Bundles is a direct allow-list of profile IDs.
+		// When empty all profiles are accessible.
+		Prompts PromptAccess `yaml:"prompts,omitempty" json:"prompts,omitempty"`
+		// Intake configures the pre-turn intake sidecar.  When Enabled is false
+		// (the default) the sidecar does not run.
+		Intake Intake `yaml:"intake,omitempty" json:"intake,omitempty"`
 		// Capabilities declares generic agent requirements that can later be
 		// mapped to provider-specific features based on the selected model.
 		Capabilities *Capabilities `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
@@ -100,7 +107,7 @@ type (
 
 		// Persona defines the default conversational persona the agent uses when
 		// sending messages. When nil the role defaults to "assistant".
-		Persona *prompt.Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
+		Persona *binding.Persona `yaml:"persona,omitempty" json:"persona,omitempty"`
 
 		// Profile controls agent discoverability in the catalog/list (preferred over Directory).
 		Profile *Profile `yaml:"profile,omitempty" json:"profile,omitempty"`
@@ -192,7 +199,7 @@ type (
 		Conversation string      `yaml:"conversation,omitempty" json:"conversation,omitempty"` // reuse|link (default link)
 		When         *WhenSpec   `yaml:"when,omitempty" json:"when,omitempty"`                 // optional condition
 
-		Query *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"` // templated query/payload
+		Query *binding.Prompt `yaml:"query,omitempty" json:"query,omitempty"` // templated query/payload
 
 		Publish *ChainPublish `yaml:"publish,omitempty" json:"publish,omitempty"` // optional publish settings
 		OnError string        `yaml:"onError,omitempty" json:"onError,omitempty"` // ignore|message|propagate
@@ -237,7 +244,7 @@ func (r *Resource) GrepAllowed() bool {
 
 // EffectiveInstructionPrompt returns the configured instruction prompt, with
 // InstructionPrompt taking precedence over the legacy Instruction alias.
-func (a *Agent) EffectiveInstructionPrompt() *prompt.Prompt {
+func (a *Agent) EffectiveInstructionPrompt() *binding.Prompt {
 	if a == nil {
 		return nil
 	}
@@ -264,6 +271,13 @@ func (t *Tool) OverflowHelpersAllowed() bool {
 }
 
 type Template struct {
+	Bundles []string `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+}
+
+// PromptAccess restricts which prompt profiles are visible to the agent via
+// prompt:list.  Bundles is a direct allow-list of profile IDs.
+// When empty all profiles are accessible.
+type PromptAccess struct {
 	Bundles []string `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
 
@@ -390,10 +404,10 @@ func (a *Agent) Init() {
 // chain. Evaluate Expr first; if empty and Query present, run an LLM prompt and
 // extract a boolean using Expect.
 type WhenSpec struct {
-	Expr   string         `yaml:"expr,omitempty" json:"expr,omitempty"`
-	Query  *prompt.Prompt `yaml:"query,omitempty" json:"query,omitempty"`
-	Model  string         `yaml:"model,omitempty" json:"model,omitempty"`
-	Expect *WhenExpect    `yaml:"expect,omitempty" json:"expect,omitempty"`
+	Expr   string          `yaml:"expr,omitempty" json:"expr,omitempty"`
+	Query  *binding.Prompt `yaml:"query,omitempty" json:"query,omitempty"`
+	Model  string          `yaml:"model,omitempty" json:"model,omitempty"`
+	Expect *WhenExpect     `yaml:"expect,omitempty" json:"expect,omitempty"`
 }
 
 // WhenExpect describes how to extract a boolean from an LLM response.

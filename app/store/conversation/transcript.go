@@ -6,7 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func (t *Turn) GetMessages() Messages {
@@ -27,7 +27,7 @@ func (t *Turn) ToolCalls() Messages {
 	return filtered
 }
 
-func (t *Transcript) History(minimal bool) []*prompt.Message {
+func (t *Transcript) History(minimal bool) []*binding.Message {
 	if t == nil || len(*t) == 0 {
 		return nil
 	}
@@ -52,7 +52,7 @@ func (t *Transcript) History(minimal bool) []*prompt.Message {
 		return role == "user" || role == "assistant"
 	})
 
-	var result []*prompt.Message
+	var result []*binding.Message
 	for _, v := range normalized {
 
 		role := v.Role
@@ -61,7 +61,7 @@ func (t *Transcript) History(minimal bool) []*prompt.Message {
 			content = *v.Content
 		}
 		// Collect attachments associated to this base message (joined via parent_message_id)
-		var attachments []*prompt.Attachment
+		var attachments []*binding.Attachment
 		if len(v.Attachment) > 0 {
 			for _, av := range v.Attachment {
 				if av == nil {
@@ -75,7 +75,7 @@ func (t *Transcript) History(minimal bool) []*prompt.Message {
 				if av.Uri != nil && *av.Uri != "" {
 					name = path.Base(*av.Uri)
 				}
-				attachments = append(attachments, &prompt.Attachment{
+				attachments = append(attachments, &binding.Attachment{
 					Name: name,
 					URI: func() string {
 						if av.Uri != nil {
@@ -89,7 +89,7 @@ func (t *Transcript) History(minimal bool) []*prompt.Message {
 			}
 
 		}
-		result = append(result, &prompt.Message{Role: role, Content: content, Attachment: attachments})
+		result = append(result, &binding.Message{Role: role, Content: content, Attachment: attachments})
 	}
 	return result
 }

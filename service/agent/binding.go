@@ -13,20 +13,21 @@ import (
 	base "github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
+	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/workspace"
 )
 
-func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.Binding, error) {
+func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
 	start := time.Now()
 	convoID := ""
 	if input != nil {
 		convoID = strings.TrimSpace(input.ConversationID)
 	}
 	logx.Infof("conversation", "agent.BuildBinding start convo=%q", convoID)
-	b := &prompt.Binding{}
+	b := &binding.Binding{}
 	if input.Agent != nil {
 		b.Model = input.Agent.Model
 	}
@@ -79,7 +80,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	if conv != nil {
 		tr := conv.GetTranscript()
 		if last := tr.LastAssistantMessageWithModelCall(); last != nil {
-			trace := &prompt.Trace{At: last.CreatedAt, Kind: prompt.KindResponse}
+			trace := &binding.Trace{At: last.CreatedAt, Kind: binding.KindResponse}
 			if last.ModelCall != nil && last.ModelCall.TraceId != nil {
 				if id := strings.TrimSpace(*last.ModelCall.TraceId); id != "" {
 					trace.ID = id
@@ -175,6 +176,10 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	}
 	logx.Infof("conversation", "agent.BuildBinding buildSystemDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(sysDocsStart).String(), len(b.SystemDocuments.Items))
 	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
+	if err := s.applySelectedTemplate(ctx, input, b); err != nil {
+		logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		return nil, err
+	}
 	if err := s.appendToolPlaybooks(ctx, b.Tools.Signatures, &b.SystemDocuments); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
 		return nil, err
@@ -214,6 +219,39 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*prompt.
 	return b, nil
 }
 
+func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, b *binding.Binding) error {
+	if s == nil || input == nil || b == nil || s.templateRepo == nil {
+		return nil
+	}
+	templateID := strings.TrimSpace(input.TemplateId)
+	if templateID == "" {
+		return nil
+	}
+	tpl, err := s.templateRepo.Load(ctx, templateID)
+	if err != nil {
+		return fmt.Errorf("load template %q: %w", templateID, err)
+	}
+	if tpl == nil {
+		return fmt.Errorf("template %q not found", templateID)
+	}
+	content := strings.TrimSpace(templatesvc.RenderTemplateDocument(tpl))
+	if content == "" {
+		return nil
+	}
+	uri := "template://" + strings.TrimSpace(tpl.Name)
+	if !hasDocumentURI(b.SystemDocuments.Items, uri) {
+		b.SystemDocuments.Items = append(b.SystemDocuments.Items, &binding.Document{
+			Title:       strings.TrimSpace(tpl.Name),
+			PageContent: content,
+			SourceURI:   uri,
+			MimeType:    "text/markdown",
+			Metadata:    map[string]string{"kind": "template", "template": strings.TrimSpace(tpl.Name)},
+		})
+	}
+	b.Tools.Signatures = filterToolSignaturesByServicePrefix(b.Tools.Signatures, "template-")
+	return nil
+}
+
 func (s *Service) bindingConversation(ctx context.Context, input *QueryInput) (*apiconv.Conversation, error) {
 	return s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
 }
@@ -235,14 +273,14 @@ func resolveToolCallExposure(input *QueryInput) agent.ToolCallExposure {
 	return exposure
 }
 
-func bindingTraceID(trace *prompt.Trace) string {
+func bindingTraceID(trace *binding.Trace) string {
 	if trace == nil {
 		return ""
 	}
 	return strings.TrimSpace(trace.ID)
 }
 
-func bindingTraceKind(trace *prompt.Trace) string {
+func bindingTraceKind(trace *binding.Trace) string {
 	if trace == nil {
 		return ""
 	}
@@ -267,18 +305,18 @@ func bindingToolNames(defs []*llm.ToolDefinition) []string {
 
 type loopHistoryContextKey struct{}
 
-func withLoopHistoryMessages(ctx context.Context, msgs []*prompt.Message) context.Context {
+func withLoopHistoryMessages(ctx context.Context, msgs []*binding.Message) context.Context {
 	if len(msgs) == 0 {
 		return ctx
 	}
-	cloned := make([]*prompt.Message, 0, len(msgs))
+	cloned := make([]*binding.Message, 0, len(msgs))
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
 		copyMsg := *msg
 		if len(msg.Attachment) > 0 {
-			copyMsg.Attachment = append([]*prompt.Attachment(nil), msg.Attachment...)
+			copyMsg.Attachment = append([]*binding.Attachment(nil), msg.Attachment...)
 		}
 		if len(msg.ToolArgs) > 0 {
 			args := make(map[string]interface{}, len(msg.ToolArgs))
@@ -295,11 +333,11 @@ func withLoopHistoryMessages(ctx context.Context, msgs []*prompt.Message) contex
 	return context.WithValue(ctx, loopHistoryContextKey{}, cloned)
 }
 
-func loopHistoryMessagesFromContext(ctx context.Context) []*prompt.Message {
+func loopHistoryMessagesFromContext(ctx context.Context) []*binding.Message {
 	if ctx == nil {
 		return nil
 	}
-	msgs, _ := ctx.Value(loopHistoryContextKey{}).([]*prompt.Message)
+	msgs, _ := ctx.Value(loopHistoryContextKey{}).([]*binding.Message)
 	return msgs
 }
 
@@ -334,7 +372,7 @@ func applyProjectionContext(ctx context.Context, target *map[string]interface{})
 	}
 }
 
-func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {
+func (s *Service) applyDelegationContext(input *QueryInput, b *binding.Binding) {
 	if input == nil || b == nil || input.Agent == nil {
 		logx.Infof("conversation", "delegation.context skip missing input/binding/agent")
 		return
@@ -370,7 +408,7 @@ func (s *Service) applyDelegationContext(input *QueryInput, b *prompt.Binding) {
 	logx.Infof("conversation", "delegation.context enabled agent_id=%q maxDepth=%d", strings.TrimSpace(input.Agent.ID), maxDepth)
 }
 
-func (s *Service) applyWorkdirContext(input *QueryInput, b *prompt.Binding) {
+func (s *Service) applyWorkdirContext(input *QueryInput, b *binding.Binding) {
 	if input == nil || b == nil || b.Context == nil {
 		return
 	}

@@ -46,6 +46,16 @@ type RunInput struct {
 	// ReasoningEffort optionally overrides agent-level reasoning effort
 	// (e.g., low|medium|high) for this run when supported by the backend.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
+	// PromptProfileId optionally selects a scenario profile whose instructions,
+	// tool bundles, and output template are applied to the child conversation.
+	// When absent, behaviour is identical to today.
+	PromptProfileId string `json:"promptProfileId,omitempty"`
+	// ToolBundles optionally appends tool bundle ids on top of whatever the
+	// profile floor already provides.  Safe to leave empty.
+	ToolBundles []string `json:"toolBundles,omitempty"`
+	// TemplateId optionally overrides the output template selected by the
+	// profile (highest-priority tier in the three-tier resolution chain).
+	TemplateId string `json:"templateId,omitempty"`
 }
 
 // StartInput launches an agent asynchronously and returns a conversation handle.

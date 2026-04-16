@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -166,7 +166,7 @@ func TestBuildHistory_PopulatesProjectionStateFromSupersession(t *testing.T) {
 	toolResults := 0
 	for _, turn := range history.Past {
 		for _, msg := range turn.Messages {
-			if msg.Kind == prompt.MessageKindToolResult {
+			if msg.Kind == binding.MessageKindToolResult {
 				toolResults++
 			}
 		}
@@ -480,7 +480,7 @@ func TestBuildHistory_PopulatesProjectionStateFromRelevanceSelector(t *testing.T
 	require.NotNil(t, result.History.Current)
 	require.Equal(t, "turn-3", result.History.Current.ID)
 	var contents []string
-	for _, turn := range append(append([]*prompt.Turn{}, result.History.Past...), result.History.Current) {
+	for _, turn := range append(append([]*binding.Turn{}, result.History.Past...), result.History.Current) {
 		if turn == nil {
 			continue
 		}

@@ -12,7 +12,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
@@ -91,7 +91,7 @@ func (s *Service) compactHistoryLLM(ctx context.Context, conv *apiconv.Conversat
 
 func (s *Service) adjustToolDefinitions(genInput *core2.GenerateInput) {
 	genInput.Options.Tools = []llm.Tool{}
-	genInput.Binding.Tools = prompt.Tools{}
+	genInput.Binding.Tools = binding.Tools{}
 	if s.registry != nil {
 		for _, def := range s.registry.MatchDefinition("message") {
 			if def == nil {
@@ -126,7 +126,7 @@ func adjustInputIfNeeded(tokenDelta int, overlimit int, genInput *core2.Generate
 // pruneOldUserMessages removes oldest user messages from History.Past
 // until the approximate token deficit is covered. It does not touch
 // History.Current.
-func pruneOldUserMessages(h *prompt.History, deficit int) {
+func pruneOldUserMessages(h *binding.History, deficit int) {
 	if h == nil || deficit <= 0 {
 		return
 	}
@@ -136,7 +136,7 @@ func pruneOldUserMessages(h *prompt.History, deficit int) {
 		if turn == nil || len(turn.Messages) == 0 {
 			continue
 		}
-		kept := make([]*prompt.Message, 0, len(turn.Messages))
+		kept := make([]*binding.Message, 0, len(turn.Messages))
 		for _, m := range turn.Messages {
 			if m == nil {
 				continue
@@ -233,7 +233,7 @@ func (s *Service) stripSystemMessages(in *core2.GenerateInput) {
 				if t == nil || len(t.Messages) == 0 {
 					continue
 				}
-				kept := make([]*prompt.Message, 0, len(t.Messages))
+				kept := make([]*binding.Message, 0, len(t.Messages))
 				for _, m := range t.Messages {
 					if m == nil {
 						continue

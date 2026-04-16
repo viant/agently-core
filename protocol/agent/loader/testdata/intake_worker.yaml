@@ -1,0 +1,11 @@
+id: data-analyst
+name: Data Analyst
+modelRef: gpt-4o
+intake:
+  enabled: true
+  scope:
+    - title
+    - entities
+    - intent
+  model: haiku
+  maxTokens: 200

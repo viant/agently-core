@@ -21,6 +21,7 @@ import (
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
+	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
@@ -29,10 +30,13 @@ import (
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	intakesvc "github.com/viant/agently-core/service/intake"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/hotswap"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/datly"
 	protoclient "github.com/viant/mcp-protocol/client"
@@ -302,10 +306,33 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		if out.Data != nil {
 			agentOpts = append(agentOpts, agentsvc.WithDataService(out.Data))
 		}
+		promptRepo := promptrepo.NewWithStore(out.Store)
+		bundleRepo := toolbundlerepo.NewWithStore(out.Store)
+		intakeSvc := intakesvc.New(out.Core,
+			intakesvc.WithProfileRepo(promptRepo),
+			intakesvc.WithBundleRepo(bundleRepo),
+		)
+		agentOpts = append(agentOpts, agentsvc.WithIntakeService(intakeSvc))
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}
-	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent, llmagents.WithConversationClient(out.Conversation))); err != nil {
+	promptRepo := promptrepo.NewWithStore(out.Store)
+	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
+		llmagents.WithConversationClient(out.Conversation),
+		llmagents.WithPromptRepo(promptRepo),
+		llmagents.WithMCPManager(out.MCPManager),
+		llmagents.WithModelFinder(b.modelFinder),
+	)); err != nil {
 		return nil, err
+	}
+	{
+		promptSvc := promptsvc.New(promptRepo,
+			promptsvc.WithConversationClient(out.Conversation),
+			promptsvc.WithAgentFinder(b.agentFinder),
+			promptsvc.WithMCPManager(out.MCPManager),
+		)
+		if err := tool.AddInternalService(out.Registry, promptSvc); err != nil {
+			return nil, err
+		}
 	}
 	// Wire the streaming bus into the agent's internal elicitation service so
 	// LLM-generated elicitation events reach the SSE channel.

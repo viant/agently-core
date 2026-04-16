@@ -10,7 +10,7 @@ import (
 	"github.com/viant/afs"
 	afsurl "github.com/viant/afs/url"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/workspace"
 )
 
@@ -19,7 +19,7 @@ func TestAppendToolPlaybooks_DataDriven(t *testing.T) {
 		name        string
 		defs        []*llm.ToolDefinition
 		setup       func(root string) error
-		initialDocs []*prompt.Document
+		initialDocs []*binding.Document
 		expectedLen int
 		expectedURI string
 	}
@@ -66,7 +66,7 @@ func TestAppendToolPlaybooks_DataDriven(t *testing.T) {
 			setup: func(root string) error {
 				return os.WriteFile(filepath.Join(root, workspace.KindToolInstructions, "webdriver.md"), []byte("webdriver instructions"), 0644)
 			},
-			initialDocs: []*prompt.Document{{SourceURI: afsurl.ToFileURL(filepath.Join(root, workspace.KindToolInstructions, "webdriver.md"))}},
+			initialDocs: []*binding.Document{{SourceURI: afsurl.ToFileURL(filepath.Join(root, workspace.KindToolInstructions, "webdriver.md"))}},
 			expectedLen: 1,
 		},
 		{
@@ -84,7 +84,7 @@ func TestAppendToolPlaybooks_DataDriven(t *testing.T) {
 			if tc.setup != nil {
 				assert.EqualValues(t, nil, tc.setup(root))
 			}
-			docs := &prompt.Documents{Items: tc.initialDocs}
+			docs := &binding.Documents{Items: tc.initialDocs}
 			err := service.appendToolPlaybooks(ctx, tc.defs, docs)
 			assert.EqualValues(t, nil, err)
 			assert.EqualValues(t, tc.expectedLen, len(docs.Items))

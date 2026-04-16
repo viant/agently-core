@@ -1,7 +1,7 @@
 package config
 
 import (
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,7 +68,7 @@ type Defaults struct {
 	// guide the model when async operations are active. When nil the runtime
 	// falls back to the built-in embedded template. Supports inline Text or a
 	// file/URL via URI; Engine defaults to "go" (Go text/template).
-	AsyncReinforcementPrompt *prompt.Prompt `yaml:"asyncReinforcementPrompt,omitempty" json:"asyncReinforcementPrompt,omitempty"`
+	AsyncReinforcementPrompt *binding.Prompt `yaml:"asyncReinforcementPrompt,omitempty" json:"asyncReinforcementPrompt,omitempty"`
 }
 
 // UnmarshalYAML supports both the current and legacy router keys:
@@ -119,7 +119,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		Match     MatchDefaults     `yaml:"match,omitempty"`
 		Resources ResourcesDefaults `yaml:"resources,omitempty"`
 
-		AsyncReinforcementPrompt *prompt.Prompt `yaml:"asyncReinforcementPrompt,omitempty"`
+		AsyncReinforcementPrompt *binding.Prompt `yaml:"asyncReinforcementPrompt,omitempty"`
 	}
 
 	var tmp raw
@@ -212,13 +212,13 @@ type Projection struct {
 // RelevanceProjection controls optional selector-based hiding of irrelevant
 // prior turns before prompt-history construction.
 type RelevanceProjection struct {
-	Enabled              *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	ProtectedRecentTurns *int           `yaml:"protectedRecentTurns,omitempty" json:"protectedRecentTurns,omitempty"`
-	TokenThreshold       *int           `yaml:"tokenThreshold,omitempty" json:"tokenThreshold,omitempty"`
-	ChunkSize            *int           `yaml:"chunkSize,omitempty" json:"chunkSize,omitempty"`
-	MaxConcurrency       *int           `yaml:"maxConcurrency,omitempty" json:"maxConcurrency,omitempty"`
-	Model                *string        `yaml:"model,omitempty" json:"model,omitempty"`
-	Prompt               *prompt.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Enabled              *bool           `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	ProtectedRecentTurns *int            `yaml:"protectedRecentTurns,omitempty" json:"protectedRecentTurns,omitempty"`
+	TokenThreshold       *int            `yaml:"tokenThreshold,omitempty" json:"tokenThreshold,omitempty"`
+	ChunkSize            *int            `yaml:"chunkSize,omitempty" json:"chunkSize,omitempty"`
+	MaxConcurrency       *int            `yaml:"maxConcurrency,omitempty" json:"maxConcurrency,omitempty"`
+	Model                *string         `yaml:"model,omitempty" json:"model,omitempty"`
+	Prompt               *binding.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 }
 
 // IsEnabled reports whether relevance projection is enabled. Default: true.

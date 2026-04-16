@@ -9,7 +9,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -130,10 +130,10 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 			if len(history.Past) != 1 || len(history.Past[0].Messages) != 2 {
 				t.Fatalf("expected user + tool result messages, got %#v", history.Past)
 			}
-			if history.Past[0].Messages[0].Kind != prompt.MessageKindChatUser {
+			if history.Past[0].Messages[0].Kind != binding.MessageKindChatUser {
 				t.Fatalf("expected first message to remain user chat, got %v", history.Past[0].Messages[0].Kind)
 			}
-			if history.Past[0].Messages[1].Kind != prompt.MessageKindToolResult {
+			if history.Past[0].Messages[1].Kind != binding.MessageKindToolResult {
 				t.Fatalf("expected second message to be tool result, got %v", history.Past[0].Messages[1].Kind)
 			}
 			if history.Past[0].Messages[1].Content != body {
@@ -189,7 +189,7 @@ func TestBuildHistory_PreservesChildToolResultAlongsideUpdatePlan(t *testing.T) 
 	if len(history.Past) != 1 || len(history.Past[0].Messages) != 3 {
 		t.Fatalf("expected user message plus both tool results, got %#v", history.Past)
 	}
-	if history.Past[0].Messages[1].Kind != prompt.MessageKindToolResult {
+	if history.Past[0].Messages[1].Kind != binding.MessageKindToolResult {
 		t.Fatalf("expected second message to be tool result, got %v", history.Past[0].Messages[1].Kind)
 	}
 	if got := history.Past[0].Messages[2].ToolName; got != "llm/agents/run" {
@@ -266,12 +266,106 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 	}
 	gotToolResults := 0
 	for _, msg := range history.Past[0].Messages {
-		if msg.Kind == prompt.MessageKindToolResult {
+		if msg.Kind == binding.MessageKindToolResult {
 			gotToolResults++
 		}
 	}
 	if gotToolResults != 1 {
 		t.Fatalf("expected exactly one tool result in prompt history, got %d with history=%#v", gotToolResults, history.Past[0].Messages)
+	}
+}
+
+func TestBuildHistory_SkipsInjectedDocumentToolResultWhenMessagesArePersisted(t *testing.T) {
+	now := time.Now().UTC()
+	turnID := "turn-1"
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{
+			Id: turnID,
+			Message: []*agconv.MessageView{
+				{
+					Id:             "msg-user",
+					ConversationId: "conv-1",
+					TurnId:         strPtr(turnID),
+					Role:           "user",
+					Type:           "text",
+					Content:        strPtr("Use prompt profile performance_analysis"),
+					CreatedAt:      now,
+					ToolMessage: []*agconv.ToolMessageView{
+						{
+							Id:        "tool-msg-prompt",
+							CreatedAt: now.Add(time.Second),
+							ToolCall: &agconv.ToolCallView{
+								OpId:     "op-prompt",
+								ToolName: "prompt-get",
+								ResponsePayload: &agconv.ModelCallStreamPayloadView{
+									InlineBody: strPtr(`{"id":"performance_analysis","injected":true,"messages":[{"role":"system","text":"You are a performance analyst."},{"role":"user","text":"Analyze the provided metrics."}]}`),
+								},
+							},
+						},
+					},
+				},
+				{
+					Id:             "msg-system",
+					ConversationId: "conv-1",
+					TurnId:         strPtr(turnID),
+					Role:           "system",
+					Type:           "text",
+					Content:        strPtr("You are a performance analyst."),
+					CreatedAt:      now.Add(2 * time.Second),
+				},
+				{
+					Id:             "msg-user-injected",
+					ConversationId: "conv-1",
+					TurnId:         strPtr(turnID),
+					Role:           "user",
+					Type:           "text",
+					Content:        strPtr("Analyze the provided metrics."),
+					CreatedAt:      now.Add(3 * time.Second),
+				},
+			},
+		},
+	}
+
+	history, err := (&Service{}).buildHistory(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+	if len(history.Past) != 1 {
+		t.Fatalf("expected a single turn in history, got %#v", history.Past)
+	}
+	gotToolResults := 0
+	gotUsers := 0
+	for _, msg := range history.Past[0].Messages {
+		switch msg.Kind {
+		case binding.MessageKindToolResult:
+			gotToolResults++
+		case binding.MessageKindChatUser:
+			gotUsers++
+		}
+	}
+	if gotToolResults != 0 {
+		t.Fatalf("expected injected-document tool result to be omitted from prompt history, got %#v", history.Past[0].Messages)
+	}
+	if gotUsers != 2 {
+		t.Fatalf("expected persisted injected messages to remain in history, got %#v", history.Past[0].Messages)
+	}
+}
+
+func TestShouldSkipInjectedDocumentToolResultBody(t *testing.T) {
+	testCases := []struct {
+		body string
+		want bool
+	}{
+		{body: `{"injected":true}`, want: true},
+		{body: `{"includedDocument":true}`, want: true},
+		{body: `{"injected":false,"includedDocument":false}`, want: false},
+		{body: `{"result":"ok"}`, want: false},
+		{body: `not-json`, want: false},
+	}
+	for _, testCase := range testCases {
+		if got := shouldSkipInjectedDocumentToolResultBody(testCase.body); got != testCase.want {
+			t.Fatalf("body=%q: got %v, want %v", testCase.body, got, testCase.want)
+		}
 	}
 }
 

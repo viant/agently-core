@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func TestApplyToolContext_DataDriven(t *testing.T) {
@@ -111,7 +111,7 @@ func TestApplyDelegationContext_DataDriven(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &Service{}
-			binding := &prompt.Binding{Context: cloneContextMap(tc.initialContext)}
+			binding := &binding.Binding{Context: cloneContextMap(tc.initialContext)}
 			input := &QueryInput{
 				Agent: &agentmdl.Agent{
 					Identity: agentmdl.Identity{ID: tc.agentID},
@@ -179,7 +179,7 @@ func TestApplyWorkdirContext_DataDriven(t *testing.T) {
 				initialContext["resolvedWorkdir"] = tempDir
 			}
 			svc := &Service{}
-			binding := &prompt.Binding{Context: initialContext}
+			binding := &binding.Binding{Context: initialContext}
 			input := &QueryInput{
 				Agent: &agentmdl.Agent{
 					DefaultWorkdir: tc.defaultWorkdir,

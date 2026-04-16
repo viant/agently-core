@@ -257,7 +257,7 @@ func (s *Service) injectTemplateDocument(ctx context.Context, tpl *tpldef.Templa
 	return err
 }
 
-func renderTemplateDocument(tpl *tpldef.Template) string {
+func RenderTemplateDocument(tpl *tpldef.Template) string {
 	if tpl == nil {
 		return ""
 	}
@@ -318,6 +318,10 @@ func renderTemplateDocument(tpl *tpldef.Template) string {
 		}
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func renderTemplateDocument(tpl *tpldef.Template) string {
+	return RenderTemplateDocument(tpl)
 }
 
 func (s *Service) filterTemplatesForCurrentTarget(ctx context.Context, templates []*tpldef.Template) []*tpldef.Template {

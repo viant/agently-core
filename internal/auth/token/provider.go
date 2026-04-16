@@ -398,13 +398,16 @@ func scyToOAuthToken(key Key, tok *scyauth.Token) *OAuthToken {
 }
 
 func logSchedulerEnsure(ctx context.Context, key Key, format string, args ...interface{}) {
-	mode, ok := runtimediscovery.ModeFromContext(ctx)
-	if !ok || !mode.Scheduler {
-		return
+	mode, _ := runtimediscovery.ModeFromContext(ctx)
+	scheduleID := ""
+	scheduleRunID := ""
+	if mode.Scheduler {
+		scheduleID = strings.TrimSpace(mode.ScheduleID)
+		scheduleRunID = strings.TrimSpace(mode.ScheduleRunID)
 	}
 	args = append([]interface{}{
-		strings.TrimSpace(mode.ScheduleID),
-		strings.TrimSpace(mode.ScheduleRunID),
+		scheduleID,
+		scheduleRunID,
 		strings.TrimSpace(key.Subject),
 		strings.TrimSpace(key.Provider),
 	}, args...)

@@ -6,20 +6,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func TestGenerateInput_Init_AppendsSystemDocuments_DataDriven(t *testing.T) {
 	type testCase struct {
 		name        string
-		systemDocs  []*prompt.Document
+		systemDocs  []*binding.Document
 		expectedMsg []llm.Message
 	}
 
 	cases := []testCase{
 		{
 			name:       "adds each system document as system message",
-			systemDocs: []*prompt.Document{{PageContent: "playbook-1"}, {PageContent: "playbook-2"}},
+			systemDocs: []*binding.Document{{PageContent: "playbook-1"}, {PageContent: "playbook-2"}},
 			expectedMsg: []llm.Message{
 				llm.NewTextMessage(llm.MessageRole("system"), "playbook-1"),
 				llm.NewTextMessage(llm.MessageRole("system"), "playbook-2"),
@@ -34,12 +34,12 @@ func TestGenerateInput_Init_AppendsSystemDocuments_DataDriven(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			b := &prompt.Binding{}
+			b := &binding.Binding{}
 			if len(tc.systemDocs) > 0 {
 				b.SystemDocuments.Items = tc.systemDocs
 			}
 			in := &GenerateInput{
-				Prompt:  &prompt.Prompt{Text: "hello"},
+				Prompt:  &binding.Prompt{Text: "hello"},
 				Binding: b,
 			}
 			err := in.Init(context.Background())

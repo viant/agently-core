@@ -9,21 +9,21 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &prompt.History{
-		Traces:       map[string]*prompt.Trace{},
-		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
 	}
-	toolKey := prompt.KindToolCall.Key("call-1")
-	history.Traces[toolKey] = &prompt.Trace{ID: "resp-123"}
-	toolKey2 := prompt.KindToolCall.Key("call-2")
-	history.Traces[toolKey2] = &prompt.Trace{ID: "resp-other"}
+	toolKey := binding.KindToolCall.Key("call-1")
+	history.Traces[toolKey] = &binding.Trace{ID: "resp-123"}
+	toolKey2 := binding.KindToolCall.Key("call-2")
+	history.Traces[toolKey2] = &binding.Trace{ID: "resp-other"}
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
@@ -52,12 +52,12 @@ func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {
 func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &prompt.History{
-		Traces:       map[string]*prompt.Trace{},
-		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
 	}
-	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
-	history.Traces[prompt.KindToolCall.Key("call-2")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-2")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
@@ -84,13 +84,13 @@ func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {
 func TestBuildContinuationRequest_SkipsWhenToolResultDropped(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &prompt.History{
-		Traces:       map[string]*prompt.Trace{},
-		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
 	}
 	// The anchor response produced two tool calls.
-	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
-	history.Traces[prompt.KindToolCall.Key("call-2")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-2")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
 
 	// But only call-1's result survived (call-2's payload was lost).
 	// toolResultLLMMessages would have produced the assistant+tool pair for call-1 only.
@@ -108,11 +108,11 @@ func TestBuildContinuationRequest_SkipsWhenToolResultDropped(t *testing.T) {
 func TestBuildContinuationRequest_SkipsWhenSystemHistoryMessagePresent(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &prompt.History{
-		Traces:       map[string]*prompt.Trace{},
-		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
 	}
-	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
@@ -128,12 +128,12 @@ func TestBuildContinuationRequest_SkipsWhenSystemHistoryMessagePresent(t *testin
 func TestBuildContinuationRequest_SkipsWhenSystemMessagePresentForCompleteMultiToolIteration(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &prompt.History{
-		Traces:       map[string]*prompt.Trace{},
-		LastResponse: &prompt.Trace{ID: "resp-123", At: time.Now()},
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
 	}
-	history.Traces[prompt.KindToolCall.Key("call-1")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
-	history.Traces[prompt.KindToolCall.Key("call-2")] = &prompt.Trace{ID: "resp-123", Kind: prompt.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-2")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
@@ -165,14 +165,14 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 	// After iteration 1 completed (resp_A + op-1 tool call done), the binding
 	// sets LastResponse=resp_A and traces include op-1→resp_A.
 	t.Run("iteration2_continuation_from_resp_A", func(t *testing.T) {
-		history := &prompt.History{
-			Traces:       map[string]*prompt.Trace{},
-			LastResponse: &prompt.Trace{ID: "resp_A", At: baseTime, Kind: prompt.KindResponse},
+		history := &binding.History{
+			Traces:       map[string]*binding.Trace{},
+			LastResponse: &binding.Trace{ID: "resp_A", At: baseTime, Kind: binding.KindResponse},
 		}
 		// Trace: op-1 was requested by resp_A
-		history.Traces[prompt.KindToolCall.Key("op-1")] = &prompt.Trace{ID: "resp_A", Kind: prompt.KindToolCall, At: baseTime}
+		history.Traces[binding.KindToolCall.Key("op-1")] = &binding.Trace{ID: "resp_A", Kind: binding.KindToolCall, At: baseTime}
 		// Response trace
-		history.Traces[prompt.KindResponse.Key("resp_A")] = &prompt.Trace{ID: "resp_A", Kind: prompt.KindResponse, At: baseTime}
+		history.Traces[binding.KindResponse.Key("resp_A")] = &binding.Trace{ID: "resp_A", Kind: binding.KindResponse, At: baseTime}
 
 		// Full LLM request messages for iteration 2
 		req := &llm.GenerateRequest{}
@@ -194,15 +194,15 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 	// After iteration 2 completed (resp_B + op-2 tool call done), the binding
 	// sets LastResponse=resp_B and traces include op-1→resp_A and op-2→resp_B.
 	t.Run("iteration3_continuation_from_resp_B", func(t *testing.T) {
-		history := &prompt.History{
-			Traces:       map[string]*prompt.Trace{},
-			LastResponse: &prompt.Trace{ID: "resp_B", At: baseTime.Add(2 * time.Second), Kind: prompt.KindResponse},
+		history := &binding.History{
+			Traces:       map[string]*binding.Trace{},
+			LastResponse: &binding.Trace{ID: "resp_B", At: baseTime.Add(2 * time.Second), Kind: binding.KindResponse},
 		}
 		// Traces from both iterations
-		history.Traces[prompt.KindToolCall.Key("op-1")] = &prompt.Trace{ID: "resp_A", Kind: prompt.KindToolCall, At: baseTime}
-		history.Traces[prompt.KindToolCall.Key("op-2")] = &prompt.Trace{ID: "resp_B", Kind: prompt.KindToolCall, At: baseTime.Add(2 * time.Second)}
-		history.Traces[prompt.KindResponse.Key("resp_A")] = &prompt.Trace{ID: "resp_A", Kind: prompt.KindResponse, At: baseTime}
-		history.Traces[prompt.KindResponse.Key("resp_B")] = &prompt.Trace{ID: "resp_B", Kind: prompt.KindResponse, At: baseTime.Add(2 * time.Second)}
+		history.Traces[binding.KindToolCall.Key("op-1")] = &binding.Trace{ID: "resp_A", Kind: binding.KindToolCall, At: baseTime}
+		history.Traces[binding.KindToolCall.Key("op-2")] = &binding.Trace{ID: "resp_B", Kind: binding.KindToolCall, At: baseTime.Add(2 * time.Second)}
+		history.Traces[binding.KindResponse.Key("resp_A")] = &binding.Trace{ID: "resp_A", Kind: binding.KindResponse, At: baseTime}
+		history.Traces[binding.KindResponse.Key("resp_B")] = &binding.Trace{ID: "resp_B", Kind: binding.KindResponse, At: baseTime.Add(2 * time.Second)}
 
 		// Full LLM request messages for iteration 3 (includes all prior tool results)
 		req := &llm.GenerateRequest{}
@@ -235,15 +235,15 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 	// TurnTrace fallback also missed). This causes filterToolCallsByAnchor
 	// to fail because the trace's ID is "" instead of "resp_B".
 	t.Run("iteration3_fails_when_trace_id_empty", func(t *testing.T) {
-		history := &prompt.History{
-			Traces:       map[string]*prompt.Trace{},
-			LastResponse: &prompt.Trace{ID: "resp_B", At: baseTime.Add(2 * time.Second), Kind: prompt.KindResponse},
+		history := &binding.History{
+			Traces:       map[string]*binding.Trace{},
+			LastResponse: &binding.Trace{ID: "resp_B", At: baseTime.Add(2 * time.Second), Kind: binding.KindResponse},
 		}
 		// op-1 has correct trace, but op-2 has EMPTY trace ID (bug scenario)
-		history.Traces[prompt.KindToolCall.Key("op-1")] = &prompt.Trace{ID: "resp_A", Kind: prompt.KindToolCall, At: baseTime}
-		history.Traces[prompt.KindToolCall.Key("op-2")] = &prompt.Trace{ID: "", Kind: prompt.KindToolCall, At: baseTime.Add(2 * time.Second)} // BUG: empty ID
-		history.Traces[prompt.KindResponse.Key("resp_A")] = &prompt.Trace{ID: "resp_A", Kind: prompt.KindResponse, At: baseTime}
-		history.Traces[prompt.KindResponse.Key("resp_B")] = &prompt.Trace{ID: "resp_B", Kind: prompt.KindResponse, At: baseTime.Add(2 * time.Second)}
+		history.Traces[binding.KindToolCall.Key("op-1")] = &binding.Trace{ID: "resp_A", Kind: binding.KindToolCall, At: baseTime}
+		history.Traces[binding.KindToolCall.Key("op-2")] = &binding.Trace{ID: "", Kind: binding.KindToolCall, At: baseTime.Add(2 * time.Second)} // BUG: empty ID
+		history.Traces[binding.KindResponse.Key("resp_A")] = &binding.Trace{ID: "resp_A", Kind: binding.KindResponse, At: baseTime}
+		history.Traces[binding.KindResponse.Key("resp_B")] = &binding.Trace{ID: "resp_B", Kind: binding.KindResponse, At: baseTime.Add(2 * time.Second)}
 
 		req := &llm.GenerateRequest{}
 		req.Messages = append(req.Messages,

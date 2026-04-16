@@ -3,12 +3,12 @@ package core
 import (
 	"testing"
 
-	"github.com/viant/agently-core/protocol/prompt"
+	"github.com/viant/agently-core/protocol/binding"
 )
 
 func TestGenerateInput_MatchModelIfNeeded_UsesBindingModel(t *testing.T) {
 	input := &GenerateInput{
-		Binding: &prompt.Binding{
+		Binding: &binding.Binding{
 			Model: "openai_gpt4o_mini",
 		},
 	}

@@ -23,7 +23,7 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/debugtrace"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	"github.com/viant/agently-core/protocol/prompt"
+	bindpkg "github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
@@ -142,6 +142,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	s.captureSecurityContext(ctx, input)
 	ctx, _ = withWarnings(ctx)
 
+	// Intake sidecar: runs before tool selection so its output can inform bundles.
+	s.maybeRunIntakeSidecar(ctx, input)
+
 	toolRouterStarted := time.Now()
 	s.maybeAutoSelectToolBundles(ctx, input)
 	logx.Infof("conversation", "agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
@@ -207,27 +210,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	rawUserContent := displayQuery
 	userContent := displayQuery
-	if input.IsNewConversation && s.llm != nil && input.Agent != nil {
-		bStart := time.Now()
-		logx.Infof("conversation", "agent.Query BuildBinding start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-		b, berr := s.BuildBinding(ctx, input)
-		if berr != nil {
-			logx.Infof("conversation", "agent.Query BuildBinding error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String(), berr)
-		} else {
-			logx.Infof("conversation", "agent.Query BuildBinding ok convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(bStart).String())
-			var expOut core.ExpandUserPromptOutput
-			expIn := &core.ExpandUserPromptInput{Prompt: input.Agent.Prompt, Binding: b}
-			expStart := time.Now()
-			logx.Infof("conversation", "agent.Query ExpandUserPrompt start convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-			if err := s.llm.ExpandUserPrompt(ctx, expIn, &expOut); err == nil && strings.TrimSpace(expOut.ExpandedUserPrompt) != "" {
-				logx.Infof("conversation", "agent.Query ExpandUserPrompt ok convo=%q turn_id=%q elapsed=%s expanded_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), len(expOut.ExpandedUserPrompt))
-			} else if err != nil {
-				logx.Infof("conversation", "agent.Query ExpandUserPrompt error convo=%q turn_id=%q elapsed=%s err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String(), err)
-			} else {
-				logx.Infof("conversation", "agent.Query ExpandUserPrompt empty convo=%q turn_id=%q elapsed=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), time.Since(expStart).String())
-			}
-		}
-	}
 	if input.SkipInitialUserMessage {
 		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	} else {
@@ -384,7 +366,7 @@ func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 	}
 }
 
-func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.TurnMeta, att *prompt.Attachment) error {
+func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.TurnMeta, att *bindpkg.Attachment) error {
 	pid := uuid.New().String()
 	payload := apiconv.NewPayload()
 	payload.SetId(pid)
@@ -429,7 +411,7 @@ func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.Turn
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
 	iter := 0
 	var resolvedModel string
-	var loopHistoryMsgs []*prompt.Message
+	var loopHistoryMsgs []*bindpkg.Message
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
@@ -447,16 +429,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	for {
 		iter++
 		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
-		iterHistoryMsgs := append([]*prompt.Message(nil), loopHistoryMsgs...)
-		if control := strings.TrimSpace(s.renderModelManagedAsyncControl(ctx, &turn)); control != "" {
-			iterHistoryMsgs = append(iterHistoryMsgs, &prompt.Message{
-				Role:    string(llm.RoleSystem),
-				Content: control,
-			})
-		}
-		if len(iterHistoryMsgs) > 0 {
-			ctx = withLoopHistoryMessages(ctx, iterHistoryMsgs)
-		}
+		iterHistoryMsgs := append([]*bindpkg.Message(nil), loopHistoryMsgs...)
+		asyncControl := strings.TrimSpace(s.renderModelManagedAsyncControl(ctx, &turn))
 		iterStart := time.Now()
 		s.updateRunIteration(ctx, turn, iter)
 
@@ -471,6 +445,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		binding, bErr := s.BuildBinding(ctx, input)
 		if bErr != nil {
 			return bErr
+		}
+		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
+		if asyncControl != "" {
+			appendCurrentMessages(&binding.History, &bindpkg.Message{
+				Role:    string(llm.RoleSystem),
+				Content: asyncControl,
+			})
 		}
 		keys := []string{}
 		for k := range binding.Context {
@@ -595,17 +576,23 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if s.orchestrator != nil {
 			toolCalls := s.orchestrator.TurnToolResults(strings.TrimSpace(turn.TurnID))
 			if len(toolCalls) > 0 {
-				nextHistory := make([]*prompt.Message, 0, len(toolCalls))
+				nextHistory := make([]*bindpkg.Message, 0, len(toolCalls))
 				for _, call := range toolCalls {
 					id := strings.TrimSpace(call.ID)
 					name := strings.TrimSpace(call.Name)
 					if id == "" || name == "" {
 						continue
 					}
+					if shouldSkipInjectedDocumentToolResultBody(call.Result) {
+						continue
+					}
 					msgID := s.findToolMessageIDByOpID(ctx, turn.ConversationID, turn.TurnID, id)
-					nextHistory = append(nextHistory, &prompt.Message{
+					if msgID != "" {
+						continue
+					}
+					nextHistory = append(nextHistory, &bindpkg.Message{
 						ID:       msgID,
-						Kind:     prompt.MessageKindToolResult,
+						Kind:     bindpkg.MessageKindToolResult,
 						Role:     string(llm.RoleAssistant),
 						ToolOpID: id,
 						ToolName: name,
@@ -840,6 +827,61 @@ func (s *Service) rewriteGeneratedFileLinks(ctx context.Context, conversationID,
 		return strings.TrimSpace(content)
 	}
 	return rewriteSandboxMarkdownLinks(strings.TrimSpace(content), files)
+}
+
+func appendMissingReplayMessages(history *bindpkg.History, msgs []*bindpkg.Message) {
+	if history == nil || len(msgs) == 0 {
+		return
+	}
+	existingIDs := map[string]struct{}{}
+	existingToolOps := map[string]struct{}{}
+	collect := func(items []*bindpkg.Message) {
+		for _, msg := range items {
+			if msg == nil {
+				continue
+			}
+			if id := strings.TrimSpace(msg.ID); id != "" {
+				existingIDs[id] = struct{}{}
+			}
+			if op := strings.TrimSpace(msg.ToolOpID); op != "" {
+				existingToolOps[op] = struct{}{}
+			}
+		}
+	}
+	for _, turn := range history.Past {
+		if turn != nil {
+			collect(turn.Messages)
+		}
+	}
+	if history.Current != nil {
+		collect(history.Current.Messages)
+	}
+	var pending []*bindpkg.Message
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		id := strings.TrimSpace(msg.ID)
+		op := strings.TrimSpace(msg.ToolOpID)
+		if id != "" {
+			if _, ok := existingIDs[id]; ok {
+				continue
+			}
+		}
+		if op != "" {
+			if _, ok := existingToolOps[op]; ok {
+				continue
+			}
+		}
+		pending = append(pending, msg)
+		if id != "" {
+			existingIDs[id] = struct{}{}
+		}
+		if op != "" {
+			existingToolOps[op] = struct{}{}
+		}
+	}
+	appendCurrentMessages(history, pending...)
 }
 
 func rewriteSandboxMarkdownLinks(content string, files []*gfread.GeneratedFileView) string {
