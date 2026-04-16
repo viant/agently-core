@@ -121,6 +121,25 @@ export function applyEvent(
 
     if (type === 'turn_started') {
         setActiveTurn(buf, turnId);
+        const userMessageId = String(event?.userMessageId || event?.startedByMessageId || '').trim();
+        if (userMessageId) {
+            const existing = buf.byId.get(userMessageId) || {
+                id: userMessageId,
+                conversationId,
+                turnId,
+                role: 'user',
+                type: 'text',
+                content: '',
+                interim: 0,
+                createdAt: String(event.createdAt || '').trim(),
+                sequence: Number.isFinite(Number(event.eventSeq)) ? Number(event.eventSeq) : undefined,
+            } as Partial<Message>;
+            existing.role = 'user';
+            existing.type = 'text';
+            existing.interim = 0;
+            existing.status = String(event.status || existing.status || 'running');
+            storeEntry(buf, userMessageId, updateEntryIdentity(existing, event, conversationId, turnId));
+        }
         return null;
     }
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
@@ -193,7 +212,7 @@ export function applyEvent(
             const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
             existing.content = String(event.content || existing.content || '');
             existing.preamble = String(event.preamble || existing.preamble || '');
-            existing.status = String(event.status || existing.status || 'completed');
+            existing.status = String(event.status || 'completed');
             existing.interim = 0;
             storeEntry(buf, key, existing);
             setActiveTurn(buf, turnId);

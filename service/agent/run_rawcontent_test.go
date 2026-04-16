@@ -31,6 +31,7 @@ func TestService_addUserMessageRawContent(t *testing.T) {
 			err := svc.addUserMessage(ctx, turn, "user-1", "expanded text", tc.raw)
 			require.NoError(t, err)
 			require.NotNil(t, recorder.lastMessage)
+			assert.Equal(t, recorder.lastMessage.Id, turn.ParentMessageID)
 			if assert.NotNil(t, recorder.lastMessage.Content) {
 				assert.Equal(t, "expanded text", *recorder.lastMessage.Content)
 			}
@@ -49,6 +50,7 @@ func ptr(v string) *string { return &v }
 
 type recordingConvClient struct {
 	lastMessage  *apiconv.MutableMessage
+	lastTurn     *apiconv.MutableTurn
 	messageCount int
 }
 
@@ -96,6 +98,8 @@ func (r *recordingConvClient) PatchToolCall(ctx context.Context, toolCall *apico
 }
 
 func (r *recordingConvClient) PatchTurn(ctx context.Context, turn *apiconv.MutableTurn) error {
+	copy := *turn
+	r.lastTurn = &copy
 	return nil
 }
 

@@ -354,7 +354,7 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         current.content = firstString(event?.content, current.content);
         current.preamble = firstString(event?.preamble, current.preamble);
         current.errorMessage = firstString(event?.error, current.errorMessage);
-        current.status = firstString(event?.status, current.status, 'completed');
+        current.status = firstString(event?.status, 'completed', current.status);
         current.finalResponse = true;
         mergePrimaryModelStep(current, event, 'completed');
         next[assistantMessageId] = current;

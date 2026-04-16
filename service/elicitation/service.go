@@ -170,22 +170,50 @@ func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, 
 	if content == "" {
 		content = "Additional input required."
 	}
-	msg, err := apiconv.AddMessage(ctx, s.client, turn,
-		apiconv.WithId(uuid.New().String()),
-		apiconv.WithRole(role),
-		apiconv.WithType(messageType),
-		apiconv.WithElicitationID(elic.ElicitationId),
-		apiconv.WithElicitationPayloadID(payloadID),
-		apiconv.WithStatus("pending"),
-		apiconv.WithContent(content),
-	)
-	if err != nil {
+	msgID := uuid.New().String()
+	if role == llm.RoleAssistant.String() {
+		if existingID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)); existingID != "" {
+			msgID = existingID
+		} else if turn != nil {
+			if existingID := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(turn.TurnID)); existingID != "" {
+				msgID = existingID
+			}
+		}
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(msgID)
+	msg.SetRole(role)
+	msg.SetType(messageType)
+	msg.SetElicitationID(elic.ElicitationId)
+	msg.SetElicitationPayloadID(payloadID)
+	msg.SetStatus("pending")
+	msg.SetContent(content)
+	if turn != nil {
+		msg.SetConversationID(turn.ConversationID)
+		if strings.TrimSpace(turn.TurnID) != "" {
+			msg.SetTurnID(turn.TurnID)
+		}
+		if strings.TrimSpace(turn.ParentMessageID) != "" {
+			msg.SetParentMessageID(turn.ParentMessageID)
+		}
+	}
+	if err := s.client.PatchMessage(ctx, msg); err != nil {
 		logx.Errorf("conversation", "elicitation record error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), err)
 		return nil, err
 	}
-	logx.Infof("conversation", "elicitation record ok convo=%q elicitation_id=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(msg.Id))
-	s.emitElicitationRequested(ctx, turn, elic, msg.Id)
-	return msg, nil
+	// MutableMessage return mirrors the persisted row id for downstream callers.
+	ret := apiconv.NewMessage()
+	ret.SetId(msgID)
+	ret.SetConversationID(turn.ConversationID)
+	ret.SetRole(role)
+	ret.SetType(messageType)
+	ret.SetContent(content)
+	ret.SetElicitationID(elic.ElicitationId)
+	ret.SetElicitationPayloadID(payloadID)
+	ret.SetStatus("pending")
+	logx.Infof("conversation", "elicitation record ok convo=%q elicitation_id=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(ret.Id))
+	s.emitElicitationRequested(ctx, turn, elic, ret.Id)
+	return ret, nil
 }
 
 // Wait blocks until an elicitation is accepted/declined via router/UI or optional local awaiter.

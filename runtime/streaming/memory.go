@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -55,11 +57,29 @@ func (b *MemoryBus) Publish(ctx context.Context, event *Event) error {
 		b.seq[streamID]++
 		event.EventSeq = b.seq[streamID]
 	}
+	debugTiming := streamTimingDebugEnabled()
 	subs := make([]*memorySub, 0, len(b.subs))
 	for _, sub := range b.subs {
 		subs = append(subs, sub)
 	}
 	b.mu.Unlock()
+
+	if debugTiming {
+		log.Printf("[debug][streaming-bus] ts=%s published_at=%s type=%q stream_id=%q convo=%q turn=%q message=%q assistant=%q elicitation=%q seq=%d status=%q created_at=%s",
+			time.Now().UTC().Format(time.RFC3339Nano),
+			time.Now().UTC().Format(time.RFC3339Nano),
+			string(event.Type),
+			event.StreamID,
+			event.ConversationID,
+			event.TurnID,
+			event.MessageID,
+			event.AssistantMessageID,
+			event.ElicitationID,
+			event.EventSeq,
+			event.Status,
+			event.CreatedAt.UTC().Format(time.RFC3339Nano),
+		)
+	}
 
 	for _, sub := range subs {
 		if sub.filter != nil && !sub.filter(event) {
@@ -75,6 +95,16 @@ func (b *MemoryBus) Publish(ctx context.Context, event *Event) error {
 		}
 	}
 	return nil
+}
+
+func streamTimingDebugEnabled() bool {
+	value := os.Getenv("AGENTLY_DEBUG_STREAM_TIMING")
+	switch value {
+	case "1", "true", "TRUE", "on", "ON", "yes", "YES":
+		return true
+	default:
+		return false
+	}
 }
 
 func (b *MemoryBus) Subscribe(_ context.Context, filter Filter) (Subscription, error) {
