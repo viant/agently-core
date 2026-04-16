@@ -1241,9 +1241,6 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 			userMessageID = strings.TrimSpace(turnMeta.ParentMessageID)
 		}
 	}
-	if userMessageID == "" && status == "running" {
-		userMessageID = strings.TrimSpace(turn.Id)
-	}
 	if status == "running" {
 		patch := map[string]interface{}{
 			"turnId":         strings.TrimSpace(turn.Id),

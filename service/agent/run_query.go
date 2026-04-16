@@ -210,17 +210,15 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	rawUserContent := displayQuery
 	userContent := displayQuery
-	if input.SkipInitialUserMessage {
-		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-	} else {
-		if err := s.addUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
-			return err
-		}
-		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-	}
-	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 
-	if err := s.startTurn(ctx, turn, strings.TrimSpace(input.ScheduleId)); err != nil {
+	startTurnMeta := turn
+	if !input.SkipInitialUserMessage {
+		// Persist the turn row before the first user message so message.turn_id
+		// always points at an existing turn. Direct/manual submissions backfill
+		// started_by_message_id after the starter message is stored.
+		startTurnMeta.ParentMessageID = ""
+	}
+	if err := s.startTurn(ctx, startTurnMeta, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err
 	}
 	if strings.TrimSpace(input.AgentID) != "" {
@@ -257,6 +255,16 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		logx.Infof("conversation", "agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
 	}()
 	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q parent_message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(turn.ParentMessageID))
+
+	if input.SkipInitialUserMessage {
+		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	} else {
+		if err := s.persistInitialUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
+			return err
+		}
+		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	}
+	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err

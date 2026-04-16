@@ -71,6 +71,31 @@ func (s *Service) addUserMessage(ctx context.Context, turn *runtimerequestctx.Tu
 	return nil
 }
 
+func (s *Service) patchTurnStartedByMessageID(ctx context.Context, turn runtimerequestctx.TurnMeta) error {
+	starterID := strings.TrimSpace(turn.ParentMessageID)
+	if starterID == "" {
+		return nil
+	}
+	upd := apiconv.NewTurn()
+	upd.SetId(turn.TurnID)
+	upd.SetConversationID(turn.ConversationID)
+	upd.SetStartedByMessageID(starterID)
+	if err := s.conversation.PatchTurn(ctx, upd); err != nil {
+		return fmt.Errorf("failed to update turn starter message: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) persistInitialUserMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, userID, content, raw string) error {
+	if err := s.addUserMessage(ctx, turn, userID, content, raw); err != nil {
+		return err
+	}
+	if err := s.patchTurnStartedByMessageID(ctx, *turn); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx.TurnMeta, input *QueryInput) error {
 	if len(input.Attachments) == 0 {
 		return nil
