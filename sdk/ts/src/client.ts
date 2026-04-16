@@ -657,6 +657,11 @@ export class AgentlyClient {
         await this.patch('/api/agently/scheduler/', { schedules });
     }
 
+    /** Delete a schedule by ID. */
+    async deleteSchedule(id: string): Promise<void> {
+        await this.del(`/api/agently/scheduler/schedule/${enc(id)}`);
+    }
+
     /** Trigger an immediate run of a schedule. */
     async runScheduleNow(id: string): Promise<void> {
         await this.post(`/api/agently/scheduler/run-now/${enc(id)}`, {});

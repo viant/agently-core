@@ -28,6 +28,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/{id}", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
+	mux.HandleFunc("DELETE /v1/api/agently/scheduler/schedule/{id}", h.handleDeleteSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
 	mux.HandleFunc("PATCH /v1/api/agently/scheduler/", h.handleBatchUpdate())
 	mux.HandleFunc("POST /v1/api/agently/scheduler/run-now/{id}", h.handleRunNow())
@@ -39,6 +40,7 @@ func (h *Handler) RegisterWithoutRunNow(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/{id}", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
+	mux.HandleFunc("DELETE /v1/api/agently/scheduler/schedule/{id}", h.handleDeleteSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
 	mux.HandleFunc("PATCH /v1/api/agently/scheduler/", h.handleBatchUpdate())
 }
@@ -201,6 +203,28 @@ func (h *Handler) handleBatchUpdate() http.HandlerFunc {
 				httpError(w, http.StatusInternalServerError, err)
 				return
 			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) handleDeleteSchedule() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("schedule ID is required"))
+			return
+		}
+		if err := h.svc.Delete(r.Context(), id); err != nil {
+			switch {
+			case strings.Contains(err.Error(), "not found"):
+				httpError(w, http.StatusNotFound, err)
+			case strings.Contains(err.Error(), "only allowed for the owner"):
+				httpError(w, http.StatusForbidden, err)
+			default:
+				httpError(w, http.StatusInternalServerError, err)
+			}
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

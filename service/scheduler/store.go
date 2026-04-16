@@ -16,6 +16,7 @@ import (
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	runlease "github.com/viant/agently-core/pkg/agently/scheduler/run/lease"
 	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	scheddelete "github.com/viant/agently-core/pkg/agently/scheduler/schedule/delete"
 	schlease "github.com/viant/agently-core/pkg/agently/scheduler/schedule/lease"
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
 	"github.com/viant/datly"
@@ -28,6 +29,7 @@ type Store interface {
 	List(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
 	ListRuns(ctx context.Context, in *schrun.RunListInput, page, size int) (*RunListPage, error)
 	ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
+	DeleteSchedule(ctx context.Context, id string) error
 	PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error
 	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error
 	ListRunsForDue(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*schrun.RunView, error)
@@ -91,6 +93,9 @@ func (s *datlyStore) init(ctx context.Context) error {
 		return err
 	}
 	if _, err := schedwrite.DefineComponent(ctx, s.dao); err != nil {
+		return err
+	}
+	if _, err := scheddelete.DefineComponent(ctx, s.dao); err != nil {
 		return err
 	}
 	if _, err := schlease.DefineClaimLeaseComponent(ctx, s.dao); err != nil {
@@ -252,6 +257,28 @@ func (s *datlyStore) PatchSchedule(ctx context.Context, schedule *schedwrite.Sch
 	}
 	if len(out.Violations) > 0 {
 		return errors.New(out.Violations[0].Message)
+	}
+	return nil
+}
+
+func (s *datlyStore) DeleteSchedule(ctx context.Context, id string) error {
+	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	in := &scheddelete.Input{Ids: []string{id}}
+	out := &scheddelete.Output{}
+	if _, err := s.dao.Operate(ctx,
+		datly.WithPath(contract.NewPath(http.MethodDelete, scheddelete.PathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	); err != nil {
+		return err
+	}
+	if len(out.Violations) > 0 {
+		return errors.New(out.Violations[0].Message)
+	}
+	if strings.EqualFold(strings.TrimSpace(out.Status.Status), "error") {
+		return errors.New(strings.TrimSpace(out.Status.Message))
 	}
 	return nil
 }
