@@ -41,13 +41,24 @@ type childConversationState struct {
 	parentTurnID          string
 	agentID               string
 	status                string
+	rawStatus             string
+	terminal              bool
+	errorSummary          string
 	createdAt             string
 	updatedAt             string
 	lastAssistantPreamble string
 	lastAssistantResponse string
 	hasFinalResponse      bool
 	lastMessageAt         string
+	lastActivityAt        time.Time
 }
+
+const (
+	DefaultChildStatusTimeout    = 20 * time.Minute
+	DefaultWaitingForUserTimeout = 5 * time.Minute
+)
+
+var childStatusNow = time.Now
 
 func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutput, intended string) (bool, error) {
 	runCtx, err := s.prepareLinkedRun(ctx, ri, "external", false)
@@ -437,20 +448,27 @@ func (s *Service) childConversationState(ctx context.Context, conversationID str
 		agentID:              strings.TrimSpace(ptrString(conv.AgentId)),
 		status:               strings.TrimSpace(ptrString(conv.Status)),
 	}
+	state.rawStatus = state.status
 	if !conv.CreatedAt.IsZero() {
 		state.createdAt = conv.CreatedAt.Format(time.RFC3339Nano)
+		state.lastActivityAt = conv.CreatedAt
 	}
 	if conv.UpdatedAt != nil && !conv.UpdatedAt.IsZero() {
 		state.updatedAt = conv.UpdatedAt.Format(time.RFC3339Nano)
+		state.lastActivityAt = *conv.UpdatedAt
 	}
-	preamble, response, hasFinal, lastMessageAt, lastTurnStatus := lastAssistantState(conv.GetTranscript())
+	preamble, response, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt := lastAssistantState(conv.GetTranscript())
 	if state.status == "" {
 		state.status = lastTurnStatus
+	}
+	if !lastActivityAt.IsZero() {
+		state.lastActivityAt = lastActivityAt
 	}
 	state.lastAssistantPreamble = preamble
 	state.lastAssistantResponse = response
 	state.hasFinalResponse = hasFinal
 	state.lastMessageAt = lastMessageAt
+	state = normalizeChildConversationState(state, conv.GetTranscript())
 	return state, true
 }
 
@@ -468,6 +486,9 @@ func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusI
 		ParentTurnID:          state.parentTurnID,
 		AgentID:               state.agentID,
 		Status:                state.status,
+		RawStatus:             state.rawStatus,
+		Terminal:              state.terminal,
+		Error:                 state.errorSummary,
 		CreatedAt:             state.createdAt,
 		UpdatedAt:             state.updatedAt,
 		LastAssistantPreamble: state.lastAssistantPreamble,
@@ -529,6 +550,9 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 	if convID := strings.TrimSpace(si.ConversationID); convID != "" && len(items) > 0 {
 		so.ConversationID = convID
 		so.Status = strings.TrimSpace(items[0].Status)
+		so.RawStatus = strings.TrimSpace(items[0].RawStatus)
+		so.Terminal = items[0].Terminal
+		so.Error = strings.TrimSpace(items[0].Error)
 		so.AssistantResponse = statusItemAnswer(items[0])
 		so.HasFinalResponse = items[0].HasFinalResponse
 	}
@@ -605,23 +629,33 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 	return result, nil
 }
 
-func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, string, string) {
+func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, string, string, time.Time) {
 	var lastPreamble string
 	var lastResponse string
 	var hasFinal bool
 	var lastMessageAt string
 	var lastTurnStatus string
+	var lastActivityAt time.Time
 	for _, turn := range transcript {
 		if turn == nil {
 			continue
 		}
 		lastTurnStatus = strings.TrimSpace(turn.Status)
+		if !turn.CreatedAt.IsZero() && turn.CreatedAt.After(lastActivityAt) {
+			lastActivityAt = turn.CreatedAt
+		}
 		for _, msg := range turn.Message {
 			if msg == nil || strings.ToLower(strings.TrimSpace(msg.Role)) != "assistant" {
+				if msg != nil && !msg.CreatedAt.IsZero() && msg.CreatedAt.After(lastActivityAt) {
+					lastActivityAt = msg.CreatedAt
+				}
 				continue
 			}
 			if !msg.CreatedAt.IsZero() {
 				lastMessageAt = msg.CreatedAt.Format(time.RFC3339Nano)
+				if msg.CreatedAt.After(lastActivityAt) {
+					lastActivityAt = msg.CreatedAt
+				}
 			}
 			if text := strings.TrimSpace(ptrString(msg.Preamble)); text != "" {
 				lastPreamble = text
@@ -638,7 +672,102 @@ func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, st
 			}
 		}
 	}
-	return lastPreamble, lastResponse, hasFinal, lastMessageAt, lastTurnStatus
+	return lastPreamble, lastResponse, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt
+}
+
+func normalizeChildConversationState(state childConversationState, transcript apiconv.Transcript) childConversationState {
+	state.terminal = isTerminalChildStatus(state.status)
+	failureSummary := latestChildFailureSummary(transcript)
+	if strings.TrimSpace(failureSummary) != "" {
+		state.errorSummary = failureSummary
+	}
+
+	rawStatus := strings.ToLower(strings.TrimSpace(state.rawStatus))
+	if rawStatus == "waiting_for_user" && strings.TrimSpace(failureSummary) != "" {
+		state.status = "failed"
+		state.terminal = true
+		state.hasFinalResponse = true
+		state.lastAssistantPreamble = ""
+		state.lastAssistantResponse = "Child agent is blocked waiting for user input and cannot continue.\n" + failureSummary
+		return state
+	}
+
+	if !state.terminal && childConversationTimedOut(state) {
+		state.status = "failed"
+		state.terminal = true
+		timeoutLabel := "20 minutes"
+		if strings.ToLower(strings.TrimSpace(state.rawStatus)) == "waiting_for_user" {
+			timeoutLabel = "5 minutes"
+		}
+		state.errorSummary = "Child agent exceeded the maximum wait time of " + timeoutLabel + " without reaching a terminal state."
+		state.hasFinalResponse = true
+		state.lastAssistantPreamble = ""
+		state.lastAssistantResponse = "Child agent conversation " + strings.TrimSpace(state.conversationID) + " timed out after " + timeoutLabel + " without reaching a terminal state."
+		if strings.TrimSpace(state.rawStatus) != "" {
+			state.lastAssistantResponse += "\nLast known status: " + strings.TrimSpace(state.rawStatus) + "."
+		}
+		if strings.TrimSpace(failureSummary) != "" {
+			state.lastAssistantResponse += "\n" + failureSummary
+		}
+		return state
+	}
+
+	if state.terminal && !state.hasFinalResponse && strings.TrimSpace(failureSummary) != "" {
+		state.hasFinalResponse = true
+		state.lastAssistantPreamble = ""
+		state.lastAssistantResponse = failureSummary
+	}
+	return state
+}
+
+func isTerminalChildStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "completed", "success", "done", "failed", "error", "canceled", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func childConversationTimedOut(state childConversationState) bool {
+	if state.lastActivityAt.IsZero() {
+		return false
+	}
+	timeout := DefaultChildStatusTimeout
+	if strings.ToLower(strings.TrimSpace(state.rawStatus)) == "waiting_for_user" {
+		timeout = DefaultWaitingForUserTimeout
+	}
+	return childStatusNow().Sub(state.lastActivityAt) > timeout
+}
+
+func latestChildFailureSummary(transcript apiconv.Transcript) string {
+	for turnIdx := len(transcript) - 1; turnIdx >= 0; turnIdx-- {
+		turn := transcript[turnIdx]
+		if turn == nil {
+			continue
+		}
+		if msg := strings.TrimSpace(ptrString(turn.ErrorMessage)); msg != "" {
+			return "Turn error: " + msg
+		}
+		for msgIdx := len(turn.Message) - 1; msgIdx >= 0; msgIdx-- {
+			msg := turn.Message[msgIdx]
+			if msg == nil || strings.ToLower(strings.TrimSpace(ptrString(msg.Status))) != "failed" {
+				continue
+			}
+			var parts []string
+			if toolName := strings.TrimSpace(ptrString(msg.ToolName)); toolName != "" {
+				parts = append(parts, "Tool "+toolName+" failed.")
+			}
+			if content := strings.TrimSpace(ptrString(msg.Content)); content != "" {
+				parts = append(parts, "Error: "+content)
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "\n")
+			}
+			return "A child tool call failed."
+		}
+	}
+	return ""
 }
 
 func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route string, waitForConversation bool) (linkedRun, error) {
