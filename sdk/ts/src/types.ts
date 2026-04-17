@@ -33,6 +33,8 @@ export interface PageOutput {
     cursor?: string;
     prevCursor?: string;
     hasMore?: boolean;
+    hasOlder?: boolean;
+    hasNewer?: boolean;
     total?: number;
 }
 
