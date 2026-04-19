@@ -42,6 +42,7 @@ func WithRawContent(content string) MessageOption {
 }
 func WithInterim(v int) MessageOption        { return func(m *MutableMessage) { m.SetInterim(v) } }
 func WithMode(mode string) MessageOption     { return func(m *MutableMessage) { m.SetMode(mode) } }
+func WithPhase(phase string) MessageOption   { return func(m *MutableMessage) { m.SetPhase(phase) } }
 func WithToolName(name string) MessageOption { return func(m *MutableMessage) { m.SetToolName(name) } }
 func WithElicitationID(id string) MessageOption {
 	return func(m *MutableMessage) { m.SetElicitationID(id) }

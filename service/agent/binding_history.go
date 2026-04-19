@@ -325,7 +325,7 @@ func (s *Service) buildChronologicalHistory(
 		}
 		text := orig
 		if applyPreview && orig != "" {
-			limit := s.turnPreviewLimit(item.turnIdx, totalTurns, true)
+			limit := s.messagePreviewLimit(item.turnIdx, totalTurns, true, messageToolCall(msg) != nil)
 			if limit > 0 {
 				preview, of := buildOverflowPreview(orig, limit, msg.Id, allowContinuation)
 				if of {
@@ -839,6 +839,17 @@ func (s *Service) turnPreviewLimit(turnIdx, totalTurns int, applyAging bool) int
 	// Turns with index < totalTurns-w are considered aged.
 	if turnIdx < totalTurns-w {
 		return s.defaults.PreviewSettings.AgedLimit
+	}
+	return limit
+}
+
+func (s *Service) messagePreviewLimit(turnIdx, totalTurns int, applyAging bool, isToolResult bool) int {
+	limit := s.turnPreviewLimit(turnIdx, totalTurns, applyAging)
+	if !isToolResult || s.defaults == nil || s.defaults.PreviewSettings.ToolResultLimit <= 0 {
+		return limit
+	}
+	if limit <= 0 || s.defaults.PreviewSettings.ToolResultLimit < limit {
+		return s.defaults.PreviewSettings.ToolResultLimit
 	}
 	return limit
 }

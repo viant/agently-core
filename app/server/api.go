@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/genai/llm"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
@@ -45,6 +46,16 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		sdk.WithFileBrowser(fileBrowserHandler),
 		sdk.WithA2AHandler(a2aHandler),
 	}
+	// Callback dispatcher — mounted only when the runtime built one
+	// (requires a tool registry; see executor builder). When auth is
+	// enabled on opts.AuthRuntime, svcauth.Protect wraps the entire API
+	// mux and rejects unauthenticated /v1/ requests with 401 before they
+	// reach this handler. No additional auth guarding is needed here.
+	if opts.Runtime != nil && opts.Runtime.CallbackDispatch != nil {
+		handlerOpts = append(handlerOpts, sdk.WithCallbackDispatchHandler(
+			callbackhttp.NewHandler(opts.Runtime.CallbackDispatch),
+		))
+	}
 	if opts.SchedulerService != nil && opts.SchedulerOptions != nil && (opts.SchedulerOptions.EnableAPI || opts.SchedulerOptions.EnableWatchdog) {
 		handlerOpts = append(handlerOpts, sdk.WithScheduler(opts.SchedulerService, svcscheduler.NewHandler(opts.SchedulerService), opts.SchedulerOptions))
 	}
@@ -52,7 +63,11 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	svca2a.StartServers(ctx, &svca2a.ServerConfig{
+	// StartServers returns a *Group that is tied to ctx; when ctx is
+	// cancelled the group shuts every per-agent HTTP server down with a
+	// bounded deadline. The return value is intentionally discarded here —
+	// lifecycle is ctx-driven, not handler-driven.
+	_ = svca2a.StartServers(ctx, &svca2a.ServerConfig{
 		AgentService:  opts.Runtime.Agent,
 		AgentFinder:   opts.AgentFinder,
 		AgentIDs:      append([]string(nil), opts.AgentIDs...),

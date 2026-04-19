@@ -1,0 +1,6 @@
+id: simple_echo
+description: Minimal callback — echoes the eventName back via a test tool.
+tool: test-echo
+payload:
+  body: |
+    { "event": "{{.eventName}}", "convo": "{{.conversationId}}" }

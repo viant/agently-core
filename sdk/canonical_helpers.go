@@ -128,7 +128,26 @@ func ensureCurrentPage(turn *TurnState, event *streaming.Event) *ExecutionPageSt
 	if page.Mode == "" {
 		page.Mode = strings.TrimSpace(event.Mode)
 	}
+	if page.Phase == "" {
+		page.Phase = strings.TrimSpace(event.Phase)
+	}
+	deriveExecutionPagePhase(page)
 	return page
+}
+
+func deriveExecutionPagePhase(page *ExecutionPageState) {
+	if page == nil {
+		return
+	}
+	if strings.TrimSpace(page.Phase) != "" {
+		return
+	}
+	if page.FinalResponse {
+		return
+	}
+	if len(page.ToolSteps) > 0 {
+		page.Phase = "sidecar"
+	}
 }
 
 // upsertModelStep finds an existing model step by ModelCallID or appends a new one.
@@ -196,6 +215,7 @@ func setAssistantFinal(turn *TurnState, page *ExecutionPageState, messageID, con
 		page.Content = content
 		page.FinalResponse = true
 		page.FinalAssistantMessageID = strings.TrimSpace(messageID)
+		deriveExecutionPagePhase(page)
 	}
 }
 
@@ -211,6 +231,7 @@ func setAssistantPreamble(turn *TurnState, page *ExecutionPageState, messageID, 
 	if page != nil {
 		page.Preamble = content
 		page.PreambleMessageID = strings.TrimSpace(messageID)
+		deriveExecutionPagePhase(page)
 	}
 }
 
@@ -287,6 +308,7 @@ func applyModelResultToPage(page *ExecutionPageState, event *streaming.Event) {
 		page.FinalResponse = true
 		page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
 	}
+	deriveExecutionPagePhase(page)
 }
 
 func applyModelStart(step *ModelStepState, event *streaming.Event) {
@@ -316,6 +338,9 @@ func applyModelStart(step *ModelStepState, event *streaming.Event) {
 	}
 	if event.StreamPayloadID != "" {
 		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
+	}
+	if event.Phase != "" {
+		step.Phase = strings.TrimSpace(event.Phase)
 	}
 }
 
@@ -368,6 +393,9 @@ func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
 	}
 	if event.StreamPayloadID != "" {
 		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
+	}
+	if event.Phase != "" {
+		step.Phase = strings.TrimSpace(event.Phase)
 	}
 	step.CompletedAt = completedAtForEvent(event)
 }

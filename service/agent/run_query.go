@@ -142,23 +142,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	s.captureSecurityContext(ctx, input)
 	ctx, _ = withWarnings(ctx)
 
-	// Intake sidecar: runs before tool selection so its output can inform bundles.
-	s.maybeRunIntakeSidecar(ctx, input)
-
-	toolRouterStarted := time.Now()
-	s.maybeAutoSelectToolBundles(ctx, input)
-	logx.Infof("conversation", "agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
-
-	s.tryMergePromptIntoContext(input)
-	workdir := ensureResolvedWorkdir(input)
-	ctx = toolexec.WithWorkdir(ctx, workdir)
-	contextStarted := time.Now()
-	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
-		return err
-	}
-	logx.Infof("conversation", "agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
-	logx.Infof("conversation", "agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
-
 	ctx, agg := usage.WithAggregator(ctx)
 	turn := runtimerequestctx.TurnMeta{
 		Assistant:       input.Agent.ID,
@@ -255,6 +238,25 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		logx.Infof("conversation", "agent.Query finalize ok convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(finalStatus))
 	}()
 	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q parent_message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(turn.ParentMessageID))
+
+	// Intake sidecar: runs after the turn is active so turn_started is the
+	// first execution lifecycle event, but before tool selection so its output
+	// still informs bundle/routing decisions.
+	s.maybeRunIntakeSidecar(ctx, input)
+
+	toolRouterStarted := time.Now()
+	s.maybeAutoSelectToolBundles(ctx, input)
+	logx.Infof("conversation", "agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
+
+	s.tryMergePromptIntoContext(input)
+	workdir := ensureResolvedWorkdir(input)
+	ctx = toolexec.WithWorkdir(ctx, workdir)
+	contextStarted := time.Now()
+	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
+		return err
+	}
+	logx.Infof("conversation", "agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
+	logx.Infof("conversation", "agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
 
 	if input.SkipInitialUserMessage {
 		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
@@ -682,8 +684,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-					_ = s.elicitation.Resolve(context.Background(), turn.ConversationID, aPlan.Elicitation.ElicitationId, "decline", nil, "timeout")
-					return nil
+					if resolveErr := s.elicitation.Resolve(context.Background(), turn.ConversationID, aPlan.Elicitation.ElicitationId, "cancel", nil, "user_timeout"); resolveErr != nil {
+						return resolveErr
+					}
+					queryOutput.Content = ""
+					continue
 				}
 				return err
 			}

@@ -9,12 +9,12 @@ import (
 )
 
 func TestParseOutput_ValidJSON(t *testing.T) {
-	raw := `{"title":"Campaign 4821","intent":"diagnosis","entities":{"campaignId":"4821"},"suggestedProfileId":"performance_analysis","confidence":0.91}`
+	raw := `{"title":"Campaign 4821","intent":"diagnosis","context":{"campaignId":"4821"},"suggestedProfileId":"performance_analysis","confidence":0.91}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Equal(t, "Campaign 4821", tc.Title)
 	assert.Equal(t, "diagnosis", tc.Intent)
-	assert.Equal(t, "4821", tc.Entities["campaignId"])
+	assert.Equal(t, "4821", tc.Context["campaignId"])
 	assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 	assert.InDelta(t, 0.91, tc.Confidence, 0.001)
 }
@@ -41,12 +41,12 @@ func TestParseOutput_Invalid(t *testing.T) {
 func TestFilterByScope_ClassAOnly(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled: true,
-		Scope:   []string{"title", "entities", "intent"},
+		Scope:   []string{"title", "context", "intent"},
 	}
 	tc := &TurnContext{
 		Title:              "T",
 		Intent:             "diagnosis",
-		Entities:           map[string]string{"k": "v"},
+		Context:            map[string]string{"k": "v"},
 		SuggestedProfileId: "perf",
 		Confidence:         0.9,
 		AppendToolBundles:  []string{"bundle-a"},
@@ -55,7 +55,7 @@ func TestFilterByScope_ClassAOnly(t *testing.T) {
 	filterByScope(tc, cfg)
 	assert.Equal(t, "T", tc.Title)
 	assert.Equal(t, "diagnosis", tc.Intent)
-	assert.Equal(t, "v", tc.Entities["k"])
+	assert.Equal(t, "v", tc.Context["k"])
 	// Class B zeroed
 	assert.Empty(t, tc.SuggestedProfileId)
 	assert.Zero(t, tc.Confidence)
@@ -91,10 +91,10 @@ func TestFilterByScope_NilSafe(t *testing.T) {
 }
 
 func TestBuildOutputSchema_ClassAOnly(t *testing.T) {
-	cfg := &agentmdl.Intake{Scope: []string{"title", "entities", "intent"}}
+	cfg := &agentmdl.Intake{Scope: []string{"title", "context", "intent"}}
 	schema := buildOutputSchema(cfg)
 	assert.Contains(t, schema, "title")
-	assert.Contains(t, schema, "entities")
+	assert.Contains(t, schema, "context")
 	assert.NotContains(t, schema, "suggestedProfileId")
 	assert.NotContains(t, schema, "appendToolBundles")
 }
@@ -126,4 +126,10 @@ func TestIntake_Defaults(t *testing.T) {
 	assert.InDelta(t, 0.7, cfg.EffectiveConfidenceThreshold(), 0.001)
 	assert.Equal(t, 10, cfg.EffectiveTimeoutSec())
 	assert.Equal(t, 200, cfg.EffectiveMaxTokens())
+}
+func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
+	raw := `{"title":"Campaign 4821","intent":"diagnosis","entities":{"campaignId":"4821"}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "4821", tc.Context["campaignId"])
 }

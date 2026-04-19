@@ -92,6 +92,17 @@ func looksLikeElicitationContent(content string) bool {
 	return strings.Contains(raw, "\"type\"") && strings.Contains(raw, "elicitation") && strings.HasPrefix(raw, "{")
 }
 
+func messagePhaseFromMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "router":
+		return "intake"
+	case "summary":
+		return "summary"
+	default:
+		return ""
+	}
+}
+
 // patchInterimRequestMessage creates an interim assistant message capturing the request payload.
 func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, msgID string, payload []byte, mode string) error {
 	logx.Infof("conversation", "patchInterimRequestMessage start convo=%q turn=%q msg=%q mode=%q payload_bytes=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(msgID), strings.TrimSpace(mode), len(payload))
@@ -105,6 +116,9 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 	}
 	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
+	}
+	if phase := messagePhaseFromMode(mode); phase != "" {
+		opts = append(opts, apiconv.WithPhase(phase))
 	}
 	_, err := apiconv.AddMessage(ctx, o.client, &turn, opts...)
 	if err != nil {
@@ -162,6 +176,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 			return err
 		}
 		mc.SetRequestPayloadID(reqID)
+		o.requestPayloadID = reqID
 	}
 	if len(info.RequestJSON) > 0 {
 		prID, err := o.upsertInlinePayload(ctx, "", "provider_request", "application/json", info.RequestJSON)
@@ -170,6 +185,7 @@ func (o *recorderObserver) beginModelCall(ctx context.Context, msgID string, tur
 			return err
 		}
 		mc.SetProviderRequestPayloadID(prID)
+		o.providerRequestPayloadID = prID
 		_ = debugtrace.WritePayload("llm-provider-request", msgID, info.RequestJSON)
 	}
 	if err := o.client.PatchModelCall(ctx, mc); err != nil {

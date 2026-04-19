@@ -179,6 +179,71 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if strings.TrimSpace(src.CapabilityPrompt) != "" {
 		dst.CapabilityPrompt = strings.TrimSpace(src.CapabilityPrompt)
 	}
+	if src.PreviewSettings.Limit > 0 {
+		dst.PreviewSettings.Limit = src.PreviewSettings.Limit
+	}
+	if src.PreviewSettings.AgedLimit > 0 {
+		dst.PreviewSettings.AgedLimit = src.PreviewSettings.AgedLimit
+	}
+	if src.PreviewSettings.AgedAfterSteps > 0 {
+		dst.PreviewSettings.AgedAfterSteps = src.PreviewSettings.AgedAfterSteps
+	}
+	if src.PreviewSettings.SummarizeChunk > 0 {
+		dst.PreviewSettings.SummarizeChunk = src.PreviewSettings.SummarizeChunk
+	}
+	if src.PreviewSettings.MatchChunk > 0 {
+		dst.PreviewSettings.MatchChunk = src.PreviewSettings.MatchChunk
+	}
+	if strings.TrimSpace(src.PreviewSettings.SummaryModel) != "" {
+		dst.PreviewSettings.SummaryModel = strings.TrimSpace(src.PreviewSettings.SummaryModel)
+	}
+	if strings.TrimSpace(src.PreviewSettings.EmbeddingModel) != "" {
+		dst.PreviewSettings.EmbeddingModel = strings.TrimSpace(src.PreviewSettings.EmbeddingModel)
+	}
+	if strings.TrimSpace(src.PreviewSettings.SystemGuidePath) != "" {
+		dst.PreviewSettings.SystemGuidePath = strings.TrimSpace(src.PreviewSettings.SystemGuidePath)
+	}
+	if src.PreviewSettings.SummaryThresholdBytes > 0 {
+		dst.PreviewSettings.SummaryThresholdBytes = src.PreviewSettings.SummaryThresholdBytes
+	}
+	if src.Projection.Relevance != nil {
+		dst.Projection.Relevance = src.Projection.Relevance
+	}
+	if src.Projection.ToolCallSupersession != nil {
+		dst.Projection.ToolCallSupersession = src.Projection.ToolCallSupersession
+	}
+	if src.ToolCallMaxResults > 0 {
+		dst.ToolCallMaxResults = src.ToolCallMaxResults
+	}
+	if src.ToolCallTimeoutSec > 0 {
+		dst.ToolCallTimeoutSec = src.ToolCallTimeoutSec
+	}
+	if src.ElicitationTimeoutSec > 0 {
+		dst.ElicitationTimeoutSec = src.ElicitationTimeoutSec
+	}
+	if src.ToolApproval.Mode != "" {
+		dst.ToolApproval = src.ToolApproval
+	}
+	if src.Match.MaxFiles > 0 {
+		dst.Match.MaxFiles = src.Match.MaxFiles
+	}
+	if len(src.Resources.Locations) > 0 ||
+		len(src.Resources.Roots) > 0 ||
+		len(src.Resources.Upstreams) > 0 ||
+		src.Resources.UpstreamStore != nil ||
+		strings.TrimSpace(src.Resources.IndexPath) != "" ||
+		strings.TrimSpace(src.Resources.SnapshotPath) != "" ||
+		strings.TrimSpace(src.Resources.TrimPath) != "" ||
+		len(src.Resources.SummaryFiles) > 0 ||
+		src.Resources.DescribeMCP ||
+		src.Resources.UpstreamSyncConcurrency > 0 ||
+		src.Resources.MatchConcurrency > 0 ||
+		src.Resources.IndexAsync != nil {
+		dst.Resources = src.Resources
+	}
+	if src.AsyncReinforcementPrompt != nil {
+		dst.AsyncReinforcementPrompt = src.AsyncReinforcementPrompt
+	}
 }
 
 func isZeroNode(node *yaml.Node) bool {

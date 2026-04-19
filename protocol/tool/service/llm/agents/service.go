@@ -423,6 +423,13 @@ func (s *Service) start(ctx context.Context, in, out interface{}) error {
 	}
 	so.ConversationID = strings.TrimSpace(tmp.ConversationID)
 	so.Status = strings.TrimSpace(tmp.Status)
+	so.AssistantResponse = strings.TrimSpace(tmp.Answer)
+	so.TaskID = strings.TrimSpace(tmp.TaskID)
+	so.ContextID = strings.TrimSpace(tmp.ContextID)
+	so.StreamSupported = tmp.StreamSupported
+	if len(tmp.Warnings) > 0 {
+		so.Warnings = append([]string{}, tmp.Warnings...)
+	}
 	return nil
 }
 

@@ -88,6 +88,15 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/conversations/\(conversationID)/live-state", as: ConversationStateResponse.self)
     }
 
+    public func getTranscript(_ input: GetTranscriptInput) async throws -> ConversationStateResponse {
+        let encodedConversationID = input.conversationID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? input.conversationID
+        return try await get(
+            "/v1/conversations/\(encodedConversationID)/transcript",
+            query: queryItems(from: input).filter { $0.name != "conversationId" },
+            as: ConversationStateResponse.self
+        )
+    }
+
     public func listPendingElicitations(_ input: ListPendingElicitationsInput) async throws -> [PendingElicitationRecord] {
         let data = try await rawDataRequest(path: "/v1/elicitations", method: "GET", query: queryItems(from: input))
         if let rows = try? decoder.decode([PendingElicitationRecord].self, from: data) {

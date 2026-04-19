@@ -408,6 +408,9 @@ func (s *Session) ApplyPatch(ctx context.Context, patchText string, directory ..
 	if err != nil {
 		return fmt.Errorf("parse patch: %w", err)
 	}
+	if len(mfd) == 0 {
+		return fmt.Errorf("parse patch: no patch hunks found")
+	}
 	for _, fd := range mfd {
 		orig := strings.TrimPrefix(fd.OrigName, "a/")
 		newer := strings.TrimPrefix(fd.NewName, "b/")

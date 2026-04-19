@@ -135,6 +135,31 @@ func TestResolve_DeclineWithReasonAddsUserMessage(t *testing.T) {
 	assert.Contains(t, fake.lastUserContent, "declineReason")
 }
 
+func TestResolve_CancelWithReasonAddsUserMessage(t *testing.T) {
+	convID := "conv-cancel"
+	elicID := "elic-cancel"
+
+	fake := newFakeConv()
+	content := "{}"
+	turnID := "turn-cancel"
+	parentID := "msg-parent-cancel"
+	msg := &apiconv.Message{Id: "msg-cancel", ConversationId: convID, Role: "assistant", Content: &content}
+	msg.TurnId = &turnID
+	msg.ParentMessageId = &parentID
+	fake.byElic[convID+"/"+elicID] = msg
+	fake.byID[msg.Id] = msg
+	fake.byID[parentID] = &apiconv.Message{Id: parentID, ConversationId: convID}
+
+	r := router.New()
+	srv := New(fake, nil, r, nil)
+
+	err := srv.Resolve(context.Background(), convID, elicID, "cancel", nil, "user_timeout")
+	assert.NoError(t, err)
+	assert.EqualValues(t, "cancel", fake.lastPatchedStatus)
+	assert.Contains(t, fake.lastUserContent, "cancelReason")
+	assert.Contains(t, fake.lastUserContent, "user_timeout")
+}
+
 func TestAddUserResponseMessageStoresRawContent(t *testing.T) {
 	fake := newFakeConv()
 	srv := &Service{client: fake}

@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"strings"
+	"sync"
 
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/datly"
@@ -24,12 +25,36 @@ func authorizeConversation(item *agconv.ConversationView, opts *options) error {
 	return ErrPermissionDenied
 }
 
+// authCache memoises per-conversation authorisation decisions. A single
+// datlyService instance is shared by concurrent HTTP handlers, so reads and
+// writes of byConversationID must be serialised — otherwise the Go runtime
+// will detect concurrent map access and crash the process.
 type authCache struct {
+	mu               sync.RWMutex
 	byConversationID map[string]error
 }
 
 func newAuthCache() *authCache {
 	return &authCache{byConversationID: map[string]error{}}
+}
+
+func (c *authCache) get(id string) (error, bool) {
+	if c == nil {
+		return nil, false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	err, ok := c.byConversationID[id]
+	return err, ok
+}
+
+func (c *authCache) set(id string, err error) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.byConversationID[id] = err
 }
 
 func (s *datlyService) authorizeConversationID(ctx context.Context, conversationID string, opts *options, cache *authCache) error {
@@ -40,22 +65,16 @@ func (s *datlyService) authorizeConversationID(ctx context.Context, conversation
 	if conversationID == "" {
 		return ErrPermissionDenied
 	}
-	if cache != nil {
-		if err, ok := cache.byConversationID[conversationID]; ok {
-			return err
-		}
+	if err, ok := cache.get(conversationID); ok {
+		return err
 	}
 	conv, err := s.loadConversationForAuth(ctx, conversationID)
 	if err != nil {
-		if cache != nil {
-			cache.byConversationID[conversationID] = err
-		}
+		cache.set(conversationID, err)
 		return err
 	}
 	err = authorizeConversation(conv, opts)
-	if cache != nil {
-		cache.byConversationID[conversationID] = err
-	}
+	cache.set(conversationID, err)
 	return err
 }
 

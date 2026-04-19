@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/scheduler"
@@ -29,6 +30,7 @@ type handlerConfig struct {
 	metadataHandler  *svcworkspace.MetadataHandler
 	fileBrowser      *svcworkspace.FileBrowserHandler
 	a2aHandler       *svca2a.Handler
+	callbackHandler  *callbackhttp.Handler
 }
 
 // SchedulerOptions controls scheduler behavior at the SDK level.
@@ -76,6 +78,13 @@ func WithFileBrowser(h *svcworkspace.FileBrowserHandler) HandlerOption {
 
 func WithA2AHandler(h *svca2a.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.a2aHandler = h }
+}
+
+// WithCallbackDispatchHandler mounts POST /v1/api/callbacks/dispatch,
+// the workspace-declared forge submit → tool router. Safe to pass a nil
+// handler — the route is not mounted in that case.
+func WithCallbackDispatchHandler(h *callbackhttp.Handler) HandlerOption {
+	return func(c *handlerConfig) { c.callbackHandler = h }
 }
 
 func NewHandler(client Backend, opts ...HandlerOption) http.Handler {
@@ -205,5 +214,8 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	}
 	if cfg.a2aHandler != nil {
 		cfg.a2aHandler.Register(mux)
+	}
+	if cfg.callbackHandler != nil {
+		cfg.callbackHandler.Register(mux)
 	}
 }

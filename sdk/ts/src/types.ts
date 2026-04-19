@@ -105,9 +105,6 @@ export interface Turn {
         pages?: Partial<ExecutionPage>[];
     };
     executionGroups?: ExecutionGroup[];
-    executionGroupsTotal?: number;
-    executionGroupsOffset?: number;
-    executionGroupsLimit?: number;
 }
 
 export interface TranscriptOutput {
@@ -142,6 +139,7 @@ export interface ExecutionPage {
     parentMessageId: string;
     turnId?: string;
     iteration?: number;
+    phase?: string;
     preamble?: string;
     content?: string;
     finalResponse: boolean;
@@ -163,6 +161,7 @@ export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
 export interface ModelStepState {
     modelCallId: string;
     assistantMessageId?: string;
+    phase?: string;
     provider?: string;
     model?: string;
     status?: string;
@@ -394,6 +393,7 @@ export interface SSEEvent {
     linkedConversationId?: string;
     linkedConversationAgentId?: string;
     linkedConversationTitle?: string;
+    phase?: string;
     type: SSEEventType;
     op?: string;
     patch?: JSONObject;

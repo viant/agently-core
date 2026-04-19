@@ -60,3 +60,22 @@ func TestTurnPreviewLimit_AgingWindow(t *testing.T) {
 		t.Fatalf("expected limit=100 for turn 2/3 with applyAging=false, got %d", got)
 	}
 }
+
+func TestMessagePreviewLimit_UsesToolResultLimitWhenLower(t *testing.T) {
+	s := &Service{defaults: &config.Defaults{PreviewSettings: config.PreviewSettings{
+		Limit:           100,
+		AgedAfterSteps:  2,
+		AgedLimit:       10,
+		ToolResultLimit: 40,
+	}}}
+
+	if got := s.messagePreviewLimit(2, 3, true, true); got != 40 {
+		t.Fatalf("expected tool result limit=40, got %d", got)
+	}
+	if got := s.messagePreviewLimit(0, 3, true, true); got != 10 {
+		t.Fatalf("expected aged tool result limit to preserve tighter aged limit=10, got %d", got)
+	}
+	if got := s.messagePreviewLimit(2, 3, true, false); got != 100 {
+		t.Fatalf("expected non-tool message to use normal limit=100, got %d", got)
+	}
+}

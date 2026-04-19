@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/feedextract"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -22,6 +24,23 @@ import (
 	"github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
 )
+
+type feedTestRegistry struct {
+	exec map[string]string
+}
+
+func (r *feedTestRegistry) Definitions() []llm.ToolDefinition                { return nil }
+func (r *feedTestRegistry) MatchDefinition(string) []*llm.ToolDefinition     { return nil }
+func (r *feedTestRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { return nil, false }
+func (r *feedTestRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
+func (r *feedTestRegistry) SetDebugLogger(io.Writer)                         {}
+func (r *feedTestRegistry) Initialize(context.Context)                       {}
+func (r *feedTestRegistry) Execute(_ context.Context, name string, _ map[string]interface{}) (string, error) {
+	if out, ok := r.exec[name]; ok {
+		return out, nil
+	}
+	return "", errors.New("not found")
+}
 
 func TestFeedNotifier_BuiltinFeedsLiveBehavior(t *testing.T) {
 	tests := []struct {
@@ -97,12 +116,30 @@ func TestFeedNotifier_BuiltinFeedsLiveBehavior(t *testing.T) {
 	}
 }
 
+func TestFeedNotifier_SkipsChangesFeedWhenNoChangesExtracted(t *testing.T) {
+	spec := loadBuiltinFeedSpec(t, "changes")
+	bus := streaming.NewMemoryBus(4)
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	notifier := newFeedNotifier(&FeedRegistry{specs: []*FeedSpec{spec}}, bus)
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID: "conv-live",
+		TurnID:         "turn-live",
+	})
+
+	notifier.NotifyToolCompleted(ctx, "system_patch-apply", `{"stats":{},"status":"ok"}`)
+	assertNoEvent(t, sub)
+}
+
 func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 	tests := []struct {
 		name              string
 		specName          string
 		toolSteps         []*ToolStepState
 		payloads          map[string]string
+		exec              map[string]string
 		expectedFeedID    string
 		expectedItemCount int
 		expectedJSON      string
@@ -140,11 +177,12 @@ func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 			specName: "changes",
 			toolSteps: []*ToolStepState{
 				{ToolName: "system_patch-apply", ResponsePayloadID: "apply"},
-				{ToolName: "system_patch-snapshot", ResponsePayloadID: "snap"},
 			},
 			payloads: map[string]string{
 				"apply": `{"changes":[{"url":"/tmp/apply.go","kind":"modify"}],"status":"apply"}`,
-				"snap":  `{"changes":[{"url":"/tmp/a.go","kind":"create"},{"url":"/tmp/b.go","kind":"modify"}],"status":"ok"}`,
+			},
+			exec: map[string]string{
+				"system/patch:snapshot": `{"changes":[{"url":"/tmp/a.go","kind":"create"},{"url":"/tmp/b.go","kind":"modify"}],"status":"ok"}`,
 			},
 			expectedFeedID:    "changes",
 			expectedItemCount: 2,
@@ -173,7 +211,10 @@ func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := loadBuiltinFeedSpec(t, tc.specName)
 			client := &backendClient{
-				conv:  newPayloadOnlyConversationClient(tc.payloads),
+				conv: newPayloadOnlyConversationClient(tc.payloads),
+				registry: &feedTestRegistry{
+					exec: tc.exec,
+				},
 				feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 			}
 			state := &ConversationState{
@@ -196,6 +237,41 @@ func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 			assert.JSONEq(t, tc.expectedJSON, string(feeds[0].Data))
 		})
 	}
+}
+
+func TestResolveActiveFeedsFromState_UsesActivationToolWhenPayloadMissing(t *testing.T) {
+	spec := loadBuiltinFeedSpec(t, "changes")
+	client := &backendClient{
+		conv: newPayloadOnlyConversationClient(map[string]string{
+			"apply": `{"changes":[{"url":"/tmp/apply.go","kind":"modify"}],"status":"apply"}`,
+		}),
+		registry: &feedTestRegistry{
+			exec: map[string]string{
+				"system/patch:snapshot": `{"changes":[{"url":"/tmp/a.go","kind":"create"},{"url":"/tmp/b.go","kind":"modify"}],"status":"ok"}`,
+			},
+		},
+		feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
+	}
+	state := &ConversationState{
+		ConversationID: "conv-resolve",
+		Turns: []*TurnState{{
+			TurnID: "turn-1",
+			Execution: &ExecutionState{
+				Pages: []*ExecutionPageState{{
+					PageID: "page-1",
+					ToolSteps: []*ToolStepState{
+						{ToolName: "system_patch-apply", ResponsePayloadID: "apply"},
+					},
+				}},
+			},
+		}},
+	}
+
+	feeds := client.resolveActiveFeedsFromState(context.Background(), state)
+	require.Len(t, feeds, 1)
+	assert.Equal(t, "changes", feeds[0].FeedID)
+	assert.Equal(t, 2, feeds[0].ItemCount)
+	assert.JSONEq(t, `{"input":{},"output":{"changes":[{"url":"/tmp/a.go","kind":"create"},{"url":"/tmp/b.go","kind":"modify"}],"status":"ok"}}`, string(feeds[0].Data))
 }
 
 func TestBuiltinFeedYAMLDecodeAndGenericBridgeParity(t *testing.T) {
@@ -471,7 +547,7 @@ func TestFeedNotifier_GuardBranches(t *testing.T) {
 		assert.Equal(t, true, n.activeFeeds["conv"]["plan"])
 	})
 
-	t.Run("matched tool with empty result still emits active feed", func(t *testing.T) {
+	t.Run("matched tool with empty result does not emit active feed", func(t *testing.T) {
 		spec := loadBuiltinFeedSpec(t, "terminal")
 		bus := streaming.NewMemoryBus(2)
 		sub, err := bus.Subscribe(context.Background(), nil)
@@ -480,10 +556,7 @@ func TestFeedNotifier_GuardBranches(t *testing.T) {
 		n := newFeedNotifier(&FeedRegistry{specs: []*FeedSpec{spec}}, bus)
 		ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-empty", TurnID: "turn-1"})
 		n.NotifyToolCompleted(ctx, "system_exec-execute", "")
-		ev := readEvent(t, sub)
-		require.NotNil(t, ev)
-		assert.Equal(t, 0, ev.FeedItemCount)
-		assert.JSONEq(t, `{"input":{},"output":{}}`, mustMarshalJSON(t, ev.FeedData))
+		assertNoEvent(t, sub)
 	})
 
 	t.Run("uses turn conversation when context conversation missing", func(t *testing.T) {

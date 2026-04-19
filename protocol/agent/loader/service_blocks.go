@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
@@ -39,12 +40,14 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 					}
 				case "pattern": // backward compat: copy to Name
 					if v.Kind == yaml.ScalarNode {
+						logx.Warnf("agent-loader", "legacy tool.items.pattern is deprecated; prefer tool.bundles or tool.items.name pattern=%q", strings.TrimSpace(v.Value))
 						if t.Name == "" {
 							t.Name = strings.TrimSpace(v.Value)
 						}
 					}
 				case "ref": // backward compat: copy to Name
 					if v.Kind == yaml.ScalarNode {
+						logx.Warnf("agent-loader", "legacy tool.items.ref is deprecated; prefer tool.bundles or tool.items.name ref=%q", strings.TrimSpace(v.Value))
 						if t.Name == "" {
 							t.Name = strings.TrimSpace(v.Value)
 						}

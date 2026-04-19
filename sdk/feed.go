@@ -35,6 +35,12 @@ func NewFeedRegistry() *FeedRegistry {
 	return r
 }
 
+// loadFromWorkspace reads every *.yaml under <workspace>/feeds, builds a new
+// slice of specs outside any lock, then swaps it in under r.mu. Doing the
+// disk I/O without the registry lock held is deliberate — otherwise a reload
+// would stall every reader (Specs, MatchByTool, …) for the duration of the
+// scan. Two concurrent reloads are safe: both build their own slice and the
+// later swap wins.
 func (r *FeedRegistry) loadFromWorkspace() {
 	feedsDir := filepath.Join(workspace.Root(), "feeds")
 	entries, err := os.ReadDir(feedsDir)

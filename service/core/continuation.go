@@ -20,10 +20,9 @@ import (
 //     tool-result continuation can cause provider-side errors because the
 //     anchor still expects the full set of function/tool outputs for that
 //     iteration.
-//   - Continuation is skipped when the current request contains system
-//     messages. Fresh system instructions are not replayed as part of the
-//     anchor-only request, so continuing in that case would silently drop
-//     prompt semantics. The safe fallback is the normal full request path.
+//   - Leading or mid-history system messages do not disable continuation by
+//     themselves. The provider-side hard requirement is complete tool-call
+//     replay for the anchored response; dropping that continuity causes errors.
 func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *binding.History) *llm.GenerateRequest {
 	var conversationID string
 	if meta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -51,32 +50,6 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			debugtrace.Write("core", "continuation_skipped", map[string]any{
 				"conversationID": strings.TrimSpace(conversationID),
 				"reason":         "empty_anchor_id",
-			})
-		}
-		return nil
-	}
-
-	// Guard: skip anchor continuation when the current request contains system
-	// messages. Those instructions are not part of the anchored provider-side
-	// context and would be silently lost if we only replay tool-call messages.
-	// This intentionally prefers correctness over token savings.
-	for _, m := range req.Messages {
-		if llm.MessageRole(m.Role) != llm.RoleSystem {
-			continue
-		}
-		if strings.TrimSpace(m.Content) == "" && len(m.Items) == 0 {
-			continue
-		}
-		debugtrace.LogToFile("core", "continuation_rejected", map[string]interface{}{
-			"reason":   "system_message_present",
-			"anchorID": anchorID,
-			"message":  strings.TrimSpace(m.Content),
-		})
-		if debugtrace.Enabled() {
-			debugtrace.Write("core", "continuation_skipped", map[string]any{
-				"conversationID": strings.TrimSpace(conversationID),
-				"reason":         "system_message_present",
-				"anchorID":       anchorID,
 			})
 		}
 		return nil
@@ -238,7 +211,12 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	continuationRequest := &llm.GenerateRequest{}
 	if req.Options != nil {
 		opts := *req.Options
+		if strings.TrimSpace(opts.Mode) == "" {
+			opts.Mode = strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
+		}
 		continuationRequest.Options = &opts
+	} else if mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)); mode != "" {
+		continuationRequest.Options = &llm.Options{Mode: mode}
 	}
 	continuationRequest.Messages = append(continuationRequest.Messages, selected...)
 	continuationRequest.PreviousResponseID = anchorID

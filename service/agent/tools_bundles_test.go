@@ -67,8 +67,17 @@ func canon(s string) string {
 	return strings.ReplaceAll(mcpname.Canonical(s), "-", "_")
 }
 
-func (r *fakeRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { return nil, false }
-func (r *fakeRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
+func (r *fakeRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	target := canon(name)
+	for i := range r.defs {
+		if canon(r.defs[i].Name) == target {
+			def := r.defs[i]
+			return &def, true
+		}
+	}
+	return nil, false
+}
+func (r *fakeRegistry) MustHaveTools([]string) ([]llm.Tool, error) { return nil, nil }
 func (r *fakeRegistry) Execute(context.Context, string, map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
@@ -147,6 +156,26 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			expectNames: []string{"system/exec:execute", "system/os:getEnv"},
 		},
 		{
+			name: "explicit_tools_allowed_override_agent_bundles",
+			query: &QueryInput{
+				ToolsAllowed: []string{"system/os:getEnv"},
+				Agent:        &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"system"}}},
+			},
+			bundles: []*toolbundle.Bundle{
+				{
+					ID: "system",
+					Match: []llm.Tool{
+						{Name: "system/*"},
+					},
+				},
+			},
+			defs: []llm.ToolDefinition{
+				{Name: "system/exec:execute"},
+				{Name: "system/os:getEnv"},
+			},
+			expectNames: []string{"system/os:getEnv"},
+		},
+		{
 			name: "steward_bundle_matches_colon_registry_names",
 			query: &QueryInput{
 				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"steward-agent"}}},
@@ -166,6 +195,18 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "llm/agents:run"},
 			},
 			expectNames: []string{"steward:AdHierarchy", "steward:SaveRecommendation"},
+		},
+		{
+			name: "service_style_bundle_id_falls_back_to_direct_definition_match",
+			query: &QueryInput{
+				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"system/exec"}}},
+			},
+			bundles: nil,
+			defs: []llm.ToolDefinition{
+				{Name: "system/exec:execute"},
+				{Name: "system/os:getEnv"},
+			},
+			expectNames: []string{"system/exec:execute"},
 		},
 	}
 

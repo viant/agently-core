@@ -35,6 +35,10 @@ type Defaults struct {
 	Model           string `json:"model,omitempty"`
 	Embedder        string `json:"embedder,omitempty"`
 	AutoSelectTools bool   `json:"autoSelectTools,omitempty"`
+	// ElicitationTimeoutSec is the per-prompt response timeout applied by
+	// interactive clients (CLI, UI) when waiting for a user to respond to an
+	// elicitation. Zero means the client should use its built-in default.
+	ElicitationTimeoutSec int `json:"elicitationTimeoutSec,omitempty"`
 }
 
 // Capabilities advertises optional backend contracts so the UI can avoid
@@ -57,6 +61,7 @@ type AgentInfo struct {
 	Name         string                 `json:"name,omitempty"`
 	Internal     bool                   `json:"internal,omitempty"`
 	ModelRef     string                 `json:"modelRef,omitempty"`
+	Tools        []string               `json:"tools,omitempty"`
 	StarterTasks []agentmdl.StarterTask `json:"starterTasks,omitempty"`
 }
 
@@ -110,10 +115,11 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 			resp.DefaultModel = h.defaults.Model
 			resp.DefaultEmbedder = h.defaults.Embedder
 			resp.Defaults = &Defaults{
-				Agent:           h.defaults.Agent,
-				Model:           h.defaults.Model,
-				Embedder:        h.defaults.Embedder,
-				AutoSelectTools: h.defaults.ToolAutoSelection.Enabled,
+				Agent:                 h.defaults.Agent,
+				Model:                 h.defaults.Model,
+				Embedder:              h.defaults.Embedder,
+				AutoSelectTools:       h.defaults.ToolAutoSelection.Enabled,
+				ElicitationTimeoutSec: h.defaults.ElicitationTimeoutSec,
 			}
 		}
 		if h.store != nil {
@@ -168,6 +174,7 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 			Name:         label,
 			Internal:     cfg.Internal,
 			ModelRef:     firstNonEmpty(cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
+			Tools:        agentToolDefaults(cfg, rawMap),
 			StarterTasks: append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
 		})
 	}
@@ -179,6 +186,72 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 		}
 		return strings.TrimSpace(result[i].ID) < strings.TrimSpace(result[j].ID)
 	})
+	return result
+}
+
+func agentToolDefaults(cfg *agentmdl.Agent, raw map[string]interface{}) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if cfg != nil {
+		for _, bundle := range cfg.Tool.Bundles {
+			add(bundle)
+		}
+		for _, item := range cfg.Tool.Items {
+			if item == nil {
+				continue
+			}
+			add(item.Name)
+			add(item.Definition.Name)
+		}
+	}
+	toolBlock, _ := raw["tool"].(map[string]interface{})
+	for _, bundle := range stringList(toolBlock["bundles"]) {
+		add(bundle)
+	}
+	for _, entry := range objectList(toolBlock["items"]) {
+		add(stringValue(entry["pattern"]))
+		add(stringValue(entry["name"]))
+	}
+	return out
+}
+
+func stringList(value interface{}) []string {
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(stringValue(item))
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func objectList(value interface{}) []map[string]interface{} {
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		if mapped, ok := item.(map[string]interface{}); ok {
+			result = append(result, mapped)
+		}
+	}
 	return result
 }
 

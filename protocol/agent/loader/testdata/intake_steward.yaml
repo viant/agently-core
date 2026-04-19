@@ -5,7 +5,7 @@ intake:
   enabled: true
   scope:
     - title
-    - entities
+    - context
     - intent
     - clarification
     - profile

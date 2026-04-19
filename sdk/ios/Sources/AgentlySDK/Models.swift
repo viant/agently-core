@@ -369,6 +369,36 @@ public struct CreateConversationInput: Codable, Sendable {
     }
 }
 
+public struct GetTranscriptInput: Codable, Sendable {
+    public let conversationID: String
+    public let since: String?
+    public let includeModelCalls: Bool?
+    public let includeToolCalls: Bool?
+    public let includeFeeds: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case since
+        case includeModelCalls
+        case includeToolCalls
+        case includeFeeds
+    }
+
+    public init(
+        conversationID: String,
+        since: String? = nil,
+        includeModelCalls: Bool? = nil,
+        includeToolCalls: Bool? = nil,
+        includeFeeds: Bool? = nil
+    ) {
+        self.conversationID = conversationID
+        self.since = since
+        self.includeModelCalls = includeModelCalls
+        self.includeToolCalls = includeToolCalls
+        self.includeFeeds = includeFeeds
+    }
+}
+
 public struct QueryAttachment: Codable, Sendable, Identifiable {
     public var id: String { uri }
     public let name: String

@@ -16,6 +16,9 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	if i.Options == nil {
 		i.Options = &llm.Options{}
 	}
+	if strings.TrimSpace(i.Options.Mode) == "" {
+		i.Options.Mode = "task"
+	}
 
 	if i.Options.Temperature == 0 && agent.Temperature != 0 {
 		i.Options.Temperature = agent.Temperature

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"unicode"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
@@ -17,7 +18,7 @@ import (
 //   - this is not the first turn and TriggerOnTopicShift is false
 //
 // On success the TurnContext is stored in input.Context so the agent can read
-// title, intent, entities, and (when in Class B scope) profile suggestions.
+// title, intent, context, and (when in Class B scope) profile suggestions.
 // AppendToolBundles are merged into input.ToolBundles.
 // A high-confidence SuggestedProfileId is stored as a hint under a well-known
 // context key — the orchestrator may use it or override it.
@@ -54,14 +55,136 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 
 // shouldRunIntake decides whether the sidecar should fire for this turn.
 //
-// It fires on:
-//   - first turn of a new conversation (no history yet)
-//   - always (conservative: always run on every turn when enabled)
+// Behaviour:
+//   - TriggerOnTopicShift == false → always run when the sidecar is enabled
+//     (legacy default; the sidecar is cheap and every turn benefits).
+//   - TriggerOnTopicShift == true  → run on the first turn of a conversation,
+//     and on subsequent turns only when the current user message diverges
+//     from the previous one by more than TopicShiftThreshold. Divergence is
+//     measured as 1 − Jaccard(tokens(current), tokens(prev)).
 //
-// Topic-shift detection is deferred to a future iteration; for now the sidecar
-// runs on every turn when enabled, which mirrors the safest default.
-func (s *Service) shouldRunIntake(_ context.Context, _ *QueryInput, _ *agentmdl.Intake) bool {
-	return true
+// The Jaccard heuristic is cheap, deterministic, and good enough to spot the
+// usual "user pivoted to a completely different task" case without paying
+// for an embedding model. Threshold defaults to 0.65.
+func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *agentmdl.Intake) bool {
+	if cfg == nil || !cfg.Enabled {
+		return false
+	}
+	if !cfg.TriggerOnTopicShift {
+		return true
+	}
+	current := strings.TrimSpace(input.Query)
+	if current == "" {
+		return true
+	}
+	previous := s.previousUserMessage(ctx, input.ConversationID)
+	if previous == "" {
+		// First turn — no prior user message to compare against; run so the
+		// caller gets baseline Class A metadata.
+		return true
+	}
+	threshold := cfg.TopicShiftThreshold
+	if threshold <= 0 {
+		threshold = 0.65
+	}
+	similarity := jaccardWordSimilarity(previous, current)
+	divergence := 1.0 - similarity
+	return divergence >= threshold
+}
+
+// previousUserMessage returns the trimmed content of the most recent user
+// message on the conversation, excluding the current turn's message. Empty
+// result means "no prior history available" — caller treats that as first
+// turn.
+func (s *Service) previousUserMessage(ctx context.Context, convID string) string {
+	if s == nil || s.conversation == nil {
+		return ""
+	}
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return ""
+	}
+	turns := conv.GetTranscript()
+	// Walk backwards and pick the newest user message. The tail of the
+	// transcript may be the turn we're currently starting — skip any
+	// assistant-only tail and grab the latest persisted user input.
+	for i := len(turns) - 1; i >= 0; i-- {
+		turn := turns[i]
+		if turn == nil {
+			continue
+		}
+		for j := len(turn.Message) - 1; j >= 0; j-- {
+			msg := turn.Message[j]
+			if msg == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
+				if msg.Content != nil {
+					if text := strings.TrimSpace(*msg.Content); text != "" {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// jaccardWordSimilarity returns |A ∩ B| / |A ∪ B| over lowercased word
+// tokens. Empty inputs → 0.
+func jaccardWordSimilarity(a, b string) float64 {
+	aTokens := tokenizeWords(a)
+	bTokens := tokenizeWords(b)
+	if len(aTokens) == 0 || len(bTokens) == 0 {
+		return 0
+	}
+	union := make(map[string]struct{}, len(aTokens)+len(bTokens))
+	intersection := 0
+	for tok := range aTokens {
+		union[tok] = struct{}{}
+		if _, ok := bTokens[tok]; ok {
+			intersection++
+		}
+	}
+	for tok := range bTokens {
+		union[tok] = struct{}{}
+	}
+	if len(union) == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(len(union))
+}
+
+// tokenizeWords lowercases the input and splits on any non-letter / non-digit
+// rune. Tokens shorter than 2 runes are dropped — they are usually
+// punctuation residue or single-letter noise that pollutes the overlap.
+func tokenizeWords(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		token := strings.ToLower(b.String())
+		b.Reset()
+		if len([]rune(token)) < 2 {
+			return
+		}
+		out[token] = struct{}{}
+	}
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
 }
 
 // maybeSetConversationTitle persists the intake-extracted title to the
@@ -100,12 +223,27 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 		input.Context["intake.title"] = t
 	}
 
-	// Merge entities into context so velty templates can access them.
-	if len(tc.Entities) > 0 {
-		for k, v := range tc.Entities {
-			input.Context["intake.entity."+k] = v
+	// Merge intake context into QueryInput.Context so templates and routing can
+	// access normalized scope hints without treating them as authoritative data.
+	if len(tc.Context) > 0 {
+		for k, v := range tc.Context {
+			input.Context["intake.context."+k] = v
 		}
-		input.Context["intake.entities"] = tc.Entities
+		input.Context["intake.context"] = tc.Context
+		// Backward-compatible alias for existing templates/workspaces.
+		input.Context["intake.entities"] = tc.Context
+	}
+
+	// Class A: surface clarification signal so templates and downstream
+	// handlers can see when the request is too ambiguous to act on. Stored
+	// under explicit context keys rather than left inside the TurnContext
+	// struct, because templates that only poke `input.Context` would
+	// otherwise miss it.
+	if cfg.HasScope(agentmdl.IntakeScopeClarification) && tc.ClarificationNeeded {
+		input.Context["intake.clarificationNeeded"] = true
+		if q := strings.TrimSpace(tc.ClarificationQuestion); q != "" {
+			input.Context["intake.clarificationQuestion"] = q
+		}
 	}
 
 	// Class B: append tool bundles suggested by the sidecar.
@@ -113,15 +251,27 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 		input.ToolBundles = append(input.ToolBundles, tc.AppendToolBundles...)
 	}
 
-	// Class B: store template suggestion.
-	if cfg.HasScope(agentmdl.IntakeScopeTemplate) && strings.TrimSpace(tc.TemplateId) != "" {
-		input.Context["intake.templateId"] = strings.TrimSpace(tc.TemplateId)
+	// Class B: apply template suggestion. The context entry remains for
+	// observability, but we also populate input.TemplateId — the field
+	// applySelectedTemplate actually reads — when the caller has not
+	// already chosen a template. Never overwrite an explicit caller choice.
+	if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
+		if id := strings.TrimSpace(tc.TemplateId); id != "" {
+			input.Context["intake.templateId"] = id
+			if strings.TrimSpace(input.TemplateId) == "" {
+				input.TemplateId = id
+			}
+		}
 	}
 
 	// Class B: store profile suggestion when confidence meets the threshold.
+	// Profile selection is advisory here — the orchestrator's routing logic
+	// reads intake.suggestedProfileId from input.Context. We deliberately do
+	// not clobber an explicit caller-set profile upstream.
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.SuggestedProfileId) != "" {
 		if tc.Confidence >= cfg.EffectiveConfidenceThreshold() {
 			input.Context["intake.suggestedProfileId"] = strings.TrimSpace(tc.SuggestedProfileId)
+			input.Context["intake.suggestedProfileConfidence"] = tc.Confidence
 		}
 	}
 }

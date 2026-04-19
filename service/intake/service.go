@@ -169,8 +169,8 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	if cfg.HasScope(agentmdl.IntakeScopeIntent) {
 		b.WriteString("\n- intent (string): one-word classification of goal, e.g. diagnosis, comparison, summary, configuration")
 	}
-	if cfg.HasScope(agentmdl.IntakeScopeEntities) {
-		b.WriteString("\n- entities (object): key domain objects extracted from the request")
+	if cfg.HasScope(agentmdl.IntakeScopeContext) {
+		b.WriteString("\n- context (object): lightweight orchestration context extracted from the request")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeClarification) {
 		b.WriteString("\n- clarificationNeeded (boolean): true if request is too ambiguous to act on")
@@ -192,18 +192,18 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 
 const intakeBasePrompt = `You are a request classifier that extracts structured metadata from user messages.
 Your output drives downstream routing and tool selection — be precise and conservative.
-Do not invent entities, dates, or constraints not present in the message.
+Do not invent context, dates, or constraints not present in the message.
 Do not output tool names or capability descriptions.`
 
 // parseOutput unmarshals the sidecar's JSON output into a TurnContext.
 func parseOutput(raw string) (*TurnContext, error) {
 	raw = stripFence(raw)
 	var tc TurnContext
-	if err := json.Unmarshal([]byte(raw), &tc); err != nil {
+	if err := unmarshalTurnContext([]byte(raw), &tc); err != nil {
 		// Lenient: look for first '{' and last '}'
 		if start := strings.Index(raw, "{"); start >= 0 {
 			if end := strings.LastIndex(raw, "}"); end > start {
-				if err2 := json.Unmarshal([]byte(raw[start:end+1]), &tc); err2 == nil {
+				if err2 := unmarshalTurnContext([]byte(raw[start:end+1]), &tc); err2 == nil {
 					return &tc, nil
 				}
 			}
@@ -221,8 +221,8 @@ func filterByScope(tc *TurnContext, cfg *agentmdl.Intake) {
 	if !cfg.HasScope(agentmdl.IntakeScopeIntent) {
 		tc.Intent = ""
 	}
-	if !cfg.HasScope(agentmdl.IntakeScopeEntities) {
-		tc.Entities = nil
+	if !cfg.HasScope(agentmdl.IntakeScopeContext) {
+		tc.Context = nil
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeClarification) {
 		tc.ClarificationNeeded = false
@@ -256,3 +256,36 @@ func stripFence(s string) string {
 
 // ensure promptdef import is used (for future MCP-sourced profile metadata)
 var _ = promptdef.Profile{}
+
+type turnContextWire struct {
+	Title                 string            `json:"title,omitempty"`
+	Intent                string            `json:"intent,omitempty"`
+	Context               map[string]string `json:"context,omitempty"`
+	Entities              map[string]string `json:"entities,omitempty"`
+	ClarificationNeeded   bool              `json:"clarificationNeeded,omitempty"`
+	ClarificationQuestion string            `json:"clarificationQuestion,omitempty"`
+	SuggestedProfileId    string            `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles     []string          `json:"appendToolBundles,omitempty"`
+	TemplateId            string            `json:"templateId,omitempty"`
+	Confidence            float64           `json:"confidence,omitempty"`
+}
+
+func unmarshalTurnContext(data []byte, tc *TurnContext) error {
+	var wire turnContextWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	tc.Title = wire.Title
+	tc.Intent = wire.Intent
+	tc.Context = wire.Context
+	if len(tc.Context) == 0 && len(wire.Entities) > 0 {
+		tc.Context = wire.Entities
+	}
+	tc.ClarificationNeeded = wire.ClarificationNeeded
+	tc.ClarificationQuestion = wire.ClarificationQuestion
+	tc.SuggestedProfileId = wire.SuggestedProfileId
+	tc.AppendToolBundles = wire.AppendToolBundles
+	tc.TemplateId = wire.TemplateId
+	tc.Confidence = wire.Confidence
+	return nil
+}

@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/app/executor/config"
+	"github.com/viant/agently-core/genai/llm"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	ws "github.com/viant/agently-core/workspace"
 )
 
@@ -46,7 +48,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
 			ws.KindAgent: {
-				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\nstarterTasks:\n  - id: analyze-repo\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\n"),
+				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\ntool:\n  bundles:\n    - system/exec\n    - system/patch\nstarterTasks:\n  - id: analyze-repo\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\n"),
 			},
 		},
 	}
@@ -92,6 +94,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	assert.True(t, response.Capabilities.TurnStartedEvent)
 	if assert.Len(t, response.AgentInfos, 1) {
 		assert.Equal(t, "coder", response.AgentInfos[0].ID)
+		assert.ElementsMatch(t, []string{"system/exec", "system/patch"}, response.AgentInfos[0].Tools)
 		if assert.Len(t, response.AgentInfos[0].StarterTasks, 1) {
 			assert.Equal(t, "analyze-repo", response.AgentInfos[0].StarterTasks[0].ID)
 			assert.Equal(t, "Analyze this repo", response.AgentInfos[0].StarterTasks[0].Title)
@@ -104,7 +107,7 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
 			ws.KindAgent: {
-				"coder":             []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\n"),
+				"coder":             []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\ntool:\n  bundles:\n    - system/exec\n  items:\n    - name: system/patch\n"),
 				"chat_helper_agent": []byte("id: chat-helper\nname: Chat Helper\nmodelRef: vertexai_gemini-2.5-flash\n"),
 			},
 			ws.KindModel: {
@@ -135,6 +138,7 @@ func TestMetadataHandler_DescriptorInfos(t *testing.T) {
 		}
 		assert.Equal(t, "Coder", agents["coder"].Name)
 		assert.Equal(t, "openai_gpt-5.2", agents["coder"].ModelRef)
+		assert.ElementsMatch(t, []string{"system/exec", "system/patch"}, agents["coder"].Tools)
 		assert.Equal(t, "Chat Helper", agents["chat-helper"].Name)
 		assert.Equal(t, "vertexai_gemini-2.5-flash", agents["chat-helper"].ModelRef)
 	}
@@ -221,4 +225,75 @@ func TestMetadataHandler_SortsAgentAndModelInfosByLabel(t *testing.T) {
 		assert.Equal(t, "z-model", response.ModelInfos[1].ID)
 	}
 	assert.Equal(t, []string{"a-model", "z-model"}, response.Models)
+}
+
+func TestAgentToolDefaults(t *testing.T) {
+	testCases := []struct {
+		name     string
+		agent    *agentmdl.Agent
+		raw      map[string]interface{}
+		expected []string
+	}{
+		{
+			name: "bundles from decoded agent config",
+			agent: &agentmdl.Agent{
+				Tool: agentmdl.Tool{
+					Bundles: []string{"system/exec", "system/patch"},
+				},
+			},
+			expected: []string{"system/exec", "system/patch"},
+		},
+		{
+			name: "explicit tool item names from decoded agent config",
+			agent: &agentmdl.Agent{
+				Tool: agentmdl.Tool{
+					Items: []*llm.Tool{
+						{Name: "system/exec"},
+						{Definition: llm.ToolDefinition{Name: "system/patch"}},
+					},
+				},
+			},
+			expected: []string{"system/exec", "system/patch"},
+		},
+		{
+			name: "legacy raw pattern fallback",
+			raw: map[string]interface{}{
+				"tool": map[string]interface{}{
+					"items": []interface{}{
+						map[string]interface{}{"pattern": "system/exec"},
+						map[string]interface{}{"pattern": "system/patch"},
+					},
+				},
+			},
+			expected: []string{"system/exec", "system/patch"},
+		},
+		{
+			name: "dedupes mixed bundle and item sources",
+			agent: &agentmdl.Agent{
+				Tool: agentmdl.Tool{
+					Bundles: []string{"system/exec"},
+					Items: []*llm.Tool{
+						{Name: "system/patch"},
+					},
+				},
+			},
+			raw: map[string]interface{}{
+				"tool": map[string]interface{}{
+					"bundles": []interface{}{"system/exec"},
+					"items": []interface{}{
+						map[string]interface{}{"name": "system/patch"},
+						map[string]interface{}{"pattern": "system/exec"},
+					},
+				},
+			},
+			expected: []string{"system/exec", "system/patch"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			actual := agentToolDefaults(testCase.agent, testCase.raw)
+			assert.ElementsMatch(t, testCase.expected, actual)
+		})
+	}
 }

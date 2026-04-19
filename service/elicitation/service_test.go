@@ -15,6 +15,8 @@ func TestNormalizeAction(t *testing.T) {
 		{"ACCEPTED", "accept"},
 		{"approve", "accept"},
 		{"approved", "accept"},
+		{"submit", "accept"},
+		{"submitted", "accept"},
 		{"yes", "accept"},
 		{"y", "accept"},
 		{"decline", "decline"},

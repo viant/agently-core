@@ -589,9 +589,15 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 	if convID := strings.TrimSpace(in.ConversationID); convID != "" {
 		conv, err := s.conv.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
 		if err != nil {
+			if s.runExternal != nil {
+				return nil, svc.NewMethodNotFoundError("llm/agents:status unsupported for external agent conversations: " + convID)
+			}
 			return nil, err
 		}
 		if conv == nil {
+			if s.runExternal != nil {
+				return nil, svc.NewMethodNotFoundError("llm/agents:status unsupported for external agent conversations: " + convID)
+			}
 			return nil, nil
 		}
 		return []StatusItem{s.statusItemFromConversation(conv)}, nil

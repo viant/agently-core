@@ -329,6 +329,7 @@ func TestService_Load_Intake_Worker(t *testing.T) {
 	assert.Equal(t, "haiku", cfg.Model)
 	assert.Equal(t, 200, cfg.MaxTokens)
 	assert.True(t, cfg.HasScope("title"))
+	assert.True(t, cfg.HasScope("context"))
 	assert.True(t, cfg.HasScope("entities"))
 	assert.True(t, cfg.HasScope("intent"))
 	assert.False(t, cfg.HasScope("profile"))

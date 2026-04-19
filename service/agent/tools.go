@@ -199,6 +199,7 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 			b = derived[key]
 		}
 		if b == nil {
+			defs = append(defs, s.resolveDirectBundleDefinitions(ctx, id)...)
 			appendWarning(ctx, fmt.Sprintf("unknown tool bundle: %s", id))
 			continue
 		}
@@ -218,6 +219,27 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 		defs = append(defs, res.Definitions...)
 	}
 	return dedupeDefinitions(defs), nil
+}
+
+func (s *Service) resolveDirectBundleDefinitions(ctx context.Context, bundleID string) []llm.ToolDefinition {
+	bundleID = strings.TrimSpace(bundleID)
+	if bundleID == "" {
+		return nil
+	}
+	patterns := []string{bundleID}
+	if !strings.Contains(bundleID, "*") && !strings.Contains(bundleID, ":") {
+		patterns = append(patterns, bundleID+"/*")
+	}
+	var out []llm.ToolDefinition
+	for _, pattern := range patterns {
+		for _, def := range s.matchDefinitions(ctx, pattern) {
+			if def == nil {
+				continue
+			}
+			out = append(out, *def)
+		}
+	}
+	return dedupeDefinitions(out)
 }
 
 func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundle, error) {

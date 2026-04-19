@@ -10,9 +10,10 @@ type TurnContext struct {
 	Title string `json:"title,omitempty"`
 	// Intent classifies the user's goal (e.g. "diagnosis", "comparison", "summary").
 	Intent string `json:"intent,omitempty"`
-	// Entities holds key domain objects extracted from the request
-	// (e.g. campaignId, timeframe, issue).
-	Entities map[string]string `json:"entities,omitempty"`
+	// Context holds lightweight orchestration context extracted from the request
+	// (e.g. scope ids, timeframe hints, issue labels). It is not an
+	// authoritative domain-object record.
+	Context map[string]string `json:"context,omitempty"`
 	// ClarificationNeeded is true when the request is too ambiguous to act on.
 	ClarificationNeeded bool `json:"clarificationNeeded,omitempty"`
 	// ClarificationQuestion is the question to ask the user when ClarificationNeeded.

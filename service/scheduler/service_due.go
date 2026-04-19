@@ -89,8 +89,15 @@ func (s *Service) RunDue(ctx context.Context) (int, error) {
 	return started, nil
 }
 
-// processDue is used by the watchdog ticker.
+// processDue is used by the watchdog ticker. It skips the tick entirely when
+// another RunDue pass is still in flight so overlapping ticks cannot race on
+// schedule claims or produce duplicate runs.
 func (s *Service) processDue(ctx context.Context) {
+	if !s.runDueMu.TryLock() {
+		log.Printf("scheduler: processDue skipped — previous pass still running")
+		return
+	}
+	defer s.runDueMu.Unlock()
 	if _, err := s.RunDue(ctx); err != nil {
 		log.Printf("scheduler: run due: %v", err)
 	}
@@ -127,7 +134,22 @@ func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulepkg.Schedul
 			return err
 		}
 	}
-	go s.executeRun(context.WithoutCancel(ctx), row, runID, scheduledFor.UTC())
+	// Acquire a slot from the concurrency semaphore synchronously (so a
+	// flood of due schedules cannot explode into thousands of goroutines).
+	// When no cap is configured the channel is nil and this is a no-op.
+	if s.execSem != nil {
+		select {
+		case s.execSem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	go func() {
+		if s.execSem != nil {
+			defer func() { <-s.execSem }()
+		}
+		s.executeRun(context.WithoutCancel(ctx), row, runID, scheduledFor.UTC())
+	}()
 	return nil
 }
 

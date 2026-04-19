@@ -250,7 +250,11 @@ func (s *Service) updateDefaultModel(ctx context.Context, turn runtimerequestctx
 	w.SetDefaultModel(output.Model)
 	if s.conversation != nil {
 		mw := convw.Conversation(*w)
-		_ = s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
+		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
+			// Updating the default model is a best-effort write; the turn has
+			// already succeeded, so log and continue rather than unwind.
+			logx.Warnf("conversation", "agent.updateDefaultModel failed convo=%q model=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(output.Model), err)
+		}
 	}
 	return nil
 }

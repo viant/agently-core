@@ -188,6 +188,10 @@ type PreviewSettings struct {
 
 	AgedLimit int `yaml:"agedLimit" json:"agedLimit"`
 
+	// ToolResultLimit optionally caps preview size specifically for tool-result
+	// messages. When zero or negative, the general Limit/AgedLimit rules apply.
+	ToolResultLimit int `yaml:"toolResultLimit,omitempty" json:"toolResultLimit,omitempty"`
+
 	// How far back until we switch the UI to an aged preview.
 	AgedAfterSteps int `yaml:"agedAfterSteps" json:"agedAfterSteps"`
 
