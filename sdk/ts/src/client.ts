@@ -128,6 +128,8 @@ export class AgentlyClient {
                     cursor: out.NextCursor,
                     prevCursor: out.PrevCursor,
                     hasMore: out.HasMore,
+                    hasOlder: (out as any).HasOlder,
+                    hasNewer: (out as any).HasNewer,
                 },
             };
         }
