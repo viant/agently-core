@@ -249,6 +249,12 @@ public actor ConversationStreamTracker {
             return snapshot
         }
 
+        if let activeConversationID = snapshot.conversationID?.trimmedNonEmpty,
+           let eventConversationID = payload.conversationID?.trimmedNonEmpty,
+           eventConversationID != activeConversationID {
+            return snapshot
+        }
+
         if let conversationID = payload.conversationID?.trimmedNonEmpty {
             snapshot.conversationID = conversationID
         }

@@ -138,6 +138,10 @@ type WorkspaceDefaults struct {
 	Model           string `json:"model,omitempty"`
 	Embedder        string `json:"embedder,omitempty"`
 	AutoSelectTools bool   `json:"autoSelectTools,omitempty"`
+	// ElicitationTimeoutSec is the per-prompt response timeout applied by
+	// interactive clients when waiting for a user to respond to an
+	// elicitation. Zero means the client should use its built-in default.
+	ElicitationTimeoutSec int `json:"elicitationTimeoutSec,omitempty"`
 }
 
 type WorkspaceCapabilities struct {

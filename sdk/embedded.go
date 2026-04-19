@@ -603,9 +603,57 @@ func (c *backendClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsVi
 	return c.data.GetRun(ctx, id, nil)
 }
 
+// principalDataOpts returns a data.Option slice carrying the authenticated
+// caller's subject so data-layer reads/writes run the conversation-ownership
+// check. When ctx has no effective user (scheduler, background recovery,
+// local/anonymous mode) the slice is empty — matching today's behaviour for
+// those paths.
+func principalDataOpts(ctx context.Context) []data.Option {
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		return []data.Option{data.WithPrincipal(userID)}
+	}
+	return nil
+}
+
+// authorizeTurnAccess looks the turn up by ID with the caller's principal so
+// the data layer's authorizeConversationID check fires. Returns the turn
+// view on success, a conflict error when the turn does not exist, or
+// ErrPermissionDenied when the caller does not own the conversation.
+func (c *backendClient) authorizeTurnAccess(ctx context.Context, turnID string) (*agturnbyid.TurnLookupView, error) {
+	if c.data == nil {
+		return nil, errors.New("data service not configured")
+	}
+	in := &agturnbyid.TurnLookupInput{
+		ID:  strings.TrimSpace(turnID),
+		Has: &agturnbyid.TurnLookupInputHas{ID: true},
+	}
+	turn, err := c.data.GetTurnByID(ctx, in, principalDataOpts(ctx)...)
+	if err != nil {
+		if isTurnLookupUnavailable(err) {
+			return nil, newConflictError("turn not found")
+		}
+		return nil, err
+	}
+	if turn == nil {
+		return nil, newConflictError("turn not found")
+	}
+	return turn, nil
+}
+
 func (c *backendClient) CancelTurn(ctx context.Context, turnID string) (bool, error) {
 	if c.cancelRegistry == nil {
 		return false, nil
+	}
+	// Verify the caller owns the conversation this turn belongs to. Without
+	// this check, any authenticated user could cancel any turn whose UUID
+	// they can guess or observe. The check only runs when there is an
+	// authenticated subject on ctx — scheduler/background/local paths that
+	// legitimately operate without a principal (or embedded tests with no
+	// DAO) fall through to the original best-effort cancel.
+	if c.data != nil && len(principalDataOpts(ctx)) > 0 {
+		if _, err := c.authorizeTurnAccess(ctx, turnID); err != nil {
+			return false, err
+		}
 	}
 	return c.cancelRegistry.CancelTurn(turnID), nil
 }
@@ -621,7 +669,7 @@ func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*
 		ID:             strings.TrimSpace(input.TurnID),
 		ConversationID: strings.TrimSpace(input.ConversationID),
 		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
-	})
+	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
 			return nil, newConflictError("turn not found")
@@ -669,7 +717,7 @@ func (c *backendClient) CancelQueuedTurn(ctx context.Context, conversationID, tu
 		ID:             strings.TrimSpace(turnID),
 		ConversationID: strings.TrimSpace(conversationID),
 		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
-	})
+	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
 			return newConflictError("queued turn not found")

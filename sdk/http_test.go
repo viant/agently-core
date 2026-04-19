@@ -839,13 +839,17 @@ func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
 }
 
 type stubSubscription struct {
-	id string
-	ch chan *streaming.Event
+	id      string
+	ch      chan *streaming.Event
+	reason  string
+	lastSeq int64
 }
 
 func (s *stubSubscription) ID() string                 { return s.id }
 func (s *stubSubscription) C() <-chan *streaming.Event { return s.ch }
 func (s *stubSubscription) Close() error               { return nil }
+func (s *stubSubscription) Reason() string             { return s.reason }
+func (s *stubSubscription) LastSeq() int64             { return s.lastSeq }
 
 type spyStreamClient struct {
 	*HTTPClient
@@ -897,6 +901,59 @@ func TestHandler_StreamEvents_EmitsKeepaliveComments(t *testing.T) {
 	}
 	if got := rec.Body.String(); !strings.Contains(got, ": keepalive\n\n") {
 		t.Fatalf("expected keepalive comment in SSE stream, got %q", got)
+	}
+}
+
+// TestHandler_StreamEvents_EmitsOverflowTerminalEvent verifies the Phase-1
+// backpressure wiring: when the bus closes a subscription because the
+// subscriber's buffer filled, the SSE handler must emit an explicit
+// `stream_overflow` event carrying the last delivered EventSeq so the UI
+// knows to reconnect rather than assuming a clean end-of-stream.
+func TestHandler_StreamEvents_EmitsOverflowTerminalEvent(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	ch := make(chan *streaming.Event, 1)
+	ch <- &streaming.Event{Type: streaming.EventTypeTextDelta, EventSeq: 7, ConversationID: "c1"}
+	close(ch)
+	sub := &stubSubscription{
+		id:      "sub-1",
+		ch:      ch,
+		reason:  streaming.ReasonOverflow,
+		lastSeq: 7,
+	}
+	spy := &spyStreamClient{HTTPClient: base, sub: sub}
+	handler := NewHandler(spy)
+
+	prevInterval := streamKeepaliveInterval
+	streamKeepaliveInterval = time.Hour // keep keepalive out of the way
+	defer func() { streamKeepaliveInterval = prevInterval }()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/stream?conversationId=c1", nil)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("handler did not exit after channel close")
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"type":"stream_overflow"`) {
+		t.Fatalf("expected stream_overflow terminal event, got %q", body)
+	}
+	if !strings.Contains(body, `"eventSeq":7`) {
+		t.Fatalf("expected overflow event to carry eventSeq=7, got %q", body)
+	}
+	if !strings.Contains(body, `"status":"overflow"`) {
+		t.Fatalf("expected status=overflow, got %q", body)
 	}
 }
 

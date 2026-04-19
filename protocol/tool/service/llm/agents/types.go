@@ -63,9 +63,14 @@ type RunInput struct {
 type StartInput = RunInput
 
 type StartOutput struct {
-	ConversationID string `json:"conversationId,omitempty"`
-	Status         string `json:"status,omitempty"`
-	Message        string `json:"message,omitempty"`
+	ConversationID    string   `json:"conversationId,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	Message           string   `json:"message,omitempty"`
+	AssistantResponse string   `json:"assistantResponse,omitempty"`
+	TaskID            string   `json:"taskId,omitempty"`
+	ContextID         string   `json:"contextId,omitempty"`
+	StreamSupported   bool     `json:"streamSupported,omitempty"`
+	Warnings          []string `json:"warnings,omitempty"`
 }
 
 // RunOutput defines the response payload for agents:run.

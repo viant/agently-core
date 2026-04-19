@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -118,7 +120,19 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	ts := oauthCfg.TokenSource(ctx, &sess.Tokens.Token)
 	refreshed, err := ts.Token()
 	if err != nil {
-		logx.Warnf("token-refresh", "refresh failed user=%q err=%v", username, err)
+		if isPermanentRefreshError(err) {
+			// The refresh token itself is dead (revoked, expired, user
+			// deauthorized, etc.). Leaving the stale tokens in place
+			// creates a reauth-loop bug: every subsequent request reads
+			// the same dead tokens, tries the same failing refresh, and
+			// the user sees 401 until they manually log out. Instead,
+			// invalidate the session + persistent entry so the next
+			// request has no tokens and triggers the re-auth flow.
+			logx.Warnf("token-refresh", "permanent refresh failure user=%q err=%v — clearing session tokens", username, err)
+			r.invalidateSessionTokens(ctx, sess, username, provider)
+			return nil
+		}
+		logx.Warnf("token-refresh", "transient refresh failure user=%q err=%v", username, err)
 		return nil
 	}
 	if refreshed.RefreshToken == "" {
@@ -169,6 +183,69 @@ func tokenFingerprint(token string) string {
 	}
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:6])
+}
+
+// isPermanentRefreshError reports whether err from a refresh-token grant
+// indicates the refresh token can never be used again. Callers should clear
+// the stale session + persistent token on true so the user is prompted to
+// re-authenticate instead of looping on the same dead credential.
+//
+// Per RFC 6749 §5.2, `invalid_grant` is the canonical response when the
+// refresh token is expired, revoked, or otherwise bad; providers also return
+// `invalid_token`, `invalid_request`, `unauthorized_client`, and
+// `unsupported_grant_type` in closely related terminal conditions. A plain
+// 400/401 from the token endpoint is treated the same way — those status
+// codes mean the endpoint rejected the credential, not that the network
+// transiently failed.
+func isPermanentRefreshError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var re *oauth2.RetrieveError
+	if !errors.As(err, &re) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(re.ErrorCode)) {
+	case "invalid_grant",
+		"invalid_token",
+		"invalid_request",
+		"unauthorized_client",
+		"unsupported_grant_type":
+		return true
+	}
+	if re.Response != nil {
+		switch re.Response.StatusCode {
+		case http.StatusBadRequest, http.StatusUnauthorized:
+			return true
+		}
+	}
+	return false
+}
+
+// invalidateSessionTokens wipes the session's token fields and removes the
+// cached token from the persistent store. Called on permanent refresh
+// failure so the next request takes the unauthenticated path (triggering
+// re-auth) rather than retrying the same dead refresh token forever.
+//
+// Errors from the token-store delete are logged but not returned: we must
+// always clear the in-memory session, and the store-side row will expire
+// naturally if deletion happens to fail.
+func (r *Runtime) invalidateSessionTokens(ctx context.Context, sess *Session, username, provider string) {
+	if sess != nil {
+		sess.Tokens = nil
+		if r != nil && r.sessions != nil {
+			r.sessions.Put(ctx, sess)
+		}
+	}
+	if r == nil || r.ext == nil || r.ext.tokenStore == nil {
+		return
+	}
+	if username == "" || provider == "" {
+		return
+	}
+	if err := r.ext.tokenStore.Delete(ctx, username, provider); err != nil {
+		logx.Warnf("token-refresh", "delete stale token user=%q provider=%q err=%v", username, provider, err)
+	}
 }
 
 func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {

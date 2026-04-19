@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/runtime/streaming"
 )
 
 var streamKeepaliveInterval = 30 * time.Second
@@ -110,7 +111,31 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 			select {
 			case ev, open := <-sub.C():
 				if !open {
-					logx.DebugCtxf(ctx, "sse", "channel closed convo=%q", convID)
+					// The bus closed the subscription. If the reason is
+					// overflow we owe the client an explicit terminal
+					// event carrying the last delivered EventSeq so it
+					// can reconnect (and, once Phase 2 resume support
+					// lands, pick up from where it was cut off) instead
+					// of assuming a clean end-of-stream.
+					if reason := sub.Reason(); reason == streaming.ReasonOverflow {
+						overflowEv := &streaming.Event{
+							Type:           streaming.EventTypeStreamOverflow,
+							ConversationID: convID,
+							StreamID:       convID,
+							EventSeq:       sub.LastSeq(),
+							CreatedAt:      time.Now(),
+							Status:         reason,
+						}
+						if data, mErr := json.Marshal(overflowEv); mErr == nil {
+							fmt.Fprintf(w, "data:%s\n\n", data)
+							if ok {
+								flusher.Flush()
+							}
+						}
+						logx.DebugCtxf(ctx, "sse", "overflow convo=%q last_seq=%d", convID, sub.LastSeq())
+					} else {
+						logx.DebugCtxf(ctx, "sse", "channel closed convo=%q reason=%q", convID, sub.Reason())
+					}
 					return
 				}
 				startedAt := ""

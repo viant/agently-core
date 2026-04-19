@@ -157,3 +157,29 @@ export {
     messageIteration, messagePreamble,
     groupByIteration, messageUIType,
 } from './interpret';
+
+// ─── chatStore (single client canonical state for chat feed) ──────────────────
+// See ui-improvement.md for contract. Public API: applyLocalSubmit, applyEvent,
+// applyTranscript, projectConversation, describeHeader, Client* state types.
+export * as chatStore from './chatStore';
+export {
+    applyEvent as chatStoreApplyEvent,
+    applyLocalSubmit as chatStoreApplyLocalSubmit,
+    applyTranscript as chatStoreApplyTranscript,
+    describeHeader as chatStoreDescribeHeader,
+    newConversationState as chatStoreNewConversationState,
+    projectConversation as chatStoreProjectConversation,
+    statusToLifecycle as chatStoreStatusToLifecycle,
+} from './chatStore';
+export type {
+    ClientConversationState,
+    ClientExecutionPage,
+    ClientLifecycle,
+    ClientTurnState,
+    ClientUserMessage,
+    HeaderState,
+    IterationRenderRow,
+    LocalSubmit,
+    RenderRow,
+    UserRenderRow,
+} from './chatStore';

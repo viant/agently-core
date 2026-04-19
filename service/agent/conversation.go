@@ -15,9 +15,10 @@ import (
 // ConversationMetadata is a typed representation of conversation metadata.
 // It preserves unknown fields during round trips.
 type ConversationMetadata struct {
-	Tools   []string                   `json:"tools,omitempty"`
-	Context map[string]interface{}     `json:"context,omitempty"`
-	Extra   map[string]json.RawMessage `json:"-"`
+	Tools       []string                   `json:"tools,omitempty"`
+	ToolBundles []string                   `json:"toolBundles,omitempty"`
+	Context     map[string]interface{}     `json:"context,omitempty"`
+	Extra       map[string]json.RawMessage `json:"-"`
 }
 
 func (m *ConversationMetadata) UnmarshalJSON(data []byte) error {
@@ -32,6 +33,11 @@ func (m *ConversationMetadata) UnmarshalJSON(data []byte) error {
 			var tools []string
 			if err := json.Unmarshal(v, &tools); err == nil {
 				m.Tools = tools
+			}
+		case "toolBundles":
+			var bundles []string
+			if err := json.Unmarshal(v, &bundles); err == nil {
+				m.ToolBundles = bundles
 			}
 		case "context":
 			var ctx map[string]interface{}
@@ -50,6 +56,13 @@ func (m ConversationMetadata) MarshalJSON() ([]byte, error) {
 	if len(m.Tools) > 0 {
 		if b, err := json.Marshal(m.Tools); err == nil {
 			out["tools"] = b
+		} else {
+			return nil, err
+		}
+	}
+	if len(m.ToolBundles) > 0 {
+		if b, err := json.Marshal(m.ToolBundles); err == nil {
+			out["toolBundles"] = b
 		} else {
 			return nil, err
 		}
@@ -135,34 +148,26 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 			s.llm.SetAttachmentUsage(convID, aux.Bytes)
 		}
 	}
-	autoSelectTools := false
-	if input.AutoSelectTools != nil {
-		autoSelectTools = *input.AutoSelectTools
-	} else if s.defaults != nil {
-		autoSelectTools = s.defaults.ToolAutoSelection.Enabled
+	applyMetaTools := true
+	storedAgent := ""
+	if agentIDPtr != nil {
+		storedAgent = strings.TrimSpace(*agentIDPtr)
 	}
-
-	// Only hydrate from stored tool allow-list when tool auto-selection is not enabled.
-	// When auto-selection is enabled we want tool routing to decide bundles/tools per turn.
-	if !autoSelectTools && len(input.ToolsAllowed) == 0 && input.ToolsAllowed == nil {
-		applyMetaTools := true
-		storedAgent := ""
-		if agentIDPtr != nil {
-			storedAgent = strings.TrimSpace(*agentIDPtr)
-		}
-		reqAgent := strings.TrimSpace(input.AgentID)
-		if storedAgent != "" {
-			if isAutoAgentRef(storedAgent) {
-				applyMetaTools = false
-			} else if reqAgent != "" && !strings.EqualFold(reqAgent, storedAgent) {
-				applyMetaTools = false
-			}
-		} else if reqAgent != "" {
+	reqAgent := strings.TrimSpace(input.AgentID)
+	if storedAgent != "" {
+		if isAutoAgentRef(storedAgent) {
+			applyMetaTools = false
+		} else if reqAgent != "" && !strings.EqualFold(reqAgent, storedAgent) {
 			applyMetaTools = false
 		}
-		if applyMetaTools && len(meta.Tools) > 0 {
-			input.ToolsAllowed = append([]string(nil), meta.Tools...)
-		}
+	} else if reqAgent != "" {
+		applyMetaTools = false
+	}
+	if applyMetaTools && len(input.ToolBundles) == 0 && len(meta.ToolBundles) > 0 {
+		input.ToolBundles = append([]string(nil), meta.ToolBundles...)
+	}
+	if applyMetaTools && len(input.ToolBundles) == 0 && len(input.ToolsAllowed) == 0 && input.ToolsAllowed == nil && len(meta.Tools) > 0 {
+		input.ToolsAllowed = append([]string(nil), meta.Tools...)
 	}
 
 	chosenAgentID := ""
@@ -218,9 +223,16 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		needsPatch = true
 	}
 	// Intentionally do not patch agent name; conversation stores agent_id separately.
-	// Persist explicit tool allow-list only when tool auto-selection is not enabled.
-	// Otherwise we would pin a per-turn decision into conversation metadata.
-	if !autoSelectTools && len(input.ToolsAllowed) > 0 { // update tools metadata only when provided
+	if len(input.ToolBundles) > 0 {
+		meta.ToolBundles = append([]string(nil), input.ToolBundles...)
+		meta.Tools = nil
+		if b, err := json.Marshal(meta); err == nil {
+			patch.SetMetadata(string(b))
+			needsPatch = true
+		} else {
+			return fmt.Errorf("failed to marshal tool bundle metadata: %w", err)
+		}
+	} else if len(input.ToolsAllowed) > 0 {
 		meta.Tools = append([]string(nil), input.ToolsAllowed...)
 		if b, err := json.Marshal(meta); err == nil {
 			patch.SetMetadata(string(b))

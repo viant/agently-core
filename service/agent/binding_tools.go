@@ -416,7 +416,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
 			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
 		}
-		limit := s.turnPreviewLimit(turnIdx, totalTurns, applyAging)
+		limit := s.messagePreviewLimit(turnIdx, totalTurns, applyAging, true)
 		for _, m := range toolCalls {
 			tcView := messageToolCall(m)
 			if tcView == nil {

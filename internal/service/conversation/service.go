@@ -36,6 +36,7 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 )
@@ -619,6 +620,11 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	} else {
 		logx.Infof("conversation", "PatchMessage start id=\"\" convo=\"\" turn=\"\" role=\"\" type=\"\" status=\"\" (nil input)")
 	}
+	if merged, err := s.mergeMessagePatchWithExisting(ctx, message); err != nil {
+		return err
+	} else if merged != nil {
+		message = merged
+	}
 	mm := (*msgwrite.Message)(message)
 	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
 	out := &msgwrite.Output{}
@@ -659,6 +665,41 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	return nil
 }
 
+func (s *Service) mergeMessagePatchWithExisting(ctx context.Context, patch *convcli.MutableMessage) (*convcli.MutableMessage, error) {
+	if s == nil || patch == nil || patch.Has == nil || !patch.Has.Id {
+		return patch, nil
+	}
+	existing, err := s.GetMessage(ctx, strings.TrimSpace(patch.Id))
+	if err != nil || existing == nil {
+		return patch, err
+	}
+	if !patch.Has.ConversationID && strings.TrimSpace(existing.ConversationId) != "" {
+		patch.SetConversationID(existing.ConversationId)
+	}
+	if !patch.Has.TurnID && existing.TurnId != nil && strings.TrimSpace(*existing.TurnId) != "" {
+		patch.SetTurnID(strings.TrimSpace(*existing.TurnId))
+	}
+	if !patch.Has.ParentMessageID && existing.ParentMessageId != nil && strings.TrimSpace(*existing.ParentMessageId) != "" {
+		patch.SetParentMessageID(strings.TrimSpace(*existing.ParentMessageId))
+	}
+	if !patch.Has.Role && strings.TrimSpace(existing.Role) != "" {
+		patch.SetRole(existing.Role)
+	}
+	if !patch.Has.Type && strings.TrimSpace(existing.Type) != "" {
+		patch.SetType(existing.Type)
+	}
+	if !patch.Has.Mode && existing.Mode != nil && strings.TrimSpace(*existing.Mode) != "" {
+		patch.SetMode(strings.TrimSpace(*existing.Mode))
+	}
+	if !patch.Has.Iteration && existing.Iteration != nil && *existing.Iteration > 0 {
+		patch.SetIteration(*existing.Iteration)
+	}
+	if !patch.Has.Phase && existing.Phase != nil && strings.TrimSpace(*existing.Phase) != "" {
+		patch.SetPhase(strings.TrimSpace(*existing.Phase))
+	}
+	return patch, nil
+}
+
 func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) {
 	if s == nil || s.streamPub == nil || message == nil {
 		return
@@ -683,7 +724,7 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 		StreamID:       conversationID,
 		ConversationID: conversationID,
 		MessageID:      strings.TrimSpace(message.Id),
-		Mode:           strings.TrimSpace(valueOrEmptyStr(message.Mode)),
+		Mode:           firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
 		Type:           streaming.EventTypeControl,
 		Op:             "message_patch",
 		Patch:          patch,
@@ -793,6 +834,9 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.TurnID && message.TurnID != nil {
 		out["turnId"] = strings.TrimSpace(*message.TurnID)
 	}
+	if message.Has.Phase && message.Phase != nil {
+		out["phase"] = strings.TrimSpace(*message.Phase)
+	}
 	if message.Has.Status && message.Status != nil {
 		out["status"] = strings.TrimSpace(*message.Status)
 	}
@@ -863,6 +907,37 @@ func applyIterationPage(event *streaming.Event, iteration *int) {
 	event.LatestPage = true
 }
 
+func modelEventPhase(mode string, iteration *int) string {
+	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
+	switch normalizedMode {
+	case "router":
+		return "intake"
+	case "summary":
+		return "summary"
+	}
+	return ""
+}
+
+func requestModeForEvent(ctx context.Context) string {
+	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
+	if mode != "" {
+		return mode
+	}
+	if toolexec.IsChainMode(ctx) {
+		return "chain"
+	}
+	return "task"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func timelineDebugFields(event *streaming.Event) map[string]any {
 	if event == nil {
 		return nil
@@ -892,6 +967,7 @@ func timelineDebugFields(event *streaming.Event) map[string]any {
 		"streamPayloadID":           strings.TrimSpace(event.StreamPayloadID),
 		"linkedConversationID":      strings.TrimSpace(event.LinkedConversationID),
 		"mode":                      strings.TrimSpace(event.Mode),
+		"phase":                     strings.TrimSpace(event.Phase),
 		"status":                    strings.TrimSpace(event.Status),
 		"iteration":                 event.Iteration,
 		"pageIndex":                 event.PageIndex,
@@ -1023,7 +1099,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		StreamID:           conversationID,
 		ConversationID:     conversationID,
 		MessageID:          strings.TrimSpace(toolCall.MessageID),
-		Mode:               strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)),
+		Mode:               requestModeForEvent(ctx),
 		Type:               eventType,
 		TurnID:             resolveTurnID(ctx, valueOrEmptyStr(toolCall.TurnID)),
 		AssistantMessageID: strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)),
@@ -1036,6 +1112,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		ResponsePayloadID:  strings.TrimSpace(valueOrEmptyStr(toolCall.ResponsePayloadID)),
 		ToolName:           mcpname.Display(strings.TrimSpace(toolCall.ToolName)),
 		Status:             strings.TrimSpace(toolCall.Status),
+		Phase:              modelEventPhase(requestModeForEvent(ctx), toolCall.Iteration),
 		CreatedAt:          time.Now(),
 	}
 	if event.AssistantMessageID == "" {
@@ -1349,7 +1426,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
 			MessageID:          strings.TrimSpace(message.Id),
-			Mode:               strings.TrimSpace(valueOrEmptyStr(message.Mode)),
+			Mode:               firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
 			Type:               streaming.EventTypeAssistantPreamble,
 			TurnID:             turnID,
 			AssistantMessageID: strings.TrimSpace(message.Id),
@@ -1367,7 +1444,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 			StreamID:           conversationID,
 			ConversationID:     conversationID,
 			MessageID:          strings.TrimSpace(message.Id),
-			Mode:               strings.TrimSpace(valueOrEmptyStr(message.Mode)),
+			Mode:               firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
 			Type:               streaming.EventTypeAssistantFinal,
 			TurnID:             turnID,
 			AssistantMessageID: strings.TrimSpace(message.Id),
@@ -1396,7 +1473,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		return
 	}
 	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
-	mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx))
+	mode := requestModeForEvent(ctx)
 	logx.DebugCtxf(ctx, "conversation", "[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
@@ -1413,6 +1490,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			Provider:           strings.TrimSpace(modelCall.Provider),
 			ModelName:          strings.TrimSpace(modelCall.Model),
 			Status:             strings.TrimSpace(modelCall.Status),
+			Phase:              modelEventPhase(mode, modelCall.Iteration),
 			CreatedAt:          time.Now(),
 		}
 		if modelCall.Model != "" || modelCall.Provider != "" {
@@ -1435,6 +1513,16 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		if modelCall.Has != nil && modelCall.Has.StreamPayloadID && modelCall.StreamPayloadID != nil {
 			event.StreamPayloadID = strings.TrimSpace(*modelCall.StreamPayloadID)
 		}
+		logx.Infof("conversation", "stream.model_started msg=%q turn=%q iteration=%d request_payload=%q provider_request_payload=%q stream_payload=%q provider=%q model=%q",
+			strings.TrimSpace(modelCall.MessageID),
+			strings.TrimSpace(event.TurnID),
+			modelCall.Iteration,
+			strings.TrimSpace(event.RequestPayloadID),
+			strings.TrimSpace(event.ProviderRequestPayloadID),
+			strings.TrimSpace(event.StreamPayloadID),
+			strings.TrimSpace(event.Provider),
+			strings.TrimSpace(event.ModelName),
+		)
 		applyIterationPage(event, modelCall.Iteration)
 		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_started")
 	} else if status == "completed" || status == "succeeded" || status == "failed" {
@@ -1453,6 +1541,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			Provider:           strings.TrimSpace(modelCall.Provider),
 			ModelName:          strings.TrimSpace(modelCall.Model),
 			Status:             strings.TrimSpace(modelCall.Status),
+			Phase:              modelEventPhase(mode, modelCall.Iteration),
 			CreatedAt:          now,
 			CompletedAt:        &now,
 		}
@@ -1481,6 +1570,19 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		if modelCall.Has != nil && modelCall.Has.StreamPayloadID && modelCall.StreamPayloadID != nil {
 			event.StreamPayloadID = strings.TrimSpace(*modelCall.StreamPayloadID)
 		}
+		logx.Infof("conversation", "stream.model_completed msg=%q turn=%q iteration=%d request_payload=%q response_payload=%q provider_request_payload=%q provider_response_payload=%q stream_payload=%q provider=%q model=%q status=%q",
+			strings.TrimSpace(modelCall.MessageID),
+			strings.TrimSpace(event.TurnID),
+			modelCall.Iteration,
+			strings.TrimSpace(event.RequestPayloadID),
+			strings.TrimSpace(event.ResponsePayloadID),
+			strings.TrimSpace(event.ProviderRequestPayloadID),
+			strings.TrimSpace(event.ProviderResponsePayloadID),
+			strings.TrimSpace(event.StreamPayloadID),
+			strings.TrimSpace(event.Provider),
+			strings.TrimSpace(event.ModelName),
+			strings.TrimSpace(event.Status),
+		)
 		// Include LLM response data (content, preamble, finalResponse) when
 		// available via context — makes model_completed self-sufficient.
 		if meta, ok := runtimerequestctx.ModelCompletionMetaFromContext(ctx); ok {

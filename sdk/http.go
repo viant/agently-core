@@ -947,6 +947,10 @@ type sseSubscription struct {
 	done   chan struct{}
 	once   sync.Once
 	cancel context.CancelFunc
+
+	mu      sync.Mutex
+	reason  string
+	lastSeq int64
 }
 
 func newSSESubscription(ctx context.Context, body io.ReadCloser, input *StreamEventsInput) *sseSubscription {
@@ -965,10 +969,43 @@ func (s *sseSubscription) ID() string                 { return s.id }
 func (s *sseSubscription) C() <-chan *streaming.Event { return s.ch }
 func (s *sseSubscription) Close() error {
 	s.once.Do(func() {
+		s.mu.Lock()
+		if s.reason == "" {
+			s.reason = streaming.ReasonClosed
+		}
+		s.mu.Unlock()
 		s.cancel()
 		close(s.done)
 	})
 	return nil
+}
+
+// Reason returns the reason the SSE stream terminated. Populated on Close or
+// after readLoop exits due to a transport error. Empty while the subscription
+// is still live.
+func (s *sseSubscription) Reason() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reason
+}
+
+// LastSeq returns the highest EventSeq forwarded on this subscription. Used
+// by clients that want to resume after a disconnect.
+func (s *sseSubscription) LastSeq() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastSeq
+}
+
+func (s *sseSubscription) recordSeq(seq int64) {
+	if seq <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if seq > s.lastSeq {
+		s.lastSeq = seq
+	}
+	s.mu.Unlock()
 }
 
 func (s *sseSubscription) readLoop(ctx context.Context, body io.ReadCloser, input *StreamEventsInput) {
@@ -997,6 +1034,7 @@ func (s *sseSubscription) readLoop(ctx context.Context, body io.ReadCloser, inpu
 			if input != nil && input.Filter != nil && !input.Filter(&ev) {
 				continue
 			}
+			s.recordSeq(ev.EventSeq)
 			select {
 			case s.ch <- &ev:
 			case <-ctx.Done():

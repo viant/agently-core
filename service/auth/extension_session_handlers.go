@@ -156,13 +156,14 @@ func (a *authExtension) handleOAuthConfig() http.HandlerFunc {
 			return
 		}
 		runtimeJSON(w, http.StatusOK, map[string]any{
-			"mode":          strings.TrimSpace(a.cfg.OAuth.Mode),
-			"configURL":     strings.TrimSpace(a.cfg.OAuth.Client.ConfigURL),
-			"clientID":      strings.TrimSpace(a.cfg.OAuth.Client.ClientID),
-			"discoveryURL":  strings.TrimSpace(a.cfg.OAuth.Client.DiscoveryURL),
-			"redirectURI":   strings.TrimSpace(a.cfg.OAuth.Client.RedirectURI),
-			"usePopupLogin": a.cfg.OAuth.UsePopupLogin,
-			"scopes":        append([]string(nil), a.cfg.OAuth.Client.Scopes...),
+			"mode":            strings.TrimSpace(a.cfg.OAuth.Mode),
+			"configURL":       strings.TrimSpace(a.cfg.OAuth.Client.ConfigURL),
+			"clientID":        strings.TrimSpace(a.cfg.OAuth.Client.ClientID),
+			"discoveryURL":    strings.TrimSpace(a.cfg.OAuth.Client.DiscoveryURL),
+			"redirectURI":     strings.TrimSpace(a.cfg.OAuth.Client.RedirectURI),
+			"usePopupLogin":   a.cfg.OAuth.UsePopupLogin,
+			"redirectSameTab": !a.cfg.OAuth.UsePopupLogin,
+			"scopes":          append([]string(nil), a.cfg.OAuth.Client.Scopes...),
 		})
 	}
 }

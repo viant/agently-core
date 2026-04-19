@@ -1147,6 +1147,12 @@ func (r *Registry) Initialize(ctx context.Context) {
 		return
 	}
 	for _, s := range servers {
+		r.mu.RLock()
+		_, isInternal := r.internal[s]
+		r.mu.RUnlock()
+		if !isInternal {
+			continue
+		}
 		injectTimeoutMs := r.shouldInjectTimeoutMs(s)
 		tools, err := r.listServerTools(ctx, s)
 		if err != nil {
@@ -1188,6 +1194,12 @@ func (r *Registry) startAutoRefresh(ctx context.Context) {
 		return
 	}
 	for _, s := range servers {
+		r.mu.RLock()
+		_, isInternal := r.internal[s]
+		r.mu.RUnlock()
+		if !isInternal {
+			continue
+		}
 		srv := s
 		go r.monitorServer(ctx, srv)
 	}

@@ -1091,6 +1091,9 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	if src.Has.ElicitationPayloadID {
 		dst.ElicitationPayloadId = src.ElicitationPayloadID
 	}
+	if src.Has.Phase {
+		dst.Phase = src.Phase
+	}
 }
 
 func applyModelCallPatch(dst *agconv.ModelCallView, src *mcallw.ModelCall) {

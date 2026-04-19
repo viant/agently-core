@@ -64,6 +64,14 @@ const (
 	// (title, summary, agentId, …) so clients can update sidebar/header state
 	// without polling. Patch contains only the changed fields.
 	EventTypeConversationMetaUpdated EventType = "conversation_meta_updated"
+
+	// Stream terminated by the bus because the subscriber's buffer filled
+	// up. This is a control event injected by SSE handlers (not a regular
+	// bus event) to signal clients that one or more events may have been
+	// missed and they should reconnect. The event's EventSeq carries the
+	// last successfully delivered sequence so clients know where to
+	// resume from (once Phase 2 resume support lands).
+	EventTypeStreamOverflow EventType = "stream_overflow"
 )
 
 type EventModel struct {
@@ -102,6 +110,7 @@ type Event struct {
 	LinkedConversationID      string                 `json:"linkedConversationId,omitempty"`
 	LinkedConversationAgentID string                 `json:"linkedConversationAgentId,omitempty"`
 	LinkedConversationTitle   string                 `json:"linkedConversationTitle,omitempty"`
+	Phase                     string                 `json:"phase,omitempty"`
 	Mode                      string                 `json:"mode,omitempty"`
 	Type                      EventType              `json:"type"`
 	Op                        string                 `json:"op,omitempty"`

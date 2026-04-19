@@ -5,6 +5,7 @@ import "strings"
 const (
 	// Actions – per MCP spec
 	Accept  = "accept"
+	Submit  = "submit"
 	Decline = "decline"
 	Cancel  = "cancel"
 
@@ -18,7 +19,7 @@ const (
 func Normalize(s string) string {
 	st := strings.ToLower(strings.TrimSpace(s))
 	switch st {
-	case "accept", "accepted", "approve", "approved", "yes", "y":
+	case "accept", "accepted", "approve", "approved", "yes", "y", "submit", "submitted":
 		return Accept
 	case "cancel", "canceled", "cancelled":
 		return Cancel

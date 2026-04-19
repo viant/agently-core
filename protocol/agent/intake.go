@@ -4,14 +4,14 @@ import "strings"
 
 // Intake configures the pre-turn intake sidecar for an agent.
 // The sidecar runs a lightweight LLM call before the main turn to extract
-// structured metadata (title, intent, entities) and optionally suggest a
+// structured metadata (title, intent, context) and optionally suggest a
 // prompt profile, extra tool bundles, and an output template.
 type Intake struct {
 	// Enabled turns the intake sidecar on for this agent. Default: false.
 	Enabled bool `yaml:"enabled" json:"enabled"`
 
 	// Scope lists which TurnContext fields the sidecar is allowed to populate.
-	// Class A fields (safe for any agent): title, entities, intent, clarification.
+	// Class A fields (safe for any agent): title, context, intent, clarification.
 	// Class B fields (orchestrators only, opt-in): profile, tools, template.
 	// When empty, defaults to Class A only.
 	Scope []string `yaml:"scope,omitempty" json:"scope,omitempty"`
@@ -42,7 +42,10 @@ type Intake struct {
 // Intake scope constants.
 const (
 	// Class A — safe for any agent.
-	IntakeScopeTitle         = "title"
+	IntakeScopeTitle   = "title"
+	IntakeScopeContext = "context"
+	// IntakeScopeEntities is retained as a backward-compatible alias for older
+	// intake configs that still use "entities".
 	IntakeScopeEntities      = "entities"
 	IntakeScopeIntent        = "intent"
 	IntakeScopeClarification = "clarification"
@@ -59,8 +62,15 @@ func (in *Intake) HasScope(s string) bool {
 		return false
 	}
 	s = strings.ToLower(strings.TrimSpace(s))
+	if s == IntakeScopeEntities {
+		s = IntakeScopeContext
+	}
 	for _, v := range in.Scope {
-		if strings.ToLower(strings.TrimSpace(v)) == s {
+		normalized := strings.ToLower(strings.TrimSpace(v))
+		if normalized == IntakeScopeEntities {
+			normalized = IntakeScopeContext
+		}
+		if normalized == s {
 			return true
 		}
 	}

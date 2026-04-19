@@ -2,7 +2,11 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
+
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func (c *backendClient) resolveActiveFeedsFromState(ctx context.Context, state *ConversationState) []*ActiveFeedState {
@@ -171,6 +175,9 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 	var result []*ActiveFeedState
 	for _, col := range collectors {
 		if len(col.requestPayloads) == 0 && len(col.responsePayloads) == 0 {
+			if activationFeed := c.resolveActivationToolFeed(ctx, state, col.spec); activationFeed != nil {
+				result = append(result, activationFeed)
+			}
 			continue
 		}
 		resultSet, err := extractFeedData(col.spec, col.requestPayloads, col.responsePayloads)
@@ -190,6 +197,45 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 		})
 	}
 	return result
+}
+
+func (c *backendClient) resolveActivationToolFeed(ctx context.Context, state *ConversationState, spec *FeedSpec) *ActiveFeedState {
+	if c == nil || spec == nil || state == nil {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(spec.Activation.Kind), "tool_call") {
+		return nil
+	}
+	service := strings.TrimSpace(spec.Activation.Service)
+	method := strings.TrimSpace(spec.Activation.Method)
+	if service == "" || method == "" {
+		return nil
+	}
+	convID := strings.TrimSpace(state.ConversationID)
+	if convID == "" {
+		return nil
+	}
+	toolCtx := runtimerequestctx.WithConversationID(ctx, convID)
+	out, err := c.ExecuteTool(toolCtx, fmt.Sprintf("%s:%s", service, method), map[string]interface{}{})
+	if err != nil || strings.TrimSpace(out) == "" {
+		return nil
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &payload); err == nil {
+		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(payload["status"])), "nofound") {
+			return nil
+		}
+	}
+	resultSet, err := extractFeedData(spec, nil, []string{out})
+	if err != nil || resultSet == nil || resultSet.RootData == nil || resultSet.ItemCount == 0 {
+		return nil
+	}
+	return &ActiveFeedState{
+		FeedID:    spec.ID,
+		Title:     spec.Title,
+		ItemCount: resultSet.ItemCount,
+		Data:      marshalToRawJSON(resultSet.RootData),
+	}
 }
 
 func feedPayloadMatch(spec *FeedSpec) (string, string) {

@@ -52,13 +52,14 @@ const (
 	KindOAuth            = "oauth"
 	KindFeeds            = "feeds"
 	KindA2A              = "a2a"
+	KindCallback         = "callbacks"
 )
 
 // AllKinds returns all predefined resource kinds.
 func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow,
-		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindFeeds, KindA2A,
+		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindFeeds, KindA2A, KindCallback,
 	}
 }
 

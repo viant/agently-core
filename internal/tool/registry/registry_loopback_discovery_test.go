@@ -8,6 +8,7 @@ import (
 
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/mcp"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
 
@@ -62,5 +63,32 @@ func TestRegistryLoopbackDiscoveryFailureUsesServerScopedCooldown(t *testing.T) 
 	}
 	if until := r.discoveryFailUntil["steward"]; time.Until(until) < 4*time.Minute {
 		t.Fatalf("expected extended cooldown for loopback transport, got %s", time.Until(until))
+	}
+}
+
+func TestRegistryRefreshServerTools_IgnoresLoopbackCooldown(t *testing.T) {
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+		},
+	}
+	r := &Registry{
+		mgr:                stub,
+		cache:              map[string]*toolCacheEntry{},
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
+		discoveryFailTTL:   30 * time.Second,
+	}
+
+	r.noteDiscoveryFailure("steward", "mcp-discovery:steward:1", errors.New(`failed to send request: Post "http://localhost:5002/mcp": dial tcp 127.0.0.1:5002: connect: connection refused`))
+
+	if err := r.refreshServerTools(context.Background(), "steward"); err != nil {
+		t.Fatalf("refreshServerTools() error = %v", err)
+	}
+	if _, ok := r.cache["steward/alpha"]; !ok {
+		t.Fatalf("expected refreshed loopback tool to be cached")
+	}
+	if _, ok := r.discoveryFailUntil["steward"]; ok {
+		t.Fatalf("expected loopback cooldown to clear after successful refresh")
 	}
 }

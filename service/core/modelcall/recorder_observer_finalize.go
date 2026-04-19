@@ -45,6 +45,12 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	if !info.CompletedAt.IsZero() {
 		upd.SetCompletedAt(info.CompletedAt)
 	}
+	if requestID := strings.TrimSpace(o.requestPayloadID); requestID != "" {
+		upd.SetRequestPayloadID(requestID)
+	}
+	if providerRequestID := strings.TrimSpace(o.providerRequestPayloadID); providerRequestID != "" {
+		upd.SetProviderRequestPayloadID(providerRequestID)
+	}
 
 	if info.LLMResponse != nil {
 		if rb, mErr := json.Marshal(info.LLMResponse); mErr == nil {

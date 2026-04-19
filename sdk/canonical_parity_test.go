@@ -210,6 +210,59 @@ func TestParity_SummaryPage(t *testing.T) {
 	require.Equal(t, "asst-1", state.Turns[0].Assistant.Final.MessageID)
 }
 
+func TestTranscriptBuild_DerivesSidecarPhaseForNonFinalToolPage(t *testing.T) {
+	now := time.Date(2026, 4, 1, 12, 30, 0, 0, time.UTC)
+	iter1 := 1
+	preamble := "Pulling delegated benchmark now."
+
+	turn := &agconv.TranscriptView{
+		Id:        "turn-1",
+		Status:    "completed",
+		CreatedAt: now,
+		Message: []*agconv.MessageView{
+			{
+				Id:        "user-1",
+				Role:      "user",
+				TurnId:    strPtr("turn-1"),
+				Content:   strPtr("recommend frequency cap"),
+				CreatedAt: now,
+			},
+			{
+				Id:        "asst-1",
+				Role:      "assistant",
+				TurnId:    strPtr("turn-1"),
+				Content:   &preamble,
+				Preamble:  &preamble,
+				Interim:   1,
+				Iteration: &iter1,
+				CreatedAt: now.Add(time.Second),
+				ModelCall: &agconv.ModelCallView{
+					MessageId: "asst-1",
+					Status:    "completed",
+				},
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:        "tool-msg-1",
+						CreatedAt: now.Add(1500 * time.Millisecond),
+						Iteration: &iter1,
+						ToolCall: &agconv.ToolCallView{
+							OpId:     "op-1",
+							ToolName: "llm_agents-start",
+							Status:   "completed",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+	require.Equal(t, "sidecar", state.Turns[0].Execution.Pages[0].Phase)
+}
+
 // TestParity_ElicitationTurn verifies elicitation state is produced identically
 // by transcript path and reducer path.
 func TestParity_ElicitationTurn(t *testing.T) {

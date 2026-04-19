@@ -3,11 +3,14 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
@@ -16,6 +19,43 @@ import (
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
 )
+
+// redactBearerRE matches the Authorization header shape `Bearer <token>` and
+// any `access_token`/`id_token`/`refresh_token`=... or "...":"..." fragments
+// that upstream errors tend to echo back verbatim. It is a best-effort filter:
+// the log message still conveys shape and which field was present, without
+// exposing the credential itself.
+var redactBearerRE = regexp.MustCompile(
+	`(?i)(` +
+		`bearer\s+[A-Za-z0-9._\-~+/=]+` +
+		`|(?:access_token|id_token|refresh_token|authorization)\s*[:=]\s*"?[A-Za-z0-9._\-~+/=]+"?` +
+		`)`,
+)
+
+// redactSecrets returns v stripped of common bearer-token / oauth-token
+// shapes. Use when logging errors that may include upstream HTTP responses
+// or request bodies.
+func redactSecrets(v string) string {
+	return redactBearerRE.ReplaceAllStringFunc(v, func(match string) string {
+		// Preserve the field name (everything up to the separator) so operators
+		// can still tell what was present, but replace the value with a marker.
+		if i := strings.IndexAny(match, ":="); i >= 0 {
+			return match[:i+1] + " [REDACTED]"
+		}
+		if strings.HasPrefix(strings.ToLower(match), "bearer") {
+			return "Bearer [REDACTED]"
+		}
+		return "[REDACTED]"
+	})
+}
+
+// redactErr formats err with secret-shaped substrings replaced.
+func redactErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return redactSecrets(err.Error())
+}
 
 // ServerConfig holds configuration for the A2A server launcher.
 type ServerConfig struct {
@@ -81,6 +121,55 @@ type GenericServerConfig struct {
 	TokenProvider tokenpkg.Provider
 }
 
+// a2aShutdownTimeout bounds how long Group.Shutdown waits when the ctx passed
+// to it has no deadline. Used by the internal ctx-watcher goroutine.
+const a2aShutdownTimeout = 30 * time.Second
+
+// Group owns a set of per-agent A2A HTTP servers and coordinates their
+// lifecycle. Returned by StartServers / StartServersGeneric.
+//
+// A Group shuts its servers down automatically when the ctx passed to
+// StartServers is cancelled. Callers can also call Shutdown explicitly to
+// force a bounded graceful stop; both paths are idempotent.
+type Group struct {
+	servers []*http.Server
+	wg      sync.WaitGroup
+	stopped chan struct{}
+	once    sync.Once
+}
+
+// Shutdown gracefully stops all servers in the group. It blocks until every
+// server's Shutdown returns or ctx expires. Subsequent calls are no-ops.
+func (g *Group) Shutdown(ctx context.Context) {
+	if g == nil {
+		return
+	}
+	g.once.Do(func() {
+		var wg sync.WaitGroup
+		for _, srv := range g.servers {
+			srv := srv
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := srv.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					log.Printf("[a2a] shutdown error for %s: %v", srv.Addr, err)
+				}
+			}()
+		}
+		wg.Wait()
+		g.wg.Wait()
+		close(g.stopped)
+	})
+}
+
+// Wait blocks until every server goroutine has exited. Useful in tests.
+func (g *Group) Wait() {
+	if g == nil {
+		return
+	}
+	g.wg.Wait()
+}
+
 // StartServers iterates agents with A2A enabled and launches a dedicated
 // HTTP server per agent on its configured port. Each server exposes:
 //   - GET  /.well-known/agent-card.json — agent card discovery
@@ -88,10 +177,12 @@ type GenericServerConfig struct {
 //   - POST /v1/message:send — send message (JSON-RPC envelope or plain JSON)
 //   - All routes wrapped with auth middleware when configured
 //
-// This mirrors agently's startA2AServers pattern.
-func StartServers(ctx context.Context, cfg *ServerConfig) {
+// The returned *Group owns the spawned servers; it shuts them down
+// automatically when ctx is cancelled, or explicitly via Group.Shutdown.
+// Returns nil when no servers were started (nil cfg, no eligible agents).
+func StartServers(ctx context.Context, cfg *ServerConfig) *Group {
 	if cfg == nil || cfg.AgentFinder == nil || cfg.AgentService == nil {
-		return
+		return nil
 	}
 
 	// Validate one agent per port.
@@ -119,15 +210,34 @@ func StartServers(ctx context.Context, cfg *ServerConfig) {
 		entries = append(entries, agentEntry{agent: ag, a2a: a2aCfg})
 	}
 
-	for _, e := range entries {
-		go startAgentServer(ctx, cfg, e.agent, e.a2a)
+	if len(entries) == 0 {
+		return nil
 	}
+	g := &Group{stopped: make(chan struct{})}
+	for _, e := range entries {
+		srv := buildAgentServer(cfg, e.agent, e.a2a)
+		name := e.agent.ID
+		if name == "" {
+			name = e.agent.Name
+		}
+		g.servers = append(g.servers, srv)
+		g.wg.Add(1)
+		go func(srv *http.Server, name string) {
+			defer g.wg.Done()
+			log.Printf("[a2a] starting server for agent %s on %s", name, srv.Addr)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("[a2a] server for agent %s stopped: %v", name, err)
+			}
+		}(srv, name)
+	}
+	go watchA2AContext(ctx, g)
+	return g
 }
 
 // StartServersGeneric starts A2A servers using runtime-agnostic lookup/query callbacks.
-func StartServersGeneric(ctx context.Context, cfg *GenericServerConfig) {
+func StartServersGeneric(ctx context.Context, cfg *GenericServerConfig) *Group {
 	if cfg == nil || cfg.ResolveAgent == nil || cfg.Query == nil {
-		return
+		return nil
 	}
 
 	portAgent := make(map[int]string)
@@ -149,12 +259,50 @@ func StartServersGeneric(ctx context.Context, cfg *GenericServerConfig) {
 		entries = append(entries, agentEntry{agent: ag})
 	}
 
-	for _, e := range entries {
-		go startGenericAgentServer(ctx, cfg, e.agent)
+	if len(entries) == 0 {
+		return nil
 	}
+	g := &Group{stopped: make(chan struct{})}
+	for _, e := range entries {
+		srv := buildGenericAgentServer(cfg, e.agent)
+		if srv == nil {
+			continue
+		}
+		name := strings.TrimSpace(e.agent.Name)
+		if name == "" {
+			name = strings.TrimSpace(e.agent.ID)
+		}
+		g.servers = append(g.servers, srv)
+		g.wg.Add(1)
+		go func(srv *http.Server, name string) {
+			defer g.wg.Done()
+			log.Printf("[a2a] starting server for agent %s on %s", name, srv.Addr)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("[a2a] server for agent %s stopped: %v", name, err)
+			}
+		}(srv, name)
+	}
+	go watchA2AContext(ctx, g)
+	return g
 }
 
-func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentmodel.ServeA2A) {
+// watchA2AContext drives automatic graceful shutdown when the parent ctx is
+// cancelled. It applies a2aShutdownTimeout when the ctx itself has no
+// deadline so stuck handlers cannot block process exit indefinitely.
+func watchA2AContext(ctx context.Context, g *Group) {
+	if ctx == nil || g == nil {
+		return
+	}
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), a2aShutdownTimeout)
+	defer cancel()
+	g.Shutdown(shutdownCtx)
+}
+
+// buildAgentServer constructs the *http.Server for one agent without
+// starting it. The server is started by StartServers so the Group can track
+// it for graceful shutdown.
+func buildAgentServer(cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentmodel.ServeA2A) *http.Server {
 	name := ag.ID
 	if name == "" {
 		name = ag.Name
@@ -194,7 +342,7 @@ func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Age
 	// Agent card discovery.
 	outer.HandleFunc("GET /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(card)
+		encodeJSON(w, card)
 	})
 
 	// Wire auth if configured.
@@ -208,7 +356,7 @@ func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Age
 				meta["scopes_supported"] = a2aCfg.Auth.Scopes
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(meta)
+			encodeJSON(w, meta)
 		})
 		// Wrap inner routes with auth middleware.
 		outer.Handle("/", AuthMiddleware(a2aCfg.Auth, cfg.JWTService, cfg.TokenProvider)(inner))
@@ -216,20 +364,18 @@ func startAgentServer(ctx context.Context, cfg *ServerConfig, ag *agentmodel.Age
 		outer.Handle("/", inner)
 	}
 
-	addr := ":" + strconv.Itoa(a2aCfg.Port)
-	log.Printf("[a2a] starting server for agent %s on %s", name, addr)
-	if err := http.ListenAndServe(addr, outer); err != nil {
-		log.Printf("[a2a] server for agent %s stopped: %v", name, err)
-	}
+	return &http.Server{Addr: ":" + strconv.Itoa(a2aCfg.Port), Handler: outer}
 }
 
-func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *ExposedAgent) {
+// buildGenericAgentServer is the generic-config counterpart to
+// buildAgentServer. Returns nil when the input is invalid.
+func buildGenericAgentServer(cfg *GenericServerConfig, ag *ExposedAgent) *http.Server {
 	name := strings.TrimSpace(ag.Name)
 	if name == "" {
 		name = strings.TrimSpace(ag.ID)
 	}
 	if name == "" || ag.A2A == nil {
-		return
+		return nil
 	}
 
 	card := AgentCard{
@@ -255,7 +401,7 @@ func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *
 	outer := http.NewServeMux()
 	outer.HandleFunc("GET /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(card)
+		encodeJSON(w, card)
 	})
 
 	if ag.Auth != nil && ag.Auth.Enabled {
@@ -265,7 +411,7 @@ func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *
 				meta["scopes_supported"] = ag.Auth.Scopes
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(meta)
+			encodeJSON(w, meta)
 		})
 		outer.Handle("/", AuthMiddleware(&agentmodel.A2AAuth{
 			Enabled:       ag.Auth.Enabled,
@@ -278,11 +424,7 @@ func startGenericAgentServer(ctx context.Context, cfg *GenericServerConfig, ag *
 		outer.Handle("/", inner)
 	}
 
-	addr := ":" + strconv.Itoa(ag.A2A.Port)
-	log.Printf("[a2a] starting server for agent %s on %s", name, addr)
-	if err := http.ListenAndServe(addr, outer); err != nil {
-		log.Printf("[a2a] server for agent %s stopped: %v", name, err)
-	}
+	return &http.Server{Addr: ":" + strconv.Itoa(ag.A2A.Port), Handler: outer}
 }
 
 func handleGenericMessageSend(cfg *GenericServerConfig, ag *ExposedAgent) http.HandlerFunc {
@@ -344,7 +486,7 @@ func handleGenericMessageSend(cfg *GenericServerConfig, ag *ExposedAgent) http.H
 		if ag.A2A != nil && ag.A2A.UserCredURL != "" && cfg.ApplyUserCred != nil {
 			reqCtx, err = cfg.ApplyUserCred(reqCtx, ag.A2A.UserCredURL)
 			if err != nil {
-				log.Printf("[a2a] failed to apply user cred for agent %s: %v", ag.ID, err)
+				log.Printf("[a2a] failed to apply user cred for agent %s: %s", ag.ID, redactErr(err))
 			}
 		}
 
@@ -439,11 +581,17 @@ func handleGenericMessageStream(cfg *GenericServerConfig, ag *ExposedAgent) http
 		sendEvent := func(event interface{}) {
 			data, err := json.Marshal(event)
 			if err != nil {
+				log.Printf("[a2a] failed to marshal stream event for agent %s: %v", ag.ID, err)
 				return
 			}
 			if rpcID != nil {
 				resp := JSONRPCResponse{JSONRPC: "2.0", ID: rpcID, Result: data}
-				data, _ = json.Marshal(resp)
+				wrapped, err := json.Marshal(resp)
+				if err != nil {
+					log.Printf("[a2a] failed to marshal stream envelope for agent %s: %v", ag.ID, err)
+					return
+				}
+				data = wrapped
 			}
 			fmt.Fprintf(w, "data:%s\n\n", data)
 			flusher.Flush()
@@ -460,7 +608,7 @@ func handleGenericMessageStream(cfg *GenericServerConfig, ag *ExposedAgent) http
 		if ag.A2A != nil && ag.A2A.UserCredURL != "" && cfg.ApplyUserCred != nil {
 			reqCtx, err = cfg.ApplyUserCred(reqCtx, ag.A2A.UserCredURL)
 			if err != nil {
-				log.Printf("[a2a] failed to apply user cred for agent %s: %v", ag.ID, err)
+				log.Printf("[a2a] failed to apply user cred for agent %s: %s", ag.ID, redactErr(err))
 			}
 		}
 
@@ -565,7 +713,7 @@ func handleMessageSend(cfg *ServerConfig, ag *agentmodel.Agent, a2aCfg *agentmod
 		if a2aCfg.UserCredURL != "" && cfg.ApplyUserCred != nil {
 			reqCtx, err = cfg.ApplyUserCred(reqCtx, a2aCfg.UserCredURL)
 			if err != nil {
-				log.Printf("[a2a] failed to apply user cred for agent %s: %v", ag.ID, err)
+				log.Printf("[a2a] failed to apply user cred for agent %s: %s", ag.ID, redactErr(err))
 			}
 		}
 
@@ -630,22 +778,27 @@ func writeResult(w http.ResponseWriter, rpcID interface{}, result interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	if rpcID != nil {
 		// JSON-RPC envelope.
-		resultData, _ := json.Marshal(result)
+		resultData, err := json.Marshal(result)
+		if err != nil {
+			log.Printf("[a2a] failed to marshal result for rpc id %v: %v", rpcID, err)
+			writeJSONRPCError(w, rpcID, -32603, "internal error: response serialization failed")
+			return
+		}
 		resp := JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      rpcID,
 			Result:  resultData,
 		}
-		_ = json.NewEncoder(w).Encode(resp)
+		encodeJSON(w, resp)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(result)
+	encodeJSON(w, result)
 }
 
 func writeJSONError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	encodeJSON(w, map[string]string{"error": msg})
 }
 
 func writeJSONRPCError(w http.ResponseWriter, id interface{}, code int, msg string) {
@@ -655,5 +808,15 @@ func writeJSONRPCError(w http.ResponseWriter, id interface{}, code int, msg stri
 		ID:      id,
 		Error:   &JSONRPCError{Code: code, Message: msg},
 	}
-	_ = json.NewEncoder(w).Encode(resp)
+	encodeJSON(w, resp)
+}
+
+// encodeJSON writes value as JSON to w and logs any encoding failure. Once the
+// response body has begun streaming there is nothing else the handler can do,
+// but we at least surface the problem instead of silently truncating the
+// payload for the client.
+func encodeJSON(w http.ResponseWriter, value interface{}) {
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("[a2a] failed to encode response: %v", err)
+	}
 }

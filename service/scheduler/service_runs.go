@@ -18,6 +18,15 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if s == nil || row == nil || s.agent == nil {
 		return
 	}
+	// Recover from panics so the deferred cleanup (release-lease,
+	// stop-heartbeat, cleanup timeouts, and the caller's semaphore release)
+	// still runs. Without this, a panic would leak the heartbeat goroutine
+	// and hold the concurrency slot forever.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("scheduler: executeRun panic schedule=%s run=%s: %v", row.Id, runID, r)
+		}
+	}()
 	s.ensureLeaseConfig()
 
 	runCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{
@@ -44,7 +53,13 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "using effective user")
 
 	stopHeartbeat := func() {}
-	defer s.releaseRunLease(context.Background(), runID)
+	defer func() {
+		// Post-run cleanup: bound the call so a slow/unresponsive store cannot
+		// block process exit when the scheduler is shutting down.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), schedulerCleanupTimeout)
+		defer cancel()
+		s.releaseRunLease(releaseCtx, runID)
+	}()
 	defer func() { stopHeartbeat() }()
 	if claimed, claimErr := s.tryClaimRunLease(runCtx, runID, time.Now().UTC()); claimErr != nil {
 		log.Printf("scheduler: claim run lease schedule=%s run=%s owner=%s: %v", row.Id, runID, strings.TrimSpace(s.leaseOwner), claimErr)
@@ -80,7 +95,9 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if output.ConversationID != "" {
 		runPatch.SetConversationID(output.ConversationID)
 	}
-	if patchErr := s.store.PatchRuns(context.Background(), []*agrunwrite.MutableRunView{runPatch}); patchErr != nil {
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), schedulerCleanupTimeout)
+	defer cleanupCancel()
+	if patchErr := s.store.PatchRuns(cleanupCtx, []*agrunwrite.MutableRunView{runPatch}); patchErr != nil {
 		log.Printf("scheduler: patch run metadata schedule=%s run=%s: %v", row.Id, runID, patchErr)
 	}
 
@@ -94,16 +111,16 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		failPatch.SetStatus(status)
 		failPatch.SetErrorMessage(errMsg)
 		failPatch.SetCompletedAt(time.Now().UTC())
-		if patchErr := s.store.PatchRuns(context.Background(), []*agrunwrite.MutableRunView{failPatch}); patchErr != nil {
+		if patchErr := s.store.PatchRuns(cleanupCtx, []*agrunwrite.MutableRunView{failPatch}); patchErr != nil {
 			log.Printf("scheduler: patch failed run schedule=%s run=%s: %v", row.Id, runID, patchErr)
 		}
 		log.Printf("scheduler: execute schedule=%s run=%s: %v", row.Id, runID, err)
 	}
 
 	if output.ConversationID != "" {
-		s.annotateConversation(context.Background(), row, output.ConversationID, runID)
+		s.annotateConversation(cleanupCtx, row, output.ConversationID, runID)
 	}
-	if patchErr := s.patchScheduleResult(context.Background(), row, status, errMsg, timePtrUTC(time.Now().UTC()), false, time.Now().UTC()); patchErr != nil {
+	if patchErr := s.patchScheduleResult(cleanupCtx, row, status, errMsg, timePtrUTC(time.Now().UTC()), false, time.Now().UTC()); patchErr != nil {
 		log.Printf("scheduler: patch schedule result schedule=%s run=%s: %v", row.Id, runID, patchErr)
 	}
 }

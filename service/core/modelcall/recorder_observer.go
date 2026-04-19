@@ -37,18 +37,20 @@ var invalidStreamPersistModes sync.Map
 
 // recorderObserver writes model-call data directly using conversation client.
 type recorderObserver struct {
-	client          apiconv.Client
-	start           Info
-	hasBeg          bool
-	mu              sync.Mutex
-	msgID           string
-	ended           bool
-	acc             strings.Builder
-	streamPayloadID string
-	streamLinked    bool
-	streamStatusSet bool
-	lastFlushAt     time.Time
-	lastFlushSize   int
+	client                   apiconv.Client
+	start                    Info
+	hasBeg                   bool
+	mu                       sync.Mutex
+	msgID                    string
+	ended                    bool
+	acc                      strings.Builder
+	streamPayloadID          string
+	requestPayloadID         string
+	providerRequestPayloadID string
+	streamLinked             bool
+	streamStatusSet          bool
+	lastFlushAt              time.Time
+	lastFlushSize            int
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -60,6 +62,8 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	o.hasBeg = true
 	o.acc.Reset()
 	o.streamPayloadID = ""
+	o.requestPayloadID = ""
+	o.providerRequestPayloadID = ""
 	o.streamLinked = false
 	o.streamStatusSet = false
 	o.lastFlushAt = time.Time{}
@@ -448,6 +452,24 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 			upd := apiconv.NewModelCall()
 			upd.SetMessageID(msgID)
 			upd.SetStatus("streaming")
+			if provider := strings.TrimSpace(o.start.Provider); provider != "" {
+				upd.SetProvider(provider)
+			}
+			if model := strings.TrimSpace(o.start.Model); model != "" {
+				upd.SetModel(model)
+			}
+			if modelKind := strings.TrimSpace(o.start.ModelKind); modelKind != "" {
+				upd.SetModelKind(modelKind)
+			}
+			if requestID := strings.TrimSpace(o.requestPayloadID); requestID != "" {
+				upd.SetRequestPayloadID(requestID)
+			}
+			if providerRequestID := strings.TrimSpace(o.providerRequestPayloadID); providerRequestID != "" {
+				upd.SetProviderRequestPayloadID(providerRequestID)
+			}
+			if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+				upd.SetIteration(runMeta.Iteration)
+			}
 			if err := o.client.PatchModelCall(ctx, upd); err != nil {
 				logx.Warnf("conversation", "patchModelCall streaming status failed message=%q err=%v", strings.TrimSpace(msgID), err)
 			}

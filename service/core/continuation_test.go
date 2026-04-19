@@ -47,6 +47,33 @@ func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {
 	}
 }
 
+func TestBuildContinuationRequest_BackfillsModeFromContextWhenRequestOptionsEmpty(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	ctx = memory.WithRequestMode(ctx, "chain")
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
+	}
+	toolKey := binding.KindToolCall.Key("call-1")
+	history.Traces[toolKey] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+
+	req := &llm.GenerateRequest{
+		Options: &llm.Options{},
+	}
+	req.Messages = append(req.Messages,
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "toolA"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1"},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	if assert.NotNil(t, cont) {
+		if assert.NotNil(t, cont.Options) {
+			assert.Equal(t, "chain", cont.Options.Mode)
+		}
+	}
+}
+
 // TestBuildContinuationRequest_AllowsMultiToolAnchor verifies that multi-tool
 // continuations succeed when all tool results are present.
 func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {
@@ -105,7 +132,7 @@ func TestBuildContinuationRequest_SkipsWhenToolResultDropped(t *testing.T) {
 	assert.Nil(t, cont, "continuation should be skipped when anchor tool call count exceeds selected tool results")
 }
 
-func TestBuildContinuationRequest_SkipsWhenSystemHistoryMessagePresent(t *testing.T) {
+func TestBuildContinuationRequest_AllowsSystemMessagesWhenToolReplayIsComplete(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
 	history := &binding.History{
@@ -116,36 +143,17 @@ func TestBuildContinuationRequest_SkipsWhenSystemHistoryMessagePresent(t *testin
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
-		llm.NewSystemMessage("Forecasting job is still pending. Call the same tool again with the same request."),
+		llm.NewSystemMessage("You are Steward."),
 		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "forecasting-Total"}}},
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"jobStatus":"WAITING"}`},
+		llm.NewSystemMessage("Use the existing system knowledge bundle."),
 	)
 
 	cont := svc.BuildContinuationRequest(ctx, req, history)
-	assert.Nil(t, cont, "continuation should be skipped when system history messages are present")
-}
-
-func TestBuildContinuationRequest_SkipsWhenSystemMessagePresentForCompleteMultiToolIteration(t *testing.T) {
-	svc := &Service{}
-	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &binding.History{
-		Traces:       map[string]*binding.Trace{},
-		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
+	if assert.NotNil(t, cont, "continuation should not be disabled by system messages when tool replay is complete") {
+		assert.Equal(t, "resp-123", cont.PreviousResponseID)
+		assert.Len(t, cont.Messages, 2)
 	}
-	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
-	history.Traces[binding.KindToolCall.Key("call-2")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
-
-	req := &llm.GenerateRequest{}
-	req.Messages = append(req.Messages,
-		llm.NewSystemMessage("The previous iteration is still pending. Call the status tool before answering."),
-		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "forecasting-Total"}}},
-		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"jobStatus":"WAITING","item":"a"}`},
-		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-2", Name: "forecasting-Total"}}},
-		llm.Message{Role: llm.RoleTool, ToolCallId: "call-2", Content: `{"jobStatus":"WAITING","item":"b"}`},
-	)
-
-	cont := svc.BuildContinuationRequest(ctx, req, history)
-	assert.Nil(t, cont, "continuation should be skipped when a fresh system message is present, even if all tool results for the anchored iteration are available")
 }
 
 // TestBuildContinuationRequest_ThreeIterations simulates three sequential

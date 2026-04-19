@@ -43,7 +43,7 @@ func AddMessage(ctx context.Context, cl Client, turn *runtimerequestctx.TurnMeta
 		m.SetId(uuid.New().String())
 	}
 
-	logx.Infof("conversation", "AddMessage start id=%q convo=%q turn=%q parent=%q role=%q type=%q status=%q interim=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), strings.TrimSpace(valueOrEmptyStr(m.TurnID)), strings.TrimSpace(valueOrEmptyStr(m.ParentMessageID)), strings.TrimSpace(m.Role), strings.TrimSpace(m.Type), strings.TrimSpace(valueOrEmptyStr(m.Status)), valueOrZero(m.Interim))
+	logx.Infof("conversation", "AddMessage start id=%q convo=%q turn=%q parent=%q role=%q type=%q status=%q phase=%q interim=%v", strings.TrimSpace(m.Id), strings.TrimSpace(m.ConversationID), strings.TrimSpace(valueOrEmptyStr(m.TurnID)), strings.TrimSpace(valueOrEmptyStr(m.ParentMessageID)), strings.TrimSpace(m.Role), strings.TrimSpace(m.Type), strings.TrimSpace(valueOrEmptyStr(m.Status)), strings.TrimSpace(valueOrEmptyStr(m.Phase)), valueOrZero(m.Interim))
 	// set conversation status to "" (active) if this is a non-interim assistant message and conversation not in summary status
 	if (m.Interim == nil || *m.Interim == 0) && m.Role == "assistant" && !strings.EqualFold(strings.TrimSpace(valueOrEmptyStr(m.Status)), "summary") {
 		status := ""

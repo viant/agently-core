@@ -49,7 +49,7 @@ func moveQueuedTurn(c *backendClient, ctx context.Context, input *MoveQueuedTurn
 		ID:             strings.TrimSpace(input.TurnID),
 		ConversationID: strings.TrimSpace(input.ConversationID),
 		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
-	})
+	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
 			return newConflictError("queued turn not found")
@@ -169,7 +169,7 @@ func editQueuedTurn(c *backendClient, ctx context.Context, input *EditQueuedTurn
 		ID:             strings.TrimSpace(input.TurnID),
 		ConversationID: strings.TrimSpace(input.ConversationID),
 		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
-	})
+	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
 			return newConflictError("queued turn not found")
@@ -208,7 +208,7 @@ func forceSteerQueuedTurn(c *backendClient, ctx context.Context, conversationID,
 		ID:             turnID,
 		ConversationID: conversationID,
 		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
-	})
+	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
 			return nil, newConflictError("queued turn not found")

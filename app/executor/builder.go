@@ -26,6 +26,7 @@ import (
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
 	svcauth "github.com/viant/agently-core/service/auth"
+	callbacksvc "github.com/viant/agently-core/service/callback"
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
@@ -35,6 +36,7 @@ import (
 	"github.com/viant/agently-core/workspace/hotswap"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
+	callbackrepo "github.com/viant/agently-core/workspace/repository/callback"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
@@ -56,6 +58,7 @@ type Runtime struct {
 	Elicitation       *elicsvc.Service
 	Streaming         streaming.Bus
 	HotSwap           *hotswap.Manager
+	CallbackDispatch  *callbacksvc.Service
 	Store             workspace.Store
 	KnowledgeStore    workspace.KnowledgeStore
 	StateStore        workspace.StateStore
@@ -351,6 +354,19 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 
 	out.TokenProvider = b.tokenProvider
+
+	// Callback dispatcher — declarative forge-submit → tool routing driven by
+	// `<workspace>/callbacks/*.yaml`. Optional: when the workspace has no
+	// callbacks directory, the service is still constructed but every
+	// dispatch returns "no callback registered".
+	if out.Registry != nil {
+		callbackRepo := callbackrepo.NewWithStore(out.Store)
+		cbOpts := []callbacksvc.Option{}
+		if out.Conversation != nil {
+			cbOpts = append(cbOpts, callbacksvc.WithConversationClient(out.Conversation))
+		}
+		out.CallbackDispatch = callbacksvc.New(callbackRepo, out.Registry, cbOpts...)
+	}
 
 	if b.hotSwapEnabled {
 		mgr, err := initHotSwap(ctx, b)

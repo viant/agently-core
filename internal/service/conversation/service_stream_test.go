@@ -245,8 +245,114 @@ func TestEmitCanonicalModelEvent_CarriesModeFromContext(t *testing.T) {
 		require.NotNil(t, ev)
 		require.Equal(t, streaming.EventTypeModelStarted, ev.Type)
 		require.Equal(t, "summary", ev.Mode)
+		require.Equal(t, "summary", ev.Phase)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected model_started event")
+	}
+}
+
+func TestEmitCanonicalModelEvent_CarriesIntakePhaseFromRouterMode(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-parent",
+	})
+	ctx = memory.WithRequestMode(ctx, "router")
+
+	mc := convcli.NewModelCall()
+	mc.SetMessageID("mc-1")
+	mc.SetTurnID("turn-1")
+	mc.SetProvider("openai")
+	mc.SetModel("gpt-5.2")
+	mc.SetStatus("thinking")
+
+	svc.emitCanonicalModelEvent(ctx, mc)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeModelStarted, ev.Type)
+		require.Equal(t, "router", ev.Mode)
+		require.Equal(t, "intake", ev.Phase)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected model_started event")
+	}
+}
+
+func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelStarted(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-parent",
+	})
+
+	mc := convcli.NewModelCall()
+	mc.SetMessageID("mc-sidecar-1")
+	mc.SetTurnID("turn-1")
+	mc.SetProvider("openai")
+	mc.SetModel("gpt-5.4")
+	mc.SetStatus("thinking")
+	mc.SetRequestPayloadID("req-sidecar-1")
+	mc.SetProviderRequestPayloadID("preq-sidecar-1")
+
+	svc.emitCanonicalModelEvent(ctx, mc)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeModelStarted, ev.Type)
+		require.Equal(t, "req-sidecar-1", ev.RequestPayloadID)
+		require.Equal(t, "preq-sidecar-1", ev.ProviderRequestPayloadID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected model_started event")
+	}
+}
+
+func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelCompleted(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-parent",
+	})
+
+	mc := convcli.NewModelCall()
+	mc.SetMessageID("mc-sidecar-1")
+	mc.SetTurnID("turn-1")
+	mc.SetProvider("openai")
+	mc.SetModel("gpt-5.4")
+	mc.SetStatus("completed")
+	mc.SetRequestPayloadID("req-sidecar-1")
+	mc.SetProviderRequestPayloadID("preq-sidecar-1")
+	mc.SetResponsePayloadID("resp-sidecar-1")
+	mc.SetProviderResponsePayloadID("presp-sidecar-1")
+
+	svc.emitCanonicalModelEvent(ctx, mc)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeModelCompleted, ev.Type)
+		require.Equal(t, "req-sidecar-1", ev.RequestPayloadID)
+		require.Equal(t, "preq-sidecar-1", ev.ProviderRequestPayloadID)
+		require.Equal(t, "resp-sidecar-1", ev.ResponsePayloadID)
+		require.Equal(t, "presp-sidecar-1", ev.ProviderResponsePayloadID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected model_completed event")
 	}
 }
 
@@ -277,9 +383,57 @@ func TestEmitCanonicalModelEvent_CarriesModeFromStreamingContext(t *testing.T) {
 		require.NotNil(t, ev)
 		require.Equal(t, streaming.EventTypeModelCompleted, ev.Type)
 		require.Equal(t, "chain", ev.Mode)
+		require.Equal(t, "", ev.Phase)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected model_completed event")
 	}
+}
+
+func TestToolCallEvent_DoesNotAutoLabelChainModeAsSidecar(t *testing.T) {
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:          "turn-1",
+		ConversationID:  "conv-1",
+		ParentMessageID: "parent-1",
+	})
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "assistant-1")
+	ctx = memory.WithRequestMode(ctx, "chain")
+
+	call := convcli.NewToolCall()
+	call.SetMessageID("tool-msg-1")
+	call.SetOpID("tool-call-1")
+	call.SetTurnID("turn-1")
+	call.SetToolName("llm/agents-run")
+	call.SetStatus("running")
+	call.SetIteration(2)
+
+	got := toolCallEvent(ctx, call)
+	require.NotNil(t, got)
+	require.Equal(t, streaming.EventTypeToolCallStarted, got.Type)
+	require.Equal(t, "chain", got.Mode)
+	require.Equal(t, "", got.Phase)
+}
+
+func TestToolCallEvent_DefaultsModeToTaskWhenContextModeMissing(t *testing.T) {
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:          "turn-1",
+		ConversationID:  "conv-1",
+		ParentMessageID: "parent-1",
+	})
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "assistant-1")
+
+	call := convcli.NewToolCall()
+	call.SetMessageID("tool-msg-1")
+	call.SetOpID("tool-call-1")
+	call.SetTurnID("turn-1")
+	call.SetToolName("llm/agents-run")
+	call.SetStatus("running")
+	call.SetIteration(2)
+
+	got := toolCallEvent(ctx, call)
+	require.NotNil(t, got)
+	require.Equal(t, streaming.EventTypeToolCallStarted, got.Type)
+	require.Equal(t, "task", got.Mode)
+	require.Equal(t, "", got.Phase)
 }
 
 func TestTimelineDebugFields_ExposeIdentityAndTimingFields(t *testing.T) {
@@ -503,6 +657,7 @@ func TestEmitCanonicalAssistantEvents_PreamblePublishesPreamble(t *testing.T) {
 		require.Equal(t, "msg-1", ev.MessageID)
 		require.Equal(t, "msg-1", ev.AssistantMessageID)
 		require.Equal(t, "Let me analyze...", ev.Content)
+		require.Equal(t, "task", ev.Mode)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected assistant_preamble event")
 	}
@@ -538,6 +693,7 @@ func TestEmitCanonicalAssistantEvents_FinalPublishesFinal(t *testing.T) {
 		require.Equal(t, "msg-1", ev.AssistantMessageID)
 		require.Equal(t, "Here is the answer.", ev.Content)
 		require.True(t, ev.FinalResponse)
+		require.Equal(t, "task", ev.Mode)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected assistant_final event")
 	}

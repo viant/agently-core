@@ -1,0 +1,18 @@
+id: spo_planner_submit
+description: Persist user-selected SPO CUT/TEST/KEEP decisions for team review.
+tool: steward-SaveRecommendation
+payload:
+  body: |
+    {
+      "Body": {
+        "id": "rec-{{default "0" .agencyId}}-spo-{{.today}}",
+        "agency_id": {{default "0" .agencyId}},
+        "source_agent": "data-analyst/inventory_diagnosis",
+        "category": "site_exclusion",
+        "severity": "medium",
+        "title": "SPO path decisions",
+        "recommendation": "Applied SPO decisions from dashboard.",
+        "conversation_id": "{{.conversationId}}",
+        "supporting_metrics": {{json .selectedRows}}
+      }
+    }

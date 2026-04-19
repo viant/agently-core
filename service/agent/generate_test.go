@@ -65,3 +65,34 @@ func TestEnsureGenerateOptions_ModelArtifactGeneration(t *testing.T) {
 		t.Fatalf("expected modelArtifactGeneration metadata to be true")
 	}
 }
+
+func TestEnsureGenerateOptions_DefaultsModeToTask(t *testing.T) {
+	in := &core.GenerateInput{}
+	a := &ag.Agent{}
+
+	EnsureGenerateOptions(context.Background(), in, a)
+
+	if in.Options == nil {
+		t.Fatalf("expected options to be initialized")
+	}
+	if got := in.Options.Mode; got != "task" {
+		t.Fatalf("expected default mode task, got %q", got)
+	}
+}
+
+func TestEnsureGenerateOptions_PreservesExplicitMode(t *testing.T) {
+	in := &core.GenerateInput{
+		ModelSelection: llm.ModelSelection{
+			Options: &llm.Options{
+				Mode: "router",
+			},
+		},
+	}
+	a := &ag.Agent{}
+
+	EnsureGenerateOptions(context.Background(), in, a)
+
+	if got := in.Options.Mode; got != "router" {
+		t.Fatalf("expected explicit mode to win, got %q", got)
+	}
+}

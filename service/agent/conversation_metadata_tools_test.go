@@ -98,6 +98,55 @@ func TestEnsureConversation_AppliesMetaToolsWhenAgentMatches(t *testing.T) {
 	require.Equal(t, []string{"system/exec:execute"}, in.ToolsAllowed)
 }
 
+func TestEnsureConversation_PreservesExplicitClientToolsOverride(t *testing.T) {
+	meta := ConversationMetadata{Tools: []string{"system/exec:execute"}}
+	metaBytes, err := json.Marshal(meta)
+	require.NoError(t, err)
+	now := time.Now()
+	agentID := "agent-a"
+	conv := &apiconv.Conversation{
+		Id:           "c1",
+		AgentId:      &agentID,
+		Metadata:     ptrString(string(metaBytes)),
+		CreatedAt:    now,
+		UpdatedAt:    &now,
+		LastActivity: &now,
+	}
+	svc := &Service{conversation: &convoStub{conv: conv}}
+
+	in := &QueryInput{
+		ConversationID: "c1",
+		AgentID:        "agent-a",
+		ToolsAllowed:   []string{"system/patch:apply"},
+	}
+	err = svc.ensureConversation(context.Background(), in)
+	require.NoError(t, err)
+	require.Equal(t, []string{"system/patch:apply"}, in.ToolsAllowed)
+}
+
+func TestEnsureConversation_AppliesMetaToolBundlesWhenAgentMatches(t *testing.T) {
+	meta := ConversationMetadata{ToolBundles: []string{"system/exec", "system/os"}}
+	metaBytes, err := json.Marshal(meta)
+	require.NoError(t, err)
+	now := time.Now()
+	agentID := "agent-a"
+	conv := &apiconv.Conversation{
+		Id:           "c1",
+		AgentId:      &agentID,
+		Metadata:     ptrString(string(metaBytes)),
+		CreatedAt:    now,
+		UpdatedAt:    &now,
+		LastActivity: &now,
+	}
+	svc := &Service{conversation: &convoStub{conv: conv}}
+
+	in := &QueryInput{ConversationID: "c1", AgentID: "agent-a"}
+	err = svc.ensureConversation(context.Background(), in)
+	require.NoError(t, err)
+	require.Equal(t, []string{"system/exec", "system/os"}, in.ToolBundles)
+	require.Nil(t, in.ToolsAllowed)
+}
+
 func TestEnsureConversation_NilLastActivityDoesNotPanic(t *testing.T) {
 	now := time.Now()
 	agentID := "agent-a"

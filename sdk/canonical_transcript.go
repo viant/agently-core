@@ -233,6 +233,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	page.ParentMessageID = message.Id
 	page.TurnID = stringValue(message.TurnId)
 	page.Iteration = iteration
+	page.Phase = strings.TrimSpace(stringValue(message.Phase))
 	if preamble := executionPreamble(message); preamble != "" {
 		page.Preamble = preamble
 	}
@@ -274,6 +275,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 		existing := upsertToolStep(page, ts.ToolCallID)
 		*existing = mergeToolStepState(existing, ts)
 	}
+	deriveExecutionPagePhase(page)
 
 	// Set preamble/final message IDs
 	if page.Preamble != "" {
@@ -305,6 +307,7 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 	step := &ModelStepState{
 		ModelCallID:        message.Id,
 		AssistantMessageID: message.Id,
+		Phase:              strings.TrimSpace(stringValue(message.Phase)),
 		Provider:           strings.TrimSpace(mc.Provider),
 		Model:              strings.TrimSpace(mc.Model),
 		Status:             stepStatusFromString(mc.Status, ""),

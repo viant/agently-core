@@ -160,6 +160,7 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
         parentMessageId: firstString(event?.parentMessageId),
         sequence: eventSequenceValue(event, 1),
         iteration: eventIterationValue(event, 1),
+        phase: firstString(event?.phase),
         preamble: firstString(event?.preamble),
         content: firstString(event?.content),
         errorMessage: firstString(event?.error),
@@ -167,6 +168,7 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
         finalResponse: Boolean(event?.finalResponse),
         modelSteps: event?.model ? [{
             modelCallId: assistantMessageId,
+            phase: firstString(event?.phase),
             provider: firstString(event?.model?.provider),
             model: firstString(event?.model?.model),
             status: firstString(event?.status, 'running'),
@@ -190,6 +192,7 @@ function applyLiveGroupIdentity(current: LiveExecutionGroup, event: SSEEvent) {
     current.turnId = firstString(event?.turnId, current.turnId);
     current.sequence = eventSequenceValue(event, current.sequence || 1);
     current.iteration = eventIterationValue(event, current.iteration || 1);
+    current.phase = firstString(event?.phase, current.phase);
     return current;
 }
 
@@ -199,6 +202,7 @@ function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fal
     current.modelSteps = [{
         ...existMs,
         modelCallId: firstString(assistantMessageId, existMs?.modelCallId),
+        phase: firstString(event?.phase, existMs?.phase),
         provider: firstString(event?.model?.provider, existMs?.provider),
         model: firstString(event?.model?.model, existMs?.model),
         errorMessage: firstString(event?.error, existMs?.errorMessage),

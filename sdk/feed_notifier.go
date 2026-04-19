@@ -55,7 +55,6 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 		return
 	}
 
-	itemCount := estimateItemCount(result)
 	// Collect all map writes under one lock acquisition to avoid interleaving
 	// with concurrent EmitInactiveForMissing calls between loop iterations.
 	n.mu.Lock()
@@ -72,8 +71,12 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	// n.mu to avoid deadlock if the bus callback re-enters the notifier.
 	for _, spec := range matched {
 		feedData, feedCount := genericNotifierFeedPayload(spec, result)
-		if feedCount > 0 {
-			itemCount = feedCount
+		itemCount := feedCount
+		if itemCount == 0 && feedData != nil {
+			itemCount = estimateItemCount(result)
+		}
+		if feedData == nil && itemCount == 0 {
+			continue
 		}
 		emitFeedActive(ctx, n.bus, convID, turnID, spec, itemCount, feedData)
 	}
@@ -134,8 +137,11 @@ func estimateItemCount(result string) int {
 
 func genericNotifierFeedPayload(spec *FeedSpec, result string) (interface{}, int) {
 	if spec != nil {
-		if extracted, err := extractFeedData(spec, nil, []string{result}); err == nil && extracted != nil && extracted.RootData != nil {
-			return extracted.RootData, extracted.ItemCount
+		if extracted, err := extractFeedData(spec, nil, []string{result}); err == nil {
+			if extracted != nil && extracted.RootData != nil && extracted.ItemCount > 0 {
+				return extracted.RootData, extracted.ItemCount
+			}
+			return nil, 0
 		}
 	}
 	var feedData interface{}

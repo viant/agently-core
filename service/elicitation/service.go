@@ -632,6 +632,10 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 		if err := s.StoreDeclineReason(ctx, convID, elicitationID, reason); err != nil {
 			return err
 		}
+	} else if elact.ToStatus(act) == elact.StatusCancel && strings.TrimSpace(reason) != "" {
+		if err := s.StoreCancelReason(ctx, convID, elicitationID, reason); err != nil {
+			return err
+		}
 	}
 	s.emitElicitationResolved(ctx, convID, elicitationID, elact.ToStatus(act), payload)
 	out := &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
@@ -657,5 +661,28 @@ func (s *Service) StoreDeclineReason(ctx context.Context, convID, elicitationID,
 	}
 	turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
 	payload := map[string]interface{}{"declineReason": reason}
+	return s.AddUserResponseMessage(ctx, &turn, elicitationID, payload)
+}
+
+// StoreCancelReason persists a user-cancel reason as a user message so the agent can react.
+func (s *Service) StoreCancelReason(ctx context.Context, convID, elicitationID, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return nil
+	}
+	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
+	if err != nil {
+		return err
+	}
+	if msg == nil {
+		return fmt.Errorf("elicitation message not found")
+	}
+	if msg.Role != llm.RoleAssistant.String() {
+		return nil
+	}
+	turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+	payload := map[string]interface{}{
+		"cancelReason": reason,
+		"message":      "User did not respond before the elicitation timeout.",
+	}
 	return s.AddUserResponseMessage(ctx, &turn, elicitationID, payload)
 }

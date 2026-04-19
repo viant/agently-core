@@ -33,6 +33,9 @@ func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	if got, ok := payload["usePopupLogin"].(bool); !ok || !got {
 		t.Fatalf("usePopupLogin = %#v, want true", payload["usePopupLogin"])
 	}
+	if got, ok := payload["redirectSameTab"].(bool); !ok || got {
+		t.Fatalf("redirectSameTab = %#v, want false", payload["redirectSameTab"])
+	}
 	if got := payload["configURL"]; got != "idp_viant.enc|blowfish://default" {
 		t.Fatalf("configURL = %#v, want encrypted config URL", got)
 	}
@@ -63,6 +66,9 @@ func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	}
 	if got, ok := payload["usePopupLogin"].(bool); !ok || !got {
 		t.Fatalf("usePopupLogin = %#v, want true", payload["usePopupLogin"])
+	}
+	if got, ok := payload["redirectSameTab"].(bool); !ok || got {
+		t.Fatalf("redirectSameTab = %#v, want false", payload["redirectSameTab"])
 	}
 	if got := payload["clientId"]; got != "client-id" {
 		t.Fatalf("clientId = %#v, want client-id", got)

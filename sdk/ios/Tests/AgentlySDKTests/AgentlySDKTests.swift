@@ -192,6 +192,73 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshot.bufferedMessages.first?.linkedConversationID, "linked-1")
     }
 
+    func testConversationStreamTrackerIgnoresEventsFromDifferentConversation() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-1"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"assistant_final","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"First conversation","status":"completed"}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"assistant_final","conversationId":"conv-2","turnId":"turn-9","assistantMessageId":"msg-9","content":"Wrong conversation","status":"completed"}"#))
+
+        XCTAssertEqual(snapshot.conversationID, "conv-1")
+        XCTAssertEqual(snapshot.bufferedMessages.count, 1)
+        XCTAssertEqual(snapshot.bufferedMessages.first?.id, "msg-1")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.content, "First conversation")
+    }
+
+    func testGetTranscriptUsesExpectedPathAndQuery() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "transcript request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/v1/conversations/conv-1/transcript")
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let items = components.queryItems ?? []
+
+            func value(for name: String) -> String? {
+                items.first(where: { $0.name == name })?.value
+            }
+
+            XCTAssertEqual(value(for: "includeModelCalls"), "1")
+            XCTAssertEqual(value(for: "includeToolCalls"), "1")
+            XCTAssertEqual(value(for: "includeFeeds"), "1")
+            XCTAssertNil(value(for: "conversationId"))
+            expectation.fulfill()
+
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = """
+            {
+              "conversation": {
+                "conversationId": "conv-1",
+                "turns": []
+              }
+            }
+            """.data(using: .utf8)!
+            return (response, data)
+        }
+
+        _ = try await client.getTranscript(
+            GetTranscriptInput(
+                conversationID: "conv-1",
+                includeModelCalls: true,
+                includeToolCalls: true,
+                includeFeeds: true
+            )
+        )
+
+        await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testQueryInputEncodesAndroidWebParityFields() throws {
         let input = QueryInput(
             conversationID: "conv-1",

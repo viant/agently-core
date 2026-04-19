@@ -1157,6 +1157,24 @@ func TestService_Run_ExternalDirectoryEntry_NeverFallsBackToLocal(t *testing.T) 
 	})
 }
 
+func TestService_Status_ExternalConversationIDFailsExplicitly(t *testing.T) {
+	ctx := context.Background()
+	s := New(nil,
+		WithDirectoryProvider(func() []ListItem {
+			return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+		}),
+		WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
+			return "remote-answer", "completed", "task-1", "ctx-1", false, nil, nil
+		}),
+	)
+	s.conv = convmem.New()
+
+	var out StatusOutput
+	err := s.statusMethod(ctx, &StatusInput{ConversationID: "external-child-1"}, &out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm/agents:status unsupported for external agent conversations")
+}
+
 func TestService_Run_Strict_AllowsInternalNotListedInDirectory(t *testing.T) {
 	ctx := context.Background()
 	in := &RunInput{AgentID: "internal-only", Objective: "do work"}
@@ -1541,4 +1559,29 @@ func TestService_Start_StatusToolNameFormat(t *testing.T) {
 	}
 
 	assert.False(t, foundStart, "async start should not create a separate status message row; the compact tool-op payload is now the only child-launch status surface")
+}
+
+func TestService_Start_PreservesExternalRunnerOutput(t *testing.T) {
+	ctx := context.Background()
+	s := New(nil,
+		WithDirectoryProvider(func() []ListItem {
+			return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+		}),
+		WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
+			return "remote-answer", "completed", "task-1", "ctx-1", true, []string{"warn-1"}, nil
+		}),
+	)
+	s.agent = &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{}},
+	}
+
+	var out StartOutput
+	err := s.start(ctx, &StartInput{AgentID: "guardian", Objective: "diagnose"}, &out)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", out.Status)
+	assert.Equal(t, "remote-answer", out.AssistantResponse)
+	assert.Equal(t, "task-1", out.TaskID)
+	assert.Equal(t, "ctx-1", out.ContextID)
+	assert.True(t, out.StreamSupported)
+	assert.Equal(t, []string{"warn-1"}, out.Warnings)
 }

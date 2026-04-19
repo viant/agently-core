@@ -179,6 +179,13 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 			return ""
 		}(),
 	})
+	activeReq := req
+	if continuationRequest != nil {
+		activeReq = continuationRequest
+	}
+	if activeReq != nil && activeReq.Options != nil && strings.TrimSpace(activeReq.Options.Mode) != "" {
+		ctx = runtimerequestctx.WithRequestMode(ctx, strings.TrimSpace(activeReq.Options.Mode))
+	}
 
 	// Retry starting stream up to 3 attempts. Consult provider-specific
 	// BackoffAdvisor (e.g., Bedrock ThrottlingException -> 30s) when available.
@@ -187,10 +194,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	const maxStreamAttempts = 3
 	var streamCh <-chan llm.StreamEvent
 	for attempt := 0; attempt < maxStreamAttempts; attempt++ {
-		llmRequest := req
-		if continuationRequest != nil {
-			llmRequest = continuationRequest
-		}
+		llmRequest := activeReq
 
 		// Phase 1: establish provider stream for this attempt.
 		streamCh, err = streamer.Stream(ctx, llmRequest)

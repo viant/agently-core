@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
@@ -34,6 +35,18 @@ type Service struct {
 	oauthAuthz      oauthAuthorizer
 	leaseOwner      string
 	leaseTTL        time.Duration
+
+	// runDueMu guards against overlapping RunDue invocations driven by the
+	// watchdog ticker. Overlaps are possible when a single RunDue pass takes
+	// longer than the ticker interval; when that happens the next tick skips
+	// entirely rather than racing the in-flight pass on schedule claims.
+	runDueMu sync.Mutex
+
+	// execSem caps the number of in-flight executeRun goroutines. Nil (the
+	// zero-value when no concurrency option is set) means "unbounded" and
+	// preserves historical behaviour; a non-nil buffered channel acts as a
+	// counting semaphore. Installed by WithMaxConcurrentRuns.
+	execSem chan struct{}
 }
 
 const (
@@ -42,6 +55,12 @@ const (
 	staleRunGrace          = 15 * time.Second
 	runLeaseCallTimeout    = 5 * time.Second
 	minRunHeartbeatEvery   = 3 * time.Second
+	// schedulerCleanupTimeout caps the context used by post-run cleanup
+	// writes (PatchRuns, annotateConversation, patchScheduleResult,
+	// releaseRunLease). Without this, a slow or unresponsive store would
+	// block process shutdown indefinitely since cleanup historically used
+	// context.Background().
+	schedulerCleanupTimeout = 30 * time.Second
 )
 
 // Option customizes the scheduler service.
@@ -66,6 +85,20 @@ func New(store Store, agent *agentsvc.Service, opts ...Option) *Service {
 // WithInterval sets the watchdog polling interval.
 func WithInterval(d time.Duration) Option {
 	return func(s *Service) { s.interval = d }
+}
+
+// WithMaxConcurrentRuns caps the number of in-flight executeRun goroutines.
+// A value <= 0 disables the cap (unbounded fan-out) and matches historical
+// behaviour. When the cap is reached, new enqueueAndLaunch calls block until
+// an existing run finishes.
+func WithMaxConcurrentRuns(n int) Option {
+	return func(s *Service) {
+		if n <= 0 {
+			s.execSem = nil
+			return
+		}
+		s.execSem = make(chan struct{}, n)
+	}
 }
 
 // WithConversationClient sets the conversation client used to annotate scheduled conversations.
