@@ -37,6 +37,8 @@ type ConversationPage struct {
 	NextCursor string
 	PrevCursor string
 	HasMore    bool
+	HasOlder   bool
+	HasNewer   bool
 }
 
 type MessagePage struct {
@@ -94,7 +96,7 @@ func buildMessagePageSelector(limit int) Option {
 	})
 }
 
-func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int) *ConversationPage {
+func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int, direction Direction, cursor string) *ConversationPage {
 	page := &ConversationPage{Rows: rows}
 	if len(rows) > limit {
 		page.HasMore = true
@@ -104,6 +106,35 @@ func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int) *
 		page.PrevCursor = page.Rows[0].Id
 		page.NextCursor = page.Rows[len(page.Rows)-1].Id
 	}
+	hasCursor := strings.TrimSpace(cursor) != "" && len(page.Rows) > 0
+	switch direction {
+	case DirectionAfter:
+		page.HasNewer = page.HasMore
+		page.HasOlder = hasCursor
+	case DirectionLatest:
+		page.HasOlder = page.HasMore
+	default:
+		page.HasOlder = page.HasMore
+		page.HasNewer = hasCursor
+	}
+	return page
+}
+
+func buildConversationAfterPage(rows []*agconvlist.ConversationRowsView, limit int, cursor string) *ConversationPage {
+	page := &ConversationPage{}
+	if len(rows) > limit {
+		page.HasMore = true
+		rows = rows[:limit]
+	}
+	sortConversationRows(rows)
+	page.Rows = rows
+	if len(page.Rows) > 0 {
+		page.PrevCursor = page.Rows[0].Id
+		page.NextCursor = page.Rows[len(page.Rows)-1].Id
+	}
+	hasCursor := strings.TrimSpace(cursor) != "" && len(page.Rows) > 0
+	page.HasNewer = page.HasMore
+	page.HasOlder = hasCursor
 	return page
 }
 
@@ -234,24 +265,23 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 		input.ExcludeChildren = true
 		input.Has.ExcludeChildren = true
 	}
-	rows, err := s.queryConversationRows(ctx, &input, limit+1, callOpts)
+	rows, err := s.queryConversationRows(ctx, &input, limit+1, direction, callOpts)
 	if err != nil {
 		return nil, err
 	}
-	sortConversationRows(rows)
-	result := buildConversationPage(rows, limit)
 	if direction == DirectionAfter {
-		sortConversationRows(result.Rows)
+		return buildConversationAfterPage(rows, limit, cursor), nil
 	}
-	return result, nil
+	sortConversationRows(rows)
+	return buildConversationPage(rows, limit, direction, cursor), nil
 }
 
-func (s *datlyService) queryConversationRows(ctx context.Context, input *agconvlist.ConversationRowsInput, limit int, callOpts *options) ([]*agconvlist.ConversationRowsView, error) {
+func (s *datlyService) queryConversationRows(ctx context.Context, input *agconvlist.ConversationRowsInput, limit int, direction Direction, callOpts *options) ([]*agconvlist.ConversationRowsView, error) {
 	db, err := s.db()
 	if err != nil {
 		return nil, err
 	}
-	query, args := buildConversationRowsQuery(input, limit, callOpts)
+	query, args := buildConversationRowsQuery(input, limit, direction, callOpts)
 	sqlRows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -272,9 +302,11 @@ func (s *datlyService) queryConversationRows(ctx context.Context, input *agconvl
 	return rows, nil
 }
 
-func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit int, callOpts *options) (string, []interface{}) {
+func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit int, direction Direction, callOpts *options) (string, []interface{}) {
 	var builder strings.Builder
 	latestTurnStatusExpr := `(SELECT LOWER(COALESCE(t.status, '')) FROM turn t WHERE t.conversation_id = c.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1)`
+	orderExpr := "COALESCE(c.last_activity, c.updated_at, c.created_at)"
+	cursorOrderExpr := "COALESCE(x.last_activity, x.updated_at, x.created_at)"
 	builder.WriteString(`SELECT
 		(SELECT id FROM turn t WHERE t.conversation_id = c.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS last_turn_id,
 		CASE
@@ -380,7 +412,7 @@ func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit i
 			builder.WriteString(` AND EXISTS (
 				SELECT 1 FROM conversation x
 				WHERE x.id = ?
-				  AND (c.created_at < x.created_at OR (c.created_at = x.created_at AND c.id < x.id))
+				  AND (` + orderExpr + ` < ` + cursorOrderExpr + ` OR (` + orderExpr + ` = ` + cursorOrderExpr + ` AND c.id < x.id))
 			)`)
 			args = append(args, strings.TrimSpace(input.CursorBefore))
 		}
@@ -388,13 +420,17 @@ func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit i
 			builder.WriteString(` AND EXISTS (
 				SELECT 1 FROM conversation x
 				WHERE x.id = ?
-				  AND (c.created_at > x.created_at OR (c.created_at = x.created_at AND c.id > x.id))
+				  AND (` + orderExpr + ` > ` + cursorOrderExpr + ` OR (` + orderExpr + ` = ` + cursorOrderExpr + ` AND c.id > x.id))
 			)`)
 			args = append(args, strings.TrimSpace(input.CursorAfter))
 		}
 	}
 
-	builder.WriteString(" ORDER BY COALESCE(c.last_activity, c.updated_at, c.created_at) DESC, c.id DESC")
+	if direction == DirectionAfter {
+		builder.WriteString(" ORDER BY " + orderExpr + " ASC, c.id ASC")
+	} else {
+		builder.WriteString(" ORDER BY " + orderExpr + " DESC, c.id DESC")
+	}
 	if limit > 0 {
 		builder.WriteString(" LIMIT ?")
 		args = append(args, limit)

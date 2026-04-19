@@ -1152,6 +1152,8 @@ describe('listConversations prevCursor', () => {
             HasMore: true,
             NextCursor: 'next_1',
             PrevCursor: 'prev_1',
+            HasOlder: true,
+            HasNewer: false,
         });
         const c = client(f);
         const res = await c.listConversations();
@@ -1159,6 +1161,8 @@ describe('listConversations prevCursor', () => {
         expect(res.page?.cursor).toBe('next_1');
         expect(res.page?.prevCursor).toBe('prev_1');
         expect(res.page?.hasMore).toBe(true);
+        expect(res.page?.hasOlder).toBe(true);
+        expect(res.page?.hasNewer).toBe(false);
     });
 });
 

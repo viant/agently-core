@@ -1144,18 +1144,22 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 
 	t.Run("conversation list", func(t *testing.T) {
 		cases := []struct {
-			name     string
-			input    *agconvlist.ConversationRowsInput
-			page     *PageInput
-			wantIDs  []string
-			wantMore bool
+			name      string
+			input     *agconvlist.ConversationRowsInput
+			page      *PageInput
+			wantIDs   []string
+			wantMore  bool
+			wantOlder bool
+			wantNewer bool
 		}{
 			{
-				name:     "first page latest",
-				input:    &agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}},
-				page:     &PageInput{Limit: 1, Direction: DirectionLatest},
-				wantIDs:  []string{"c-page-2"},
-				wantMore: true,
+				name:      "first page latest",
+				input:     &agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}},
+				page:      &PageInput{Limit: 1, Direction: DirectionLatest},
+				wantIDs:   []string{"c-page-2"},
+				wantMore:  true,
+				wantOlder: true,
+				wantNewer: false,
 			},
 			{
 				name: "filter by agent",
@@ -1163,24 +1167,30 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 					AgentId: "agent-1",
 					Has:     &agconvlist.ConversationRowsInputHas{AgentId: true},
 				},
-				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
-				wantIDs: []string{"c-page-2", "c-page-1"},
+				page:      &PageInput{Limit: 10, Direction: DirectionLatest},
+				wantIDs:   []string{"c-page-2", "c-page-1"},
+				wantOlder: false,
+				wantNewer: false,
 			},
 			{
 				name: "cursor before",
 				input: &agconvlist.ConversationRowsInput{
 					Has: &agconvlist.ConversationRowsInputHas{},
 				},
-				page:    &PageInput{Limit: 10, Direction: DirectionBefore, Cursor: "c-page-2"},
-				wantIDs: []string{"c-page-1"},
+				page:      &PageInput{Limit: 10, Direction: DirectionBefore, Cursor: "c-page-2"},
+				wantIDs:   []string{"c-page-1"},
+				wantOlder: false,
+				wantNewer: true,
 			},
 			{
 				name: "cursor after",
 				input: &agconvlist.ConversationRowsInput{
 					Has: &agconvlist.ConversationRowsInputHas{},
 				},
-				page:    &PageInput{Limit: 10, Direction: DirectionAfter, Cursor: "c-page-1"},
-				wantIDs: []string{"c-page-2"},
+				page:      &PageInput{Limit: 10, Direction: DirectionAfter, Cursor: "c-page-1"},
+				wantIDs:   []string{"c-page-2"},
+				wantOlder: true,
+				wantNewer: false,
 			},
 			{
 				name: "filter by status",
@@ -1188,8 +1198,10 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 					StatusFilter: "active",
 					Has:          &agconvlist.ConversationRowsInputHas{StatusFilter: true},
 				},
-				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
-				wantIDs: []string{"c-page-2", "c-page-1"},
+				page:      &PageInput{Limit: 10, Direction: DirectionLatest},
+				wantIDs:   []string{"c-page-2", "c-page-1"},
+				wantOlder: false,
+				wantNewer: false,
 			},
 			{
 				name: "filter by query",
@@ -1197,8 +1209,10 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 					Query: "c-page-1",
 					Has:   &agconvlist.ConversationRowsInputHas{Query: true},
 				},
-				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
-				wantIDs: []string{"c-page-1"},
+				page:      &PageInput{Limit: 10, Direction: DirectionLatest},
+				wantIDs:   []string{"c-page-1"},
+				wantOlder: false,
+				wantNewer: false,
 			},
 		}
 		for _, tc := range cases {
@@ -1217,6 +1231,12 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 				assertIDs(t, got, tc.wantIDs)
 				if page.HasMore != tc.wantMore {
 					t.Fatalf("unexpected hasMore: got=%v want=%v", page.HasMore, tc.wantMore)
+				}
+				if page.HasOlder != tc.wantOlder {
+					t.Fatalf("unexpected hasOlder: got=%v want=%v", page.HasOlder, tc.wantOlder)
+				}
+				if page.HasNewer != tc.wantNewer {
+					t.Fatalf("unexpected hasNewer: got=%v want=%v", page.HasNewer, tc.wantNewer)
 				}
 			})
 		}
