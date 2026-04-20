@@ -101,9 +101,13 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 					return nil
 				}
 				if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !sess.Tokens.Valid() {
+					if !sess.TransientRefreshRetryAt.IsZero() && time.Now().Before(sess.TransientRefreshRetryAt) {
+						return nil
+					}
 					refreshCtx := context.Background()
 					if refreshed := r.tryRefreshToken(refreshCtx, sess); refreshed != nil {
 						sess.Tokens = refreshed
+						sess.TransientRefreshRetryAt = time.Time{}
 					} else {
 						if sess.Tokens == nil {
 							log.Printf("[auth] token expired and refresh failed permanently, invalidating session user=%q", sess.Subject)

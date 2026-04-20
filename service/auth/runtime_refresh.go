@@ -24,6 +24,8 @@ var runtimeWorkerID = func() string {
 	return fmt.Sprintf("%s:%d", host, os.Getpid())
 }()
 
+const transientRefreshRetryWindow = 30 * time.Second
+
 func (r *Runtime) ensureSessionOAuthTokens(ctx context.Context, sess *Session) bool {
 	if sess == nil {
 		return false
@@ -133,6 +135,8 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 			return nil
 		}
 		logx.Warnf("token-refresh", "transient refresh failure user=%q err=%v", username, err)
+		sess.TransientRefreshRetryAt = time.Now().Add(transientRefreshRetryWindow)
+		r.sessions.Put(ctx, sess)
 		return nil
 	}
 	if refreshed.RefreshToken == "" {
@@ -142,6 +146,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	refreshedIDToken := refreshedOAuthIDToken(refreshed, previousIDToken)
 	result := &scyauth.Token{Token: *refreshed, IDToken: refreshedIDToken}
 	sess.Tokens = result
+	sess.TransientRefreshRetryAt = time.Time{}
 	sess.Provider = provider
 	r.sessions.Put(ctx, sess)
 	if tokenStore != nil {
