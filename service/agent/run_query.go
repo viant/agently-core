@@ -672,7 +672,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				continue
 			}
 			logx.Infof("conversation", "agent.runPlan async-wait-pre-model convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
-			if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
+			if err := s.asyncManager.WaitForChange(ctx, turn.ConversationID, turn.TurnID); err != nil {
 				return err
 			}
 			queryOutput.Content = ""
@@ -819,14 +819,10 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 			if len(changedOps) > 0 {
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
-				if s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
-					logx.Infof("conversation", "agent.runPlan async-wait-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
-					if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
-						return err
-					}
-					changedOps = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
-				} else {
+				if !s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
 					logx.Infof("conversation", "agent.runPlan async-terminal-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+				} else {
+					logx.Infof("conversation", "agent.runPlan async-wait-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				}
 				queryOutput.Content = ""
 				continue
@@ -898,10 +894,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
 				logx.Infof("conversation", "agent.runPlan async-wait-terminal convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
-				if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
-					return err
-				}
-				_ = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 				queryOutput.Content = ""
 				continue
 			}
