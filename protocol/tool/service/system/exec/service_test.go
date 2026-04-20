@@ -3,12 +3,16 @@ package exec
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/viant/afs"
 	"github.com/viant/agently-core/internal/textutil"
+	"github.com/viant/agently-core/workspace"
 )
 
 func TestServiceExecuteReturnsErrorForNonZeroExit(t *testing.T) {
@@ -241,6 +245,36 @@ func TestServiceExecute_StreamCombinedAndStderr(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, "stderr", stderrOnly.Stream)
 	require.Contains(t, stderrOnly.Content, "err")
+}
+
+func TestServiceExecute_IncludesLocalHomeEnv(t *testing.T) {
+	svc := New()
+	out := &Output{}
+
+	err := svc.Execute(context.Background(), &Input{
+		Commands: []string{"printf \"$HOME\""},
+	}, out)
+	require.NoError(t, err)
+	require.NotEmpty(t, strings.TrimSpace(out.Stdout))
+}
+
+func TestServiceExecute_PrependsWorkspaceBinToPath(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	workspace.SetRoot(root)
+	workspace.EnsureDefault(afs.New())
+
+	svc := New()
+	out := &Output{}
+	err := svc.Execute(context.Background(), &Input{
+		Commands: []string{"command -v playwright-cli"},
+	}, out)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "bin", "playwright-cli"), strings.TrimSpace(out.Stdout))
+
+	info, err := os.Stat(filepath.Join(root, "bin", "playwright-cli"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 }
 
 func intRange(from, to int) *textutil.IntRange {

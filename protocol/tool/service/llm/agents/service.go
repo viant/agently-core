@@ -21,7 +21,7 @@ import (
 	agentsvc "github.com/viant/agently-core/service/agent"
 	linksvc "github.com/viant/agently-core/service/linking"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
-	statussvc "github.com/viant/agently-core/service/toolstatus"
+	statussvc "github.com/viant/agently-core/service/tool/status"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 )
 
@@ -171,20 +171,24 @@ func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
 func (s *Service) AsyncConfigs() []*asynccfg.Config {
 	return []*asynccfg.Config{
 		{
-			WaitForResponse: false,
-			TimeoutMs:       int((5 * time.Minute) / time.Millisecond),
-			PollIntervalMs:  int((2 * time.Second) / time.Millisecond),
+			DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
+			TimeoutMs:            int((5 * time.Minute) / time.Millisecond),
+			PollIntervalMs:       int((2 * time.Second) / time.Millisecond),
+			Narration:            "llm",
 			Run: asynccfg.RunConfig{
-				Tool:            "llm/agents:start",
-				OperationIDPath: "conversationId",
-				Selector:        &asynccfg.Selector{StatusPath: "status"},
+				Tool:              "llm/agents:start",
+				OperationIDPath:   "conversationId",
+				ExecutionModePath: "executionMode",
+				IntentPath:        "objective",
+				SummaryPaths:      []string{"agentId", "context.workdir", "context.resolvedWorkdir", "promptProfileId", "templateId"},
+				Selector:          &asynccfg.Selector{StatusPath: "status"},
 			},
 			Status: asynccfg.StatusConfig{
 				Tool:           "llm/agents:status",
 				OperationIDArg: "conversationId",
 				Selector: asynccfg.Selector{
 					StatusPath:  "status",
-					MessagePath: "assistantResponse",
+					MessagePath: "message",
 				},
 			},
 			Cancel: &asynccfg.CancelConfig{

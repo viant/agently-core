@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	scyauth "github.com/viant/scy/auth"
@@ -102,5 +103,56 @@ func TestRuntimeProtect_MixedLocalAndOAuthAcceptsLocalSessionCookie(t *testing.T
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T) {
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			OAuth:      &OAuth{Mode: "bff"},
+		},
+		sessions: NewManager(0, nil),
+		ext: &authExtension{
+			cfg: &Config{
+				Enabled:    true,
+				CookieName: "agently_session",
+				OAuth: &OAuth{
+					Mode: "bff",
+				},
+			},
+		},
+	}
+
+	tokens := &scyauth.Token{}
+	tokens.Token.AccessToken = "expired-access"
+	tokens.Token.RefreshToken = "refresh-token"
+	tokens.Token.Expiry = time.Now().Add(-1 * time.Minute)
+
+	rt.sessions.Put(nil, &Session{
+		ID:       "sess-expired",
+		Username: "awitas_viant_devtest",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+		Tokens:   tokens,
+	})
+
+	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-expired"})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+	if got := rt.sessions.Get(context.Background(), "sess-expired"); got == nil {
+		t.Fatalf("expected session to be preserved after transient refresh failure")
 	}
 }

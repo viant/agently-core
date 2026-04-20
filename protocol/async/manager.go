@@ -22,10 +22,9 @@ const (
 )
 
 const (
-	DefaultMaxReinforcementsPerOperation = 10
-	DefaultMinIntervalBetweenMs          = 30000
-	DefaultPercentSignalThreshold        = 5
-	DefaultMaxPollFailures               = 3
+	DefaultPercentSignalThreshold = 5
+	DefaultMaxPollFailures        = 3
+	DefaultIdleTimeoutMs          = int((10 * time.Minute) / time.Millisecond)
 )
 
 type OperationRecord struct {
@@ -40,7 +39,9 @@ type OperationRecord struct {
 	CancelToolName      string
 	RequestArgsDigest   string
 	RequestArgs         map[string]interface{}
-	WaitForResponse     bool
+	OperationIntent     string
+	OperationSummary    string
+	ExecutionMode       string
 	State               State
 	Status              string
 	Message             string
@@ -50,22 +51,14 @@ type OperationRecord struct {
 	Error               string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	LastPayloadChangeAt time.Time
 	TimeoutAt           *time.Time
 	TimeoutMs           int
+	IdleTimeoutMs       int
 	PollIntervalMs      int
 	PollFailures        int
-	// Instruction is per-operation guidance for non-terminal state, surfaced in
-	// the centralized batch reinforcement template.
-	Instruction string
-	// TerminalInstruction is per-operation guidance once the operation reaches a
-	// terminal state, surfaced in the centralized batch reinforcement template.
-	TerminalInstruction           string
-	MaxReinforcementsPerOperation int
-	MinIntervalBetweenMs          int
-	ReinforcementCount            int
-	LastReinforcementAt           *time.Time
-	changeDigest                  string
-	pendingChange                 bool
+	changeDigest        string
+	pendingChange       bool
 }
 
 func (r *OperationRecord) Terminal() bool {
@@ -81,29 +74,67 @@ func (r *OperationRecord) Terminal() bool {
 }
 
 type RegisterInput struct {
-	ID                            string
-	ParentConvID                  string
-	ParentTurnID                  string
-	ToolCallID                    string
-	ToolMessageID                 string
-	ToolName                      string
-	StatusToolName                string
-	StatusArgs                    map[string]interface{}
-	CancelToolName                string
-	RequestArgsDigest             string
-	RequestArgs                   map[string]interface{}
-	WaitForResponse               bool
-	Status                        string
-	Message                       string
-	Percent                       *int
-	KeyData                       json.RawMessage
-	Error                         string
-	TimeoutMs                     int
-	PollIntervalMs                int
-	Instruction                   string
-	TerminalInstruction           string
-	MaxReinforcementsPerOperation int
-	MinIntervalBetweenMs          int
+	ID                string
+	ParentConvID      string
+	ParentTurnID      string
+	ToolCallID        string
+	ToolMessageID     string
+	ToolName          string
+	StatusToolName    string
+	StatusArgs        map[string]interface{}
+	CancelToolName    string
+	RequestArgsDigest string
+	RequestArgs       map[string]interface{}
+	OperationIntent   string
+	OperationSummary  string
+	ExecutionMode     string
+	Status            string
+	Message           string
+	Percent           *int
+	KeyData           json.RawMessage
+	Error             string
+	TimeoutMs         int
+	IdleTimeoutMs     int
+	PollIntervalMs    int
+}
+
+type ChangeEvent struct {
+	OperationID  string          `json:"operationId,omitempty"`
+	PriorDigest  string          `json:"priorDigest,omitempty"`
+	NewDigest    string          `json:"newDigest,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	Message      string          `json:"message,omitempty"`
+	Percent      *int            `json:"percent,omitempty"`
+	KeyData      json.RawMessage `json:"keyData,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	State        State           `json:"state,omitempty"`
+	ChangedAt    time.Time       `json:"changedAt,omitempty"`
+	ToolName     string          `json:"toolName,omitempty"`
+	Intent       string          `json:"intent,omitempty"`
+	Summary      string          `json:"summary,omitempty"`
+	Conversation string          `json:"conversationId,omitempty"`
+	TurnID       string          `json:"turnId,omitempty"`
+}
+
+type AggregatedItem struct {
+	OperationID      string          `json:"operationId,omitempty"`
+	ToolName         string          `json:"toolName,omitempty"`
+	OperationIntent  string          `json:"operationIntent,omitempty"`
+	OperationSummary string          `json:"operationSummary,omitempty"`
+	State            State           `json:"state,omitempty"`
+	Reason           string          `json:"reason,omitempty"`
+	Detail           string          `json:"detail,omitempty"`
+	Payload          json.RawMessage `json:"payload,omitempty"`
+}
+
+type AggregatedResult struct {
+	Items          []AggregatedItem `json:"items,omitempty"`
+	OpsStillActive bool             `json:"opsStillActive,omitempty"`
+}
+
+type changeSubscription struct {
+	targets map[string]struct{}
+	ch      chan ChangeEvent
 }
 
 type UpdateInput struct {
@@ -122,6 +153,8 @@ type Manager struct {
 	pollers       map[string]struct{}
 	pollerCancels map[string]context.CancelFunc
 	waiters       map[string][]chan struct{}
+	subscriptions map[uint64]*changeSubscription
+	nextSubID     uint64
 }
 
 func NewManager() *Manager {
@@ -130,6 +163,7 @@ func NewManager() *Manager {
 		pollers:       map[string]struct{}{},
 		pollerCancels: map[string]context.CancelFunc{},
 		waiters:       map[string][]chan struct{}{},
+		subscriptions: map[uint64]*changeSubscription{},
 	}
 }
 
@@ -208,37 +242,40 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) *OperationRec
 	defer m.mu.Unlock()
 	now := time.Now()
 	rec := &OperationRecord{
-		ID:                            strings.TrimSpace(input.ID),
-		ParentConvID:                  strings.TrimSpace(input.ParentConvID),
-		ParentTurnID:                  strings.TrimSpace(input.ParentTurnID),
-		ToolCallID:                    strings.TrimSpace(input.ToolCallID),
-		ToolMessageID:                 strings.TrimSpace(input.ToolMessageID),
-		ToolName:                      strings.TrimSpace(input.ToolName),
-		StatusToolName:                strings.TrimSpace(input.StatusToolName),
-		StatusArgs:                    cloneMap(input.StatusArgs),
-		CancelToolName:                strings.TrimSpace(input.CancelToolName),
-		RequestArgsDigest:             strings.TrimSpace(input.RequestArgsDigest),
-		RequestArgs:                   cloneMap(input.RequestArgs),
-		WaitForResponse:               input.WaitForResponse,
-		Status:                        strings.TrimSpace(input.Status),
-		Message:                       strings.TrimSpace(input.Message),
-		Percent:                       cloneIntPtr(input.Percent),
-		LastSignaledPercent:           cloneIntPtr(input.Percent),
-		KeyData:                       cloneJSON(input.KeyData),
-		Error:                         strings.TrimSpace(input.Error),
-		CreatedAt:                     now,
-		UpdatedAt:                     now,
-		TimeoutMs:                     input.TimeoutMs,
-		PollIntervalMs:                input.PollIntervalMs,
-		MaxReinforcementsPerOperation: input.MaxReinforcementsPerOperation,
-		MinIntervalBetweenMs:          input.MinIntervalBetweenMs,
-		Instruction:                   strings.TrimSpace(input.Instruction),
-		TerminalInstruction:           strings.TrimSpace(input.TerminalInstruction),
-		pendingChange:                 true,
+		ID:                  strings.TrimSpace(input.ID),
+		ParentConvID:        strings.TrimSpace(input.ParentConvID),
+		ParentTurnID:        strings.TrimSpace(input.ParentTurnID),
+		ToolCallID:          strings.TrimSpace(input.ToolCallID),
+		ToolMessageID:       strings.TrimSpace(input.ToolMessageID),
+		ToolName:            strings.TrimSpace(input.ToolName),
+		StatusToolName:      strings.TrimSpace(input.StatusToolName),
+		StatusArgs:          cloneMap(input.StatusArgs),
+		CancelToolName:      strings.TrimSpace(input.CancelToolName),
+		RequestArgsDigest:   strings.TrimSpace(input.RequestArgsDigest),
+		RequestArgs:         cloneMap(input.RequestArgs),
+		OperationIntent:     strings.TrimSpace(input.OperationIntent),
+		OperationSummary:    strings.TrimSpace(input.OperationSummary),
+		ExecutionMode:       NormalizeExecutionMode(input.ExecutionMode, string(ExecutionModeWait)),
+		Status:              strings.TrimSpace(input.Status),
+		Message:             strings.TrimSpace(input.Message),
+		Percent:             cloneIntPtr(input.Percent),
+		LastSignaledPercent: cloneIntPtr(input.Percent),
+		KeyData:             cloneJSON(input.KeyData),
+		Error:               strings.TrimSpace(input.Error),
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		LastPayloadChangeAt: now,
+		TimeoutMs:           input.TimeoutMs,
+		IdleTimeoutMs:       input.IdleTimeoutMs,
+		PollIntervalMs:      input.PollIntervalMs,
+		pendingChange:       true,
 	}
 	if input.TimeoutMs > 0 {
 		timeoutAt := now.Add(time.Duration(input.TimeoutMs) * time.Millisecond)
 		rec.TimeoutAt = &timeoutAt
+	}
+	if rec.IdleTimeoutMs <= 0 {
+		rec.IdleTimeoutMs = DefaultIdleTimeoutMs
 	}
 	rec.State = DeriveState(rec.Status, input.Error, "")
 	rec.changeDigest = changeDigest(rec.Status, rec.Message, rec.State, rec.KeyData)
@@ -304,12 +341,15 @@ func (m *Manager) Update(_ context.Context, input UpdateInput) (*OperationRecord
 			rec.LastSignaledPercent = cloneIntPtr(rec.Percent)
 		}
 		if meaningfulSignal {
+			priorDigest := rec.changeDigest
 			rec.changeDigest = nextDigest
 			if rec.LastSignaledPercent == nil && rec.Percent != nil {
 				rec.LastSignaledPercent = cloneIntPtr(rec.Percent)
 			}
+			rec.LastPayloadChangeAt = rec.UpdatedAt
 			rec.pendingChange = true
 			m.signalLocked(turnKey(rec.ParentConvID, rec.ParentTurnID))
+			m.publishChangeLocked(rec, priorDigest, nextDigest)
 		}
 		if errorChanged && !stateChanged {
 			rec.Error = strings.TrimSpace(input.Error)
@@ -348,7 +388,7 @@ func (m *Manager) OperationsForTurn(_ context.Context, convID, turnID string) []
 
 func (m *Manager) HasActiveWaitOps(ctx context.Context, convID, turnID string) bool {
 	for _, rec := range m.ActiveOps(ctx, convID, turnID) {
-		if rec.WaitForResponse {
+		if ExecutionModeWaits(rec.ExecutionMode) {
 			return true
 		}
 	}
@@ -362,7 +402,7 @@ func (m *Manager) ActiveWaitOps(ctx context.Context, convID, turnID string) []*O
 	}
 	result := make([]*OperationRecord, 0, len(ops))
 	for _, rec := range ops {
-		if rec == nil || !rec.WaitForResponse {
+		if rec == nil || !ExecutionModeWaits(rec.ExecutionMode) {
 			continue
 		}
 		result = append(result, rec)
@@ -459,7 +499,7 @@ func (m *Manager) FindActiveByRequest(_ context.Context, convID, turnID, toolNam
 		if rec == nil || rec.Terminal() {
 			continue
 		}
-		if !rec.WaitForResponse || turnKey(rec.ParentConvID, rec.ParentTurnID) != key {
+		if !ExecutionModeWaits(rec.ExecutionMode) || turnKey(rec.ParentConvID, rec.ParentTurnID) != key {
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(rec.ToolName), toolName) {
@@ -488,6 +528,71 @@ func (m *Manager) ConsumeChanged(convID, turnID string) []*OperationRecord {
 	return result
 }
 
+func (m *Manager) Subscribe(opIDs []string) <-chan ChangeEvent {
+	ch := make(chan ChangeEvent, 16)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	targets := make(map[string]struct{}, len(opIDs))
+	for _, opID := range opIDs {
+		if id := strings.TrimSpace(opID); id != "" {
+			targets[id] = struct{}{}
+		}
+	}
+	if len(targets) == 0 || m.allTargetsTerminalLocked(targets) {
+		close(ch)
+		return ch
+	}
+	m.nextSubID++
+	m.subscriptions[m.nextSubID] = &changeSubscription{
+		targets: targets,
+		ch:      ch,
+	}
+	return ch
+}
+
+func (m *Manager) AwaitTerminal(ctx context.Context, opIDs []string) <-chan AggregatedResult {
+	out := make(chan AggregatedResult, 1)
+	go func() {
+		defer close(out)
+		result, done, wait := m.evaluateAwait(opIDs)
+		if done {
+			out <- result
+			return
+		}
+		sub := m.Subscribe(opIDs)
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-sub:
+				if !ok {
+					result, done, _ = m.evaluateAwait(opIDs)
+					if done {
+						out <- result
+					}
+					return
+				}
+			case <-timer.C:
+			}
+			result, done, wait = m.evaluateAwait(opIDs)
+			if done {
+				out <- result
+				return
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(wait)
+		}
+	}()
+	return out
+}
+
 func cloneRecord(rec *OperationRecord) *OperationRecord {
 	if rec == nil {
 		return nil
@@ -498,11 +603,152 @@ func cloneRecord(rec *OperationRecord) *OperationRecord {
 	copyRec.KeyData = cloneJSON(rec.KeyData)
 	copyRec.RequestArgs = cloneMap(rec.RequestArgs)
 	copyRec.StatusArgs = cloneMap(rec.StatusArgs)
-	if rec.LastReinforcementAt != nil {
-		t := *rec.LastReinforcementAt
-		copyRec.LastReinforcementAt = &t
-	}
 	return &copyRec
+}
+
+func (m *Manager) allTargetsTerminalLocked(targets map[string]struct{}) bool {
+	if len(targets) == 0 {
+		return true
+	}
+	for opID := range targets {
+		rec := m.ops[opID]
+		if rec == nil || !rec.Terminal() {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *Manager) publishChangeLocked(rec *OperationRecord, priorDigest, newDigest string) {
+	if rec == nil || len(m.subscriptions) == 0 {
+		return
+	}
+	ev := ChangeEvent{
+		OperationID:  rec.ID,
+		PriorDigest:  priorDigest,
+		NewDigest:    newDigest,
+		Status:       rec.Status,
+		Message:      rec.Message,
+		Percent:      cloneIntPtr(rec.Percent),
+		KeyData:      cloneJSON(rec.KeyData),
+		Error:        rec.Error,
+		State:        rec.State,
+		ChangedAt:    rec.UpdatedAt,
+		ToolName:     rec.ToolName,
+		Intent:       rec.OperationIntent,
+		Summary:      rec.OperationSummary,
+		Conversation: rec.ParentConvID,
+		TurnID:       rec.ParentTurnID,
+	}
+	for id, sub := range m.subscriptions {
+		if sub == nil {
+			delete(m.subscriptions, id)
+			continue
+		}
+		if _, ok := sub.targets[rec.ID]; !ok {
+			continue
+		}
+		select {
+		case sub.ch <- ev:
+		default:
+		}
+		if m.allTargetsTerminalLocked(sub.targets) {
+			close(sub.ch)
+			delete(m.subscriptions, id)
+		}
+	}
+}
+
+func (m *Manager) evaluateAwait(opIDs []string) (AggregatedResult, bool, time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	result := AggregatedResult{}
+	done := true
+	nextWait := time.Duration(DefaultIdleTimeoutMs) * time.Millisecond
+	if nextWait <= 0 {
+		nextWait = time.Second
+	}
+
+	for _, opID := range opIDs {
+		id := strings.TrimSpace(opID)
+		if id == "" {
+			continue
+		}
+		rec := m.ops[id]
+		if rec == nil {
+			continue
+		}
+		item := AggregatedItem{
+			OperationID:      rec.ID,
+			ToolName:         rec.ToolName,
+			OperationIntent:  rec.OperationIntent,
+			OperationSummary: rec.OperationSummary,
+			State:            rec.State,
+			Detail:           rec.Message,
+			Payload:          cloneJSON(rec.KeyData),
+		}
+		if rec.Terminal() {
+			item.Reason = aggregatedReason(rec, false)
+		} else {
+			idleMs := rec.IdleTimeoutMs
+			if idleMs <= 0 {
+				idleMs = DefaultIdleTimeoutMs
+			}
+			idleAt := rec.LastPayloadChangeAt.Add(time.Duration(idleMs) * time.Millisecond)
+			if !idleAt.After(now) {
+				item.Reason = "running_idle"
+				result.OpsStillActive = true
+			} else {
+				done = false
+				wait := time.Until(idleAt)
+				if wait > 0 && wait < nextWait {
+					nextWait = wait
+				}
+				item.Reason = strings.TrimSpace(string(rec.State))
+				result.OpsStillActive = true
+			}
+		}
+		result.Items = append(result.Items, item)
+	}
+	if done {
+		return result, true, 0
+	}
+	if nextWait <= 0 {
+		nextWait = time.Millisecond
+	}
+	for _, item := range result.Items {
+		if item.Reason == "running_idle" {
+			return result, true, 0
+		}
+	}
+	return result, false, nextWait
+}
+
+func aggregatedReason(rec *OperationRecord, idle bool) string {
+	if rec == nil {
+		return ""
+	}
+	if idle {
+		return "running_idle"
+	}
+	switch rec.State {
+	case StateCompleted:
+		return "success"
+	case StateFailed:
+		return "failure"
+	case StateCanceled:
+		return "canceled"
+	case StateWaiting:
+		return "waiting"
+	case StateRunning:
+		return "running"
+	case StateStarted:
+		return "started"
+	default:
+		return strings.TrimSpace(string(rec.State))
+	}
 }
 
 func (m *Manager) RecordPollFailure(_ context.Context, id, errMsg string, transient bool) (*OperationRecord, bool) {
@@ -538,36 +784,6 @@ func (m *Manager) ResetPollFailures(_ context.Context, id string) (*OperationRec
 	}
 	rec.PollFailures = 0
 	rec.UpdatedAt = time.Now()
-	return cloneRecord(rec), true
-}
-
-func (m *Manager) TryRecordReinforcement(_ context.Context, id string) (*OperationRecord, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	rec := m.ops[strings.TrimSpace(id)]
-	if rec == nil {
-		return nil, false
-	}
-	now := time.Now()
-	if !rec.Terminal() {
-		max := rec.MaxReinforcementsPerOperation
-		if max <= 0 {
-			max = DefaultMaxReinforcementsPerOperation
-		}
-		if rec.ReinforcementCount >= max {
-			return cloneRecord(rec), false
-		}
-		minInterval := rec.MinIntervalBetweenMs
-		if minInterval <= 0 {
-			minInterval = DefaultMinIntervalBetweenMs
-		}
-		if rec.LastReinforcementAt != nil && now.Sub(*rec.LastReinforcementAt) < time.Duration(minInterval)*time.Millisecond {
-			return cloneRecord(rec), false
-		}
-	}
-	rec.ReinforcementCount++
-	rec.UpdatedAt = now
-	rec.LastReinforcementAt = &now
 	return cloneRecord(rec), true
 }
 

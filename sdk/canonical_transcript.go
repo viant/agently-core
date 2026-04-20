@@ -101,6 +101,12 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		// Extract assistant preamble and final from execution pages
 		ts.Assistant = extractAssistantState(pages)
 	}
+	if latestPreamble := latestTranscriptAssistantPreamble(turn.Message); latestPreamble != nil {
+		if ts.Assistant == nil {
+			ts.Assistant = &AssistantState{}
+		}
+		ts.Assistant.Preamble = latestPreamble
+	}
 
 	return ts
 }
@@ -191,11 +197,7 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 			if msg == nil {
 				continue
 			}
-			if isSummaryAssistantMessage(msg) {
-				continue
-			}
-			role := strings.ToLower(strings.TrimSpace(msg.Role))
-			if role != "assistant" || msg.Interim != 0 {
+			if !isPrimaryAssistantFinalMessage(msg) {
 				continue
 			}
 			content := visibleContentOrEmpty(msg.Content)
@@ -209,6 +211,22 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 		}
 	}
 	return pages
+}
+
+func isPrimaryAssistantFinalMessage(message *agconv.MessageView) bool {
+	if message == nil {
+		return false
+	}
+	if isSummaryAssistantMessage(message) {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(message.Role)) != "assistant" || message.Interim != 0 {
+		return false
+	}
+	if message.Mode != nil && strings.EqualFold(strings.TrimSpace(*message.Mode), "exec") {
+		return false
+	}
+	return true
 }
 
 func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.MessageView, indexed map[string][]*agconv.ToolMessageView) *ExecutionPageState {
@@ -234,6 +252,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	page.TurnID = stringValue(message.TurnId)
 	page.Iteration = iteration
 	page.Phase = strings.TrimSpace(stringValue(message.Phase))
+	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
 	if preamble := executionPreamble(message); preamble != "" {
 		page.Preamble = preamble
 	}
@@ -276,6 +295,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 		*existing = mergeToolStepState(existing, ts)
 	}
 	deriveExecutionPagePhase(page)
+	refreshExecutionRole(page)
 
 	// Set preamble/final message IDs
 	if page.Preamble != "" {
@@ -344,6 +364,7 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 	if mc.ModelCallStreamPayload != nil {
 		step.StreamPayload = marshalToRawJSON(mc.ModelCallStreamPayload)
 	}
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, "", "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
 	return step
 }
 
@@ -376,6 +397,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
 	}
 	attachTranscriptAsyncOperation(step)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, "", "", step.ToolName, step.RequestPayload, step.ResponsePayload)
 	return step
 }
 
@@ -406,6 +428,9 @@ func mergeToolStepState(existing, incoming *ToolStepState) ToolStepState {
 	}
 	if strings.TrimSpace(incoming.ToolName) != "" {
 		merged.ToolName = incoming.ToolName
+	}
+	if role := normalizeExecutionRole(incoming.ExecutionRole); role != "" {
+		merged.ExecutionRole = role
 	}
 	if toolStepStatusRank(incoming.Status) >= toolStepStatusRank(existing.Status) && strings.TrimSpace(incoming.Status) != "" {
 		merged.Status = incoming.Status
@@ -570,6 +595,34 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 		return nil
 	}
 	return as
+}
+
+func latestTranscriptAssistantPreamble(messages []*agconv.MessageView) *AssistantMessageState {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg == nil {
+			continue
+		}
+		if isSummaryAssistantMessage(msg) {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(msg.Role)) != "assistant" || msg.Interim == 0 {
+			continue
+		}
+		if text := strings.TrimSpace(ptrString(msg.Preamble)); text != "" {
+			return &AssistantMessageState{
+				MessageID: msg.Id,
+				Content:   text,
+			}
+		}
+		if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
+			return &AssistantMessageState{
+				MessageID: msg.Id,
+				Content:   text,
+			}
+		}
+	}
+	return nil
 }
 
 func isSummaryAssistantMessage(message *agconv.MessageView) bool {

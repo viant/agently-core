@@ -15,6 +15,7 @@ import (
 	pdf "github.com/ledongthuc/pdf"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/pkg/mcpname"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
 type (
@@ -150,6 +151,8 @@ type (
 		Documents       Documents              `yaml:"documents,omitempty" json:"documents,omitempty"`
 		Flags           Flags                  `yaml:"flags,omitempty" json:"flags,omitempty"`
 		Context         map[string]interface{} `yaml:"context,omitempty" json:"context,omitempty"`
+		Skills          []skillproto.Metadata  `yaml:"skills,omitempty" json:"skills,omitempty"`
+		SkillsPrompt    string                 `yaml:"skillsPrompt,omitempty" json:"skillsPrompt,omitempty"`
 		// Elicitation contains a generic, prompt-friendly view of agent-required inputs
 		// so templates can instruct the LLM to elicit missing data when necessary.
 		Elicitation Elicitation `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
@@ -246,6 +249,8 @@ func (b *Binding) Data() map[string]interface{} {
 		"Meta":            &b.Meta,
 		"Context":         &b.Context,
 		"ContextJSON":     b.ContextJSON(),
+		"Skills":          b.Skills,
+		"SkillsPrompt":    b.SkillsPrompt,
 		"SystemDocuments": &b.SystemDocuments,
 		"Elicitation":     &b.Elicitation,
 	}
@@ -265,11 +270,91 @@ func (b *Binding) ContextJSON() string {
 	if b == nil || len(b.Context) == 0 {
 		return ""
 	}
-	data, err := json.MarshalIndent(b.Context, "", "  ")
+	data, err := json.MarshalIndent(sanitizeContextForPrompt(b.Context), "", "  ")
 	if err != nil {
 		return "{}"
 	}
 	return string(data)
+}
+
+func sanitizeContextForPrompt(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	dst := map[string]interface{}{}
+	runtime := map[string]interface{}{}
+	delegation := map[string]interface{}{}
+	client := map[string]interface{}{}
+
+	for key, value := range src {
+		switch key {
+		case "AgentDefaultWorkdir":
+			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
+				runtime["agentDefaultWorkdir"] = text
+			}
+		case "workdir":
+			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
+				runtime["workdir"] = text
+			}
+		case "resolvedWorkdir", "ResolvedWorkdir":
+			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
+				runtime["resolvedWorkdir"] = text
+			}
+		case "Projection":
+			if proj, ok := value.(map[string]interface{}); ok && len(proj) > 0 {
+				projection := map[string]interface{}{}
+				if text := strings.TrimSpace(fmt.Sprint(proj["scope"])); text != "" {
+					projection["scope"] = text
+				}
+				if text := strings.TrimSpace(fmt.Sprint(proj["reason"])); text != "" {
+					projection["reason"] = text
+				}
+				if count, ok := proj["hiddenTurnCount"]; ok {
+					projection["hiddenTurnCount"] = count
+				}
+				if count, ok := proj["hiddenMessageCount"]; ok {
+					projection["hiddenMessageCount"] = count
+				}
+				if len(projection) > 0 {
+					runtime["projection"] = projection
+				}
+			}
+		case "DelegationEnabled":
+			delegation["enabled"] = value
+		case "DelegationMaxDepth":
+			delegation["maxDepth"] = value
+		case "DelegationSelfID":
+			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
+				delegation["selfID"] = text
+			}
+		case "DelegationCurrentDepth":
+			delegation["currentDepth"] = value
+		case "DelegationIsDelegated":
+			delegation["isDelegated"] = value
+		case "DelegationRemainingDepth":
+			delegation["remainingDepth"] = value
+		case "DelegationDepths":
+			// internal bookkeeping; excluded from model-facing JSON
+		case "client":
+			if m, ok := value.(map[string]interface{}); ok && len(m) > 0 {
+				for k, v := range m {
+					client[k] = v
+				}
+			}
+		default:
+			dst[key] = value
+		}
+	}
+	if len(runtime) > 0 {
+		dst["Runtime"] = runtime
+	}
+	if len(delegation) > 0 {
+		dst["Delegation"] = delegation
+	}
+	if len(client) > 0 {
+		dst["Client"] = client
+	}
+	return dst
 }
 
 func (a *Attachment) Type() string {

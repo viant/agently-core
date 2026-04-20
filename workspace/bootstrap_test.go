@@ -37,6 +37,49 @@ func TestEnsureDefaultAt_UsesHooks(t *testing.T) {
 	})
 }
 
+func TestEnsureDefaultAt_SeedsDefaultAssets(t *testing.T) {
+	ctx := context.Background()
+	afsSvc := afs.New()
+	root := filepath.Join(t.TempDir(), "workspace")
+
+	EnsureDefaultAt(ctx, afsSvc, root)
+
+	data, err := os.ReadFile(filepath.Join(root, "bin", "playwright-cli"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "exec npx -y @playwright/cli")
+
+	info, err := os.Stat(filepath.Join(root, "bin", "playwright-cli"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestEnsureDefaultAt_UsesConfigurableTemplateAssets(t *testing.T) {
+	ctx := context.Background()
+	afsSvc := afs.New()
+	root := filepath.Join(t.TempDir(), "workspace")
+
+	src := fstest.MapFS{
+		"defaults/bin/tool.tmpl": &fstest.MapFile{Data: []byte("#!/bin/sh\necho {{.WorkspaceRoot}} {{index .Vars \"tool_name\"}}\n")},
+	}
+	SetBootstrapAssetsFS(src, "defaults")
+	SetBootstrapTemplateVars(map[string]string{"tool_name": "demo"})
+	t.Cleanup(func() {
+		SetBootstrapAssetsFS(nil, "")
+		SetBootstrapTemplateVars(nil)
+	})
+
+	EnsureDefaultAt(ctx, afsSvc, root)
+
+	data, err := os.ReadFile(filepath.Join(root, "bin", "tool"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), root)
+	require.Contains(t, string(data), "demo")
+
+	info, err := os.Stat(filepath.Join(root, "bin", "tool"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
 func TestIsEmptyWorkspaceAt(t *testing.T) {
 	ctx := context.Background()
 	fs := afs.New()
@@ -133,5 +176,31 @@ func TestSeedFromFS(t *testing.T) {
 		require.NoError(t, SeedFromFS(ctx, afsSvc, root, src, "missing"))
 		_, err := os.Stat(filepath.Join(root, "config.yaml"))
 		require.ErrorIs(t, err, fs.ErrNotExist)
+	})
+
+	t.Run("renders tmpl with stable context and vars", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "workspace")
+		src := fstest.MapFS{
+			"defaults/bin/tool.tmpl": &fstest.MapFile{Data: []byte("#!/bin/sh\necho {{.WorkspaceRoot}} {{.RuntimeRoot}} {{.StateRoot}} {{index .Vars \"name\"}}\n")},
+		}
+		require.NoError(t, SeedFromFS(ctx, afsSvc, root, src, "defaults", map[string]string{"name": "demo"}))
+
+		data, err := os.ReadFile(filepath.Join(root, "bin", "tool"))
+		require.NoError(t, err)
+		require.Contains(t, string(data), root)
+		require.Contains(t, string(data), filepath.Join(root, "state"))
+		require.Contains(t, string(data), "demo")
+	})
+
+	t.Run("preserves existing non-template assets unchanged", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "workspace")
+		src := fstest.MapFS{
+			"defaults/bin/plain.sh": &fstest.MapFile{Data: []byte("#!/bin/sh\necho plain\n")},
+		}
+		require.NoError(t, SeedFromFS(ctx, afsSvc, root, src, "defaults"))
+
+		data, err := os.ReadFile(filepath.Join(root, "bin", "plain.sh"))
+		require.NoError(t, err)
+		require.Equal(t, "#!/bin/sh\necho plain\n", string(data))
 	})
 }

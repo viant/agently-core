@@ -87,6 +87,7 @@ export type ClientExecutionPhase = 'intake' | 'sidecar' | 'summary' | 'main';
 export interface ClientModelStep extends EntityIdentity {
     modelCallId?: string;
     assistantMessageId?: string;
+    executionRole?: string;
     phase?: string;
     provider?: string;
     model?: string;
@@ -104,6 +105,7 @@ export interface ClientModelStep extends EntityIdentity {
 export interface ClientToolCall extends EntityIdentity {
     toolMessageId?: string;
     toolName?: string;
+    executionRole?: string;
     operationId?: string;
     status?: string;
     errorMessage?: string;
@@ -215,6 +217,7 @@ export interface ClientLinkedConversation extends EntityIdentity {
  */
 export interface ClientExecutionPage extends EntityIdentity {
     iteration?: number;
+    executionRole?: string;
     phase?: ClientExecutionPhase;
     mode?: string;
     status?: string;
@@ -363,6 +366,7 @@ export interface CanonicalExecutionPageState {
     parentMessageId?: string;
     turnId?: string;
     iteration?: number;
+    executionRole?: string;
     phase?: string;
     mode?: string;
     status?: string;
@@ -382,6 +386,7 @@ export interface CanonicalExecutionPageState {
 export interface CanonicalModelStepState {
     modelCallId: string;
     assistantMessageId?: string;
+    executionRole?: string;
     phase?: string;
     provider?: string;
     model?: string;
@@ -400,6 +405,7 @@ export interface CanonicalToolStepState {
     toolCallId: string;
     toolMessageId?: string;
     toolName?: string;
+    executionRole?: string;
     operationId?: string;
     status?: string;
     errorMessage?: string;

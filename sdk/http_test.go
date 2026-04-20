@@ -98,6 +98,63 @@ func TestHTTPClient_GetWorkspaceMetadataWithTarget_QueryParams(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
+	var gotPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.RequestURI())
+		switch {
+		case r.URL.Path == "/v1/skills/diagnostics":
+			_ = json.NewEncoder(w).Encode(&SkillDiagnosticsOutput{Items: []string{"shadowed demo"}})
+		case strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, "/activate"):
+			_ = json.NewDecoder(r.Body).Decode(&map[string]interface{}{})
+			_ = json.NewEncoder(w).Encode(&ActivateSkillOutput{Name: "playwright-cli", Body: "Loaded skill"})
+		case r.URL.Path == "/v1/skills":
+			_ = json.NewEncoder(w).Encode(&ListSkillsOutput{Items: []SkillItem{{Name: "playwright-cli", Description: "Automate browser"}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	listOut, err := c.ListSkills(context.Background(), &ListSkillsInput{ConversationID: "c1"})
+	if err != nil {
+		t.Fatalf("ListSkills: %v", err)
+	}
+	if len(listOut.Items) != 1 || listOut.Items[0].Name != "playwright-cli" {
+		t.Fatalf("unexpected skills output: %#v", listOut)
+	}
+	actOut, err := c.ActivateSkill(context.Background(), &ActivateSkillInput{ConversationID: "c1", Name: "playwright-cli", Args: "https://example.com"})
+	if err != nil {
+		t.Fatalf("ActivateSkill: %v", err)
+	}
+	if actOut.Name != "playwright-cli" || !strings.Contains(actOut.Body, "Loaded skill") {
+		t.Fatalf("unexpected activate output: %#v", actOut)
+	}
+	diagOut, err := c.GetSkillDiagnostics(context.Background())
+	if err != nil {
+		t.Fatalf("GetSkillDiagnostics: %v", err)
+	}
+	if len(diagOut.Items) != 1 || diagOut.Items[0] != "shadowed demo" {
+		t.Fatalf("unexpected diagnostics output: %#v", diagOut)
+	}
+	if len(gotPaths) != 3 {
+		t.Fatalf("got paths = %#v", gotPaths)
+	}
+	if gotPaths[0] != "/v1/skills?conversationId=c1" {
+		t.Fatalf("unexpected list path: %q", gotPaths[0])
+	}
+	if gotPaths[1] != "/v1/skills/playwright-cli/activate?conversationId=c1" {
+		t.Fatalf("unexpected activate path: %q", gotPaths[1])
+	}
+	if gotPaths[2] != "/v1/skills/diagnostics" {
+		t.Fatalf("unexpected diagnostics path: %q", gotPaths[2])
+	}
+}
+
 func TestHTTPClient_WithSessionDebug_SendsDebugHeaders(t *testing.T) {
 	var gotHeaders http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -634,6 +691,8 @@ type spyToolResourceClient struct {
 	executeName string
 	resourceRef *ResourceRef
 	saveInput   *SaveResourceInput
+	listSkills  *ListSkillsInput
+	actSkill    *ActivateSkillInput
 }
 
 func (s *spyToolResourceClient) ExecuteTool(_ context.Context, name string, args map[string]interface{}) (string, error) {
@@ -654,6 +713,20 @@ func (s *spyToolResourceClient) SaveResource(_ context.Context, input *SaveResou
 func (s *spyToolResourceClient) DeleteResource(_ context.Context, ref *ResourceRef) error {
 	s.resourceRef = ref
 	return nil
+}
+
+func (s *spyToolResourceClient) ListSkills(_ context.Context, input *ListSkillsInput) (*ListSkillsOutput, error) {
+	s.listSkills = input
+	return &ListSkillsOutput{Items: []SkillItem{{Name: "playwright-cli"}}}, nil
+}
+
+func (s *spyToolResourceClient) ActivateSkill(_ context.Context, input *ActivateSkillInput) (*ActivateSkillOutput, error) {
+	s.actSkill = input
+	return &ActivateSkillOutput{Name: input.Name, Body: "Loaded skill"}, nil
+}
+
+func (s *spyToolResourceClient) GetSkillDiagnostics(_ context.Context) (*SkillDiagnosticsOutput, error) {
+	return &SkillDiagnosticsOutput{Items: []string{"shadowed demo"}}, nil
 }
 
 func TestHandler_ExecuteTool_EmptyNameIsBadRequest(t *testing.T) {
@@ -714,6 +787,48 @@ func TestHandler_ResourceHandlers_EmptyPathValuesAreBadRequest(t *testing.T) {
 		handleDeleteResource(spy).ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+	})
+}
+
+func TestHandler_SkillHandlers(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolResourceClient{HTTPClient: base}
+
+	t.Run("list", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/skills?conversationId=c1", nil)
+		rec := httptest.NewRecorder()
+		handleListSkills(spy).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+		if spy.listSkills == nil || spy.listSkills.ConversationID != "c1" {
+			t.Fatalf("unexpected list input: %#v", spy.listSkills)
+		}
+	})
+
+	t.Run("activate", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/skills/playwright-cli/activate?conversationId=c1", strings.NewReader(`{"args":"https://example.com"}`))
+		req.SetPathValue("name", "playwright-cli")
+		rec := httptest.NewRecorder()
+		handleActivateSkill(spy).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+		if spy.actSkill == nil || spy.actSkill.ConversationID != "c1" || spy.actSkill.Name != "playwright-cli" || spy.actSkill.Args != "https://example.com" {
+			t.Fatalf("unexpected activate input: %#v", spy.actSkill)
+		}
+	})
+
+	t.Run("diagnostics", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/skills/diagnostics", nil)
+		rec := httptest.NewRecorder()
+		handleSkillDiagnostics(spy).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 }

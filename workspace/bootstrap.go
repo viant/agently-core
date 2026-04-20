@@ -7,7 +7,9 @@ import (
 	iofs "io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"text/template"
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/embed"
@@ -16,6 +18,22 @@ import (
 )
 
 const defaultConfigYAML = "models: []\nagents: []\n"
+
+var bootstrapAssetsFS iofs.FS = defaultWorkspaceFS
+var bootstrapAssetsPrefix = "defaults"
+var bootstrapTemplateVars map[string]string
+
+type BootstrapTemplateContext struct {
+	WorkspaceRoot string
+	RuntimeRoot   string
+	StateRoot     string
+	HomeDir       string
+	TmpDir        string
+	OS            string
+	Arch          string
+	PathSeparator string
+	Vars          map[string]string
+}
 
 // BootstrapHook customizes workspace bootstrap behavior.
 // It receives a store helper bound to the resolved workspace root.
@@ -54,6 +72,45 @@ func SetBootstrapHook(hook BootstrapHook) {
 	defaultsMu.Unlock()
 }
 
+// SetBootstrapAssetsFS overrides the embedded bootstrap assets source.
+// This keeps bootstrap logic generic while allowing callers to provide their
+// own embedded defaults (agents, wrappers, templates, etc.) without changing
+// core bootstrap code.
+func SetBootstrapAssetsFS(srcFS iofs.FS, prefix string) {
+	defaultsMu.Lock()
+	defer defaultsMu.Unlock()
+	if srcFS == nil {
+		bootstrapAssetsFS = defaultWorkspaceFS
+		bootstrapAssetsPrefix = "defaults"
+		return
+	}
+	bootstrapAssetsFS = srcFS
+	bootstrapAssetsPrefix = strings.Trim(strings.TrimSpace(prefix), "/")
+	if bootstrapAssetsPrefix == "" {
+		bootstrapAssetsPrefix = "."
+	}
+}
+
+// SetBootstrapTemplateVars sets caller-provided template variables that are
+// available to embedded bootstrap assets via `.Vars`.
+func SetBootstrapTemplateVars(vars map[string]string) {
+	defaultsMu.Lock()
+	defer defaultsMu.Unlock()
+	if len(vars) == 0 {
+		bootstrapTemplateVars = nil
+		return
+	}
+	cloned := make(map[string]string, len(vars))
+	for k, v := range vars {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		cloned[k] = v
+	}
+	bootstrapTemplateVars = cloned
+}
+
 // EnsureDefault bootstraps minimal workspace defaults.
 func EnsureDefault(fs afs.Service) {
 	EnsureDefaultAt(context.Background(), fs, Root())
@@ -75,6 +132,7 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 	dirs := []string{
 		KindAgent,
 		KindModel,
+		KindSkill,
 		KindTool,
 		KindToolBundle,
 		KindToolInstructions,
@@ -97,6 +155,13 @@ func EnsureDefaultAt(ctx context.Context, fs afs.Service, root string) {
 	if ok, _ := fs.Exists(ctx, configURL); !ok {
 		_ = fs.Upload(ctx, configURL, file.DefaultFileOsMode, bytes.NewReader([]byte(defaultConfigYAML)))
 	}
+
+	defaultsMu.Lock()
+	seedFS := bootstrapAssetsFS
+	seedPrefix := bootstrapAssetsPrefix
+	vars := cloneBootstrapTemplateVarsLocked()
+	defaultsMu.Unlock()
+	_ = SeedFromFS(ctx, fs, root, seedFS, seedPrefix, vars)
 }
 
 func runBootstrapHook(fs afs.Service, root string) bool {
@@ -115,11 +180,20 @@ func runBootstrapHook(fs afs.Service, root string) bool {
 
 // SeedFromFS copies files from srcFS/prefix into workspace root when the target
 // file does not already exist. Existing files are never overwritten.
-func SeedFromFS(ctx context.Context, afsSvc afs.Service, root string, srcFS iofs.FS, prefix string) error {
+func SeedFromFS(ctx context.Context, afsSvc afs.Service, root string, srcFS iofs.FS, prefix string, vars ...map[string]string) error {
 	if afsSvc == nil || srcFS == nil || strings.TrimSpace(root) == "" {
 		return nil
 	}
 	root = abs(root)
+	templateVars := map[string]string{}
+	if len(vars) > 0 {
+		for _, item := range vars {
+			for k, v := range item {
+				templateVars[k] = v
+			}
+		}
+	}
+	renderCtx := bootstrapTemplateContext(root, templateVars)
 	start := strings.Trim(strings.TrimSpace(prefix), "/")
 	if start == "" {
 		start = "."
@@ -140,6 +214,7 @@ func SeedFromFS(ctx context.Context, afsSvc afs.Service, root string, srcFS iofs
 		if rel == "" {
 			return nil
 		}
+		rel = bootstrapTargetRel(rel)
 		target := filepath.Join(root, filepath.FromSlash(rel))
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
@@ -153,15 +228,95 @@ func SeedFromFS(ctx context.Context, afsSvc afs.Service, root string, srcFS iofs
 		if err != nil {
 			return fmt.Errorf("read source %q: %w", path, err)
 		}
+		if strings.HasSuffix(path, ".tmpl") {
+			rendered, err := renderBootstrapTemplate(path, data, renderCtx)
+			if err != nil {
+				return fmt.Errorf("render template %q: %w", path, err)
+			}
+			data = rendered
+		}
 		if err = os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("create dir for %q: %w", target, err)
 		}
 		targetURL := url.Normalize(target, file.Scheme)
-		if err = afsSvc.Upload(ctx, targetURL, file.DefaultFileOsMode, bytes.NewReader(data)); err != nil {
+		if err = afsSvc.Upload(ctx, targetURL, bootstrapTargetMode(rel), bytes.NewReader(data)); err != nil {
 			return fmt.Errorf("write target %q: %w", target, err)
 		}
 		return nil
 	})
+}
+
+func cloneBootstrapTemplateVarsLocked() map[string]string {
+	if len(bootstrapTemplateVars) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(bootstrapTemplateVars))
+	for k, v := range bootstrapTemplateVars {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+func bootstrapTemplateContext(root string, vars map[string]string) BootstrapTemplateContext {
+	homeDir, _ := os.UserHomeDir()
+	tmpDir := os.TempDir()
+	cloned := map[string]string{}
+	for k, v := range vars {
+		cloned[k] = v
+	}
+	workspaceRoot := abs(root)
+	runtimeRoot := workspaceRoot
+	if env := os.Getenv("AGENTLY_RUNTIME_ROOT"); strings.TrimSpace(env) != "" {
+		runtimeRoot = abs(strings.ReplaceAll(strings.TrimSpace(env), "${workspaceRoot}", workspaceRoot))
+	}
+	stateRoot := filepath.Join(runtimeRoot, "state")
+	if env := os.Getenv("AGENTLY_STATE_PATH"); strings.TrimSpace(env) != "" {
+		v := strings.TrimSpace(env)
+		v = strings.ReplaceAll(v, "${workspaceRoot}", workspaceRoot)
+		v = strings.ReplaceAll(v, "${runtimeRoot}", runtimeRoot)
+		stateRoot = abs(v)
+	}
+	return BootstrapTemplateContext{
+		WorkspaceRoot: workspaceRoot,
+		RuntimeRoot:   runtimeRoot,
+		StateRoot:     stateRoot,
+		HomeDir:       strings.TrimSpace(homeDir),
+		TmpDir:        strings.TrimSpace(tmpDir),
+		OS:            runtime.GOOS,
+		Arch:          runtime.GOARCH,
+		PathSeparator: string(os.PathSeparator),
+		Vars:          cloned,
+	}
+}
+
+func bootstrapTargetRel(rel string) string {
+	if strings.HasSuffix(rel, ".tmpl") {
+		return strings.TrimSuffix(rel, ".tmpl")
+	}
+	return rel
+}
+
+func bootstrapTargetMode(rel string) os.FileMode {
+	clean := filepath.ToSlash(strings.TrimSpace(rel))
+	if clean == "" {
+		return file.DefaultFileOsMode
+	}
+	if strings.HasPrefix(clean, "bin/") {
+		return 0o755
+	}
+	return file.DefaultFileOsMode
+}
+
+func renderBootstrapTemplate(name string, body []byte, ctx BootstrapTemplateContext) ([]byte, error) {
+	tpl, err := template.New(filepath.Base(name)).Option("missingkey=error").Parse(string(body))
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, ctx); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // IsEmptyWorkspace reports whether the active workspace contains no meaningful files.

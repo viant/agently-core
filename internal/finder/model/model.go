@@ -3,6 +3,8 @@ package model
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,13 +89,26 @@ func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 	if err != nil {
 		if d.configLoader != nil {
 			config, err = d.configLoader.Load(ctx, id)
+			if err != nil {
+				fallback := filepath.ToSlash(filepath.Join("models", strings.TrimSpace(id)))
+				config, err = d.configLoader.Load(ctx, fallback)
+			}
 		}
 		if err != nil {
-			return nil, err
+			config = inferConfigFromID(id)
+			if config == nil {
+				return nil, err
+			}
 		}
 	}
 	if config == nil {
-		return nil, fmt.Errorf("model config not found: %s", id)
+		config = inferConfigFromID(id)
+		if config == nil {
+			return nil, fmt.Errorf("model config not found: %s", id)
+		}
+	}
+	if config != nil && strings.TrimSpace(config.ID) != "" {
+		d.configRegistry.Add(config.ID, config)
 	}
 
 	// Attach context Usage Aggregator as UsageListener when present and when
@@ -113,6 +128,56 @@ func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 	}
 	d.models[id] = model
 	return model, nil
+}
+
+var versionUnderscorePattern = regexp.MustCompile(`-(\d+)-(\d+)(?:$|-)`)
+
+func inferConfigFromID(id string) *provider.Config {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	switch {
+	case strings.HasPrefix(id, "openai_"):
+		model, continuation := inferOpenAIModel(strings.TrimPrefix(id, "openai_"))
+		if model == "" {
+			return nil
+		}
+		return &provider.Config{
+			ID:          id,
+			Name:        model + " (OpenAI)",
+			Description: "OpenAI " + model + " model",
+			Options: provider.Options{
+				Provider:            provider.ProviderOpenAI,
+				Model:               model,
+				EnvKey:              "OPENAI_API_KEY",
+				ContextContinuation: continuation,
+			},
+		}
+	default:
+		return nil
+	}
+}
+
+func inferOpenAIModel(raw string) (string, *bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	continuation := (*bool)(nil)
+	if strings.HasSuffix(raw, "_responses") {
+		raw = strings.TrimSuffix(raw, "_responses")
+		v := true
+		continuation = &v
+	}
+	raw = strings.ReplaceAll(raw, "_", "-")
+	raw = versionUnderscorePattern.ReplaceAllString(raw, "-$1.$2$2")
+	// ReplaceAllString above duplicates the trailing digit in the suffix-preserving case,
+	// so fix the exact transformed token once after normalization.
+	raw = strings.ReplaceAll(raw, ".22", ".2")
+	raw = strings.ReplaceAll(raw, ".44", ".4")
+	raw = strings.ReplaceAll(raw, ".11", ".1")
+	return strings.TrimSpace(raw), continuation
 }
 
 // TokenPrices returns per-1k token prices for the specified model ID when

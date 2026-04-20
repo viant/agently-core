@@ -77,6 +77,9 @@ type (
 		// contract: tool: { items: [], callExposure }.
 		// This preserves backward compatibility while enabling richer config.
 		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+		// Skills is a closed-by-default allow-list of visible skills.
+		// When omitted or empty, the agent sees no skills.
+		Skills []string `yaml:"skills,omitempty" json:"skills,omitempty"`
 		// Template assigns workspace output-template bundles to this agent.
 		Template Template `yaml:"template,omitempty" json:"template,omitempty"`
 		// Prompts restricts which prompt profiles are visible to this agent via

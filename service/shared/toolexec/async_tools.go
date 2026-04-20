@@ -13,13 +13,27 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	"github.com/viant/agently-core/protocol/tool"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	"github.com/viant/agently-core/service/shared/asyncwait"
+	toolstatus "github.com/viant/agently-core/service/tool/status"
 )
+
+const agentlyControlArgKey = "_agently"
+
+var asyncNarrationDebounceWindow = 3 * time.Second
+
+type asyncNarrationHandle struct {
+	stepID   string
+	stepName string
+	cfg      *asynccfg.Config
+	pairing  *toolstatus.PreamblePairing
+	session  *asyncnarrator.Session
+}
 
 func WithAsyncWaitState(ctx context.Context) context.Context {
 	return asyncwait.WithState(ctx)
@@ -27,6 +41,14 @@ func WithAsyncWaitState(ctx context.Context) context.Context {
 
 func ConsumeAsyncWaitAfterStatus(ctx context.Context) []string {
 	return asyncwait.ConsumeAfterStatus(ctx)
+}
+
+func withAsyncNarratorRunnerIfPresent(ctx context.Context) context.Context {
+	runner, ok := AsyncNarratorRunnerFromContext(ctx)
+	if !ok || runner == nil {
+		return ctx
+	}
+	return asyncnarrator.WithLLMRunner(ctx, runner)
 }
 
 func asyncConfigForStep(ctx context.Context, reg tool.Registry, name string) (*asynccfg.Config, bool) {
@@ -43,11 +65,117 @@ func asyncConfigForStep(ctx context.Context, reg tool.Registry, name string) (*a
 	return resolver.AsyncConfig(name)
 }
 
-func prepareAsyncStartArgs(cfg *asynccfg.Config, args map[string]interface{}) map[string]interface{} {
+func stripAgentlyControlArgs(args map[string]interface{}) map[string]interface{} {
+	if len(args) == 0 {
+		return args
+	}
 	cloned := map[string]interface{}{}
 	for key, value := range args {
+		if key == agentlyControlArgKey {
+			continue
+		}
 		cloned[key] = value
 	}
+	return cloned
+}
+
+func asyncExecutionModeOverride(args map[string]interface{}) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	raw, ok := args[agentlyControlArgKey]
+	if !ok || raw == nil {
+		return "", false
+	}
+	root, ok := raw.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	asyncRaw, ok := root["async"]
+	if !ok || asyncRaw == nil {
+		return "", false
+	}
+	asyncMap, ok := asyncRaw.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	value, ok := asyncMap["executionMode"]
+	if !ok {
+		return "", false
+	}
+	switch actual := value.(type) {
+	case string:
+		normalized := asynccfg.NormalizeExecutionMode(actual, "")
+		if normalized == "" {
+			return "", false
+		}
+		return normalized, true
+	default:
+		return "", false
+	}
+}
+
+func effectiveAsyncConfig(cfg *asynccfg.Config, args map[string]interface{}) *asynccfg.Config {
+	if cfg == nil {
+		return nil
+	}
+	override, ok := asyncExecutionModeOverride(args)
+	if !ok {
+		return cfg
+	}
+	cloned := *cfg
+	cloned.DefaultExecutionMode = override
+	return &cloned
+}
+
+func effectiveExecutionMode(cfg *asynccfg.Config, args map[string]interface{}) string {
+	if cfg == nil {
+		return asynccfg.NormalizeExecutionMode("", string(asynccfg.ExecutionModeWait))
+	}
+	if override, ok := asyncExecutionModeOverride(args); ok {
+		return override
+	}
+	if path := strings.TrimSpace(cfg.Run.ExecutionModePath); path != "" {
+		if value, ok := args[path]; ok && value != nil {
+			if mode := asynccfg.NormalizeExecutionMode(fmt.Sprint(value), cfg.DefaultExecutionMode); mode != "" {
+				return mode
+			}
+		}
+		if raw, ok := asynccfgLookup(args, path); ok && raw != nil {
+			if mode := asynccfg.NormalizeExecutionMode(fmt.Sprint(raw), cfg.DefaultExecutionMode); mode != "" {
+				return mode
+			}
+		}
+	}
+	return asynccfg.NormalizeExecutionMode(cfg.DefaultExecutionMode, string(asynccfg.ExecutionModeWait))
+}
+
+func asynccfgLookup(root map[string]interface{}, path string) (interface{}, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return root, true
+	}
+	current := any(root)
+	for _, part := range strings.Split(path, ".") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		actual, ok := current.(map[string]interface{})
+		if !ok {
+			return nil, false
+		}
+		next, ok := actual[part]
+		if !ok {
+			return nil, false
+		}
+		current = next
+	}
+	return current, true
+}
+
+func prepareAsyncStartArgs(cfg *asynccfg.Config, args map[string]interface{}) map[string]interface{} {
+	cloned := stripAgentlyControlArgs(args)
 	if cfg == nil {
 		return cloned
 	}
@@ -74,6 +202,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		logx.DebugCtxf(ctx, "conversation", "tool async skip convo=%q turn=%q op_id=%q tool=%q reason=no_async_config", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name))
 		return nil
 	}
+	cfg = effectiveAsyncConfig(cfg, step.Args)
 	requestDigest := requestArgsDigest(cfg, step.Args)
 	var matched *asynccfg.OperationRecord
 	if sameToolName(step.Name, cfg.Run.Tool) && sameToolName(step.Name, cfg.Status.Tool) && cfg.Status.ReuseRunArgs {
@@ -100,7 +229,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
-		if rec != nil && (rec.WaitForResponse || !changed) {
+		if rec != nil && (asynccfg.ExecutionModeWaits(rec.ExecutionMode) || !changed) {
 			asyncwait.MarkAfterStatus(ctx, matched.ID)
 		}
 		if changed {
@@ -120,29 +249,28 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		}
 		normalizeAsyncExtracted(toolResult, extracted)
 		rec := manager.Register(ctx, asynccfg.RegisterInput{
-			ID:                            opID,
-			ParentConvID:                  turn.ConversationID,
-			ParentTurnID:                  turn.TurnID,
-			ToolCallID:                    step.ID,
-			ToolMessageID:                 strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
-			ToolName:                      step.Name,
-			StatusToolName:                strings.TrimSpace(cfg.Status.Tool),
-			StatusArgs:                    asyncStatusArgs(cfg, opID, step.Args),
-			CancelToolName:                asyncCancelToolName(cfg),
-			RequestArgsDigest:             requestDigest,
-			RequestArgs:                   normalizedAsyncArgs(cfg, step.Args),
-			WaitForResponse:               cfg.WaitForResponse,
-			Status:                        extracted.Status,
-			Message:                       extracted.Message,
-			Percent:                       extracted.Percent,
-			KeyData:                       cloneRaw(extracted.KeyData),
-			Error:                         extracted.Error,
-			TimeoutMs:                     cfg.TimeoutMs,
-			PollIntervalMs:                cfg.PollIntervalMs,
-			MaxReinforcementsPerOperation: cfg.MaxReinforcementsPerOperation,
-			MinIntervalBetweenMs:          cfg.MinIntervalBetweenMs,
-			Instruction:                   cfg.Instruction,
-			TerminalInstruction:           cfg.TerminalInstruction,
+			ID:                opID,
+			ParentConvID:      turn.ConversationID,
+			ParentTurnID:      turn.TurnID,
+			ToolCallID:        step.ID,
+			ToolMessageID:     strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+			ToolName:          step.Name,
+			StatusToolName:    strings.TrimSpace(cfg.Status.Tool),
+			StatusArgs:        asyncStatusArgs(cfg, opID, step.Args),
+			CancelToolName:    asyncCancelToolName(cfg),
+			RequestArgsDigest: requestDigest,
+			RequestArgs:       normalizedAsyncArgs(cfg, step.Args),
+			OperationIntent:   asynccfg.ExtractIntent(normalizedAsyncArgs(cfg, step.Args), cfg.Run.IntentPath, step.Name),
+			OperationSummary:  asynccfg.ExtractSummary(normalizedAsyncArgs(cfg, step.Args), cfg.Run.SummaryPaths),
+			ExecutionMode:     effectiveExecutionMode(cfg, step.Args),
+			Status:            extracted.Status,
+			Message:           extracted.Message,
+			Percent:           extracted.Percent,
+			KeyData:           cloneRaw(extracted.KeyData),
+			Error:             extracted.Error,
+			TimeoutMs:         cfg.TimeoutMs,
+			IdleTimeoutMs:     cfg.IdleTimeoutMs,
+			PollIntervalMs:    cfg.PollIntervalMs,
 		})
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		if rec != nil {
@@ -156,15 +284,9 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if state := asynccfg.DeriveState(extracted.Status, extracted.Error, ""); state == asynccfg.StateWaiting || state == asynccfg.StateRunning || state == asynccfg.StateStarted {
 			publishAsyncLifecycleEvent(ctx, step.Name, step.ID, opID, streaming.EventTypeToolCallWaiting, extracted)
 		}
-		maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
 		return rec
 	case sameToolName(step.Name, cfg.Status.Tool):
-		opID := strings.TrimSpace(stringArg(step.Args, cfg.Status.OperationIDArg))
-		if opID == "" && cfg.Status.ReuseRunArgs {
-			if rec, ok := manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest); ok && rec != nil {
-				opID = rec.ID
-			}
-		}
+		opID := resolveAsyncStatusOperationID(ctx, manager, cfg, step)
 		if opID == "" {
 			return nil
 		}
@@ -184,7 +306,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
-		if rec != nil && (rec.WaitForResponse || !changed) {
+		if rec != nil && (asynccfg.ExecutionModeWaits(rec.ExecutionMode) || !changed) {
 			asyncwait.MarkAfterStatus(ctx, opID)
 		}
 		if changed {
@@ -192,6 +314,203 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		}
 	}
 	return nil
+}
+
+func resolveAsyncStatusOperationID(ctx context.Context, manager AsyncManager, cfg *asynccfg.Config, step StepInfo) string {
+	if cfg == nil {
+		return ""
+	}
+	opID := strings.TrimSpace(stringArg(step.Args, cfg.Status.OperationIDArg))
+	if opID == "" && cfg.Status.ReuseRunArgs {
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+			requestDigest := requestArgsDigest(cfg, step.Args)
+			if rec, found := manager.FindActiveByRequest(ctx, turn.ConversationID, turn.TurnID, step.Name, requestDigest); found && rec != nil {
+				opID = strings.TrimSpace(rec.ID)
+			}
+		}
+	}
+	return opID
+}
+
+func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step StepInfo) (string, bool, error) {
+	manager, ok := AsyncManagerFromContext(ctx)
+	if !ok || manager == nil {
+		return "", false, nil
+	}
+	cfg, ok := asyncConfigForStep(ctx, reg, step.Name)
+	if !ok || cfg == nil {
+		return "", false, nil
+	}
+	cfg = effectiveAsyncConfig(cfg, step.Args)
+	if strings.TrimSpace(cfg.Status.Tool) == "" || !sameToolName(step.Name, cfg.Status.Tool) {
+		return "", false, nil
+	}
+	if sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs {
+		return "", false, nil
+	}
+	opID := resolveAsyncStatusOperationID(ctx, manager, cfg, step)
+	if opID == "" {
+		return "", false, nil
+	}
+	rec, ok := manager.Get(ctx, opID)
+	if !ok || rec == nil || !asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
+		return "", false, nil
+	}
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
+	}
+	narration := startAsyncNarration(ctx, cfg, step, rec)
+	var sub <-chan asynccfg.ChangeEvent
+	if narration != nil {
+		sub = manager.Subscribe([]string{opID})
+	}
+	ch := manager.AwaitTerminal(ctx, []string{opID})
+	select {
+	case <-ctx.Done():
+		return "", false, ctx.Err()
+	case result, ok := <-ch:
+		if !ok {
+			return "", false, nil
+		}
+		finishAsyncNarration(ctx, narration, opID, step.Name)
+		data, err := json.Marshal(result)
+		if err != nil {
+			return "", false, err
+		}
+		return string(data), true, nil
+	case ev, ok := <-sub:
+		if !ok {
+			sub = nil
+		} else {
+			observeAsyncNarration(ctx, narration, ev)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return "", false, ctx.Err()
+			case result, ok := <-ch:
+				if !ok {
+					return "", false, nil
+				}
+				finishAsyncNarration(ctx, narration, opID, step.Name)
+				data, err := json.Marshal(result)
+				if err != nil {
+					return "", false, err
+				}
+				return string(data), true, nil
+			case ev, ok := <-sub:
+				if !ok {
+					sub = nil
+					continue
+				}
+				observeAsyncNarration(ctx, narration, ev)
+			case <-asyncNarrationChannel(narration):
+				flushAsyncNarration(ctx, narration, opID, step.Name, "debounced update")
+			}
+		}
+	}
+}
+
+func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInfo, rec *asynccfg.OperationRecord) *asyncNarrationHandle {
+	conv := convFromContext(ctx)
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
+	if conv == nil || !ok || rec == nil {
+		return nil
+	}
+	statusSvc := toolstatus.New(conv)
+	pairing := toolstatus.NewPreamblePairing(statusSvc)
+	handle := &asyncNarrationHandle{
+		stepID:   step.ID,
+		stepName: step.Name,
+		cfg:      cfg,
+		pairing:  pairing,
+		session: asyncnarrator.NewSession(asyncNarrationDebounceWindow, func(text string) error {
+			_, err := pairing.Upsert(ctx, step.ID, turn, step.Name, "assistant", "tool", "exec", text)
+			return err
+		}),
+	}
+	narratorCtx := withAsyncNarratorRunnerIfPresent(ctx)
+	if text, err := asyncnarrator.StartPreamble(narratorCtx, cfg, rec); err == nil && text != "" {
+		if err := handle.session.Start(text); err != nil {
+			logx.WarnCtxf(ctx, "conversation", "async preamble start failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(step.Name), err)
+		}
+	} else if err != nil {
+		logx.WarnCtxf(ctx, "conversation", "async narrator start failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(step.Name), err)
+	}
+	return handle
+}
+
+func asyncNarrationChannel(handle *asyncNarrationHandle) <-chan time.Time {
+	if handle == nil || handle.session == nil {
+		return nil
+	}
+	return handle.session.Channel()
+}
+
+func observeAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, ev asynccfg.ChangeEvent) {
+	if handle == nil || handle.session == nil || handle.pairing == nil {
+		return
+	}
+	if strings.TrimSpace(handle.pairing.MessageID(handle.stepID)) == "" {
+		return
+	}
+	narratorCtx := withAsyncNarratorRunnerIfPresent(ctx)
+	preamble, err := asyncnarrator.UpdatePreamble(narratorCtx, handle.cfg, ev)
+	if err != nil {
+		logx.WarnCtxf(ctx, "conversation", "async narrator update failed op_id=%q tool=%q err=%v", strings.TrimSpace(ev.OperationID), strings.TrimSpace(handle.stepName), err)
+		return
+	}
+	if err := handle.session.Push(preamble); err != nil {
+		logx.WarnCtxf(ctx, "conversation", "async preamble update failed op_id=%q tool=%q err=%v", strings.TrimSpace(ev.OperationID), strings.TrimSpace(handle.stepName), err)
+	}
+}
+
+func flushAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, opID, toolName, phase string) {
+	if handle == nil || handle.session == nil || handle.pairing == nil {
+		return
+	}
+	if strings.TrimSpace(handle.pairing.MessageID(handle.stepID)) == "" {
+		return
+	}
+	if err := handle.session.Flush(); err != nil {
+		logx.WarnCtxf(ctx, "conversation", "async preamble %s failed op_id=%q tool=%q err=%v", strings.TrimSpace(phase), strings.TrimSpace(opID), strings.TrimSpace(toolName), err)
+	}
+}
+
+func finishAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, opID, toolName string) {
+	if handle == nil {
+		return
+	}
+	flushAsyncNarration(ctx, handle, opID, toolName, "flush")
+	if handle.pairing != nil {
+		handle.pairing.Release(handle.stepID)
+	}
+}
+
+func changeEventFromRecord(rec *asynccfg.OperationRecord) asynccfg.ChangeEvent {
+	if rec == nil {
+		return asynccfg.ChangeEvent{}
+	}
+	var percent *int
+	if rec.Percent != nil {
+		value := *rec.Percent
+		percent = &value
+	}
+	return asynccfg.ChangeEvent{
+		OperationID:  strings.TrimSpace(rec.ID),
+		Status:       strings.TrimSpace(rec.Status),
+		Message:      strings.TrimSpace(rec.Message),
+		Percent:      percent,
+		KeyData:      cloneRaw(rec.KeyData),
+		Error:        strings.TrimSpace(rec.Error),
+		State:        rec.State,
+		ChangedAt:    rec.UpdatedAt,
+		ToolName:     strings.TrimSpace(rec.ToolName),
+		Intent:       strings.TrimSpace(rec.OperationIntent),
+		Summary:      strings.TrimSpace(rec.OperationSummary),
+		Conversation: strings.TrimSpace(rec.ParentConvID),
+		TurnID:       strings.TrimSpace(rec.ParentTurnID),
+	}
 }
 
 func normalizeAsyncExtracted(raw string, extracted *asynccfg.Extracted) {
@@ -225,6 +544,7 @@ func waitForAsyncRecallPollWindow(ctx context.Context, reg tool.Registry, step S
 	if !ok || cfg == nil {
 		return nil
 	}
+	cfg = effectiveAsyncConfig(cfg, step.Args)
 	if !cfg.Status.ReuseRunArgs || !sameToolName(step.Name, cfg.Run.Tool) || !sameToolName(step.Name, cfg.Status.Tool) {
 		return nil
 	}
@@ -336,24 +656,11 @@ func sameToolName(actual, expected string) bool {
 	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(actual)), strings.TrimSpace(mcpname.Canonical(expected)))
 }
 
-func shouldAutoPollAsync(cfg *asynccfg.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	if !cfg.WaitForResponse {
-		return false
+func maybeStartAsyncPoller(ctx context.Context, manager AsyncManager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+	if cfg == nil || manager == nil || reg == nil || strings.TrimSpace(opID) == "" {
+		return
 	}
 	if strings.TrimSpace(cfg.Status.Tool) == "" {
-		return false
-	}
-	if sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs {
-		return false
-	}
-	return !sameToolName(cfg.Run.Tool, cfg.Status.Tool)
-}
-
-func maybeStartAsyncPoller(ctx context.Context, manager AsyncManager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
-	if !shouldAutoPollAsync(cfg) || manager == nil || reg == nil || strings.TrimSpace(opID) == "" {
 		return
 	}
 	if !manager.TryStartPoller(ctx, opID) {
@@ -404,6 +711,10 @@ func rehydrateAsyncPollContext(src context.Context, dst context.Context, turn ru
 	if pub, ok := modelcallctx.StreamPublisherFromContext(src); ok {
 		dst = modelcallctx.WithStreamPublisher(dst, pub)
 	}
+	if runner, ok := AsyncNarratorRunnerFromContext(src); ok {
+		dst = WithAsyncNarratorRunner(dst, runner)
+	}
+	dst = runtimerequestctx.CloneUserAsk(dst, src)
 	// Auth context — required for status tools that make authenticated outbound
 	// calls (e.g. generic MCP/external async tools).
 	if user := iauth.User(src); user != nil {
@@ -538,7 +849,7 @@ func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *as
 	if conv == nil || rec == nil || strings.TrimSpace(rec.ToolMessageID) == "" {
 		return
 	}
-	if !rec.WaitForResponse {
+	if !asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
 		return
 	}
 	content := asyncPersistenceContent(rec, payload)

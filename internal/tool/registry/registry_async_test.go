@@ -54,7 +54,7 @@ func (a *asyncProvider) Options(context.Context, string) (*mcpcfg.MCPClient, err
 func TestRegistry_AsyncConfig_MCPOptionsFallback(t *testing.T) {
 	mgr, err := manager.New(&asyncProvider{cfg: &mcpcfg.MCPClient{
 		Async: []*asynccfg.Config{{
-			WaitForResponse: true,
+			DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
 			Run: asynccfg.RunConfig{
 				Tool:            "forecasting:start",
 				OperationIDPath: "taskId",

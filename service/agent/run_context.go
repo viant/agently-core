@@ -16,6 +16,7 @@ import (
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
+	"github.com/viant/agently-core/workspace"
 )
 
 func (s *Service) addMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, role, actor, content string, raw *string, mode, id string) (string, error) {
@@ -91,6 +92,11 @@ func ensureResolvedWorkdir(input *QueryInput) string {
 			input.Context["resolvedWorkdir"] = resolved
 			return resolved
 		}
+	}
+	if root := resolveExistingWorkdir(workspace.Root()); root != "" {
+		input.Context["workdir"] = root
+		input.Context["resolvedWorkdir"] = root
+		return root
 	}
 	return ""
 }

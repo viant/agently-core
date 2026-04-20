@@ -43,6 +43,7 @@ const (
 	KindEmbedder         = "embedders"
 	KindMCP              = "mcp"
 	KindWorkflow         = "workflows"
+	KindSkill            = "skills"
 	KindTool             = "tools"
 	KindToolBundle       = "tools/bundles"
 	KindToolInstructions = "tools/instructions"
@@ -58,7 +59,7 @@ const (
 // AllKinds returns all predefined resource kinds.
 func AllKinds() []string {
 	return []string{
-		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow,
+		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow, KindSkill,
 		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindFeeds, KindA2A, KindCallback,
 	}
 }

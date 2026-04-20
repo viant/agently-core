@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
@@ -111,22 +112,116 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 			"instructions": request.Instructions,
 		})
 	}
-	if debugtrace.Enabled() {
-		payload := map[string]interface{}{
-			"model":        strings.TrimSpace(input.Model),
-			"instructions": request.Instructions,
-			"messages":     request.Messages,
-			"options":      request.Options,
+	WriteLLMRequestDebugPayload(ctx, strings.TrimSpace(input.Model), request, nil, "")
+	return request, model, nil
+}
+
+func WriteLLMRequestDebugPayload(ctx context.Context, modelName string, request *llm.GenerateRequest, extraDebugContext map[string]interface{}, traceSuffix string) {
+	if !debugtrace.Enabled() || request == nil {
+		return
+	}
+	debugContext := map[string]interface{}{
+		"conversationId": strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)),
+	}
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		if v := strings.TrimSpace(turn.TurnID); v != "" {
+			debugContext["turnId"] = v
 		}
-		if data, mErr := json.MarshalIndent(payload, "", "  "); mErr == nil {
-			traceID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-			if traceID == "" {
-				traceID = strings.TrimSpace(input.Model)
+	}
+	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok {
+		if v := strings.TrimSpace(runMeta.RunID); v != "" {
+			debugContext["runId"] = v
+		}
+		if runMeta.Iteration > 0 {
+			debugContext["iteration"] = runMeta.Iteration
+		}
+	}
+	if workdir, ok := toolexec.WorkdirFromContext(ctx); ok && strings.TrimSpace(workdir) != "" {
+		debugContext["workdir"] = strings.TrimSpace(workdir)
+	}
+	if request.Options != nil && request.Options.Metadata != nil {
+		if v, ok := request.Options.Metadata["modelSource"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["modelSource"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarrator"].(bool); ok && v {
+			debugContext["asyncNarrator"] = true
+		}
+		if v, ok := request.Options.Metadata["asyncNarrationMode"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarrationMode"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarratorOpID"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarratorOpID"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarratorUserAsk"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarratorUserAsk"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarratorIntent"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarratorIntent"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarratorSummary"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarratorSummary"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarratorTool"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarratorTool"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["asyncNarratorStatus"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["asyncNarratorStatus"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["activeSkillNames"]; ok {
+			switch names := v.(type) {
+			case []interface{}:
+				if len(names) > 0 {
+					debugContext["activeSkillNames"] = names
+				}
+			case []string:
+				if len(names) > 0 {
+					debugContext["activeSkillNames"] = names
+				}
+			}
+		}
+		if v, ok := request.Options.Metadata["activeSkillModel"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["activeSkillModel"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["activeSkillSourceName"].(string); ok && strings.TrimSpace(v) != "" {
+			debugContext["activeSkillSourceName"] = strings.TrimSpace(v)
+		}
+		if v, ok := request.Options.Metadata["activeSkillPreprocess"].(bool); ok && v {
+			debugContext["activeSkillPreprocess"] = true
+		}
+		if v, ok := request.Options.Metadata["activeSkillPreprocessTimeoutSeconds"]; ok {
+			debugContext["activeSkillPreprocessTimeoutSeconds"] = v
+		}
+	}
+	for k, v := range extraDebugContext {
+		debugContext[k] = v
+	}
+	payload := map[string]interface{}{
+		"model":        strings.TrimSpace(modelName),
+		"instructions": request.Instructions,
+		"messages":     request.Messages,
+		"options":      request.Options,
+		"debugContext": debugContext,
+	}
+	if data, mErr := json.MarshalIndent(payload, "", "  "); mErr == nil {
+		traceID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+		if traceID == "" {
+			traceID = strings.TrimSpace(modelName)
+		}
+		if strings.TrimSpace(traceSuffix) != "" {
+			traceID = traceID + "-" + strings.TrimSpace(traceSuffix)
+		}
+		_ = debugtrace.WritePayload("llm-request", traceID, data)
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+			traceID = strings.TrimSpace(turn.TurnID)
+			if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+				traceID = fmt.Sprintf("%s-iter_%d", traceID, runMeta.Iteration)
+			}
+			if strings.TrimSpace(traceSuffix) != "" {
+				traceID = traceID + "-" + strings.TrimSpace(traceSuffix)
 			}
 			_ = debugtrace.WritePayload("llm-request", traceID, data)
 		}
 	}
-	return request, model, nil
 }
 
 func normalizeModelNativeCapabilities(options *llm.Options, model llm.Model, modelName string) {

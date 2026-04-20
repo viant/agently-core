@@ -499,6 +499,56 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
+func TestBuildCanonicalState_PrefersLatestInterimAssistantPreambleFromTranscript(t *testing.T) {
+	iteration1 := 1
+	iteration2 := 2
+	modelPreamble := "Let me check."
+	statusPreamble := "Reviewing the order’s targeted and excluded site lists now."
+	final := "Here is the answer."
+	execMode := "exec"
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "running",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   &modelPreamble,
+				Preamble:  &modelPreamble,
+				Iteration: &iteration1,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+			},
+			{
+				Id:       "m2",
+				Role:     "assistant",
+				Interim:  1,
+				Preamble: &statusPreamble,
+				Mode:     &execMode,
+			},
+			{
+				Id:        "m3",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &final,
+				Iteration: &iteration2,
+				ModelCall: &agconv.ModelCallView{MessageId: "m3", Status: "completed"},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Assistant)
+	require.NotNil(t, ts.Assistant.Preamble)
+	require.Equal(t, "m2", ts.Assistant.Preamble.MessageID)
+	require.Equal(t, statusPreamble, ts.Assistant.Preamble.Content)
+	require.NotNil(t, ts.Assistant.Final)
+	require.Equal(t, final, ts.Assistant.Final.Content)
+}
+
 func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2
@@ -552,6 +602,59 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	require.Equal(t, "m2", ts.Execution.Pages[1].AssistantMessageID)
 	require.Equal(t, "summary", ts.Execution.Pages[2].Mode)
 	require.Equal(t, "m3", ts.Execution.Pages[2].AssistantMessageID)
+}
+
+func TestBuildCanonicalState_DoesNotLetExecCompletionOverridePrimaryFinal(t *testing.T) {
+	iteration := 1
+	final := "I’m sorry, but I can’t complete this request."
+	detached := "Detached data-analyst completed."
+	execMode := "exec"
+	completed := "completed"
+	toolName := "llm/agents:start"
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   strPtr("Working on it."),
+				Iteration: &iteration,
+				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+			},
+			{
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &final,
+				Iteration: &iteration,
+				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+			},
+			{
+				Id:       "m3",
+				Role:     "assistant",
+				Interim:  0,
+				Content:  &detached,
+				Mode:     &execMode,
+				Status:   &completed,
+				ToolName: &toolName,
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Assistant)
+	require.NotNil(t, ts.Assistant.Final)
+	require.Equal(t, "m2", ts.Assistant.Final.MessageID)
+	require.Equal(t, final, ts.Assistant.Final.Content)
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 1)
+	require.Equal(t, "m2", ts.Execution.Pages[0].FinalAssistantMessageID)
+	require.Equal(t, final, ts.Execution.Pages[0].Content)
 }
 
 func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {

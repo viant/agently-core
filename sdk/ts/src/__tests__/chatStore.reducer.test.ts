@@ -298,7 +298,7 @@ describe('chatStore/reducer — merge rule', () => {
                             modelCallId: 'mc_1',
                             responsePayloadId: 'pld_xyz',
                             // Intentionally omit status so transcript doesn't try to overwrite
-                            // the event-owned 'started' value.
+                            // the event-owned running value.
                         }],
                         finalResponse: false,
                     }],
@@ -312,7 +312,7 @@ describe('chatStore/reducer — merge rule', () => {
         expect(page.modelSteps.length).toBe(1);
         const step = page.modelSteps[0];
         // Event-written field wins:
-        expect(step.status).toBe('started');
+        expect(step.status).toBe('running');
         expect(getFieldProvenance(step, 'status')).toBe('event');
         // Previously-unset field is filled by transcript:
         expect(step.responsePayloadId).toBe('pld_xyz');
@@ -433,6 +433,33 @@ describe('chatStore/reducer — merge rule', () => {
         const page = state.turns[0].pages.find((p) => p.iteration === 1)!;
         expect(page.phase).toBe('sidecar');
         expect(page.toolCalls.length).toBe(1);
+    });
+
+    it('classifies executionRole for intake pages and worker tools', () => {
+        let state = fresh();
+
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_role',
+            pageId: 'pg_intake',
+            assistantMessageId: 'msg-intake',
+            phase: 'intake',
+        } as SSEEvent));
+
+        const intakePage = state.turns[0].pages.find((p) => p.pageId === 'pg_intake')!;
+        expect(intakePage.executionRole).toBe('intake');
+        expect(intakePage.modelSteps[0].executionRole).toBe('intake');
+
+        state = applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_role',
+            assistantMessageId: 'msg-worker',
+            toolCallId: 'call-worker',
+            toolName: 'llm/agents:start',
+        } as SSEEvent));
+
+        const workerPage = state.turns[0].pages[state.turns[0].pages.length - 1]!;
+        expect(workerPage.toolCalls[0].executionRole).toBe('worker');
     });
 
     it('event supersedes local on the same field', () => {

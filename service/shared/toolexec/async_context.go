@@ -4,14 +4,18 @@ import (
 	"context"
 
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 )
 
 type asyncManagerKey struct{}
+type asyncNarratorRunnerKey struct{}
 
 type AsyncManager interface {
 	Register(ctx context.Context, input asynccfg.RegisterInput) *asynccfg.OperationRecord
 	Update(ctx context.Context, input asynccfg.UpdateInput) (*asynccfg.OperationRecord, bool)
 	Get(ctx context.Context, id string) (*asynccfg.OperationRecord, bool)
+	Subscribe(opIDs []string) <-chan asynccfg.ChangeEvent
+	AwaitTerminal(ctx context.Context, opIDs []string) <-chan asynccfg.AggregatedResult
 	ActiveWaitOps(ctx context.Context, convID, turnID string) []*asynccfg.OperationRecord
 	FindActiveByRequest(ctx context.Context, convID, turnID, toolName, requestArgsDigest string) (*asynccfg.OperationRecord, bool)
 	TerminalFailure(ctx context.Context, convID, turnID string) (*asynccfg.OperationRecord, bool)
@@ -41,4 +45,19 @@ func AsyncManagerFromContext(ctx context.Context) (AsyncManager, bool) {
 	}
 	manager, ok := ctx.Value(asyncManagerKey{}).(AsyncManager)
 	return manager, ok && manager != nil
+}
+
+func WithAsyncNarratorRunner(ctx context.Context, runner asyncnarrator.LLMRunner) context.Context {
+	if runner == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, asyncNarratorRunnerKey{}, runner)
+}
+
+func AsyncNarratorRunnerFromContext(ctx context.Context) (asyncnarrator.LLMRunner, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	runner, ok := ctx.Value(asyncNarratorRunnerKey{}).(asyncnarrator.LLMRunner)
+	return runner, ok && runner != nil
 }

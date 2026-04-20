@@ -131,6 +131,12 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	if input.ModelOverride == "" {
 		if defaultModel != nil && strings.TrimSpace(*defaultModel) != "" {
 			input.ModelOverride = *defaultModel
+			if input.Context == nil {
+				input.Context = map[string]interface{}{}
+			}
+			if _, ok := input.Context["modelSource"]; !ok {
+				input.Context["modelSource"] = "conversation.defaultModel"
+			}
 		}
 	}
 
@@ -186,6 +192,12 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
 	patch.SetId(convID)
 	needsPatch := false
+	if strings.TrimSpace(chosenAgentID) != "" {
+		if agentIDPtr == nil || !strings.EqualFold(strings.TrimSpace(*agentIDPtr), strings.TrimSpace(chosenAgentID)) {
+			patch.SetAgentId(strings.TrimSpace(chosenAgentID))
+			needsPatch = true
+		}
+	}
 
 	if !exists {
 		// Default new agent-created conversations to private for privacy.

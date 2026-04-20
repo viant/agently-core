@@ -27,6 +27,7 @@ import (
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/agently-core/pkg/mcpname"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
@@ -68,6 +69,13 @@ type backendClient struct {
 	a2aSvc         *a2a.Service
 	schedulerSvc   *scheduler.Service
 	feeds          *FeedRegistry
+	skills         skillBackend
+}
+
+type skillBackend interface {
+	ListForConversation(ctx context.Context, conversationID string) ([]skillproto.Metadata, []string, error)
+	ActivateForConversation(ctx context.Context, conversationID, name, args string) (string, error)
+	Diagnostics() []string
 }
 
 func newBackend(agent *agentsvc.Service, conv conversation.Client) (*backendClient, error) {
@@ -126,6 +134,7 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 		}
 	}
 	c.feeds = NewFeedRegistry()
+	c.skills = rt.Skills
 	if rt.DAO != nil && rt.Agent != nil {
 		store, err := scheduler.NewDatlyStore(context.Background(), rt.DAO, rt.Data)
 		if err != nil {
@@ -779,6 +788,46 @@ func (c *backendClient) DecideToolApproval(ctx context.Context, input *DecideToo
 }
 func (c *backendClient) ListToolDefinitions(_ context.Context) ([]ToolDefinitionInfo, error) {
 	return listToolDefinitions(c)
+}
+func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) (*ListSkillsOutput, error) {
+	if c.skills == nil {
+		return &ListSkillsOutput{}, nil
+	}
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	items, diags, err := c.skills.ListForConversation(ctx, strings.TrimSpace(input.ConversationID))
+	if err != nil {
+		return nil, err
+	}
+	out := &ListSkillsOutput{Diagnostics: diags}
+	for _, item := range items {
+		out.Items = append(out.Items, SkillItem{Name: item.Name, Description: item.Description})
+	}
+	return out, nil
+}
+func (c *backendClient) ActivateSkill(ctx context.Context, input *ActivateSkillInput) (*ActivateSkillOutput, error) {
+	if c.skills == nil {
+		return nil, errors.New("skills service not configured")
+	}
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, errors.New("skill name is required")
+	}
+	body, err := c.skills.ActivateForConversation(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Name), strings.TrimSpace(input.Args))
+	if err != nil {
+		return nil, err
+	}
+	return &ActivateSkillOutput{Name: strings.TrimSpace(input.Name), Body: body}, nil
+}
+func (c *backendClient) GetSkillDiagnostics(ctx context.Context) (*SkillDiagnosticsOutput, error) {
+	_ = ctx
+	if c.skills == nil {
+		return &SkillDiagnosticsOutput{}, nil
+	}
+	return &SkillDiagnosticsOutput{Items: c.skills.Diagnostics()}, nil
 }
 func (c *backendClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	return executeTool(c, ctx, name, args)

@@ -23,7 +23,9 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/debugtrace"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	bindpkg "github.com/viant/agently-core/protocol/binding"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
@@ -37,6 +39,7 @@ import (
 	"github.com/viant/agently-core/service/shared/asyncwait"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
+	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
 var queueDrainGuards = &convGuardMap{m: make(map[string]*int32)}
@@ -190,6 +193,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	displayQuery := strings.TrimSpace(input.DisplayQuery)
 	if displayQuery == "" {
 		displayQuery = strings.TrimSpace(input.Query)
+	}
+	if ask := resolveUserAsk(input, displayQuery); ask != "" {
+		ctx = runtimerequestctx.WithUserAsk(ctx, ask)
 	}
 	rawUserContent := displayQuery
 	userContent := displayQuery
@@ -356,6 +362,27 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	return nil
 }
 
+func resolveUserAsk(input *QueryInput, displayQuery string) string {
+	if input != nil && input.Context != nil {
+		if title, ok := input.Context["intake.title"].(string); ok && strings.TrimSpace(title) != "" {
+			return strings.TrimSpace(title)
+		}
+	}
+	return strings.TrimSpace(displayQuery)
+}
+
+func skillActivationModeOverride(input *QueryInput, skillName string) string {
+	if input == nil || input.Context == nil {
+		return ""
+	}
+	overrideName, _ := input.Context["skillActivationName"].(string)
+	if !strings.EqualFold(strings.TrimSpace(overrideName), strings.TrimSpace(skillName)) {
+		return ""
+	}
+	overrideMode, _ := input.Context["skillActivationMode"].(string)
+	return strings.TrimSpace(overrideMode)
+}
+
 func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 	if len(input.ToolsAllowed) > 0 {
 		return &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
@@ -440,7 +467,36 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		iter++
 		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
 		iterHistoryMsgs := append([]*bindpkg.Message(nil), loopHistoryMsgs...)
-		asyncControl := strings.TrimSpace(s.renderModelManagedAsyncControl(ctx, &turn))
+		if iter == 1 && len(iterHistoryMsgs) == 0 && s.skillSvc != nil {
+			if name, args, ok := parseExplicitSkillInvocation(input.Query); ok {
+				var (
+					body string
+					err  error
+				)
+				skillCtx := ctx
+				if override := skillActivationModeOverride(input, name); override != "" {
+					skillCtx = skillsvc.WithActivationModeOverride(skillCtx, name, override)
+				}
+				if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+					body, err = s.skillSvc.ActivateForConversation(skillCtx, convID, name, args)
+				} else {
+					body, err = s.skillSvc.Activate(input.Agent, name, args)
+				}
+				if err == nil {
+					opID := "skill-activate-" + name
+					input.Query = strings.TrimSpace(args)
+					iterHistoryMsgs = append(iterHistoryMsgs, &bindpkg.Message{
+						ID:       opID,
+						Kind:     bindpkg.MessageKindToolResult,
+						Role:     string(llm.RoleAssistant),
+						ToolOpID: opID,
+						ToolName: "llm/skills:activate",
+						ToolArgs: map[string]interface{}{"name": name, "args": args},
+						Content:  strings.TrimSpace(body),
+					})
+				}
+			}
+		}
 		iterStart := time.Now()
 		s.updateRunIteration(ctx, turn, iter)
 
@@ -457,11 +513,19 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			return bErr
 		}
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
-		if asyncControl != "" {
-			appendCurrentMessages(&binding.History, &bindpkg.Message{
-				Role:    string(llm.RoleSystem),
-				Content: asyncControl,
-			})
+		if s.skillSvc != nil && input.Agent != nil {
+			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
+			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
+		}
+		if s.skillSvc != nil {
+			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
+			if len(activeNames) > 0 {
+				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
+				binding.Tools.Signatures = skillsvc.NarrowDefinitionsForActiveSkills(binding.Tools.Signatures, activeSkills)
+				if constraints := skillsvc.BuildConstraints(activeSkills); constraints != nil {
+					ctx = skillsvc.WithConstraints(ctx, constraints)
+				}
+			}
 		}
 		keys := []string{}
 		for k := range binding.Context {
@@ -469,12 +533,22 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		sort.Strings(keys)
 		modelSelection := input.Agent.ModelSelection
+		modelSource := ""
 		if strings.TrimSpace(resolvedModel) != "" && strings.TrimSpace(input.ModelOverride) == "" {
 			modelSelection.Model = resolvedModel
 			modelSelection.Preferences = nil
+			modelSource = "agent.model"
 		} else {
 			if input.ModelOverride != "" {
 				modelSelection.Model = input.ModelOverride
+				if input.Context != nil {
+					if v, ok := input.Context["modelSource"].(string); ok && strings.TrimSpace(v) != "" {
+						modelSource = strings.TrimSpace(v)
+					}
+				}
+				if modelSource == "" {
+					modelSource = "query.modelOverride"
+				}
 			} else if input.ModelPreferences != nil {
 				modelSelection.Model = ""
 			}
@@ -507,10 +581,93 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				modelSelection.AllowedProviders = []string{prov}
 			}
 		}
+		if modelSource == "" && input.Agent != nil && strings.TrimSpace(modelSelection.Model) != "" {
+			modelSource = "agent.model"
+		}
+		if modelSelection.Options == nil {
+			modelSelection.Options = &llm.Options{}
+		}
+		if modelSelection.Options.Metadata == nil {
+			modelSelection.Options.Metadata = map[string]interface{}{}
+		}
+		if modelSource != "" {
+			modelSelection.Options.Metadata["modelSource"] = modelSource
+		}
+		if s.skillSvc != nil {
+			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
+			if len(activeNames) > 0 {
+				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
+				var activeSkill *skillproto.Skill
+				if len(activeSkills) > 0 {
+					activeSkill = activeSkills[0]
+				}
+				if input.ModelOverride == "" && activeSkill != nil && strings.TrimSpace(activeSkill.Frontmatter.Model) != "" {
+					if _, err := s.llm.ModelFinder().Find(ctx, strings.TrimSpace(activeSkill.Frontmatter.Model)); err == nil {
+						modelSelection.Model = strings.TrimSpace(activeSkill.Frontmatter.Model)
+						modelSelection.Preferences = nil
+						modelSource = "skill.frontmatter"
+					} else {
+						modelSelection.Options.Metadata["modelSourceIntended"] = "skill.frontmatter"
+						modelSelection.Options.Metadata["modelSourceIntendedValue"] = strings.TrimSpace(activeSkill.Frontmatter.Model)
+						modelSelection.Options.Metadata["modelSourceError"] = "model not in finder registry"
+					}
+				}
+				if input.ModelOverride == "" && s.defaults != nil && strings.TrimSpace(s.defaults.Skills.Model) != "" {
+					if modelSource == "" || modelSource == "agent.model" {
+						modelSelection.Model = strings.TrimSpace(s.defaults.Skills.Model)
+						modelSelection.Preferences = nil
+						modelSource = "skills.model"
+					}
+				}
+				if activeSkill != nil {
+					modelSelection.Options.Metadata["activeSkillSourceName"] = strings.TrimSpace(activeSkill.Frontmatter.Name)
+					if activeSkill.Frontmatter.Temperature != nil {
+						modelSelection.Options.Temperature = *activeSkill.Frontmatter.Temperature
+						modelSelection.Options.Metadata["activeSkillTemperature"] = *activeSkill.Frontmatter.Temperature
+					}
+					if activeSkill.Frontmatter.MaxTokens > 0 {
+						modelSelection.Options.MaxTokens = activeSkill.Frontmatter.MaxTokens
+						modelSelection.Options.Metadata["activeSkillMaxTokens"] = activeSkill.Frontmatter.MaxTokens
+					}
+					if effort := strings.TrimSpace(strings.ToLower(activeSkill.Frontmatter.Effort)); effort != "" {
+						if modelSelection.Options.Reasoning == nil {
+							modelSelection.Options.Reasoning = &llm.Reasoning{}
+						}
+						modelSelection.Options.Reasoning.Effort = effort
+						modelSelection.Options.Metadata["activeSkillReasoningEffort"] = effort
+					}
+					if activeSkill.Frontmatter.Preprocess {
+						modelSelection.Options.Metadata["activeSkillPreprocess"] = true
+						timeoutSec := activeSkill.Frontmatter.PreprocessTimeoutSeconds
+						if timeoutSec <= 0 {
+							timeoutSec = 10
+						}
+						modelSelection.Options.Metadata["activeSkillPreprocessTimeoutSeconds"] = timeoutSec
+					}
+				}
+				names := make([]string, len(activeNames))
+				copy(names, activeNames)
+				modelSelection.Options.Metadata["activeSkillNames"] = names
+				if v := strings.TrimSpace(modelSelection.Model); v != "" {
+					modelSelection.Options.Metadata["activeSkillModel"] = v
+				}
+				if modelSource != "" {
+					modelSelection.Options.Metadata["modelSource"] = modelSource
+				}
+				if constraints := skillsvc.BuildConstraints(activeSkills); constraints != nil {
+					if meta := skillsvc.ConstraintMetadata(constraints); meta != nil {
+						modelSelection.Options.Metadata["activeSkillConstraints"] = meta
+					} else {
+						modelSelection.Options.Metadata["activeSkillConstraints"] = map[string]interface{}{}
+					}
+				} else {
+					modelSelection.Options.Metadata["activeSkillConstraints"] = map[string]interface{}{}
+				}
+			}
+		}
 		if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
 			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 			if len(changedOps) > 0 {
-				s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
 				queryOutput.Content = ""
 				continue
 			}
@@ -518,8 +675,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 				return err
 			}
-			changedOps = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
-			s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
 			queryOutput.Content = ""
 			continue
 		}
@@ -548,6 +703,47 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				genInput.ModelSelection.Options.Reasoning.Effort = v
 			}
 		}
+		ctx = toolexec.WithAsyncNarratorRunner(ctx, func(narratorCtx context.Context, in asyncnarrator.LLMInput) (string, error) {
+			modelName := strings.TrimSpace(genInput.ModelSelection.Model)
+			if modelName == "" {
+				return "", fmt.Errorf("async narrator model is empty")
+			}
+			model, err := s.llm.ModelFinder().Find(narratorCtx, modelName)
+			if err != nil {
+				return "", err
+			}
+			req := &llm.GenerateRequest{
+				Messages: []llm.Message{
+					llm.NewSystemMessage("Write one short progress preamble for an in-progress async operation. Respond with only the preamble text. If nothing meaningful changed, return an empty response."),
+					llm.NewTextMessage(llm.RoleUser, strings.TrimSpace("user_ask: "+in.UserAsk+"\nintent: "+in.Intent+"\nsummary: "+in.Summary+"\nmessage: "+in.Message+"\nstatus: "+in.Status+"\ntool: "+in.Tool)),
+				},
+				Options: &llm.Options{
+					Metadata: map[string]interface{}{
+						"asyncNarrator":        true,
+						"asyncNarrationMode":   "llm",
+						"asyncNarratorOpID":    strings.TrimSpace(in.OperationID),
+						"asyncNarratorUserAsk": strings.TrimSpace(in.UserAsk),
+						"asyncNarratorIntent":  strings.TrimSpace(in.Intent),
+						"asyncNarratorSummary": strings.TrimSpace(in.Summary),
+						"asyncNarratorTool":    strings.TrimSpace(in.Tool),
+						"asyncNarratorStatus":  strings.TrimSpace(in.Status),
+						"modelSource":          "async.narrator",
+					},
+				},
+			}
+			core.WriteLLMRequestDebugPayload(narratorCtx, modelName, req, nil, "narrator-"+strings.TrimSpace(in.OperationID))
+			resp, err := model.Generate(narratorCtx, req)
+			if err != nil {
+				return "", err
+			}
+			var builder strings.Builder
+			for _, choice := range resp.Choices {
+				if txt := strings.TrimSpace(choice.Message.Content); txt != "" {
+					builder.WriteString(txt)
+				}
+			}
+			return strings.TrimSpace(builder.String()), nil
+		})
 		genOutput := &core.GenerateOutput{}
 		planStart := time.Now()
 
@@ -632,7 +828,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				} else {
 					logx.Infof("conversation", "agent.runPlan async-terminal-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				}
-				s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
 				queryOutput.Content = ""
 				continue
 			}
@@ -706,8 +901,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if err := s.asyncManager.WaitForNextPoll(ctx, turn.ConversationID, turn.TurnID); err != nil {
 					return err
 				}
-				changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
-				s.injectAsyncReinforcementForRecords(ctx, &turn, changedOps)
+				_ = s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 				queryOutput.Content = ""
 				continue
 			}
@@ -897,6 +1091,36 @@ func appendMissingReplayMessages(history *bindpkg.History, msgs []*bindpkg.Messa
 		}
 	}
 	appendCurrentMessages(history, pending...)
+}
+
+func parseExplicitSkillInvocation(query string) (string, string, bool) {
+	trimmed := strings.TrimLeft(query, " \t\r\n")
+	if trimmed == "" {
+		return "", "", false
+	}
+	if !(strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "$")) {
+		return "", "", false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return "", "", false
+	}
+	head := fields[0]
+	if len(head) < 2 {
+		return "", "", false
+	}
+	name := head[1:]
+	switch strings.ToLower(name) {
+	case "help", "clear":
+		return "", "", false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return "", "", false
+	}
+	return name, strings.TrimSpace(strings.TrimPrefix(trimmed, head)), true
 }
 
 func rewriteSandboxMarkdownLinks(content string, files []*gfread.GeneratedFileView) string {

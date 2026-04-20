@@ -183,22 +183,48 @@ func TestPrompt_Generate_ContextJSON(t *testing.T) {
 	ctx := context.Background()
 	binding := &Binding{
 		Context: map[string]interface{}{
-			"resolvedWorkdir": "/tmp/repo",
-			"flags":           map[string]interface{}{"stream": true},
+			"resolvedWorkdir":        "/tmp/repo",
+			"flags":                  map[string]interface{}{"stream": true},
+			"DelegationEnabled":      true,
+			"DelegationCurrentDepth": 1,
+			"DelegationDepths":       map[string]interface{}{"coder": 1},
+			"client":                 map[string]interface{}{"kind": "web"},
+			"Projection": map[string]interface{}{
+				"scope":              "conversation",
+				"reason":             "projection active",
+				"hiddenTurnCount":    2,
+				"hiddenMessageCount": 3,
+			},
 		},
 	}
 
 	vmPrompt := Prompt{Engine: "vm", Text: "Context: ${ContextJSON}"}
 	vmGot, err := vmPrompt.Generate(ctx, binding)
 	assert.NoError(t, err)
+	assert.Contains(t, vmGot, `"Runtime"`)
 	assert.Contains(t, vmGot, `"resolvedWorkdir": "/tmp/repo"`)
 	assert.Contains(t, vmGot, `"stream": true`)
+	assert.Contains(t, vmGot, `"Delegation"`)
+	assert.Contains(t, vmGot, `"currentDepth": 1`)
+	assert.Contains(t, vmGot, `"Client"`)
+	assert.Contains(t, vmGot, `"kind": "web"`)
+	assert.Contains(t, vmGot, `"projection"`)
+	assert.Contains(t, vmGot, `"hiddenTurnCount": 2`)
+	assert.NotContains(t, vmGot, `"DelegationDepths"`)
+	assert.NotContains(t, vmGot, `"hiddenTurnIds"`)
+	assert.NotContains(t, vmGot, `"hiddenMessageIds"`)
 
 	goPrompt := Prompt{Engine: "go", Text: "Context: {{.ContextJSON}}"}
 	goGot, err := goPrompt.Generate(ctx, binding)
 	assert.NoError(t, err)
+	assert.Contains(t, goGot, `"Runtime"`)
 	assert.Contains(t, goGot, `"resolvedWorkdir": "/tmp/repo"`)
 	assert.Contains(t, goGot, `"stream": true`)
+	assert.Contains(t, goGot, `"Delegation"`)
+	assert.Contains(t, goGot, `"Client"`)
+	assert.NotContains(t, goGot, `"DelegationDepths"`)
+	assert.NotContains(t, goGot, `"hiddenTurnIds"`)
+	assert.NotContains(t, goGot, `"hiddenMessageIds"`)
 	assert.NotContains(t, goGot, "map[")
 }
 

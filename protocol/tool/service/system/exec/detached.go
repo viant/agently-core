@@ -402,9 +402,9 @@ func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
 func (s *Service) AsyncConfigs() []*asynccfg.Config {
 	return []*asynccfg.Config{
 		{
-			WaitForResponse: true,
-			TimeoutMs:       int((10 * time.Minute) / time.Millisecond),
-			PollIntervalMs:  int((2 * time.Second) / time.Millisecond),
+			DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
+			TimeoutMs:            int((10 * time.Minute) / time.Millisecond),
+			PollIntervalMs:       int((2 * time.Second) / time.Millisecond),
 			Run: asynccfg.RunConfig{
 				Tool:            "system/exec:start",
 				OperationIDPath: "sessionId",

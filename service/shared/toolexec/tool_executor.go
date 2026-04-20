@@ -23,6 +23,7 @@ import (
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
+	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
 const (
@@ -149,6 +150,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	var toolResult string
 	var execErr error
 	callStep := step
+	callStep.Args = stripAgentlyControlArgs(step.Args)
 	activatedStatusPolling := false
 	if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Status.Tool) {
 		if activatedOut, activatedResult, activatedErr, handled := maybeExecuteActivatedStatusTool(ctx, reg, step, conv, asyncCfg); handled {
@@ -205,6 +207,12 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("execute tool: %w", execErr))
 		cause := classifyTimeoutCause(ctx, nil, execErr)
 		logx.WarnCtxf(ctx, "conversation", "tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
+	} else if isSkillActivateTool(step.Name) {
+		if state, ok := skillsvc.RuntimeStateFromContext(ctx); ok && state != nil {
+			if name, _ := step.Args["name"].(string); strings.TrimSpace(name) != "" {
+				state.Activate(name)
+			}
+		}
 	} else if looksLikeAuthElicitation(toolResult) {
 		logx.WarnCtxf(ctx, "conversation", "tool execute auth challenge convo=%q turn=%q op_id=%q tool=%q exec_err=nil result_len=%d result_head=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), len(toolResult), textutil.Head(toolResult, 256))
 	}
@@ -212,10 +220,20 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	var asyncRecord *asynccfg.OperationRecord
 	if !activatedStatusPolling {
-		asyncRecord = maybeHandleAsyncTool(ctx, reg, callStep, toolResult, execErr)
+		asyncRecord = maybeHandleAsyncTool(ctx, reg, step, toolResult, execErr)
+	}
+	parkedStatus := false
+	if execErr == nil && !activatedStatusPolling {
+		if parkedResult, ok, parkErr := maybeAwaitAsyncStatusResult(ctx, reg, step); parkErr != nil {
+			execErr = parkErr
+		} else if ok {
+			toolResult = parkedResult
+			out.Result = parkedResult
+			parkedStatus = true
+		}
 	}
 	suppressedAfterStatus := ConsumeAsyncWaitAfterStatus(ctx)
-	if len(suppressedAfterStatus) > 0 {
+	if !parkedStatus && len(suppressedAfterStatus) > 0 {
 		out.Result = ""
 	}
 
@@ -270,7 +288,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx, toolResult)
-	if asyncRecord != nil && asyncRecord.WaitForResponse {
+	if asyncRecord != nil && asynccfg.ExecutionModeWaits(asyncRecord.ExecutionMode) {
 		forcedStatus = "running"
 		toolCallManagedAsync = true
 		finCtx, cancelFin := detachedFinalizeCtx(ctx)
@@ -346,9 +364,11 @@ func maybeExecuteActivatedStatusTool(ctx context.Context, reg tool.Registry, ste
 		return plan.ToolCall{}, "", nil, false
 	}
 	rec, ok := manager.Get(ctx, opID)
-	if !ok || rec == nil || rec.Terminal() || rec.WaitForResponse {
+	if !ok || rec == nil || rec.Terminal() || asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
 		return plan.ToolCall{}, "", nil, false
 	}
+	narration := startAsyncNarration(ctx, cfg, step, rec)
+	defer finishAsyncNarration(ctx, narration, opID, step.Name)
 
 	callStep := step
 	if len(rec.StatusArgs) > 0 {
@@ -377,6 +397,9 @@ func maybeExecuteActivatedStatusTool(ctx context.Context, reg tool.Registry, ste
 			return out, toolResult, execErr, true
 		}
 		if changed || updated.Terminal() {
+			observeAsyncNarration(ctx, narration, changeEventFromRecord(updated))
+		}
+		if changed || updated.Terminal() {
 			return out, toolResult, execErr, true
 		}
 		if updated.TimeoutAt != nil && time.Now().After(*updated.TimeoutAt) {
@@ -395,6 +418,9 @@ func maybeExecuteActivatedStatusTool(ctx context.Context, reg tool.Registry, ste
 		case <-ctx.Done():
 			timer.Stop()
 			return out, toolResult, ctx.Err(), true
+		case <-asyncNarrationChannel(narration):
+			timer.Stop()
+			flushAsyncNarration(ctx, narration, opID, step.Name, "debounced update")
 		case <-timer.C:
 		}
 	}
@@ -494,6 +520,10 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 // executeTool runs the tool and returns the normalized ToolCall, raw result and error.
 func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (plan.ToolCall, string, error) {
 	applyContextWorkdir(step.Name, step.Args, ctx)
+	if err := skillsvc.ValidateExecution(ctx, step.Name, step.Args); err != nil {
+		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
+		return out, "", err
+	}
 	if err := tool.ValidateExecution(ctx, tool.FromContext(ctx), step.Name, step.Args); err != nil {
 		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
 		return out, "", err
@@ -534,6 +564,11 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 		out.Error = err.Error()
 	}
 	return out, toolResult, err
+}
+
+func isSkillActivateTool(name string) bool {
+	name = strings.TrimSpace(name)
+	return name == "llm/skills:activate" || name == "llm/skills/activate" || name == "llm/skills-activate"
 }
 
 // promptToolApproval creates an inline elicitation for prompt-mode approval and

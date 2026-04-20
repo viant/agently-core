@@ -8,6 +8,124 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
+func normalizeExecutionRole(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "react", "intake", "narrator", "router", "summary", "worker":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func payloadMetadataValue(payload interface{}) map[string]interface{} {
+	switch actual := payload.(type) {
+	case nil:
+		return nil
+	case map[string]interface{}:
+		if options, ok := actual["options"].(map[string]interface{}); ok {
+			if meta, ok := options["metadata"].(map[string]interface{}); ok {
+				return meta
+			}
+		}
+		if meta, ok := actual["metadata"].(map[string]interface{}); ok {
+			return meta
+		}
+	case json.RawMessage:
+		if len(actual) == 0 {
+			return nil
+		}
+		var decoded map[string]interface{}
+		if json.Unmarshal(actual, &decoded) == nil {
+			return payloadMetadataValue(decoded)
+		}
+	case []byte:
+		if len(actual) == 0 {
+			return nil
+		}
+		var decoded map[string]interface{}
+		if json.Unmarshal(actual, &decoded) == nil {
+			return payloadMetadataValue(decoded)
+		}
+	}
+	return nil
+}
+
+func metadataHasAsyncNarrator(payloads ...interface{}) bool {
+	for _, payload := range payloads {
+		meta := payloadMetadataValue(payload)
+		if meta == nil {
+			continue
+		}
+		if value, ok := meta["asyncNarrator"].(bool); ok && value {
+			return true
+		}
+	}
+	return false
+}
+
+func executionRoleFromSignals(explicit, phase, mode, toolName string, payloads ...interface{}) string {
+	if role := normalizeExecutionRole(explicit); role != "" {
+		return role
+	}
+	if metadataHasAsyncNarrator(payloads...) {
+		return "narrator"
+	}
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "intake":
+		return "intake"
+	case "summary":
+		return "summary"
+	}
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "router":
+		return "router"
+	case "summary":
+		return "summary"
+	}
+	normalizedTool := strings.ToLower(strings.TrimSpace(toolName))
+	if strings.HasPrefix(normalizedTool, "llm/agents:") || strings.HasPrefix(normalizedTool, "llm/agents/") ||
+		strings.HasPrefix(normalizedTool, "llm_agents:") || strings.HasPrefix(normalizedTool, "llm_agents/") {
+		return "worker"
+	}
+	return "react"
+}
+
+func refreshExecutionRole(page *ExecutionPageState) {
+	if page == nil {
+		return
+	}
+	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
+	for _, step := range page.ModelSteps {
+		if step == nil {
+			continue
+		}
+		step.ExecutionRole = executionRoleFromSignals(
+			step.ExecutionRole,
+			firstNonEmptyString(step.Phase, page.Phase),
+			page.Mode,
+			"",
+			step.RequestPayload,
+			step.ProviderRequestPayload,
+			step.ResponsePayload,
+			step.ProviderResponsePayload,
+			step.StreamPayload,
+		)
+	}
+	for _, step := range page.ToolSteps {
+		if step == nil {
+			continue
+		}
+		step.ExecutionRole = executionRoleFromSignals(
+			step.ExecutionRole,
+			page.Phase,
+			page.Mode,
+			step.ToolName,
+			step.RequestPayload,
+			step.ResponsePayload,
+		)
+	}
+}
+
 // marshalToRawJSON marshals v to json.RawMessage.
 // Returns nil if v is nil or marshaling fails.
 // Handles existing json.RawMessage and []byte inputs without re-encoding.
@@ -131,7 +249,11 @@ func ensureCurrentPage(turn *TurnState, event *streaming.Event) *ExecutionPageSt
 	if page.Phase == "" {
 		page.Phase = strings.TrimSpace(event.Phase)
 	}
+	if page.ExecutionRole == "" {
+		page.ExecutionRole = normalizeExecutionRole(event.ExecutionRole)
+	}
 	deriveExecutionPagePhase(page)
+	refreshExecutionRole(page)
 	return page
 }
 
@@ -216,6 +338,7 @@ func setAssistantFinal(turn *TurnState, page *ExecutionPageState, messageID, con
 		page.FinalResponse = true
 		page.FinalAssistantMessageID = strings.TrimSpace(messageID)
 		deriveExecutionPagePhase(page)
+		refreshExecutionRole(page)
 	}
 }
 
@@ -232,6 +355,7 @@ func setAssistantPreamble(turn *TurnState, page *ExecutionPageState, messageID, 
 		page.Preamble = content
 		page.PreambleMessageID = strings.TrimSpace(messageID)
 		deriveExecutionPagePhase(page)
+		refreshExecutionRole(page)
 	}
 }
 
@@ -309,6 +433,7 @@ func applyModelResultToPage(page *ExecutionPageState, event *streaming.Event) {
 		page.FinalAssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
 	}
 	deriveExecutionPagePhase(page)
+	refreshExecutionRole(page)
 }
 
 func applyModelStart(step *ModelStepState, event *streaming.Event) {
@@ -342,6 +467,7 @@ func applyModelStart(step *ModelStepState, event *streaming.Event) {
 	if event.Phase != "" {
 		step.Phase = strings.TrimSpace(event.Phase)
 	}
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, event.Mode, "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
 }
 
 func applyPlannedToolStep(step *ToolStepState, toolCallID, toolName string) {
@@ -355,6 +481,7 @@ func applyPlannedToolStep(step *ToolStepState, toolCallID, toolName string) {
 		step.ToolName = name
 	}
 	step.Status = stepStatusFromString("planned", step.Status)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, "", "", step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 
 func applyToolStart(step *ToolStepState, event *streaming.Event) {
@@ -375,6 +502,7 @@ func applyToolStart(step *ToolStepState, event *streaming.Event) {
 		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
 	}
 	applyAsyncOperation(step, event)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, event.Phase, event.Mode, step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 
 func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
@@ -398,6 +526,7 @@ func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
 		step.Phase = strings.TrimSpace(event.Phase)
 	}
 	step.CompletedAt = completedAtForEvent(event)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, event.Mode, "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
 }
 
 func applyToolCompletion(step *ToolStepState, event *streaming.Event) {
@@ -413,6 +542,7 @@ func applyToolCompletion(step *ToolStepState, event *streaming.Event) {
 	}
 	step.CompletedAt = completedAtForEvent(event)
 	applyAsyncOperation(step, event)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, event.Phase, event.Mode, step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 
 func ensureToolCompletion(page *ExecutionPageState, event *streaming.Event) *ToolStepState {
@@ -451,6 +581,7 @@ func applyAsyncOperation(step *ToolStepState, event *streaming.Event) {
 	if step.OperationID != "" && step.AsyncOperation.OperationID == "" {
 		step.AsyncOperation.OperationID = step.OperationID
 	}
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, event.Phase, event.Mode, step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 
 // finalizeTurn sets a terminal status on the turn, refusing to downgrade

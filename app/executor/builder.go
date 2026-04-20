@@ -22,6 +22,7 @@ import (
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
+	resourcessvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
@@ -32,6 +33,7 @@ import (
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/hotswap"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
@@ -58,6 +60,8 @@ type Runtime struct {
 	Elicitation       *elicsvc.Service
 	Streaming         streaming.Bus
 	HotSwap           *hotswap.Manager
+	Skills            *skillsvc.Service
+	SkillWatcher      *skillsvc.Watcher
 	CallbackDispatch  *callbacksvc.Service
 	Store             workspace.Store
 	KnowledgeStore    workspace.KnowledgeStore
@@ -267,6 +271,15 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if !shouldSkipRegistryInitialize() {
 		out.Registry.Initialize(ctx)
 	}
+	skillsvc.ExecFn = out.Registry.Execute
+	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
+	if err := out.Skills.Load(ctx); err != nil {
+		return nil, err
+	}
+	out.SkillWatcher = skillsvc.NewWatcher(out.Skills)
+	if err := out.SkillWatcher.Start(ctx); err != nil {
+		return nil, err
+	}
 
 	out.Core = b.core
 	if out.Core == nil {
@@ -289,6 +302,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	out.Streaming = b.streamBus
 	if out.Streaming == nil {
 		out.Streaming = streaming.NewMemoryBus(0)
+	}
+	if out.Skills != nil {
+		out.Skills.SetStreamPublisher(out.Streaming)
 	}
 	if publisherSetter, ok := out.Conversation.(interface{ SetStreamPublisher(streaming.Publisher) }); ok {
 		publisherSetter.SetStreamPublisher(out.Streaming)
@@ -326,7 +342,27 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			intakesvc.WithBundleRepo(bundleRepo),
 		)
 		agentOpts = append(agentOpts, agentsvc.WithIntakeService(intakeSvc))
+		agentOpts = append(agentOpts, agentsvc.WithSkillService(out.Skills))
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
+	}
+	if out.Agent != nil {
+		out.Agent.SetSkillService(out.Skills)
+	}
+	if out.Skills != nil {
+		if err := tool.AddInternalService(out.Registry, out.Skills); err != nil {
+			return nil, err
+		}
+	}
+	if resourcesSvc := resourcessvc.New(aug,
+		resourcessvc.WithMCPManager(out.MCPManager),
+		resourcessvc.WithConversationClient(out.Conversation),
+		resourcessvc.WithAgentFinder(b.agentFinder),
+		resourcessvc.WithDefaultEmbedder(out.Defaults.Embedder),
+		resourcessvc.WithSkillService(out.Skills),
+	); resourcesSvc != nil {
+		if err := tool.AddInternalService(out.Registry, resourcesSvc); err != nil {
+			return nil, err
+		}
 	}
 	promptRepo := promptrepo.NewWithStore(out.Store)
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,

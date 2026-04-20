@@ -40,6 +40,9 @@ func WithContent(content string) MessageOption {
 func WithRawContent(content string) MessageOption {
 	return func(m *MutableMessage) { m.SetRawContent(content) }
 }
+func WithPreamble(preamble string) MessageOption {
+	return func(m *MutableMessage) { m.SetPreamble(preamble) }
+}
 func WithInterim(v int) MessageOption        { return func(m *MutableMessage) { m.SetInterim(v) } }
 func WithMode(mode string) MessageOption     { return func(m *MutableMessage) { m.SetMode(mode) } }
 func WithPhase(phase string) MessageOption   { return func(m *MutableMessage) { m.SetPhase(phase) } }
