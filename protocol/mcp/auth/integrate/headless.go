@@ -101,7 +101,7 @@ func logHeadlessAuth(ctx context.Context, origin, reason string) {
 	mode, _ := runtimediscovery.ModeFromContext(ctx)
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if mode.Scheduler {
-		log.Printf("[scheduler-auth] schedule=%q run=%q user=%q scheduler auth headless fallback server=%q reason=%q",
+		log.Printf("[runtime-auth] schedule=%q run=%q user=%q runtime auth headless fallback server=%q reason=%q",
 			strings.TrimSpace(mode.ScheduleID),
 			strings.TrimSpace(mode.ScheduleRunID),
 			userID,
