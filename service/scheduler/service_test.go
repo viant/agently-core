@@ -13,6 +13,7 @@ import (
 	mem "github.com/viant/agently-core/app/store/data/memory"
 	iauth "github.com/viant/agently-core/internal/auth"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/scy"
@@ -111,6 +112,11 @@ func TestService_RunDue_ReapsStaleActiveRunWhenScheduleNotDue(t *testing.T) {
 	if !strings.Contains(errorMessage.String, "stale scheduled run detected") {
 		t.Fatalf("expected stale-run error message, got %q", errorMessage.String)
 	}
+	for _, want := range []string{"cause=timeout_exceeded", "timeout=1s", "deadline=", "detected_at=", "run_age=", "overdue_by="} {
+		if !strings.Contains(errorMessage.String, want) {
+			t.Fatalf("expected stale-run message to contain %q, got %q", want, errorMessage.String)
+		}
+	}
 
 	var lastStatus sql.NullString
 	var lastError sql.NullString
@@ -169,6 +175,29 @@ func TestService_RunDue_ReapsStaleActiveRunWhenScheduleNotDue(t *testing.T) {
 	}
 	if !toolOK {
 		t.Fatalf("expected tool call to be canceled with completed_at set")
+	}
+}
+
+func TestService_staleActiveRunReason_UsesLeaseCause(t *testing.T) {
+	svc := New(nil, nil)
+	now := time.Now().UTC()
+	startedAt := now.Add(-5 * time.Minute)
+	leaseUntil := now.Add(-20 * time.Second)
+	run := &schrun.RunView{
+		Status:     "running",
+		CreatedAt:  startedAt.Add(-5 * time.Second),
+		StartedAt:  &startedAt,
+		LeaseUntil: &leaseUntil,
+	}
+
+	reason, stale := svc.staleActiveRunReason(nil, run, now)
+	if !stale {
+		t.Fatalf("expected stale active run")
+	}
+	for _, want := range []string{"cause=lease_expired", "run_start=", "timeout=20m0s", "lease_until=", "grace=15s", "detected_at=", "run_age=", "overdue_by="} {
+		if !strings.Contains(reason, want) {
+			t.Fatalf("expected lease stale reason to contain %q, got %q", want, reason)
+		}
 	}
 }
 
