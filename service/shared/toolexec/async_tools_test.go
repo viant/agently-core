@@ -138,7 +138,7 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	require.GreaterOrEqual(t, reg.calls, 2)
 }
 
-func TestExecuteToolStep_StartDoesNotAutoPoll(t *testing.T) {
+func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
 	cfg := &asynccfg.Config{
 		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
 		PollIntervalMs:       5,
@@ -180,8 +180,9 @@ func TestExecuteToolStep_StartDoesNotAutoPoll(t *testing.T) {
 	}, conv)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-	require.Len(t, reg.callTimes, 1, "start should execute without autonomous status polling")
+	require.Eventually(t, func() bool {
+		return len(reg.callTimes) >= 2
+	}, time.Second, 10*time.Millisecond, "wait-mode start should launch autonomous status polling")
 	require.NotEmpty(t, conv.patchedToolCalls)
 	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
 	require.NotNil(t, last)

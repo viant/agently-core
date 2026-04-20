@@ -275,6 +275,9 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", extracted)
+			if asynccfg.ExecutionModeWaits(rec.ExecutionMode) && !(sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs) {
+				maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
+			}
 		}
 		publishAsyncLifecycleEvent(ctx, step.Name, step.ID, opID, streaming.EventTypeToolCallStarted, extracted)
 		if rec != nil && rec.Terminal() {
