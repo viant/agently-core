@@ -157,6 +157,29 @@ type Manager struct {
 	nextSubID     uint64
 }
 
+func (m *Manager) BindToolCarrier(_ context.Context, id, toolCallID, toolMessageID, toolName string) (*OperationRecord, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec := m.ops[strings.TrimSpace(id)]
+	if rec == nil {
+		return nil, false
+	}
+	changed := false
+	if v := strings.TrimSpace(toolCallID); v != "" && v != rec.ToolCallID {
+		rec.ToolCallID = v
+		changed = true
+	}
+	if v := strings.TrimSpace(toolMessageID); v != "" && v != rec.ToolMessageID {
+		rec.ToolMessageID = v
+		changed = true
+	}
+	if v := strings.TrimSpace(toolName); v != "" && v != rec.ToolName {
+		rec.ToolName = v
+		changed = true
+	}
+	return cloneRecord(rec), changed
+}
+
 func NewManager() *Manager {
 	return &Manager{
 		ops:           map[string]*OperationRecord{},

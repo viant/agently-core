@@ -303,6 +303,11 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			KeyData: cloneRaw(payload.KeyData),
 			Error:   payload.Error,
 		})
+		if rec != nil && asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
+			if rebound, _ := manager.BindToolCarrier(ctx, opID, step.ID, strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)), step.Name); rebound != nil {
+				rec = rebound
+			}
+		}
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}

@@ -185,7 +185,7 @@ func TestExecuteToolStep_StartDoesNotAutoPoll(t *testing.T) {
 	require.NotEmpty(t, conv.patchedToolCalls)
 	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
 	require.NotNil(t, last)
-	require.Equal(t, "running", strings.TrimSpace(last.Status))
+	require.Equal(t, "completed", strings.TrimSpace(last.Status))
 }
 
 func TestExecuteToolStep_AsyncOverrideUsesExecutionMode(t *testing.T) {
@@ -921,16 +921,16 @@ func TestExecuteToolStep_AsyncStartDoesNotCompleteImmediately(t *testing.T) {
 	}, conv)
 	require.NoError(t, err)
 
-	var sawRunning bool
+	var sawCompleted bool
 	for _, patched := range conv.patchedToolCalls {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
-		if patched.Status == "running" {
-			sawRunning = true
+		if patched.Status == "completed" {
+			sawCompleted = true
 		}
 	}
-	require.True(t, sawRunning, "expected async start tool call to remain running immediately after start")
+	require.True(t, sawCompleted, "expected async start tool call to complete immediately after launch")
 }
 
 func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
@@ -1382,6 +1382,7 @@ func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *test
 	manager := asynccfg.NewManager()
 	conv := &stubConv{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
 	ctx = WithAsyncManager(ctx, manager)
 	ctx = WithAsyncWaitState(ctx)
 	ctx = WithAsyncConversation(ctx, conv)
@@ -1417,7 +1418,7 @@ func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *test
 			}
 		}
 	}
-	require.True(t, sawFailed, "expected terminal status tool call to patch original async start tool call to failed")
+	require.True(t, sawFailed, "expected terminal status tool call to patch the status carrier to failed")
 }
 
 func TestMaybeHandleAsyncTool_StatusDoesNotPatchOriginalToolCallWhenExecutionModeDetach(t *testing.T) {
@@ -1494,6 +1495,7 @@ func TestMaybeHandleAsyncTool_StatusCanceledPatchesOriginalAsyncToolCall(t *test
 	manager := asynccfg.NewManager()
 	conv := &stubConv{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
 	ctx = WithAsyncManager(ctx, manager)
 	ctx = WithAsyncWaitState(ctx)
 	ctx = WithAsyncConversation(ctx, conv)
@@ -1529,7 +1531,7 @@ func TestMaybeHandleAsyncTool_StatusCanceledPatchesOriginalAsyncToolCall(t *test
 			}
 		}
 	}
-	require.True(t, sawCanceled, "expected terminal canceled status tool call to patch original async start tool call to canceled")
+	require.True(t, sawCanceled, "expected terminal canceled status tool call to patch the status carrier to canceled")
 }
 
 func TestMaybeHandleAsyncTool_SameToolReuseRunArgsTreatsRecallAsStatus(t *testing.T) {

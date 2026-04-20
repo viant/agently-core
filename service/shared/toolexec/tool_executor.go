@@ -218,9 +218,8 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	span.SetEnd(time.Now())
 
-	var asyncRecord *asynccfg.OperationRecord
 	if !activatedStatusPolling {
-		asyncRecord = maybeHandleAsyncTool(ctx, reg, step, toolResult, execErr)
+		_ = maybeHandleAsyncTool(ctx, reg, step, toolResult, execErr)
 	}
 	parkedStatus := false
 	if execErr == nil && !activatedStatusPolling {
@@ -288,26 +287,6 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 7) Finish tool call. Conversation terminal status is finalized at turn level.
 	status, errMsg := resolveToolStatus(execErr, ctx, toolResult)
-	if asyncRecord != nil && asynccfg.ExecutionModeWaits(asyncRecord.ExecutionMode) {
-		forcedStatus = "running"
-		toolCallManagedAsync = true
-		finCtx, cancelFin := detachedFinalizeCtx(ctx)
-		defer cancelFin()
-		if cErr := updateAsyncToolCallState(finCtx, conv, toolMsgID, step.ID, step.Name, "running", respID, ""); cErr != nil {
-			errs = append(errs, fmt.Errorf("mark async tool call running: %w", cErr))
-		} else {
-			toolCallClosed = true
-		}
-		if len(errs) > 0 {
-			retErr = errors.Join(errs...)
-		}
-		if retErr != nil && len(errs) > 0 {
-			logx.ErrorCtxf(ctx, "conversation", "tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult), retErr)
-		} else {
-			logx.InfoCtxf(ctx, "conversation", "tool execute done convo=%q turn=%q op_id=%q tool=%q status=%q result_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), "running", len(toolResult))
-		}
-		return
-	}
 	forcedStatus = status
 	// Use detached + bounded context for terminal writes.
 	finCtx, cancelFin := detachedFinalizeCtx(ctx)

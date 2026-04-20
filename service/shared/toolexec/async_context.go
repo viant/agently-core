@@ -14,6 +14,7 @@ type AsyncManager interface {
 	Register(ctx context.Context, input asynccfg.RegisterInput) *asynccfg.OperationRecord
 	Update(ctx context.Context, input asynccfg.UpdateInput) (*asynccfg.OperationRecord, bool)
 	Get(ctx context.Context, id string) (*asynccfg.OperationRecord, bool)
+	BindToolCarrier(ctx context.Context, id, toolCallID, toolMessageID, toolName string) (*asynccfg.OperationRecord, bool)
 	Subscribe(opIDs []string) <-chan asynccfg.ChangeEvent
 	AwaitTerminal(ctx context.Context, opIDs []string) <-chan asynccfg.AggregatedResult
 	ActiveWaitOps(ctx context.Context, convID, turnID string) []*asynccfg.OperationRecord
