@@ -122,6 +122,12 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if strings.TrimSpace(src.Agent) != "" {
 		dst.Agent = strings.TrimSpace(src.Agent)
 	}
+	if len(src.Skills.Roots) > 0 {
+		dst.Skills.Roots = append([]string(nil), src.Skills.Roots...)
+	}
+	if strings.TrimSpace(src.Skills.Model) != "" {
+		dst.Skills.Model = strings.TrimSpace(src.Skills.Model)
+	}
 	if strings.TrimSpace(src.Model) != "" {
 		dst.Model = strings.TrimSpace(src.Model)
 	}
@@ -240,9 +246,6 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 		src.Resources.MatchConcurrency > 0 ||
 		src.Resources.IndexAsync != nil {
 		dst.Resources = src.Resources
-	}
-	if src.AsyncReinforcementPrompt != nil {
-		dst.AsyncReinforcementPrompt = src.AsyncReinforcementPrompt
 	}
 }
 

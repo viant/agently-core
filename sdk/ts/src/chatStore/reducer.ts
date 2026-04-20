@@ -614,6 +614,7 @@ function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: Writ
         renderKey: allocateRenderKey(),
         pageId: pageId || undefined,
         iteration: typeof event.iteration === 'number' ? event.iteration : turn.pages.length,
+        executionRole: executionRoleFromSignals((event as any).executionRole, event.phase, event.mode),
         phase: normalisePhase(event.phase),
         modelSteps: [],
         toolCalls: [],
@@ -623,6 +624,7 @@ function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: Writ
     if (pageId) setFieldProvenance(created, 'pageId', source);
     setFieldProvenance(created, 'iteration', source);
     if (event.phase) setFieldProvenance(created, 'phase', source);
+    if (created.executionRole) setFieldProvenance(created, 'executionRole', source);
     if (event.createdAt) setFieldProvenance(created, 'createdAt', source);
     turn.pages.push(created);
     return created;
@@ -631,6 +633,49 @@ function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: Writ
 function normalisePhase(raw: string | undefined): ClientExecutionPhase {
     if (raw === 'intake' || raw === 'sidecar' || raw === 'summary' || raw === 'main') return raw;
     return 'main';
+}
+
+function normaliseExecutionRole(raw: string | undefined): string {
+    const text = String(raw || '').trim().toLowerCase();
+    if (text === 'react' || text === 'intake' || text === 'narrator' || text === 'router' || text === 'summary' || text === 'worker') {
+        return text;
+    }
+    return '';
+}
+
+function payloadMetadataValue(payload: unknown): Record<string, unknown> | null {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    const options = (payload as Record<string, unknown>).options;
+    if (options && typeof options === 'object' && !Array.isArray(options)) {
+        const metadata = (options as Record<string, unknown>).metadata;
+        if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+            return metadata as Record<string, unknown>;
+        }
+    }
+    const metadata = (payload as Record<string, unknown>).metadata;
+    if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+        return metadata as Record<string, unknown>;
+    }
+    return null;
+}
+
+function metadataHasAsyncNarrator(...payloads: unknown[]): boolean {
+    return payloads.some((payload) => payloadMetadataValue(payload)?.asyncNarrator === true);
+}
+
+function executionRoleFromSignals(explicit: string | undefined, phase: string | undefined, mode: string | undefined, toolName = '', ...payloads: unknown[]): string {
+    const normalized = normaliseExecutionRole(explicit);
+    if (normalized) return normalized;
+    if (metadataHasAsyncNarrator(...payloads)) return 'narrator';
+    const normalizedPhase = String(phase || '').trim().toLowerCase();
+    if (normalizedPhase === 'intake') return 'intake';
+    if (normalizedPhase === 'summary') return 'summary';
+    const normalizedMode = String(mode || '').trim().toLowerCase();
+    if (normalizedMode === 'router') return 'router';
+    if (normalizedMode === 'summary') return 'summary';
+    const normalizedTool = String(toolName || '').trim().toLowerCase();
+    if (normalizedTool.startsWith('llm/agents:') || normalizedTool.startsWith('llm/agents/')) return 'worker';
+    return 'react';
 }
 
 function onModelStarted(state: ClientConversationState, event: SSEEvent): ClientConversationState {
@@ -651,6 +696,7 @@ function onModelStarted(state: ClientConversationState, event: SSEEvent): Client
     const step = matched ?? appendModelStep(page, 'event');
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
+    writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
     if (event.phase) writeField(step, 'phase', event.phase, 'event');
     if (event.provider ?? event.model?.provider) {
         writeField(step, 'provider', event.provider ?? event.model?.provider ?? '', 'event');
@@ -658,7 +704,7 @@ function onModelStarted(state: ClientConversationState, event: SSEEvent): Client
     if (event.modelName ?? event.model?.model) {
         writeField(step, 'model', event.modelName ?? event.model?.model ?? '', 'event');
     }
-    writeField(step, 'status', 'started', 'event');
+    writeField(step, 'status', 'running', 'event');
     if (event.startedAt) writeField(step, 'startedAt', event.startedAt, 'event');
     // If an explicit phase is on the event, carry it on the page too.
     if (event.phase) writeField(page, 'phase', normalisePhase(event.phase), 'event');
@@ -679,6 +725,7 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     const step = matched ?? appendModelStep(page, 'event');
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
+    writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
     writeField(step, 'status', event.status ?? 'completed', 'event');
     if (event.completedAt) writeField(step, 'completedAt', event.completedAt, 'event');
     // NOTE: model_completed does NOT change turn lifecycle per §4.3.
@@ -707,6 +754,7 @@ function onToolCallEvent(state: ClientConversationState, event: SSEEvent): Clien
     const step = matched ?? appendToolCall(page);
     if (toolCallId) writeField(step, 'toolCallId', toolCallId, 'event');
     if (event.toolName) writeField(step, 'toolName', event.toolName, 'event');
+    writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode, event.toolName), 'event');
     if (event.operationId) writeField(step, 'operationId', event.operationId, 'event');
     if (event.status) writeField(step, 'status', event.status, 'event');
     if (event.error) writeField(step, 'errorMessage', event.error, 'event');
@@ -998,6 +1046,7 @@ function mergeTranscriptPage(
             renderKey: allocateRenderKey(),
             pageId: snapshotPage.pageId,
             iteration: snapshotPage.iteration,
+            executionRole: snapshotPage.executionRole,
             phase: normalisePhase(snapshotPage.phase),
             mode: snapshotPage.mode,
             status: snapshotPage.status,
@@ -1015,6 +1064,7 @@ function mergeTranscriptPage(
         };
         setFieldProvenance(page, 'pageId', 'transcript');
         if (snapshotPage.iteration !== undefined) setFieldProvenance(page, 'iteration', 'transcript');
+        if (snapshotPage.executionRole) setFieldProvenance(page, 'executionRole', 'transcript');
         if (snapshotPage.phase) setFieldProvenance(page, 'phase', 'transcript');
         if (snapshotPage.content !== undefined) setFieldProvenance(page, 'content', 'transcript');
         if (snapshotPage.preamble !== undefined) setFieldProvenance(page, 'preamble', 'transcript');
@@ -1022,6 +1072,7 @@ function mergeTranscriptPage(
     } else {
         // Refine existing fields per §5.4.
         if (snapshotPage.iteration !== undefined) writeField(page, 'iteration', snapshotPage.iteration, 'transcript');
+        if (snapshotPage.executionRole) writeField(page, 'executionRole', snapshotPage.executionRole, 'transcript');
         if (snapshotPage.phase) writeField(page, 'phase', normalisePhase(snapshotPage.phase), 'transcript');
         if (snapshotPage.mode) writeField(page, 'mode', snapshotPage.mode, 'transcript');
         if (snapshotPage.status) writeField(page, 'status', snapshotPage.status, 'transcript');
@@ -1054,6 +1105,7 @@ function mergeTranscriptModelStep(
     }
     if (snapshotStep.modelCallId) writeField(step, 'modelCallId', snapshotStep.modelCallId, 'transcript');
     if (snapshotStep.assistantMessageId) writeField(step, 'assistantMessageId', snapshotStep.assistantMessageId, 'transcript');
+    if (snapshotStep.executionRole) writeField(step, 'executionRole', snapshotStep.executionRole, 'transcript');
     if (snapshotStep.phase) writeField(step, 'phase', snapshotStep.phase, 'transcript');
     if (snapshotStep.provider) writeField(step, 'provider', snapshotStep.provider, 'transcript');
     if (snapshotStep.model) writeField(step, 'model', snapshotStep.model, 'transcript');
@@ -1080,6 +1132,7 @@ function mergeTranscriptToolCall(
     }
     if (snapshotStep.toolCallId) writeField(step, 'toolCallId', snapshotStep.toolCallId, 'transcript');
     if (snapshotStep.toolMessageId) writeField(step, 'toolMessageId', snapshotStep.toolMessageId, 'transcript');
+    if (snapshotStep.executionRole) writeField(step, 'executionRole', snapshotStep.executionRole, 'transcript');
     if (snapshotStep.toolName) writeField(step, 'toolName', snapshotStep.toolName, 'transcript');
     if (snapshotStep.operationId) writeField(step, 'operationId', snapshotStep.operationId, 'transcript');
     if (snapshotStep.status) writeField(step, 'status', snapshotStep.status, 'transcript');

@@ -363,7 +363,11 @@ func TestBuildBinding_ExposesProjectionInContext(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "conversation", proj["scope"])
 	require.Equal(t, "projection active", proj["reason"])
-	require.Equal(t, 12, proj["tokensFreed"])
+	require.Equal(t, 1, proj["hiddenTurnCount"])
+	require.Equal(t, 1, proj["hiddenMessageCount"])
+	require.NotContains(t, proj, "hiddenTurnIds")
+	require.NotContains(t, proj, "hiddenMessageIds")
+	require.NotContains(t, proj, "tokensFreed")
 }
 
 type stubProjectionBindingConversationClient struct {

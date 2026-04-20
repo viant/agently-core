@@ -187,7 +187,7 @@ func TestResolveDefinitionsWithOptions_AsyncConfig(t *testing.T) {
 			{
 				Name: "llm/agents:start",
 				Async: &asynccfg.Config{
-					WaitForResponse: true,
+					DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
 					Run: asynccfg.RunConfig{
 						Tool:            "llm/agents:start",
 						OperationIDPath: "conversationId",

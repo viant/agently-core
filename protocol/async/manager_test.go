@@ -11,12 +11,12 @@ import (
 func TestManager_RegisterWaitConsume(t *testing.T) {
 	manager := NewManager()
 	rec := manager.Register(context.Background(), RegisterInput{
-		ID:              "op-1",
-		ParentConvID:    "conv-1",
-		ParentTurnID:    "turn-1",
-		ToolName:        "system/exec:start",
-		WaitForResponse: true,
-		Status:          "running",
+		ID:            "op-1",
+		ParentConvID:  "conv-1",
+		ParentTurnID:  "turn-1",
+		ToolName:      "system/exec:start",
+		ExecutionMode: string(ExecutionModeWait),
+		Status:        "running",
 	})
 	require.NotNil(t, rec)
 	require.True(t, manager.HasActiveWaitOps(context.Background(), "conv-1", "turn-1"))
@@ -168,25 +168,6 @@ func TestManager_UpdatePercentAtThresholdSignals(t *testing.T) {
 	require.Equal(t, 15, *changedOps[0].Percent)
 }
 
-func TestManager_TryRecordReinforcement_RateLimited(t *testing.T) {
-	manager := NewManager()
-	manager.Register(context.Background(), RegisterInput{
-		ID:                            "op-1",
-		ParentConvID:                  "conv-1",
-		ParentTurnID:                  "turn-1",
-		ToolName:                      "system/exec:start",
-		Status:                        "running",
-		MaxReinforcementsPerOperation: 1,
-		MinIntervalBetweenMs:          60000,
-	})
-	_, ok := manager.TryRecordReinforcement(context.Background(), "op-1")
-	require.True(t, ok)
-	rec, ok := manager.TryRecordReinforcement(context.Background(), "op-1")
-	require.False(t, ok)
-	require.NotNil(t, rec)
-	require.Equal(t, 1, rec.ReinforcementCount)
-}
-
 func TestManager_FindActiveByRequest(t *testing.T) {
 	manager := NewManager()
 	manager.Register(context.Background(), RegisterInput{
@@ -195,7 +176,7 @@ func TestManager_FindActiveByRequest(t *testing.T) {
 		ParentTurnID:      "turn-1",
 		ToolName:          "forecasting:TotalV1",
 		RequestArgsDigest: `{"viewId":"TOTAL"}`,
-		WaitForResponse:   true,
+		ExecutionMode:     string(ExecutionModeWait),
 		Status:            "WAITING",
 	})
 
@@ -208,19 +189,128 @@ func TestManager_FindActiveByRequest(t *testing.T) {
 func TestManager_WaitForNextPoll(t *testing.T) {
 	manager := NewManager()
 	manager.Register(context.Background(), RegisterInput{
-		ID:              "op-1",
-		ParentConvID:    "conv-1",
-		ParentTurnID:    "turn-1",
-		ToolName:        "forecasting:TotalV1",
-		WaitForResponse: true,
-		PollIntervalMs:  50,
-		Status:          "WAITING",
+		ID:             "op-1",
+		ParentConvID:   "conv-1",
+		ParentTurnID:   "turn-1",
+		ToolName:       "forecasting:TotalV1",
+		ExecutionMode:  string(ExecutionModeWait),
+		PollIntervalMs: 50,
+		Status:         "WAITING",
 	})
 
 	started := time.Now()
 	err := manager.WaitForNextPoll(context.Background(), "conv-1", "turn-1")
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, time.Since(started), 40*time.Millisecond)
+}
+
+func TestManager_Subscribe_ReceivesChangeEvent(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:              "op-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "tool:start",
+		OperationIntent: "inspect repo",
+		Status:          "running",
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	sub := manager.Subscribe([]string{"op-1"})
+	_, changed := manager.Update(context.Background(), UpdateInput{
+		ID:      "op-1",
+		Message: "still running",
+	})
+	require.True(t, changed)
+
+	select {
+	case ev, ok := <-sub:
+		require.True(t, ok)
+		require.Equal(t, "op-1", ev.OperationID)
+		require.Equal(t, "tool:start", ev.ToolName)
+		require.Equal(t, "inspect repo", ev.Intent)
+		require.Equal(t, "still running", ev.Message)
+		require.NotEmpty(t, ev.PriorDigest)
+		require.NotEmpty(t, ev.NewDigest)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for change event")
+	}
+}
+
+func TestManager_AwaitTerminal_ReturnsWhenAllTerminal(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:           "op-1",
+		ParentConvID: "conv-1",
+		ParentTurnID: "turn-1",
+		ToolName:     "tool:start",
+		Status:       "running",
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	ch := manager.AwaitTerminal(context.Background(), []string{"op-1"})
+	_, changed := manager.Update(context.Background(), UpdateInput{
+		ID:     "op-1",
+		Status: "completed",
+		State:  StateCompleted,
+	})
+	require.True(t, changed)
+
+	select {
+	case result := <-ch:
+		require.False(t, result.OpsStillActive)
+		require.Len(t, result.Items, 1)
+		require.Equal(t, "success", result.Items[0].Reason)
+		require.Equal(t, StateCompleted, result.Items[0].State)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for aggregated terminal result")
+	}
+}
+
+func TestManager_AwaitTerminal_SoftReleasesOnIdle(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:            "op-1",
+		ParentConvID:  "conv-1",
+		ParentTurnID:  "turn-1",
+		ToolName:      "tool:start",
+		Status:        "running",
+		IdleTimeoutMs: 20,
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	ch := manager.AwaitTerminal(context.Background(), []string{"op-1"})
+	select {
+	case result := <-ch:
+		require.True(t, result.OpsStillActive)
+		require.Len(t, result.Items, 1)
+		require.Equal(t, "running_idle", result.Items[0].Reason)
+		require.Equal(t, StateRunning, result.Items[0].State)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for idle release")
+	}
+}
+
+func TestManager_AwaitTerminal_StopsOnContextCancel(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:            "op-1",
+		ParentConvID:  "conv-1",
+		ParentTurnID:  "turn-1",
+		ToolName:      "tool:start",
+		Status:        "running",
+		IdleTimeoutMs: 10_000,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := manager.AwaitTerminal(ctx, []string{"op-1"})
+	cancel()
+
+	select {
+	case _, ok := <-ch:
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for AwaitTerminal to stop on context cancel")
+	}
 }
 
 func TestManager_RecordPollFailure_TransientRetriesThenFails(t *testing.T) {
@@ -366,78 +456,23 @@ func TestManager_CancelTurnPollers_NoOpWhenNoPollers(t *testing.T) {
 	})
 }
 
-func TestManager_RegisterStoresInstructionFields(t *testing.T) {
-	type testCase struct {
-		name                string
-		instruction         string
-		terminalInstruction string
-	}
-	cases := []testCase{
-		{
-			name:                "both fields set",
-			instruction:         "Do not call start again.",
-			terminalInstruction: "Answer from child result.",
-		},
-		{
-			name:                "only Instruction set",
-			instruction:         "Poll status tool next.",
-			terminalInstruction: "",
-		},
-		{
-			name:                "only TerminalInstruction set",
-			instruction:         "",
-			terminalInstruction: "Use cached result.",
-		},
-		{
-			name:                "neither set",
-			instruction:         "",
-			terminalInstruction: "",
-		},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			manager := NewManager()
-			rec := manager.Register(context.Background(), RegisterInput{
-				ID:                  "op-1",
-				ParentConvID:        "conv-1",
-				ParentTurnID:        "turn-1",
-				ToolName:            "llm/agents:start",
-				Status:              "running",
-				Instruction:         tc.instruction,
-				TerminalInstruction: tc.terminalInstruction,
-			})
-			require.NotNil(t, rec)
-			require.Equal(t, tc.instruction, rec.Instruction)
-			require.Equal(t, tc.terminalInstruction, rec.TerminalInstruction)
-
-			// Verify the values survive Get (clone path).
-			got, ok := manager.Get(context.Background(), "op-1")
-			require.True(t, ok)
-			require.Equal(t, tc.instruction, got.Instruction)
-			require.Equal(t, tc.terminalInstruction, got.TerminalInstruction)
-		})
-	}
-}
-
-func TestManager_InstructionNotMutatedByClone(t *testing.T) {
+func TestManager_RegisterStoresOperationIntent(t *testing.T) {
 	manager := NewManager()
-	manager.Register(context.Background(), RegisterInput{
-		ID:                  "op-1",
-		ParentConvID:        "conv-1",
-		ParentTurnID:        "turn-1",
-		ToolName:            "system/exec:start",
-		Status:              "running",
-		Instruction:         "original instruction",
-		TerminalInstruction: "original terminal",
+	rec := manager.Register(context.Background(), RegisterInput{
+		ID:               "op-1",
+		ParentConvID:     "conv-1",
+		ParentTurnID:     "turn-1",
+		ToolName:         "tool:start",
+		OperationIntent:  "inspect repository structure",
+		OperationSummary: "workdir=/tmp/ws | target=repo",
 	})
+	require.Equal(t, "inspect repository structure", rec.OperationIntent)
+	require.Equal(t, "workdir=/tmp/ws | target=repo", rec.OperationSummary)
 
-	rec1, _ := manager.Get(context.Background(), "op-1")
-	rec2, _ := manager.Get(context.Background(), "op-1")
-
-	// Mutating the clone must not affect the stored record.
-	rec1.Instruction = "mutated"
-	require.Equal(t, "original instruction", rec2.Instruction, "clone mutation should not propagate")
+	got, ok := manager.Get(context.Background(), "op-1")
+	require.True(t, ok)
+	require.Equal(t, "inspect repository structure", got.OperationIntent)
+	require.Equal(t, "workdir=/tmp/ws | target=repo", got.OperationSummary)
 }
 
 func intPtr(value int) *int {

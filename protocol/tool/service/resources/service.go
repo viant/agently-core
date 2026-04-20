@@ -14,6 +14,7 @@ import (
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	aug "github.com/viant/agently-core/service/augmenter"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
+	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
 // Name identifies the resources tool service namespace
@@ -28,6 +29,7 @@ type Service struct {
 	aFinder   agmodel.Finder
 	// defaultEmbedder is used when MatchInput.Embedder/Model is not provided.
 	defaultEmbedder string
+	skillSvc        *skillsvc.Service
 
 	augmentDocsOverride func(ctx context.Context, input *aug.AugmentDocsInput, output *aug.AugmentDocsOutput) error
 
@@ -61,6 +63,10 @@ func WithAgentFinder(f agmodel.Finder) func(*Service) { return func(s *Service) 
 // does not provide one. This typically comes from executor config defaults.
 func WithDefaultEmbedder(id string) func(*Service) {
 	return func(s *Service) { s.defaultEmbedder = strings.TrimSpace(id) }
+}
+
+func WithSkillService(skillSvc *skillsvc.Service) func(*Service) {
+	return func(s *Service) { s.skillSvc = skillSvc }
 }
 
 func (s *Service) mcpFS(ctx context.Context) (*mcpfs.Service, error) {

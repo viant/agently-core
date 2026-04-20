@@ -1,13 +1,13 @@
-package toolstatus
+package status
 
 import (
 	"context"
 	"fmt"
-	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -52,6 +52,38 @@ func (s *Service) Start(ctx context.Context, parent runtimerequestctx.TurnMeta, 
 	return m.Id, nil
 }
 
+// StartPreamble creates an interim assistant message whose visible content is
+// carried through the message preamble field. This is the backend-authored
+// counterpart to model-authored assistant preambles and reuses the same
+// assistant_preamble event contract.
+func (s *Service) StartPreamble(ctx context.Context, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode, preamble string) (string, error) {
+	if s == nil || s.conv == nil {
+		return "", fmt.Errorf("status: conversation client not configured")
+	}
+	if strings.TrimSpace(role) == "" {
+		role = "assistant"
+	}
+	if strings.TrimSpace(actor) == "" {
+		actor = "tool"
+	}
+	if strings.TrimSpace(mode) == "" {
+		mode = "exec"
+	}
+	m, err := apiconv.AddMessage(ctx, s.conv, &parent,
+		apiconv.WithRole(role),
+		apiconv.WithInterim(1),
+		apiconv.WithContent(""),
+		apiconv.WithPreamble(strings.TrimSpace(preamble)),
+		apiconv.WithCreatedByUserID(actor),
+		apiconv.WithMode(mode),
+		apiconv.WithToolName(mcpname.Display(toolName)),
+	)
+	if err != nil {
+		return "", fmt.Errorf("status: start preamble failed: %w", err)
+	}
+	return m.Id, nil
+}
+
 // Update sets interim content (e.g., progress text) on the status message.
 func (s *Service) Update(ctx context.Context, parent runtimerequestctx.TurnMeta, messageID, content string) error {
 	if s == nil || s.conv == nil {
@@ -72,6 +104,27 @@ func (s *Service) Update(ctx context.Context, parent runtimerequestctx.TurnMeta,
 		return fmt.Errorf("status: update failed: %w", err)
 	}
 	logx.Infof("conversation", "status update ok parent_convo=%q message_id=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID))
+	return nil
+}
+
+// UpdatePreamble refreshes an existing interim assistant message in place using
+// the preamble field while preserving the same assistant message id.
+func (s *Service) UpdatePreamble(ctx context.Context, parent runtimerequestctx.TurnMeta, messageID, preamble string) error {
+	if s == nil || s.conv == nil {
+		return fmt.Errorf("status: conversation client not configured")
+	}
+	if strings.TrimSpace(messageID) == "" {
+		return fmt.Errorf("status: empty messageID")
+	}
+	mu := apiconv.NewMessage()
+	mu.SetId(messageID)
+	mu.SetConversationID(parent.ConversationID)
+	mu.SetTurnID(parent.TurnID)
+	mu.SetPreamble(strings.TrimSpace(preamble))
+	mu.SetInterim(1)
+	if err := s.conv.PatchMessage(ctx, mu); err != nil {
+		return fmt.Errorf("status: preamble update failed: %w", err)
+	}
 	return nil
 }
 
@@ -106,6 +159,42 @@ func (s *Service) Finalize(ctx context.Context, parent runtimerequestctx.TurnMet
 	}
 	logx.Infof("conversation", "status finalize ok parent_convo=%q message_id=%q status=%q", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(messageID), strings.TrimSpace(status))
 	return nil
+}
+
+// PublishFinal creates a final assistant status message in the parent turn.
+// It is used for detached/background completions where no interim status row
+// exists yet but the parent conversation still needs a surfaced result.
+func (s *Service) PublishFinal(ctx context.Context, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode, linkedConversationID, status, preview string) (string, error) {
+	if s == nil || s.conv == nil {
+		return "", fmt.Errorf("status: conversation client not configured")
+	}
+	preview = strings.TrimSpace(preview)
+	if preview == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(role) == "" {
+		role = "assistant"
+	}
+	if strings.TrimSpace(actor) == "" {
+		actor = "tool"
+	}
+	if strings.TrimSpace(mode) == "" {
+		mode = "exec"
+	}
+	msg, err := apiconv.AddMessage(ctx, s.conv, &parent,
+		apiconv.WithRole(role),
+		apiconv.WithInterim(0),
+		apiconv.WithContent(preview),
+		apiconv.WithCreatedByUserID(actor),
+		apiconv.WithMode(mode),
+		apiconv.WithToolName(mcpname.Display(toolName)),
+		apiconv.WithLinkedConversationID(strings.TrimSpace(linkedConversationID)),
+		apiconv.WithStatus(normalizeMessageStatus(status)),
+	)
+	if err != nil {
+		return "", fmt.Errorf("status: publish final failed: %w", err)
+	}
+	return strings.TrimSpace(msg.Id), nil
 }
 
 func normalizeMessageStatus(status string) string {

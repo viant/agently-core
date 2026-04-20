@@ -55,6 +55,11 @@ const (
 	// Linked conversation.
 	EventTypeLinkedConversationAttached EventType = "linked_conversation_attached"
 
+	// Skill lifecycle.
+	EventTypeSkillStarted         EventType = "skill_started"
+	EventTypeSkillCompleted       EventType = "skill_completed"
+	EventTypeSkillRegistryUpdated EventType = "skill_registry_updated"
+
 	// Tool feed lifecycle.
 	EventTypeToolFeedActive   EventType = "tool_feed_active"
 	EventTypeToolFeedInactive EventType = "tool_feed_inactive"
@@ -110,6 +115,7 @@ type Event struct {
 	LinkedConversationID      string                 `json:"linkedConversationId,omitempty"`
 	LinkedConversationAgentID string                 `json:"linkedConversationAgentId,omitempty"`
 	LinkedConversationTitle   string                 `json:"linkedConversationTitle,omitempty"`
+	ExecutionRole             string                 `json:"executionRole,omitempty"`
 	Phase                     string                 `json:"phase,omitempty"`
 	Mode                      string                 `json:"mode,omitempty"`
 	Type                      EventType              `json:"type"`
@@ -118,6 +124,8 @@ type Event struct {
 	Content                   string                 `json:"content,omitempty"`
 	Preamble                  string                 `json:"preamble,omitempty"`
 	ToolName                  string                 `json:"toolName,omitempty"`
+	SkillName                 string                 `json:"skillName,omitempty"`
+	SkillExecutionID          string                 `json:"skillExecutionId,omitempty"`
 	Arguments                 map[string]interface{} `json:"arguments,omitempty"`
 	Error                     string                 `json:"error,omitempty"`
 	Status                    string                 `json:"status,omitempty"`

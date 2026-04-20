@@ -26,6 +26,8 @@ func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 	const yamlConfig = `
 default:
   model: openai_gpt-5_4
+  skills:
+    model: openai_gpt-5.4-mini
   previewSettings:
     limit: 8000
     agedLimit: 2500
@@ -45,6 +47,9 @@ default:
 
 	if got.Model != "openai_gpt-5_4" {
 		t.Fatalf("expected merged model, got %q", got.Model)
+	}
+	if got.Skills.Model != "openai_gpt-5.4-mini" {
+		t.Fatalf("expected merged skills model, got %q", got.Skills.Model)
 	}
 	if got.PreviewSettings.Limit != 8000 {
 		t.Fatalf("expected preview limit 8000, got %d", got.PreviewSettings.Limit)

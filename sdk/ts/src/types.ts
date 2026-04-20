@@ -141,6 +141,7 @@ export interface ExecutionPage {
     parentMessageId: string;
     turnId?: string;
     iteration?: number;
+    executionRole?: string;
     phase?: string;
     preamble?: string;
     content?: string;
@@ -163,6 +164,7 @@ export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
 export interface ModelStepState {
     modelCallId: string;
     assistantMessageId?: string;
+    executionRole?: string;
     phase?: string;
     provider?: string;
     model?: string;
@@ -181,6 +183,8 @@ export interface ToolStepState {
     toolCallId: string;
     toolMessageId?: string;
     toolName: string;
+    executionRole?: string;
+    content?: string;
     operationId?: string;
     status?: string;
     errorMessage?: string;
@@ -353,6 +357,10 @@ export type SSEEventType =
     | 'elicitation_resolved'
     // Linked conversation
     | 'linked_conversation_attached'
+    // Skills
+    | 'skill_started'
+    | 'skill_completed'
+    | 'skill_registry_updated'
     // Tool feed lifecycle
     | 'tool_feed_active'
     | 'tool_feed_inactive'
@@ -395,6 +403,7 @@ export interface SSEEvent {
     linkedConversationId?: string;
     linkedConversationAgentId?: string;
     linkedConversationTitle?: string;
+    executionRole?: string;
     phase?: string;
     type: SSEEventType;
     op?: string;
@@ -402,6 +411,8 @@ export interface SSEEvent {
     content?: string;
     preamble?: string;
     toolName?: string;
+    skillName?: string;
+    skillExecutionId?: string;
     arguments?: JSONObject;
     error?: string;
     status?: string;

@@ -483,6 +483,16 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, err
 	}
 	out := padapter.ToToolDefinitions(tools)
+	if s.skillSvc != nil && input.Agent != nil {
+		visible, _ := s.skillSvc.Visible(input.Agent)
+		if len(visible) > 0 {
+			for _, toolName := range []string{"llm/skills:list", "llm/skills:activate"} {
+				if def, ok := s.registry.GetDefinition(toolName); ok && def != nil {
+					out = append(out, def)
+				}
+			}
+		}
+	}
 	out = dedupeToolDefinitions(out)
 	if logx.Enabled() {
 		names := make([]string, 0, len(out))

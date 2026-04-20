@@ -26,6 +26,8 @@ import (
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/sdk"
 	svcauth "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/workspace"
+	wsconfig "github.com/viant/agently-core/workspace/config"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	wsfs "github.com/viant/agently-core/workspace/loader/fs"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
@@ -47,6 +49,16 @@ type oobAuthRecorder interface {
 func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.Runtime, sdk.Backend, agentmodel.Finder, error) {
 	fs := afs.New()
 	workspaceRoot := strings.TrimSpace(opts.WorkspaceRoot)
+	if workspaceRoot != "" {
+		workspace.SetRoot(workspaceRoot)
+	}
+	defaults := opts.Defaults
+	if cfg, err := wsconfig.Load(workspace.Root()); err != nil {
+		return nil, nil, nil, err
+	} else {
+		defaults = cfg.DefaultsWithFallback(defaults)
+	}
+	wsconfig.ApplyPathDefaults(defaults)
 	wsMeta := meta.New(fs, workspaceRoot)
 	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
 	agentFndr := agentfinder.New(agentfinder.WithLoader(agentLdr))
@@ -102,7 +114,7 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		WithModelFinder(modelFndr).
 		WithEmbedderFinder(embedderFndr).
 		WithCancelRegistry(cancelRegistry).
-		WithDefaults(opts.Defaults).
+		WithDefaults(defaults).
 		WithMCPAuthRTProvider(authRTProvider).
 		WithMCPCookieJarProvider(jarProvider).
 		WithMCPUserIDExtractor(func(ctx context.Context) string {

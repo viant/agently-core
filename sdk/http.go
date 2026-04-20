@@ -597,6 +597,41 @@ func (c *HTTPClient) ListToolDefinitions(ctx context.Context) ([]ToolDefinitionI
 	return out, nil
 }
 
+func (c *HTTPClient) ListSkills(ctx context.Context, input *ListSkillsInput) (*ListSkillsOutput, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	path := "/v1/skills?conversationId=" + url.QueryEscape(strings.TrimSpace(input.ConversationID))
+	var out ListSkillsOutput
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ActivateSkill(ctx context.Context, input *ActivateSkillInput) (*ActivateSkillOutput, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, errors.New("skill name is required")
+	}
+	path := "/v1/skills/" + url.PathEscape(strings.TrimSpace(input.Name)) + "/activate?conversationId=" + url.QueryEscape(strings.TrimSpace(input.ConversationID))
+	var out ActivateSkillOutput
+	if err := c.doJSON(ctx, http.MethodPost, path, map[string]string{"args": strings.TrimSpace(input.Args)}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) GetSkillDiagnostics(ctx context.Context) (*SkillDiagnosticsOutput, error) {
+	var out SkillDiagnosticsOutput
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/skills/diagnostics", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *HTTPClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	path := strings.TrimRight(c.toolsPath, "/") + "/" + url.PathEscape(name) + "/execute"
 	var out struct {

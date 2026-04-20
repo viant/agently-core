@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -21,7 +23,7 @@ import (
 	coreauth "github.com/viant/agently-core/service/auth"
 	linksvc "github.com/viant/agently-core/service/linking"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
-	statussvc "github.com/viant/agently-core/service/toolstatus"
+	statussvc "github.com/viant/agently-core/service/tool/status"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -677,9 +679,8 @@ func TestService_Run_Internal_CanceledChildReturnsFailedToolResult(t *testing.T)
 	}, &out)
 
 	require.NoError(t, err)
-	assert.Equal(t, "failed", out.Status)
+	assert.Equal(t, "canceled", out.Status)
 	assert.NotEmpty(t, out.ConversationID)
-	assert.Contains(t, out.Answer, "ended with status canceled")
 	assert.Contains(t, out.Answer, "partial child output")
 }
 
@@ -728,19 +729,10 @@ func TestService_Status_ByConversationID(t *testing.T) {
 	var out StatusOutput
 	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-conv"}, &out)
 	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
 	assert.Equal(t, "child-conv", out.ConversationID)
 	assert.Equal(t, "succeeded", out.Status)
-	assert.Equal(t, "final child answer", out.AssistantResponse)
-	assert.True(t, out.HasFinalResponse)
-	assert.Equal(t, "child-conv", out.Items[0].ConversationID)
-	assert.Equal(t, "coder", out.Items[0].AgentID)
-	assert.Equal(t, "succeeded", out.Items[0].Status)
-	assert.Empty(t, out.Items[0].LastAssistantPreamble)
-	assert.Equal(t, "final child answer", out.Items[0].LastAssistantResponse)
-	assert.True(t, out.Items[0].HasFinalResponse)
-	assert.Equal(t, parentID, out.Items[0].ParentConversationID)
-	assert.Equal(t, parentTurnID, out.Items[0].ParentTurnID)
+	assert.Equal(t, "final child answer", out.Message)
+	assert.Equal(t, "response", out.MessageKind)
 }
 
 func TestService_Status_ByConversationID_UsesPreambleWhileRunning(t *testing.T) {
@@ -774,13 +766,58 @@ func TestService_Status_ByConversationID_UsesPreambleWhileRunning(t *testing.T) 
 	var out StatusOutput
 	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-running"}, &out)
 	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
 	assert.Equal(t, "child-running", out.ConversationID)
 	assert.Equal(t, "running", out.Status)
-	assert.Equal(t, "calling tools", out.AssistantResponse)
-	assert.False(t, out.HasFinalResponse)
-	assert.Equal(t, "calling tools", out.Items[0].LastAssistantPreamble)
-	assert.Empty(t, out.Items[0].LastAssistantResponse)
+	assert.Equal(t, "calling tools", out.Message)
+	assert.Equal(t, "preamble", out.MessageKind)
+}
+
+func TestService_Status_ByConversationID_HidesStaleChildToolFailureWhileRunning(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-running-partial-failure")
+	childConv.SetAgentId("data-analyst")
+	childConv.SetStatus("running")
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-running-partial-failure")
+	childTurn.SetConversationID("child-running-partial-failure")
+	childTurn.SetStatus("running")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	preamble := convcli.NewMessage()
+	preamble.SetId("child-msg-running-preamble")
+	preamble.SetConversationID("child-running-partial-failure")
+	preamble.SetTurnID("child-turn-running-partial-failure")
+	preamble.SetRole("assistant")
+	preamble.SetType("text")
+	preamble.SetInterim(1)
+	preamble.SetPreamble("still gathering evidence")
+	preamble.SetContent("still gathering evidence")
+	require.NoError(t, conv.PatchMessage(ctx, preamble))
+
+	failedTool := convcli.NewMessage()
+	failedTool.SetId("child-msg-running-failed-tool")
+	failedTool.SetConversationID("child-running-partial-failure")
+	failedTool.SetTurnID("child-turn-running-partial-failure")
+	failedTool.SetRole("tool")
+	failedTool.SetType("tool_op")
+	failedTool.SetStatus("failed")
+	failedTool.SetToolName("steward/ChangeLogKPI")
+	failedTool.SetContent("parameter CampaignId is required")
+	require.NoError(t, conv.PatchMessage(ctx, failedTool))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-running-partial-failure"}, &out)
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.Equal(t, "still gathering evidence", out.Message)
+	assert.Equal(t, "preamble", out.MessageKind)
+	assert.Empty(t, out.Error)
 }
 
 func TestService_Status_ByConversationID_TreatsBlockedChildFailureAsTerminal(t *testing.T) {
@@ -825,13 +862,11 @@ func TestService_Status_ByConversationID_TreatsBlockedChildFailureAsTerminal(t *
 	var out StatusOutput
 	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-blocked"}, &out)
 	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
 	assert.Equal(t, "failed", out.Status)
 	assert.Equal(t, "waiting_for_user", out.RawStatus)
 	assert.True(t, out.Terminal)
-	assert.True(t, out.HasFinalResponse)
-	assert.Contains(t, out.AssistantResponse, "blocked waiting for user input")
-	assert.Contains(t, out.AssistantResponse, "GlobalSupplyPerformanceCube")
+	assert.Contains(t, strings.ToLower(out.Message), "blocked waiting for user input")
+	assert.Equal(t, "response", out.MessageKind)
 	assert.Contains(t, out.Error, "authentication timed out")
 }
 
@@ -873,12 +908,11 @@ func TestService_Status_ByConversationID_TimesOutLongRunningChild(t *testing.T) 
 	var out StatusOutput
 	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-timeout"}, &out)
 	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
 	assert.Equal(t, "failed", out.Status)
 	assert.Equal(t, "running", out.RawStatus)
 	assert.True(t, out.Terminal)
-	assert.True(t, out.HasFinalResponse)
-	assert.Contains(t, out.AssistantResponse, "timed out after 20 minutes")
+	assert.Contains(t, out.Message, "timed out after 20 minutes")
+	assert.Equal(t, "response", out.MessageKind)
 	assert.Contains(t, out.Error, "maximum wait time of 20 minutes")
 }
 
@@ -919,12 +953,11 @@ func TestService_Status_ByConversationID_TimesOutWaitingForUserChildAfterFiveMin
 	var out StatusOutput
 	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-wait-timeout"}, &out)
 	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
 	assert.Equal(t, "failed", out.Status)
 	assert.Equal(t, "waiting_for_user", out.RawStatus)
 	assert.True(t, out.Terminal)
-	assert.True(t, out.HasFinalResponse)
-	assert.Contains(t, out.AssistantResponse, "timed out after 5 minutes")
+	assert.Contains(t, out.Message, "timed out after 5 minutes")
+	assert.Equal(t, "response", out.MessageKind)
 	assert.Contains(t, out.Error, "maximum wait time of 5 minutes")
 }
 
@@ -954,11 +987,9 @@ func TestService_Status_ByParentConversationAndTurn(t *testing.T) {
 	var out StatusOutput
 	err := svc.statusMethod(ctx, &StatusInput{ParentConversationID: "parent-conv", ParentTurnID: "turn-1"}, &out)
 	require.NoError(t, err)
-	require.Len(t, out.Items, 2)
-	assert.Equal(t, "parent-conv", out.Items[0].ParentConversationID)
-	assert.Equal(t, "turn-1", out.Items[0].ParentTurnID)
-	assert.Equal(t, "parent-conv", out.Items[1].ParentConversationID)
-	assert.Equal(t, "turn-1", out.Items[1].ParentTurnID)
+	assert.Empty(t, out.ConversationID)
+	assert.Empty(t, out.Message)
+	assert.Empty(t, out.MessageKind)
 }
 
 func TestService_Cancel_CancelsConversation(t *testing.T) {
@@ -1000,9 +1031,13 @@ func TestService_AsyncConfig(t *testing.T) {
 	svc := New(nil)
 	cfg := svc.AsyncConfig("llm/agents:start")
 	require.NotNil(t, cfg)
-	assert.False(t, cfg.WaitForResponse)
+	assert.Equal(t, string(asynccfg.ExecutionModeDetach), cfg.DefaultExecutionMode)
+	assert.Equal(t, "llm", cfg.Narration)
 	assert.Equal(t, "llm/agents:start", cfg.Run.Tool)
 	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
+	assert.Equal(t, "executionMode", cfg.Run.ExecutionModePath)
+	assert.Equal(t, "objective", cfg.Run.IntentPath)
+	assert.Equal(t, []string{"agentId", "context.workdir", "context.resolvedWorkdir", "promptProfileId", "templateId"}, cfg.Run.SummaryPaths)
 	assert.Equal(t, "llm/agents:status", cfg.Status.Tool)
 	assert.Equal(t, "conversationId", cfg.Status.OperationIDArg)
 	if assert.NotNil(t, cfg.Cancel) {
@@ -1011,7 +1046,7 @@ func TestService_AsyncConfig(t *testing.T) {
 	assert.Nil(t, svc.AsyncConfig("llm/agents:list"))
 }
 
-func TestService_Run_Internal_AsyncReturnsConversationHandle(t *testing.T) {
+func TestService_Run_Internal_AsyncDoesNotResurfaceDetachedCompletionMessage(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()
 
@@ -1059,6 +1094,352 @@ func TestService_Run_Internal_AsyncReturnsConversationHandle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "running", out.Status)
 	assert.NotEmpty(t, out.ConversationID)
+
+	require.Eventually(t, func() bool {
+		gotConv, err := conv.GetConversation(ctx, "parent-conv")
+		require.NoError(t, err)
+		if gotConv == nil {
+			return false
+		}
+		for _, tr := range gotConv.Transcript {
+			if tr == nil {
+				continue
+			}
+			for _, msg := range tr.Message {
+				if msg == nil || msg.Role != "assistant" || msg.LinkedConversationId == nil {
+					continue
+				}
+				if *msg.LinkedConversationId != out.ConversationID {
+					continue
+				}
+				if msg.Content != nil && strings.Contains(strings.TrimSpace(*msg.Content), "Detached coder completed.") {
+					return false
+				}
+			}
+		}
+		return true
+	}, time.Second, 10*time.Millisecond, "expected detached child completion helper message to stay out of the parent conversation")
+}
+
+func TestService_Run_Internal_AsyncCompletionEmitsLinkedConversationEvent(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+	bus := streaming.NewMemoryBus(8)
+	sub, err := bus.Subscribe(ctx, nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	asyncFlag := true
+	release := make(chan struct{})
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			<-release
+			if out != nil {
+				out.Content = "done"
+				out.ConversationID = in.ConversationID
+			}
+			return nil
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv), WithStreamPublisher(bus))
+	svc.agent = fake
+
+	var out RunOutput
+	err = svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "do async work",
+		Async:     &asyncFlag,
+	}, &out)
+	close(release)
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
+
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case ev := <-sub.C():
+				if ev != nil && ev.Type == streaming.EventTypeLinkedConversationAttached && ev.LinkedConversationID == out.ConversationID {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, time.Second, 10*time.Millisecond, "expected linked conversation event for detached completion resurfacing")
+}
+
+func TestService_Run_Internal_AsyncFailureDoesNotResurfaceHelperMessage(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	asyncFlag := true
+	release := make(chan struct{})
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			<-release
+			return context.Canceled
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "do async work",
+		Async:     &asyncFlag,
+	}, &out)
+	close(release)
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
+
+	require.Eventually(t, func() bool {
+		gotConv, err := conv.GetConversation(ctx, "parent-conv")
+		require.NoError(t, err)
+		if gotConv == nil {
+			return false
+		}
+		for _, tr := range gotConv.Transcript {
+			if tr == nil {
+				continue
+			}
+			for _, msg := range tr.Message {
+				if msg == nil || msg.Role != "assistant" || msg.LinkedConversationId == nil {
+					continue
+				}
+				if *msg.LinkedConversationId != out.ConversationID {
+					continue
+				}
+				if msg.Content != nil && strings.Contains(strings.ToLower(strings.TrimSpace(*msg.Content)), "failed") {
+					return false
+				}
+			}
+		}
+		return true
+	}, time.Second, 10*time.Millisecond, "expected detached child failure helper message to stay out of the parent conversation")
+}
+
+func TestService_Run_Internal_AsyncWaitingForUserDoesNotResurfaceHelperMessage(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	asyncFlag := true
+	release := make(chan struct{})
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			<-release
+			childConv := convcli.NewConversation()
+			childConv.SetId(in.ConversationID)
+			childConv.SetStatus("waiting_for_user")
+			require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+			childTurn := convcli.NewTurn()
+			childTurn.SetId("child-turn-1")
+			childTurn.SetConversationID(in.ConversationID)
+			childTurn.SetStatus("waiting_for_user")
+			require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+			pending := convcli.NewMessage()
+			pending.SetId("child-msg-pending")
+			pending.SetConversationID(in.ConversationID)
+			pending.SetTurnID("child-turn-1")
+			pending.SetRole("assistant")
+			pending.SetType("text")
+			pending.SetStatus("pending")
+			pending.SetContent("MCP server requires authentication. Please sign in to continue.")
+			require.NoError(t, conv.PatchMessage(ctx, pending))
+
+			failedTool := convcli.NewMessage()
+			failedTool.SetId("child-msg-failed-tool")
+			failedTool.SetConversationID(in.ConversationID)
+			failedTool.SetTurnID("child-turn-1")
+			failedTool.SetRole("tool")
+			failedTool.SetType("tool_op")
+			failedTool.SetStatus("failed")
+			failedTool.SetToolName("steward/GlobalSupplyPerformanceCube")
+			failedTool.SetContent("code: -32603, message: authentication timed out")
+			require.NoError(t, conv.PatchMessage(ctx, failedTool))
+			return nil
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "do async work",
+		Async:     &asyncFlag,
+	}, &out)
+	close(release)
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
+
+	require.Eventually(t, func() bool {
+		gotConv, err := conv.GetConversation(ctx, "parent-conv")
+		require.NoError(t, err)
+		if gotConv == nil {
+			return false
+		}
+		for _, tr := range gotConv.Transcript {
+			if tr == nil {
+				continue
+			}
+			for _, msg := range tr.Message {
+				if msg == nil || msg.Role != "assistant" || msg.LinkedConversationId == nil {
+					continue
+				}
+				if *msg.LinkedConversationId != out.ConversationID {
+					continue
+				}
+				if msg.Content != nil && strings.Contains(strings.ToLower(strings.TrimSpace(*msg.Content)), "detached coder failed.") {
+					return false
+				}
+			}
+		}
+		return true
+	}, time.Second, 10*time.Millisecond, "expected detached waiting_for_user helper message to stay out of the parent conversation")
+}
+
+func TestService_Run_Internal_AsyncCanceledDoesNotResurfaceHelperMessage(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	runCtx := memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	})
+
+	asyncFlag := true
+	release := make(chan struct{})
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"coder": {Identity: agentmdl.Identity{ID: "coder"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			<-release
+			childConv := convcli.NewConversation()
+			childConv.SetId(in.ConversationID)
+			childConv.SetStatus("canceled")
+			require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+			childTurn := convcli.NewTurn()
+			childTurn.SetId("child-turn-1")
+			childTurn.SetConversationID(in.ConversationID)
+			childTurn.SetStatus("canceled")
+			require.NoError(t, conv.PatchTurn(ctx, childTurn))
+			return context.Canceled
+		},
+	}
+
+	svc := New(nil, WithConversationClient(conv))
+	svc.agent = fake
+
+	var out RunOutput
+	err := svc.run(runCtx, &RunInput{
+		AgentID:   "coder",
+		Objective: "do async work",
+		Async:     &asyncFlag,
+	}, &out)
+	close(release)
+
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.NotEmpty(t, out.ConversationID)
+
+	require.Eventually(t, func() bool {
+		gotConv, err := conv.GetConversation(ctx, "parent-conv")
+		require.NoError(t, err)
+		if gotConv == nil {
+			return false
+		}
+		for _, tr := range gotConv.Transcript {
+			if tr == nil {
+				continue
+			}
+			for _, msg := range tr.Message {
+				if msg == nil || msg.Role != "assistant" || msg.LinkedConversationId == nil {
+					continue
+				}
+				if *msg.LinkedConversationId != out.ConversationID {
+					continue
+				}
+				if msg.Content != nil && strings.Contains(strings.ToLower(strings.TrimSpace(*msg.Content)), "was canceled") {
+					return false
+				}
+			}
+		}
+		return true
+	}, time.Second, 10*time.Millisecond, "expected detached canceled helper message to stay out of the parent conversation")
 }
 
 type fakeFinder struct {

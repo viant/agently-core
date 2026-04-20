@@ -198,6 +198,10 @@ type requestModeKeyT string
 
 var requestModeKey = requestModeKeyT("requestMode")
 
+type userAskKeyT string
+
+var userAskKey = userAskKeyT("userAsk")
+
 func WithRequestMode(ctx context.Context, mode string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -219,6 +223,38 @@ func RequestModeFromContext(ctx context.Context) string {
 	}
 	if mode, ok := value.(string); ok {
 		return mode
+	}
+	return ""
+}
+
+func CloneUserAsk(dst, src context.Context) context.Context {
+	if ask := UserAskFromContext(src); ask != "" {
+		return WithUserAsk(dst, ask)
+	}
+	return dst
+}
+
+func WithUserAsk(ctx context.Context, ask string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ask = strings.TrimSpace(ask)
+	if ask == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, userAskKey, ask)
+}
+
+func UserAskFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value := ctx.Value(userAskKey)
+	if value == nil {
+		return ""
+	}
+	if ask, ok := value.(string); ok {
+		return strings.TrimSpace(ask)
 	}
 	return ""
 }

@@ -354,46 +354,59 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 		if st.Type != "tool" {
 			continue
 		}
-		wg.Add(1)
 		step := st
+		if isActivationBarrierTool(step.Name) {
+			call := s.executePendingToolStep(toolCtx, reg, step, turnID)
+			if turnID != "" {
+				s.rememberTurnToolResult(turnID, call)
+			}
+			continue
+		}
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			stepInfo := toolexec.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
-			if debugtrace.Enabled() {
-				turnID := ""
-				if tm, ok := runtimerequestctx.TurnMetaFromContext(toolCtx); ok {
-					turnID = strings.TrimSpace(tm.TurnID)
-				}
-				debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
-					"stepID":      strings.TrimSpace(step.ID),
-					"name":        strings.TrimSpace(step.Name),
-					"responseID":  strings.TrimSpace(step.ResponseID),
-					"args":        step.Args,
-					"currentTurn": turnID,
-				})
-			}
-			call, _, err := toolexec.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
-			if logx.Enabled() {
-				logx.Infof("reactor", "tool step executed name=%q result_len=%d err=%v", strings.TrimSpace(step.Name), len(call.Result), err)
-			}
-			if err != nil {
-				logx.Warnf("reactor", "tool step %s execution failed: %v", step.Name, err)
-			}
-			if debugtrace.Enabled() {
-				debugtrace.Write("reactor", "tool_step_executed", map[string]any{
-					"stepID":     strings.TrimSpace(step.ID),
-					"name":       strings.TrimSpace(step.Name),
-					"responseID": strings.TrimSpace(step.ResponseID),
-					"args":       step.Args,
-					"result":     debugtrace.SummarizeToolCalls([]llm.ToolCall{call}),
-					"error":      errorString(err),
-				})
-			}
+			call := s.executePendingToolStep(toolCtx, reg, step, turnID)
 			if turnID != "" {
 				s.rememberTurnToolResult(turnID, call)
 			}
 		}()
 	}
+}
+
+func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Registry, step plan.Step, turnID string) llm.ToolCall {
+	stepInfo := toolexec.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
+	if debugtrace.Enabled() {
+		debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
+			"stepID":      strings.TrimSpace(step.ID),
+			"name":        strings.TrimSpace(step.Name),
+			"responseID":  strings.TrimSpace(step.ResponseID),
+			"args":        step.Args,
+			"currentTurn": turnID,
+		})
+	}
+	call, _, err := toolexec.ExecuteToolStep(toolCtx, reg, stepInfo, s.convClient)
+	if logx.Enabled() {
+		logx.Infof("reactor", "tool step executed name=%q result_len=%d err=%v", strings.TrimSpace(step.Name), len(call.Result), err)
+	}
+	if err != nil {
+		logx.Warnf("reactor", "tool step %s execution failed: %v", step.Name, err)
+	}
+	if debugtrace.Enabled() {
+		debugtrace.Write("reactor", "tool_step_executed", map[string]any{
+			"stepID":     strings.TrimSpace(step.ID),
+			"name":       strings.TrimSpace(step.Name),
+			"responseID": strings.TrimSpace(step.ResponseID),
+			"args":       step.Args,
+			"result":     debugtrace.SummarizeToolCalls([]llm.ToolCall{call}),
+			"error":      errorString(err),
+		})
+	}
+	return call
+}
+
+func isActivationBarrierTool(name string) bool {
+	name = strings.TrimSpace(name)
+	return name == "llm/skills:activate" || name == "llm/skills/activate" || name == "llm/skills-activate"
 }
 
 func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Choice) {

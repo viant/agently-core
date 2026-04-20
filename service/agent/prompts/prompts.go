@@ -20,9 +20,6 @@ var Router string
 //go:embed capability.md
 var Capability string
 
-//go:embed async_reinforcement.md
-var AsyncReinforcement string
-
 //go:embed relevance_projection.md
 var RelevanceProjection string
 

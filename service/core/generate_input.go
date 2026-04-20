@@ -98,6 +98,11 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 		i.Message = append(i.Message, llm.NewSystemMessage(expanded))
 	}
+	if i.Binding != nil {
+		if prompt := strings.TrimSpace(i.Binding.SkillsPrompt); prompt != "" {
+			i.Message = append(i.Message, llm.NewSystemMessage(prompt))
+		}
+	}
 	if i.Prompt == nil {
 		i.Prompt = &binding.Prompt{}
 	}

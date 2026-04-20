@@ -217,14 +217,23 @@ function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fal
 }
 
 function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Partial<ToolStepState> = {}) {
-    const toolKey = firstString(event?.toolCallId, event?.toolMessageId, event?.id, event?.toolName);
+    const toolKey = firstString(
+        extra?.toolCallId,
+        extra?.toolMessageId,
+        event?.toolCallId,
+        event?.toolMessageId,
+        event?.id,
+        extra?.toolName,
+        event?.toolName,
+    );
     const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
     const existingIndex = priorList.findIndex((entry) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.toolName) === toolKey);
     const operationId = firstString(event?.operationId, existingIndex >= 0 ? priorList[existingIndex]?.operationId : '');
     const toolEntry: ToolStepState = {
-        toolCallId: firstString(event?.toolCallId),
-        toolMessageId: firstString(event?.toolMessageId, event?.id),
-        toolName: firstString(event?.toolName),
+        toolCallId: firstString(extra?.toolCallId, event?.toolCallId),
+        toolMessageId: firstString(extra?.toolMessageId, event?.toolMessageId, event?.id),
+        toolName: firstString(extra?.toolName, event?.toolName),
+        content: firstString(extra?.content, event?.content),
         operationId,
         errorMessage: firstString(event?.error, existingIndex >= 0 ? priorList[existingIndex]?.errorMessage : ''),
         status: firstString(event?.status, existingIndex >= 0 ? priorList[existingIndex]?.status : ''),
@@ -341,6 +350,20 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         next[assistantMessageId] = current;
         return next;
     }
+    if ((type === 'skill_started' || type === 'skill_completed') && assistantMessageId) {
+        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+        if (!current) return next;
+        applyLiveGroupIdentity(current, event);
+        upsertToolStep(current, event, {
+            toolCallId: firstString(event?.skillExecutionId, event?.toolCallId, event?.toolMessageId, event?.skillName),
+            toolName: firstString(event?.toolName, event?.skillName ? `skill:${event.skillName}` : 'skill'),
+            status: firstString(event?.status, type === 'skill_started' ? 'running' : 'completed'),
+            content: firstString(event?.content, event?.skillName),
+        });
+        current.status = firstString(event?.status, current.status, type === 'skill_started' ? 'running' : 'completed');
+        next[assistantMessageId] = current;
+        return next;
+    }
     if (type === 'linked_conversation_attached' && assistantMessageId) {
         const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
@@ -413,10 +436,12 @@ export function describeExecutionTimelineEvent(event: LiveExecutionGroup & { typ
     const type = firstString(event?.type, 'event');
     const status = firstString(event?.status);
     const toolName = firstString(event?.toolName);
+    const skillName = firstString((event as any)?.skillName);
     const message = firstString(event?.content, event?.preamble, event?.error);
     const parts = [type];
     if (status) parts.push(status);
     if (toolName) parts.push(toolName);
+    if (skillName) parts.push(skillName);
     if (Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0) {
         parts.push(`planned ${event.toolCallsPlanned.map((item) => firstString(item?.toolName, 'tool')).join(', ')}`);
     }

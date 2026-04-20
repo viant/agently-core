@@ -27,6 +27,7 @@ import (
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	"github.com/viant/agently-core/service/reactor"
+	skillsvc "github.com/viant/agently-core/service/skill"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
@@ -80,12 +81,20 @@ type Service struct {
 
 	// intakeSvc runs the pre-turn intake sidecar when agent.Intake.Enabled is true.
 	intakeSvc *intakesvc.Service
+	skillSvc  *skillsvc.Service
 
 	templateRepo *tplrepo.Repository
 }
 
 func (s *Service) Finder() agent.Finder {
 	return s.agentFinder
+}
+
+func (s *Service) SetSkillService(svc *skillsvc.Service) {
+	if s == nil {
+		return
+	}
+	s.skillSvc = svc
 }
 
 // SetRuntime removed: orchestration decoupled
@@ -138,6 +147,10 @@ func WithRelevanceSelector(fn func(context.Context, relevanceSelectorInput) (*re
 // agents with Intake.Enabled=true will run the sidecar before the main turn.
 func WithIntakeService(svc *intakesvc.Service) Option {
 	return func(s *Service) { s.intakeSvc = svc }
+}
+
+func WithSkillService(svc *skillsvc.Service) Option {
+	return func(s *Service) { s.skillSvc = svc }
 }
 
 // New creates a new agent service instance with the given tool registry.

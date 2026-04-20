@@ -188,6 +188,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	b.Tools.Signatures = filterDelegationDiscoveryTools(b.Tools.Signatures, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
+	if s.skillSvc != nil {
+		b.Skills, b.SkillsPrompt = s.skillSvc.Visible(input.Agent)
+	}
 	b.Context = input.Context
 
 	// Expose tool availability flags for templates (dynamic tool selection).
@@ -364,11 +367,10 @@ func applyProjectionContext(ctx context.Context, target *map[string]interface{})
 		return
 	}
 	(*target)["Projection"] = map[string]interface{}{
-		"scope":            strings.TrimSpace(snapshot.Scope),
-		"hiddenTurnIds":    append([]string(nil), snapshot.HiddenTurnIDs...),
-		"hiddenMessageIds": append([]string(nil), snapshot.HiddenMessageIDs...),
-		"reason":           strings.TrimSpace(snapshot.Reason),
-		"tokensFreed":      snapshot.TokensFreed,
+		"scope":              strings.TrimSpace(snapshot.Scope),
+		"reason":             strings.TrimSpace(snapshot.Reason),
+		"hiddenTurnCount":    len(snapshot.HiddenTurnIDs),
+		"hiddenMessageCount": len(snapshot.HiddenMessageIDs),
 	}
 }
 

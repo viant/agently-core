@@ -3,12 +3,15 @@ package exec
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/viant/afs/url"
 	"github.com/viant/agently-core/internal/textutil"
 	sys "github.com/viant/agently-core/protocol/tool/service/system"
+	"github.com/viant/agently-core/workspace"
 	"github.com/viant/gosh"
 	"github.com/viant/gosh/runner"
 	"github.com/viant/gosh/runner/local"
@@ -199,12 +202,15 @@ func (s *Service) getSession(ctx context.Context, sessionID string, host *sys.Ho
 	var service *gosh.Service
 	var err error
 	envOptions := []runner.Option{}
-	if len(env) > 0 {
-		envOptions = append(envOptions, runner.WithEnvironment(env))
-	}
 	if url.Host(host.URL) == "localhost" {
+		if effectiveEnv := localSessionEnv(env); len(effectiveEnv) > 0 {
+			envOptions = append(envOptions, runner.WithEnvironment(effectiveEnv))
+		}
 		service, err = gosh.New(ctx, local.New(envOptions...))
 	} else {
+		if len(env) > 0 {
+			envOptions = append(envOptions, runner.WithEnvironment(env))
+		}
 		config, cfgErr := s.getSSHConfig(ctx, host)
 		if cfgErr != nil {
 			return nil, fmt.Errorf("failed to get SSH config: %w", cfgErr)
@@ -229,6 +235,59 @@ func (s *Service) getSession(ctx context.Context, sessionID string, host *sys.Ho
 		s.mu.Unlock()
 	}
 	return session, nil
+}
+
+func localSessionEnv(env map[string]string) map[string]string {
+	merged := map[string]string{}
+	for _, key := range []string{"HOME", "PATH", "USER", "LOGNAME", "SHELL", "TMPDIR"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			merged[key] = value
+		}
+	}
+	for key, value := range env {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		merged[key] = value
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_WORKSPACE")); v != "" {
+		merged["AGENTLY_WORKSPACE"] = v
+	} else {
+		merged["AGENTLY_WORKSPACE"] = workspace.Root()
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENTLY_RUNTIME_ROOT")); v != "" {
+		merged["AGENTLY_RUNTIME_ROOT"] = v
+	} else {
+		merged["AGENTLY_RUNTIME_ROOT"] = workspace.RuntimeRoot()
+	}
+	merged["PATH"] = prependPathEntries(merged["PATH"],
+		filepath.Join(workspace.Root(), "bin"),
+		filepath.Join(workspace.RuntimeRoot(), "bin"),
+	)
+	return merged
+}
+
+func prependPathEntries(existing string, entries ...string) string {
+	parts := []string{}
+	seen := map[string]struct{}{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		parts = append(parts, value)
+	}
+	for _, entry := range entries {
+		add(entry)
+	}
+	for _, entry := range strings.Split(existing, string(os.PathListSeparator)) {
+		add(entry)
+	}
+	return strings.Join(parts, string(os.PathListSeparator))
 }
 
 func (s *Service) getSSHConfig(ctx context.Context, host *sys.Host) (*ssh.ClientConfig, error) {

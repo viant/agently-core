@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/workspace"
 )
 
 func TestEnsureResolvedWorkdir_DataDriven(t *testing.T) {
@@ -59,10 +60,16 @@ func TestEnsureResolvedWorkdir_DataDriven(t *testing.T) {
 			},
 			expected: repoDir,
 		},
+		{
+			name:     "falls back to workspace root",
+			input:    &QueryInput{},
+			expected: repoDir,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			workspace.SetRoot(repoDir)
 			got := ensureResolvedWorkdir(tc.input)
 			assert.EqualValues(t, tc.expected, got)
 			assert.EqualValues(t, tc.expected, tc.input.Context["workdir"])

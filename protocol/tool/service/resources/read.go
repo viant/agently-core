@@ -14,6 +14,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/protocol/tool/service/shared/imageio"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
 	"github.com/viant/mcp-protocol/extension"
 )
@@ -45,10 +46,11 @@ type ReadInput struct {
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
 type ReadOutput struct {
-	URI     string `json:"uri"`
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Size    int    `json:"size"`
+	URI       string `json:"uri"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	SkillName string `json:"skillName,omitempty"`
+	Size      int    `json:"size"`
 	// Returned and Remaining describe how much of the original payload was
 	// returned after applying caps/ranges.
 	Returned  int `json:"returned,omitempty"`
@@ -116,6 +118,26 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		logx.Debugf("resources", "read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
 		return err
+	}
+	if s.skillSvc != nil {
+		if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+			if strings.EqualFold(pathpkg.Base(target.fullURI), "SKILL.md") {
+				if body, err := s.skillSvc.ActivateByPathForConversation(ctx, convID, target.fullURI, ""); err == nil {
+					output.URI = target.fullURI
+					output.Path = strings.TrimSpace(input.Path)
+					if output.Path == "" {
+						output.Path = target.fullURI
+					}
+					output.Content = body
+					if base := pathpkg.Base(pathpkg.Dir(target.fullURI)); strings.TrimSpace(base) != "" {
+						output.SkillName = strings.TrimSpace(base)
+					}
+					output.Size = len(body)
+					output.Returned = len(body)
+					return nil
+				}
+			}
+		}
 	}
 	data, err := s.downloadResource(ctx, target.fullURI)
 	if err != nil {

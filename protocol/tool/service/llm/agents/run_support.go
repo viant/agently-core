@@ -18,6 +18,7 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	coreauth "github.com/viant/agently-core/service/auth"
+	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
 type linkedRun struct {
@@ -87,9 +88,6 @@ func (s *Service) tryExternalRun(ctx context.Context, ri *RunInput, ro *RunOutpu
 	ro.Answer = ans
 	ro.Status = st
 	ro.TaskID = taskID
-	if ro.ConversationID == "" {
-		ro.ConversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(extCtx))
-	}
 	if strings.TrimSpace(ctxID) != "" {
 		ro.ContextID = ctxID
 	} else {
@@ -172,6 +170,7 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 				}
 			}
 			s.finalizeRunStatus(parentCtx, linked, finalStatus)
+			s.surfaceAsyncCompletion(parentCtx, linked, strings.TrimSpace(ri.AgentID), result)
 		}(context.WithoutCancel(ctx), qi, &agentsvc.QueryOutput{}, runCtx)
 		logx.Infof("conversation", "agents.run async accepted agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
 		return nil
@@ -220,6 +219,13 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 			TurnID:         uuid.NewString(),
 		})
 	}
+	if qi != nil && qi.Context != nil {
+		if name, _ := qi.Context["skillActivationName"].(string); strings.TrimSpace(name) != "" {
+			if mode, _ := qi.Context["skillActivationMode"].(string); strings.TrimSpace(mode) != "" {
+				childCtx = skillsvc.WithActivationModeOverride(childCtx, name, mode)
+			}
+		}
+	}
 	childTimeout := s.ChildTimeout
 	if childTimeout <= 0 {
 		childTimeout = DefaultChildAgentTimeout
@@ -261,6 +267,28 @@ func inheritDelegatedAuthContext(target, parent context.Context) context.Context
 
 func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo *agentsvc.QueryOutput, runErr error) childRunResult {
 	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) || s.isCanceledConversation(ctx, runCtx.childConversationID) {
+		if s.isCanceledConversation(ctx, runCtx.childConversationID) {
+			if state, ok := s.childConversationState(ctx, runCtx.childConversationID); ok {
+				if text := strings.TrimSpace(state.lastAssistantResponse); text != "" {
+					return childRunResult{
+						answer:         text,
+						status:         "canceled",
+						conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
+					}
+				}
+				if text := strings.TrimSpace(state.lastAssistantPreamble); text != "" {
+					return childRunResult{
+						answer:         text,
+						status:         "canceled",
+						conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
+					}
+				}
+			}
+			return childRunResult{
+				status:         "canceled",
+				conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
+			}
+		}
 		if outcome, ok := s.completedChildRunOutcome(ctx, runCtx.childConversationID); ok {
 			return outcome
 		}
@@ -423,7 +451,7 @@ func isSuccessfulStatus(status string) bool {
 
 func (s *Service) completedChildRunOutcome(ctx context.Context, conversationID string) (childRunResult, bool) {
 	state, ok := s.childConversationState(ctx, conversationID)
-	if !ok || !isSuccessfulStatus(state.status) || strings.TrimSpace(state.lastAssistantResponse) == "" {
+	if !ok || !isSuccessfulStatus(state.status) {
 		return childRunResult{}, false
 	}
 	return childRunResult{
@@ -553,24 +581,25 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 		so.RawStatus = strings.TrimSpace(items[0].RawStatus)
 		so.Terminal = items[0].Terminal
 		so.Error = strings.TrimSpace(items[0].Error)
-		so.AssistantResponse = statusItemAnswer(items[0])
-		so.HasFinalResponse = items[0].HasFinalResponse
+		so.Message, so.MessageKind = statusItemMessage(items[0])
 	}
-	so.Items = items
 	return nil
 }
 
-func statusItemAnswer(item StatusItem) string {
+func statusItemMessage(item StatusItem) (string, string) {
 	item = normalizeStatusItem(item)
 	if item.HasFinalResponse {
 		if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
-			return text
+			return text, "response"
 		}
 	}
 	if text := strings.TrimSpace(item.LastAssistantPreamble); text != "" {
-		return text
+		return text, "preamble"
 	}
-	return strings.TrimSpace(item.LastAssistantResponse)
+	if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
+		return text, "response"
+	}
+	return "", ""
 }
 
 func normalizeStatusItem(item StatusItem) StatusItem {
@@ -684,14 +713,12 @@ func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, st
 func normalizeChildConversationState(state childConversationState, transcript apiconv.Transcript) childConversationState {
 	state.terminal = isTerminalChildStatus(state.status)
 	failureSummary := latestChildFailureSummary(transcript)
-	if strings.TrimSpace(failureSummary) != "" {
-		state.errorSummary = failureSummary
-	}
 
 	rawStatus := strings.ToLower(strings.TrimSpace(state.rawStatus))
 	if rawStatus == "waiting_for_user" && strings.TrimSpace(failureSummary) != "" {
 		state.status = "failed"
 		state.terminal = true
+		state.errorSummary = failureSummary
 		state.hasFinalResponse = true
 		state.lastAssistantPreamble = ""
 		state.lastAssistantResponse = "Child agent is blocked waiting for user input and cannot continue.\n" + failureSummary
@@ -716,6 +743,10 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 			state.lastAssistantResponse += "\n" + failureSummary
 		}
 		return state
+	}
+
+	if state.terminal && strings.TrimSpace(failureSummary) != "" {
+		state.errorSummary = failureSummary
 	}
 
 	if state.terminal && !state.hasFinalResponse && strings.TrimSpace(failureSummary) != "" {
@@ -928,6 +959,18 @@ func (s *Service) finalizeRunStatus(ctx context.Context, runCtx linkedRun, statu
 		return
 	}
 	_ = s.status.Finalize(ctx, runCtx.parent, runCtx.statusMessageID, strings.TrimSpace(status), "")
+}
+
+func (s *Service) surfaceAsyncCompletion(ctx context.Context, runCtx linkedRun, agentID string, result childRunResult) {
+	if s == nil || strings.TrimSpace(runCtx.parent.ConversationID) == "" {
+		return
+	}
+	if strings.TrimSpace(runCtx.childConversationID) == "" {
+		return
+	}
+	if s.linker != nil {
+		s.linker.EmitLinkedConversationAttached(ctx, runCtx.parent, runCtx.childConversationID, "", agentID, "")
+	}
 }
 
 // parentConversationModel returns the default model from the parent

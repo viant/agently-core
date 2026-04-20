@@ -452,6 +452,19 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return fmt.Errorf("invalid tool block; expected sequence or mapping")
 			}
 
+		case "skills":
+			switch valueNode.Kind {
+			case yaml.ScalarNode:
+				if id := strings.TrimSpace(valueNode.Value); id != "" {
+					agent.Skills = append(agent.Skills, id)
+				}
+			case yaml.SequenceNode:
+				agent.Skills = append(agent.Skills, asStrings(valueNode)...)
+			default:
+				return fmt.Errorf("invalid skills block; expected scalar or sequence")
+			}
+			agent.Skills = normalizeStrings(agent.Skills)
+
 		case "template":
 			if valueNode.Kind != yaml.MappingNode {
 				return fmt.Errorf("template must be a mapping")

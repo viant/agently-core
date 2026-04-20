@@ -729,6 +729,52 @@ func TestEmitCanonicalAssistantEvents_ToolCallOnlyNoEvents(t *testing.T) {
 	}
 }
 
+func TestEmitCanonicalAssistantEvents_PreambleUpdateReusesAssistantMessageID(t *testing.T) {
+	bus := streaming.NewMemoryBus(4)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-1",
+	})
+
+	msg := convcli.NewMessage()
+	msg.SetId("msg-1")
+	msg.SetRole("assistant")
+	msg.SetPreamble("phase 1")
+	msg.SetInterim(1)
+	msg.SetTurnID("turn-1")
+	svc.emitCanonicalAssistantEvents(ctx, msg, "conv-1")
+
+	msg2 := convcli.NewMessage()
+	msg2.SetId("msg-1")
+	msg2.SetRole("assistant")
+	msg2.SetPreamble("phase 2")
+	msg2.SetInterim(1)
+	msg2.SetTurnID("turn-1")
+	svc.emitCanonicalAssistantEvents(ctx, msg2, "conv-1")
+
+	var events []*streaming.Event
+	deadline := time.After(2 * time.Second)
+	for len(events) < 2 {
+		select {
+		case ev := <-sub.C():
+			events = append(events, ev)
+		case <-deadline:
+			t.Fatalf("expected 2 assistant_preamble events, got %d", len(events))
+		}
+	}
+	require.Equal(t, streaming.EventTypeAssistantPreamble, events[0].Type)
+	require.Equal(t, streaming.EventTypeAssistantPreamble, events[1].Type)
+	require.Equal(t, "msg-1", events[0].AssistantMessageID)
+	require.Equal(t, "msg-1", events[1].AssistantMessageID)
+	require.Equal(t, "phase 1", events[0].Content)
+	require.Equal(t, "phase 2", events[1].Content)
+}
+
 func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {
 	bus := streaming.NewMemoryBus(2)
 	sub, err := bus.Subscribe(context.Background(), nil)

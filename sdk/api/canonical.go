@@ -69,6 +69,7 @@ type ExecutionPageState struct {
 	ParentMessageID         string            `json:"parentMessageId"`
 	TurnID                  string            `json:"turnId"`
 	Iteration               int               `json:"iteration"`
+	ExecutionRole           string            `json:"executionRole,omitempty"`
 	Phase                   string            `json:"phase,omitempty"`
 	Mode                    string            `json:"mode,omitempty"`
 	Status                  string            `json:"status,omitempty"`
@@ -84,6 +85,7 @@ type ExecutionPageState struct {
 type ModelStepState struct {
 	ModelCallID               string          `json:"modelCallId"`
 	AssistantMessageID        string          `json:"assistantMessageId"`
+	ExecutionRole             string          `json:"executionRole,omitempty"`
 	Phase                     string          `json:"phase,omitempty"`
 	Provider                  string          `json:"provider,omitempty"`
 	Model                     string          `json:"model,omitempty"`
@@ -106,6 +108,7 @@ type ToolStepState struct {
 	ToolCallID                string               `json:"toolCallId"`
 	ToolMessageID             string               `json:"toolMessageId"`
 	ToolName                  string               `json:"toolName"`
+	ExecutionRole             string               `json:"executionRole,omitempty"`
 	OperationID               string               `json:"operationId,omitempty"`
 	Status                    string               `json:"status,omitempty"`
 	RequestPayloadID          string               `json:"requestPayloadId,omitempty"`

@@ -164,4 +164,25 @@ func TestEnsureConversation_NilLastActivityDoesNotPanic(t *testing.T) {
 	require.True(t, in.IsNewConversation)
 }
 
+func TestEnsureConversation_SetsModelSourceForConversationDefaultModel(t *testing.T) {
+	now := time.Now()
+	agentID := "agent-a"
+	defaultModel := "openai_gpt-5.4"
+	conv := &apiconv.Conversation{
+		Id:           "c1",
+		AgentId:      &agentID,
+		DefaultModel: &defaultModel,
+		CreatedAt:    now,
+		UpdatedAt:    &now,
+		LastActivity: &now,
+	}
+	svc := &Service{conversation: &convoStub{conv: conv}}
+
+	in := &QueryInput{ConversationID: "c1", AgentID: "agent-a"}
+	err := svc.ensureConversation(context.Background(), in)
+	require.NoError(t, err)
+	require.Equal(t, "openai_gpt-5.4", in.ModelOverride)
+	require.Equal(t, "conversation.defaultModel", in.Context["modelSource"])
+}
+
 func ptrString(s string) *string { return &s }

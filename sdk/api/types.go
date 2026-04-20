@@ -218,6 +218,35 @@ type GetTemplateOutput struct {
 	IncludedDocument bool                     `json:"includedDocument,omitempty"`
 }
 
+type ListSkillsInput struct {
+	ConversationID string `json:"conversationId,omitempty"`
+}
+
+type SkillItem struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type ListSkillsOutput struct {
+	Items       []SkillItem `json:"items,omitempty"`
+	Diagnostics []string    `json:"diagnostics,omitempty"`
+}
+
+type ActivateSkillInput struct {
+	ConversationID string `json:"conversationId,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Args           string `json:"args,omitempty"`
+}
+
+type ActivateSkillOutput struct {
+	Name string `json:"name,omitempty"`
+	Body string `json:"body,omitempty"`
+}
+
+type SkillDiagnosticsOutput struct {
+	Items []string `json:"items,omitempty"`
+}
+
 type ListPendingToolApprovalsInput struct {
 	UserID         string
 	ConversationID string

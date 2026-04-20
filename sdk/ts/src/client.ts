@@ -332,6 +332,8 @@ export class AgentlyClient {
                     case 'tool_call_completed':
                     case 'tool_call_failed':
                     case 'tool_call_canceled':
+                    case 'skill_started':
+                    case 'skill_completed':
                         handlers.onToolEvent?.(event);
                         break;
                     case 'turn_completed':

@@ -196,6 +196,45 @@ func TestReduce_TextDeltaMarksModelStepStreaming(t *testing.T) {
 	if page.ModelSteps[0].Status != "streaming" {
 		t.Fatalf("expected model step status streaming, got %q", page.ModelSteps[0].Status)
 	}
+	if page.ModelSteps[0].ExecutionRole != "react" {
+		t.Fatalf("expected model executionRole react, got %q", page.ModelSteps[0].ExecutionRole)
+	}
+}
+
+func TestReduce_ExecutionRoleClassification(t *testing.T) {
+	now := time.Date(2026, 4, 20, 16, 0, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:               streaming.EventTypeModelStarted,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		Status:             "running",
+		CreatedAt:          now,
+		Phase:              "intake",
+	})
+	page := state.Turns[0].Execution.Pages[0]
+	if page.ExecutionRole != "intake" {
+		t.Fatalf("expected page executionRole intake, got %q", page.ExecutionRole)
+	}
+	if page.ModelSteps[0].ExecutionRole != "intake" {
+		t.Fatalf("expected model executionRole intake, got %q", page.ModelSteps[0].ExecutionRole)
+	}
+
+	state = Reduce(state, &streaming.Event{
+		Type:               streaming.EventTypeToolCallStarted,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-2",
+		ToolCallID:         "call-1",
+		ToolMessageID:      "tool-msg-1",
+		ToolName:           "llm/agents:start",
+		Status:             "running",
+		CreatedAt:          now.Add(time.Second),
+	})
+	page = state.Turns[0].Execution.Pages[len(state.Turns[0].Execution.Pages)-1]
+	if len(page.ToolSteps) == 0 || page.ToolSteps[0].ExecutionRole != "worker" {
+		t.Fatalf("expected tool executionRole worker, got %#v", page.ToolSteps)
+	}
 }
 
 func TestReduce_ToolCompletedFallsBackToCreatedAtForCompletedAt(t *testing.T) {
@@ -415,5 +454,34 @@ func TestReduce_TurnQueuedDoesNotDowngradeTerminalTurn(t *testing.T) {
 
 	if state.Turns[0].Status != TurnStatusCompleted {
 		t.Fatalf("expected completed turn to remain completed, got %q", state.Turns[0].Status)
+	}
+}
+
+func TestReduce_AssistantPreambleUpdateReusesMessageID(t *testing.T) {
+	state := &ConversationState{}
+	state = Reduce(state, &streaming.Event{
+		Type:               streaming.EventTypeAssistantPreamble,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		Content:            "phase 1",
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:               streaming.EventTypeAssistantPreamble,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		Content:            "phase 2",
+	})
+
+	if len(state.Turns) != 1 || state.Turns[0].Execution == nil || len(state.Turns[0].Execution.Pages) == 0 {
+		t.Fatalf("expected execution page state, got %#v", state)
+	}
+	page := state.Turns[0].Execution.Pages[0]
+	if page.PreambleMessageID != "msg-1" {
+		t.Fatalf("expected preambleMessageId msg-1, got %q", page.PreambleMessageID)
+	}
+	if page.Preamble != "phase 2" {
+		t.Fatalf("expected latest preamble phase 2, got %q", page.Preamble)
 	}
 }

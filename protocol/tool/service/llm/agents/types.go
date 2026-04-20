@@ -30,10 +30,11 @@ type ListOutput struct {
 // Note: Conversation/turn/user identifiers are derived from context; they are
 // intentionally not part of the input contract.
 type RunInput struct {
-	AgentID   string                 `json:"agentId"`
-	Objective string                 `json:"objective"`
-	Context   map[string]interface{} `json:"context,omitempty"`
-	Async     *bool                  `json:"async,omitempty" internal:"true"`
+	AgentID       string                 `json:"agentId"`
+	Objective     string                 `json:"objective"`
+	Context       map[string]interface{} `json:"context,omitempty"`
+	ExecutionMode string                 `json:"executionMode,omitempty"`
+	Async         *bool                  `json:"async,omitempty" internal:"true"`
 	// ConversationID optionally overrides the conversation identifier when
 	// not already provided by context.
 	ConversationID string `json:"conversationId,omitempty"`
@@ -65,6 +66,7 @@ type StartInput = RunInput
 type StartOutput struct {
 	ConversationID    string   `json:"conversationId,omitempty"`
 	Status            string   `json:"status,omitempty"`
+	ResultMode        string   `json:"resultMode,omitempty"`
 	Message           string   `json:"message,omitempty"`
 	AssistantResponse string   `json:"assistantResponse,omitempty"`
 	TaskID            string   `json:"taskId,omitempty"`
@@ -78,6 +80,7 @@ type StartOutput struct {
 type RunOutput struct {
 	Answer          string   `json:"answer"`
 	Status          string   `json:"status,omitempty"`
+	ResultMode      string   `json:"resultMode,omitempty"`
 	Error           string   `json:"error,omitempty"`
 	ConversationID  string   `json:"conversationId,omitempty"`
 	MessageID       string   `json:"messageId,omitempty"`
@@ -113,14 +116,13 @@ type StatusItem struct {
 }
 
 type StatusOutput struct {
-	ConversationID    string       `json:"conversationId,omitempty"`
-	Status            string       `json:"status,omitempty"`
-	RawStatus         string       `json:"rawStatus,omitempty"`
-	Terminal          bool         `json:"terminal,omitempty"`
-	Error             string       `json:"error,omitempty"`
-	AssistantResponse string       `json:"assistantResponse,omitempty"`
-	HasFinalResponse  bool         `json:"hasFinalResponse,omitempty"`
-	Items             []StatusItem `json:"items,omitempty"`
+	ConversationID string `json:"conversationId,omitempty"`
+	Status         string `json:"status,omitempty"`
+	RawStatus      string `json:"rawStatus,omitempty"`
+	Terminal       bool   `json:"terminal,omitempty"`
+	Error          string `json:"error,omitempty"`
+	Message        string `json:"message,omitempty"`
+	MessageKind    string `json:"messageKind,omitempty"`
 }
 
 type CancelInput struct {

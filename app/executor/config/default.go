@@ -9,6 +9,7 @@ type Defaults struct {
 	Model    string
 	Embedder string
 	Agent    string
+	Skills   SkillsDefaults `yaml:"skills,omitempty" json:"skills,omitempty"`
 	// RuntimeRoot allows separating runtime state (db, snapshots, indexes) from the workspace.
 	// Supports ${workspaceRoot}. When empty, defaults to ${workspaceRoot}.
 	RuntimeRoot string `yaml:"runtimeRoot,omitempty" json:"runtimeRoot,omitempty"`
@@ -62,13 +63,6 @@ type Defaults struct {
 
 	// ---- Resources defaults (optional) ---------------------------
 	Resources ResourcesDefaults `yaml:"resources,omitempty" json:"resources,omitempty"`
-
-	// ---- Async reinforcement prompt (optional) ------------------
-	// AsyncReinforcementPrompt overrides the embedded default prompt used to
-	// guide the model when async operations are active. When nil the runtime
-	// falls back to the built-in embedded template. Supports inline Text or a
-	// file/URL via URI; Engine defaults to "go" (Go text/template).
-	AsyncReinforcementPrompt *binding.Prompt `yaml:"asyncReinforcementPrompt,omitempty" json:"asyncReinforcementPrompt,omitempty"`
 }
 
 // UnmarshalYAML supports both the current and legacy router keys:
@@ -88,12 +82,13 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	type raw struct {
-		Model       string `yaml:"model"`
-		Embedder    string `yaml:"embedder"`
-		Agent       string `yaml:"agent"`
-		RuntimeRoot string `yaml:"runtimeRoot,omitempty"`
-		StatePath   string `yaml:"statePath,omitempty"`
-		DBPath      string `yaml:"dbPath,omitempty"`
+		Model       string         `yaml:"model"`
+		Embedder    string         `yaml:"embedder"`
+		Agent       string         `yaml:"agent"`
+		Skills      SkillsDefaults `yaml:"skills,omitempty"`
+		RuntimeRoot string         `yaml:"runtimeRoot,omitempty"`
+		StatePath   string         `yaml:"statePath,omitempty"`
+		DBPath      string         `yaml:"dbPath,omitempty"`
 
 		AgentAutoSelection AgentAutoSelectionDefaults `yaml:"agentAutoSelection,omitempty"`
 		ToolAutoSelection  ToolAutoSelectionDefaults  `yaml:"toolAutoSelection,omitempty"`
@@ -118,8 +113,6 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 		Match     MatchDefaults     `yaml:"match,omitempty"`
 		Resources ResourcesDefaults `yaml:"resources,omitempty"`
-
-		AsyncReinforcementPrompt *binding.Prompt `yaml:"asyncReinforcementPrompt,omitempty"`
 	}
 
 	var tmp raw
@@ -131,6 +124,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		Model:       tmp.Model,
 		Embedder:    tmp.Embedder,
 		Agent:       tmp.Agent,
+		Skills:      tmp.Skills,
 		RuntimeRoot: tmp.RuntimeRoot,
 		StatePath:   tmp.StatePath,
 		DBPath:      tmp.DBPath,
@@ -150,8 +144,6 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 		Match:     tmp.Match,
 		Resources: tmp.Resources,
-
-		AsyncReinforcementPrompt: tmp.AsyncReinforcementPrompt,
 	}
 
 	if hasKey("agentAutoSelection") {
@@ -170,6 +162,11 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	return nil
+}
+
+type SkillsDefaults struct {
+	Roots []string `yaml:"roots,omitempty" json:"roots,omitempty"`
+	Model string   `yaml:"model,omitempty" json:"model,omitempty"`
 }
 
 // ToolApprovalDefaults defines global tool approval behavior.

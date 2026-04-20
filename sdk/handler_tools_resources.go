@@ -24,6 +24,56 @@ func handleListToolDefinitions(client Client) http.HandlerFunc {
 	}
 }
 
+func handleListSkills(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		out, err := client.ListSkills(r.Context(), &ListSkillsInput{
+			ConversationID: strings.TrimSpace(r.URL.Query().Get("conversationId")),
+		})
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleSkillDiagnostics(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		out, err := client.GetSkillDiagnostics(r.Context())
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleActivateSkill(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimSpace(r.PathValue("name"))
+		if name == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("skill name is required"))
+			return
+		}
+		var req struct {
+			Args string `json:"args"`
+		}
+		if r.Body != nil {
+			_ = decodeJSON(r, &req)
+		}
+		out, err := client.ActivateSkill(r.Context(), &ActivateSkillInput{
+			ConversationID: strings.TrimSpace(r.URL.Query().Get("conversationId")),
+			Name:           name,
+			Args:           strings.TrimSpace(req.Args),
+		})
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		httpJSON(w, http.StatusOK, out)
+	}
+}
+
 func handleExecuteTool(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSpace(r.PathValue("name"))
