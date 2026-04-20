@@ -9,7 +9,7 @@ import (
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 )
 
-const authLogPrefix = "[scheduler-auth]"
+const authLogPrefix = "[runtime-auth]"
 
 func logAuthf(format string, args ...interface{}) {
 	log.Printf(authLogPrefix+" "+format, args...)

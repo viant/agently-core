@@ -200,7 +200,7 @@ func (p *Provider) logSchedulerJarResolved(ctx context.Context, user string, cac
 	if !ok || !mode.Scheduler {
 		return
 	}
-	log.Printf("[scheduler-auth] schedule=%q run=%q user=%q mcp cookie jar resolved cached=%t",
+	log.Printf("[runtime-auth] schedule=%q run=%q user=%q mcp cookie jar resolved cached=%t",
 		strings.TrimSpace(mode.ScheduleID),
 		strings.TrimSpace(mode.ScheduleRunID),
 		strings.TrimSpace(user),

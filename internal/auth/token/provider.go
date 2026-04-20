@@ -141,12 +141,12 @@ func NewManager(opts ...ManagerOption) *Manager {
 // EnsureTokens checks if tokens in context are fresh; if not, refreshes from
 // cache or via Broker, and returns updated context.
 func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, error) {
-	logSchedulerEnsure(ctx, key, "created_by_user_id auth lookup start")
-
+	// Suppress per-call hot-path noise from repeated MCP/tool discovery auth checks.
+	// Keep store/refresh/error logs below for troubleshooting when auth resolution
+	// actually does meaningful work or fails.
 	// 1. Check context — if tokens exist and not near expiry, return as-is.
 	if tok := iauth.TokensFromContext(ctx); tok != nil {
 		if !tok.Expiry.IsZero() && time.Until(tok.Expiry) > m.minTTL {
-			logSchedulerEnsure(ctx, key, "created_by_user_id auth context token fresh")
 			return ctx, nil
 		}
 	}
@@ -411,5 +411,5 @@ func logSchedulerEnsure(ctx context.Context, key Key, format string, args ...int
 		strings.TrimSpace(key.Subject),
 		strings.TrimSpace(key.Provider),
 	}, args...)
-	log.Printf("[scheduler-auth] schedule=%q run=%q user=%q provider=%q "+format, args...)
+	log.Printf("[runtime-auth] schedule=%q run=%q user=%q provider=%q "+format, args...)
 }
