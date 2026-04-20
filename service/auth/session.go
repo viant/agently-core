@@ -20,14 +20,17 @@ import (
 // Subject is the only field used for conversation ownership, token storage
 // keys, and run attribution. Username and Email are never used as identifiers.
 type Session struct {
-	ID        string         `json:"id"`
-	Username  string         `json:"username"`
-	Email     string         `json:"email,omitempty"`
-	Subject   string         `json:"subject,omitempty"`
-	Provider  string         `json:"provider,omitempty"`
-	Tokens    *scyauth.Token `json:"-"`
-	CreatedAt time.Time      `json:"createdAt"`
-	ExpiresAt time.Time      `json:"expiresAt"`
+	ID       string         `json:"id"`
+	Username string         `json:"username"`
+	Email    string         `json:"email,omitempty"`
+	Subject  string         `json:"subject,omitempty"`
+	Provider string         `json:"provider,omitempty"`
+	Tokens   *scyauth.Token `json:"-"`
+	// TransientRefreshRetryAt suppresses repeated refresh attempts/log spam
+	// after a temporary token-endpoint failure. In-memory only.
+	TransientRefreshRetryAt time.Time `json:"-"`
+	CreatedAt               time.Time `json:"createdAt"`
+	ExpiresAt               time.Time `json:"expiresAt"`
 }
 
 // EffectiveUserID returns jwt.sub as the stable user identity.

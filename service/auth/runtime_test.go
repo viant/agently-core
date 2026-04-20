@@ -156,3 +156,53 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 		t.Fatalf("expected session to be preserved after transient refresh failure")
 	}
 }
+
+func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *testing.T) {
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			OAuth:      &OAuth{Mode: "bff"},
+		},
+		sessions: NewManager(0, nil),
+	}
+
+	tokens := &scyauth.Token{}
+	tokens.Token.AccessToken = "expired-access"
+	tokens.Token.RefreshToken = "refresh-token"
+	tokens.Token.Expiry = time.Now().Add(-1 * time.Minute)
+
+	rt.sessions.Put(nil, &Session{
+		ID:                      "sess-expired-cooldown",
+		Username:                "awitas_viant_devtest",
+		Subject:                 "awitas_viant_devtest",
+		Provider:                "oauth",
+		Tokens:                  tokens,
+		TransientRefreshRetryAt: time.Now().Add(30 * time.Second),
+	})
+
+	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-expired-cooldown"})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+	got := rt.sessions.Get(context.Background(), "sess-expired-cooldown")
+	if got == nil {
+		t.Fatalf("expected session to be preserved during transient refresh cooldown")
+	}
+	if got.Tokens == nil {
+		t.Fatalf("expected expired tokens to remain during transient refresh cooldown")
+	}
+	if got.TransientRefreshRetryAt.IsZero() {
+		t.Fatalf("expected transient refresh retry timestamp to remain set")
+	}
+}
