@@ -681,10 +681,51 @@ func maybeStartAsyncPoller(ctx context.Context, manager AsyncManager, reg tool.R
 	// Register the cancel so the service layer can stop this poller when the
 	// parent turn is explicitly canceled.
 	manager.StorePollerCancel(ctx, opID, cancel)
+	maybeCreateAsyncStatusCarrier(pollCtx, manager, cfg, turn, opID, conv)
 	go func() {
 		defer cancel() // idempotent — ensures cleanup if PollAsyncOperation returns early
 		PollAsyncOperation(pollCtx, manager, reg, cfg, turn, opID, conv)
 	}()
+}
+
+func maybeCreateAsyncStatusCarrier(ctx context.Context, manager AsyncManager, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+	if conv == nil || manager == nil || cfg == nil {
+		return
+	}
+	statusTool := strings.TrimSpace(cfg.Status.Tool)
+	if statusTool == "" || sameToolName(statusTool, cfg.Run.Tool) {
+		return
+	}
+	rec, ok := manager.Get(ctx, opID)
+	if !ok || rec == nil || !asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
+		return
+	}
+	if sameToolName(rec.ToolName, statusTool) && strings.TrimSpace(rec.ToolMessageID) != "" && strings.TrimSpace(rec.ToolCallID) != "" {
+		return
+	}
+	startedAt := time.Now()
+	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt, statusTool)
+	if err != nil {
+		logx.WarnCtxf(ctx, "conversation", "async status carrier message create failed op_id=%q tool=%q err=%v", strings.TrimSpace(opID), statusTool, err)
+		return
+	}
+	toolCallID := "async-status:" + strings.TrimSpace(opID)
+	if err := initToolCall(ctx, conv, toolMsgID, toolCallID, turn, statusTool, startedAt, ""); err != nil {
+		logx.WarnCtxf(ctx, "conversation", "async status carrier tool call init failed op_id=%q tool=%q err=%v", strings.TrimSpace(opID), statusTool, err)
+		return
+	}
+	rebound, _ := manager.BindToolCarrier(ctx, opID, toolCallID, toolMsgID, statusTool)
+	if rebound == nil {
+		return
+	}
+	payload := &asynccfg.Extracted{
+		Status:  strings.TrimSpace(rebound.Status),
+		Message: strings.TrimSpace(rebound.Message),
+		Percent: rebound.Percent,
+		KeyData: cloneRaw(rebound.KeyData),
+		Error:   strings.TrimSpace(rebound.Error),
+	}
+	patchAsyncToolPersistence(context.Background(), conv, rebound, "", payload)
 }
 
 // rehydrateAsyncPollContext copies the request-scoped values that the autonomous
