@@ -187,6 +187,17 @@ func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
 	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
 	require.NotNil(t, last)
 	require.Equal(t, "completed", strings.TrimSpace(last.Status))
+	var sawStatusCarrier bool
+	for _, call := range conv.patchedToolCalls {
+		if call == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(call.ToolName), "llm/agents/status") {
+			sawStatusCarrier = true
+			break
+		}
+	}
+	require.True(t, sawStatusCarrier, "wait-mode start should create a visible status carrier")
 }
 
 func TestExecuteToolStep_AsyncOverrideUsesExecutionMode(t *testing.T) {
