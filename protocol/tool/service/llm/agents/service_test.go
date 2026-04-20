@@ -2,6 +2,8 @@ package agents
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	promptdef "github.com/viant/agently-core/protocol/prompt"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -247,8 +250,100 @@ func TestService_Run_Internal_HungChildTimesOut(t *testing.T) {
 	assert.Less(t, elapsed, 5*time.Second, "should time out quickly, not hang")
 }
 
+func TestService_InjectProfileMessages_SeedsTurnBeforeMessages(t *testing.T) {
+	ctx := context.Background()
+	conv := newProfileFKConversationClient("child-conv")
+	svc := &Service{conv: conv}
+
+	err := svc.injectProfileMessages(ctx,
+		&RunInput{PromptProfileId: "profile-1"},
+		&agentsvc.QueryInput{MessageID: "child-turn-1"},
+		"child-conv",
+		[]promptdef.Message{{Role: "system", Text: "Follow the operating profile."}},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"turn:child-turn-1:pending",
+		"message:child-turn-1:system",
+	}, conv.ops)
+}
+
 // Finder is unused in this test; return nil to satisfy the interface.
 func (f *fakeAgentRuntime) Finder() agentmdl.Finder { return f.finder }
+
+type profileFKConversationClient struct {
+	conversation *convcli.Conversation
+	turns        map[string]bool
+	ops          []string
+}
+
+func newProfileFKConversationClient(conversationID string) *profileFKConversationClient {
+	return &profileFKConversationClient{
+		conversation: &convcli.Conversation{Id: conversationID},
+		turns:        map[string]bool{},
+	}
+}
+
+func (c *profileFKConversationClient) GetConversation(context.Context, string, ...convcli.Option) (*convcli.Conversation, error) {
+	return c.conversation, nil
+}
+
+func (c *profileFKConversationClient) GetConversations(context.Context, *convcli.Input) ([]*convcli.Conversation, error) {
+	return nil, nil
+}
+
+func (c *profileFKConversationClient) PatchConversations(context.Context, *convcli.MutableConversation) error {
+	return nil
+}
+
+func (c *profileFKConversationClient) GetPayload(context.Context, string) (*convcli.Payload, error) {
+	return nil, nil
+}
+
+func (c *profileFKConversationClient) PatchPayload(context.Context, *convcli.MutablePayload) error {
+	return nil
+}
+
+func (c *profileFKConversationClient) PatchMessage(_ context.Context, message *convcli.MutableMessage) error {
+	if message == nil || message.TurnID == nil || !c.turns[*message.TurnID] {
+		return fmt.Errorf("missing turn %q", ptrString(message.TurnID))
+	}
+	c.ops = append(c.ops, fmt.Sprintf("message:%s:%s", strings.TrimSpace(*message.TurnID), strings.TrimSpace(message.Role)))
+	return nil
+}
+
+func (c *profileFKConversationClient) GetMessage(context.Context, string, ...convcli.Option) (*convcli.Message, error) {
+	return nil, nil
+}
+
+func (c *profileFKConversationClient) GetMessageByElicitation(context.Context, string, string) (*convcli.Message, error) {
+	return nil, nil
+}
+
+func (c *profileFKConversationClient) PatchModelCall(context.Context, *convcli.MutableModelCall) error {
+	return nil
+}
+
+func (c *profileFKConversationClient) PatchToolCall(context.Context, *convcli.MutableToolCall) error {
+	return nil
+}
+
+func (c *profileFKConversationClient) PatchTurn(_ context.Context, turn *convcli.MutableTurn) error {
+	if turn == nil {
+		return fmt.Errorf("nil turn")
+	}
+	c.turns[strings.TrimSpace(turn.Id)] = true
+	c.ops = append(c.ops, fmt.Sprintf("turn:%s:%s", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.Status)))
+	return nil
+}
+
+func (c *profileFKConversationClient) DeleteConversation(context.Context, string) error {
+	return nil
+}
+
+func (c *profileFKConversationClient) DeleteMessage(context.Context, string, string) error {
+	return nil
+}
 
 func TestService_Run_Internal_ThreadsModelPrefsAndReasoning(t *testing.T) {
 	ctx := context.Background()
