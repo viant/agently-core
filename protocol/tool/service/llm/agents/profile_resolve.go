@@ -91,6 +91,9 @@ func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *a
 	// resolve the right conversation.
 	childCtx := runtimerequestctx.WithConversationID(ctx, strings.TrimSpace(childConvID))
 	childCtx = runtimerequestctx.WithTurnMeta(childCtx, turn)
+	if err := s.ensureProfileTurn(childCtx, turn); err != nil {
+		return err
+	}
 
 	for i, msg := range msgs {
 		text := strings.TrimSpace(msg.Text)
@@ -115,6 +118,35 @@ func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *a
 		if _, err := apiconv.AddMessage(childCtx, s.conv, &turn, opts...); err != nil {
 			return fmt.Errorf("inject profile message %d (role=%s): %w", i, role, err)
 		}
+	}
+	return nil
+}
+
+// ensureProfileTurn seeds the child turn before profile messages are inserted.
+// Profile injection runs before agent.Query.startTurn, so we create a quiet
+// placeholder turn row here to satisfy message.turn_id foreign keys without
+// emitting a premature turn_started event.
+func (s *Service) ensureProfileTurn(ctx context.Context, turn runtimerequestctx.TurnMeta) error {
+	if s == nil || s.conv == nil || strings.TrimSpace(turn.ConversationID) == "" || strings.TrimSpace(turn.TurnID) == "" {
+		return nil
+	}
+	existing, err := s.conv.GetConversation(ctx, strings.TrimSpace(turn.ConversationID), apiconv.WithIncludeTranscript(true))
+	if err != nil {
+		return fmt.Errorf("load child conversation %q: %w", strings.TrimSpace(turn.ConversationID), err)
+	}
+	if existing != nil {
+		for _, transcriptTurn := range existing.GetTranscript() {
+			if transcriptTurn != nil && strings.TrimSpace(transcriptTurn.Id) == strings.TrimSpace(turn.TurnID) {
+				return nil
+			}
+		}
+	}
+	upd := apiconv.NewTurn()
+	upd.SetId(strings.TrimSpace(turn.TurnID))
+	upd.SetConversationID(strings.TrimSpace(turn.ConversationID))
+	upd.SetStatus("pending")
+	if err := s.conv.PatchTurn(ctx, upd); err != nil {
+		return fmt.Errorf("seed child turn %q: %w", strings.TrimSpace(turn.TurnID), err)
 	}
 	return nil
 }
