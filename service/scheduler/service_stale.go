@@ -13,6 +13,58 @@ import (
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
 )
 
+type staleRunDetails struct {
+	Cause      string
+	RunStart   time.Time
+	Timeout    time.Duration
+	LeaseUntil time.Time
+	Deadline   time.Time
+	DetectedAt time.Time
+	RunAge     time.Duration
+	OverdueBy  time.Duration
+}
+
+func (d staleRunDetails) message(status string) string {
+	status = strings.TrimSpace(status)
+	switch d.Cause {
+	case "lease_expired":
+		return fmt.Sprintf(
+			"stale scheduled run detected: cause=%s status=%s run_start=%s timeout=%s lease_until=%s grace=%s detected_at=%s run_age=%s overdue_by=%s",
+			d.Cause,
+			status,
+			d.RunStart.UTC().Format(time.RFC3339Nano),
+			d.Timeout,
+			d.LeaseUntil.UTC().Format(time.RFC3339Nano),
+			staleRunGrace,
+			d.DetectedAt.UTC().Format(time.RFC3339Nano),
+			d.RunAge.Round(time.Second),
+			d.OverdueBy.Round(time.Second),
+		)
+	case "timeout_exceeded":
+		return fmt.Sprintf(
+			"stale scheduled run detected: cause=%s status=%s run_start=%s timeout=%s deadline=%s grace=%s detected_at=%s run_age=%s overdue_by=%s",
+			d.Cause,
+			status,
+			d.RunStart.UTC().Format(time.RFC3339Nano),
+			d.Timeout,
+			d.Deadline.UTC().Format(time.RFC3339Nano),
+			staleRunGrace,
+			d.DetectedAt.UTC().Format(time.RFC3339Nano),
+			d.RunAge.Round(time.Second),
+			d.OverdueBy.Round(time.Second),
+		)
+	default:
+		return fmt.Sprintf(
+			"stale scheduled run detected: cause=unknown status=%s run_start=%s timeout=%s detected_at=%s run_age=%s",
+			status,
+			d.RunStart.UTC().Format(time.RFC3339Nano),
+			d.Timeout,
+			d.DetectedAt.UTC().Format(time.RFC3339Nano),
+			d.RunAge.Round(time.Second),
+		)
+	}
+}
+
 func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now time.Time) (bool, time.Time, error) {
 	if row == nil {
 		return false, now, nil
@@ -127,32 +179,60 @@ func (s *Service) stalePendingRunReason(row *schedulepkg.ScheduleView, run *schr
 }
 
 func (s *Service) staleActiveRunReason(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (string, bool) {
-	runStart, timeout, stale := s.isStaleRun(row, run, now)
+	details, stale := s.isStaleRun(row, run, now)
 	if !stale {
 		return "", false
 	}
-	return fmt.Sprintf("stale scheduled run detected: status=%s run_start=%s timeout=%s", strings.TrimSpace(run.Status), runStart.UTC().Format(time.RFC3339Nano), timeout), true
+	return details.message(valueOrEmpty(&run.Status)), true
 }
 
-func (s *Service) isStaleRun(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (time.Time, time.Duration, bool) {
+func (s *Service) isStaleRun(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (staleRunDetails, bool) {
 	if run == nil || (run.CompletedAt != nil && !run.CompletedAt.IsZero()) {
-		return time.Time{}, 0, false
+		return staleRunDetails{}, false
 	}
 	runStart := run.CreatedAt.UTC()
 	if run.StartedAt != nil && !run.StartedAt.IsZero() {
 		runStart = run.StartedAt.UTC()
 	}
 	if runStart.IsZero() {
-		return time.Time{}, 0, false
+		return staleRunDetails{}, false
 	}
 	timeout := defaultStaleRunTimeout
 	if row != nil && row.TimeoutSeconds > 0 {
 		timeout = time.Duration(row.TimeoutSeconds) * time.Second
 	}
+	runAge := now.Sub(runStart)
 	if run.LeaseUntil != nil && !run.LeaseUntil.IsZero() {
-		return runStart, timeout, now.After(run.LeaseUntil.UTC().Add(staleRunGrace))
+		leaseUntil := run.LeaseUntil.UTC()
+		staleAfter := leaseUntil.Add(staleRunGrace)
+		return staleRunDetails{
+			Cause:      "lease_expired",
+			RunStart:   runStart,
+			Timeout:    timeout,
+			LeaseUntil: leaseUntil,
+			DetectedAt: now,
+			RunAge:     runAge,
+			OverdueBy:  maxDuration(0, now.Sub(staleAfter)),
+		}, now.After(staleAfter)
 	}
-	return runStart, timeout, now.After(runStart.Add(timeout).Add(staleRunGrace))
+	deadline := runStart.Add(timeout)
+	staleAfter := deadline.Add(staleRunGrace)
+	return staleRunDetails{
+		Cause:      "timeout_exceeded",
+		RunStart:   runStart,
+		Timeout:    timeout,
+		Deadline:   deadline,
+		DetectedAt: now,
+		RunAge:     runAge,
+		OverdueBy:  maxDuration(0, now.Sub(staleAfter)),
+	}, now.After(staleAfter)
+}
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func failedRunCopy(run *schrun.RunView, reason string, now time.Time) *schrun.RunView {
