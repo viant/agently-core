@@ -120,7 +120,8 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		}
 
 		if m.Content != "" {
-			if llm.MessageRole(m.Role) != llm.RoleUser {
+			role := llm.MessageRole(m.Role)
+			if role != llm.RoleUser && role != llm.RoleAssistant {
 				continue
 			}
 

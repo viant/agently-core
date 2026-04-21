@@ -154,11 +154,22 @@ export interface ClientUserMessage extends EntityIdentity {
     role: 'user';
     content: string;
     createdAt?: string;
+    sequence?: number;
     /**
      * Bootstrap-only timestamp set by `applyLocalSubmit` used to scope the
      * fuzzy-match window (§3.2). Unset once the entity has been echoed.
      */
     submittedAt?: string;
+}
+
+export interface ClientStandaloneMessage extends EntityIdentity {
+    role: 'user' | 'assistant';
+    content: string;
+    createdAt?: string;
+    sequence?: number;
+    mode?: string;
+    status?: string;
+    interim?: number;
 }
 
 // ─── Assistant (optional aggregates) ──────────────────────────────────────────
@@ -243,6 +254,8 @@ export interface ClientTurnState extends EntityIdentity {
     lifecycle: ClientLifecycle;
     /** User messages in this turn. Plural to support steering (§6.8). */
     users: ClientUserMessage[];
+    /** Standalone non-iteration messages persisted in this turn. */
+    messages: ClientStandaloneMessage[];
     /** Execution pages, one per model round. */
     pages: ClientExecutionPage[];
     /** Optional turn-level assistant aggregate (final content). */
@@ -326,6 +339,7 @@ export interface CanonicalTurnState {
     status: CanonicalTurnStatus;
     user?: CanonicalUserMessageState | null;
     users?: CanonicalUserMessageState[];
+    messages?: CanonicalTurnMessageState[];
     execution?: CanonicalExecutionState | null;
     assistant?: CanonicalAssistantState | null;
     elicitation?: CanonicalElicitationState | null;
@@ -341,6 +355,18 @@ export interface CanonicalUserMessageState {
     content?: string;
     clientRequestId?: string;
     createdAt?: string;
+    sequence?: number;
+}
+
+export interface CanonicalTurnMessageState {
+    messageId: string;
+    role: 'user' | 'assistant';
+    content?: string;
+    createdAt?: string;
+    sequence?: number;
+    mode?: string;
+    status?: string;
+    interim?: number;
 }
 
 export interface CanonicalAssistantState {
@@ -377,6 +403,7 @@ export interface CanonicalExecutionPageState {
     preamble?: string;
     content?: string;
     finalResponse?: boolean;
+    sequence?: number;
     createdAt?: string;
     startedAt?: string;
     completedAt?: string;

@@ -60,6 +60,47 @@ func TestReduce_ModelPayloadIDsArePreserved(t *testing.T) {
 	}
 }
 
+func TestReduce_ModelCallIDRemainsDistinctFromAssistantMessageID(t *testing.T) {
+	now := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:               streaming.EventTypeModelStarted,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		ModelCallID:        "mc-1",
+		Status:             "thinking",
+		CreatedAt:          now,
+		Model: &streaming.EventModel{
+			Provider: "openai",
+			Model:    "gpt-5.4",
+		},
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:               streaming.EventTypeModelCompleted,
+		ConversationID:     "conv-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "msg-1",
+		ModelCallID:        "mc-1",
+		Status:             "completed",
+		CreatedAt:          now.Add(time.Second),
+	})
+
+	if state == nil || len(state.Turns) != 1 {
+		t.Fatalf("expected one turn, got %#v", state)
+	}
+	execution := state.Turns[0].Execution
+	if execution == nil || len(execution.Pages) != 1 || len(execution.Pages[0].ModelSteps) != 1 {
+		t.Fatalf("expected one model step, got %#v", execution)
+	}
+	step := execution.Pages[0].ModelSteps[0]
+	if step.AssistantMessageID != "msg-1" {
+		t.Fatalf("expected assistantMessageID msg-1, got %q", step.AssistantMessageID)
+	}
+	if step.ModelCallID != "mc-1" {
+		t.Fatalf("expected modelCallID mc-1, got %q", step.ModelCallID)
+	}
+}
+
 func TestReduce_AssistantFinalPreservesMarkdownBoundaries(t *testing.T) {
 	now := time.Date(2026, 3, 31, 20, 0, 0, 0, time.UTC)
 	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"

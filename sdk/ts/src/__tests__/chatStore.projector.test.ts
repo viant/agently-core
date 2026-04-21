@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
     applyEvent,
     applyLocalSubmit,
+    applyTranscript,
     newConversationState,
 } from '../chatStore/reducer';
 import {
@@ -196,6 +197,131 @@ describe('chatStore/projector — projectConversation', () => {
         const it = rows[0] as IterationRenderRow;
         const round = it.rounds.find((r) => r.pageId === 'pg_sidecar');
         expect(round?.phase).toBe('main');
+    });
+
+    it('projects transcript standalone turn messages as separate chat rows ordered by sequence', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_msg',
+                status: 'completed',
+                user: {
+                    messageId: 'user-1',
+                    content: 'Initial ask',
+                    sequence: 1,
+                    createdAt: '2026-04-21T00:00:00Z',
+                },
+                messages: [{
+                    messageId: 'assistant-note-1',
+                    role: 'assistant',
+                    content: 'PRELIMINARY NOTE',
+                    sequence: 8,
+                    createdAt: '2026-04-21T00:00:08Z',
+                }],
+                execution: {
+                    pages: [{
+                        pageId: 'page-final',
+                        assistantMessageId: 'page-final',
+                        status: 'completed',
+                        finalResponse: true,
+                        content: 'Final answer',
+                        sequence: 9,
+                    }],
+                },
+            }],
+        });
+
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'assistant', 'iteration']);
+        expect(rows[1]).toMatchObject({
+            kind: 'assistant',
+            messageId: 'assistant-note-1',
+            content: 'PRELIMINARY NOTE',
+        });
+    });
+
+    it('keeps transcript extra user messages after the iteration when their sequence is later', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_user_extra',
+                status: 'completed',
+                user: {
+                    messageId: 'user-1',
+                    content: 'Initial ask',
+                    sequence: 1,
+                    createdAt: '2026-04-21T00:00:00Z',
+                },
+                messages: [{
+                    messageId: 'user-2',
+                    role: 'user',
+                    content: 'Steer: narrow the scope',
+                    sequence: 10,
+                    createdAt: '2026-04-21T00:00:10Z',
+                }],
+                execution: {
+                    pages: [{
+                        pageId: 'page-final',
+                        assistantMessageId: 'page-final',
+                        status: 'completed',
+                        finalResponse: true,
+                        content: 'Final answer',
+                        sequence: 9,
+                    }],
+                },
+            }],
+        });
+
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'iteration', 'user']);
+        expect(rows[2]).toMatchObject({
+            kind: 'user',
+            messageId: 'user-2',
+            content: 'Steer: narrow the scope',
+        });
+    });
+
+    it('anchors live iteration ordering to the latest page timestamp so a prior standalone note stays above a later final answer', () => {
+        const state = fresh();
+        applyEvent(state, sse({
+            type: 'turn_started',
+            turnId: 'tn_live_note',
+            createdAt: '2026-04-21T00:00:00Z',
+        }));
+        applyEvent(state, sse({
+            type: 'control',
+            op: 'message_add',
+            turnId: 'tn_live_note',
+            messageId: 'msg_note_live',
+            patch: {
+                id: 'msg_note_live',
+                turnId: 'tn_live_note',
+                role: 'assistant',
+                content: 'PRELIMINARY NOTE',
+                sequence: 8,
+                interim: 0,
+                createdAt: '2026-04-21T00:00:08Z',
+            },
+        } as SSEEvent));
+        applyEvent(state, sse({
+            type: 'assistant_final',
+            turnId: 'tn_live_note',
+            pageId: 'page_final_live',
+            assistantMessageId: 'page_final_live',
+            content: 'Final answer',
+            iteration: 1,
+            createdAt: '2026-04-21T00:00:09Z',
+        } as SSEEvent));
+
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['assistant', 'iteration']);
+        expect(rows[0]).toMatchObject({
+            kind: 'assistant',
+            messageId: 'msg_note_live',
+            content: 'PRELIMINARY NOTE',
+        });
     });
 });
 

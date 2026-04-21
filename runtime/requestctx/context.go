@@ -202,6 +202,10 @@ type userAskKeyT string
 
 var userAskKey = userAskKeyT("userAsk")
 
+type messageAddEventKeyT string
+
+var messageAddEventKey = messageAddEventKeyT("messageAddEvent")
+
 func WithRequestMode(ctx context.Context, mode string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -257,6 +261,22 @@ func UserAskFromContext(ctx context.Context) string {
 		return strings.TrimSpace(ask)
 	}
 	return ""
+}
+
+func WithMessageAddEvent(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, messageAddEventKey, true)
+}
+
+func MessageAddEventFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value := ctx.Value(messageAddEventKey)
+	flag, ok := value.(bool)
+	return ok && flag
 }
 
 // RunMeta captures the active persisted run identity and loop iteration.

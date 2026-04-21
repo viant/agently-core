@@ -16,6 +16,9 @@ type addFakeConv struct {
 }
 
 func (f *addFakeConv) PatchMessage(_ context.Context, msg *apiconv.MutableMessage) error {
+	if msg.Sequence == nil {
+		msg.SetSequence(17)
+	}
 	f.patchedMessages = append(f.patchedMessages, msg)
 	return nil
 }
@@ -53,6 +56,7 @@ func TestAdd_UsesContextTurnAndModelParentMessage(t *testing.T) {
 	require.Equal(t, "task", deref(msg.Mode))
 	require.Equal(t, "Preliminary investigation: PMP supply looks concentrated.", deref(msg.Content))
 	require.Equal(t, "assistant-msg-1", out.ParentMessageID)
+	require.Equal(t, 17, out.Sequence)
 }
 
 func TestAdd_RejectsNonAssistantRole(t *testing.T) {

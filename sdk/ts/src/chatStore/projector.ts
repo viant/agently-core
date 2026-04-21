@@ -29,14 +29,17 @@ import type {
     ClientLifecycleEntry,
     ClientLinkedConversation,
     ClientModelStep,
+    ClientStandaloneMessage,
     ClientToolCall,
     ClientTurnState,
     ClientUserMessage,
 } from './types';
 
+import { compareTemporalEntries } from '../ordering';
+
 // ─── Public render-row types ──────────────────────────────────────────────────
 
-export type RenderRowKind = 'user' | 'iteration';
+export type RenderRowKind = 'user' | 'assistant' | 'iteration';
 
 export interface UserRenderRow {
     kind: 'user';
@@ -46,6 +49,19 @@ export interface UserRenderRow {
     clientRequestId?: string;
     content: string;
     createdAt?: string;
+    sequence?: number;
+}
+
+export interface AssistantRenderRow {
+    kind: 'assistant';
+    renderKey: string;
+    turnId: string;
+    messageId?: string;
+    content: string;
+    createdAt?: string;
+    sequence?: number;
+    mode?: string;
+    status?: string;
 }
 
 export interface ModelStepRenderView {
@@ -134,9 +150,10 @@ export interface IterationRenderRow {
     /** True while live updates are expected. */
     isStreaming: boolean;
     createdAt?: string;
+    sequence?: number;
 }
 
-export type RenderRow = UserRenderRow | IterationRenderRow;
+export type RenderRow = UserRenderRow | AssistantRenderRow | IterationRenderRow;
 
 // ─── Header derivation ────────────────────────────────────────────────────────
 
@@ -237,23 +254,19 @@ export function projectConversation(
 
 /** Project a single turn. Exported for testing. */
 export function projectTurn(turn: ClientTurnState): RenderRow[] {
-    const out: RenderRow[] = [];
-
-    // u_first = first user segment (originator); u_rest = steering injections.
+    const rows: Array<RenderRow & { sequence?: number; role?: string; _source?: string }> = [];
     const users = turn.users;
     const firstUser = users.length > 0 ? users[0] : null;
     const restUsers = users.length > 1 ? users.slice(1) : [];
 
-    if (firstUser) {
-        out.push(userToRow(firstUser, turn));
-    }
-
-    out.push(iterationRow(turn));
-
-    for (const u of restUsers) {
-        out.push(userToRow(u, turn));
-    }
-    return out;
+    if (firstUser) rows.push({ ...userToRow(firstUser, turn), _source: 'primary_user' });
+    const trailing = [
+        { ...iterationRow(turn), _source: 'iteration' },
+        ...restUsers.map((u) => ({ ...userToRow(u, turn), _source: 'steer_user' })),
+        ...(turn.messages ?? []).map((message) => ({ ...messageToRow(message, turn), _source: 'turn_message' })),
+    ];
+    trailing.sort(compareProjectedRows);
+    return [...rows, ...trailing];
 }
 
 function userToRow(user: ClientUserMessage, turn: ClientTurnState): UserRenderRow {
@@ -265,6 +278,32 @@ function userToRow(user: ClientUserMessage, turn: ClientTurnState): UserRenderRo
         clientRequestId: user.clientRequestId,
         content: user.content ?? '',
         createdAt: user.createdAt,
+        sequence: user.sequence,
+    };
+}
+
+function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): AssistantRenderRow | UserRenderRow {
+    if (message.role === 'user') {
+        return {
+            kind: 'user',
+            renderKey: message.renderKey,
+            turnId: turn.turnId,
+            messageId: message.messageId,
+            content: message.content ?? '',
+            createdAt: message.createdAt,
+            sequence: message.sequence,
+        };
+    }
+    return {
+        kind: 'assistant',
+        renderKey: message.renderKey,
+        turnId: turn.turnId,
+        messageId: message.messageId,
+        content: message.content ?? '',
+        createdAt: message.createdAt,
+        sequence: message.sequence,
+        mode: message.mode,
+        status: message.status,
     };
 }
 
@@ -283,8 +322,67 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         linkedConversations: (turn.linkedConversations ?? []).map(projectLinkedConversation),
         header,
         isStreaming,
-        createdAt: turn.createdAt,
+        createdAt: latestIterationCreatedAt(turn),
+        sequence: latestIterationSequence(turn),
     };
+}
+
+function latestIterationSequence(turn: ClientTurnState): number | undefined {
+    const pages = Array.isArray(turn.pages) ? turn.pages : [];
+    const values = pages
+        .map((page) => Number(page.sequence))
+        .filter((value) => Number.isFinite(value) && value > 0);
+    if (values.length === 0) return undefined;
+    return Math.max(...values);
+}
+
+function latestIterationCreatedAt(turn: ClientTurnState): string | undefined {
+    const candidates = (Array.isArray(turn.pages) ? turn.pages : [])
+        .map((page) => String(page.createdAt || page.completedAt || page.startedAt || '').trim())
+        .filter(Boolean)
+        .sort();
+    return candidates.at(-1) || turn.createdAt;
+}
+
+function compareProjectedRows(left: RenderRow & { sequence?: number; role?: string; _source?: string }, right: RenderRow & { sequence?: number; role?: string; _source?: string }): number {
+    const leftTurnId = String(left.turnId || '').trim();
+    const rightTurnId = String(right.turnId || '').trim();
+    if (leftTurnId === rightTurnId) {
+        const leftSource = String(left._source || '').trim();
+        const rightSource = String(right._source || '').trim();
+        if ((leftSource === 'primary_user' && rightSource !== 'primary_user') || (rightSource === 'primary_user' && leftSource !== 'primary_user')) {
+            return leftSource === 'primary_user' ? -1 : 1;
+        }
+        if ((leftSource === 'iteration' && rightSource === 'steer_user') || (leftSource === 'steer_user' && rightSource === 'iteration')) {
+            return leftSource === 'iteration' ? -1 : 1;
+        }
+        const leftSeq = Number(left.sequence);
+        const rightSeq = Number(right.sequence);
+        const leftHasSeq = Number.isFinite(leftSeq) && leftSeq > 0;
+        const rightHasSeq = Number.isFinite(rightSeq) && rightSeq > 0;
+        if (leftHasSeq && rightHasSeq && leftSeq !== rightSeq) return leftSeq - rightSeq;
+        if ((leftSource === 'turn_message' && rightSource === 'iteration') || (leftSource === 'iteration' && rightSource === 'turn_message')) {
+            if (leftHasSeq !== rightHasSeq) return leftHasSeq ? -1 : 1;
+        }
+    }
+    return compareTemporalEntries(
+        {
+            id: left.renderKey,
+            messageId: left.kind === 'iteration' ? undefined : left.messageId,
+            turnId: leftTurnId,
+            role: left.kind === 'iteration' ? 'assistant' : left.kind,
+            createdAt: left.createdAt,
+            sequence: left.sequence,
+        },
+        {
+            id: right.renderKey,
+            messageId: right.kind === 'iteration' ? undefined : right.messageId,
+            turnId: rightTurnId,
+            role: right.kind === 'iteration' ? 'assistant' : right.kind,
+            createdAt: right.createdAt,
+            sequence: right.sequence,
+        }
+    );
 }
 
 function projectRound(page: ClientExecutionPage): RoundRenderView {

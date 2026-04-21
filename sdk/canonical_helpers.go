@@ -63,6 +63,13 @@ func metadataHasAsyncNarrator(payloads ...interface{}) bool {
 	return false
 }
 
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 func executionRoleFromSignals(explicit, phase, mode, toolName string, payloads ...interface{}) string {
 	if role := normalizeExecutionRole(explicit); role != "" {
 		return role
@@ -284,8 +291,7 @@ func upsertModelStep(page *ExecutionPageState, modelCallID string) *ModelStepSta
 		}
 	}
 	ms := &ModelStepState{
-		ModelCallID:        modelCallID,
-		AssistantMessageID: modelCallID,
+		ModelCallID: modelCallID,
 	}
 	page.ModelSteps = append(page.ModelSteps, ms)
 	return ms
@@ -440,6 +446,9 @@ func applyModelStart(step *ModelStepState, event *streaming.Event) {
 	if step == nil || event == nil {
 		return
 	}
+	if step.AssistantMessageID == "" {
+		step.AssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
+	}
 	step.Status = modelStepStatusForEvent(event, step.Status, step.Status)
 	if step.StartedAt == nil {
 		step.StartedAt = &event.CreatedAt
@@ -508,6 +517,9 @@ func applyToolStart(step *ToolStepState, event *streaming.Event) {
 func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
 	if step == nil || event == nil {
 		return
+	}
+	if step.AssistantMessageID == "" {
+		step.AssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
 	}
 	step.Status = stepStatusFromString(event.Status, step.Status)
 	if event.ResponsePayloadID != "" {
