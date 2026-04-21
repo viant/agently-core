@@ -808,6 +808,7 @@ func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {
 	require.Equal(t, "tool-msg-1", got.ToolMessageID)
 	require.Equal(t, "llm/agents/run", got.ToolName)
 	require.Equal(t, 3, got.Iteration)
+	require.Equal(t, "req-1", got.RequestPayloadID)
 }
 
 func TestToolCallEvent_CompletedFallsBackToContextTurnIDAndKeepsOpID(t *testing.T) {
@@ -823,6 +824,12 @@ func TestToolCallEvent_CompletedFallsBackToContextTurnIDAndKeepsOpID(t *testing.
 	call.SetOpID("tool-call-1")
 	call.SetToolName("llm/agents-run")
 	call.SetStatus("completed")
+	reqID := "req-1"
+	respID := "resp-1"
+	call.RequestPayloadID = &reqID
+	call.Has.RequestPayloadID = true
+	call.ResponsePayloadID = &respID
+	call.Has.ResponsePayloadID = true
 
 	got := toolCallEvent(ctx, call)
 	require.NotNil(t, got)
@@ -831,6 +838,8 @@ func TestToolCallEvent_CompletedFallsBackToContextTurnIDAndKeepsOpID(t *testing.
 	require.Equal(t, "tool-call-1", got.ToolCallID)
 	require.Equal(t, "tool-msg-1", got.ToolMessageID)
 	require.Equal(t, "assistant-1", got.AssistantMessageID)
+	require.Equal(t, "req-1", got.RequestPayloadID)
+	require.Equal(t, "resp-1", got.ResponsePayloadID)
 }
 
 func TestEmitCanonicalModelEvent_FallsBackToContextTurnID(t *testing.T) {
