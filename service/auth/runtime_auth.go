@@ -102,7 +102,8 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 				}
 				if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !sess.Tokens.Valid() {
 					if !sess.TransientRefreshRetryAt.IsZero() && time.Now().Before(sess.TransientRefreshRetryAt) {
-						return nil
+						log.Printf("[auth] token refresh cooldown active, preserving authenticated session user=%q retry_at=%q", sess.Subject, sess.TransientRefreshRetryAt.UTC().Format(time.RFC3339))
+						return runtimeAuthUserFromSession(sess, nil)
 					}
 					refreshCtx := context.Background()
 					if refreshed := r.tryRefreshToken(refreshCtx, sess); refreshed != nil {
@@ -113,21 +114,29 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 							log.Printf("[auth] token expired and refresh failed permanently, invalidating session user=%q", sess.Subject)
 							r.sessions.Delete(refreshCtx, c.Value)
 						} else {
-							log.Printf("[auth] token expired and refresh failed transiently, preserving session user=%q", sess.Subject)
+							log.Printf("[auth] token expired and refresh failed transiently, preserving authenticated session user=%q retry_at=%q", sess.Subject, sess.TransientRefreshRetryAt.UTC().Format(time.RFC3339))
+							return runtimeAuthUserFromSession(sess, nil)
 						}
 						return nil
 					}
 				}
-				return &runtimeAuthUser{
-					Subject:  strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email)),
-					Email:    strings.TrimSpace(sess.Email),
-					Provider: strings.TrimSpace(sess.Provider),
-					Tokens:   sess.Tokens,
-				}
+				return runtimeAuthUserFromSession(sess, sess.Tokens)
 			}
 		}
 	}
 	return nil
+}
+
+func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAuthUser {
+	if sess == nil {
+		return nil
+	}
+	return &runtimeAuthUser{
+		Subject:  strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email)),
+		Email:    strings.TrimSpace(sess.Email),
+		Provider: strings.TrimSpace(sess.Provider),
+		Tokens:   tokens,
+	}
 }
 
 func writeRuntimeAuthDebugHeaders(w http.ResponseWriter, req *http.Request, r *Runtime) {

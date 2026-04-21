@@ -149,8 +149,8 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if got := rt.sessions.Get(context.Background(), "sess-expired"); got == nil {
 		t.Fatalf("expected session to be preserved after transient refresh failure")
@@ -192,8 +192,8 @@ func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	got := rt.sessions.Get(context.Background(), "sess-expired-cooldown")
 	if got == nil {

@@ -156,7 +156,7 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 	e, ok := m.cache[key]
 	m.mu.RUnlock()
 	if ok && time.Until(e.expiresAt) > m.minTTL {
-		logSchedulerEnsure(ctx, key, "created_by_user_id auth cache hit expires_at=%q", e.expiresAt.UTC().Format(time.RFC3339))
+		logSchedulerEnsure(ctx, key, "oauth token cache hit expires_at=%q", e.expiresAt.UTC().Format(time.RFC3339))
 		return injectTokens(ctx, e.tok), nil
 	}
 
@@ -167,40 +167,40 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 			tok := oauthTokenToScy(stored)
 			if time.Until(stored.ExpiresAt) > m.minTTL {
 				m.cacheToken(key, tok, stored.ExpiresAt)
-				logSchedulerEnsure(ctx, key, "created_by_user_id auth store hit expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
+				logSchedulerEnsure(ctx, key, "oauth token store hit expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
 				return injectTokens(ctx, tok), nil
 			}
 			// Found but near-expiry — try refresh below with stored refresh token.
 			e = &entry{tok: tok, expiresAt: stored.ExpiresAt}
-			logSchedulerEnsure(ctx, key, "created_by_user_id auth store hit stale expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
+			logSchedulerEnsure(ctx, key, "oauth token store hit stale expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
 		} else if err != nil {
-			logSchedulerEnsure(ctx, key, "created_by_user_id auth store error err=%v", err)
+			logSchedulerEnsure(ctx, key, "oauth token store error err=%v", err)
 		} else {
-			logSchedulerEnsure(ctx, key, "created_by_user_id auth store miss")
+			logSchedulerEnsure(ctx, key, "oauth token store miss")
 		}
 	}
 
 	// 4. If near-expiry and Broker available, refresh (mutex-serialized per key).
 	if m.broker != nil && e != nil && e.tok != nil && e.tok.RefreshToken != "" {
-		logSchedulerEnsure(ctx, key, "created_by_user_id auth refresh start")
+		logSchedulerEnsure(ctx, key, "oauth token refresh start")
 		refreshed, err := m.serializedRefresh(ctx, key, e.tok.RefreshToken)
 		if err != nil {
-			logSchedulerEnsure(ctx, key, "created_by_user_id auth refresh failed err=%v", err)
+			logSchedulerEnsure(ctx, key, "oauth token refresh failed err=%v", err)
 			return ctx, err
 		}
 		if refreshed != nil {
-			logSchedulerEnsure(ctx, key, "created_by_user_id auth refresh ok")
+			logSchedulerEnsure(ctx, key, "oauth token refresh ok")
 			return injectTokens(ctx, refreshed), nil
 		}
 	}
 
 	// 5. If we have a cached (possibly stale) token, still inject it.
 	if e != nil && e.tok != nil {
-		logSchedulerEnsure(ctx, key, "created_by_user_id auth using stale token")
+		logSchedulerEnsure(ctx, key, "oauth token using stale token")
 		return injectTokens(ctx, e.tok), nil
 	}
 
-	logSchedulerEnsure(ctx, key, "created_by_user_id auth no token available")
+	logSchedulerEnsure(ctx, key, "oauth token no token available")
 	return ctx, nil
 }
 
@@ -401,15 +401,18 @@ func logSchedulerEnsure(ctx context.Context, key Key, format string, args ...int
 	mode, _ := runtimediscovery.ModeFromContext(ctx)
 	scheduleID := ""
 	scheduleRunID := ""
+	caller := "interactive"
 	if mode.Scheduler {
 		scheduleID = strings.TrimSpace(mode.ScheduleID)
 		scheduleRunID = strings.TrimSpace(mode.ScheduleRunID)
+		caller = "scheduler"
 	}
 	args = append([]interface{}{
+		caller,
 		scheduleID,
 		scheduleRunID,
 		strings.TrimSpace(key.Subject),
 		strings.TrimSpace(key.Provider),
 	}, args...)
-	log.Printf("[runtime-auth] schedule=%q run=%q user=%q provider=%q "+format, args...)
+	log.Printf("[runtime-auth] caller=%q schedule=%q run=%q user=%q provider=%q "+format, args...)
 }
