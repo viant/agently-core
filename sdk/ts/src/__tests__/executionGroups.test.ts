@@ -76,7 +76,7 @@ describe('executionGroups', () => {
         const steps = selectExecutionSteps(pages);
         expect(pages).toHaveLength(1);
         expect(steps).toHaveLength(2);
-        expect(findExecutionStepById(pages, 'tm-1')).toMatchObject({ toolName: 'system/exec' });
+        expect(findExecutionStepById(pages, 'tc-1')).toMatchObject({ toolName: 'system/exec' });
         expect(findExecutionStepByPayloadId(pages, 'req-1')).toMatchObject({ kind: 'model' });
         expect(findExecutionStepByPayloadId(pages, 'resp-1')).toMatchObject({ kind: 'tool' });
     });

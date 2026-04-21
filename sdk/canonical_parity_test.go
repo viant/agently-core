@@ -27,6 +27,7 @@ func TestParity_NormalTurn(t *testing.T) {
 	userContent := "What is the weather?"
 	assistantContent := "It is sunny."
 	opID := "tc-1"
+	modelCallID := "mc-1"
 	reqPID := "req-1"
 	respPID := "resp-1"
 
@@ -52,6 +53,7 @@ func TestParity_NormalTurn(t *testing.T) {
 				CreatedAt: now.Add(time.Second),
 				ModelCall: &agconv.ModelCallView{
 					MessageId:         "asst-1",
+					TraceId:           strPtr(modelCallID),
 					Status:            "completed",
 					StartedAt:         &now,
 					CompletedAt:       &completedAt,
@@ -85,7 +87,7 @@ func TestParity_NormalTurn(t *testing.T) {
 	})
 	reducerState = Reduce(reducerState, &streaming.Event{
 		Type: streaming.EventTypeModelStarted, ConversationID: "conv-1", TurnID: "turn-1",
-		AssistantMessageID: "asst-1", Status: "thinking", Iteration: 1, CreatedAt: now,
+		AssistantMessageID: "asst-1", ModelCallID: modelCallID, Status: "thinking", Iteration: 1, CreatedAt: now,
 		RequestPayloadID: reqPID,
 	})
 	reducerState = Reduce(reducerState, &streaming.Event{
@@ -107,7 +109,7 @@ func TestParity_NormalTurn(t *testing.T) {
 	})
 	reducerState = Reduce(reducerState, &streaming.Event{
 		Type: streaming.EventTypeModelCompleted, ConversationID: "conv-1", TurnID: "turn-1",
-		AssistantMessageID: "asst-1", Status: "completed", Iteration: 1,
+		AssistantMessageID: "asst-1", ModelCallID: modelCallID, Status: "completed", Iteration: 1,
 		ResponsePayloadID: respPID, CompletedAt: &completedAt,
 		Content: assistantContent, FinalResponse: true,
 	})
@@ -157,8 +159,8 @@ func TestParity_NormalTurn(t *testing.T) {
 	// Model step
 	require.Len(t, tp.ModelSteps, 1)
 	require.Len(t, rp.ModelSteps, 1)
-	require.Equal(t, "asst-1", tp.ModelSteps[0].ModelCallID)
-	require.Equal(t, "asst-1", rp.ModelSteps[0].ModelCallID)
+	require.Equal(t, modelCallID, tp.ModelSteps[0].ModelCallID)
+	require.Equal(t, modelCallID, rp.ModelSteps[0].ModelCallID)
 	require.Equal(t, respPID, tp.ModelSteps[0].ResponsePayloadID)
 	require.Equal(t, respPID, rp.ModelSteps[0].ResponsePayloadID)
 

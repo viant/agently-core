@@ -302,6 +302,7 @@ func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelStarted(t *testing
 	mc.SetProvider("openai")
 	mc.SetModel("gpt-5.4")
 	mc.SetStatus("thinking")
+	mc.SetTraceID("trace-sidecar-1")
 	mc.SetRequestPayloadID("req-sidecar-1")
 	mc.SetProviderRequestPayloadID("preq-sidecar-1")
 
@@ -311,6 +312,7 @@ func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelStarted(t *testing
 	case ev := <-sub.C():
 		require.NotNil(t, ev)
 		require.Equal(t, streaming.EventTypeModelStarted, ev.Type)
+		require.Equal(t, "trace-sidecar-1", ev.ModelCallID)
 		require.Equal(t, "req-sidecar-1", ev.RequestPayloadID)
 		require.Equal(t, "preq-sidecar-1", ev.ProviderRequestPayloadID)
 	case <-time.After(2 * time.Second):
@@ -336,6 +338,7 @@ func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelCompleted(t *testi
 	mc.SetProvider("openai")
 	mc.SetModel("gpt-5.4")
 	mc.SetStatus("completed")
+	mc.SetTraceID("trace-sidecar-1")
 	mc.SetRequestPayloadID("req-sidecar-1")
 	mc.SetProviderRequestPayloadID("preq-sidecar-1")
 	mc.SetResponsePayloadID("resp-sidecar-1")
@@ -347,6 +350,7 @@ func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelCompleted(t *testi
 	case ev := <-sub.C():
 		require.NotNil(t, ev)
 		require.Equal(t, streaming.EventTypeModelCompleted, ev.Type)
+		require.Equal(t, "trace-sidecar-1", ev.ModelCallID)
 		require.Equal(t, "req-sidecar-1", ev.RequestPayloadID)
 		require.Equal(t, "preq-sidecar-1", ev.ProviderRequestPayloadID)
 		require.Equal(t, "resp-sidecar-1", ev.ResponsePayloadID)

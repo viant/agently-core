@@ -1474,7 +1474,8 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 	}
 	status := strings.ToLower(strings.TrimSpace(modelCall.Status))
 	mode := requestModeForEvent(ctx)
-	logx.DebugCtxf(ctx, "conversation", "[emitCanonicalModelEvent] convo=%q turn=%q msg=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, status)
+	modelCallID := strings.TrimSpace(valueOrEmptyStr(modelCall.TraceID))
+	logx.DebugCtxf(ctx, "conversation", "[emitCanonicalModelEvent] convo=%q turn=%q msg=%q model_call=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, modelCallID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(modelCall.MessageID),
@@ -1486,7 +1487,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
 			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-			ModelCallID:        strings.TrimSpace(modelCall.MessageID),
+			ModelCallID:        modelCallID,
 			Provider:           strings.TrimSpace(modelCall.Provider),
 			ModelName:          strings.TrimSpace(modelCall.Model),
 			Status:             strings.TrimSpace(modelCall.Status),
@@ -1537,7 +1538,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
 			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-			ModelCallID:        strings.TrimSpace(modelCall.MessageID),
+			ModelCallID:        modelCallID,
 			Provider:           strings.TrimSpace(modelCall.Provider),
 			ModelName:          strings.TrimSpace(modelCall.Model),
 			Status:             strings.TrimSpace(modelCall.Status),
