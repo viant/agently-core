@@ -25,6 +25,14 @@ func schedulerAuthMeta(ctx context.Context) (runtimediscovery.Mode, string) {
 	return mode, strings.TrimSpace(iauth.EffectiveUserID(ctx))
 }
 
+func authCallerKind(ctx context.Context) string {
+	mode, _ := runtimediscovery.ModeFromContext(ctx)
+	if mode.Scheduler {
+		return "scheduler"
+	}
+	return "interactive"
+}
+
 func userCredRefKind(ref string) string {
 	ref = strings.TrimSpace(ref)
 	switch {
