@@ -108,6 +108,7 @@ type ToolStepState struct {
 	ToolCallID                string               `json:"toolCallId"`
 	ToolMessageID             string               `json:"toolMessageId"`
 	ToolName                  string               `json:"toolName"`
+	Content                   string               `json:"content,omitempty"`
 	ExecutionRole             string               `json:"executionRole,omitempty"`
 	OperationID               string               `json:"operationId,omitempty"`
 	Status                    string               `json:"status,omitempty"`

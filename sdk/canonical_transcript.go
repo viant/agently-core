@@ -377,6 +377,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 		ToolCallID:    normalizeCanonicalToolCallID(tc.OpId),
 		ToolMessageID: strings.TrimSpace(tm.Id),
 		ToolName:      strings.TrimSpace(tc.ToolName),
+		Content:       visibleContentOrEmpty(tm.Content),
 		Status:        stepStatusFromString(tc.Status, ""),
 		StartedAt:     tc.StartedAt,
 		CompletedAt:   tc.CompletedAt,
@@ -440,6 +441,9 @@ func mergeToolStepState(existing, incoming *ToolStepState) ToolStepState {
 	}
 	if incoming.CompletedAt != nil {
 		merged.CompletedAt = incoming.CompletedAt
+	}
+	if strings.TrimSpace(incoming.Content) != "" {
+		merged.Content = incoming.Content
 	}
 	if strings.TrimSpace(incoming.RequestPayloadID) != "" {
 		merged.RequestPayloadID = incoming.RequestPayloadID
