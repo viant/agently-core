@@ -320,12 +320,14 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *binding.Bind
 	}
 }
 
-// ensureInternalToolsIfNeeded appends message tools that are used during
-// continuation-by-response-id flows so that the model can reference them when
-// continuing a prior response. Tool are appended only when the selected model
-// supports continuation. Duplicates are avoided by canonical name.
+// ensureInternalToolsIfNeeded appends message tools only when the current
+// binding actually overflowed and the selected model supports continuation.
+// Duplicates are avoided by canonical name.
 func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *binding.Binding) {
 	if s == nil || s.registry == nil || b == nil {
+		return
+	}
+	if !b.Flags.HasMessageOverflow {
 		return
 	}
 	if input != nil {
@@ -360,10 +362,10 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 		have[mcpname.Canonical(sig.Name)] = true
 	}
 
-	// Collect message tool definitions and append a consistent subset used in overflow handling
-	// We include: show, summarize, match, remove (the union of tools referenced in handleOverflow).
+	// Collect message tool definitions and append the subset used for overflow
+	// recovery in continuation-capable flows.
 	defs := s.registry.MatchDefinition("message")
-	wanted := map[string]bool{"show": true, "summarize": true, "match": true, "remove": true}
+	wanted := map[string]bool{"show": true, "summarize": true, "match": true}
 	for _, d := range defs {
 		if d == nil {
 			continue

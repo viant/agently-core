@@ -151,3 +151,55 @@ func TestEnsureInternalToolsIfNeeded_SkipsMessageToolsForCapabilityAgent(t *test
 
 	assert.Empty(t, binding.Tools.Signatures)
 }
+
+func TestBuildToolSignatures_ExposesMessageShowOnlyWhenOverflowDetected(t *testing.T) {
+	reg := &fakeRegistry{
+		defs: []llm.ToolDefinition{
+			{Name: "message/show"},
+			{Name: "message/match"},
+			{Name: "message/summarize"},
+			{Name: "message/remove"},
+		},
+	}
+	svc := &Service{
+		registry: reg,
+		llm:      core.New(continuationFinder{}, reg, nil),
+	}
+
+	withOverflow := &binding.Binding{
+		Model: "openai_gpt-5.4",
+		Flags: binding.Flags{
+			HasMessageOverflow: true,
+		},
+	}
+	svc.ensureInternalToolsIfNeeded(context.Background(), &QueryInput{
+		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward", Name: "Steward"}},
+	}, withOverflow)
+	var overflowNames []string
+	for _, sig := range withOverflow.Tools.Signatures {
+		if sig == nil {
+			continue
+		}
+		overflowNames = append(overflowNames, sig.Name)
+	}
+	assert.Contains(t, overflowNames, "message-show")
+	assert.Contains(t, overflowNames, "message-match")
+
+	withoutOverflow := &binding.Binding{
+		Model: "openai_gpt-5.4",
+	}
+	svc.ensureInternalToolsIfNeeded(context.Background(), &QueryInput{
+		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward", Name: "Steward"}},
+	}, withoutOverflow)
+	var normalNames []string
+	for _, sig := range withoutOverflow.Tools.Signatures {
+		if sig == nil {
+			continue
+		}
+		normalNames = append(normalNames, sig.Name)
+	}
+	assert.NotContains(t, normalNames, "message-show")
+	assert.NotContains(t, normalNames, "message-match")
+	assert.NotContains(t, normalNames, "message-summarize")
+	assert.NotContains(t, normalNames, "message-remove")
+}
