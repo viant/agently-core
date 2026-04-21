@@ -143,7 +143,7 @@ func (s *Service) Name() string { return Name }
 
 // ToolTimeout suggests a larger timeout for llm/agents service tools which run
 // full agent turns.
-func (s *Service) ToolTimeout() time.Duration { return 18 * time.Minute }
+func (s *Service) ToolTimeout() time.Duration { return 25 * time.Minute }
 
 // CacheableMethods declares which methods produce cacheable outputs.
 func (s *Service) CacheableMethods() map[string]bool {
