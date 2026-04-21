@@ -28,6 +28,8 @@ var (
 	projectDesc string
 	//go:embed tools/askUser.md
 	askUserDesc string
+	//go:embed tools/add.md
+	addDesc string
 )
 
 // Service provides message utilities exposed to agents.
@@ -82,6 +84,7 @@ func (s *Service) Methods() svc.Signatures {
 	// for the Token‑Limit Presentation message. Normal cleanup should be
 	// LLM-driven via listCandidates + remove (and optionally summarize).
 	sigs := []svc.Signature{
+		{Name: "add", Description: addDesc, Input: reflect.TypeOf(&AddInput{}), Output: reflect.TypeOf(&AddOutput{})},
 		{Name: "show", Description: showDesc, Input: reflect.TypeOf(&ShowInput{}), Output: reflect.TypeOf(&ShowOutput{})},
 		{Name: "summarize", Description: summarizeDesc, Input: reflect.TypeOf(&SummarizeInput{}), Output: reflect.TypeOf(&SummarizeOutput{})},
 		{Name: "match", Description: matchDesc, Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
@@ -97,6 +100,8 @@ func (s *Service) Methods() svc.Signatures {
 
 func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
+	case "add":
+		return s.add, nil
 	case "show":
 		return s.show, nil
 	case "summarize":
