@@ -9,13 +9,22 @@ describe('ordering', () => {
         expect(temporalSequenceValue({ iteration: 5 })).toBe(5);
     });
 
-    it('sorts temporal entries by createdAt then sequence', () => {
+    it('sorts temporal entries by createdAt then sequence across turns', () => {
         const rows = [
             { id: 'b', createdAt: '2026-01-01T00:00:00Z', sequence: 2 },
             { id: 'a', createdAt: '2026-01-01T00:00:00Z', sequence: 1 },
         ];
         rows.sort(compareTemporalEntries);
         expect(rows.map((row) => row.id)).toEqual(['a', 'b']);
+    });
+
+    it('uses sequence before createdAt within the same turn', () => {
+        const rows = [
+            { id: 'assistant-2', role: 'assistant', turnId: 'turn-1', createdAt: '2026-01-01T00:00:02Z', sequence: 2 },
+            { id: 'assistant-1', role: 'assistant', turnId: 'turn-1', createdAt: '2026-01-01T00:00:03Z', sequence: 1 },
+        ];
+        rows.sort(compareTemporalEntries);
+        expect(rows.map((row) => row.id)).toEqual(['assistant-1', 'assistant-2']);
     });
 
     it('falls back cleanly when createdAt is invalid or missing', () => {

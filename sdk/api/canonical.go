@@ -22,6 +22,7 @@ type TurnState struct {
 	TurnID              string                     `json:"turnId"`
 	Status              TurnStatus                 `json:"status"`
 	User                *UserMessageState          `json:"user,omitempty"`
+	Messages            []*TurnMessageState        `json:"messages,omitempty"`
 	Execution           *ExecutionState            `json:"execution,omitempty"`
 	Assistant           *AssistantState            `json:"assistant,omitempty"`
 	Elicitation         *ElicitationState          `json:"elicitation,omitempty"`
@@ -47,14 +48,27 @@ type UserMessageState struct {
 	Content   string `json:"content,omitempty"`
 }
 
+type TurnMessageState struct {
+	MessageID string    `json:"messageId"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content,omitempty"`
+	CreatedAt time.Time `json:"createdAt,omitempty"`
+	Sequence  int       `json:"sequence,omitempty"`
+	Interim   int       `json:"interim,omitempty"`
+	Mode      string    `json:"mode,omitempty"`
+	Status    string    `json:"status,omitempty"`
+}
+
 type AssistantState struct {
-	Preamble *AssistantMessageState `json:"preamble,omitempty"`
-	Final    *AssistantMessageState `json:"final,omitempty"`
+	Preamble *AssistantMessageState   `json:"preamble,omitempty"`
+	Final    *AssistantMessageState   `json:"final,omitempty"`
+	Messages []*AssistantMessageState `json:"messages,omitempty"`
 }
 
 type AssistantMessageState struct {
-	MessageID string `json:"messageId"`
-	Content   string `json:"content,omitempty"`
+	MessageID string    `json:"messageId"`
+	Content   string    `json:"content,omitempty"`
+	CreatedAt time.Time `json:"createdAt,omitempty"`
 }
 
 type ExecutionState struct {
@@ -69,6 +83,7 @@ type ExecutionPageState struct {
 	ParentMessageID         string            `json:"parentMessageId"`
 	TurnID                  string            `json:"turnId"`
 	Iteration               int               `json:"iteration"`
+	Sequence                int               `json:"sequence,omitempty"`
 	ExecutionRole           string            `json:"executionRole,omitempty"`
 	Phase                   string            `json:"phase,omitempty"`
 	Mode                    string            `json:"mode,omitempty"`

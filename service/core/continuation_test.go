@@ -156,6 +156,35 @@ func TestBuildContinuationRequest_AllowsSystemMessagesWhenToolReplayIsComplete(t
 	}
 }
 
+func TestBuildContinuationRequest_IncludesAssistantMessagesAfterAnchor(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	baseTime := time.Now()
+	history := &binding.History{
+		Traces: map[string]*binding.Trace{
+			binding.KindToolCall.Key("call-1"):          {ID: "resp-123", Kind: binding.KindToolCall, At: baseTime},
+			binding.KindContent.Key("PRELIMINARY NOTE"): {ID: "", Kind: binding.KindContent, At: baseTime.Add(time.Second)},
+		},
+		LastResponse: &binding.Trace{ID: "resp-123", At: baseTime, Kind: binding.KindResponse},
+	}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "message-add"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"messageId":"msg-1"}`},
+		llm.Message{Role: llm.RoleAssistant, Content: "PRELIMINARY NOTE"},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	if assert.NotNil(t, cont) {
+		assert.Equal(t, "resp-123", cont.PreviousResponseID)
+		if assert.Len(t, cont.Messages, 3) {
+			assert.Equal(t, llm.RoleAssistant, cont.Messages[2].Role)
+			assert.Equal(t, "PRELIMINARY NOTE", cont.Messages[2].Content)
+		}
+	}
+}
+
 // TestBuildContinuationRequest_ThreeIterations simulates three sequential
 // model iterations to verify continuation works across all of them:
 //   - Iteration 1: full request (no anchor) → model produces resp_A with op-1

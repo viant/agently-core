@@ -62,6 +62,9 @@ export function compareTemporalEntries(left: TemporalEntryLike = {}, right: Temp
         const leftIsUser = leftRole === 'user';
         const rightIsUser = rightRole === 'user';
         if (leftIsUser !== rightIsUser) return leftIsUser ? -1 : 1;
+        const leftSeq = temporalSequenceValue(left);
+        const rightSeq = temporalSequenceValue(right);
+        if (leftSeq !== rightSeq) return leftSeq - rightSeq;
     }
     const leftTime = temporalTimeValue(left);
     const rightTime = temporalTimeValue(right);

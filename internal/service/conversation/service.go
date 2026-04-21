@@ -719,6 +719,12 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 	if len(patch) == 0 {
 		return
 	}
+	op := "message_patch"
+	emitCanonicalAssistant := true
+	if runtimerequestctx.MessageAddEventFromContext(ctx) && strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+		op = "message_add"
+		emitCanonicalAssistant = false
+	}
 	event := &streaming.Event{
 		ID:             strings.TrimSpace(message.Id),
 		StreamID:       conversationID,
@@ -726,12 +732,14 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 		MessageID:      strings.TrimSpace(message.Id),
 		Mode:           firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
 		Type:           streaming.EventTypeControl,
-		Op:             "message_patch",
+		Op:             op,
 		Patch:          patch,
 		CreatedAt:      patchEventCreatedAt(message),
 	}
 	s.emitTimelineEvent(ctx, event, "PatchMessage publish event")
-	s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+	if emitCanonicalAssistant {
+		s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+	}
 }
 
 // publishConversationMetaEvent emits a conversation_meta_updated event when

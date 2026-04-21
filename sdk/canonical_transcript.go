@@ -49,16 +49,43 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		switch role {
 		case "user":
+			content := stringValue(msg.RawContent)
+			if content == "" {
+				content = stringValue(msg.Content)
+			}
 			if ts.User == nil && msg.Interim == 0 {
-				// Prefer RawContent (original user query) over Content
-				// (which may be the expanded/internal prompt).
-				content := stringValue(msg.RawContent)
-				if content == "" {
-					content = stringValue(msg.Content)
-				}
 				ts.User = &UserMessageState{
 					MessageID: msg.Id,
 					Content:   content,
+				}
+			} else if msg.Interim == 0 && strings.TrimSpace(content) != "" {
+				ts.Messages = append(ts.Messages, &TurnMessageState{
+					MessageID: msg.Id,
+					Role:      "user",
+					Content:   content,
+					CreatedAt: msg.CreatedAt,
+					Sequence:  intValue(msg.Sequence),
+					Interim:   msg.Interim,
+					Mode:      strings.TrimSpace(stringValue(msg.Mode)),
+					Status:    strings.TrimSpace(stringValue(msg.Status)),
+				})
+			}
+		case "assistant":
+			if msg.ModelCall == nil &&
+				!isSummaryAssistantMessage(msg) &&
+				msg.Interim == 0 &&
+				!(msg.Mode != nil && strings.EqualFold(strings.TrimSpace(*msg.Mode), "exec")) {
+				if content := visibleContentOrEmpty(msg.Content); content != "" {
+					ts.Messages = append(ts.Messages, &TurnMessageState{
+						MessageID: msg.Id,
+						Role:      "assistant",
+						Content:   content,
+						CreatedAt: msg.CreatedAt,
+						Sequence:  intValue(msg.Sequence),
+						Interim:   msg.Interim,
+						Mode:      strings.TrimSpace(stringValue(msg.Mode)),
+						Status:    strings.TrimSpace(stringValue(msg.Status)),
+					})
 				}
 			}
 		}
@@ -204,6 +231,7 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 			if content == "" {
 				continue
 			}
+			lastPage.Sequence = intValue(msg.Sequence)
 			lastPage.Content = content
 			lastPage.FinalResponse = true
 			lastPage.FinalAssistantMessageID = msg.Id
@@ -251,6 +279,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	page.ParentMessageID = message.Id
 	page.TurnID = stringValue(message.TurnId)
 	page.Iteration = iteration
+	page.Sequence = intValue(message.Sequence)
 	page.Phase = strings.TrimSpace(stringValue(message.Phase))
 	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
 	if preamble := executionPreamble(message); preamble != "" {

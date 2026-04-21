@@ -733,6 +733,44 @@ func TestEmitCanonicalAssistantEvents_ToolCallOnlyNoEvents(t *testing.T) {
 	}
 }
 
+func TestPublishMessagePatchEvent_AssistantMessageAddPublishesMessageAddControl(t *testing.T) {
+	bus := streaming.NewMemoryBus(4)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-1",
+	})
+	ctx = memory.WithMessageAddEvent(ctx)
+
+	msg := convcli.NewMessage()
+	msg.SetId("msg-1")
+	msg.SetConversationID("conv-1")
+	msg.SetTurnID("turn-1")
+	msg.SetRole("assistant")
+	msg.SetContent("Preliminary investigation: constrained PMP supply.")
+	msg.SetInterim(0)
+	msg.SetMode("task")
+
+	svc.publishMessagePatchEvent(ctx, msg)
+
+	select {
+	case ev := <-sub.C():
+		require.Equal(t, streaming.EventTypeControl, ev.Type)
+		require.Equal(t, "message_add", ev.Op)
+		require.Equal(t, "msg-1", ev.MessageID)
+		require.Equal(t, "conv-1", ev.ConversationID)
+		require.Equal(t, "Preliminary investigation: constrained PMP supply.", ev.Patch["content"])
+		require.EqualValues(t, 0, ev.Patch["interim"])
+		require.Equal(t, "assistant", ev.Patch["role"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected message_add control event")
+	}
+}
+
 func TestEmitCanonicalAssistantEvents_PreambleUpdateReusesAssistantMessageID(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}

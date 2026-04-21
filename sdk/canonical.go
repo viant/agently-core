@@ -7,6 +7,7 @@ type ConversationState = api.ConversationState
 type TurnState = api.TurnState
 type TurnStatus = api.TurnStatus
 type UserMessageState = api.UserMessageState
+type TurnMessageState = api.TurnMessageState
 type AssistantState = api.AssistantState
 type AssistantMessageState = api.AssistantMessageState
 type ExecutionState = api.ExecutionState

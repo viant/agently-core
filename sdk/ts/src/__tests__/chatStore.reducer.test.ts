@@ -207,6 +207,33 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
         expect(state.turns[0].lifecycle).toBe('running');
     });
 
+    it('control message_add appends a standalone turn message without changing lifecycle', () => {
+        let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
+        state = applyEvent(state, sse({
+            type: 'control',
+            op: 'message_add',
+            turnId: 'tn_A',
+            messageId: 'msg_note',
+            patch: {
+                id: 'msg_note',
+                turnId: 'tn_A',
+                role: 'assistant',
+                content: 'PRELIMINARY NOTE',
+                sequence: 8,
+                interim: 0,
+                createdAt: '2025-01-01T00:00:08.000Z',
+            },
+        } as SSEEvent));
+        expect(state.turns[0].lifecycle).toBe('running');
+        expect(state.turns[0].messages).toHaveLength(1);
+        expect(state.turns[0].messages[0]).toMatchObject({
+            messageId: 'msg_note',
+            role: 'assistant',
+            content: 'PRELIMINARY NOTE',
+            sequence: 8,
+        });
+    });
+
     it('elicitation_requested copies message and schema from SSE payload', () => {
         let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
         state = applyEvent(state, sse({
@@ -317,6 +344,36 @@ describe('chatStore/reducer — merge rule', () => {
         // Previously-unset field is filled by transcript:
         expect(step.responsePayloadId).toBe('pld_xyz');
         expect(getFieldProvenance(step, 'responsePayloadId')).toBe('transcript');
+    });
+
+    it('keeps assistantMessageId distinct from modelCallId on model steps', () => {
+        const state = startedState();
+        applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_M',
+            pageId: 'pg_1',
+            assistantMessageId: 'msg_1',
+            modelCallId: 'mc_1',
+            iteration: 1,
+        } as SSEEvent));
+        applyEvent(state, sse({
+            type: 'model_completed',
+            turnId: 'tn_M',
+            pageId: 'pg_1',
+            assistantMessageId: 'msg_1',
+            modelCallId: 'mc_1',
+            responsePayloadId: 'resp_1',
+            iteration: 1,
+        } as SSEEvent));
+
+        const page = state.turns[0].pages.find((p) =>
+            p.pageId === 'pg_1' || (Array.isArray(p.modelSteps) && p.modelSteps.some((s) => s.modelCallId === 'mc_1'))
+        )!;
+        expect(page.modelSteps).toHaveLength(1);
+        const step = page.modelSteps[0];
+        expect(step.assistantMessageId).toBe('msg_1');
+        expect(step.modelCallId).toBe('mc_1');
+        expect(step.responsePayloadId).toBe('resp_1');
     });
 
     it('applyTranscript is idempotent: same snapshot twice leaves state equal', () => {

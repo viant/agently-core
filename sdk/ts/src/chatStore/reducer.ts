@@ -35,6 +35,7 @@ import type {
     CanonicalLinkedConversationState,
     CanonicalModelStepState,
     CanonicalToolStepState,
+    CanonicalTurnMessageState,
     CanonicalTurnState,
     CanonicalUserMessageState,
     ClientAssistantFinal,
@@ -48,6 +49,7 @@ import type {
     ClientLifecycleEntryKind,
     ClientLinkedConversation,
     ClientModelStep,
+    ClientStandaloneMessage,
     ClientToolCall,
     ClientTurnState,
     ClientUserMessage,
@@ -172,6 +174,7 @@ function newPendingTurn(submit: LocalSubmit): ClientTurnState {
         turnId: '',
         lifecycle: 'pending',
         users: [],
+        messages: [],
         pages: [],
         linkedConversations: [],
         createdAt: submit.createdAt,
@@ -188,6 +191,7 @@ function newServerTurn(source: WriteSource, turnId: string, lifecycle: ClientLif
         turnId,
         lifecycle,
         users: [],
+        messages: [],
         pages: [],
         linkedConversations: [],
         createdAt,
@@ -374,6 +378,8 @@ export function applyEvent(
             return onElicitation(state, event);
         case 'linked_conversation_attached':
             return onLinkedConversationAttached(state, event);
+        case 'control':
+            return onControl(state, event);
         default:
             return state;
     }
@@ -727,6 +733,11 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
     writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
     writeField(step, 'status', event.status ?? 'completed', 'event');
+    if (event.requestPayloadId) writeField(step, 'requestPayloadId', event.requestPayloadId, 'event');
+    if (event.responsePayloadId) writeField(step, 'responsePayloadId', event.responsePayloadId, 'event');
+    if (event.providerRequestPayloadId) writeField(step, 'providerRequestPayloadId', event.providerRequestPayloadId, 'event');
+    if (event.providerResponsePayloadId) writeField(step, 'providerResponsePayloadId', event.providerResponsePayloadId, 'event');
+    if (event.streamPayloadId) writeField(step, 'streamPayloadId', event.streamPayloadId, 'event');
     if (event.completedAt) writeField(step, 'completedAt', event.completedAt, 'event');
     // NOTE: model_completed does NOT change turn lifecycle per §4.3.
     return state;
@@ -780,6 +791,7 @@ function onAssistantPreamble(state: ClientConversationState, event: SSEEvent): C
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
     const page = ensurePageForEvent(turn, event, 'event');
+    if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
     if (event.preamble) writeField(page, 'preamble', event.preamble, 'event');
     if (event.assistantMessageId) writeField(page, 'preambleMessageId', event.assistantMessageId, 'event');
     return state;
@@ -793,6 +805,7 @@ function onAssistantFinal(state: ClientConversationState, event: SSEEvent): Clie
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
     const page = ensurePageForEvent(turn, event, 'event');
+    if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
     if (event.content) writeField(page, 'content', event.content, 'event');
     if (event.assistantMessageId) writeField(page, 'finalAssistantMessageId', event.assistantMessageId, 'event');
     writeField(page, 'finalResponse', true, 'event');
@@ -898,6 +911,60 @@ function onLinkedConversationAttached(state: ClientConversationState, event: SSE
     return state;
 }
 
+function onControl(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+    const op = String(event.op || '').trim().toLowerCase();
+    if (op !== 'message_add') return state;
+    const patch = event.patch && typeof event.patch === 'object' ? event.patch as Record<string, unknown> : {};
+    const turn = resolveEventTurn(state, {
+        ...event,
+        turnId: String(event.turnId || patch.turnId || '').trim(),
+    });
+    if (!turn) return state;
+    const messageId = String(event.messageId || event.id || patch.id || '').trim();
+    const role = String(patch.role || '').trim().toLowerCase();
+    const content = typeof patch.rawContent === 'string'
+        ? patch.rawContent
+        : typeof patch.content === 'string'
+            ? patch.content
+            : typeof event.content === 'string'
+                ? event.content
+                : '';
+    if (!messageId || !content.trim() || (role !== 'assistant' && role !== 'user')) return state;
+
+    let message = turn.messages.find((entry) => (entry.messageId ?? '').trim() === messageId) || null;
+    if (message) {
+        writeField(message, 'role', role, 'event');
+        writeField(message, 'content', content, 'event');
+        if (typeof patch.createdAt === 'string' && patch.createdAt) writeField(message, 'createdAt', String(patch.createdAt), 'event');
+        if (typeof patch.sequence === 'number') writeField(message, 'sequence', patch.sequence, 'event');
+        if (typeof patch.mode === 'string') writeField(message, 'mode', patch.mode, 'event');
+        if (typeof patch.status === 'string') writeField(message, 'status', patch.status, 'event');
+        if (typeof patch.interim === 'number') writeField(message, 'interim', patch.interim, 'event');
+        return state;
+    }
+    message = {
+        renderKey: allocateRenderKey(),
+        messageId,
+        role: role as 'assistant' | 'user',
+        content,
+        createdAt: typeof patch.createdAt === 'string' ? String(patch.createdAt) : event.createdAt,
+        sequence: typeof patch.sequence === 'number' ? patch.sequence : undefined,
+        mode: typeof patch.mode === 'string' ? patch.mode : undefined,
+        status: typeof patch.status === 'string' ? patch.status : undefined,
+        interim: typeof patch.interim === 'number' ? patch.interim : 0,
+    };
+    setFieldProvenance(message, 'messageId', 'event');
+    setFieldProvenance(message, 'role', 'event');
+    setFieldProvenance(message, 'content', 'event');
+    if (message.createdAt) setFieldProvenance(message, 'createdAt', 'event');
+    if (typeof message.sequence === 'number') setFieldProvenance(message, 'sequence', 'event');
+    if (message.mode) setFieldProvenance(message, 'mode', 'event');
+    if (message.status) setFieldProvenance(message, 'status', 'event');
+    setFieldProvenance(message, 'interim', 'event');
+    turn.messages.push(message);
+    return state;
+}
+
 // ─── applyTranscript (§5.0, §5.3, §5.4, §5.6) ─────────────────────────────────
 
 /**
@@ -958,6 +1025,7 @@ function mergeTranscriptTurn(
     // Users — transcript may add missing entities; can't shrink.
     const users = snapshotTurn.users ?? (snapshotTurn.user ? [snapshotTurn.user] : []);
     for (const u of users) mergeTranscriptUser(turn, u);
+    for (const m of snapshotTurn.messages ?? []) mergeTranscriptTurnMessage(turn, m);
 
     // Execution pages.
     for (const p of snapshotTurn.execution?.pages ?? []) mergeTranscriptPage(turn, p);
@@ -982,6 +1050,7 @@ function mergeTranscriptUser(
         clientRequestId: snapshotUser.clientRequestId,
         content: snapshotUser.content,
         createdAt: snapshotUser.createdAt,
+        sequence: snapshotUser.sequence,
     };
     let matched = matchUserMessage(turn.users, observation).matched;
 
@@ -1013,6 +1082,7 @@ function mergeTranscriptUser(
         if (snapshotUser.clientRequestId) writeField(user, 'clientRequestId', snapshotUser.clientRequestId, 'transcript');
         if (snapshotUser.content !== undefined) writeField(user, 'content', snapshotUser.content, 'transcript');
         if (snapshotUser.createdAt) writeField(user, 'createdAt', snapshotUser.createdAt, 'transcript');
+        if (typeof snapshotUser.sequence === 'number') writeField(user, 'sequence', snapshotUser.sequence, 'transcript');
         return;
     }
     const user: ClientUserMessage = {
@@ -1022,12 +1092,53 @@ function mergeTranscriptUser(
         messageId: snapshotUser.messageId,
         clientRequestId: snapshotUser.clientRequestId,
         createdAt: snapshotUser.createdAt,
+        sequence: snapshotUser.sequence,
     };
     setFieldProvenance(user, 'content', 'transcript');
     if (snapshotUser.messageId) setFieldProvenance(user, 'messageId', 'transcript');
     if (snapshotUser.clientRequestId) setFieldProvenance(user, 'clientRequestId', 'transcript');
     if (snapshotUser.createdAt) setFieldProvenance(user, 'createdAt', 'transcript');
+    if (typeof snapshotUser.sequence === 'number') setFieldProvenance(user, 'sequence', 'transcript');
     turn.users.push(user);
+}
+
+function mergeTranscriptTurnMessage(
+    turn: ClientTurnState,
+    snapshotMessage: CanonicalTurnMessageState,
+): void {
+    const messageId = (snapshotMessage.messageId ?? '').trim();
+    if (!messageId) return;
+    let message = turn.messages.find((entry) => (entry.messageId ?? '').trim() === messageId) || null;
+    if (message) {
+        writeField(message, 'role', snapshotMessage.role, 'transcript');
+        if (snapshotMessage.content !== undefined) writeField(message, 'content', snapshotMessage.content, 'transcript');
+        if (snapshotMessage.createdAt) writeField(message, 'createdAt', snapshotMessage.createdAt, 'transcript');
+        if (typeof snapshotMessage.sequence === 'number') writeField(message, 'sequence', snapshotMessage.sequence, 'transcript');
+        if (snapshotMessage.mode !== undefined) writeField(message, 'mode', snapshotMessage.mode, 'transcript');
+        if (snapshotMessage.status !== undefined) writeField(message, 'status', snapshotMessage.status, 'transcript');
+        if (typeof snapshotMessage.interim === 'number') writeField(message, 'interim', snapshotMessage.interim, 'transcript');
+        return;
+    }
+    message = {
+        renderKey: allocateRenderKey(),
+        messageId,
+        role: snapshotMessage.role,
+        content: snapshotMessage.content ?? '',
+        createdAt: snapshotMessage.createdAt,
+        sequence: snapshotMessage.sequence,
+        mode: snapshotMessage.mode,
+        status: snapshotMessage.status,
+        interim: snapshotMessage.interim,
+    };
+    setFieldProvenance(message, 'messageId', 'transcript');
+    setFieldProvenance(message, 'role', 'transcript');
+    setFieldProvenance(message, 'content', 'transcript');
+    if (snapshotMessage.createdAt) setFieldProvenance(message, 'createdAt', 'transcript');
+    if (typeof snapshotMessage.sequence === 'number') setFieldProvenance(message, 'sequence', 'transcript');
+    if (snapshotMessage.mode !== undefined) setFieldProvenance(message, 'mode', 'transcript');
+    if (snapshotMessage.status !== undefined) setFieldProvenance(message, 'status', 'transcript');
+    if (typeof snapshotMessage.interim === 'number') setFieldProvenance(message, 'interim', 'transcript');
+    turn.messages.push(message);
 }
 
 function mergeTranscriptPage(
@@ -1053,6 +1164,7 @@ function mergeTranscriptPage(
             preamble: snapshotPage.preamble,
             content: snapshotPage.content,
             finalResponse: snapshotPage.finalResponse,
+            sequence: snapshotPage.sequence,
             preambleMessageId: snapshotPage.preambleMessageId,
             finalAssistantMessageId: snapshotPage.finalAssistantMessageId,
             modelSteps: [],
@@ -1068,6 +1180,7 @@ function mergeTranscriptPage(
         if (snapshotPage.phase) setFieldProvenance(page, 'phase', 'transcript');
         if (snapshotPage.content !== undefined) setFieldProvenance(page, 'content', 'transcript');
         if (snapshotPage.preamble !== undefined) setFieldProvenance(page, 'preamble', 'transcript');
+        if (typeof snapshotPage.sequence === 'number') setFieldProvenance(page, 'sequence', 'transcript');
         turn.pages.push(page);
     } else {
         // Refine existing fields per §5.4.
@@ -1079,6 +1192,7 @@ function mergeTranscriptPage(
         if (snapshotPage.preamble !== undefined) writeField(page, 'preamble', snapshotPage.preamble, 'transcript');
         if (snapshotPage.content !== undefined) writeField(page, 'content', snapshotPage.content, 'transcript');
         if (snapshotPage.finalResponse !== undefined) writeField(page, 'finalResponse', snapshotPage.finalResponse, 'transcript');
+        if (typeof snapshotPage.sequence === 'number') writeField(page, 'sequence', snapshotPage.sequence, 'transcript');
         if (snapshotPage.preambleMessageId) writeField(page, 'preambleMessageId', snapshotPage.preambleMessageId, 'transcript');
         if (snapshotPage.finalAssistantMessageId) writeField(page, 'finalAssistantMessageId', snapshotPage.finalAssistantMessageId, 'transcript');
         if (snapshotPage.createdAt) writeField(page, 'createdAt', snapshotPage.createdAt, 'transcript');

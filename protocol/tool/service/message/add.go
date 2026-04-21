@@ -22,6 +22,7 @@ type AddOutput struct {
 	ConversationID  string `json:"conversationId,omitempty"`
 	TurnID          string `json:"turnId,omitempty"`
 	ParentMessageID string `json:"parentMessageId,omitempty"`
+	Sequence        int    `json:"sequence,omitempty"`
 }
 
 func (s *Service) add(ctx context.Context, in, out interface{}) error {
@@ -62,6 +63,10 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 	if input.Interim != nil && *input.Interim {
 		interim = 1
 	}
+	addCtx := ctx
+	if interim == 0 {
+		addCtx = runtimerequestctx.WithMessageAddEvent(ctx)
+	}
 
 	opts := []apiconv.MessageOption{
 		apiconv.WithRole(role),
@@ -79,7 +84,7 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 		opts = append(opts, apiconv.WithStatus(status))
 	}
 
-	msg, err := apiconv.AddMessage(ctx, s.conv, &turn, opts...)
+	msg, err := apiconv.AddMessage(addCtx, s.conv, &turn, opts...)
 	if err != nil {
 		return err
 	}
@@ -88,5 +93,13 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 	output.ConversationID = strings.TrimSpace(turn.ConversationID)
 	output.TurnID = strings.TrimSpace(turn.TurnID)
 	output.ParentMessageID = parentMessageID
+	output.Sequence = valueOrZero(msg.Sequence)
 	return nil
+}
+
+func valueOrZero(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
