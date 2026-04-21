@@ -325,7 +325,7 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 	}
 	mc := message.ModelCall
 	step := &ModelStepState{
-		ModelCallID:        message.Id,
+		ModelCallID:        strings.TrimSpace(stringValue(mc.TraceId)),
 		AssistantMessageID: message.Id,
 		Phase:              strings.TrimSpace(stringValue(message.Phase)),
 		Provider:           strings.TrimSpace(mc.Provider),

@@ -73,7 +73,7 @@ export function selectExecutionSteps(groups: Partial<ExecutionPage>[] = []): Exe
         for (const modelStep of Array.isArray(group?.modelSteps) ? group.modelSteps : []) {
             out.push({
                 ...modelStep,
-                id: firstString(modelStep?.assistantMessageId, modelStep?.modelCallId),
+                id: firstString(modelStep?.modelCallId, modelStep?.assistantMessageId),
                 kind: 'model',
                 toolName: firstString(modelStep?.provider && modelStep?.model ? `${modelStep.provider}/${modelStep.model}` : '', modelStep?.model, modelStep?.provider, 'model'),
                 errorMessage: firstString(modelStep?.errorMessage),
@@ -82,7 +82,7 @@ export function selectExecutionSteps(groups: Partial<ExecutionPage>[] = []): Exe
         for (const toolStep of Array.isArray(group?.toolSteps) ? group.toolSteps : []) {
             out.push({
                 ...toolStep,
-                id: firstString(toolStep?.toolMessageId, toolStep?.toolCallId),
+                id: firstString(toolStep?.toolCallId, toolStep?.toolMessageId),
                 kind: 'tool',
                 toolName: firstString(toolStep?.toolName, 'tool'),
                 errorMessage: firstString(toolStep?.errorMessage),
@@ -167,7 +167,7 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
         status: firstString(event?.status, 'running'),
         finalResponse: Boolean(event?.finalResponse),
         modelSteps: event?.model ? [{
-            modelCallId: assistantMessageId,
+            modelCallId: firstString(event?.modelCallId),
             phase: firstString(event?.phase),
             provider: firstString(event?.model?.provider),
             model: firstString(event?.model?.model),
@@ -201,7 +201,7 @@ function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fal
     const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
     current.modelSteps = [{
         ...existMs,
-        modelCallId: firstString(assistantMessageId, existMs?.modelCallId),
+        modelCallId: firstString(event?.modelCallId, existMs?.modelCallId),
         phase: firstString(event?.phase, existMs?.phase),
         provider: firstString(event?.model?.provider, existMs?.provider),
         model: firstString(event?.model?.model, existMs?.model),

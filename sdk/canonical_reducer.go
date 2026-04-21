@@ -186,7 +186,10 @@ func reduceModelStarted(state *ConversationState, event *streaming.Event) *Conve
 		return state
 	}
 	page := ensureCurrentPage(turn, event)
-	modelCallID := strings.TrimSpace(event.AssistantMessageID)
+	modelCallID := strings.TrimSpace(event.ModelCallID)
+	if modelCallID == "" {
+		modelCallID = strings.TrimSpace(event.AssistantMessageID)
+	}
 	step := upsertModelStep(page, modelCallID)
 	applyModelStart(step, event)
 	return state
@@ -199,8 +202,12 @@ func reduceModelCompleted(state *ConversationState, event *streaming.Event) *Con
 	}
 	page := ensureCurrentPage(turn, event)
 	// Find and update the matching model step
+	modelCallID := strings.TrimSpace(event.ModelCallID)
+	if modelCallID == "" {
+		modelCallID = strings.TrimSpace(event.AssistantMessageID)
+	}
 	for _, ms := range page.ModelSteps {
-		if ms.ModelCallID == strings.TrimSpace(event.AssistantMessageID) {
+		if ms.ModelCallID == modelCallID {
 			applyModelCompletion(ms, event)
 			break
 		}
