@@ -75,9 +75,11 @@ type refreshInFlight struct {
 type Manager struct {
 	mu                 sync.RWMutex
 	cache              map[Key]*entry
+	missCache          map[Key]time.Time
 	store              TokenStore // optional persistent backing
 	broker             Broker     // optional refresh/exchange (nil = cache-only)
 	minTTL             time.Duration
+	missTTL            time.Duration
 	sf                 map[Key]*refreshInFlight
 	instanceID         InstanceID    // when set, enables distributed refresh coordination
 	instanceIDExplicit bool          // true when WithInstanceID was called (even with "")
@@ -102,6 +104,12 @@ func WithMinTTL(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.minTTL = d }
 }
 
+// WithMissTTL sets how long a missing-token result is negatively cached.
+// During this window EnsureTokens skips store lookups and does not re-log the miss.
+func WithMissTTL(d time.Duration) ManagerOption {
+	return func(m *Manager) { m.missTTL = d }
+}
+
 // WithInstanceID sets the instance identity for distributed refresh coordination.
 // Pass a non-empty InstanceID to enable, or "" to explicitly disable auto-detection.
 func WithInstanceID(id InstanceID) ManagerOption {
@@ -122,10 +130,12 @@ func WithLeaseTTL(d time.Duration) ManagerOption {
 // To explicitly disable distributed mode, use WithInstanceID("").
 func NewManager(opts ...ManagerOption) *Manager {
 	m := &Manager{
-		cache:    make(map[Key]*entry),
-		sf:       make(map[Key]*refreshInFlight),
-		minTTL:   2 * time.Minute,
-		leaseTTL: 30 * time.Second,
+		cache:     make(map[Key]*entry),
+		missCache: make(map[Key]time.Time),
+		sf:        make(map[Key]*refreshInFlight),
+		minTTL:    2 * time.Minute,
+		missTTL:   30 * time.Second,
+		leaseTTL:  30 * time.Second,
 	}
 	for _, o := range opts {
 		o(m)
@@ -154,10 +164,14 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 	// 2. Check in-memory cache — if fresh, inject into context and return.
 	m.mu.RLock()
 	e, ok := m.cache[key]
+	missUntil, missed := m.missCache[key]
 	m.mu.RUnlock()
 	if ok && time.Until(e.expiresAt) > m.minTTL {
 		logSchedulerEnsure(ctx, key, "oauth token cache hit expires_at=%q", e.expiresAt.UTC().Format(time.RFC3339))
 		return injectTokens(ctx, e.tok), nil
+	}
+	if missed && time.Now().Before(missUntil) {
+		return ctx, nil
 	}
 
 	// 3. Check persistent TokenStore (if configured).
@@ -167,11 +181,13 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 			tok := oauthTokenToScy(stored)
 			if time.Until(stored.ExpiresAt) > m.minTTL {
 				m.cacheToken(key, tok, stored.ExpiresAt)
+				m.clearMissCache(key)
 				logSchedulerEnsure(ctx, key, "oauth token store hit expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
 				return injectTokens(ctx, tok), nil
 			}
 			// Found but near-expiry — try refresh below with stored refresh token.
 			e = &entry{tok: tok, expiresAt: stored.ExpiresAt}
+			m.clearMissCache(key)
 			logSchedulerEnsure(ctx, key, "oauth token store hit stale expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
 		} else if err != nil {
 			logSchedulerEnsure(ctx, key, "oauth token store error err=%v", err)
@@ -189,6 +205,7 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 			return ctx, err
 		}
 		if refreshed != nil {
+			m.clearMissCache(key)
 			logSchedulerEnsure(ctx, key, "oauth token refresh ok")
 			return injectTokens(ctx, refreshed), nil
 		}
@@ -196,10 +213,12 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 
 	// 5. If we have a cached (possibly stale) token, still inject it.
 	if e != nil && e.tok != nil {
+		m.clearMissCache(key)
 		logSchedulerEnsure(ctx, key, "oauth token using stale token")
 		return injectTokens(ctx, e.tok), nil
 	}
 
+	m.cacheMiss(key)
 	logSchedulerEnsure(ctx, key, "oauth token no token available")
 	return ctx, nil
 }
@@ -214,6 +233,7 @@ func (m *Manager) Store(ctx context.Context, key Key, tok *scyauth.Token) error 
 		expiry = time.Now().Add(1 * time.Hour)
 	}
 	m.cacheToken(key, tok, expiry)
+	m.clearMissCache(key)
 
 	if m.store != nil {
 		return m.store.Put(ctx, scyToOAuthToken(key, tok))
@@ -225,6 +245,7 @@ func (m *Manager) Store(ctx context.Context, key Key, tok *scyauth.Token) error 
 func (m *Manager) Invalidate(ctx context.Context, key Key) error {
 	m.mu.Lock()
 	delete(m.cache, key)
+	delete(m.missCache, key)
 	m.mu.Unlock()
 
 	if m.store != nil {
@@ -237,6 +258,25 @@ func (m *Manager) Invalidate(ctx context.Context, key Key) error {
 func (m *Manager) cacheToken(key Key, tok *scyauth.Token, expiresAt time.Time) {
 	m.mu.Lock()
 	m.cache[key] = &entry{tok: tok, expiresAt: expiresAt}
+	delete(m.missCache, key)
+	m.mu.Unlock()
+}
+
+func (m *Manager) cacheMiss(key Key) {
+	if m == nil || m.missTTL <= 0 {
+		return
+	}
+	m.mu.Lock()
+	m.missCache[key] = time.Now().Add(m.missTTL)
+	m.mu.Unlock()
+}
+
+func (m *Manager) clearMissCache(key Key) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	delete(m.missCache, key)
 	m.mu.Unlock()
 }
 
