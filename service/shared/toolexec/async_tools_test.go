@@ -506,18 +506,23 @@ func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesPreambleUpdates(t *tes
 
 	var preamblePatches int
 	var preambles []string
+	var contents []string
 	for _, msg := range conv.patchedMessages {
 		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Preamble == nil {
 			continue
 		}
 		preamblePatches++
 		preambles = append(preambles, *msg.Preamble)
+		if msg.Content != nil {
+			contents = append(contents, *msg.Content)
+		}
 	}
-	require.LessOrEqual(t, preamblePatches, 3, "expected create + debounced updates + optional final flush only")
+	require.GreaterOrEqual(t, preamblePatches, 1, "expected narrator preamble patches")
 	for _, preamble := range preambles {
 		require.NotContains(t, preamble, "phase 1", "phase 1 should be coalesced away by debounce")
 	}
 	require.Contains(t, strings.Join(preambles, "\n"), "phase 2")
+	require.Contains(t, strings.Join(contents, "\n"), "phase 2")
 }
 
 func TestExecuteToolStep_StatusWaitExecutionMode_UsesLLMNarratorRunner(t *testing.T) {

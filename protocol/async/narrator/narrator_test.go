@@ -62,6 +62,16 @@ func TestStartPreamble(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected llm mode without runner to error")
 	}
+	got, err = StartPreamble(context.Background(), &asynccfg.Config{Narration: "keydata"}, &asynccfg.OperationRecord{
+		KeyData: []byte("Primary baseline read: delivery is constrained by targeting and supply.\n```csv\nx\n```"),
+		Message: "fallback message",
+	})
+	if err != nil {
+		t.Fatalf("StartPreamble(keydata) error = %v", err)
+	}
+	if got != "Primary baseline read: delivery is constrained by targeting and supply." {
+		t.Fatalf("StartPreamble(keydata) = %q", got)
+	}
 }
 
 func TestUpdatePreamble(t *testing.T) {
@@ -110,6 +120,15 @@ func TestUpdatePreamble(t *testing.T) {
 	_, err = UpdatePreamble(context.Background(), &asynccfg.Config{Narration: "llm"}, ev)
 	if err == nil {
 		t.Fatal("expected llm mode without runner to error")
+	}
+	got, err = UpdatePreamble(context.Background(), &asynccfg.Config{Narration: "keydata"}, asynccfg.ChangeEvent{
+		KeyData: []byte("<!-- DATA:hierarchy rows=1 -->\n<!-- DATA:delivery_impact rows=7 -->"),
+	})
+	if err != nil {
+		t.Fatalf("UpdatePreamble(keydata) error = %v", err)
+	}
+	if got != "Reviewing Hierarchy, Delivery impact." {
+		t.Fatalf("UpdatePreamble(keydata) = %q", got)
 	}
 }
 
