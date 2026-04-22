@@ -176,6 +176,7 @@ func (s *Service) PatchConversations(ctx context.Context, conversations *convcli
 	}
 	logx.Infof("conversation", "PatchConversations ok id=%q", strings.TrimSpace(conversations.Id))
 	s.publishConversationMetaEvent(ctx, conversations)
+	s.publishConversationUsageEvent(ctx, conversations)
 	return nil
 }
 
@@ -786,6 +787,37 @@ func conversationMetaPatch(conv *convcli.MutableConversation) map[string]interfa
 		out["status"] = strings.TrimSpace(*conv.Status)
 	}
 	return out
+}
+
+func (s *Service) publishConversationUsageEvent(ctx context.Context, conv *convcli.MutableConversation) {
+	if s == nil || s.streamPub == nil || conv == nil || conv.Has == nil {
+		return
+	}
+	convID := strings.TrimSpace(conv.Id)
+	if convID == "" {
+		return
+	}
+	hasUsage := conv.Has.UsageInputTokens || conv.Has.UsageOutputTokens || conv.Has.UsageEmbeddingTokens
+	if !hasUsage {
+		return
+	}
+	ev := &streaming.Event{
+		StreamID:             convID,
+		ConversationID:       convID,
+		Type:                 streaming.EventTypeUsage,
+		UsageInputTokens:     intValuePtr(conv.UsageInputTokens),
+		UsageOutputTokens:    intValuePtr(conv.UsageOutputTokens),
+		UsageEmbeddingTokens: intValuePtr(conv.UsageEmbeddingTokens),
+	}
+	ev.UsageTotalTokens = ev.UsageInputTokens + ev.UsageOutputTokens + ev.UsageEmbeddingTokens
+	s.emitTimelineEvent(ctx, ev, "PatchConversations publish usage event")
+}
+
+func intValuePtr(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func shouldSuppressMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) bool {
@@ -1429,6 +1461,10 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 	// Emit preamble event when we have preamble text and the message is interim
 	if preamble != "" && !isFinal {
 		logx.Infof("conversation", "emitCanonicalAssistantEvents preamble convo=%q turn=%q msg=%q preamble_len=%d", conversationID, turnID, strings.TrimSpace(message.Id), len(preamble))
+		executionRole := strings.ToLower(strings.TrimSpace(valueOrEmptyStr(message.Mode)))
+		if executionRole != "narrator" {
+			executionRole = ""
+		}
 		event := &streaming.Event{
 			ID:                 strings.TrimSpace(message.Id),
 			StreamID:           conversationID,
@@ -1438,6 +1474,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 			Type:               streaming.EventTypeAssistantPreamble,
 			TurnID:             turnID,
 			AssistantMessageID: strings.TrimSpace(message.Id),
+			ExecutionRole:      executionRole,
 			Content:            preamble,
 			CreatedAt:          patchEventCreatedAt(message),
 		}

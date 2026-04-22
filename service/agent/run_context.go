@@ -363,12 +363,16 @@ func (s *Service) hasNewTurnTaskSince(ctx context.Context, turn runtimerequestct
 		return false, err
 	}
 	if !latest.Found {
+		logx.DebugCtxf(ctx, "conversation", "steer.check convo=%q turn_id=%q checkpoint_found=%t latest_found=false", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), checkpoint.Found)
 		return false, nil
 	}
 	if !checkpoint.Found {
+		logx.Infof("conversation", "steer.check convo=%q turn_id=%q checkpoint_found=false latest_message_id=%q latest_at=%s pending=true", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), latest.MessageID, latest.CreatedAt.Format(time.RFC3339Nano))
 		return true, nil
 	}
-	return compareTurnTaskCheckpoint(latest, checkpoint) > 0, nil
+	pending := compareTurnTaskCheckpoint(latest, checkpoint) > 0
+	logx.Infof("conversation", "steer.check convo=%q turn_id=%q checkpoint_message_id=%q checkpoint_at=%s latest_message_id=%q latest_at=%s pending=%t", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), checkpoint.MessageID, checkpoint.CreatedAt.Format(time.RFC3339Nano), latest.MessageID, latest.CreatedAt.Format(time.RFC3339Nano), pending)
+	return pending, nil
 }
 
 func effectiveFollowUpCheckpoint(initial turnTaskCheckpoint, output *QueryOutput) turnTaskCheckpoint {

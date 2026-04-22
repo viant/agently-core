@@ -77,11 +77,41 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 	resp := &ConversationStateResponse{
 		SchemaVersion: "2",
 		Conversation:  state,
+		Usage:         usageSummaryFromConversation(conv),
 	}
 	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
 		resp.Feeds = c.resolveActiveFeedsFromState(ctx, state)
 	}
 	return resp, nil
+}
+
+func usageSummaryFromConversation(conv *conversation.Conversation) *UsageSummary {
+	if conv == nil {
+		return nil
+	}
+	input := 0
+	output := 0
+	if conv.UsageInputTokens != nil {
+		input = *conv.UsageInputTokens
+	}
+	if conv.UsageOutputTokens != nil {
+		output = *conv.UsageOutputTokens
+	}
+	if input == 0 && output == 0 && conv.Usage != nil {
+		if conv.Usage.PromptTokens != nil {
+			input = *conv.Usage.PromptTokens
+		}
+		if conv.Usage.CompletionTokens != nil {
+			output = *conv.Usage.CompletionTokens
+		}
+	}
+	if input == 0 && output == 0 {
+		return nil
+	}
+	return &UsageSummary{
+		TotalInputTokens:  input,
+		TotalOutputTokens: output,
+	}
 }
 
 // GetLiveState returns the current canonical state snapshot together with an

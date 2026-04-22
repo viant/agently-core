@@ -56,6 +56,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if strings.TrimSpace(step.ID) == "" {
 		step.ID = "tool-" + uuid.NewString()
 	}
+	ctx = WithAsyncConversation(ctx, conv)
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {

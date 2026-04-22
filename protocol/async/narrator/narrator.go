@@ -54,7 +54,7 @@ func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Oper
 		if runner == nil {
 			return "", fmt.Errorf("async narrator llm mode not configured")
 		}
-		return runner(ctx, LLMInput{
+		text, err := runner(ctx, LLMInput{
 			OperationID: rec.ID,
 			UserAsk:     userAsk,
 			Intent:      rec.OperationIntent,
@@ -63,6 +63,14 @@ func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Oper
 			Status:      rec.Status,
 			Tool:        rec.ToolName,
 		})
+		if err != nil {
+			return "", err
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return fallback(userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
+		}
+		return text, nil
 	default:
 		return fallback(userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
 	}
@@ -81,7 +89,7 @@ func UpdatePreamble(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.Chang
 		if runner == nil {
 			return "", fmt.Errorf("async narrator llm mode not configured")
 		}
-		return runner(ctx, LLMInput{
+		text, err := runner(ctx, LLMInput{
 			OperationID: ev.OperationID,
 			UserAsk:     userAsk,
 			Intent:      ev.Intent,
@@ -90,6 +98,14 @@ func UpdatePreamble(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.Chang
 			Status:      ev.Status,
 			Tool:        ev.ToolName,
 		})
+		if err != nil {
+			return "", err
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return fallback(userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
+		}
+		return text, nil
 	default:
 		return fallback(userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
 	}

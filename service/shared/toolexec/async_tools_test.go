@@ -595,6 +595,75 @@ func TestExecuteToolStep_StatusWaitExecutionMode_UsesLLMNarratorRunner(t *testin
 	require.True(t, found, "expected llm runner preamble to be used")
 }
 
+func TestExecuteToolStep_WaitModeStart_AutonomousPollerEmitsNarratorPreamble(t *testing.T) {
+	prevWindow := asyncNarrationDebounceWindow
+	asyncNarrationDebounceWindow = 5 * time.Millisecond
+	defer func() {
+		asyncNarrationDebounceWindow = prevWindow
+	}()
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
+		PollIntervalMs:       5,
+		Narration:            "llm",
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			IntentPath:      "objective",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+				DataPath:    "items",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","conversationId":"child-1"}`},
+			{result: `{"status":"running","message":"child is still running","items":[{"conversationId":"child-1","status":"running"}]}`},
+			{result: `{"status":"completed","message":"child is done","items":[{"conversationId":"child-1","status":"completed"}]}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
+	ctx = memory.WithModelMessageID(ctx, "assistant-1")
+	ctx = memory.WithUserAsk(ctx, "list top-level files")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, conv)
+	ctx = WithAsyncNarratorRunner(ctx, func(_ context.Context, in asyncnarrator.LLMInput) (string, error) {
+		return "llm:" + in.Message, nil
+	})
+
+	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-1",
+		Name: "llm/agents:start",
+		Args: map[string]interface{}{"agentId": "coder", "objective": "list top-level files"},
+	}, conv)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		for _, msg := range conv.patchedMessages {
+			if msg == nil {
+				continue
+			}
+			if !strings.EqualFold(derefString(msg.Mode), "narrator") {
+				continue
+			}
+			if strings.TrimSpace(derefString(msg.Preamble)) != "" {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
 func TestExecuteToolStep_AsyncUsesExplicitMessagePathForChildStatus(t *testing.T) {
 	cfg := &asynccfg.Config{
 		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),

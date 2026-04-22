@@ -155,6 +155,11 @@ type Event struct {
 	FeedTitle     string      `json:"feedTitle,omitempty"`
 	FeedItemCount int         `json:"feedItemCount,omitempty"`
 	FeedData      interface{} `json:"feedData,omitempty"`
+	// Conversation usage summary fields.
+	UsageInputTokens     int `json:"usageInputTokens,omitempty"`
+	UsageOutputTokens    int `json:"usageOutputTokens,omitempty"`
+	UsageEmbeddingTokens int `json:"usageEmbeddingTokens,omitempty"`
+	UsageTotalTokens     int `json:"usageTotalTokens,omitempty"`
 }
 
 func canonicalEventMessageID(event *Event) string {

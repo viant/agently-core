@@ -113,6 +113,26 @@ func TestUpdatePreamble(t *testing.T) {
 	}
 }
 
+func TestNarrationLLMEmptyFallsBackToDeterministicText(t *testing.T) {
+	rec := &asynccfg.OperationRecord{
+		OperationIntent:  "inspect repo",
+		OperationSummary: "workdir=/tmp/ws | orderId=2639076",
+		Message:          "phase 1",
+		Status:           "running",
+		ToolName:         "tool:start",
+	}
+	ctx := WithLLMRunner(context.Background(), func(_ context.Context, in LLMInput) (string, error) {
+		return "   ", nil
+	})
+	got, err := StartPreamble(ctx, &asynccfg.Config{Narration: "llm"}, rec)
+	if err != nil {
+		t.Fatalf("StartPreamble(empty llm) error = %v", err)
+	}
+	if got != "inspect repo: phase 1" {
+		t.Fatalf("StartPreamble(empty llm) = %q", got)
+	}
+}
+
 func TestFallbackUsesSummaryWhenIntentMissing(t *testing.T) {
 	rec := &asynccfg.OperationRecord{
 		OperationSummary: "workdir=/tmp/ws | orderId=2639076",

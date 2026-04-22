@@ -205,10 +205,15 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 	}
 	parentToolMessages := indexToolMessagesByParentAndIteration(turn)
 	for _, message := range turn.Message {
-		if message == nil || message.ModelCall == nil {
+		if message == nil {
 			continue
 		}
-		_ = buildPageFromMessage(ts, turn, message, parentToolMessages)
+		switch {
+		case message.ModelCall != nil:
+			_ = buildPageFromMessage(ts, turn, message, parentToolMessages)
+		case isNarratorAssistantMessage(message):
+			_ = buildNarratorPageFromMessage(ts, message)
+		}
 	}
 	if ts.Execution == nil {
 		return nil
@@ -239,6 +244,69 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 		}
 	}
 	return pages
+}
+
+func isNarratorAssistantMessage(message *agconv.MessageView) bool {
+	if message == nil {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(message.Role)) != "assistant" {
+		return false
+	}
+	if message.Interim == 0 {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(stringValue(message.Mode)), "narrator")
+}
+
+func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *ExecutionPageState {
+	if ts == nil || message == nil {
+		return nil
+	}
+	text := strings.TrimSpace(ptrString(message.Preamble))
+	if text == "" {
+		text = visibleContentOrEmpty(message.Content)
+	}
+	if text == "" {
+		return nil
+	}
+	page := findOrCreatePage(ts, message.Id, intValue(message.Iteration), strings.TrimSpace(stringValue(message.Mode)))
+	if page == nil {
+		return nil
+	}
+	page.PageID = message.Id
+	page.AssistantMessageID = message.Id
+	page.ParentMessageID = message.Id
+	page.TurnID = stringValue(message.TurnId)
+	page.Iteration = intValue(message.Iteration)
+	page.Sequence = intValue(message.Sequence)
+	page.Mode = strings.TrimSpace(stringValue(message.Mode))
+	page.ExecutionRole = "narrator"
+	page.Preamble = text
+	page.Content = text
+	page.PreambleMessageID = message.Id
+	page.Status = stepStatusFromString(strings.TrimSpace(stringValue(message.Status)), "running")
+	if page.Status == "" {
+		page.Status = "running"
+	}
+	payload := marshalToRawJSON(map[string]interface{}{
+		"content": text,
+	})
+	step := &ModelStepState{
+		ModelCallID:        strings.TrimSpace(message.Id),
+		AssistantMessageID: strings.TrimSpace(message.Id),
+		ExecutionRole:      "narrator",
+		Status:             page.Status,
+		ResponsePayload:    payload,
+	}
+	if !message.CreatedAt.IsZero() {
+		startedAt := message.CreatedAt
+		step.StartedAt = &startedAt
+	}
+	existing := upsertModelStep(page, step.ModelCallID)
+	*existing = *step
+	refreshExecutionRole(page)
+	return page
 }
 
 func isPrimaryAssistantFinalMessage(message *agconv.MessageView) bool {

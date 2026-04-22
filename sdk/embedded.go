@@ -15,6 +15,8 @@ import (
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
@@ -715,6 +717,7 @@ func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*
 	if err := c.conv.PatchMessage(ctx, msg); err != nil {
 		return nil, err
 	}
+	logx.Infof("conversation", "steer.accepted convo=%q turn_id=%q message_id=%q role=%q content_len=%d content_head=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.TurnID), strings.TrimSpace(msg.Id), strings.TrimSpace(role), len(content), textutil.Head(content, 160))
 	return &SteerTurnOutput{MessageID: msg.Id, TurnID: input.TurnID, Status: "accepted"}, nil
 }
 

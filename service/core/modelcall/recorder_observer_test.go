@@ -18,11 +18,41 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	memory "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/streaming"
 )
 
 type captureModelCallClient struct {
 	apiconv.Client
 	patches []*apiconv.MutableModelCall
+}
+
+type streamAwareConversationClient struct {
+	apiconv.Client
+	bus *streaming.MemoryBus
+}
+
+func (c *streamAwareConversationClient) PatchConversations(ctx context.Context, conv *apiconv.MutableConversation) error {
+	if err := c.Client.PatchConversations(ctx, conv); err != nil {
+		return err
+	}
+	if c.bus != nil && conv != nil {
+		_ = c.bus.Publish(ctx, &streaming.Event{
+			Type:                 streaming.EventTypeUsage,
+			ConversationID:       conv.Id,
+			StreamID:             conv.Id,
+			UsageInputTokens:     intValuePtr(conv.UsageInputTokens),
+			UsageOutputTokens:    intValuePtr(conv.UsageOutputTokens),
+			UsageEmbeddingTokens: intValuePtr(conv.UsageEmbeddingTokens),
+		})
+	}
+	return nil
+}
+
+func intValuePtr(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func (c *captureModelCallClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
@@ -231,6 +261,92 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 			}
 			assert.EqualValues(t, tc.expectInterim, msg.Interim)
 		})
+	}
+}
+
+func TestRecorderObserver_PropagatesUsageToParentChainWithoutCycling(t *testing.T) {
+	client := convmem.New()
+
+	convA := apiconv.NewConversation()
+	convA.SetId("conv-a")
+	convA.SetConversationParentId("conv-b")
+	require.NoError(t, client.PatchConversations(context.Background(), convA))
+
+	convB := apiconv.NewConversation()
+	convB.SetId("conv-b")
+	convB.SetConversationParentId("conv-a")
+	require.NoError(t, client.PatchConversations(context.Background(), convB))
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID: "conv-a",
+		TurnID:         "turn-a",
+	})
+
+	rec := &recorderObserver{client: client}
+	err := rec.propagateConversationUsage(ctx, &llm.Usage{
+		PromptTokens:     11,
+		CompletionTokens: 7,
+		TotalTokens:      18,
+	})
+	require.NoError(t, err)
+
+	gotA, err := client.GetConversation(context.Background(), "conv-a")
+	require.NoError(t, err)
+	require.NotNil(t, gotA)
+	require.NotNil(t, gotA.UsageInputTokens)
+	require.NotNil(t, gotA.UsageOutputTokens)
+	assert.Equal(t, 11, *gotA.UsageInputTokens)
+	assert.Equal(t, 7, *gotA.UsageOutputTokens)
+
+	gotB, err := client.GetConversation(context.Background(), "conv-b")
+	require.NoError(t, err)
+	require.NotNil(t, gotB)
+	require.NotNil(t, gotB.UsageInputTokens)
+	require.NotNil(t, gotB.UsageOutputTokens)
+	assert.Equal(t, 11, *gotB.UsageInputTokens)
+	assert.Equal(t, 7, *gotB.UsageOutputTokens)
+}
+
+func TestRecorderObserver_ParentUsagePropagationPublishesToParentStream(t *testing.T) {
+	mem := convmem.New()
+	bus := streaming.NewMemoryBus(4)
+	client := &streamAwareConversationClient{Client: mem, bus: bus}
+
+	parent := apiconv.NewConversation()
+	parent.SetId("parent-conv")
+	require.NoError(t, client.PatchConversations(context.Background(), parent))
+
+	child := apiconv.NewConversation()
+	child.SetId("child-conv")
+	child.SetConversationParentId("parent-conv")
+	require.NoError(t, client.PatchConversations(context.Background(), child))
+
+	sub, err := bus.Subscribe(context.Background(), func(ev *streaming.Event) bool {
+		return ev != nil && ev.ConversationID == "parent-conv" && ev.Type == streaming.EventTypeUsage
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	rec := &recorderObserver{client: client}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID: "child-conv",
+		TurnID:         "turn-child",
+	})
+
+	require.NoError(t, rec.propagateConversationUsage(ctx, &llm.Usage{
+		PromptTokens:     9,
+		CompletionTokens: 4,
+		TotalTokens:      13,
+	}))
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		assert.Equal(t, "parent-conv", ev.ConversationID)
+		assert.Equal(t, 9, ev.UsageInputTokens)
+		assert.Equal(t, 4, ev.UsageOutputTokens)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected parent usage event")
 	}
 }
 
