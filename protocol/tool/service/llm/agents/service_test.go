@@ -1032,7 +1032,7 @@ func TestService_AsyncConfig(t *testing.T) {
 	cfg := svc.AsyncConfig("llm/agents:start")
 	require.NotNil(t, cfg)
 	assert.Equal(t, string(asynccfg.ExecutionModeDetach), cfg.DefaultExecutionMode)
-	assert.Equal(t, "llm", cfg.Narration)
+	assert.Equal(t, "keydata", cfg.Narration)
 	assert.Equal(t, "llm/agents:start", cfg.Run.Tool)
 	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
 	assert.Equal(t, "executionMode", cfg.Run.ExecutionModePath)

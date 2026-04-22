@@ -66,6 +66,8 @@ func TestStartPreamble_CreatesInterimAssistantMessage(t *testing.T) {
 	require.Equal(t, "assistant", last.Role)
 	require.NotNil(t, last.Interim)
 	require.EqualValues(t, 1, *last.Interim)
+	require.NotNil(t, last.Content)
+	require.Equal(t, "Working on it", *last.Content)
 	require.NotNil(t, last.Preamble)
 	require.Equal(t, "Working on it", *last.Preamble)
 }
@@ -83,6 +85,8 @@ func TestUpdatePreamble_RefreshesSameMessageID(t *testing.T) {
 	require.Equal(t, "msg-1", last.Id)
 	require.NotNil(t, last.Interim)
 	require.EqualValues(t, 1, *last.Interim)
+	require.NotNil(t, last.Content)
+	require.Equal(t, "Still working", *last.Content)
 	require.NotNil(t, last.Preamble)
 	require.Equal(t, "Still working", *last.Preamble)
 }

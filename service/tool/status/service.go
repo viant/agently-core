@@ -72,7 +72,7 @@ func (s *Service) StartPreamble(ctx context.Context, parent runtimerequestctx.Tu
 	m, err := apiconv.AddMessage(ctx, s.conv, &parent,
 		apiconv.WithRole(role),
 		apiconv.WithInterim(1),
-		apiconv.WithContent(""),
+		apiconv.WithContent(strings.TrimSpace(preamble)),
 		apiconv.WithPreamble(strings.TrimSpace(preamble)),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
@@ -121,6 +121,7 @@ func (s *Service) UpdatePreamble(ctx context.Context, parent runtimerequestctx.T
 	mu.SetConversationID(parent.ConversationID)
 	mu.SetTurnID(parent.TurnID)
 	mu.SetPreamble(strings.TrimSpace(preamble))
+	mu.SetContent(strings.TrimSpace(preamble))
 	mu.SetInterim(1)
 	if err := s.conv.PatchMessage(ctx, mu); err != nil {
 		return fmt.Errorf("status: preamble update failed: %w", err)

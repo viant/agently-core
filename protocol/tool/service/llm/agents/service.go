@@ -174,7 +174,7 @@ func (s *Service) AsyncConfigs() []*asynccfg.Config {
 			DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
 			TimeoutMs:            int((5 * time.Minute) / time.Millisecond),
 			PollIntervalMs:       int((2 * time.Second) / time.Millisecond),
-			Narration:            "llm",
+			Narration:            "keydata",
 			Run: asynccfg.RunConfig{
 				Tool:              "llm/agents:start",
 				OperationIDPath:   "conversationId",

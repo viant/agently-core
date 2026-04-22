@@ -3,7 +3,9 @@ package narrator
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -47,6 +49,12 @@ func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Oper
 	switch mode {
 	case "none":
 		return "", nil
+	case "keydata":
+		text := renderKeyData(rec.KeyData, rec.Message)
+		if text == "" {
+			return fallback(userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
+		}
+		return text, nil
 	case "template":
 		return renderTemplate(cfg, userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
 	case "llm":
@@ -82,6 +90,12 @@ func UpdatePreamble(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.Chang
 	switch mode {
 	case "none":
 		return "", nil
+	case "keydata":
+		text := renderKeyData(ev.KeyData, ev.Message)
+		if text == "" {
+			return fallback(userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
+		}
+		return text, nil
 	case "template":
 		return renderTemplate(cfg, userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
 	case "llm":
@@ -166,4 +180,107 @@ func fallback(userAsk, intent, summary, message, status, tool string) string {
 		return t
 	}
 	return ""
+}
+
+var (
+	htmlCommentPattern = regexp.MustCompile(`<!--[\s\S]*?-->`)
+	dataSourcePattern  = regexp.MustCompile(`DATA:([A-Za-z0-9_-]+)`)
+)
+
+func renderKeyData(raw []byte, message string) string {
+	if text := summarizeRichText(string(raw)); text != "" {
+		return text
+	}
+	return summarizeRichText(message)
+}
+
+func summarizeRichText(text string) string {
+	source := strings.TrimSpace(text)
+	if source == "" {
+		return ""
+	}
+	source = htmlCommentPattern.ReplaceAllString(source, "\n")
+	source = strings.ReplaceAll(source, "\r\n", "\n")
+	source = strings.ReplaceAll(source, "\r", "\n")
+	if idx := strings.Index(source, "```"); idx >= 0 {
+		source = source[:idx]
+	}
+	lines := strings.Split(source, "\n")
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if len(parts) > 0 {
+				break
+			}
+			continue
+		}
+		parts = append(parts, line)
+	}
+	joined := strings.TrimSpace(strings.Join(parts, " "))
+	joined = strings.Join(strings.Fields(joined), " ")
+	if joined != "" && !looksLikeOpaqueData(joined) {
+		return truncateSentence(joined, 220)
+	}
+	matches := dataSourcePattern.FindAllStringSubmatch(text, 3)
+	if len(matches) > 0 {
+		names := make([]string, 0, len(matches))
+		for _, match := range matches {
+			name := strings.TrimSpace(match[1])
+			if name == "" {
+				continue
+			}
+			names = append(names, humanizeKey(name))
+		}
+		if len(names) > 0 {
+			return "Reviewing " + strings.Join(names, ", ") + "."
+		}
+	}
+	return ""
+}
+
+func looksLikeOpaqueData(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return true
+	}
+	alpha := 0
+	for _, r := range trimmed {
+		if unicode.IsLetter(r) {
+			alpha++
+		}
+	}
+	return alpha == 0
+}
+
+func truncateSentence(text string, max int) string {
+	if max <= 0 || len([]rune(text)) <= max {
+		return text
+	}
+	runes := []rune(text)
+	cut := string(runes[:max])
+	lastBoundary := strings.LastIndexAny(cut, ".!?")
+	if lastBoundary >= 0 && lastBoundary >= max/2 {
+		return strings.TrimSpace(cut[:lastBoundary+1])
+	}
+	lastSpace := strings.LastIndex(cut, " ")
+	if lastSpace > 0 {
+		return strings.TrimSpace(cut[:lastSpace]) + "…"
+	}
+	return strings.TrimSpace(cut) + "…"
+}
+
+func humanizeKey(text string) string {
+	text = strings.ReplaceAll(strings.TrimSpace(text), "_", " ")
+	text = strings.ReplaceAll(text, "-", " ")
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		return ""
+	}
+	runes := []rune(strings.ToLower(text))
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
 }
