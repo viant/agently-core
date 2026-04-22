@@ -996,3 +996,35 @@ func TestPublishMessagePatchEvent_SuppressesToolStatusMessages(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestPublishConversationUsageEvent_UsesConversationStreamID(t *testing.T) {
+	bus := streaming.NewMemoryBus(2)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), func(ev *streaming.Event) bool {
+		return ev != nil && ev.ConversationID == "parent-conv"
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	conv := convcli.NewConversation()
+	conv.SetId("parent-conv")
+	conv.SetUsageInputTokens(120)
+	conv.SetUsageOutputTokens(30)
+	conv.SetUsageEmbeddingTokens(5)
+
+	svc.publishConversationUsageEvent(context.Background(), conv)
+
+	select {
+	case ev := <-sub.C():
+		require.NotNil(t, ev)
+		require.Equal(t, streaming.EventTypeUsage, ev.Type)
+		require.Equal(t, "parent-conv", ev.ConversationID)
+		require.Equal(t, "parent-conv", ev.StreamID)
+		require.Equal(t, 120, ev.UsageInputTokens)
+		require.Equal(t, 30, ev.UsageOutputTokens)
+		require.Equal(t, 5, ev.UsageEmbeddingTokens)
+		require.Equal(t, 155, ev.UsageTotalTokens)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected usage event")
+	}
+}

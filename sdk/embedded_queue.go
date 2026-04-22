@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/logx"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
@@ -260,6 +261,7 @@ func forceSteerQueuedTurn(c *backendClient, ctx context.Context, conversationID,
 	}
 	out.CanceledTurnID = turnID
 	out.Status = "accepted"
+	logx.Infof("conversation", "steer.force_accepted convo=%q queued_turn_id=%q active_turn_id=%q starter_message_id=%q", conversationID, turnID, strings.TrimSpace(active.Id), starterID)
 	return out, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/textutil"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
@@ -358,12 +359,20 @@ func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step St
 	}
 	opID := resolveAsyncStatusOperationID(ctx, manager, cfg, step)
 	if opID == "" {
+		logx.DebugCtxf(ctx, "conversation", "async wait skip tool=%q op_id=empty", strings.TrimSpace(step.Name))
 		return "", false, nil
 	}
 	rec, ok := manager.Get(ctx, opID)
 	if !ok || rec == nil || !asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
+		logx.DebugCtxf(ctx, "conversation", "async wait skip tool=%q op_id=%q found=%t rec_nil=%t execution_mode=%q", strings.TrimSpace(step.Name), strings.TrimSpace(opID), ok, rec == nil, func() string {
+			if rec == nil {
+				return ""
+			}
+			return strings.TrimSpace(rec.ExecutionMode)
+		}())
 		return "", false, nil
 	}
+	logx.InfoCtxf(ctx, "conversation", "async wait start tool=%q op_id=%q execution_mode=%q status=%q message=%q", strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(rec.ExecutionMode), strings.TrimSpace(rec.Status), strings.TrimSpace(rec.Message))
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
 	}
@@ -423,6 +432,12 @@ func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInf
 	conv := convFromContext(ctx)
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if conv == nil || !ok || rec == nil {
+		logx.WarnCtxf(ctx, "conversation", "async narrator skipped tool=%q op_id=%q conv_nil=%t turn_ok=%t rec_nil=%t", strings.TrimSpace(step.Name), func() string {
+			if rec == nil {
+				return ""
+			}
+			return strings.TrimSpace(rec.ID)
+		}(), conv == nil, ok, rec == nil)
 		return nil
 	}
 	statusSvc := toolstatus.New(conv)
@@ -433,15 +448,18 @@ func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInf
 		cfg:      cfg,
 		pairing:  pairing,
 		session: asyncnarrator.NewSession(asyncNarrationDebounceWindow, func(text string) error {
-			_, err := pairing.Upsert(ctx, step.ID, turn, step.Name, "assistant", "tool", "exec", text)
+			_, err := pairing.Upsert(ctx, step.ID, turn, step.Name, "assistant", "tool", "narrator", text)
 			return err
 		}),
 	}
 	narratorCtx := withAsyncNarratorRunnerIfPresent(ctx)
 	if text, err := asyncnarrator.StartPreamble(narratorCtx, cfg, rec); err == nil && text != "" {
+		logx.InfoCtxf(ctx, "conversation", "async narrator preamble tool=%q op_id=%q text=%q", strings.TrimSpace(step.Name), strings.TrimSpace(rec.ID), textutil.Head(text, 256))
 		if err := handle.session.Start(text); err != nil {
 			logx.WarnCtxf(ctx, "conversation", "async preamble start failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(step.Name), err)
 		}
+	} else if err == nil {
+		logx.WarnCtxf(ctx, "conversation", "async narrator produced empty preamble op_id=%q tool=%q", strings.TrimSpace(rec.ID), strings.TrimSpace(step.Name))
 	} else if err != nil {
 		logx.WarnCtxf(ctx, "conversation", "async narrator start failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(step.Name), err)
 	}
@@ -760,6 +778,9 @@ func rehydrateAsyncPollContext(src context.Context, dst context.Context, turn ru
 	if pub, ok := modelcallctx.StreamPublisherFromContext(src); ok {
 		dst = modelcallctx.WithStreamPublisher(dst, pub)
 	}
+	if conv := convFromContext(src); conv != nil {
+		dst = WithAsyncConversation(dst, conv)
+	}
 	if runner, ok := AsyncNarratorRunnerFromContext(src); ok {
 		dst = WithAsyncNarratorRunner(dst, runner)
 	}
@@ -790,6 +811,14 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 		return
 	}
 	defer manager.FinishPoller(ctx, opID)
+	var narration *asyncNarrationHandle
+	if rec, ok := manager.Get(context.Background(), opID); ok && rec != nil {
+		narration = startAsyncNarration(ctx, cfg, StepInfo{
+			ID:   "narrator:" + strings.TrimSpace(opID),
+			Name: strings.TrimSpace(cfg.Status.Tool),
+		}, rec)
+	}
+	defer finishAsyncNarration(ctx, narration, opID, strings.TrimSpace(cfg.Status.Tool))
 	interval := time.Duration(cfg.PollIntervalMs) * time.Millisecond
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -827,6 +856,9 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 					Error:  "operation timed out",
 					State:  asynccfg.StateFailed,
 				})
+				if rec != nil {
+					observeAsyncNarration(ctx, narration, changeEventFromRecord(rec))
+				}
 				patchAsyncToolPersistence(context.Background(), conv, rec, "operation timed out", nil)
 				publishAsyncUpdateEvent(ctx, cfg.Run.Tool, rec.ToolCallID, opID, payload, rec)
 				return
@@ -860,6 +892,9 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 				KeyData: cloneRaw(payload.KeyData),
 				Error:   payload.Error,
 			})
+			if rec != nil {
+				observeAsyncNarration(ctx, narration, changeEventFromRecord(rec))
+			}
 			patchAsyncToolPersistence(context.Background(), conv, rec, "", payload)
 			publishAsyncUpdateEvent(ctx, cfg.Status.Tool, rec.ToolCallID, opID, payload, rec)
 			if rec != nil && rec.Terminal() {

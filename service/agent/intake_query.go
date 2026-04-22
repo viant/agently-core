@@ -8,6 +8,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
@@ -37,7 +38,8 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if userMessage == "" {
 		return
 	}
-	tc := s.intakeSvc.Run(ctx, userMessage, cfg, strings.TrimSpace(input.UserId))
+	runCtx := s.intakeTrackedContext(ctx, input)
+	tc := s.intakeSvc.Run(runCtx, userMessage, cfg, strings.TrimSpace(input.UserId))
 	if tc == nil {
 		return
 	}
@@ -51,6 +53,19 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	)
 	applyTurnContext(input, tc, cfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Title)
+}
+
+func (s *Service) intakeTrackedContext(ctx context.Context, input *QueryInput) context.Context {
+	if s == nil || input == nil {
+		return ctx
+	}
+	preferredTurnID := ""
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		preferredTurnID = strings.TrimSpace(turn.TurnID)
+	}
+	runCtx := s.ensureRunTrackedLLMContext(ctx, strings.TrimSpace(input.ConversationID), "intake_sidecar", preferredTurnID)
+	runCtx = runtimerequestctx.WithRequestMode(runCtx, "router")
+	return runCtx
 }
 
 // shouldRunIntake decides whether the sidecar should fire for this turn.

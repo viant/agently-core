@@ -6,7 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
@@ -133,4 +135,74 @@ func TestApplyTurnContext_ProfileSuggestionGated(t *testing.T) {
 	applyTurnContext(high, &intakesvc.TurnContext{SuggestedProfileId: "deal_impact", Confidence: 0.9}, cfg)
 	require.Equal(t, "deal_impact", high.Context["intake.suggestedProfileId"])
 	require.InDelta(t, 0.9, high.Context["intake.suggestedProfileConfidence"], 0.001)
+}
+
+func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {
+	recorder := &intakeRecordingConvClient{}
+	svc := &Service{conversation: recorder}
+
+	ctx := context.Background()
+	ctx = runtimerequestctx.WithConversationID(ctx, "conv-1")
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+	})
+
+	runCtx := svc.intakeTrackedContext(ctx, &QueryInput{ConversationID: "conv-1"})
+
+	require.Equal(t, "router", runtimerequestctx.RequestModeFromContext(runCtx))
+	turn, ok := runtimerequestctx.TurnMetaFromContext(runCtx)
+	require.True(t, ok)
+	require.Equal(t, "conv-1", turn.ConversationID)
+	require.Equal(t, "turn-1", turn.TurnID)
+	require.Equal(t, "intake_sidecar", turn.Assistant)
+
+	require.NotNil(t, recorder.lastTurn)
+	require.Equal(t, "turn-1", recorder.lastTurn.Id)
+	require.Equal(t, "conv-1", recorder.lastTurn.ConversationID)
+}
+
+type intakeRecordingConvClient struct {
+	lastTurn *apiconv.MutableTurn
+}
+
+func (r *intakeRecordingConvClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
+	return nil, nil
+}
+func (r *intakeRecordingConvClient) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
+	return nil, nil
+}
+func (r *intakeRecordingConvClient) PatchConversations(context.Context, *apiconv.MutableConversation) error {
+	return nil
+}
+func (r *intakeRecordingConvClient) GetPayload(context.Context, string) (*apiconv.Payload, error) {
+	return nil, nil
+}
+func (r *intakeRecordingConvClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+	return nil
+}
+func (r *intakeRecordingConvClient) PatchMessage(context.Context, *apiconv.MutableMessage) error {
+	return nil
+}
+func (r *intakeRecordingConvClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
+	return nil, nil
+}
+func (r *intakeRecordingConvClient) GetMessageByElicitation(context.Context, string, string) (*apiconv.Message, error) {
+	return nil, nil
+}
+func (r *intakeRecordingConvClient) PatchModelCall(context.Context, *apiconv.MutableModelCall) error {
+	return nil
+}
+func (r *intakeRecordingConvClient) PatchToolCall(context.Context, *apiconv.MutableToolCall) error {
+	return nil
+}
+func (r *intakeRecordingConvClient) PatchTurn(_ context.Context, turn *apiconv.MutableTurn) error {
+	r.lastTurn = turn
+	return nil
+}
+func (r *intakeRecordingConvClient) DeleteConversation(context.Context, string) error {
+	return nil
+}
+func (r *intakeRecordingConvClient) DeleteMessage(context.Context, string, string) error {
+	return nil
 }

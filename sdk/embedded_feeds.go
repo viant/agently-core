@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/app/store/conversation"
+	convstore "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/agent/plan"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -31,6 +32,62 @@ func (c *backendClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, con
 	conv, err := c.conv.GetConversation(ctx, conversationID, conversation.WithIncludeTranscript(true), conversation.WithIncludeToolCall(true))
 	if err != nil || conv == nil {
 		return nil, err
+	}
+	state := BuildCanonicalState(conversationID, convstore.Transcript(conv.GetTranscript()))
+	if state == nil {
+		return nil, nil
+	}
+	resolved := c.resolveActiveFeedsFromState(ctx, state)
+	for _, feed := range resolved {
+		if feed == nil || strings.TrimSpace(feed.FeedID) != strings.TrimSpace(spec.ID) || len(feed.Data) == 0 {
+			continue
+		}
+		var parsed interface{}
+		if err := json.Unmarshal(feed.Data, &parsed); err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	}
+	serviceRule, methodRule := feedPayloadMatch(spec)
+	requestPayloads := make([]string, 0)
+	responsePayloads := make([]string, 0)
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			for _, toolMsg := range msg.ToolMessage {
+				if toolMsg == nil || toolMsg.ToolCall == nil {
+					continue
+				}
+				service, method := parseToolName(toolMsg.ToolCall.ToolName)
+				if !matchesRule(FeedMatch{Service: serviceRule, Method: methodRule}, service, method) {
+					continue
+				}
+				if toolMsg.ToolCall.RequestPayload != nil && toolMsg.ToolCall.RequestPayload.InlineBody != nil {
+					if body := strings.TrimSpace(*toolMsg.ToolCall.RequestPayload.InlineBody); body != "" {
+						requestPayloads = append(requestPayloads, body)
+					}
+				}
+				if toolMsg.ToolCall.ResponsePayload != nil && toolMsg.ToolCall.ResponsePayload.InlineBody != nil {
+					if body := strings.TrimSpace(*toolMsg.ToolCall.ResponsePayload.InlineBody); body != "" {
+						responsePayloads = append(responsePayloads, body)
+					}
+				}
+			}
+		}
+	}
+	if len(requestPayloads) > 0 || len(responsePayloads) > 0 {
+		resultSet, err := extractFeedData(spec, requestPayloads, responsePayloads)
+		if err != nil {
+			return nil, err
+		}
+		if resultSet != nil && resultSet.RootData != nil {
+			return resultSet.RootData, nil
+		}
 	}
 	useLast := strings.ToLower(strings.TrimSpace(spec.Activation.Scope)) != "all"
 	transcript := conv.GetTranscript()

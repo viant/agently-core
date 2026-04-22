@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
@@ -156,8 +157,109 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		logx.Errorf("conversation", "finishModelCall patch model call error msg=%q err=%v", strings.TrimSpace(msgID), err)
 		return err
 	}
+	if err := o.propagateConversationUsage(ctx, info.Usage); err != nil {
+		logx.Warnf("conversation", "finishModelCall propagate usage warning msg=%q err=%v", strings.TrimSpace(msgID), err)
+	}
 	logx.Infof("conversation", "finishModelCall ok msg=%q status=%q", strings.TrimSpace(msgID), strings.TrimSpace(status))
 	return nil
+}
+
+func (o *recorderObserver) propagateConversationUsage(ctx context.Context, u *llm.Usage) error {
+	if o == nil || o.client == nil || u == nil {
+		return nil
+	}
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	if conversationID == "" {
+		return nil
+	}
+	deltaPrompt := u.PromptTokens
+	deltaCompletion := u.CompletionTokens
+	deltaEmbedding := u.TotalTokens - (u.PromptTokens + u.CompletionTokens)
+	if deltaEmbedding < 0 {
+		deltaEmbedding = 0
+	}
+	if deltaPrompt == 0 && deltaCompletion == 0 && deltaEmbedding == 0 {
+		return nil
+	}
+	visited := map[string]struct{}{}
+	currentID := conversationID
+	for currentID != "" {
+		if _, seen := visited[currentID]; seen {
+			break
+		}
+		visited[currentID] = struct{}{}
+		conv, err := o.client.GetConversation(ctx, currentID)
+		if err != nil {
+			return err
+		}
+		if conv == nil {
+			return nil
+		}
+		basePrompt, baseCompletion, baseEmbedding := conversationUsageBase(conv)
+		// After the current model call is persisted, conv.Usage includes this
+		// delta already for the leaf conversation. Avoid double counting it.
+		if currentID == conversationID {
+			basePrompt -= deltaPrompt
+			baseCompletion -= deltaCompletion
+			baseEmbedding -= deltaEmbedding
+			if basePrompt < 0 {
+				basePrompt = 0
+			}
+			if baseCompletion < 0 {
+				baseCompletion = 0
+			}
+			if baseEmbedding < 0 {
+				baseEmbedding = 0
+			}
+		}
+		upd := apiconv.NewConversation()
+		upd.SetId(currentID)
+		upd.SetUsageInputTokens(basePrompt + deltaPrompt)
+		upd.SetUsageOutputTokens(baseCompletion + deltaCompletion)
+		upd.SetUsageEmbeddingTokens(baseEmbedding + deltaEmbedding)
+		if err := o.client.PatchConversations(ctx, upd); err != nil {
+			return err
+		}
+		if conv.ConversationParentId == nil {
+			break
+		}
+		currentID = strings.TrimSpace(*conv.ConversationParentId)
+	}
+	return nil
+}
+
+func conversationUsageBase(conv *apiconv.Conversation) (prompt, completion, embedding int) {
+	if conv == nil {
+		return 0, 0, 0
+	}
+	if conv.UsageInputTokens != nil {
+		prompt = *conv.UsageInputTokens
+	}
+	if conv.UsageOutputTokens != nil {
+		completion = *conv.UsageOutputTokens
+	}
+	if conv.UsageEmbeddingTokens != nil {
+		embedding = *conv.UsageEmbeddingTokens
+	}
+	if conv.Usage != nil {
+		if conv.Usage.PromptTokens != nil && *conv.Usage.PromptTokens > prompt {
+			prompt = *conv.Usage.PromptTokens
+		}
+		if conv.Usage.CompletionTokens != nil && *conv.Usage.CompletionTokens > completion {
+			completion = *conv.Usage.CompletionTokens
+		}
+		if conv.Usage.TotalTokens != nil {
+			directEmbedding := *conv.Usage.TotalTokens - prompt - completion
+			if directEmbedding > embedding {
+				embedding = directEmbedding
+			}
+		}
+	}
+	return prompt, completion, embedding
 }
 
 var markdownLinkPattern = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`)

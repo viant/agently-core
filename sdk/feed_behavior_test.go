@@ -486,6 +486,25 @@ func TestHandleGetFeedData_ReturnsResolvedBuiltinFeed(t *testing.T) {
 	assert.JSONEq(t, `{"input":{},"output":{"commands":[{"input":"pwd","output":"/tmp"},{"input":"ls","output":"a\nb"}],"stdout":"/tmp","status":"ok"}}`, string(dataJSON))
 }
 
+func TestGetTranscript_UsesConversationUsageCountersInResponse(t *testing.T) {
+	client := &backendClient{
+		conv: newConversationWithPayloadsClient(&conversation.Conversation{
+			Id:                "conv-usage",
+			UsageInputTokens:  intPtr(123),
+			UsageOutputTokens: intPtr(45),
+		}, nil),
+	}
+
+	resp, err := client.GetTranscript(context.Background(), &GetTranscriptInput{
+		ConversationID: "conv-usage",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Usage)
+	assert.Equal(t, 123, resp.Usage.TotalInputTokens)
+	assert.Equal(t, 45, resp.Usage.TotalOutputTokens)
+}
+
 func TestFeedNotifier_DoesNotEmitInactiveWhenFeedStillMatched(t *testing.T) {
 	spec := loadBuiltinFeedSpec(t, "terminal")
 	bus := streaming.NewMemoryBus(4)
@@ -718,20 +737,83 @@ func TestRecordOOBAuthElicitation(t *testing.T) {
 }
 
 func TestAdditionalFeedHelperBranches(t *testing.T) {
-	t.Run("ResolveFeedData scope all returns nil", func(t *testing.T) {
-		spec := &FeedSpec{
-			ID:         "terminal",
-			Title:      "Terminal",
-			Match:      FeedMatch{Service: "system/exec", Method: "execute"},
-			Activation: FeedActivation{Scope: "all"},
+	t.Run("ResolveFeedData scope all aggregates matching tool payloads", func(t *testing.T) {
+		iteration := 1
+		payloads := map[string]string{
+			"req1": `{"path":"repo","pattern":"SetBit"}`,
+			"res1": `{"files":[{"Path":"bitset.go","Matches":3}],"path":"repo"}`,
+			"res2": `{"files":[{"Path":"state.go","Matches":2}],"stats":{"matches":5},"modeApplied":"grep"}`,
 		}
+		conv := &conversation.Conversation{
+			Id: "conv-1",
+			Transcript: []*agconv.TranscriptView{
+				{
+					Id:             "turn-1",
+					ConversationId: "conv-1",
+					Status:         "completed",
+					CreatedAt:      time.Now(),
+					Message: []*agconv.MessageView{
+						{
+							Id:        "m1",
+							Role:      "assistant",
+							Interim:   1,
+							Iteration: &iteration,
+							ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+							ToolMessage: []*agconv.ToolMessageView{
+								{
+									Id:              "tm1",
+									ParentMessageId: stringPtr("m1"),
+									Sequence:        intPtr(1),
+									Iteration:       &iteration,
+									ToolCall: &agconv.ToolCallView{
+										MessageId:         "tm1",
+										ToolName:          "resources-list",
+										Status:            "completed",
+										RequestPayloadId:  stringPtr("req1"),
+										ResponsePayloadId: stringPtr("res1"),
+									},
+								},
+								{
+									Id:              "tm2",
+									ParentMessageId: stringPtr("m1"),
+									Sequence:        intPtr(2),
+									Iteration:       &iteration,
+									ToolCall: &agconv.ToolCallView{
+										MessageId:         "tm2",
+										ToolName:          "resources-grepFiles",
+										Status:            "completed",
+										ResponsePayloadId: stringPtr("res2"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		spec := loadBuiltinFeedSpec(t, "explorer")
 		client := &backendClient{
-			conv:  newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1"}, nil),
+			conv:  newConversationWithPayloadsClient(conv, payloads),
 			feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 		}
 		got, err := client.ResolveFeedData(context.Background(), spec, "conv-1")
 		require.NoError(t, err)
-		assert.Nil(t, got)
+		assert.JSONEq(t, `{
+			"input":{"path":"repo","pattern":"SetBit"},
+			"output":{
+				"files":[
+					{"Path":"bitset.go","Matches":3},
+					{"Path":"state.go","Matches":2}
+				],
+				"path":"repo",
+				"stats":{"matches":5},
+				"modeApplied":"grep"
+			},
+			"entries":[
+				{"Path":"bitset.go","Matches":3},
+				{"Path":"state.go","Matches":2}
+			]
+		}`, mustMarshalJSON(t, got))
 	})
 
 	t.Run("ResolveFeedData skips nil turns and empty content before later match", func(t *testing.T) {

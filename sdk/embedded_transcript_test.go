@@ -549,6 +549,40 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantPreambleFromTranscript
 	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
+func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *testing.T) {
+	narratorMode := "narrator"
+	preamble := "Delegated child is still working through the file listing."
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "running",
+		Message: []*agconv.MessageView{
+			{
+				Id:       "n1",
+				Role:     "assistant",
+				Interim:  1,
+				Preamble: &preamble,
+				Mode:     &narratorMode,
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+
+	page := state.Turns[0].Execution.Pages[0]
+	require.Equal(t, "narrator", page.ExecutionRole)
+	require.Equal(t, narratorMode, page.Mode)
+	require.Equal(t, preamble, page.Preamble)
+	require.Len(t, page.ModelSteps, 1)
+	require.Equal(t, "narrator", page.ModelSteps[0].ExecutionRole)
+	require.NotNil(t, page.ModelSteps[0].ResponsePayload)
+	require.Contains(t, string(page.ModelSteps[0].ResponsePayload), preamble)
+}
+
 func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2
