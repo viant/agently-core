@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	iauth "github.com/viant/agently-core/internal/auth"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -217,6 +218,70 @@ func TestDistributedRefresh_LeaseNotAcquired(t *testing.T) {
 	}
 	if broker.refreshCalls != 0 {
 		t.Errorf("broker should NOT have been called, got %d calls", broker.refreshCalls)
+	}
+}
+
+func TestEnsureTokens_NegativeCachesStoreMiss(t *testing.T) {
+	var getCalls int
+	store := &mockTokenStore{
+		getFunc: func(_ context.Context, _, _ string) (*OAuthToken, error) {
+			getCalls++
+			return nil, nil
+		},
+	}
+	mgr := NewManager(
+		WithTokenStore(store),
+		WithMissTTL(30*time.Second),
+	)
+
+	ctx := context.Background()
+	_, err := mgr.EnsureTokens(ctx, testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() unexpected error: %v", err)
+	}
+	_, err = mgr.EnsureTokens(ctx, testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() unexpected error on second call: %v", err)
+	}
+	if getCalls != 1 {
+		t.Fatalf("store.Get calls = %d, want 1 due to miss cache", getCalls)
+	}
+}
+
+func TestEnsureTokens_StoreClearsMissCache(t *testing.T) {
+	var stored *OAuthToken
+	store := &mockTokenStore{
+		getFunc: func(_ context.Context, _, _ string) (*OAuthToken, error) {
+			return stored, nil
+		},
+		putFunc: func(_ context.Context, token *OAuthToken) error {
+			stored = token
+			return nil
+		},
+	}
+	mgr := NewManager(
+		WithTokenStore(store),
+		WithMissTTL(30*time.Second),
+	)
+
+	ctx := context.Background()
+	_, err := mgr.EnsureTokens(ctx, testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() unexpected error: %v", err)
+	}
+
+	expiry := time.Now().Add(30 * time.Minute)
+	if err := mgr.Store(ctx, testKey, freshToken("fresh-access", "fresh-refresh", expiry)); err != nil {
+		t.Fatalf("Store() error: %v", err)
+	}
+
+	next, err := mgr.EnsureTokens(ctx, testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() after Store unexpected error: %v", err)
+	}
+	tok := iauth.TokensFromContext(next)
+	if tok == nil || tok.AccessToken != "fresh-access" {
+		t.Fatalf("expected injected fresh token after store clear, got %#v", tok)
 	}
 }
 
