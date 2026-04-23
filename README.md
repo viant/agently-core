@@ -204,7 +204,7 @@ Runtime behavior:
 - previous-response continuation is unaffected because continuation anchors come
   from persisted transcript trace ids, not async SSE identity
 
-Detailed documentation: [async.md](./async.md)
+Detailed documentation: [async.md](./doc/async.md)
 
 ## Workspace
 

@@ -34,8 +34,10 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	dssvc "github.com/viant/agently-core/service/datasource"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	oversvc "github.com/viant/agently-core/service/lookup/overlay"
 	"github.com/viant/agently-core/service/scheduler"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
@@ -72,6 +74,10 @@ type backendClient struct {
 	schedulerSvc   *scheduler.Service
 	feeds          *FeedRegistry
 	skills         skillBackend
+	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
+	// them. See sdk/embedded_datasources.go.
+	datasourceSvc *dssvc.Service
+	overlaySvc    *oversvc.Service
 }
 
 type skillBackend interface {
@@ -137,6 +143,16 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	}
 	c.feeds = NewFeedRegistry()
 	c.skills = rt.Skills
+	// Wire the datasource + overlay stack. Loads any datasources/ and
+	// lookups/ YAML from the workspace and installs the refiner hook. If
+	// no YAML is present both stacks are constructed empty and behave as
+	// no-ops — the HTTP handlers return an empty registry and reject
+	// unknown datasource ids. This runs even when rt.Registry is nil; the
+	// datasource service rejects mcp_tool backends at Fetch time in that
+	// case, but feed_ref / inline backends still work.
+	if err := c.bootstrapDatasourceStack(rt); err != nil {
+		return nil, fmt.Errorf("datasource stack bootstrap: %w", err)
+	}
 	if rt.DAO != nil && rt.Agent != nil {
 		store, err := scheduler.NewDatlyStore(context.Background(), rt.DAO, rt.Data)
 		if err != nil {

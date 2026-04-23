@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -45,6 +47,11 @@ func (s *metadataTestStore) Entries(_ context.Context, kind string) ([]ws.Entry,
 }
 
 func TestMetadataHandler_StarterTasks(t *testing.T) {
+	prevRoot := ws.Root()
+	tempRoot := t.TempDir()
+	ws.SetRoot(tempRoot)
+	defer ws.SetRoot(prevRoot)
+
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
 			ws.KindAgent: {
@@ -74,6 +81,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	err := json.Unmarshal(rec.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response.WorkspaceRoot)
+	assert.Equal(t, "0.0.0", response.WorkspaceVersion)
 	assert.Equal(t, "chatter", response.DefaultAgent)
 	assert.Equal(t, "openai_gpt4o_mini", response.DefaultModel)
 	assert.Equal(t, "openai_text", response.DefaultEmbedder)
@@ -101,6 +109,33 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 			assert.Equal(t, "tree-structure", response.AgentInfos[0].StarterTasks[0].Icon)
 		}
 	}
+}
+
+func TestMetadataHandler_WorkspaceVersionFromRootFile(t *testing.T) {
+	prevRoot := ws.Root()
+	tempRoot := t.TempDir()
+	ws.SetRoot(tempRoot)
+	defer ws.SetRoot(prevRoot)
+
+	err := os.WriteFile(filepath.Join(tempRoot, "Version"), []byte("1.2.3\n"), 0o644)
+	assert.NoError(t, err)
+
+	handler := NewMetadataHandler(&config.Defaults{}, &metadataTestStore{items: map[string]map[string][]byte{}}, "test-version")
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response MetadataResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, tempRoot, response.WorkspaceRoot)
+	assert.Equal(t, "1.2.3", response.WorkspaceVersion)
+	assert.Equal(t, "test-version", response.Version)
 }
 
 func TestMetadataHandler_DescriptorInfos(t *testing.T) {

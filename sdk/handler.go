@@ -184,6 +184,14 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("PUT /v1/workspace/resources/{kind}/{name}", handleSaveResource(client))
 	mux.HandleFunc("DELETE /v1/workspace/resources/{kind}/{name}", handleDeleteResource(client))
 	mux.HandleFunc("GET /v1/workspace/resources", handleListResources(client))
+
+	// Datasources + lookups. These sit behind the same middleware as every
+	// other /v1/api/ route — including OAuth when the workspace enables it.
+	// Backends that have not wired the datasource service return 501 from
+	// the handler; no panic, no route registration gating.
+	mux.HandleFunc("POST /v1/api/datasources/{id}/fetch", handleFetchDatasource(client))
+	mux.HandleFunc("DELETE /v1/api/datasources/{id}/cache", handleInvalidateDatasourceCache(client))
+	mux.HandleFunc("GET /v1/api/lookups/registry", handleListLookupRegistry(client))
 }
 
 func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {

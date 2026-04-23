@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -16,17 +18,18 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
-	WorkspaceRoot   string       `json:"workspaceRoot,omitempty"`
-	DefaultAgent    string       `json:"defaultAgent,omitempty"`
-	DefaultModel    string       `json:"defaultModel,omitempty"`
-	DefaultEmbedder string       `json:"defaultEmbedder,omitempty"`
-	Defaults        *Defaults    `json:"defaults,omitempty"`
-	Capabilities    Capabilities `json:"capabilities,omitempty"`
-	Agents          []string     `json:"agents,omitempty"`
-	Models          []string     `json:"models,omitempty"`
-	AgentInfos      []AgentInfo  `json:"agentInfos,omitempty"`
-	ModelInfos      []ModelInfo  `json:"modelInfos,omitempty"`
-	Version         string       `json:"version,omitempty"`
+	WorkspaceRoot    string       `json:"workspaceRoot,omitempty"`
+	WorkspaceVersion string       `json:"workspaceVersion,omitempty"`
+	DefaultAgent     string       `json:"defaultAgent,omitempty"`
+	DefaultModel     string       `json:"defaultModel,omitempty"`
+	DefaultEmbedder  string       `json:"defaultEmbedder,omitempty"`
+	Defaults         *Defaults    `json:"defaults,omitempty"`
+	Capabilities     Capabilities `json:"capabilities,omitempty"`
+	Agents           []string     `json:"agents,omitempty"`
+	Models           []string     `json:"models,omitempty"`
+	AgentInfos       []AgentInfo  `json:"agentInfos,omitempty"`
+	ModelInfos       []ModelInfo  `json:"modelInfos,omitempty"`
+	Version          string       `json:"version,omitempty"`
 }
 
 // Defaults captures UI-facing runtime defaults in a stable nested shape.
@@ -96,8 +99,9 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		resp := MetadataResponse{
-			WorkspaceRoot: ws.Root(),
-			Version:       h.version,
+			WorkspaceRoot:    ws.Root(),
+			WorkspaceVersion: resolveWorkspaceVersion(ws.Root()),
+			Version:          h.version,
 			Capabilities: Capabilities{
 				AgentAutoSelection:    true,
 				ModelAutoSelection:    false,
@@ -136,6 +140,22 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func resolveWorkspaceVersion(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "0.0.0"
+	}
+	data, err := os.ReadFile(filepath.Join(root, "Version"))
+	if err != nil {
+		return "0.0.0"
+	}
+	version := strings.TrimSpace(string(data))
+	if version == "" {
+		return "0.0.0"
+	}
+	return version
 }
 
 func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []AgentInfo {
