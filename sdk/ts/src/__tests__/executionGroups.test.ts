@@ -404,4 +404,29 @@ describe('executionGroups', () => {
             status: 'streaming',
         });
     });
+
+    it('marks model_completed without explicit status as completed for the group and model step', () => {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
+            type: 'model_started',
+            assistantMessageId: 'a9',
+            turnId: 'turn-1',
+            iteration: 1,
+            pageIndex: 1,
+            status: 'thinking',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
+            type: 'model_completed',
+            assistantMessageId: 'a9',
+            turnId: 'turn-1',
+            iteration: 1,
+            pageIndex: 1,
+            responsePayloadId: 'resp-9',
+        }));
+
+        expect(live2.a9).toMatchObject({
+            status: 'completed',
+            modelSteps: [{ status: 'completed', responsePayloadId: 'resp-9' }],
+        });
+    });
 });

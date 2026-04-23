@@ -54,6 +54,14 @@ const (
 	KindFeeds            = "feeds"
 	KindA2A              = "a2a"
 	KindCallback         = "callbacks"
+
+	// DataSources / pickers (extension/forge/*). These kinds extend the
+	// forge metadata vocabulary; grouping them under extension/forge/
+	// keeps ownership obvious at a glance and leaves headroom for other
+	// extension/<tool>/… subtrees in the future.
+	KindForgeDataSource = "extension/forge/datasources"
+	KindForgeDialog     = "extension/forge/dialogs"
+	KindForgeLookup     = "extension/forge/lookups"
 )
 
 // AllKinds returns all predefined resource kinds.
@@ -61,6 +69,7 @@ func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow, KindSkill,
 		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindFeeds, KindA2A, KindCallback,
+		KindForgeDataSource, KindForgeDialog, KindForgeLookup,
 	}
 }
 

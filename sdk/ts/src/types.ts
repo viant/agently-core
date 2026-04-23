@@ -749,6 +749,8 @@ export interface MetadataTargetContext {
 }
 
 export interface WorkspaceMetadata {
+    workspaceRoot?: string;
+    workspaceVersion?: string;
     defaultAgent?: string;
     defaultModel?: string;
     defaultEmbedder?: string;

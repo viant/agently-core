@@ -177,17 +177,18 @@ type WorkspaceModelInfo struct {
 }
 
 type WorkspaceMetadata struct {
-	WorkspaceRoot   string                `json:"workspaceRoot,omitempty"`
-	DefaultAgent    string                `json:"defaultAgent,omitempty"`
-	DefaultModel    string                `json:"defaultModel,omitempty"`
-	DefaultEmbedder string                `json:"defaultEmbedder,omitempty"`
-	Defaults        *WorkspaceDefaults    `json:"defaults,omitempty"`
-	Capabilities    WorkspaceCapabilities `json:"capabilities,omitempty"`
-	Agents          []string              `json:"agents,omitempty"`
-	Models          []string              `json:"models,omitempty"`
-	AgentInfos      []WorkspaceAgentInfo  `json:"agentInfos,omitempty"`
-	ModelInfos      []WorkspaceModelInfo  `json:"modelInfos,omitempty"`
-	Version         string                `json:"version,omitempty"`
+	WorkspaceRoot    string                `json:"workspaceRoot,omitempty"`
+	WorkspaceVersion string                `json:"workspaceVersion,omitempty"`
+	DefaultAgent     string                `json:"defaultAgent,omitempty"`
+	DefaultModel     string                `json:"defaultModel,omitempty"`
+	DefaultEmbedder  string                `json:"defaultEmbedder,omitempty"`
+	Defaults         *WorkspaceDefaults    `json:"defaults,omitempty"`
+	Capabilities     WorkspaceCapabilities `json:"capabilities,omitempty"`
+	Agents           []string              `json:"agents,omitempty"`
+	Models           []string              `json:"models,omitempty"`
+	AgentInfos       []WorkspaceAgentInfo  `json:"agentInfos,omitempty"`
+	ModelInfos       []WorkspaceModelInfo  `json:"modelInfos,omitempty"`
+	Version          string                `json:"version,omitempty"`
 }
 
 type ListTemplatesInput struct{}

@@ -6,6 +6,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	agrun "github.com/viant/agently-core/pkg/agently/run"
 	"github.com/viant/agently-core/runtime/streaming"
+	"github.com/viant/agently-core/sdk/api"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/scheduler"
@@ -162,6 +163,24 @@ type Client interface {
 
 	// RunScheduleNow triggers immediate execution of a schedule.
 	RunScheduleNow(ctx context.Context, id string) error
+
+	// FetchDatasource returns rows for a workspace-registered datasource.
+	// Caller identity flows via ctx; the backend reads it when keying the
+	// per-user cache and attaches any MCP auth token when the backend is
+	// mcp_tool. Implementations that have not wired the datasource stack
+	// should return a clear error rather than nil rows.
+	FetchDatasource(ctx context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error)
+
+	// InvalidateDatasourceCache drops cache entries for a datasource in the
+	// caller's scope. When InputsHash is empty, the whole datasource range
+	// is dropped.
+	InvalidateDatasourceCache(ctx context.Context, in *api.InvalidateDatasourceCacheInput) error
+
+	// ListLookupRegistry returns the set of named-token bindings available
+	// for a given render context — composed server-side from loaded overlays
+	// whose Named binding matches. Used by the web + mobile `/name` hotkey
+	// component and by the authored-prompt renderer.
+	ListLookupRegistry(ctx context.Context, in *api.ListLookupRegistryInput) (*api.ListLookupRegistryOutput, error)
 }
 
 // Backend is the server-side implementation contract used by SDK HTTP handlers.

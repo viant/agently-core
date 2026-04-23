@@ -6,6 +6,22 @@ import (
 	"strings"
 )
 
+// OverlayHook is an optional callback invoked once per Refine call, after the
+// built-in refinement passes. When set, it receives the schema's property map
+// and may attach forge Item.Lookup metadata (x-ui-widget=lookup plus an
+// x-ui-lookup attachment block) on matched properties.
+//
+// The refiner does not import service/lookup/overlay directly to avoid a
+// package dependency cycle. The SDK or runtime wires up the hook at startup
+// via SetOverlayHook.
+type OverlayHook func(schemaProps map[string]interface{})
+
+var overlayHook OverlayHook
+
+// SetOverlayHook installs an optional overlay hook invoked on every Refine
+// call. Pass nil to disable.
+func SetOverlayHook(h OverlayHook) { overlayHook = h }
+
 func Refine(rs *schema.ElicitRequestParamsRequestedSchema) {
 	if rs == nil {
 		return
@@ -48,6 +64,9 @@ func Refine(rs *schema.ElicitRequestParamsRequestedSchema) {
 	}
 	if !hasExplicitOrder(rs) {
 		assignAutoOrder(rs)
+	}
+	if overlayHook != nil {
+		overlayHook(rs.Properties)
 	}
 }
 

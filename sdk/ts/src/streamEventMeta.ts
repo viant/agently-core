@@ -20,6 +20,7 @@ export function modelStepStatusForEvent(event: SSEEvent, existingStatus = '', fa
     const explicitStatus = firstString(event?.status);
     if (explicitStatus) return explicitStatus;
     const type = firstString(event?.type).toLowerCase();
+    if (type === 'model_completed') return 'completed';
     if (type === 'text_delta') return 'streaming';
     return firstString(fallbackStatus, existingStatus, 'running');
 }
@@ -28,6 +29,7 @@ export function executionGroupStatusForEvent(event: SSEEvent, existingStatus = '
     const explicitStatus = firstString(event?.status);
     if (explicitStatus) return explicitStatus;
     const type = firstString(event?.type).toLowerCase();
+    if (type === 'model_completed') return 'completed';
     if (type === 'text_delta') {
         const normalized = firstString(existingStatus).toLowerCase();
         if (['completed', 'done', 'success', 'succeeded', 'failed', 'error', 'canceled', 'cancelled', 'terminated'].includes(normalized)) {

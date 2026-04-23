@@ -472,12 +472,16 @@ class AgentlyClient(
         }
     }
 
-    private fun <T> get(path: String, serializer: KSerializer<T>): T {
+    // Visibility note: these were historically private. They are now
+    // `internal` so same-module extension files (e.g. Lookups.kt) can
+    // reuse the transport without duplicating it. They are NOT part of the
+    // public API — the `internal` modifier keeps them package-scoped.
+    internal fun <T> get(path: String, serializer: KSerializer<T>): T {
         val root = parseJson(restClient.get(endpointName, path) { it })
         return decode(root, serializer)
     }
 
-    private fun <I, T> post(path: String, payload: I, serializer: KSerializer<T>): T {
+    internal fun <I, T> post(path: String, payload: I, serializer: KSerializer<T>): T {
         val request = json.encodeToString(serializerFor(payload), payload)
         val root = parseJson(restClient.post(endpointName, path, request) { it })
         return decode(root, serializer)
@@ -494,7 +498,7 @@ class AgentlyClient(
         return decode(root, serializer)
     }
 
-    private fun <T> delete(path: String, serializer: KSerializer<T>): T {
+    internal fun <T> delete(path: String, serializer: KSerializer<T>): T {
         val root = parseJson(restClient.delete(endpointName, path) { it })
         return decode(root, serializer)
     }
@@ -519,6 +523,7 @@ class AgentlyClient(
         is ImportResourcesInput -> ImportResourcesInput.serializer() as KSerializer<T>
         is SchedulePatchInput -> SchedulePatchInput.serializer() as KSerializer<T>
         is SendA2AMessageRequest -> SendA2AMessageRequest.serializer() as KSerializer<T>
+        is FetchDatasourceInput -> FetchDatasourceInput.serializer() as KSerializer<T>
         is Map<*, *> -> MapSerializer(String.serializer(), JsonElement.serializer()) as KSerializer<T>
         else -> error("Unsupported payload type: ${payload?.let { it::class.qualifiedName } ?: "null"}")
     }
