@@ -1,9 +1,17 @@
 package config
 
 import (
+	"github.com/viant/agently-core/protocol/async/wsconfig"
 	"github.com/viant/agently-core/protocol/binding"
 	"gopkg.in/yaml.v3"
 )
+
+// AsyncDefaults carries operator-tunable async defaults. It is a thin
+// alias over wsconfig.WorkspaceConfig so that the workspace YAML
+// (`default.async.*`) is decoded directly into the same struct the
+// bootstrap passes to `Apply` — no duplicated shape, single source of
+// truth.
+type AsyncDefaults = wsconfig.WorkspaceConfig
 
 type Defaults struct {
 	Model    string
@@ -63,6 +71,12 @@ type Defaults struct {
 
 	// ---- Resources defaults (optional) ---------------------------
 	Resources ResourcesDefaults `yaml:"resources,omitempty" json:"resources,omitempty"`
+
+	// ---- Async defaults (optional) -------------------------------
+	// Operator-tunable GC cadence and narrator LLM timeout for the
+	// async subsystem. Empty / absent → built-in package defaults
+	// remain in effect. Applied at bootstrap via wsconfig.Apply.
+	Async *AsyncDefaults `yaml:"async,omitempty" json:"async,omitempty"`
 }
 
 // UnmarshalYAML supports both the current and legacy router keys:
@@ -113,6 +127,8 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 		Match     MatchDefaults     `yaml:"match,omitempty"`
 		Resources ResourcesDefaults `yaml:"resources,omitempty"`
+
+		Async *AsyncDefaults `yaml:"async,omitempty"`
 	}
 
 	var tmp raw
@@ -144,6 +160,8 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 		Match:     tmp.Match,
 		Resources: tmp.Resources,
+
+		Async: tmp.Async,
 	}
 
 	if hasKey("agentAutoSelection") {

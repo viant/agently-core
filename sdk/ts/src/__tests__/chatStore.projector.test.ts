@@ -284,6 +284,14 @@ describe('chatStore/projector — projectConversation', () => {
     });
 
     it('anchors live iteration ordering to the latest page timestamp so a prior standalone note stays above a later final answer', () => {
+        // Contract: an `assistant` event (explicit add, e.g. from the
+        // message/add tool) produces a standalone bubble in
+        // turn.messages. Page content arrives via `text_delta` stream
+        // accumulation into page.content — simulated here with a
+        // transcript merge so we don't have to play the full delta
+        // sequence. The two coexist in the render: standalone
+        // bubble first (by sequence / createdAt), iteration block
+        // second.
         const state = fresh();
         applyEvent(state, sse({
             type: 'turn_started',
@@ -291,29 +299,34 @@ describe('chatStore/projector — projectConversation', () => {
             createdAt: '2026-04-21T00:00:00Z',
         }));
         applyEvent(state, sse({
-            type: 'control',
-            op: 'message_add',
+            type: 'assistant',
             turnId: 'tn_live_note',
             messageId: 'msg_note_live',
+            content: 'PRELIMINARY NOTE',
+            createdAt: '2026-04-21T00:00:08Z',
             patch: {
-                id: 'msg_note_live',
-                turnId: 'tn_live_note',
                 role: 'assistant',
-                content: 'PRELIMINARY NOTE',
                 sequence: 8,
-                interim: 0,
-                createdAt: '2026-04-21T00:00:08Z',
             },
         } as SSEEvent));
-        applyEvent(state, sse({
-            type: 'assistant_final',
-            turnId: 'tn_live_note',
-            pageId: 'page_final_live',
-            assistantMessageId: 'page_final_live',
-            content: 'Final answer',
-            iteration: 1,
-            createdAt: '2026-04-21T00:00:09Z',
-        } as SSEEvent));
+        // Page content lives on the execution page — feed it via a
+        // transcript merge (simulating what text_delta + model_completed
+        // would leave behind on the client).
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_live_note',
+                status: 'running',
+                execution: {
+                    pages: [{
+                        pageId: 'page_final_live',
+                        iteration: 1,
+                        content: 'Final answer',
+                        createdAt: '2026-04-21T00:00:09Z',
+                    }],
+                },
+            }],
+        });
 
         const rows = projectConversation(state);
         expect(rows.map((row) => row.kind)).toEqual(['assistant', 'iteration']);

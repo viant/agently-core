@@ -30,7 +30,7 @@ describe('streamEventMeta', () => {
     it('marks text deltas as streaming when there is no explicit status', () => {
         expect(modelStepStatusForEvent(event({ type: 'text_delta' }), 'thinking', 'running')).toBe('streaming');
         expect(modelStepStatusForEvent(event({ type: 'model_started', status: 'thinking' }), '', 'running')).toBe('thinking');
-        expect(modelStepStatusForEvent(event({ type: 'assistant_preamble' }), 'running', 'running')).toBe('running');
+        expect(modelStepStatusForEvent(event({ type: 'narration' }), 'running', 'running')).toBe('running');
         expect(executionGroupStatusForEvent(event({ type: 'text_delta' }), 'thinking', 'running')).toBe('streaming');
         expect(executionGroupStatusForEvent(event({ type: 'text_delta' }), 'completed', 'running')).toBe('completed');
     });

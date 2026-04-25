@@ -2,12 +2,34 @@ package async
 
 import "strings"
 
+// ExecutionMode is the barrier/ownership decision for an async op.
+//
+// Exactly two values:
+//
+//   - "wait" (default): start registers the op and a later status call
+//     parks on the barrier; poller + narrator are engaged and TimeoutAt
+//     is enforced by the poller tick loop.
+//   - "detach": start returns; the op is fire-and-forget at the runtime
+//     layer — no PollAsyncOperation goroutine is spawned and no barrier
+//     is attached. `TimeoutAt` is still populated from `TimeoutMs` so
+//     the activated-status loop in `tool_executor.
+//     maybeExecuteActivatedStatusTool` can time-box its re-polls for a
+//     changed snapshot. When nothing observes the op, it is reclaimed
+//     by the Manager GC after the workspace-configured
+//     `default.async.gc.maxAge` idle window.
+//
+// There was previously a third value, "fork", intended for
+// child-conversation launches. It behaved identically to "wait" in this
+// package and was never set by any production caller. The "launch a
+// child and wait" vs. "wait inline" distinction lives at the skill /
+// agents layer (see service/skill and protocol/skill), not on this enum.
+// Keep the async layer minimal: the only question here is "does the
+// status call park or not?"
 type ExecutionMode string
 
 const (
 	ExecutionModeWait   ExecutionMode = "wait"
 	ExecutionModeDetach ExecutionMode = "detach"
-	ExecutionModeFork   ExecutionMode = "fork"
 )
 
 type Config struct {
@@ -54,27 +76,28 @@ type Selector struct {
 	TerminalStatuses []string `json:"terminalStatuses,omitempty" yaml:"terminalStatuses,omitempty"`
 }
 
+// NormalizeExecutionMode coerces a mode string to the canonical enum
+// value. Unknown values (historical "fork" entries, typos, empty) fall
+// back to `fallback`, which itself defaults to "wait" if empty or also
+// invalid.
 func NormalizeExecutionMode(value string, fallback string) string {
 	mode := strings.ToLower(strings.TrimSpace(value))
 	if mode == "" {
 		mode = strings.ToLower(strings.TrimSpace(fallback))
 	}
 	switch ExecutionMode(mode) {
-	case ExecutionModeWait, ExecutionModeDetach, ExecutionModeFork:
+	case ExecutionModeWait, ExecutionModeDetach:
 		return mode
 	default:
-		if strings.TrimSpace(fallback) != "" {
+		if strings.TrimSpace(fallback) != "" && !strings.EqualFold(strings.TrimSpace(fallback), value) {
 			return NormalizeExecutionMode(fallback, string(ExecutionModeWait))
 		}
 		return string(ExecutionModeWait)
 	}
 }
 
+// ExecutionModeWaits reports whether an op in this mode parks on the
+// status barrier. Only "wait" waits; "detach" does not.
 func ExecutionModeWaits(value string) bool {
-	switch ExecutionMode(NormalizeExecutionMode(value, string(ExecutionModeWait))) {
-	case ExecutionModeWait, ExecutionModeFork:
-		return true
-	default:
-		return false
-	}
+	return ExecutionMode(NormalizeExecutionMode(value, string(ExecutionModeWait))) == ExecutionModeWait
 }

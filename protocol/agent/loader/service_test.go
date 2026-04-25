@@ -243,6 +243,18 @@ func TestService_Load_InstructionPrompt(t *testing.T) {
 	}
 }
 
+func TestService_Load_AsyncNarratorPrompt(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "async_narrator_prompt.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	want := "You are this agent's async narrator. Keep progress lines terse and\naudit-friendly — no filler, no emoji, no second-person."
+	assert.Equal(t, want, got.AsyncNarratorPrompt)
+}
+
 func TestService_Load_InstructionAliasFallback(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))

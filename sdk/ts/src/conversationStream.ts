@@ -27,7 +27,7 @@ export interface ProjectedConversationTurn extends Partial<Turn> {
             messageId?: string;
             content?: string;
         };
-        preamble?: {
+        narration?: {
             messageId?: string;
             content?: string;
         };
@@ -72,7 +72,7 @@ export interface CanonicalLiveAssistantRow {
     role: string;
     type: string;
     content: string;
-    preamble: string;
+    narration: string;
     createdAt: string;
     interim: number;
     status: string;
@@ -180,11 +180,11 @@ function projectLiveAssistantRow(
     const content = String(
         entry?.content
         || group?.content
-        || entry?.preamble
-        || group?.preamble
+        || entry?.narration
+        || group?.narration
         || '',
     ).trim();
-    const preamble = String(entry?.preamble || group?.preamble || '').trim();
+    const narration = String(entry?.narration || group?.narration || '').trim();
     const finalResponse = Boolean(group?.finalResponse) || Number(entry?.interim ?? 1) === 0;
     const createdAt = String(
         entry?.createdAt
@@ -200,7 +200,7 @@ function projectLiveAssistantRow(
         role: String(entry?.role || 'assistant').trim().toLowerCase(),
         type: String(entry?.type || 'text').trim().toLowerCase(),
         content,
-        preamble,
+        narration,
         createdAt,
         interim: finalResponse ? 0 : (Number(entry?.interim ?? 1) || 1),
         status: String(entry?.status || group?.status || '').trim(),
@@ -346,7 +346,7 @@ export function projectTrackerToTurns(
         const userEntry = turnEntries.find((entry) => String(entry?.role || '').trim().toLowerCase() === 'user') || null;
         const assistantEntries = turnEntries.filter((entry) => String(entry?.role || '').trim().toLowerCase() === 'assistant');
         const finalAssistant = [...assistantEntries].reverse().find((entry) => Number(entry?.interim ?? 1) === 0 && String(entry?.content || '').trim() !== '') || null;
-        const preambleAssistant = [...assistantEntries].reverse().find((entry) => String(entry?.preamble || '').trim() !== '') || null;
+        const narrationAssistant = [...assistantEntries].reverse().find((entry) => String(entry?.narration || '').trim() !== '') || null;
         const turnCreatedAt = normalizeProjectedTurnCreatedAt(turnPages, turnEntries);
         const turnSequence = normalizeProjectedTurnSequence(turnPages, turnEntries);
         const linkedConversations = collectProjectedLinkedConversations(turnPages);
@@ -377,10 +377,10 @@ export function projectTrackerToTurns(
                         content: String(finalAssistant?.content || '').trim(),
                     }
                     : undefined,
-                preamble: preambleAssistant
+                narration: narrationAssistant
                     ? {
-                        messageId: String(preambleAssistant?.id || '').trim(),
-                        content: String(preambleAssistant?.preamble || '').trim(),
+                        messageId: String(narrationAssistant?.id || '').trim(),
+                        content: String(narrationAssistant?.narration || '').trim(),
                     }
                     : undefined,
             },

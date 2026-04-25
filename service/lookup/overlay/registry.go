@@ -51,6 +51,8 @@ func (s *Service) Registry(contextKind, contextID string) []loproto.RegistryEntr
 			entry := loproto.RegistryEntry{
 				Name:       b.Named.Name,
 				DataSource: b.Lookup.DataSource,
+				DialogId:   b.Lookup.DialogId,
+				WindowId:   b.Lookup.WindowId,
 				Trigger:    triggerOrDefault(b.Named.Trigger),
 				Required:   b.Named.Required,
 				Display:    firstNonEmpty(b.Named.Display, b.Lookup.Display),

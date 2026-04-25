@@ -151,10 +151,10 @@ export type {
 
 // Message interpretation helpers
 export {
-    isPreamble, isFinalResponse, isUserMessage, isToolMessage,
+    isNarration, isFinalResponse, isUserMessage, isToolMessage,
     isSystemMessage, isArchived, isSummary, isSummarized,
     toolName, toolStatus, toolElapsedMs, toolCallId,
-    messageIteration, messagePreamble,
+    messageIteration, messageNarration,
     groupByIteration, messageUIType,
 } from './interpret';
 

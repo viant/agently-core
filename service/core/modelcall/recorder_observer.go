@@ -326,7 +326,7 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 		if preamble == "" {
 			preamble = content
 		}
-		msg.SetPreamble(preamble)
+		msg.SetNarration(preamble)
 		msg.SetRawContent(content)
 		msg.SetInterim(1)
 	} else {

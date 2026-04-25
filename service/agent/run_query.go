@@ -593,11 +593,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if modelSource != "" {
 			modelSelection.Options.Metadata["modelSource"] = modelSource
 		}
+		// activeSkill is hoisted out of the `if s.skillSvc != nil` block
+		// so downstream resolvers (e.g. the async narrator system-prompt
+		// ladder) can inspect it without re-running skill discovery.
+		var activeSkill *skillproto.Skill
 		if s.skillSvc != nil {
 			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
-				var activeSkill *skillproto.Skill
 				if len(activeSkills) > 0 {
 					activeSkill = activeSkills[0]
 				}
@@ -703,6 +706,37 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				genInput.ModelSelection.Options.Reasoning.Effort = v
 			}
 		}
+		// Narrator system-prompt resolution ladder (lowest precedence
+		// to highest):
+		//
+		//   1. Workspace default (`default.async.narrator.prompt`)
+		//   2. Agent override (`Agent.AsyncNarratorPrompt`)
+		//   3. Active-skill override (`Skill.Frontmatter.AsyncNarratorPrompt`)
+		//
+		// Each level overrides only when non-empty, so a missing field
+		// at any tier falls through to the next lower tier. Empty at
+		// all three levels is a bootstrap misconfiguration surfaced
+		// inside the runner closure below.
+		narratorSystemPrompt := ""
+		narratorPromptSource := ""
+		if s.defaults != nil && s.defaults.Async != nil && s.defaults.Async.Narrator != nil {
+			if v := strings.TrimSpace(s.defaults.Async.Narrator.Prompt); v != "" {
+				narratorSystemPrompt = v
+				narratorPromptSource = "workspace.default"
+			}
+		}
+		if input.Agent != nil {
+			if v := strings.TrimSpace(input.Agent.AsyncNarratorPrompt); v != "" {
+				narratorSystemPrompt = v
+				narratorPromptSource = "agent"
+			}
+		}
+		if activeSkill != nil {
+			if v := strings.TrimSpace(activeSkill.Frontmatter.AsyncNarratorPrompt); v != "" {
+				narratorSystemPrompt = v
+				narratorPromptSource = "skill:" + strings.TrimSpace(activeSkill.Frontmatter.Name)
+			}
+		}
 		ctx = toolexec.WithAsyncNarratorRunner(ctx, func(narratorCtx context.Context, in asyncnarrator.LLMInput) (string, error) {
 			modelName := strings.TrimSpace(genInput.ModelSelection.Model)
 			if modelName == "" {
@@ -712,22 +746,30 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if err != nil {
 				return "", err
 			}
+			if narratorSystemPrompt == "" {
+				// Bootstrap should always populate this from the workspace
+				// `default.async.narrator.prompt` baseline. An empty value
+				// here means a caller bypassed DefaultsWithFallback —
+				// surface it so the misconfiguration is visible.
+				return "", fmt.Errorf("async narrator system prompt is empty (workspace default.async.narrator.prompt not initialized)")
+			}
 			req := &llm.GenerateRequest{
 				Messages: []llm.Message{
-					llm.NewSystemMessage("Write one short progress preamble for an in-progress async operation. Respond with only the preamble text. If nothing meaningful changed, return an empty response."),
+					llm.NewSystemMessage(narratorSystemPrompt),
 					llm.NewTextMessage(llm.RoleUser, strings.TrimSpace("user_ask: "+in.UserAsk+"\nintent: "+in.Intent+"\nsummary: "+in.Summary+"\nmessage: "+in.Message+"\nstatus: "+in.Status+"\ntool: "+in.Tool)),
 				},
 				Options: &llm.Options{
 					Metadata: map[string]interface{}{
-						"asyncNarrator":        true,
-						"asyncNarrationMode":   "llm",
-						"asyncNarratorOpID":    strings.TrimSpace(in.OperationID),
-						"asyncNarratorUserAsk": strings.TrimSpace(in.UserAsk),
-						"asyncNarratorIntent":  strings.TrimSpace(in.Intent),
-						"asyncNarratorSummary": strings.TrimSpace(in.Summary),
-						"asyncNarratorTool":    strings.TrimSpace(in.Tool),
-						"asyncNarratorStatus":  strings.TrimSpace(in.Status),
-						"modelSource":          "async.narrator",
+						"asyncNarrator":             true,
+						"asyncNarrationMode":        "llm",
+						"asyncNarratorOpID":         strings.TrimSpace(in.OperationID),
+						"asyncNarratorUserAsk":      strings.TrimSpace(in.UserAsk),
+						"asyncNarratorIntent":       strings.TrimSpace(in.Intent),
+						"asyncNarratorSummary":      strings.TrimSpace(in.Summary),
+						"asyncNarratorTool":         strings.TrimSpace(in.Tool),
+						"asyncNarratorStatus":       strings.TrimSpace(in.Status),
+						"asyncNarratorPromptSource": narratorPromptSource,
+						"modelSource":               "async.narrator",
 					},
 				},
 			}

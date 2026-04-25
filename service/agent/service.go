@@ -90,6 +90,17 @@ func (s *Service) Finder() agent.Finder {
 	return s.agentFinder
 }
 
+// AsyncManager returns the async Manager owned by this service. Exposed so
+// bootstrap wiring (e.g. executor.Builder) can forward workspace-level
+// `default.async` settings into `manager.StartGC` / narrator overrides
+// without reaching through package-private fields.
+func (s *Service) AsyncManager() *asynccfg.Manager {
+	if s == nil {
+		return nil
+	}
+	return s.asyncManager
+}
+
 func (s *Service) SetSkillService(svc *skillsvc.Service) {
 	if s == nil {
 		return

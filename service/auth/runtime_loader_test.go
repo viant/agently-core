@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLoadWorkspaceConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
+func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("STEWARD_OAUTH_CONFIG_URL", "idp_override.enc|blowfish://default")
 
@@ -24,9 +24,9 @@ func TestLoadWorkspaceConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 		t.Fatalf("failed to write config.yaml: %v", err)
 	}
 
-	cfg, err := LoadWorkspaceConfig(root)
+	cfg, err := LoadConfig(root)
 	if err != nil {
-		t.Fatalf("LoadWorkspaceConfig() error = %v", err)
+		t.Fatalf("LoadConfig() error = %v", err)
 	}
 	if cfg == nil || cfg.OAuth == nil || cfg.OAuth.Client == nil {
 		t.Fatalf("expected oauth client config to be loaded")
@@ -36,7 +36,7 @@ func TestLoadWorkspaceConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 	}
 }
 
-func TestLoadWorkspaceConfig_UsesOAuthConfigURLDefaultWhenEnvUnset(t *testing.T) {
+func TestLoadConfig_UsesOAuthConfigURLDefaultWhenEnvUnset(t *testing.T) {
 	root := t.TempDir()
 
 	config := `auth:
@@ -52,9 +52,9 @@ func TestLoadWorkspaceConfig_UsesOAuthConfigURLDefaultWhenEnvUnset(t *testing.T)
 		t.Fatalf("failed to write config.yaml: %v", err)
 	}
 
-	cfg, err := LoadWorkspaceConfig(root)
+	cfg, err := LoadConfig(root)
 	if err != nil {
-		t.Fatalf("LoadWorkspaceConfig() error = %v", err)
+		t.Fatalf("LoadConfig() error = %v", err)
 	}
 	if cfg == nil || cfg.OAuth == nil || cfg.OAuth.Client == nil {
 		t.Fatalf("expected oauth client config to be loaded")

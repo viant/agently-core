@@ -376,7 +376,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_ParksUntilTerminal(t *testing.T
 	require.Contains(t, out.Result, `"operationId":"child-1"`)
 	var preambleIDs []string
 	for _, msg := range conv.patchedMessages {
-		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Preamble == nil {
+		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Narration == nil {
 			continue
 		}
 		preambleIDs = append(preambleIDs, msg.Id)
@@ -438,7 +438,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_SoftReleasesOnIdle(t *testing.T
 	require.NotEmpty(t, conv.patchedMessages)
 }
 
-func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesPreambleUpdates(t *testing.T) {
+func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesNarrationUpdates(t *testing.T) {
 	prevWindow := asyncNarrationDebounceWindow
 	asyncNarrationDebounceWindow = 10 * time.Millisecond
 	defer func() { asyncNarrationDebounceWindow = prevWindow }()
@@ -508,11 +508,11 @@ func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesPreambleUpdates(t *tes
 	var preambles []string
 	var contents []string
 	for _, msg := range conv.patchedMessages {
-		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Preamble == nil {
+		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Narration == nil {
 			continue
 		}
 		preamblePatches++
-		preambles = append(preambles, *msg.Preamble)
+		preambles = append(preambles, *msg.Narration)
 		if msg.Content != nil {
 			contents = append(contents, *msg.Content)
 		}
@@ -589,10 +589,10 @@ func TestExecuteToolStep_StatusWaitExecutionMode_UsesLLMNarratorRunner(t *testin
 
 	var found bool
 	for _, msg := range conv.patchedMessages {
-		if msg == nil || msg.Preamble == nil {
+		if msg == nil || msg.Narration == nil {
 			continue
 		}
-		if strings.Contains(*msg.Preamble, "llm:inspect repo") {
+		if strings.Contains(*msg.Narration, "llm:inspect repo") {
 			found = true
 			break
 		}
@@ -600,7 +600,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_UsesLLMNarratorRunner(t *testin
 	require.True(t, found, "expected llm runner preamble to be used")
 }
 
-func TestExecuteToolStep_WaitModeStart_AutonomousPollerEmitsNarratorPreamble(t *testing.T) {
+func TestExecuteToolStep_WaitModeStart_AutonomousPollerEmitsNarratorNarration(t *testing.T) {
 	prevWindow := asyncNarrationDebounceWindow
 	asyncNarrationDebounceWindow = 5 * time.Millisecond
 	defer func() {
@@ -661,7 +661,7 @@ func TestExecuteToolStep_WaitModeStart_AutonomousPollerEmitsNarratorPreamble(t *
 			if !strings.EqualFold(derefString(msg.Mode), "narrator") {
 				continue
 			}
-			if strings.TrimSpace(derefString(msg.Preamble)) != "" {
+			if strings.TrimSpace(derefString(msg.Narration)) != "" {
 				return true
 			}
 		}
@@ -1362,10 +1362,10 @@ func TestExecuteToolStep_ActivatedStatusPollerReturnsLatestSnapshotOnTimeout(t *
 	}, time.Second, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
 		for _, msg := range conv.patchedMessages {
-			if msg == nil || msg.Preamble == nil {
+			if msg == nil || msg.Narration == nil {
 				continue
 			}
-			if strings.Contains(strings.TrimSpace(*msg.Preamble), "same status") {
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "same status") {
 				return true
 			}
 		}
@@ -1435,10 +1435,10 @@ func TestExecuteToolStep_ActivatedStatusPollerCompletesOnChangedSnapshot(t *test
 	require.Equal(t, "completed", strings.TrimSpace(conv.patchedToolCalls[len(conv.patchedToolCalls)-1].Status))
 	require.Eventually(t, func() bool {
 		for _, msg := range conv.patchedMessages {
-			if msg == nil || msg.Preamble == nil {
+			if msg == nil || msg.Narration == nil {
 				continue
 			}
-			if strings.Contains(strings.TrimSpace(*msg.Preamble), "changed status") {
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "changed status") {
 				return true
 			}
 		}

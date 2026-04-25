@@ -127,7 +127,8 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
 	scopeID := s.scopeID(ctx, policy.Scope)
-	mergedArgs := mergeArgs(inputs, ds.Backend.Pinned)
+	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
+	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
 	cacheKey := buildCacheKey(scopeID, ds.ID, policy.Key, mergedArgs)
 
 	if !opts.BypassCache {
@@ -154,6 +155,7 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, err
 	}
 	rows, dataInfo := project(raw, &ds.DataSource)
+	rows, dataInfo = applyPaging(rows, dataInfo, &ds.DataSource, mergedArgs)
 	result := &dsproto.FetchResult{Rows: rows, DataInfo: dataInfo}
 
 	s.cache.put(cacheKey, cacheEntry{
@@ -268,6 +270,49 @@ func mergeArgs(caller, pinned map[string]interface{}) map[string]interface{} {
 		out[k] = v
 	}
 	return out
+}
+
+func expandNestedArgs(args map[string]interface{}) map[string]interface{} {
+	if len(args) == 0 {
+		return args
+	}
+	out := map[string]interface{}{}
+	for key, value := range args {
+		assignNestedArg(out, key, value)
+	}
+	return out
+}
+
+func assignNestedArg(target map[string]interface{}, key string, value interface{}) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	parts := strings.Split(key, ".")
+	current := target
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return
+		}
+		if i == len(parts)-1 {
+			current[part] = value
+			return
+		}
+		next, ok := current[part]
+		if !ok {
+			child := map[string]interface{}{}
+			current[part] = child
+			current = child
+			continue
+		}
+		child, ok := next.(map[string]interface{})
+		if !ok {
+			child = map[string]interface{}{}
+			current[part] = child
+		}
+		current = child
+	}
 }
 
 // buildCacheKey produces a stable, hashed cache key. When cacheKeyPaths is

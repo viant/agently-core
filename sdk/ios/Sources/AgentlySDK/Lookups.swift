@@ -140,8 +140,6 @@ extension AgentlyClient {
     }
 }
 
-private struct EmptyResponse: Decodable {}
-
 // MARK: - Pure token helpers (Activations b + c)
 
 public enum LookupTokens {

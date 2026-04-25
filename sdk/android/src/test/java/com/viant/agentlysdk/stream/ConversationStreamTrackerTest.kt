@@ -40,8 +40,11 @@ class ConversationStreamTrackerTest {
                 turnId = turnId,
                 messageId = messageId,
                 assistantMessageId = messageId,
-                type = "assistant_final",
-                content = cleanFinal
+                type = "assistant",
+                content = cleanFinal,
+                patch = buildJsonObject {
+                    put("role", "assistant")
+                }
             )
         )
         tracker.applyEvent(

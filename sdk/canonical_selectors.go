@@ -53,7 +53,7 @@ type AssistantBubble struct {
 // Rules (from the proposal):
 //  1. Exactly one assistant bubble per visible execution page.
 //  2. If visible page has final content, show final content.
-//  3. Else if visible page has preamble, show preamble.
+//  3. Else if visible page has narration, show narration.
 func SelectAssistantBubble(turn *TurnState, pageIndex int) *AssistantBubble {
 	if turn == nil {
 		return nil
@@ -76,19 +76,19 @@ func SelectAssistantBubble(turn *TurnState, pageIndex int) *AssistantBubble {
 				IsFinal:   true,
 			}
 		}
-		if page.Preamble != "" {
+		if page.Narration != "" {
 			return &AssistantBubble{
-				MessageID: page.PreambleMessageID,
-				Content:   page.Preamble,
+				MessageID: page.NarrationMessageID,
+				Content:   page.Narration,
 				IsFinal:   false,
 			}
 		}
 	}
-	// Fallback to turn-level preamble
-	if turn.Assistant != nil && turn.Assistant.Preamble != nil && turn.Assistant.Preamble.Content != "" {
+	// Fallback to turn-level narration
+	if turn.Assistant != nil && turn.Assistant.Narration != nil && turn.Assistant.Narration.Content != "" {
 		return &AssistantBubble{
-			MessageID: turn.Assistant.Preamble.MessageID,
-			Content:   turn.Assistant.Preamble.Content,
+			MessageID: turn.Assistant.Narration.MessageID,
+			Content:   turn.Assistant.Narration.Content,
 			IsFinal:   false,
 		}
 	}

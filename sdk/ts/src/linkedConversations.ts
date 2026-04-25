@@ -15,7 +15,7 @@ type LegacyToolStep = Partial<ToolStepState> & {
 type LegacyExecutionPage = Partial<ExecutionPage> & {
     AssistantMessageId?: string;
     PageId?: string;
-    Preamble?: string;
+    Narration?: string;
     Content?: string;
     Status?: string;
     FinalResponse?: boolean;
@@ -85,7 +85,7 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptLike = 
     const latestPage = [...pages].reverse().find((page) => {
         if (!page) return false;
         if (String(page?.content || page?.Content || '').trim()) return true;
-        if (String(page?.preamble || page?.Preamble || '').trim()) return true;
+        if (String(page?.narration || page?.Narration || '').trim()) return true;
         const toolSteps = Array.isArray(page?.toolSteps) ? page.toolSteps : (Array.isArray(page?.ToolSteps) ? page.ToolSteps : []);
         const modelSteps = Array.isArray(page?.modelSteps) ? page.modelSteps : (Array.isArray(page?.ModelSteps) ? page.ModelSteps : []);
         return toolSteps.length > 0 || modelSteps.length > 0;
@@ -93,8 +93,8 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptLike = 
     const response = String(
         latestPage?.content
         || latestPage?.Content
-        || latestPage?.preamble
-        || latestPage?.Preamble
+        || latestPage?.narration
+        || latestPage?.Narration
         || lastTurn?.response?.content
         || lastTurn?.Response?.Content
         || ''
@@ -123,7 +123,7 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptLike = 
                 status: String(step?.status || step?.Status || '').trim(),
             } as ({ kind: 'tool' } & Partial<ToolStepState>)
         ));
-        const title = String(page?.preamble || page?.Preamble || '').trim()
+        const title = String(page?.narration || page?.Narration || '').trim()
             || (toolSteps.length > 0 ? `Using ${stepTitle(toolSteps[toolSteps.length - 1])}.` : '')
             || (modelStep ? stepTitle(modelStep) : '')
             || `Step ${index + 1}`;
@@ -152,7 +152,7 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptLike = 
 export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConversationPreviewSummary> = {}, event: Partial<SSEEvent> = {}) {
     const next = { ...current };
     const type = String(event?.type || '').trim().toLowerCase();
-    const content = String(event?.content || event?.preamble || '').trim();
+    const content = String(event?.content || event?.narration || '').trim();
     const status = String(event?.status || '').trim();
     const assistantMessageId = String(event?.assistantMessageId || '').trim();
     const toolName = String(event?.toolName || '').trim();
@@ -161,7 +161,7 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
         next.response = `${String(next.response || '')}${String(event?.content || '')}`.trim();
         return next;
     }
-    if (type === 'assistant_final') {
+    if (type === 'assistant' || type === 'message_appended') {
         next.response = content || String(next.response || '').trim();
         if (status) next.status = status;
         return next;

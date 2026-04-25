@@ -181,7 +181,7 @@ fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
         }
         "reasoning_delta" -> {
             val existing = ensureMessageEntry(buffer, key, event, conversationId, turnId)
-            storeEntry(buffer, key, existing.copy(preamble = (existing.preamble ?: "") + (event.content ?: "")))
+            storeEntry(buffer, key, existing.copy(narration = (existing.narration ?: "") + (event.content ?: "")))
             if (turnId.isNotBlank()) buffer.activeTurnId = turnId
             null
         }
@@ -197,22 +197,28 @@ fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
             if (turnId.isNotBlank()) buffer.activeTurnId = turnId
             null
         }
-        "assistant_preamble" -> {
+        "narration" -> {
             val existing = ensureMessageEntry(buffer, key, event, conversationId, turnId)
             val updated = existing.copy(
-                preamble = firstString(event.content, event.preamble, existing.preamble),
+                narration = firstString(event.content, event.narration, existing.narration),
                 status = firstString(event.status, existing.status, "running")
             )
             storeEntry(buffer, key, updated)
             if (turnId.isNotBlank()) buffer.activeTurnId = turnId
             null
         }
-        "assistant_final" -> {
+        "assistant", "message_appended" -> {
             val existing = ensureMessageEntry(buffer, key, event, conversationId, turnId)
-            val updated = existing.copy(
-                content = firstString(event.content, existing.content),
-                preamble = firstString(event.preamble, existing.preamble),
-                status = firstString(event.status, existing.status, "completed"),
+            val patched = patchMessage(existing, event.patch)
+            val role = firstString(event.patch?.stringValue("role")).lowercase()
+            if (role != "assistant" && role != "user") return null
+            val updated = patched.copy(
+                role = role,
+                type = firstString(event.patch?.stringValue("type"), patched.type, "text"),
+                content = firstString(event.content, event.patch?.stringValue("content"), patched.content),
+                narration = firstString(event.narration, event.patch?.stringValue("narration"), patched.narration),
+                status = firstString(event.status, event.patch?.stringValue("status"), patched.status, "completed"),
+                sequence = firstPositiveNumber(event.patch?.stringValue("sequence"), event.eventSeq, patched.sequence),
                 interim = 0
             )
             storeEntry(buffer, key, updated)
@@ -262,19 +268,19 @@ fun applyExecutionStreamEventToGroups(
         next[assistantMessageId] = mergeExecutionGroup(next[assistantMessageId], createLiveExecutionGroup(event))
         return next
     }
-    if ((type == "assistant_preamble" || type == "reasoning_delta") && assistantMessageId.isNotBlank()) {
+    if ((type == "narration" || type == "reasoning_delta") && assistantMessageId.isNotBlank()) {
         val current = ensureLiveExecutionGroup(next, assistantMessageId, event) ?: return next
-        val preamble = if (type == "reasoning_delta") {
-            "${firstString(current.preamble)}${firstString(event.content)}"
+        val narration = if (type == "reasoning_delta") {
+            "${firstString(current.narration)}${firstString(event.content)}"
         } else {
-            firstString(event.content, event.preamble, current.preamble)
+            firstString(event.content, event.narration, current.narration)
         }
         next[assistantMessageId] = mergePrimaryModelStep(
             current.copy(
                 turnId = firstString(event.turnId, current.turnId).ifBlank { null },
                 sequence = eventSequenceValue(event, current.sequence ?: 1),
                 iteration = eventIterationValue(event, current.iteration ?: 1),
-                preamble = preamble,
+                narration = narration,
                 status = firstString(event.status, current.status, "running")
             ),
             event,
@@ -295,7 +301,7 @@ fun applyExecutionStreamEventToGroups(
                 sequence = eventSequenceValue(event, current.sequence ?: 1),
                 iteration = eventIterationValue(event, current.iteration ?: 1),
                 content = content,
-                preamble = firstString(event.preamble, current.preamble),
+                narration = firstString(event.narration, current.narration),
                 errorMessage = firstString(event.error, current.errorMessage).ifBlank { null },
                 status = executionGroupStatusForEvent(event, current.status.orEmpty(), current.status ?: "running"),
                 finalResponse = event.finalResponse ?: current.finalResponse
@@ -315,22 +321,6 @@ fun applyExecutionStreamEventToGroups(
             event
         )
         next[assistantMessageId] = updated
-        return next
-    }
-    if (type == "assistant_final" && assistantMessageId.isNotBlank()) {
-        val current = ensureLiveExecutionGroup(next, assistantMessageId, event) ?: return next
-        next[assistantMessageId] = mergePrimaryModelStep(
-            current.copy(
-                turnId = firstString(event.turnId, current.turnId).ifBlank { null },
-                content = firstString(event.content, current.content),
-                preamble = firstString(event.preamble, current.preamble),
-                errorMessage = firstString(event.error, current.errorMessage).ifBlank { null },
-                status = firstString(event.status, current.status, "completed"),
-                finalResponse = true
-            ),
-            event,
-            "completed"
-        )
         return next
     }
     if (type in setOf("turn_completed", "turn_failed", "turn_canceled")) {
@@ -399,7 +389,7 @@ private fun createLiveExecutionGroup(event: SSEEvent): LiveExecutionGroup {
         parentMessageId = firstString(event.parentMessageId).ifBlank { null },
         sequence = eventSequenceValue(event, 1),
         iteration = eventIterationValue(event, 1),
-        preamble = firstString(event.preamble).ifBlank { null },
+        narration = firstString(event.narration).ifBlank { null },
         content = firstString(event.content).ifBlank { null },
         errorMessage = firstString(event.error).ifBlank { null },
         status = firstString(event.status, "running"),
@@ -515,7 +505,7 @@ private fun mergeExecutionGroup(existing: LiveExecutionGroup?, incoming: LiveExe
         parentMessageId = firstString(incoming.parentMessageId, existing.parentMessageId).ifBlank { null },
         sequence = firstNumber(incoming.sequence, existing.sequence).takeIf { it > 0 },
         iteration = firstNumber(incoming.iteration, existing.iteration).takeIf { it > 0 },
-        preamble = firstString(incoming.preamble, existing.preamble).ifBlank { null },
+        narration = firstString(incoming.narration, existing.narration).ifBlank { null },
         content = firstString(incoming.content, existing.content).ifBlank { null },
         errorMessage = firstString(incoming.errorMessage, existing.errorMessage).ifBlank { null },
         status = firstString(incoming.status, existing.status).ifBlank { null },

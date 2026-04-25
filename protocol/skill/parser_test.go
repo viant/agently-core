@@ -43,6 +43,33 @@ body`
 	}
 }
 
+func TestParse_AcceptsAsyncNarratorPromptOverride(t *testing.T) {
+	content := `---
+name: delivery-impact-check
+description: Inspect delivery impact for an order.
+async-narrator-prompt: |
+  Write a crisp one-line progress update for a delivery-impact lookup.
+  Mention the order and the dimension being checked. No filler phrases.
+---
+
+body`
+	s, diags, err := Parse("/tmp/SKILL.md", "/tmp/delivery-impact-check", "workspace", content)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	want := "Write a crisp one-line progress update for a delivery-impact lookup.\nMention the order and the dimension being checked. No filler phrases."
+	if s.Frontmatter.AsyncNarratorPrompt != want {
+		t.Fatalf("AsyncNarratorPrompt = %q want %q", s.Frontmatter.AsyncNarratorPrompt, want)
+	}
+	// Raw should NOT leak the field (it has a dedicated slot now).
+	if _, ok := s.Frontmatter.Raw["async-narrator-prompt"]; ok {
+		t.Fatalf("async-narrator-prompt should not be present in Raw")
+	}
+}
+
 func TestParse_RejectsInvalidOverrideValues(t *testing.T) {
 	content := `---
 name: legal-review

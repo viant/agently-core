@@ -248,8 +248,8 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 				actualRaw = *msg.RawContent
 			}
 			actualPreamble := ""
-			if msg.Preamble != nil {
-				actualPreamble = *msg.Preamble
+			if msg.Narration != nil {
+				actualPreamble = *msg.Narration
 			}
 			assert.EqualValues(t, tc.expected, actualContent)
 			if tc.expectRaw {
@@ -782,8 +782,8 @@ func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 	if msg.Content != nil {
 		assert.Equal(t, "", *msg.Content)
 	}
-	if msg.Preamble != nil {
-		assert.Equal(t, "", *msg.Preamble)
+	if msg.Narration != nil {
+		assert.Equal(t, "", *msg.Narration)
 	}
 
 	var persisted *apiconv.MutableModelCall
@@ -922,7 +922,7 @@ func TestRecorderObserver_OnCallStart_PersistsInterimAssistantPlaceholder(t *tes
 	require.EqualValues(t, 1, msg.Interim)
 	require.Nil(t, msg.Content)
 	require.Nil(t, msg.RawContent)
-	require.Nil(t, msg.Preamble)
+	require.Nil(t, msg.Narration)
 }
 
 type failingPayloadClient struct {

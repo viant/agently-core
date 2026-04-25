@@ -148,7 +148,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		finalResponse := isFinalStop && !isToolRelated && content != ""
 		patchCtx = runtimerequestctx.WithModelCompletionMeta(ctx, runtimerequestctx.ModelCompletionMeta{
 			Content:       content,
-			Preamble:      preamble,
+			Narration:      preamble,
 			FinalResponse: finalResponse,
 			FinishReason:  finishReason,
 		})

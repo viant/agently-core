@@ -23,7 +23,7 @@ export function plannedToolCalls(group: Partial<ExecutionPage> = {}): PlannedToo
 
 export function isPresentableExecutionGroup(group: LiveExecutionGroup = {}): boolean {
     return Boolean(
-        firstString(group?.preamble)
+        firstString(group?.narration)
         || firstString(group?.errorMessage)
         || (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0)
         || (Array.isArray(group?.toolCallsPlanned) && group.toolCallsPlanned.length > 0)
@@ -45,7 +45,7 @@ export function selectExecutionPages(turns: Turn[] = []): ExecutionPage[] {
                 assistantMessageId: firstString(normalizedPage?.assistantMessageId, normalizedPage?.pageId),
                 parentMessageId: firstString(normalizedPage?.parentMessageId),
                 iteration: firstNumber(normalizedPage?.iteration),
-                preamble: firstString(normalizedPage?.preamble),
+                narration: firstString(normalizedPage?.narration),
                 content: firstString(normalizedPage?.content),
                 status: firstString(normalizedPage?.status, turnStatus),
                 finalResponse: Boolean(normalizedPage?.finalResponse),
@@ -137,7 +137,7 @@ function mergeExecutionGroup(existing: LiveExecutionGroup = {}, incoming: LiveEx
         parentMessageId: firstString(incoming?.parentMessageId, existing?.parentMessageId),
         sequence: firstNumber(incoming?.sequence, existing?.sequence),
         iteration: firstNumber(incoming?.iteration, existing?.iteration),
-        preamble: firstString(incoming?.preamble, existing?.preamble),
+        narration: firstString(incoming?.narration, existing?.narration),
         content: firstString(incoming?.content, existing?.content),
         errorMessage: firstString(incoming?.errorMessage, existing?.errorMessage),
         status: firstString(incoming?.status, existing?.status),
@@ -161,7 +161,7 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
         sequence: eventSequenceValue(event, 1),
         iteration: eventIterationValue(event, 1),
         phase: firstString(event?.phase),
-        preamble: firstString(event?.preamble),
+        narration: firstString(event?.narration),
         content: firstString(event?.content),
         errorMessage: firstString(event?.error),
         status: firstString(event?.status, 'running'),
@@ -290,13 +290,13 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         next[assistantMessageId] = mergeExecutionGroup(next[assistantMessageId], createLiveExecutionGroup(event) || {});
         return next;
     }
-    if ((type === 'assistant_preamble' || type === 'reasoning_delta') && assistantMessageId) {
+    if ((type === 'narration' || type === 'reasoning_delta') && assistantMessageId) {
         const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
-        current.preamble = type === 'reasoning_delta'
-            ? appendText(current.preamble, event?.content)
-            : firstString(event?.content, event?.preamble, current.preamble);
+        current.narration = type === 'reasoning_delta'
+            ? appendText(current.narration, event?.content)
+            : firstString(event?.content, event?.narration, current.narration);
         current.status = firstString(event?.status, current.status, 'running');
         mergePrimaryModelStep(current, event, current.status || 'running');
         next[assistantMessageId] = current;
@@ -306,7 +306,7 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
-        current.preamble = firstString(event?.content, event?.preamble, current.preamble);
+        current.narration = firstString(event?.content, event?.narration, current.narration);
         current.status = firstString(event?.status, current.status, 'running');
         current.toolCallsPlanned = Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0
             ? event.toolCallsPlanned
@@ -321,7 +321,7 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         current.content = type === 'text_delta'
             ? appendText(current.content, event?.content)
             : firstString(event?.content, current.content);
-        current.preamble = firstString(event?.preamble, current.preamble);
+        current.narration = firstString(event?.narration, current.narration);
         current.errorMessage = firstString(event?.error, current.errorMessage);
         current.status = executionGroupStatusForEvent(event, current.status, current.status || 'running');
         current.finalResponse = Boolean(event?.finalResponse ?? current.finalResponse);
@@ -371,19 +371,6 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         const linkedConversationId = firstString(event?.linkedConversationId);
         if (!linkedConversationId) return next;
         upsertToolStep(current, event, { linkedConversationId });
-        next[assistantMessageId] = current;
-        return next;
-    }
-    if (type === 'assistant_final' && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
-        if (!current) return next;
-        applyLiveGroupIdentity(current, event);
-        current.content = firstString(event?.content, current.content);
-        current.preamble = firstString(event?.preamble, current.preamble);
-        current.errorMessage = firstString(event?.error, current.errorMessage);
-        current.status = firstString(event?.status, 'completed', current.status);
-        current.finalResponse = true;
-        mergePrimaryModelStep(current, event, 'completed');
         next[assistantMessageId] = current;
         return next;
     }
@@ -437,7 +424,7 @@ export function describeExecutionTimelineEvent(event: LiveExecutionGroup & { typ
     const status = firstString(event?.status);
     const toolName = firstString(event?.toolName);
     const skillName = firstString((event as any)?.skillName);
-    const message = firstString(event?.content, event?.preamble, event?.error);
+    const message = firstString(event?.content, event?.narration, event?.error);
     const parts = [type];
     if (status) parts.push(status);
     if (toolName) parts.push(toolName);

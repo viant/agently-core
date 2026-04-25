@@ -132,7 +132,8 @@ CREATE TABLE `message`
     created_by_user_id     VARCHAR(255),
     status                 VARCHAR(255) CHECK (status IS NULL OR status IN
                                                                  ('', 'pending', 'accepted', 'rejected', 'cancel',
-                                                                  'open', 'summary', 'summarized','completed','error')),
+                                                                  'open', 'summary', 'summarized','completed','error',
+                                                                  'running', 'failed', 'canceled', 'in_progress')),
     mode                   VARCHAR(255),
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response')),

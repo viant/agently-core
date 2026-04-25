@@ -169,7 +169,7 @@ func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
 
 type ModelCompletionMeta struct {
 	Content       string
-	Preamble      string
+	Narration      string
 	FinalResponse bool
 	FinishReason  string
 }

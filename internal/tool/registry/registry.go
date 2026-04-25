@@ -42,6 +42,7 @@ import (
 	mcpproxy "github.com/viant/agently-core/protocol/mcp/proxy"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	orchplan "github.com/viant/agently-core/protocol/tool/service/orchestration/plan"
+	toolAsync "github.com/viant/agently-core/protocol/tool/service/system/async"
 	toolExec "github.com/viant/agently-core/protocol/tool/service/system/exec"
 	toolImage "github.com/viant/agently-core/protocol/tool/service/system/image"
 	toolOS "github.com/viant/agently-core/protocol/tool/service/system/os"
@@ -2237,6 +2238,15 @@ func (r *Registry) addInternalMcp() {
 					cacheAsyncConfigAliases(r.asyncByTool, cfg)
 				}
 			}
+		} else if err != nil {
+			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
+		}
+	}
+	// system/async (list non-terminal async operations for the current conversation)
+	{
+		service := toolAsync.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
+			r.internal[service.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}

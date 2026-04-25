@@ -52,12 +52,12 @@ func TestFinalize_SkipsEmptyPreview(t *testing.T) {
 	require.Empty(t, conv.patched)
 }
 
-func TestStartPreamble_CreatesInterimAssistantMessage(t *testing.T) {
+func TestStartNarration_CreatesInterimAssistantMessage(t *testing.T) {
 	conv := &recordingConv{}
 	svc := New(conv)
 	parent := runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
 
-	msgID, err := svc.StartPreamble(context.Background(), parent, "llm/agents:status", "", "", "", "Working on it")
+	msgID, err := svc.StartNarration(context.Background(), parent, "llm/agents:status", "", "", "", "Working on it")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 	require.NotEmpty(t, conv.patched)
@@ -68,16 +68,16 @@ func TestStartPreamble_CreatesInterimAssistantMessage(t *testing.T) {
 	require.EqualValues(t, 1, *last.Interim)
 	require.NotNil(t, last.Content)
 	require.Equal(t, "Working on it", *last.Content)
-	require.NotNil(t, last.Preamble)
-	require.Equal(t, "Working on it", *last.Preamble)
+	require.NotNil(t, last.Narration)
+	require.Equal(t, "Working on it", *last.Narration)
 }
 
-func TestUpdatePreamble_RefreshesSameMessageID(t *testing.T) {
+func TestUpdateNarration_RefreshesSameMessageID(t *testing.T) {
 	conv := &recordingConv{}
 	svc := New(conv)
 	parent := runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
 
-	err := svc.UpdatePreamble(context.Background(), parent, "msg-1", "Still working")
+	err := svc.UpdateNarration(context.Background(), parent, "msg-1", "Still working")
 	require.NoError(t, err)
 	require.Len(t, conv.patched, 1)
 
@@ -87,14 +87,14 @@ func TestUpdatePreamble_RefreshesSameMessageID(t *testing.T) {
 	require.EqualValues(t, 1, *last.Interim)
 	require.NotNil(t, last.Content)
 	require.Equal(t, "Still working", *last.Content)
-	require.NotNil(t, last.Preamble)
-	require.Equal(t, "Still working", *last.Preamble)
+	require.NotNil(t, last.Narration)
+	require.Equal(t, "Still working", *last.Narration)
 }
 
-func TestPreamblePairing_UpsertReusesMessageIDAndReleaseClearsMapping(t *testing.T) {
+func TestNarrationPairing_UpsertReusesMessageIDAndReleaseClearsMapping(t *testing.T) {
 	conv := &recordingConv{}
 	svc := New(conv)
-	pairing := NewPreamblePairing(svc)
+	pairing := NewNarrationPairing(svc)
 	parent := runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
 
 	firstID, err := pairing.Upsert(context.Background(), "tool-call-1", parent, "llm/agents:status", "assistant", "tool", "exec", "phase 1")

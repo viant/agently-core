@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -165,6 +166,83 @@ func visibleContentOrEmpty(value *string) string {
 		return ""
 	}
 	return raw
+}
+
+func findTurnMessage(turn *TurnState, messageID string) *TurnMessageState {
+	if turn == nil {
+		return nil
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil
+	}
+	for _, msg := range turn.Messages {
+		if msg != nil && strings.TrimSpace(msg.MessageID) == messageID {
+			return msg
+		}
+	}
+	return nil
+}
+
+func findTurnUser(turn *TurnState, messageID string) *UserMessageState {
+	if turn == nil {
+		return nil
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil
+	}
+	if turn.User != nil && strings.TrimSpace(turn.User.MessageID) == messageID {
+		return turn.User
+	}
+	for _, msg := range turn.Users {
+		if msg != nil && strings.TrimSpace(msg.MessageID) == messageID {
+			return msg
+		}
+	}
+	return nil
+}
+
+func patchString(patch map[string]interface{}, key string) string {
+	if patch == nil {
+		return ""
+	}
+	value, ok := patch[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func patchInt(patch map[string]interface{}, key string) (int, bool) {
+	if patch == nil {
+		return 0, false
+	}
+	value, ok := patch[key]
+	if !ok || value == nil {
+		return 0, false
+	}
+	switch actual := value.(type) {
+	case int:
+		return actual, true
+	case int8:
+		return int(actual), true
+	case int16:
+		return int(actual), true
+	case int32:
+		return int(actual), true
+	case int64:
+		return int(actual), true
+	case float32:
+		return int(actual), true
+	case float64:
+		return int(actual), true
+	default:
+		return 0, false
+	}
 }
 
 // --- shared semantic mutation helpers ---
@@ -348,18 +426,18 @@ func setAssistantFinal(turn *TurnState, page *ExecutionPageState, messageID, con
 	}
 }
 
-// setAssistantPreamble sets the preamble on the turn and the page.
-func setAssistantPreamble(turn *TurnState, page *ExecutionPageState, messageID, content string) {
+// setAssistantNarration sets the narration on the turn and the page.
+func setAssistantNarration(turn *TurnState, page *ExecutionPageState, messageID, content string) {
 	if turn.Assistant == nil {
 		turn.Assistant = &AssistantState{}
 	}
-	turn.Assistant.Preamble = &AssistantMessageState{
+	turn.Assistant.Narration = &AssistantMessageState{
 		MessageID: strings.TrimSpace(messageID),
 		Content:   content,
 	}
 	if page != nil {
-		page.Preamble = content
-		page.PreambleMessageID = strings.TrimSpace(messageID)
+		page.Narration = content
+		page.NarrationMessageID = strings.TrimSpace(messageID)
 		deriveExecutionPagePhase(page)
 		refreshExecutionRole(page)
 	}
@@ -431,8 +509,8 @@ func applyModelResultToPage(page *ExecutionPageState, event *streaming.Event) {
 	if event.Content != "" {
 		page.Content = event.Content
 	}
-	if event.Preamble != "" {
-		page.Preamble = event.Preamble
+	if event.Narration != "" {
+		page.Narration = event.Narration
 	}
 	if event.FinalResponse {
 		page.FinalResponse = true

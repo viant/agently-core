@@ -19,7 +19,7 @@ import (
 )
 
 func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (*Runtime, error) {
-	cfg, err := LoadWorkspaceConfig(workspaceRoot)
+	cfg, err := LoadConfig(workspaceRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -110,13 +110,34 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 	return runtime, nil
 }
 
-func LoadWorkspaceConfig(workspaceRoot string) (*Config, error) {
+// LoadConfig reads `<workspaceRoot>/config.yaml` and decodes the
+// `auth:` section into a *Config. Returns (nil, nil) when no auth
+// section is present or all fields are zero.
+//
+// Callers that have already loaded the workspace `Root` (e.g. the
+// executor bootstrap that also reads `default:` / `mcpServer`) should
+// prefer DecodeConfigFromRoot to avoid re-reading and re-parsing
+// config.yaml.
+func LoadConfig(workspaceRoot string) (*Config, error) {
 	cfg, err := wscfg.Load(workspaceRoot)
-	if err != nil || cfg == nil {
+	if err != nil {
 		return nil, err
 	}
+	return DecodeConfigFromRoot(cfg)
+}
+
+// DecodeConfigFromRoot decodes the `auth:` section from an already-
+// loaded workspace Root. Returns (nil, nil) when the root is nil or
+// the auth section is empty — callers treat that as "auth disabled".
+// Env-template expansion and the "effectively empty" check live here
+// so the two entry points (LoadConfig / DecodeConfigFromRoot) behave
+// identically.
+func DecodeConfigFromRoot(root *wscfg.Root) (*Config, error) {
+	if root == nil {
+		return nil, nil
+	}
 	ret := &Config{}
-	if err := cfg.DecodeAuth(ret); err != nil {
+	if err := root.DecodeAuth(ret); err != nil {
 		return nil, fmt.Errorf("decode auth config: %w", err)
 	}
 	expandAuthEnvTemplates(ret)
@@ -124,6 +145,16 @@ func LoadWorkspaceConfig(workspaceRoot string) (*Config, error) {
 		return ret, nil
 	}
 	return nil, nil
+}
+
+// LoadWorkspaceConfig is a thin compatibility shim over LoadConfig.
+//
+// Deprecated: use LoadConfig for new code, or DecodeConfigFromRoot when
+// the workspace Root is already in hand. Kept so external callers that
+// still reference the old name keep compiling; will be removed once
+// the tree is fully migrated.
+func LoadWorkspaceConfig(workspaceRoot string) (*Config, error) {
+	return LoadConfig(workspaceRoot)
 }
 
 var authEnvTemplate = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)

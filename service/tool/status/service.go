@@ -52,11 +52,11 @@ func (s *Service) Start(ctx context.Context, parent runtimerequestctx.TurnMeta, 
 	return m.Id, nil
 }
 
-// StartPreamble creates an interim assistant message whose visible content is
+// StartNarration creates an interim assistant message whose visible content is
 // carried through the message preamble field. This is the backend-authored
 // counterpart to model-authored assistant preambles and reuses the same
 // assistant_preamble event contract.
-func (s *Service) StartPreamble(ctx context.Context, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode, preamble string) (string, error) {
+func (s *Service) StartNarration(ctx context.Context, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode, preamble string) (string, error) {
 	if s == nil || s.conv == nil {
 		return "", fmt.Errorf("status: conversation client not configured")
 	}
@@ -73,7 +73,7 @@ func (s *Service) StartPreamble(ctx context.Context, parent runtimerequestctx.Tu
 		apiconv.WithRole(role),
 		apiconv.WithInterim(1),
 		apiconv.WithContent(strings.TrimSpace(preamble)),
-		apiconv.WithPreamble(strings.TrimSpace(preamble)),
+		apiconv.WithNarration(strings.TrimSpace(preamble)),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
 		apiconv.WithToolName(mcpname.Display(toolName)),
@@ -107,9 +107,9 @@ func (s *Service) Update(ctx context.Context, parent runtimerequestctx.TurnMeta,
 	return nil
 }
 
-// UpdatePreamble refreshes an existing interim assistant message in place using
+// UpdateNarration refreshes an existing interim assistant message in place using
 // the preamble field while preserving the same assistant message id.
-func (s *Service) UpdatePreamble(ctx context.Context, parent runtimerequestctx.TurnMeta, messageID, preamble string) error {
+func (s *Service) UpdateNarration(ctx context.Context, parent runtimerequestctx.TurnMeta, messageID, preamble string) error {
 	if s == nil || s.conv == nil {
 		return fmt.Errorf("status: conversation client not configured")
 	}
@@ -120,7 +120,7 @@ func (s *Service) UpdatePreamble(ctx context.Context, parent runtimerequestctx.T
 	mu.SetId(messageID)
 	mu.SetConversationID(parent.ConversationID)
 	mu.SetTurnID(parent.TurnID)
-	mu.SetPreamble(strings.TrimSpace(preamble))
+	mu.SetNarration(strings.TrimSpace(preamble))
 	mu.SetContent(strings.TrimSpace(preamble))
 	mu.SetInterim(1)
 	if err := s.conv.PatchMessage(ctx, mu); err != nil {

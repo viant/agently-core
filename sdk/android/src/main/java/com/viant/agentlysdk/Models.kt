@@ -469,7 +469,7 @@ data class Message(
     val status: String? = null,
     val interim: Int? = null,
     val iteration: Int? = null,
-    val preamble: String? = null,
+    val narration: String? = null,
     val phase: String? = null,
     val mode: String? = null,
     val sequence: Int? = null,
@@ -911,7 +911,7 @@ data class UserMessageState(
 
 @Serializable
 data class AssistantState(
-    val preamble: AssistantMessageState? = null,
+    val narration: AssistantMessageState? = null,
     val final: AssistantMessageState? = null
 )
 
@@ -939,9 +939,9 @@ data class ExecutionPageState(
     val status: String? = null,
     val modelSteps: List<ModelStepState> = emptyList(),
     val toolSteps: List<ToolStepState> = emptyList(),
-    val preambleMessageId: String? = null,
+    val narrationMessageId: String? = null,
     val finalAssistantMessageId: String? = null,
-    val preamble: String? = null,
+    val narration: String? = null,
     val content: String? = null,
     val finalResponse: Boolean? = null
 )

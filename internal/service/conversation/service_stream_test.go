@@ -17,7 +17,7 @@ func TestMessagePatchPayload(t *testing.T) {
 	msg.SetStatus("completed")
 	msg.SetToolName("llm/agents-run")
 	msg.SetInterim(0)
-	msg.SetPreamble("delegating")
+	msg.SetNarration("delegating")
 	msg.SetLinkedConversationID("child-123")
 	msg.SetParentMessageID("parent-1")
 	msg.SetTurnID("turn-1")
@@ -33,7 +33,7 @@ func TestMessagePatchPayload(t *testing.T) {
 	require.EqualValues(t, "completed", got["status"])
 	require.EqualValues(t, "llm/agents/run", got["toolName"])
 	require.EqualValues(t, 0, got["interim"])
-	require.EqualValues(t, "delegating", got["preamble"])
+	require.EqualValues(t, "delegating", got["narration"])
 	require.EqualValues(t, "child-123", got["linkedConversationId"])
 	require.EqualValues(t, "parent-1", got["parentMessageId"])
 	require.EqualValues(t, "turn-1", got["turnId"])
@@ -210,7 +210,6 @@ func TestEmitCanonicalModelEvent_ThinkingPublishesModelStarted(t *testing.T) {
 		require.Equal(t, "conv-parent", ev.StreamID)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "mc-1", ev.MessageID)
-		require.Equal(t, "mc-1", ev.AssistantMessageID)
 		require.Equal(t, "openai", ev.Model.Provider)
 		require.Equal(t, "gpt-5.2", ev.Model.Model)
 	case <-time.After(2 * time.Second):
@@ -525,7 +524,6 @@ func TestEmitCanonicalModelEvent_CompletedPublishesModelCompleted(t *testing.T) 
 		require.Equal(t, "conv-parent", ev.ConversationID)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "mc-1", ev.MessageID)
-		require.Equal(t, "mc-1", ev.AssistantMessageID)
 		require.NotNil(t, ev.CompletedAt)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected model_completed event")
@@ -631,7 +629,7 @@ func TestEmitCanonicalModelEvent_NoConversationID_Skips(t *testing.T) {
 	}
 }
 
-func TestEmitCanonicalAssistantEvents_PreamblePublishesPreamble(t *testing.T) {
+func TestEmitCanonicalAssistantEvents_NarrationPublishesNarration(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}
 	sub, err := bus.Subscribe(context.Background(), nil)
@@ -646,7 +644,7 @@ func TestEmitCanonicalAssistantEvents_PreamblePublishesPreamble(t *testing.T) {
 	msg := convcli.NewMessage()
 	msg.SetId("msg-1")
 	msg.SetRole("assistant")
-	msg.SetPreamble("Let me analyze...")
+	msg.SetNarration("Let me analyze...")
 	msg.SetInterim(1) // still interim — preamble phase
 	msg.SetContent("")
 	msg.SetTurnID("turn-1")
@@ -655,19 +653,29 @@ func TestEmitCanonicalAssistantEvents_PreamblePublishesPreamble(t *testing.T) {
 
 	select {
 	case ev := <-sub.C():
-		require.Equal(t, streaming.EventTypeAssistantPreamble, ev.Type)
+		require.Equal(t, streaming.EventTypeNarration, ev.Type)
 		require.Equal(t, "conv-1", ev.ConversationID)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "msg-1", ev.MessageID)
-		require.Equal(t, "msg-1", ev.AssistantMessageID)
-		require.Equal(t, "Let me analyze...", ev.Content)
+		// Narration text lives on the dedicated Narration field, NOT
+		// Content — TS reducer reads `event.narration`.
+		require.Equal(t, "Let me analyze...", ev.Narration)
+		require.Empty(t, ev.Content, "narration text must not leak into Content")
 		require.Equal(t, "task", ev.Mode)
+		// Assistant-content events no longer populate AssistantMessageID
+		// (redundant with MessageID). Clients read `event.messageId`.
+		require.Empty(t, ev.AssistantMessageID, "assistantMessageId must not be set on narration events")
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected assistant_preamble event")
+		t.Fatal("expected narration event")
 	}
 }
 
-func TestEmitCanonicalAssistantEvents_FinalPublishesFinal(t *testing.T) {
+func TestEmitCanonicalAssistantEvents_FinalEmitsNothing(t *testing.T) {
+	// `emitCanonicalAssistantEvents` handles ONLY narration now. A
+	// non-interim assistant message must produce NO event from this
+	// function — emission flows through emitMessageAppendedEvent as
+	// an `assistant` event. This test guards against reintroduction
+	// of the "final message" concept at this layer.
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}
 	sub, err := bus.Subscribe(context.Background(), nil)
@@ -683,29 +691,22 @@ func TestEmitCanonicalAssistantEvents_FinalPublishesFinal(t *testing.T) {
 	msg.SetId("msg-1")
 	msg.SetRole("assistant")
 	msg.SetContent("Here is the answer.")
-	msg.SetInterim(0) // final
+	msg.SetInterim(0) // non-interim
 	msg.SetTurnID("turn-1")
 
 	svc.emitCanonicalAssistantEvents(ctx, msg, "conv-1")
 
 	select {
 	case ev := <-sub.C():
-		require.Equal(t, streaming.EventTypeAssistantFinal, ev.Type)
-		require.Equal(t, "conv-1", ev.ConversationID)
-		require.Equal(t, "turn-1", ev.TurnID)
-		require.Equal(t, "msg-1", ev.MessageID)
-		require.Equal(t, "msg-1", ev.AssistantMessageID)
-		require.Equal(t, "Here is the answer.", ev.Content)
-		require.True(t, ev.FinalResponse)
-		require.Equal(t, "task", ev.Mode)
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected assistant_final event")
+		t.Fatalf("emitCanonicalAssistantEvents must not emit for non-interim messages; got type=%s", ev.Type)
+	case <-time.After(150 * time.Millisecond):
+		// expected — non-interim flow goes through message_appended elsewhere
 	}
 }
 
 func TestEmitCanonicalAssistantEvents_ToolCallOnlyNoEvents(t *testing.T) {
 	// When the assistant message has no preamble, no content, and is interim,
-	// no assistant_preamble or assistant_final should be emitted.
+	// no assistant narration or standalone assistant message should be emitted.
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}
 	sub, err := bus.Subscribe(context.Background(), nil)
@@ -733,7 +734,18 @@ func TestEmitCanonicalAssistantEvents_ToolCallOnlyNoEvents(t *testing.T) {
 	}
 }
 
-func TestPublishMessagePatchEvent_AssistantMessageAddPublishesMessageAddControl(t *testing.T) {
+// TestPublishMessagePatchEvent_ExplicitAddEmitsAssistantEvent
+// verifies: an EXPLICIT add (MessageAddEvent ctx flag set — produced
+// by AddMessage call sites such as the message/add tool, user submit,
+// etc.) emits exactly one `assistant` event. Patches to existing
+// message rows do NOT emit, because their content is already live on
+// the client via `text_delta` accumulation.
+//
+// Also verifies: there's no final-message emission — the "final
+// message" concept was removed. Every turn message is equal-rank;
+// end-of-turn is signaled by `turn_completed` / `turn_failed` /
+// `turn_canceled`.
+func TestPublishMessagePatchEvent_ExplicitAddEmitsAssistantEvent(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}
 	sub, err := bus.Subscribe(context.Background(), nil)
@@ -744,6 +756,7 @@ func TestPublishMessagePatchEvent_AssistantMessageAddPublishesMessageAddControl(
 		TurnID:         "turn-1",
 		ConversationID: "conv-1",
 	})
+	// Explicit ADD — this is what AddMessage call sites set.
 	ctx = memory.WithMessageAddEvent(ctx)
 
 	msg := convcli.NewMessage()
@@ -759,19 +772,62 @@ func TestPublishMessagePatchEvent_AssistantMessageAddPublishesMessageAddControl(
 
 	select {
 	case ev := <-sub.C():
-		require.Equal(t, streaming.EventTypeControl, ev.Type)
-		require.Equal(t, "message_add", ev.Op)
+		require.Equal(t, streaming.EventTypeAssistant, ev.Type)
 		require.Equal(t, "msg-1", ev.MessageID)
 		require.Equal(t, "conv-1", ev.ConversationID)
-		require.Equal(t, "Preliminary investigation: constrained PMP supply.", ev.Patch["content"])
-		require.EqualValues(t, 0, ev.Patch["interim"])
+		require.Equal(t, "Preliminary investigation: constrained PMP supply.", ev.Content)
 		require.Equal(t, "assistant", ev.Patch["role"])
+		require.False(t, ev.FinalResponse, "FinalResponse must not be set on live emissions")
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected message_add control event")
+		t.Fatal("expected assistant event for explicit add")
+	}
+
+	// No second event — one emission per add, period.
+	select {
+	case ev := <-sub.C():
+		t.Fatalf("unexpected extra event: type=%s op=%s", ev.Type, ev.Op)
+	case <-time.After(100 * time.Millisecond):
+		// expected
 	}
 }
 
-func TestEmitCanonicalAssistantEvents_PreambleUpdateReusesAssistantMessageID(t *testing.T) {
+// TestPublishMessagePatchEvent_PatchWithoutAddFlagEmitsNothing
+// verifies that a PatchMessage call without the MessageAddEvent ctx
+// flag is silent on the stream (no `assistant` event). This matches
+// the active-turn invariant: page-owned content is already on the
+// client via text_delta; a redundant patch event would double-render.
+func TestPublishMessagePatchEvent_PatchWithoutAddFlagEmitsNothing(t *testing.T) {
+	bus := streaming.NewMemoryBus(4)
+	svc := &Service{streamPub: bus}
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-1",
+	})
+	// NO MessageAddEvent flag.
+
+	msg := convcli.NewMessage()
+	msg.SetId("msg-1")
+	msg.SetConversationID("conv-1")
+	msg.SetTurnID("turn-1")
+	msg.SetRole("assistant")
+	msg.SetContent("Some content updated later.")
+	msg.SetInterim(0)
+
+	svc.publishMessagePatchEvent(ctx, msg)
+
+	select {
+	case ev := <-sub.C():
+		t.Fatalf("expected no emission for bare patch; got type=%s", ev.Type)
+	case <-time.After(100 * time.Millisecond):
+		// expected — patches without add flag are silent
+	}
+}
+
+func TestEmitCanonicalAssistantEvents_NarrationUpdateReusesMessageID(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	svc := &Service{streamPub: bus}
 	sub, err := bus.Subscribe(context.Background(), nil)
@@ -786,7 +842,7 @@ func TestEmitCanonicalAssistantEvents_PreambleUpdateReusesAssistantMessageID(t *
 	msg := convcli.NewMessage()
 	msg.SetId("msg-1")
 	msg.SetRole("assistant")
-	msg.SetPreamble("phase 1")
+	msg.SetNarration("phase 1")
 	msg.SetInterim(1)
 	msg.SetTurnID("turn-1")
 	svc.emitCanonicalAssistantEvents(ctx, msg, "conv-1")
@@ -794,7 +850,7 @@ func TestEmitCanonicalAssistantEvents_PreambleUpdateReusesAssistantMessageID(t *
 	msg2 := convcli.NewMessage()
 	msg2.SetId("msg-1")
 	msg2.SetRole("assistant")
-	msg2.SetPreamble("phase 2")
+	msg2.SetNarration("phase 2")
 	msg2.SetInterim(1)
 	msg2.SetTurnID("turn-1")
 	svc.emitCanonicalAssistantEvents(ctx, msg2, "conv-1")
@@ -806,15 +862,20 @@ func TestEmitCanonicalAssistantEvents_PreambleUpdateReusesAssistantMessageID(t *
 		case ev := <-sub.C():
 			events = append(events, ev)
 		case <-deadline:
-			t.Fatalf("expected 2 assistant_preamble events, got %d", len(events))
+			t.Fatalf("expected 2 narration events, got %d", len(events))
 		}
 	}
-	require.Equal(t, streaming.EventTypeAssistantPreamble, events[0].Type)
-	require.Equal(t, streaming.EventTypeAssistantPreamble, events[1].Type)
-	require.Equal(t, "msg-1", events[0].AssistantMessageID)
-	require.Equal(t, "msg-1", events[1].AssistantMessageID)
-	require.Equal(t, "phase 1", events[0].Content)
-	require.Equal(t, "phase 2", events[1].Content)
+	require.Equal(t, streaming.EventTypeNarration, events[0].Type)
+	require.Equal(t, streaming.EventTypeNarration, events[1].Type)
+	require.Equal(t, "msg-1", events[0].MessageID)
+	require.Equal(t, "msg-1", events[1].MessageID)
+	// Narration payload now lives in the dedicated `Narration` field
+	// (not `Content`) so the TS reducer's `onAssistantNarration` handler
+	// — which reads `event.narration` — sees the text.
+	require.Equal(t, "phase 1", events[0].Narration)
+	require.Equal(t, "phase 2", events[1].Narration)
+	require.Empty(t, events[0].Content, "narration text must NOT leak into Content (TS reads event.narration)")
+	require.Empty(t, events[1].Content)
 }
 
 func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {

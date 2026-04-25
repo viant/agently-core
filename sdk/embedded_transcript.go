@@ -29,8 +29,8 @@ func (c *backendClient) latestAssistantResponse(ctx context.Context, conversatio
 				return text
 			}
 		}
-		if turn.Assistant.Preamble != nil {
-			if text := strings.TrimSpace(turn.Assistant.Preamble.Content); text != "" {
+		if turn.Assistant.Narration != nil {
+			if text := strings.TrimSpace(turn.Assistant.Narration.Content); text != "" {
 				return text
 			}
 		}
@@ -254,7 +254,7 @@ func shouldDropTranscriptMessage(msg *agconv.MessageView) bool {
 	if msg.Interim != 1 || !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
 		return false
 	}
-	if valueOrEmpty(msg.Content) != "" || valueOrEmpty(msg.RawContent) != "" || valueOrEmpty(msg.Preamble) != "" {
+	if valueOrEmpty(msg.Content) != "" || valueOrEmpty(msg.RawContent) != "" || valueOrEmpty(msg.Narration) != "" {
 		return false
 	}
 	if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {

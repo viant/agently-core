@@ -34,6 +34,7 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 		delete(raw, "max-tokens")
 		delete(raw, "preprocess")
 		delete(raw, "preprocess-timeout")
+		delete(raw, "async-narrator-prompt")
 		fm.Raw = raw
 	}
 	s := &Skill{

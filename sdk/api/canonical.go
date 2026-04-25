@@ -22,6 +22,7 @@ type TurnState struct {
 	TurnID              string                     `json:"turnId"`
 	Status              TurnStatus                 `json:"status"`
 	User                *UserMessageState          `json:"user,omitempty"`
+	Users               []*UserMessageState        `json:"users,omitempty"`
 	Messages            []*TurnMessageState        `json:"messages,omitempty"`
 	Execution           *ExecutionState            `json:"execution,omitempty"`
 	Assistant           *AssistantState            `json:"assistant,omitempty"`
@@ -60,9 +61,9 @@ type TurnMessageState struct {
 }
 
 type AssistantState struct {
-	Preamble *AssistantMessageState   `json:"preamble,omitempty"`
-	Final    *AssistantMessageState   `json:"final,omitempty"`
-	Messages []*AssistantMessageState `json:"messages,omitempty"`
+	Narration *AssistantMessageState   `json:"narration,omitempty"`
+	Final     *AssistantMessageState   `json:"final,omitempty"`
+	Messages  []*AssistantMessageState `json:"messages,omitempty"`
 }
 
 type AssistantMessageState struct {
@@ -90,9 +91,9 @@ type ExecutionPageState struct {
 	Status                  string            `json:"status,omitempty"`
 	ModelSteps              []*ModelStepState `json:"modelSteps,omitempty"`
 	ToolSteps               []*ToolStepState  `json:"toolSteps,omitempty"`
-	PreambleMessageID       string            `json:"preambleMessageId,omitempty"`
+	NarrationMessageID      string            `json:"narrationMessageId,omitempty"`
 	FinalAssistantMessageID string            `json:"finalAssistantMessageId,omitempty"`
-	Preamble                string            `json:"preamble,omitempty"`
+	Narration               string            `json:"narration,omitempty"`
 	Content                 string            `json:"content,omitempty"`
 	FinalResponse           bool              `json:"finalResponse"`
 }

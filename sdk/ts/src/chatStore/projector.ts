@@ -11,7 +11,7 @@
  *     [ u_first, IterationRow, u_rest₁, u_rest₂, ..., u_restₙ ]
  *
  * Header rule (§6.3, §6.5):
- *   - if any round has content (model step / tool call / preamble / content),
+ *   - if any round has content (model step / tool call / narration / content),
  *     label is "Execution details · (N)" where N is the count of such rounds.
  *     Lifecycle-only rounds do NOT contribute to N.
  *   - else, label is a descriptive state from the turn's lifecycle.
@@ -111,7 +111,7 @@ export interface RoundRenderView {
     pageId?: string;
     iteration: number;
     phase: ClientExecutionPhase;
-    preamble?: string;
+    narration?: string;
     content?: string;
     status?: string;
     finalResponse: boolean;
@@ -219,9 +219,9 @@ export function toneForLifecycle(lifecycle: ClientLifecycle): HeaderTone {
  * entries alone do NOT flip this to true (§6.3 count rule).
  */
 export function roundHasContent(round: RoundRenderView | ClientExecutionPage): boolean {
-    const preamble = typeof round.preamble === 'string' ? round.preamble : '';
+    const narration = typeof round.narration === 'string' ? round.narration : '';
     const content = typeof round.content === 'string' ? round.content : '';
-    if (preamble.trim() !== '' || content.trim() !== '') return true;
+    if (narration.trim() !== '' || content.trim() !== '') return true;
     const modelSteps = Array.isArray(round.modelSteps) ? round.modelSteps : [];
     const toolCalls = Array.isArray(round.toolCalls) ? round.toolCalls : [];
     if (modelSteps.length > 0) return true;
@@ -394,7 +394,7 @@ function projectRound(page: ClientExecutionPage): RoundRenderView {
         pageId: page.pageId,
         iteration: typeof page.iteration === 'number' ? page.iteration : 0,
         phase: deriveRoundPhase(page),
-        preamble: page.preamble,
+        narration: page.narration,
         content: page.content,
         status: page.status,
         finalResponse: !!page.finalResponse,

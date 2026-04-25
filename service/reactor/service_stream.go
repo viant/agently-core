@@ -128,12 +128,11 @@ func (s *Service) publishPlannedToolCallsEvent(ctx context.Context, responseID s
 			MessageID:          assistantMessageID,
 			Type:               streaming.EventTypeToolCallsPlanned,
 			TurnID:             strings.TrimSpace(turn.TurnID),
-			AssistantMessageID: assistantMessageID,
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
 			ResponseID:         strings.TrimSpace(responseID),
 			Status:             status,
 			Content:            content,
-			Preamble:           preamble,
+			Narration:          preamble,
 			Iteration:          iteration,
 			PageIndex:          iteration,
 			PageCount:          iteration,
@@ -315,7 +314,7 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 			StreamID:           strings.TrimSpace(turn.ConversationID),
 			Type:               streaming.EventTypeToolCallsPlanned,
 			TurnID:             strings.TrimSpace(turn.TurnID),
-			AssistantMessageID: assistantMessageID,
+			MessageID:          assistantMessageID,
 			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
 			ResponseID:         strings.TrimSpace(event.ResponseID),
 			Status:             "tool_calls",
@@ -442,14 +441,14 @@ func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Cho
 		content = preamble
 	}
 	s.lastPreambleMu.Lock()
-	if s.lastPreamble == nil {
-		s.lastPreamble = make(map[string]string)
+	if s.lastNarration == nil {
+		s.lastNarration = make(map[string]string)
 	}
-	if s.lastPreamble[msgID] == preamble {
+	if s.lastNarration[msgID] == preamble {
 		s.lastPreambleMu.Unlock()
 		return
 	}
-	s.lastPreamble[msgID] = preamble
+	s.lastNarration[msgID] = preamble
 	s.lastPreambleMu.Unlock()
 
 	msg := apiconv.NewMessage()
@@ -459,7 +458,7 @@ func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Cho
 		msg.SetTurnID(turn.TurnID)
 	}
 	msg.SetContent(content)
-	msg.SetPreamble(preamble)
+	msg.SetNarration(preamble)
 	msg.SetRawContent(content)
 	msg.SetInterim(1)
 	_ = s.convClient.PatchMessage(ctx, msg)

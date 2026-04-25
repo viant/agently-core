@@ -47,7 +47,7 @@ type childConversationState struct {
 	errorSummary          string
 	createdAt             string
 	updatedAt             string
-	lastAssistantPreamble string
+	lastAssistantNarration string
 	lastAssistantResponse string
 	hasFinalResponse      bool
 	lastMessageAt         string
@@ -276,7 +276,7 @@ func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo
 						conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
 					}
 				}
-				if text := strings.TrimSpace(state.lastAssistantPreamble); text != "" {
+				if text := strings.TrimSpace(state.lastAssistantNarration); text != "" {
 					return childRunResult{
 						answer:         text,
 						status:         "canceled",
@@ -492,7 +492,7 @@ func (s *Service) childConversationState(ctx context.Context, conversationID str
 	if !lastActivityAt.IsZero() {
 		state.lastActivityAt = lastActivityAt
 	}
-	state.lastAssistantPreamble = preamble
+	state.lastAssistantNarration = preamble
 	state.lastAssistantResponse = response
 	state.hasFinalResponse = hasFinal
 	state.lastMessageAt = lastMessageAt
@@ -519,7 +519,7 @@ func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusI
 		Error:                 state.errorSummary,
 		CreatedAt:             state.createdAt,
 		UpdatedAt:             state.updatedAt,
-		LastAssistantPreamble: state.lastAssistantPreamble,
+		LastAssistantNarration: state.lastAssistantNarration,
 		LastAssistantResponse: state.lastAssistantResponse,
 		HasFinalResponse:      state.hasFinalResponse,
 		LastMessageAt:         state.lastMessageAt,
@@ -539,7 +539,7 @@ func lastAssistantContent(turn *apiconv.Turn) string {
 		if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
 			return text
 		}
-		if text := strings.TrimSpace(ptrString(msg.Preamble)); text != "" {
+		if text := strings.TrimSpace(ptrString(msg.Narration)); text != "" {
 			return text
 		}
 	}
@@ -593,7 +593,7 @@ func statusItemMessage(item StatusItem) (string, string) {
 			return text, "response"
 		}
 	}
-	if text := strings.TrimSpace(item.LastAssistantPreamble); text != "" {
+	if text := strings.TrimSpace(item.LastAssistantNarration); text != "" {
 		return text, "preamble"
 	}
 	if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
@@ -604,7 +604,7 @@ func statusItemMessage(item StatusItem) (string, string) {
 
 func normalizeStatusItem(item StatusItem) StatusItem {
 	if item.HasFinalResponse {
-		item.LastAssistantPreamble = ""
+		item.LastAssistantNarration = ""
 		return item
 	}
 	item.LastAssistantResponse = ""
@@ -665,7 +665,7 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 }
 
 func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, string, string, time.Time) {
-	var lastPreamble string
+	var lastNarration string
 	var lastResponse string
 	var hasFinal bool
 	var lastMessageAt string
@@ -692,11 +692,11 @@ func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, st
 					lastActivityAt = msg.CreatedAt
 				}
 			}
-			if text := strings.TrimSpace(ptrString(msg.Preamble)); text != "" {
-				lastPreamble = text
+			if text := strings.TrimSpace(ptrString(msg.Narration)); text != "" {
+				lastNarration = text
 			} else if msg.Interim != 0 {
 				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
-					lastPreamble = text
+					lastNarration = text
 				}
 			}
 			if msg.Interim == 0 {
@@ -707,7 +707,7 @@ func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, st
 			}
 		}
 	}
-	return lastPreamble, lastResponse, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt
+	return lastNarration, lastResponse, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt
 }
 
 func normalizeChildConversationState(state childConversationState, transcript apiconv.Transcript) childConversationState {
@@ -720,7 +720,7 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 		state.terminal = true
 		state.errorSummary = failureSummary
 		state.hasFinalResponse = true
-		state.lastAssistantPreamble = ""
+		state.lastAssistantNarration = ""
 		state.lastAssistantResponse = "Child agent is blocked waiting for user input and cannot continue.\n" + failureSummary
 		return state
 	}
@@ -734,7 +734,7 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 		}
 		state.errorSummary = "Child agent exceeded the maximum wait time of " + timeoutLabel + " without reaching a terminal state."
 		state.hasFinalResponse = true
-		state.lastAssistantPreamble = ""
+		state.lastAssistantNarration = ""
 		state.lastAssistantResponse = "Child agent conversation " + strings.TrimSpace(state.conversationID) + " timed out after " + timeoutLabel + " without reaching a terminal state."
 		if strings.TrimSpace(state.rawStatus) != "" {
 			state.lastAssistantResponse += "\nLast known status: " + strings.TrimSpace(state.rawStatus) + "."
@@ -751,7 +751,7 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 
 	if state.terminal && !state.hasFinalResponse && strings.TrimSpace(failureSummary) != "" {
 		state.hasFinalResponse = true
-		state.lastAssistantPreamble = ""
+		state.lastAssistantNarration = ""
 		state.lastAssistantResponse = failureSummary
 	}
 	return state

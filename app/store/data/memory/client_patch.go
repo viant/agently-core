@@ -141,8 +141,8 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	if src.Has.ContextSummary {
 		dst.ContextSummary = src.ContextSummary
 	}
-	if src.Has.Preamble {
-		dst.Preamble = src.Preamble
+	if src.Has.Narration {
+		dst.Narration = src.Narration
 	}
 	if src.Has.Tags {
 		dst.Tags = src.Tags

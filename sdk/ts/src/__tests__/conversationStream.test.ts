@@ -166,7 +166,7 @@ describe('ConversationStreamTracker', () => {
             model: { provider: 'openai', model: 'gpt-5.4' },
         } as SSEEvent);
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-1',
@@ -182,13 +182,13 @@ describe('ConversationStreamTracker', () => {
                 conversationId: 'conv-1',
                 turnId: 'turn-1',
                 content: 'Calling updatePlan.',
-                preamble: 'Calling updatePlan.',
+                narration: 'Calling updatePlan.',
                 interim: 1,
                 executionGroups: [
                     expect.objectContaining({
                         assistantMessageId: 'msg-1',
                         turnId: 'turn-1',
-                        preamble: 'Calling updatePlan.',
+                        narration: 'Calling updatePlan.',
                     }),
                 ],
             }),
@@ -197,7 +197,7 @@ describe('ConversationStreamTracker', () => {
         expect(latestLiveAssistantRowForTurn(tracker.canonicalState, 'conv-1', 'turn-1')).toMatchObject({
             id: 'msg-1',
             turnId: 'turn-1',
-            preamble: 'Calling updatePlan.',
+            narration: 'Calling updatePlan.',
         });
     });
 
@@ -205,7 +205,7 @@ describe('ConversationStreamTracker', () => {
         const tracker = new ConversationStreamTracker('conv-1');
 
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-late',
@@ -216,7 +216,7 @@ describe('ConversationStreamTracker', () => {
             status: 'running',
         } as SSEEvent);
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-early',
@@ -238,7 +238,7 @@ describe('ConversationStreamTracker', () => {
     it('selects tracker-backed live assistant rows for a single turn', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-1',
@@ -247,7 +247,7 @@ describe('ConversationStreamTracker', () => {
             status: 'running',
         } as SSEEvent);
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-2',
             messageId: 'msg-2',
@@ -351,22 +351,24 @@ describe('ConversationStreamTracker', () => {
     it('sorts projected turns deterministically by createdAt, then sequence, then turnId, and marks final rows completed when status is absent', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_final',
+            type: 'assistant',
             conversationId: 'conv-1',
             turnId: 'turn-b',
             messageId: 'msg-b',
             assistantMessageId: 'msg-b',
             content: 'Second',
             eventSeq: 2,
+            patch: { role: 'assistant' },
         } as SSEEvent);
         tracker.applyEvent({
-            type: 'assistant_final',
+            type: 'assistant',
             conversationId: 'conv-1',
             turnId: 'turn-a',
             messageId: 'msg-a',
             assistantMessageId: 'msg-a',
             content: 'First',
             eventSeq: 1,
+            patch: { role: 'assistant' },
         } as SSEEvent);
 
         const turns = projectTrackerToTurns(tracker.canonicalState, 'conv-1');
@@ -378,7 +380,7 @@ describe('ConversationStreamTracker', () => {
     it('overlays transient live assistant state onto projected tracker rows', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-1',
@@ -406,7 +408,7 @@ describe('ConversationStreamTracker', () => {
     it('filters redundant explicit live assistant rows once tracker rows cover them', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-1',
@@ -431,7 +433,7 @@ describe('ConversationStreamTracker', () => {
     it('builds effective live assistant rows from tracker canonical rows plus remaining explicit live rows', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-1',
@@ -479,7 +481,7 @@ describe('ConversationStreamTracker', () => {
     it('builds effective live rows including preserved stream placeholders', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-1',
@@ -514,7 +516,7 @@ describe('ConversationStreamTracker', () => {
     it('does not apply same-turn transient overlay when multiple explicit assistant rows exist without an exact id match', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: 'conv-1',
             turnId: 'turn-1',
             messageId: 'msg-tracker',

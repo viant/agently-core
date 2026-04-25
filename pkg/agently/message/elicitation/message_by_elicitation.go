@@ -70,7 +70,7 @@ type MessageView struct {
 	ElicitationPayloadId *string    `sqlx:"elicitation_payload_id"`
 	ToolName             *string    `sqlx:"tool_name"`
 	EmbeddingIndex       *string    `sqlx:"embedding_index"`
-	Preamble             *string    `sqlx:"preamble"`
+	Narration             *string    `sqlx:"preamble"`
 	Iteration            *int       `sqlx:"iteration"`
 	Phase                *string    `sqlx:"phase"`
 }

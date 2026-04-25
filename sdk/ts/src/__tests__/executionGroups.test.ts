@@ -36,7 +36,7 @@ describe('executionGroups', () => {
     it('reads planned tool calls and presentable groups from canonical pages', () => {
         const group: Partial<ExecutionPage> = {
             toolCallsPlanned: [{ toolCallId: 'tc1', toolName: 'llm/agents/run' } as PlannedToolCall],
-            preamble: '',
+            narration: '',
             content: '',
             finalResponse: false,
         };
@@ -90,7 +90,7 @@ describe('executionGroups', () => {
             model: { provider: 'openai', model: 'gpt-5.4' },
         }));
         const live2 = applyExecutionStreamEventToGroups(live1, event({
-            type: 'assistant_preamble',
+            type: 'narration',
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             content: 'Calling updatePlan.',
@@ -120,7 +120,7 @@ describe('executionGroups', () => {
             assistantMessageId: 'a1',
             turnId: 'turn-1',
             status: 'running',
-            preamble: 'Calling updatePlan.',
+            narration: 'Calling updatePlan.',
         });
         expect(merged[0].toolSteps[0]).toMatchObject({
             toolName: 'llm/agents/run',
@@ -331,12 +331,12 @@ describe('executionGroups', () => {
             model: { provider: 'openai', model: 'gpt-5.4' },
         }));
         const live1b = applyExecutionStreamEventToGroups(live1, event({
-            type: 'assistant_preamble',
+            type: 'narration',
             assistantMessageId: 'a7',
             turnId: 'turn-1',
             iteration: 7,
             pageIndex: 7,
-            content: 'First presentable preamble.',
+            content: 'First presentable narration.',
             status: 'completed',
         }));
         const live2 = applyExecutionStreamEventToGroups(live1b, event({
@@ -360,7 +360,7 @@ describe('executionGroups', () => {
             status: 'completed',
         }));
         const live4 = applyExecutionStreamEventToGroups(live3, event({
-            type: 'assistant_preamble',
+            type: 'narration',
             assistantMessageId: 'a8',
             turnId: 'turn-1',
             iteration: 0,
@@ -372,7 +372,7 @@ describe('executionGroups', () => {
         expect(live4.a8).toMatchObject({
             sequence: 8,
             iteration: 8,
-            preamble: 'Calling updatePlan.',
+            narration: 'Calling updatePlan.',
         });
 
         const merged = mergeLatestTranscriptAndLiveExecutionGroups([], live4, 'all');

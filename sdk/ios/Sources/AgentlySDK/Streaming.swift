@@ -114,7 +114,7 @@ public struct LiveExecutionGroup: Codable, Sendable, Equatable, Identifiable {
     public let parentMessageID: String?
     public let sequence: Int?
     public let iteration: Int?
-    public let preamble: String?
+    public let narration: String?
     public let content: String?
     public let errorMessage: String?
     public let status: String?
@@ -133,7 +133,7 @@ public struct LiveExecutionGroup: Codable, Sendable, Equatable, Identifiable {
         parentMessageID: String? = nil,
         sequence: Int? = nil,
         iteration: Int? = nil,
-        preamble: String? = nil,
+        narration: String? = nil,
         content: String? = nil,
         errorMessage: String? = nil,
         status: String? = nil,
@@ -151,7 +151,7 @@ public struct LiveExecutionGroup: Codable, Sendable, Equatable, Identifiable {
         self.parentMessageID = parentMessageID
         self.sequence = sequence
         self.iteration = iteration
-        self.preamble = preamble
+        self.narration = narration
         self.content = content
         self.errorMessage = errorMessage
         self.status = status
@@ -172,7 +172,7 @@ public struct BufferedStreamMessage: Sendable, Equatable, Identifiable {
     public let role: String
     public let type: String
     public let content: String?
-    public let preamble: String?
+    public let narration: String?
     public let status: String?
     public let interim: Int
     public let createdAt: String?
@@ -187,7 +187,7 @@ public struct BufferedStreamMessage: Sendable, Equatable, Identifiable {
         role: String = "assistant",
         type: String = "text",
         content: String? = nil,
-        preamble: String? = nil,
+        narration: String? = nil,
         status: String? = nil,
         interim: Int = 1,
         createdAt: String? = nil,
@@ -201,7 +201,7 @@ public struct BufferedStreamMessage: Sendable, Equatable, Identifiable {
         self.role = role
         self.type = type
         self.content = content
-        self.preamble = preamble
+        self.narration = narration
         self.status = status
         self.interim = interim
         self.createdAt = createdAt
@@ -331,7 +331,7 @@ private extension ConversationStreamTracker {
         let op: String?
         let patch: [String: JSONValue]?
         let content: String?
-        let preamble: String?
+        let narration: String?
         let toolName: String?
         let error: String?
         let status: String?
@@ -384,7 +384,7 @@ private extension ConversationStreamTracker {
             case op
             case patch
             case content
-            case preamble
+            case narration
             case toolName
             case error
             case status
@@ -510,19 +510,25 @@ private extension ConversationStreamTracker {
             )
         case "reasoning_delta":
             messagesByID[messageID] = existing.with(
-                preamble: (existing.preamble ?? "") + (payload.content ?? "")
+                narration: (existing.narration ?? "") + (payload.content ?? "")
             )
-        case "assistant_preamble":
+        case "narration":
             messagesByID[messageID] = existing.with(
-                preamble: payload.content ?? payload.preamble ?? existing.preamble,
+                narration: payload.content ?? payload.narration ?? existing.narration,
                 status: payload.status ?? existing.status ?? "running"
             )
-        case "assistant_final":
-            messagesByID[messageID] = existing.with(
-                content: payload.content ?? existing.content,
-                preamble: payload.preamble ?? existing.preamble,
-                status: payload.status ?? existing.status ?? "completed",
-                interim: 0
+        case "assistant", "message_appended":
+            let patched = applyPatch(existing: existing, patch: payload.patch)
+            let role = (payload.patch?["role"]?.stringValue ?? "").lowercased()
+            guard role == "assistant" || role == "user" else { break }
+            messagesByID[messageID] = patched.with(
+                role: role,
+                type: payload.patch?["type"]?.stringValue ?? patched.type,
+                content: payload.content ?? payload.patch?["content"]?.stringValue ?? patched.content,
+                narration: payload.narration ?? payload.patch?["narration"]?.stringValue ?? patched.narration,
+                status: payload.status ?? payload.patch?["status"]?.stringValue ?? patched.status ?? "completed",
+                interim: 0,
+                sequence: payload.patch?["sequence"]?.intValue ?? payload.eventSeq ?? patched.sequence
             )
         case "model_started":
             messagesByID[messageID] = existing.with(status: payload.status ?? existing.status ?? "running")
@@ -543,7 +549,7 @@ private extension ConversationStreamTracker {
             role: patch["role"]?.stringValue ?? existing.role,
             type: patch["type"]?.stringValue ?? existing.type,
             content: patch["content"]?.stringValue ?? existing.content,
-            preamble: patch["preamble"]?.stringValue ?? existing.preamble,
+            narration: patch["narration"]?.stringValue ?? existing.narration,
             status: patch["status"]?.stringValue ?? existing.status,
             interim: patch["interim"]?.intValue ?? existing.interim,
             linkedConversationID: patch["linkedConversationId"]?.stringValue ?? existing.linkedConversationID,
@@ -572,7 +578,7 @@ private extension ConversationStreamTracker {
             role: "assistant",
             type: "text",
             content: "",
-            preamble: nil,
+            narration: nil,
             status: nil,
             interim: 1,
             createdAt: payload.createdAt,
@@ -591,7 +597,7 @@ private extension ConversationStreamTracker {
     func reconcileMessages(from turns: [ConversationTurn]) -> [String: BufferedStreamMessage] {
         var merged: [String: BufferedStreamMessage] = [:]
         for turn in turns {
-            if let preamble = turn.assistant?.preamble, let messageID = preamble.messageID.trimmedNonEmpty {
+            if let narration = turn.assistant?.narration, let messageID = narration.messageID.trimmedNonEmpty {
                 merged[messageID] = BufferedStreamMessage(
                     id: messageID,
                     conversationID: snapshot.conversationID,
@@ -599,7 +605,7 @@ private extension ConversationStreamTracker {
                     role: "assistant",
                     type: "text",
                     content: nil,
-                    preamble: preamble.content,
+                    narration: narration.content,
                     status: "running",
                     interim: 1,
                     createdAt: turn.createdAt
@@ -613,7 +619,7 @@ private extension ConversationStreamTracker {
                     role: "assistant",
                     type: "text",
                     content: final.content,
-                    preamble: turn.assistant?.preamble?.content,
+                    narration: turn.assistant?.narration?.content,
                     status: "completed",
                     interim: 0,
                     createdAt: turn.createdAt
@@ -654,18 +660,18 @@ private extension ConversationStreamTracker {
             )
             return next
         }
-        if (type == "assistant_preamble" || type == "reasoning_delta"), !assistantMessageID.isEmpty {
+        if (type == "narration" || type == "reasoning_delta"), !assistantMessageID.isEmpty {
             guard let current = ensureExecutionGroup(next, assistantMessageID: assistantMessageID, payload: payload) else {
                 return next
             }
-            let preamble = type == "reasoning_delta"
-                ? (current.preamble ?? "") + (payload.content ?? "")
-                : (payload.content ?? payload.preamble ?? current.preamble)
+            let narration = type == "reasoning_delta"
+                ? (current.narration ?? "") + (payload.content ?? "")
+                : (payload.content ?? payload.narration ?? current.narration)
             let updated = current.copy(
                 turnID: payload.turnID ?? current.turnID,
                 sequence: payload.eventSeq ?? current.sequence,
                 iteration: payload.iteration ?? current.iteration,
-                preamble: preamble,
+                narration: narration,
                 status: payload.status ?? current.status ?? "running"
             )
             next[assistantMessageID] = mergePrimaryModelStep(current: updated, payload: payload, fallbackStatus: updated.status ?? "running")
@@ -682,7 +688,7 @@ private extension ConversationStreamTracker {
                 turnID: payload.turnID ?? current.turnID,
                 sequence: payload.eventSeq ?? current.sequence,
                 iteration: payload.iteration ?? current.iteration,
-                preamble: payload.preamble ?? current.preamble,
+                narration: payload.narration ?? current.narration,
                 content: content,
                 errorMessage: payload.error ?? current.errorMessage,
                 status: payload.status ?? current.status ?? (type == "model_completed" ? "completed" : "running"),
@@ -696,21 +702,6 @@ private extension ConversationStreamTracker {
                 return next
             }
             next[assistantMessageID] = upsertToolStep(current: current, payload: payload)
-            return next
-        }
-        if type == "assistant_final", !assistantMessageID.isEmpty {
-            guard let current = ensureExecutionGroup(next, assistantMessageID: assistantMessageID, payload: payload) else {
-                return next
-            }
-            let updated = current.copy(
-                turnID: payload.turnID ?? current.turnID,
-                preamble: payload.preamble ?? current.preamble,
-                content: payload.content ?? current.content,
-                errorMessage: payload.error ?? current.errorMessage,
-                status: payload.status ?? current.status ?? "completed",
-                finalResponse: true
-            )
-            next[assistantMessageID] = mergePrimaryModelStep(current: updated, payload: payload, fallbackStatus: "completed")
             return next
         }
         if ["turn_completed", "turn_failed", "turn_canceled"].contains(type) {
@@ -756,7 +747,7 @@ private extension ConversationStreamTracker {
             parentMessageID: payload.parentMessageID?.trimmedNonEmpty,
             sequence: payload.eventSeq,
             iteration: payload.iteration,
-            preamble: payload.preamble?.trimmedNonEmpty,
+            narration: payload.narration?.trimmedNonEmpty,
             content: payload.content?.trimmedNonEmpty,
             errorMessage: payload.error?.trimmedNonEmpty,
             status: payload.status ?? "running",
@@ -865,7 +856,7 @@ private extension ConversationStreamTracker {
             parentMessageID: incoming.parentMessageID ?? existing.parentMessageID,
             sequence: incoming.sequence ?? existing.sequence,
             iteration: incoming.iteration ?? existing.iteration,
-            preamble: incoming.preamble ?? existing.preamble,
+            narration: incoming.narration ?? existing.narration,
             content: incoming.content ?? existing.content,
             errorMessage: incoming.errorMessage ?? existing.errorMessage,
             status: incoming.status ?? existing.status,
@@ -934,7 +925,7 @@ private extension BufferedStreamMessage {
         role: String? = nil,
         type: String? = nil,
         content: String? = nil,
-        preamble: String? = nil,
+        narration: String? = nil,
         status: String? = nil,
         interim: Int? = nil,
         createdAt: String? = nil,
@@ -949,7 +940,7 @@ private extension BufferedStreamMessage {
             role: role ?? self.role,
             type: type ?? self.type,
             content: content ?? self.content,
-            preamble: preamble ?? self.preamble,
+            narration: narration ?? self.narration,
             status: status ?? self.status,
             interim: interim ?? self.interim,
             createdAt: createdAt ?? self.createdAt,
@@ -966,7 +957,7 @@ private extension LiveExecutionGroup {
         parentMessageID: String? = nil,
         sequence: Int? = nil,
         iteration: Int? = nil,
-        preamble: String? = nil,
+        narration: String? = nil,
         content: String? = nil,
         errorMessage: String? = nil,
         status: String? = nil,
@@ -985,7 +976,7 @@ private extension LiveExecutionGroup {
             parentMessageID: parentMessageID ?? self.parentMessageID,
             sequence: sequence ?? self.sequence,
             iteration: iteration ?? self.iteration,
-            preamble: preamble ?? self.preamble,
+            narration: narration ?? self.narration,
             content: content ?? self.content,
             errorMessage: errorMessage ?? self.errorMessage,
             status: status ?? self.status,

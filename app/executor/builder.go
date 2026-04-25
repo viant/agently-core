@@ -220,7 +220,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.DAO = dao
 	}
 	if out.AuthConfig == nil {
-		authCfg, err := svcauth.LoadWorkspaceConfig(workspace.Root())
+		authCfg, err := svcauth.LoadConfig(workspace.Root())
 		if err != nil {
 			return nil, err
 		}
@@ -347,6 +347,14 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	if out.Agent != nil {
 		out.Agent.SetSkillService(out.Skills)
+	}
+	// Apply workspace-level async defaults (GC cadence, narrator timeout)
+	// to the agent service's Manager. Parse errors surface loudly so
+	// operator typos fail at bootstrap rather than silently degrading.
+	if out.Agent != nil && out.Defaults != nil && out.Defaults.Async != nil {
+		if _, _, _, err := out.Defaults.Async.Apply(ctx, out.Agent.AsyncManager()); err != nil {
+			return nil, err
+		}
 	}
 	if out.Skills != nil {
 		if err := tool.AddInternalService(out.Registry, out.Skills); err != nil {

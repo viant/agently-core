@@ -1015,8 +1015,8 @@ func collectTranscriptText(resp *sdk.ConversationStateResponse) string {
 			continue
 		}
 		if turn.Assistant != nil {
-			if turn.Assistant.Preamble != nil && strings.TrimSpace(turn.Assistant.Preamble.Content) != "" {
-				parts = append(parts, strings.TrimSpace(turn.Assistant.Preamble.Content))
+			if turn.Assistant.Narration != nil && strings.TrimSpace(turn.Assistant.Narration.Content) != "" {
+				parts = append(parts, strings.TrimSpace(turn.Assistant.Narration.Content))
 			}
 			if turn.Assistant.Final != nil && strings.TrimSpace(turn.Assistant.Final.Content) != "" {
 				parts = append(parts, strings.TrimSpace(turn.Assistant.Final.Content))

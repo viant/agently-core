@@ -45,6 +45,8 @@ type ListLookupRegistryInput struct {
 type LookupRegistryEntry struct {
 	Name       string            `json:"name"`
 	DataSource string            `json:"dataSource"`
+	DialogId   string            `json:"dialogId,omitempty"`
+	WindowId   string            `json:"windowId,omitempty"`
 	Trigger    string            `json:"trigger,omitempty"`
 	Required   bool              `json:"required,omitempty"`
 	Display    string            `json:"display,omitempty"`

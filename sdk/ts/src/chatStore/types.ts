@@ -179,7 +179,7 @@ export interface ClientAssistantFinal extends EntityIdentity {
     createdAt?: string;
 }
 
-export interface ClientAssistantPreamble extends EntityIdentity {
+export interface ClientAssistantNarration extends EntityIdentity {
     content?: string;
     createdAt?: string;
 }
@@ -232,10 +232,10 @@ export interface ClientExecutionPage extends EntityIdentity {
     phase?: ClientExecutionPhase;
     mode?: string;
     status?: string;
-    preamble?: string;
+    narration?: string;
     content?: string;
     finalResponse?: boolean;
-    preambleMessageId?: string;
+    narrationMessageId?: string;
     finalAssistantMessageId?: string;
     modelSteps: ClientModelStep[];
     toolCalls: ClientToolCall[];
@@ -260,8 +260,8 @@ export interface ClientTurnState extends EntityIdentity {
     pages: ClientExecutionPage[];
     /** Optional turn-level assistant aggregate (final content). */
     assistantFinal?: ClientAssistantFinal | null;
-    /** Optional turn-level assistant aggregate (preamble). */
-    assistantPreamble?: ClientAssistantPreamble | null;
+    /** Optional turn-level assistant aggregate (narration). */
+    assistantNarration?: ClientAssistantNarration | null;
     /** Pending turn-level elicitation (ui-improvement.md §6.3 renderable). */
     elicitation?: ClientElicitation | null;
     /** Linked conversations attached to this turn. */
@@ -370,7 +370,7 @@ export interface CanonicalTurnMessageState {
 }
 
 export interface CanonicalAssistantState {
-    preamble?: CanonicalAssistantMessageState | null;
+    narration?: CanonicalAssistantMessageState | null;
     final?: CanonicalAssistantMessageState | null;
 }
 
@@ -398,9 +398,9 @@ export interface CanonicalExecutionPageState {
     status?: string;
     modelSteps?: CanonicalModelStepState[];
     toolSteps?: CanonicalToolStepState[];
-    preambleMessageId?: string;
+    narrationMessageId?: string;
     finalAssistantMessageId?: string;
-    preamble?: string;
+    narration?: string;
     content?: string;
     finalResponse?: boolean;
     sequence?: number;

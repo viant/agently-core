@@ -50,7 +50,33 @@ const (
 	defaultConnMaxLifetime = 55 * time.Minute
 	defaultConnMaxIdle     = 5 * time.Minute
 	defaultMaxIdleConns    = 4
+	// defaultSQLiteMaxOpenConns caps concurrent SQLite connections.
+	// A file-backed SQLite DB (even with WAL) serializes writers at the
+	// file level and its shared-cache internal mutexes don't scale with
+	// connection count — an unbounded pool (Go's default) produces
+	// prepare-storms under bursty load, surfacing as "context canceled"
+	// errors when the client ctx expires before the driver can compile
+	// a statement. 4 is a conservative sweet spot: enough reader
+	// parallelism in WAL mode, low enough to avoid lock churn.
+	defaultSQLiteMaxOpenConns = 4
+	defaultSQLiteMaxIdleConns = 4
 )
+
+// applySQLitePoolDefaults configures the datly Connector with a
+// bounded connection pool for SQLite. Only applied when the driver
+// is SQLite — MySQL uses its own tuning block above. Caller-set
+// values are preserved; this only fills zero defaults.
+func applySQLitePoolDefaults(conn *view.Connector) {
+	if conn == nil {
+		return
+	}
+	if conn.MaxOpenConns == 0 {
+		conn.MaxOpenConns = defaultSQLiteMaxOpenConns
+	}
+	if conn.MaxIdleConns == 0 {
+		conn.MaxIdleConns = defaultSQLiteMaxIdleConns
+	}
+}
 
 var (
 	sharedDAO *datly.Service
@@ -105,6 +131,8 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 			if conn.MaxIdleConns == 0 {
 				conn.MaxIdleConns = defaultMaxIdleConns
 			}
+		} else if strings.EqualFold(driver, "sqlite") {
+			applySQLitePoolDefaults(conn)
 		}
 
 		if err := svc.AddConnectors(ctx, conn); err != nil {
@@ -139,6 +167,7 @@ func NewDatlyFromWorkspace(ctx context.Context, root string) (*datly.Service, er
 		return nil, err
 	}
 	conn := view.NewConnector("agently", "sqlite", dsn)
+	applySQLitePoolDefaults(conn)
 	if err := svc.AddConnectors(ctx, conn); err != nil {
 		return nil, err
 	}
@@ -159,6 +188,7 @@ func NewDatlyInMemory(ctx context.Context) (*datly.Service, error) {
 		return nil, err
 	}
 	conn := view.NewConnector("agently", "sqlite", dsn)
+	applySQLitePoolDefaults(conn)
 	if err := svc.AddConnectors(ctx, conn); err != nil {
 		return nil, err
 	}

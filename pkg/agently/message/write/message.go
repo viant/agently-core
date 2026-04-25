@@ -31,7 +31,7 @@ type Message struct {
 	SupersededBy         *string `sqlx:"superseded_by" json:",omitempty"`
 	LinkedConversationID *string `sqlx:"linked_conversation_id" json:",omitempty"`
 	ToolName             *string `sqlx:"tool_name" json:",omitempty"`
-	Preamble             *string `sqlx:"preamble" json:",omitempty"`
+	Narration             *string `sqlx:"preamble" json:",omitempty"`
 	Iteration            *int    `sqlx:"iteration" json:",omitempty"`
 	Phase                *string `sqlx:"phase" json:",omitempty"`
 	// AttachmentPayloadID links a message to an uploaded/staged attachment payload.
@@ -71,7 +71,7 @@ type MessageHas struct {
 	SupersededBy         bool
 	LinkedConversationID bool
 	ToolName             bool
-	Preamble             bool
+	Narration             bool
 	Iteration            bool
 	Phase                bool
 	AttachmentPayloadID  bool
@@ -121,7 +121,7 @@ func (m *Message) SetEmbeddingIndex(v []byte) {
 	m.Has.EmbeddingIndex = true
 }
 func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
-func (m *Message) SetPreamble(v string) { m.Preamble = &v; m.ensureHas(); m.Has.Preamble = true }
+func (m *Message) SetNarration(v string) { m.Narration = &v; m.ensureHas(); m.Has.Narration = true }
 func (m *Message) SetIteration(v int)   { m.Iteration = &v; m.ensureHas(); m.Has.Iteration = true }
 func (m *Message) SetPhase(v string)    { m.Phase = &v; m.ensureHas(); m.Has.Phase = true }
 func (m *Message) SetInterim(v int)     { m.Interim = &v; m.ensureHas(); m.Has.Interim = true }

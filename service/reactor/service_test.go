@@ -427,10 +427,10 @@ func TestService_patchStreamingToolPreamble_PatchesAssistantMessage(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, msg)
 	require.NotNil(t, msg.Content)
-	require.NotNil(t, msg.Preamble)
+	require.NotNil(t, msg.Narration)
 	require.NotNil(t, msg.RawContent)
 	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.Content)
-	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.Preamble)
+	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.Narration)
 	assert.EqualValues(t, "I will use system_os-getEnv.", *msg.RawContent)
 	assert.EqualValues(t, 1, msg.Interim)
 }
