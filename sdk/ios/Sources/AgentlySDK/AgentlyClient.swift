@@ -184,11 +184,17 @@ public final class AgentlyClient: Sendable {
         return endpoint
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type) async throws -> T {
+    // `internal` (not `private`) so extensions on AgentlyClient in
+    // sibling files (e.g. Lookups.swift) can call the shared transport
+    // helpers without each file re-implementing them. Module-scope
+    // access is the narrowest level that still works across files in
+    // Swift — extensions cannot reach `private` declarations even
+    // within the same module.
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type) async throws -> T {
         try await rawRequest(path: path, method: "GET", query: query, as: type)
     }
 
-    private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, as type: T.Type) async throws -> T {
+    func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, as type: T.Type) async throws -> T {
         let data = try encoder.encode(body)
         return try await rawRequest(path: path, method: "POST", body: data, as: type)
     }
@@ -219,7 +225,7 @@ public final class AgentlyClient: Sendable {
         )
     }
 
-    private func rawRequest<T: Decodable>(
+    func rawRequest<T: Decodable>(
         path: String,
         method: String,
         query: [URLQueryItem] = [],

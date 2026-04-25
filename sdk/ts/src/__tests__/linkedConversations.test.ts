@@ -22,7 +22,7 @@ describe('summarizeLinkedConversationTranscript', () => {
                             {
                                 assistantMessageId: 'child-1',
                                 status: 'completed',
-                                preamble: 'Calling roots.',
+                                narration: 'Calling roots.',
                                 toolSteps: [
                                     { toolName: 'resources/roots', status: 'completed' },
                                 ],
@@ -30,7 +30,7 @@ describe('summarizeLinkedConversationTranscript', () => {
                             {
                                 assistantMessageId: 'child-2',
                                 status: 'completed',
-                                preamble: 'Compiling final answer.',
+                                narration: 'Compiling final answer.',
                                 content: 'Forecast returned zero reach.',
                             },
                         ],
@@ -92,9 +92,10 @@ describe('reduceLinkedConversationPreviewEvent', () => {
         });
 
         const afterFinal = reduceLinkedConversationPreviewEvent(afterTool, event({
-            type: 'assistant_final',
+            type: 'assistant',
             content: 'Child forecast complete.',
             status: 'completed',
+            patch: { role: 'assistant' },
         }));
         expect(afterFinal.response).toBe('Child forecast complete.');
         expect(afterFinal.status).toBe('completed');

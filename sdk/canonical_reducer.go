@@ -43,10 +43,12 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 		return reduceModelCompleted(state, event)
 
 	// Assistant content (aggregated)
-	case streaming.EventTypeAssistantPreamble:
-		return reduceAssistantPreamble(state, event)
-	case streaming.EventTypeAssistantFinal:
-		return reduceAssistantFinal(state, event)
+	case streaming.EventTypeNarration:
+		return reduceAssistantNarration(state, event)
+	case streaming.EventTypeAssistant:
+		return reduceAssistantMessage(state, event)
+	case streaming.EventType("message_appended"):
+		return reduceAssistantMessage(state, event)
 
 	// Stream deltas — accumulate into current page
 	case streaming.EventTypeTextDelta:
@@ -227,8 +229,8 @@ func reduceToolCallsPlanned(state *ConversationState, event *streaming.Event) *C
 	if event.Content != "" {
 		page.Content = event.Content
 	}
-	if event.Preamble != "" {
-		page.Preamble = event.Preamble
+	if event.Narration != "" {
+		page.Narration = event.Narration
 	}
 	// Seed preliminary tool steps so SDK consumers can show planned tools
 	// immediately, before tool_call_started arrives from the database.
@@ -246,23 +248,78 @@ func reduceToolCallsPlanned(state *ConversationState, event *streaming.Event) *C
 
 // --- assistant content ---
 
-func reduceAssistantPreamble(state *ConversationState, event *streaming.Event) *ConversationState {
+func reduceAssistantNarration(state *ConversationState, event *streaming.Event) *ConversationState {
 	turn := findOrCreateTurnWithTime(state, event)
 	if turn == nil {
 		return state
 	}
 	page := ensureCurrentPage(turn, event)
-	setAssistantPreamble(turn, page, strings.TrimSpace(event.AssistantMessageID), event.Content)
+	// Narration text is carried in the dedicated `Narration` field
+	// (matching the TS reducer). Fall back to Content only when the
+	// upstream source hasn't been migrated yet — can be removed once
+	// all emitters populate Narration.
+	text := event.Narration
+	if text == "" {
+		text = event.Content
+	}
+	msgID := strings.TrimSpace(event.AssistantMessageID)
+	if msgID == "" {
+		msgID = strings.TrimSpace(event.MessageID)
+	}
+	setAssistantNarration(turn, page, msgID, text)
 	return state
 }
 
-func reduceAssistantFinal(state *ConversationState, event *streaming.Event) *ConversationState {
+func reduceAssistantMessage(state *ConversationState, event *streaming.Event) *ConversationState {
 	turn := findOrCreateTurnWithTime(state, event)
 	if turn == nil {
 		return state
 	}
-	page := ensureCurrentPage(turn, event)
-	setAssistantFinal(turn, page, strings.TrimSpace(event.AssistantMessageID), event.Content)
+	messageID := strings.TrimSpace(event.MessageID)
+	if messageID == "" {
+		messageID = strings.TrimSpace(event.ID)
+	}
+	if messageID == "" {
+		messageID = strings.TrimSpace(event.AssistantMessageID)
+	}
+	content := event.Content
+	if messageID == "" || strings.TrimSpace(content) == "" {
+		return state
+	}
+	role := strings.ToLower(strings.TrimSpace(patchString(event.Patch, "role")))
+	if role != "assistant" && role != "user" {
+		return state
+	}
+	if role == "user" {
+		msg := findTurnUser(turn, messageID)
+		if msg == nil {
+			msg = &UserMessageState{MessageID: messageID}
+			turn.Users = append(turn.Users, msg)
+		}
+		msg.Content = content
+		if turn.User == nil || strings.TrimSpace(turn.User.MessageID) == messageID {
+			turn.User = msg
+		}
+		return state
+	}
+	msg := findTurnMessage(turn, messageID)
+	if msg == nil {
+		msg = &TurnMessageState{MessageID: messageID, Role: "assistant"}
+		turn.Messages = append(turn.Messages, msg)
+	}
+	msg.Role = "assistant"
+	msg.Content = content
+	msg.CreatedAt = event.CreatedAt
+	msg.Interim = 0
+	if seq, ok := patchInt(event.Patch, "sequence"); ok {
+		msg.Sequence = seq
+	}
+	if mode := strings.TrimSpace(event.Mode); mode != "" {
+		msg.Mode = mode
+	}
+	if status := strings.TrimSpace(patchString(event.Patch, "status")); status != "" {
+		msg.Status = status
+	}
 	return state
 }
 
@@ -287,7 +344,7 @@ func reduceReasoningDelta(state *ConversationState, event *streaming.Event) *Con
 		return state
 	}
 	page := ensureCurrentPage(turn, event)
-	page.Preamble += event.Content
+	page.Narration += event.Content
 	return state
 }
 

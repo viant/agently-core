@@ -161,7 +161,7 @@ internal fun patchMessage(existing: BufferedMessage, patch: JsonObject?): Buffer
         linkedConversationId = map.stringValue("linkedConversationId") ?: existing.linkedConversationId,
         status = map.stringValue("status") ?: existing.status,
         toolName = map.stringValue("toolName") ?: existing.toolName,
-        preamble = map.stringValue("preamble") ?: existing.preamble,
+        narration = map.stringValue("narration") ?: existing.narration,
         interim = map.stringValue("interim")?.toIntOrNull() ?: existing.interim,
         content = normalizedContent ?: existing.content
     )
@@ -225,7 +225,7 @@ internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMe
                     role = "assistant",
                     type = "text",
                     content = final.content,
-                    preamble = turn.assistant.preamble?.content,
+                    narration = turn.assistant.narration?.content,
                     status = turn.status,
                     interim = if (turn.status.equals("completed", true)) 0 else 1,
                     createdAt = turn.createdAt

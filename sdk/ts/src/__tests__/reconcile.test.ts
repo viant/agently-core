@@ -107,21 +107,21 @@ describe('applyEvent', () => {
         expect(r2).toEqual({ id: 'msg_1', content: 'Hello world', final: false });
     });
 
-    it('accumulates reasoning_delta into preamble', () => {
+    it('accumulates reasoning_delta into narration', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
             id: 'msg_1', streamId: 'conv_1', type: 'reasoning_delta', content: 'Thinking...',
         } as SSEEvent);
-        expect(buf.byId.get('msg_1')?.preamble).toBe('Thinking...');
+        expect(buf.byId.get('msg_1')?.narration).toBe('Thinking...');
     });
 
-    it('applies assistant_preamble semantically', () => {
+    it('applies narration semantically', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
             id: 'msg_1',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'Calling run.',
             status: 'running',
         } as SSEEvent);
@@ -129,7 +129,7 @@ describe('applyEvent', () => {
             id: 'msg_1',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            preamble: 'Calling run.',
+            narration: 'Calling run.',
             status: 'running',
             interim: 1,
         });
@@ -142,7 +142,7 @@ describe('applyEvent', () => {
             id: 'msg_1',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'Calling run.',
         } as SSEEvent);
         const firstCreatedAt = String(buf.byId.get('msg_1')?.createdAt || '');
@@ -151,7 +151,7 @@ describe('applyEvent', () => {
             id: 'msg_2',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'Calling run again.',
         } as SSEEvent);
         const secondCreatedAt = String(buf.byId.get('msg_2')?.createdAt || '');
@@ -160,30 +160,31 @@ describe('applyEvent', () => {
         expect(secondCreatedAt).toBe('');
     });
 
-    it('applies assistant_final semantically', () => {
+    it('applies assistant message appends semantically', () => {
         const buf = newMessageBuffer();
         applyEvent(buf, {
             id: 'msg_1',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'Thinking...',
         } as SSEEvent);
         const result = applyEvent(buf, {
             id: 'msg_1',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            type: 'assistant_final',
+            type: 'assistant',
             content: 'Final answer',
             status: 'completed',
             finalResponse: true,
+            patch: { role: 'assistant' },
         } as SSEEvent);
         expect(result).toEqual({ id: 'msg_1', content: 'Final answer', final: true });
         expect(buf.byId.get('msg_1')).toMatchObject({
             content: 'Final answer',
             status: 'completed',
             interim: 0,
-            preamble: 'Thinking...',
+            narration: 'Thinking...',
         });
     });
 
@@ -215,7 +216,7 @@ describe('applyEvent', () => {
             id: 'msg_1',
             conversationId: 'conv_1',
             turnId: 'turn_1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'Thinking...',
         } as SSEEvent);
 
@@ -298,7 +299,7 @@ describe('reconcileMessages', () => {
             id: 'msg_2',
             conversationId: 'c1',
             turnId: 'turn-1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'second',
             createdAt: '2026-01-01T00:00:01Z',
             eventSeq: 2,
@@ -307,7 +308,7 @@ describe('reconcileMessages', () => {
             id: 'msg_1',
             conversationId: 'c1',
             turnId: 'turn-1',
-            type: 'assistant_preamble',
+            type: 'narration',
             content: 'first',
             createdAt: '2026-01-01T00:00:01Z',
             eventSeq: 1,

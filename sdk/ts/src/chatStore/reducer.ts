@@ -11,10 +11,58 @@
  * provenance lives in a private WeakMap so the reducer is the sole writer
  * and consumers never see provenance metadata in the projected output.
  *
+ * ─── Active-turn SSE contract (MUST READ before editing) ───────────────
+ *
+ * The server emits SEMANTIC events only. Raw DB column diffs
+ * (`control:message_add`, `control:message_patch`) are NOT carried on
+ * the live wire anymore — they were the transcript/SSE mixing regression
+ * that kept breaking bubble rendering.
+ *
+ * The entire assistant-content surface is covered by exactly TWO events:
+ *
+ *   `narration`  — ephemeral interim commentary (pre-tool-call framing,
+ *                  async narrator progress updates, reasoning accumulation).
+ *                  Reuses the NEXT assistant message's bubble: the event
+ *                  carries the upcoming assistant message id; the reducer
+ *                  upserts a bubble at that id with `interim=1` and the
+ *                  narration text in `content`. When the real assistant
+ *                  message arrives with the SAME id, it replaces the
+ *                  content and flips `interim=0`. Narration never gets
+ *                  a bubble of its own — it inhabits the bubble of the
+ *                  assistant message that's on its way.
+ *
+ *   `assistant`  — a real turn message (role=assistant OR role=user,
+ *                  carried via `patch.role`). Idempotent by messageId.
+ *                  Routing:
+ *                    • page-tied (event carries `pageId` or non-zero
+ *                      `iteration`)     → write into page.content /
+ *                                          page.finalAssistantMessageId;
+ *                                          rendered as an iteration block.
+ *                    • standalone       → upsert into turn.messages (or
+ *                                          turn.users when role=user);
+ *                                          rendered as a bubble.
+ *
+ * ─── No "final message" ─────────────────────────────────────────────────
+ *
+ * There is NO notion of "final assistant message" at the event layer.
+ * A turn may carry any number of assistant messages; none is "the final".
+ * End-of-turn is signaled ONLY by `turn_completed` / `turn_failed` /
+ * `turn_canceled`. This distinction has bitten us repeatedly
+ * ("which is the final?", "why does this bubble disappear?", "why is
+ * the final flag on an intermediate message?") — keep it dead.
+ *
+ * ─── Past turns ────────────────────────────────────────────────────────
+ *
+ * Past-turn content flows through `applyTranscript` from the canonical
+ * snapshot, populating the same client-state fields. Active-turn SSE
+ * events and transcript snapshots write the same shapes so the UI never
+ * has to branch on source.
+ *
  * Contract references:
  *   ui-improvement.md §4.1 (pending bootstrap), §4.2 (transcript-created
  *   turns), §4.3 (phase vs lifecycle), §4.4 (latest turn is monotonic),
  *   §5.0–§5.6 (merge contract).
+ *   doc/async.md (end-of-turn signaling, narration pairing).
  */
 
 import {
@@ -39,7 +87,7 @@ import type {
     CanonicalTurnState,
     CanonicalUserMessageState,
     ClientAssistantFinal,
-    ClientAssistantPreamble,
+    ClientAssistantNarration,
     ClientConversationState,
     ClientElicitation,
     ClientExecutionPage,
@@ -328,7 +376,7 @@ export function applyLocalSubmit(
  *     → find or create turn, update lifecycle, append lifecycleEntries[]
  *   - model_started / model_completed → find/create page + model step
  *   - tool_call_* → find/create page + tool call
- *   - assistant_preamble / assistant_final → set page preamble / content
+ *   - narration / assistant → set narration / append content
  *   - text_delta / reasoning_delta / tool_call_delta → append to last open
  *     compatible accumulator within the turn's current page (positional)
  *   - elicitation_* → set turn-level elicitation
@@ -363,10 +411,15 @@ export function applyEvent(
         case 'tool_call_failed':
         case 'tool_call_canceled':
             return onToolCallEvent(state, event);
-        case 'assistant_preamble':
-            return onAssistantPreamble(state, event);
-        case 'assistant_final':
-            return onAssistantFinal(state, event);
+        case 'narration':
+            return onAssistantNarration(state, event);
+        case 'assistant':
+            return onAssistantMessage(state, event);
+        // `message_appended` is a transitional wire-name alias that
+        // routes to the same handler — real turn message, upserted
+        // by messageId.
+        case 'message_appended':
+            return onAssistantMessage(state, event);
         case 'text_delta':
             return onTextDelta(state, event);
         case 'reasoning_delta':
@@ -379,7 +432,12 @@ export function applyEvent(
         case 'linked_conversation_attached':
             return onLinkedConversationAttached(state, event);
         case 'control':
-            return onControl(state, event);
+            // `control:message_patch` / `control:message_add` retired
+            // (raw DB column diffs on the wire were the transcript/SSE
+            // mixing regression). Non-message control ops (turn_started,
+            // turn_completed, etc.) have dedicated semantic events; the
+            // control type now receives nothing routed by the reducer.
+            return state;
         default:
             return state;
     }
@@ -694,7 +752,15 @@ function onModelStarted(state: ClientConversationState, event: SSEEvent): Client
     const page = ensurePageForEvent(turn, event, 'event');
 
     const modelCallId = ((event as unknown as { modelCallId?: string }).modelCallId ?? '').trim();
-    const assistantMessageId = (event.assistantMessageId ?? '').trim();
+    // Assistant-content events (model_started, model_completed, narration,
+    // assistant, text_delta, reasoning_delta, tool_calls_planned)
+    // carry the assistant-bubble id in `messageId`. The legacy
+    // `assistantMessageId` field is preserved as a fallback during the
+    // transition — once all emitters drop it from assistant-content
+    // emissions the fallback can be removed. Tool events still populate
+    // `assistantMessageId` distinctly (parent bubble vs tool row); that
+    // path is unaffected.
+    const assistantMessageId = ((event.messageId ?? event.assistantMessageId) ?? '').trim();
     const matched = matchModelStep(page.modelSteps, {
         modelCallId,
         assistantMessageId,
@@ -726,7 +792,8 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     }
     const page = ensurePageForEvent(turn, event, 'event');
     const modelCallId = ((event as unknown as { modelCallId?: string }).modelCallId ?? '').trim();
-    const assistantMessageId = (event.assistantMessageId ?? '').trim();
+    // Prefer messageId (canonical); fall back to assistantMessageId.
+    const assistantMessageId = ((event.messageId ?? event.assistantMessageId) ?? '').trim();
     const matched = matchModelStep(page.modelSteps, { modelCallId, assistantMessageId, positionHint: page.modelSteps.length - 1 });
     const step = matched ?? appendModelStep(page, 'event');
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
@@ -783,7 +850,7 @@ function appendToolCall(page: ClientExecutionPage): ClientToolCall {
     return tc;
 }
 
-function onAssistantPreamble(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+function onAssistantNarration(state: ClientConversationState, event: SSEEvent): ClientConversationState {
     const turn = resolveEventTurn(state, event);
     if (!turn) return state;
     const eventTurnId = (event.turnId ?? '').trim();
@@ -791,9 +858,68 @@ function onAssistantPreamble(state: ClientConversationState, event: SSEEvent): C
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
     const page = ensurePageForEvent(turn, event, 'event');
+    // Prefer messageId (canonical); fall back to assistantMessageId for
+    // emitters that haven't yet dropped the redundant field.
+    const messageId = ((event.messageId ?? event.assistantMessageId) ?? '').trim();
+    const narrationText = typeof event.narration === 'string' ? event.narration : '';
+
+    // Page-level mirror (for execution-panel UI that reads page state).
     if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
-    if (event.preamble) writeField(page, 'preamble', event.preamble, 'event');
-    if (event.assistantMessageId) writeField(page, 'preambleMessageId', event.assistantMessageId, 'event');
+    if (narrationText) writeField(page, 'narration', narrationText, 'event');
+    if (messageId) writeField(page, 'narrationMessageId', messageId, 'event');
+
+    // Bubble state: upsert into turn.messages by messageId with
+    // interim=1. Each in-flight assistant message (narrated and about
+    // to arrive as a real `assistant` event later) gets its OWN bubble.
+    // A turn may interleave narration → message/add → narration → final;
+    // each messageId tracks its own bubble so sequential narrations
+    // don't overwrite each other. When the real `assistant` event
+    // arrives for the same messageId, onAssistantMessage flips
+    // interim=0 and replaces content.
+    //
+    // Sequence propagation: the narration event carries the DB-
+    // assigned sequence on `event.patch.sequence` so the bubble is
+    // orderable against siblings from the moment it appears — before
+    // the real `assistant` event for the same id arrives.
+    const narrationPatch = (event.patch && typeof event.patch === 'object')
+        ? (event.patch as Record<string, unknown>)
+        : {};
+    if (messageId && (narrationText || event.createdAt)) {
+        let entry = turn.messages.find((m) => (m.messageId ?? '').trim() === messageId) || null;
+        if (entry) {
+            writeField(entry, 'role', 'assistant', 'event');
+            if (narrationText) writeField(entry, 'content', narrationText, 'event');
+            if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
+            if (event.mode) writeField(entry, 'mode', event.mode, 'event');
+            if (typeof narrationPatch.sequence === 'number') writeField(entry, 'sequence', narrationPatch.sequence, 'event');
+            if (typeof narrationPatch.status === 'string' && narrationPatch.status) writeField(entry, 'status', String(narrationPatch.status), 'event');
+            // interim=1 only if the bubble is currently interim; don't
+            // regress a finalized bubble back to interim on a stray
+            // trailing narration event.
+            if (entry.interim !== 0) writeField(entry, 'interim', 1, 'event');
+        } else {
+            entry = {
+                renderKey: allocateRenderKey(),
+                messageId,
+                role: 'assistant',
+                content: narrationText,
+                createdAt: event.createdAt,
+                mode: event.mode,
+                sequence: typeof narrationPatch.sequence === 'number' ? narrationPatch.sequence : undefined,
+                status: typeof narrationPatch.status === 'string' ? String(narrationPatch.status) : undefined,
+                interim: 1,
+            };
+            setFieldProvenance(entry, 'messageId', 'event');
+            setFieldProvenance(entry, 'role', 'event');
+            setFieldProvenance(entry, 'content', 'event');
+            if (entry.createdAt) setFieldProvenance(entry, 'createdAt', 'event');
+            if (entry.mode) setFieldProvenance(entry, 'mode', 'event');
+            if (typeof entry.sequence === 'number') setFieldProvenance(entry, 'sequence', 'event');
+            if (entry.status) setFieldProvenance(entry, 'status', 'event');
+            setFieldProvenance(entry, 'interim', 'event');
+            turn.messages.push(entry);
+        }
+    }
     return state;
 }
 
@@ -805,15 +931,17 @@ function onAssistantFinal(state: ClientConversationState, event: SSEEvent): Clie
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
     const page = ensurePageForEvent(turn, event, 'event');
+    // Prefer messageId (canonical); fall back to assistantMessageId.
+    const messageId = ((event.messageId ?? event.assistantMessageId) ?? '').trim();
     if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
     if (event.content) writeField(page, 'content', event.content, 'event');
-    if (event.assistantMessageId) writeField(page, 'finalAssistantMessageId', event.assistantMessageId, 'event');
+    if (messageId) writeField(page, 'finalAssistantMessageId', messageId, 'event');
     writeField(page, 'finalResponse', true, 'event');
     // Turn-level assistantFinal aggregate (optional mirror).
-    if (event.content || event.assistantMessageId) {
+    if (event.content || messageId) {
         turn.assistantFinal = turn.assistantFinal ?? { renderKey: allocateRenderKey() };
         const af = turn.assistantFinal as ClientAssistantFinal;
-        if (event.assistantMessageId) writeField(af, 'messageId', event.assistantMessageId, 'event');
+        if (messageId) writeField(af, 'messageId', messageId, 'event');
         if (event.content) writeField(af, 'content', event.content, 'event');
         if (event.createdAt) writeField(af, 'createdAt', event.createdAt, 'event');
     }
@@ -836,7 +964,7 @@ function onTextDelta(state: ClientConversationState, event: SSEEvent): ClientCon
 }
 
 function onReasoningDelta(state: ClientConversationState, event: SSEEvent): ClientConversationState {
-    // Reasoning deltas accumulate into the page preamble accumulator.
+    // Reasoning deltas accumulate into the page narration accumulator.
     const turn = resolveEventTurn(state, event);
     if (!turn) return state;
     const eventTurnId = (event.turnId ?? '').trim();
@@ -846,8 +974,8 @@ function onReasoningDelta(state: ClientConversationState, event: SSEEvent): Clie
     const page = ensurePageForEvent(turn, event, 'event');
     const chunk = typeof event.content === 'string' ? event.content : '';
     if (chunk === '') return state;
-    const prior = typeof page.preamble === 'string' ? page.preamble : '';
-    writeField(page, 'preamble', prior + chunk, 'event');
+    const prior = typeof page.narration === 'string' ? page.narration : '';
+    writeField(page, 'narration', prior + chunk, 'event');
     return state;
 }
 
@@ -908,6 +1036,108 @@ function onLinkedConversationAttached(state: ClientConversationState, event: SSE
     if (event.linkedConversationAgentId) writeField(lc, 'agentId', event.linkedConversationAgentId, 'event');
     if (event.linkedConversationTitle) writeField(lc, 'title', event.linkedConversationTitle, 'event');
     if (event.toolCallId) writeField(lc, 'toolCallId', event.toolCallId, 'event');
+    return state;
+}
+
+// onAssistantMessage handles `assistant` events (wire name): upserts
+// a turn message entry (user or assistant — role carried via patch).
+// Idempotent by messageId. Replaces both the legacy
+// `control:message_add` path.
+//
+// **Always renders as a standalone bubble.** The `assistant` event is
+// only emitted by the server for explicit message ADDs (message/add
+// tool, user submit, etc.) — NOT for patches to existing rows whose
+// content is already live via `text_delta` accumulation into
+// `page.content`. Because the server restricts emission to adds, the
+// reducer never has to guess whether a bubble or a page iteration is
+// the right target: it's always a standalone bubble.
+//
+// Past-turn messages that DID belong to an execution page come via
+// `applyTranscript` and populate `page.content` there — the same
+// rendered output, but sourced from the persisted snapshot.
+//
+// Note: there's NO "final message" treatment. Every message is
+// equal-rank; end-of-turn is signaled separately via turn_completed /
+// turn_failed / turn_canceled.
+function onAssistantMessage(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+    const patch = (event.patch && typeof event.patch === 'object')
+        ? (event.patch as Record<string, unknown>)
+        : {};
+    const turn = resolveEventTurn(state, {
+        ...event,
+        turnId: String(event.turnId || '').trim(),
+    });
+    if (!turn) return state;
+    const messageId = String(event.messageId || event.id || '').trim();
+    const role = String(patch.role || '').trim().toLowerCase();
+    const content = typeof event.content === 'string' ? event.content : '';
+    if (!messageId || !content.trim() || (role !== 'assistant' && role !== 'user')) {
+        return state;
+    }
+
+    // User messages → turn.users.
+    if (role === 'user') {
+        let entry = turn.users.find((u) => (u.messageId ?? '').trim() === messageId) || null;
+        if (entry) {
+            writeField(entry, 'content', content, 'event');
+            if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
+            if (typeof patch.sequence === 'number') writeField(entry, 'sequence', patch.sequence, 'event');
+            return state;
+        }
+        entry = {
+            renderKey: allocateRenderKey(),
+            messageId,
+            role: 'user',
+            content,
+            createdAt: event.createdAt,
+            sequence: typeof patch.sequence === 'number' ? patch.sequence : undefined,
+        };
+        setFieldProvenance(entry, 'messageId', 'event');
+        setFieldProvenance(entry, 'role', 'event');
+        setFieldProvenance(entry, 'content', 'event');
+        if (entry.createdAt) setFieldProvenance(entry, 'createdAt', 'event');
+        if (typeof entry.sequence === 'number') setFieldProvenance(entry, 'sequence', 'event');
+        turn.users.push(entry);
+        return state;
+    }
+
+    // role === 'assistant' — always a standalone bubble. Iteration
+    // number on the event is informational (preserves ordering against
+    // pages) but does NOT route into page.content — a distinct add
+    // always wins its own bubble.
+    let entry = turn.messages.find((m) => (m.messageId ?? '').trim() === messageId) || null;
+    if (entry) {
+        writeField(entry, 'role', 'assistant', 'event');
+        writeField(entry, 'content', content, 'event');
+        if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
+        if (typeof patch.sequence === 'number') writeField(entry, 'sequence', patch.sequence, 'event');
+        if (event.mode) writeField(entry, 'mode', event.mode, 'event');
+        if (typeof patch.status === 'string' && patch.status) writeField(entry, 'status', String(patch.status), 'event');
+        // Real assistant message: flip interim off. A narration that
+        // pre-filled this same bubble (interim=1) gets replaced here.
+        writeField(entry, 'interim', 0, 'event');
+        return state;
+    }
+    entry = {
+        renderKey: allocateRenderKey(),
+        messageId,
+        role: 'assistant',
+        content,
+        createdAt: event.createdAt,
+        sequence: typeof patch.sequence === 'number' ? patch.sequence : undefined,
+        mode: event.mode,
+        status: typeof patch.status === 'string' ? String(patch.status) : undefined,
+        interim: 0,
+    };
+    setFieldProvenance(entry, 'messageId', 'event');
+    setFieldProvenance(entry, 'role', 'event');
+    setFieldProvenance(entry, 'content', 'event');
+    if (entry.createdAt) setFieldProvenance(entry, 'createdAt', 'event');
+    if (typeof entry.sequence === 'number') setFieldProvenance(entry, 'sequence', 'event');
+    if (entry.mode) setFieldProvenance(entry, 'mode', 'event');
+    if (entry.status) setFieldProvenance(entry, 'status', 'event');
+    setFieldProvenance(entry, 'interim', 'event');
+    turn.messages.push(entry);
     return state;
 }
 
@@ -1031,7 +1261,7 @@ function mergeTranscriptTurn(
     for (const p of snapshotTurn.execution?.pages ?? []) mergeTranscriptPage(turn, p);
 
     // Assistant aggregates.
-    if (snapshotTurn.assistant?.preamble) mergeTranscriptAssistantPreamble(turn, snapshotTurn.assistant.preamble);
+    if (snapshotTurn.assistant?.narration) mergeTranscriptAssistantNarration(turn, snapshotTurn.assistant.narration);
     if (snapshotTurn.assistant?.final) mergeTranscriptAssistantFinal(turn, snapshotTurn.assistant.final);
 
     // Elicitation.
@@ -1161,11 +1391,11 @@ function mergeTranscriptPage(
             phase: normalisePhase(snapshotPage.phase),
             mode: snapshotPage.mode,
             status: snapshotPage.status,
-            preamble: snapshotPage.preamble,
+            narration: snapshotPage.narration,
             content: snapshotPage.content,
             finalResponse: snapshotPage.finalResponse,
             sequence: snapshotPage.sequence,
-            preambleMessageId: snapshotPage.preambleMessageId,
+            narrationMessageId: snapshotPage.narrationMessageId,
             finalAssistantMessageId: snapshotPage.finalAssistantMessageId,
             modelSteps: [],
             toolCalls: [],
@@ -1179,7 +1409,7 @@ function mergeTranscriptPage(
         if (snapshotPage.executionRole) setFieldProvenance(page, 'executionRole', 'transcript');
         if (snapshotPage.phase) setFieldProvenance(page, 'phase', 'transcript');
         if (snapshotPage.content !== undefined) setFieldProvenance(page, 'content', 'transcript');
-        if (snapshotPage.preamble !== undefined) setFieldProvenance(page, 'preamble', 'transcript');
+        if (snapshotPage.narration !== undefined) setFieldProvenance(page, 'narration', 'transcript');
         if (typeof snapshotPage.sequence === 'number') setFieldProvenance(page, 'sequence', 'transcript');
         turn.pages.push(page);
     } else {
@@ -1189,11 +1419,11 @@ function mergeTranscriptPage(
         if (snapshotPage.phase) writeField(page, 'phase', normalisePhase(snapshotPage.phase), 'transcript');
         if (snapshotPage.mode) writeField(page, 'mode', snapshotPage.mode, 'transcript');
         if (snapshotPage.status) writeField(page, 'status', snapshotPage.status, 'transcript');
-        if (snapshotPage.preamble !== undefined) writeField(page, 'preamble', snapshotPage.preamble, 'transcript');
+        if (snapshotPage.narration !== undefined) writeField(page, 'narration', snapshotPage.narration, 'transcript');
         if (snapshotPage.content !== undefined) writeField(page, 'content', snapshotPage.content, 'transcript');
         if (snapshotPage.finalResponse !== undefined) writeField(page, 'finalResponse', snapshotPage.finalResponse, 'transcript');
         if (typeof snapshotPage.sequence === 'number') writeField(page, 'sequence', snapshotPage.sequence, 'transcript');
-        if (snapshotPage.preambleMessageId) writeField(page, 'preambleMessageId', snapshotPage.preambleMessageId, 'transcript');
+        if (snapshotPage.narrationMessageId) writeField(page, 'narrationMessageId', snapshotPage.narrationMessageId, 'transcript');
         if (snapshotPage.finalAssistantMessageId) writeField(page, 'finalAssistantMessageId', snapshotPage.finalAssistantMessageId, 'transcript');
         if (snapshotPage.createdAt) writeField(page, 'createdAt', snapshotPage.createdAt, 'transcript');
         if (snapshotPage.startedAt) writeField(page, 'startedAt', snapshotPage.startedAt, 'transcript');
@@ -1267,13 +1497,13 @@ function mergeTranscriptLifecycleEntry(
     appendLifecycleEntry(page, snapshotEntry, 'transcript');
 }
 
-function mergeTranscriptAssistantPreamble(
+function mergeTranscriptAssistantNarration(
     turn: ClientTurnState,
-    snapshot: NonNullable<CanonicalTurnState['assistant']>['preamble'],
+    snapshot: NonNullable<CanonicalTurnState['assistant']>['narration'],
 ): void {
     if (!snapshot) return;
-    turn.assistantPreamble = turn.assistantPreamble ?? { renderKey: allocateRenderKey() };
-    const p = turn.assistantPreamble as ClientAssistantPreamble;
+    turn.assistantNarration = turn.assistantNarration ?? { renderKey: allocateRenderKey() };
+    const p = turn.assistantNarration as ClientAssistantNarration;
     if (snapshot.messageId) writeField(p, 'messageId', snapshot.messageId, 'transcript');
     if (snapshot.content !== undefined) writeField(p, 'content', snapshot.content, 'transcript');
     if (snapshot.createdAt) writeField(p, 'createdAt', snapshot.createdAt, 'transcript');

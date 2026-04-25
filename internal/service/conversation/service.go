@@ -396,7 +396,7 @@ func shouldDropBlankAssistantPlaceholder(msg *agconv.MessageView) bool {
 	if msg.Interim != 1 {
 		return false
 	}
-	if valueOrEmptyStr(msg.Content) != "" || valueOrEmptyStr(msg.RawContent) != "" || valueOrEmptyStr(msg.Preamble) != "" {
+	if valueOrEmptyStr(msg.Content) != "" || valueOrEmptyStr(msg.RawContent) != "" || valueOrEmptyStr(msg.Narration) != "" {
 		return false
 	}
 	if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
@@ -560,7 +560,7 @@ func (s *Service) GetMessage(ctx context.Context, id string, options ...convcli.
 		ElicitationPayloadId: row.ElicitationPayloadId,
 		ToolName:             row.ToolName,
 		EmbeddingIndex:       row.EmbeddingIndex,
-		Preamble:             row.Preamble,
+		Narration:            row.Narration,
 		Iteration:            row.Iteration,
 		Phase:                row.Phase,
 	}
@@ -608,7 +608,7 @@ func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, e
 		ElicitationPayloadId: row.ElicitationPayloadId,
 		ToolName:             row.ToolName,
 		EmbeddingIndex:       row.EmbeddingIndex,
-		Preamble:             row.Preamble,
+		Narration:            row.Narration,
 		Iteration:            row.Iteration,
 		Phase:                row.Phase,
 	}
@@ -701,6 +701,38 @@ func (s *Service) mergeMessagePatchWithExisting(ctx context.Context, patch *conv
 	return patch, nil
 }
 
+// publishMessagePatchEvent forwards a message write to the streaming
+// bus as SEMANTIC events. Never emits raw DB column diffs.
+//
+// There are EXACTLY TWO semantic emissions from this path:
+//
+//  1. `narration` — when the message carries interim narration text
+//     (commentary during tool execution / pre-tool-call framing).
+//     Carries the text in `event.Narration`. Interim — not a real
+//     turn message.
+//
+//  2. `assistant` (wire name) — when this write is an explicit ADD
+//     (`runtimerequestctx.MessageAddEvent` flag on ctx), fires to
+//     signal "a new standalone message exists in the turn". Reducers
+//     upsert into `turn.messages` / `turn.users` by messageId, creating
+//     the bubble. Patches to EXISTING message rows do NOT emit here —
+//     content for page-owned messages is already live on the client
+//     via `text_delta` stream accumulation into `page.content`; a
+//     redundant patch event would cause double-rendering.
+//
+// **There is no "final message" event.** Historically we had
+// per-message final markers; these kept
+// leaking the end-of-turn signal into individual messages and caused
+// repeated regressions ("which message is the final?", "why are there
+// two final messages?", "why doesn't this message render?"). The
+// end-of-turn signal lives exclusively on `EventTypeTurnCompleted` /
+// `EventTypeTurnFailed` / `EventTypeTurnCanceled` — fired ONCE per
+// turn. A turn can have any number of assistant messages; none of them
+// is "the final", they're just messages.
+//
+// Active-turn invariant: all client state flows from these semantic
+// events. Past turns refresh via `applyTranscript`, which populates
+// the same fields from the canonical snapshot.
 func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) {
 	if s == nil || s.streamPub == nil || message == nil {
 		return
@@ -712,35 +744,83 @@ func (s *Service) publishMessagePatchEvent(ctx context.Context, message *convcli
 	if conversationID == "" {
 		return
 	}
-	if shouldSuppressMessagePatchEvent(ctx, message) {
-		s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+	s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+	// Emit `assistant` event ONLY for explicit adds (AddMessage code
+	// path sets the MessageAddEvent ctx flag). Patches to existing
+	// rows don't fire — the UI already has the content live from
+	// text_delta for page-owned messages, and re-emitting would
+	// double-render. message/add tool, user-submit, and similar
+	// "new message row" call sites DO set the flag and therefore
+	// produce a bubble.
+	if runtimerequestctx.MessageAddEventFromContext(ctx) {
+		s.emitMessageAppendedEvent(ctx, message, conversationID)
+	}
+}
+
+// emitMessageAppendedEvent publishes a `message_appended` event for a
+// user or assistant message row. Idempotent by messageId: the first
+// emission creates the client-side bubble, subsequent emissions update
+// its fields. Works for ADD (new row) and PATCH (content/status
+// update) alike — clients upsert by messageId.
+//
+// Interim messages (interim=1) are NOT emitted here — they're carried
+// as `narration` events instead (interim commentary, not a real turn
+// message). This function emits ONLY real messages that belong in
+// `turn.messages` / `turn.users`.
+func (s *Service) emitMessageAppendedEvent(ctx context.Context, message *convcli.MutableMessage, conversationID string) {
+	if s == nil || s.streamPub == nil || message == nil || message.Has == nil {
 		return
 	}
-	patch := messagePatchPayload(message)
-	if len(patch) == 0 {
+	role := strings.ToLower(strings.TrimSpace(message.Role))
+	if role != "user" && role != "assistant" {
 		return
 	}
-	op := "message_patch"
-	emitCanonicalAssistant := true
-	if runtimerequestctx.MessageAddEventFromContext(ctx) && strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
-		op = "message_add"
-		emitCanonicalAssistant = false
+	// Skip interim messages — narration path handles those.
+	if message.Has.Interim && message.Interim != nil && *message.Interim == 1 {
+		return
+	}
+	content := ""
+	if message.Has.Content && message.Content != nil {
+		content = strings.TrimSpace(*message.Content)
+	}
+	// Require content — an empty add/patch carries no bubble-worthy
+	// information; skip it to keep the stream clean.
+	if content == "" {
+		return
+	}
+	turnID := ""
+	if message.Has.TurnID && message.TurnID != nil {
+		turnID = strings.TrimSpace(*message.TurnID)
+	}
+	if turnID == "" {
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+			turnID = strings.TrimSpace(turn.TurnID)
+		}
 	}
 	event := &streaming.Event{
 		ID:             strings.TrimSpace(message.Id),
 		StreamID:       conversationID,
 		ConversationID: conversationID,
+		TurnID:         turnID,
 		MessageID:      strings.TrimSpace(message.Id),
+		Type:           streaming.EventTypeAssistant,
 		Mode:           firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
-		Type:           streaming.EventTypeControl,
-		Op:             op,
-		Patch:          patch,
+		Content:        content,
 		CreatedAt:      patchEventCreatedAt(message),
 	}
-	s.emitTimelineEvent(ctx, event, "PatchMessage publish event")
-	if emitCanonicalAssistant {
-		s.emitCanonicalAssistantEvents(ctx, message, conversationID)
+	// Carry role, sequence, status via the Patch map so the reducer
+	// receives them without widening the Event struct with fields only
+	// meaningful for this event type.
+	patch := map[string]interface{}{"role": role}
+	if message.Has.Sequence && message.Sequence != nil {
+		patch["sequence"] = *message.Sequence
 	}
+	if message.Has.Status && message.Status != nil {
+		patch["status"] = strings.TrimSpace(*message.Status)
+	}
+	event.Patch = patch
+	applyIterationPage(event, message.Iteration)
+	s.emitTimelineEvent(ctx, event, "PatchMessage publish message_appended")
 }
 
 // publishConversationMetaEvent emits a conversation_meta_updated event when
@@ -886,8 +966,8 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 	if message.Has.Interim && message.Interim != nil {
 		out["interim"] = *message.Interim
 	}
-	if message.Has.Preamble && message.Preamble != nil {
-		out["preamble"] = strings.TrimSpace(*message.Preamble)
+	if message.Has.Narration && message.Narration != nil {
+		out["narration"] = strings.TrimSpace(*message.Narration)
 	}
 	if message.Has.Content && message.Content != nil {
 		out["content"] = *message.Content
@@ -1029,8 +1109,8 @@ func timelineDebugFields(event *streaming.Event) map[string]any {
 	if strings.TrimSpace(event.Content) != "" {
 		fields["contentPreview"] = event.Content
 	}
-	if strings.TrimSpace(event.Preamble) != "" {
-		fields["preamblePreview"] = event.Preamble
+	if strings.TrimSpace(event.Narration) != "" {
+		fields["narrationPreview"] = event.Narration
 	}
 	if event.Model != nil {
 		fields["model"] = map[string]any{
@@ -1424,9 +1504,11 @@ func (s *Service) publishTurnEvent(ctx context.Context, turn *convcli.MutableTur
 	}
 }
 
-// emitCanonicalAssistantEvents emits assistant_preamble or assistant_final events
-// based on message patch content. These are canonical events from the render pipeline
-// that provide explicit semantics (not overloaded like llm_response).
+// emitCanonicalAssistantEvents emits ONLY the `narration` event for
+// interim assistant messages that carry narration text. It never emits
+// a final-message event — the "final assistant message" concept has
+// been removed (see publishMessagePatchEvent doc for rationale). Real
+// messages (interim=0 with content) flow through emitMessageAppendedEvent.
 func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *convcli.MutableMessage, conversationID string) {
 	if s == nil || s.streamPub == nil || message == nil || message.Has == nil {
 		return
@@ -1436,8 +1518,8 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 		return
 	}
 	preamble := ""
-	if message.Has.Preamble && message.Preamble != nil {
-		preamble = strings.TrimSpace(*message.Preamble)
+	if message.Has.Narration && message.Narration != nil {
+		preamble = strings.TrimSpace(*message.Narration)
 	}
 	content := ""
 	if message.Has.Content && message.Content != nil {
@@ -1458,48 +1540,72 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 		}
 	}
 
-	// Emit preamble event when we have preamble text and the message is interim
+	// Emit narration event when we have narration text and the message is interim.
+	// The text is carried in the dedicated `Narration` field (NOT `Content`) so
+	// the TS reducer's `onAssistantNarration` handler — which reads
+	// `event.narration` — sees it. Previously this was stuffed into
+	// `Content`, leaving `event.narration` empty on the wire and causing the
+	// client to silently drop the narration.
 	if preamble != "" && !isFinal {
-		logx.Infof("conversation", "emitCanonicalAssistantEvents preamble convo=%q turn=%q msg=%q preamble_len=%d", conversationID, turnID, strings.TrimSpace(message.Id), len(preamble))
+		logx.Infof("conversation", "emitCanonicalAssistantEvents narration convo=%q turn=%q msg=%q narration_len=%d", conversationID, turnID, strings.TrimSpace(message.Id), len(preamble))
 		executionRole := strings.ToLower(strings.TrimSpace(valueOrEmptyStr(message.Mode)))
 		if executionRole != "narrator" {
 			executionRole = ""
 		}
+		// Narration source: runtime narrator when message.Mode == narrator,
+		// otherwise the model itself wrote this text (pre-tool-call framing
+		// or aggregated reasoning from the current iteration).
+		narrationSource := "model"
+		if executionRole == "narrator" {
+			narrationSource = "narrator"
+		}
+		// For assistant-content events, `MessageID` is the canonical
+		// assistant-bubble id. `AssistantMessageID` is intentionally not
+		// populated — it's redundant on these events (the two coincide)
+		// and its duplicate emission was the reason clients had to probe
+		// both fields. The field remains on tool events where it
+		// meaningfully differs from MessageID (parent bubble vs tool row).
 		event := &streaming.Event{
-			ID:                 strings.TrimSpace(message.Id),
-			StreamID:           conversationID,
-			ConversationID:     conversationID,
-			MessageID:          strings.TrimSpace(message.Id),
-			Mode:               firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
-			Type:               streaming.EventTypeAssistantPreamble,
-			TurnID:             turnID,
-			AssistantMessageID: strings.TrimSpace(message.Id),
-			ExecutionRole:      executionRole,
-			Content:            preamble,
-			CreatedAt:          patchEventCreatedAt(message),
+			ID:              strings.TrimSpace(message.Id),
+			StreamID:        conversationID,
+			ConversationID:  conversationID,
+			MessageID:       strings.TrimSpace(message.Id),
+			Mode:            firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
+			Type:            streaming.EventTypeNarration,
+			TurnID:          turnID,
+			ExecutionRole:   executionRole,
+			Narration:       preamble,
+			NarrationSource: narrationSource,
+			CreatedAt:       patchEventCreatedAt(message),
+		}
+		// Carry sequence + status on the narration event so the bubble
+		// the client creates from narration can be ordered correctly
+		// against sibling messages BEFORE the real `assistant` event
+		// arrives for the same messageId. Sequence is DB-assigned and
+		// stable from the moment the interim row is first persisted;
+		// it will match whatever the later `assistant` event emits.
+		narrationPatch := map[string]interface{}{}
+		if message.Has != nil {
+			if message.Has.Sequence && message.Sequence != nil {
+				narrationPatch["sequence"] = *message.Sequence
+			}
+			if message.Has.Status && message.Status != nil {
+				narrationPatch["status"] = strings.TrimSpace(*message.Status)
+			}
+		}
+		if len(narrationPatch) > 0 {
+			event.Patch = narrationPatch
 		}
 		applyIterationPage(event, message.Iteration)
-		s.emitTimelineEvent(ctx, event, "PatchMessage publish assistant_preamble")
+		s.emitTimelineEvent(ctx, event, "PatchMessage publish narration")
 	}
-
-	// Emit final event when the message has non-empty content and is not interim
-	if isFinal && content != "" {
-		event := &streaming.Event{
-			ID:                 strings.TrimSpace(message.Id),
-			StreamID:           conversationID,
-			ConversationID:     conversationID,
-			MessageID:          strings.TrimSpace(message.Id),
-			Mode:               firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
-			Type:               streaming.EventTypeAssistantFinal,
-			TurnID:             turnID,
-			AssistantMessageID: strings.TrimSpace(message.Id),
-			Content:            content,
-			FinalResponse:      true,
-			CreatedAt:          patchEventCreatedAt(message),
-		}
-		applyIterationPage(event, message.Iteration)
-		s.emitTimelineEvent(ctx, event, "PatchMessage publish assistant_final")
-	}
+	// No final-message emission here. Non-interim assistant
+	// messages flow through emitMessageAppendedEvent as
+	// `message_appended`. End-of-turn is signaled separately by
+	// `EventTypeTurnCompleted` / `EventTypeTurnFailed` /
+	// `EventTypeTurnCanceled`.
+	_ = content
+	_ = isFinal
 }
 
 // emitCanonicalModelEvent emits a model_started or model_completed event
@@ -1523,21 +1629,20 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 	logx.DebugCtxf(ctx, "conversation", "[emitCanonicalModelEvent] convo=%q turn=%q msg=%q model_call=%q status=%q", conversationID, strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), modelCall.MessageID, modelCallID, status)
 	if status == "thinking" || status == "streaming" || status == "running" {
 		event := &streaming.Event{
-			ID:                 strings.TrimSpace(modelCall.MessageID),
-			StreamID:           conversationID,
-			ConversationID:     conversationID,
-			MessageID:          strings.TrimSpace(modelCall.MessageID),
-			Mode:               mode,
-			Type:               streaming.EventTypeModelStarted,
-			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
-			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
-			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-			ModelCallID:        modelCallID,
-			Provider:           strings.TrimSpace(modelCall.Provider),
-			ModelName:          strings.TrimSpace(modelCall.Model),
-			Status:             strings.TrimSpace(modelCall.Status),
-			Phase:              modelEventPhase(mode, modelCall.Iteration),
-			CreatedAt:          time.Now(),
+			ID:              strings.TrimSpace(modelCall.MessageID),
+			StreamID:        conversationID,
+			ConversationID:  conversationID,
+			MessageID:       strings.TrimSpace(modelCall.MessageID),
+			Mode:            mode,
+			Type:            streaming.EventTypeModelStarted,
+			TurnID:          resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
+			ParentMessageID: strings.TrimSpace(turn.ParentMessageID),
+			ModelCallID:     modelCallID,
+			Provider:        strings.TrimSpace(modelCall.Provider),
+			ModelName:       strings.TrimSpace(modelCall.Model),
+			Status:          strings.TrimSpace(modelCall.Status),
+			Phase:           modelEventPhase(mode, modelCall.Iteration),
+			CreatedAt:       time.Now(),
 		}
 		if modelCall.Model != "" || modelCall.Provider != "" {
 			event.Model = &streaming.EventModel{
@@ -1574,22 +1679,21 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 	} else if status == "completed" || status == "succeeded" || status == "failed" {
 		now := time.Now()
 		event := &streaming.Event{
-			ID:                 strings.TrimSpace(modelCall.MessageID),
-			StreamID:           conversationID,
-			ConversationID:     conversationID,
-			MessageID:          strings.TrimSpace(modelCall.MessageID),
-			Mode:               mode,
-			Type:               streaming.EventTypeModelCompleted,
-			TurnID:             resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
-			AssistantMessageID: strings.TrimSpace(modelCall.MessageID),
-			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-			ModelCallID:        modelCallID,
-			Provider:           strings.TrimSpace(modelCall.Provider),
-			ModelName:          strings.TrimSpace(modelCall.Model),
-			Status:             strings.TrimSpace(modelCall.Status),
-			Phase:              modelEventPhase(mode, modelCall.Iteration),
-			CreatedAt:          now,
-			CompletedAt:        &now,
+			ID:              strings.TrimSpace(modelCall.MessageID),
+			StreamID:        conversationID,
+			ConversationID:  conversationID,
+			MessageID:       strings.TrimSpace(modelCall.MessageID),
+			Mode:            mode,
+			Type:            streaming.EventTypeModelCompleted,
+			TurnID:          resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
+			ParentMessageID: strings.TrimSpace(turn.ParentMessageID),
+			ModelCallID:     modelCallID,
+			Provider:        strings.TrimSpace(modelCall.Provider),
+			ModelName:       strings.TrimSpace(modelCall.Model),
+			Status:          strings.TrimSpace(modelCall.Status),
+			Phase:           modelEventPhase(mode, modelCall.Iteration),
+			CreatedAt:       now,
+			CompletedAt:     &now,
 		}
 		if modelCall.Model != "" || modelCall.Provider != "" {
 			event.Model = &streaming.EventModel{
@@ -1633,7 +1737,14 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		// available via context — makes model_completed self-sufficient.
 		if meta, ok := runtimerequestctx.ModelCompletionMetaFromContext(ctx); ok {
 			event.Content = meta.Content
-			event.Preamble = meta.Preamble
+			event.Narration = meta.Narration
+			// Narration carried on a model_completed event is always the
+			// model's own authoring (reasoning-delta aggregate or
+			// pre-tool-call framing). Tag it so clients don't conflate
+			// with runtime-narrator updates.
+			if strings.TrimSpace(meta.Narration) != "" {
+				event.NarrationSource = "model"
+			}
 			event.FinalResponse = meta.FinalResponse
 		}
 		applyIterationPage(event, modelCall.Iteration)

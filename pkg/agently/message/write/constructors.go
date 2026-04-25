@@ -49,7 +49,7 @@ func WithMessageIteration(v int) MutableMessageViewOption {
 }
 
 func WithMessagePreamble(v string) MutableMessageViewOption {
-	return func(m *MutableMessageView) { m.SetPreamble(v) }
+	return func(m *MutableMessageView) { m.SetNarration(v) }
 }
 
 func WithMessagePhase(v string) MutableMessageViewOption {

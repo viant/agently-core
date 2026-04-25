@@ -203,25 +203,24 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
         let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
         state = applyEvent(state, sse({ type: 'model_started', turnId: 'tn_A', pageId: 'pg_1' } as SSEEvent));
         state = applyEvent(state, sse({ type: 'model_completed', turnId: 'tn_A', pageId: 'pg_1' } as SSEEvent));
-        state = applyEvent(state, sse({ type: 'assistant_final', turnId: 'tn_A', pageId: 'pg_1', content: 'done', assistantMessageId: 'am_1' } as SSEEvent));
+        state = applyEvent(state, sse({ type: 'assistant', turnId: 'tn_A', pageId: 'pg_1', messageId: 'am_1', content: 'done', patch: { role: 'assistant' } } as SSEEvent));
         expect(state.turns[0].lifecycle).toBe('running');
     });
 
-    it('control message_add appends a standalone turn message without changing lifecycle', () => {
+    it('assistant event appends a standalone turn message without changing lifecycle', () => {
+        // Replaces the legacy `control:message_add` test. The new
+        // contract: an `assistant` event carries role via patch and
+        // upserts into turn.messages by messageId.
         let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
         state = applyEvent(state, sse({
-            type: 'control',
-            op: 'message_add',
+            type: 'assistant',
             turnId: 'tn_A',
             messageId: 'msg_note',
+            content: 'PRELIMINARY NOTE',
+            createdAt: '2025-01-01T00:00:08.000Z',
             patch: {
-                id: 'msg_note',
-                turnId: 'tn_A',
                 role: 'assistant',
-                content: 'PRELIMINARY NOTE',
                 sequence: 8,
-                interim: 0,
-                createdAt: '2025-01-01T00:00:08.000Z',
             },
         } as SSEEvent));
         expect(state.turns[0].lifecycle).toBe('running');
@@ -526,7 +525,7 @@ describe('chatStore/reducer — merge rule', () => {
         expect(getFieldProvenance(user, 'content')).toBe('local');
         // A hypothetical message_patch event for the same user would write content.
         // We simulate by directly calling applyEvent with turn_started carrying an
-        // echoed content via assistant_preamble — not exercised on user row by
+        // echoed content via narration — not exercised on user row by
         // current spec. Instead, verify at the reducer's write primitive:
         // when the reducer encounters a user already echoed by SSE and matches by
         // clientRequestId, writing new event-owned content should supersede 'local'.
@@ -564,5 +563,94 @@ describe('chatStore/reducer — applyTranscript lifecycle init', () => {
         });
         const lifecycles = state.turns.map((t) => t.lifecycle);
         expect(lifecycles).toEqual(['completed', 'failed', 'cancelled', 'pending', 'running']);
+    });
+});
+
+describe('chatStore/reducer — SSE + transcript de-dup for turn.messages', () => {
+    // Invariant: active turn → SSE; transcript → past history.
+    // A mid-turn transcript refresh must NOT duplicate an assistant
+    // message that the SSE path already added. Dedup is by messageId
+    // in mergeTranscriptTurnMessage; this test proves the invariant
+    // holds for the "first assistant message before the next arrives"
+    // case.
+    it('transcript merge dedupes assistant message that SSE already added by messageId', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_dedup',
+            createdAt: '2026-04-23T00:00:00Z',
+        }));
+        // Live SSE emits the first assistant message (explicit add).
+        state = applyEvent(state, sse({
+            type: 'assistant',
+            turnId: 'tn_dedup',
+            messageId: 'msg_A',
+            content: 'First assistant note.',
+            createdAt: '2026-04-23T00:00:05Z',
+            patch: { role: 'assistant', sequence: 2 },
+        } as SSEEvent));
+        expect(state.turns[0].messages).toHaveLength(1);
+        expect(state.turns[0].messages[0].messageId).toBe('msg_A');
+        // Transcript refresh arrives before the next assistant message.
+        // The same message id is present in the canonical snapshot.
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_dedup',
+                status: 'running',
+                messages: [{
+                    messageId: 'msg_A',
+                    role: 'assistant',
+                    content: 'First assistant note.',
+                    sequence: 2,
+                    interim: 0,
+                    createdAt: '2026-04-23T00:00:05Z',
+                }],
+            }],
+        });
+        // Must still have exactly one entry — transcript merges by
+        // messageId rather than appending.
+        expect(state.turns[0].messages).toHaveLength(1);
+        expect(state.turns[0].messages[0]).toMatchObject({
+            messageId: 'msg_A',
+            role: 'assistant',
+            content: 'First assistant note.',
+            sequence: 2,
+        });
+    });
+
+    it('transcript merge dedupes user message by messageId', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_dedup_user',
+            createdAt: '2026-04-23T00:00:00Z',
+        }));
+        state = applyEvent(state, sse({
+            type: 'assistant',
+            turnId: 'tn_dedup_user',
+            messageId: 'msg_U',
+            content: 'Hello',
+            createdAt: '2026-04-23T00:00:01Z',
+            patch: { role: 'user', sequence: 1 },
+        } as SSEEvent));
+        expect(state.turns[0].users).toHaveLength(1);
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_dedup_user',
+                status: 'running',
+                users: [{
+                    messageId: 'msg_U',
+                    content: 'Hello',
+                    sequence: 1,
+                    createdAt: '2026-04-23T00:00:01Z',
+                }],
+            }],
+        });
+        expect(state.turns[0].users).toHaveLength(1);
+        expect(state.turns[0].users[0]).toMatchObject({
+            messageId: 'msg_U',
+            content: 'Hello',
+            sequence: 1,
+        });
     });
 });

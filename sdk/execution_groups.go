@@ -33,12 +33,12 @@ func indexToolMessagesByParentAndIteration(turn *convstore.Turn) map[string][]*a
 	return out
 }
 
-func executionPreamble(message *agconv.MessageView) string {
+func executionNarration(message *agconv.MessageView) string {
 	if message == nil {
 		return ""
 	}
-	if preamble := visibleContentOrEmpty(message.Preamble); preamble != "" {
-		return preamble
+	if narration := visibleContentOrEmpty(message.Narration); narration != "" {
+		return narration
 	}
 	if message.Interim == 1 {
 		return visibleContentOrEmpty(message.Content)

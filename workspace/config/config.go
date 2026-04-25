@@ -7,9 +7,25 @@ import (
 	"strings"
 
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	asyncwscfg "github.com/viant/agently-core/protocol/async/wsconfig"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	"github.com/viant/agently-core/workspace"
 	"gopkg.in/yaml.v3"
+)
+
+// Authoritative async defaults. The `default.async` section of the
+// workspace `config.yaml` is the single source of truth for these
+// values — no other package hard-codes them. Operators override any
+// field by setting it in their workspace config.
+const (
+	defaultAsyncGCInterval    = "5m"
+	defaultAsyncGCMaxAge      = "1h"
+	defaultAsyncNarratorTimeo = "3s"
+	// defaultAsyncNarratorPrompt is the embedded system prompt used by
+	// the narrator LLM runner when Narration mode is "llm" and the
+	// operator has not set a custom prompt. Consumers read the
+	// resolved value via `Defaults.Async.Narrator.Prompt`.
+	defaultAsyncNarratorPrompt = "Write one short progress preamble for an in-progress async operation. Respond with only the preamble text. If nothing meaningful changed, return an empty response."
 )
 
 // Root represents the root workspace config.yaml in a reusable decoded form.
@@ -55,19 +71,60 @@ func (r *Root) DefaultsWithFallback(fallback *execconfig.Defaults) *execconfig.D
 		Model:    "openai_gpt-5.2",
 		Embedder: "openai_text",
 		Agent:    "chatter",
+		Async: &execconfig.AsyncDefaults{
+			GC: &asyncwscfg.GCConfig{
+				Interval: defaultAsyncGCInterval,
+				MaxAge:   defaultAsyncGCMaxAge,
+			},
+			Narrator: &asyncwscfg.NarratorConfig{
+				LLMTimeout: defaultAsyncNarratorTimeo,
+				Prompt:     defaultAsyncNarratorPrompt,
+			},
+		},
 	}
 	if fallback != nil {
 		*base = *fallback
+		ensureAsyncDefaults(base)
 	}
 	if r == nil || isZeroNode(&r.DefaultNode) {
+		ensureAsyncDefaults(base)
 		return base
 	}
 	var cfg execconfig.Defaults
 	if err := r.DefaultNode.Decode(&cfg); err != nil {
+		ensureAsyncDefaults(base)
 		return base
 	}
 	mergeDefaults(base, &cfg)
+	ensureAsyncDefaults(base)
 	return base
+}
+
+func ensureAsyncDefaults(defaults *execconfig.Defaults) {
+	if defaults == nil {
+		return
+	}
+	if defaults.Async == nil {
+		defaults.Async = &execconfig.AsyncDefaults{}
+	}
+	if defaults.Async.GC == nil {
+		defaults.Async.GC = &asyncwscfg.GCConfig{}
+	}
+	if strings.TrimSpace(defaults.Async.GC.Interval) == "" {
+		defaults.Async.GC.Interval = defaultAsyncGCInterval
+	}
+	if strings.TrimSpace(defaults.Async.GC.MaxAge) == "" {
+		defaults.Async.GC.MaxAge = defaultAsyncGCMaxAge
+	}
+	if defaults.Async.Narrator == nil {
+		defaults.Async.Narrator = &asyncwscfg.NarratorConfig{}
+	}
+	if strings.TrimSpace(defaults.Async.Narrator.LLMTimeout) == "" {
+		defaults.Async.Narrator.LLMTimeout = defaultAsyncNarratorTimeo
+	}
+	if strings.TrimSpace(defaults.Async.Narrator.Prompt) == "" {
+		defaults.Async.Narrator.Prompt = defaultAsyncNarratorPrompt
+	}
 }
 
 // InternalServiceList returns configured internal MCP service names when present.
@@ -246,6 +303,41 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 		src.Resources.MatchConcurrency > 0 ||
 		src.Resources.IndexAsync != nil {
 		dst.Resources = src.Resources
+	}
+	mergeAsyncDefaults(dst, src.Async)
+}
+
+// mergeAsyncDefaults overlays any fields set on src onto dst.Async, so a
+// partial workspace override (e.g. only `async.gc.interval`) preserves
+// the remaining baseline values (`gc.maxAge`, `narrator.llmTimeout`).
+func mergeAsyncDefaults(dst *execconfig.Defaults, src *execconfig.AsyncDefaults) {
+	if dst == nil || src == nil {
+		return
+	}
+	if dst.Async == nil {
+		dst.Async = &execconfig.AsyncDefaults{}
+	}
+	if src.GC != nil {
+		if dst.Async.GC == nil {
+			dst.Async.GC = &asyncwscfg.GCConfig{}
+		}
+		if v := strings.TrimSpace(src.GC.Interval); v != "" {
+			dst.Async.GC.Interval = v
+		}
+		if v := strings.TrimSpace(src.GC.MaxAge); v != "" {
+			dst.Async.GC.MaxAge = v
+		}
+	}
+	if src.Narrator != nil {
+		if dst.Async.Narrator == nil {
+			dst.Async.Narrator = &asyncwscfg.NarratorConfig{}
+		}
+		if v := strings.TrimSpace(src.Narrator.LLMTimeout); v != "" {
+			dst.Async.Narrator.LLMTimeout = v
+		}
+		if v := strings.TrimSpace(src.Narrator.Prompt); v != "" {
+			dst.Async.Narrator.Prompt = v
+		}
 	}
 }
 

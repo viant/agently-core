@@ -125,6 +125,8 @@ func toAPIRegistryEntries(in []loproto.RegistryEntry) []api.LookupRegistryEntry 
 		entry := api.LookupRegistryEntry{
 			Name:       e.Name,
 			DataSource: e.DataSource,
+			DialogId:   e.DialogId,
+			WindowId:   e.WindowId,
 			Trigger:    e.Trigger,
 			Required:   e.Required,
 			Display:    e.Display,

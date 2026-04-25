@@ -143,14 +143,14 @@ export interface ExecutionPage {
     iteration?: number;
     executionRole?: string;
     phase?: string;
-    preamble?: string;
+    narration?: string;
     content?: string;
     finalResponse: boolean;
     status?: string;
     modelSteps: ModelStepState[];
     toolSteps: ToolStepState[];
     toolCallsPlanned?: PlannedToolCall[];
-    preambleMessageId?: string;
+    narrationMessageId?: string;
     finalAssistantMessageId?: string;
 }
 
@@ -220,7 +220,7 @@ export interface Message {
     status?: string;
     interim: number;
     iteration?: number;
-    preamble?: string;
+    narration?: string;
     phase?: string;
     mode?: string;
     sequence?: number;
@@ -341,8 +341,9 @@ export type SSEEventType =
     | 'model_started'
     | 'model_completed'
     // Assistant content (aggregated)
-    | 'assistant_preamble'
-    | 'assistant_final'
+    | 'narration'
+    | 'assistant'
+    | 'message_appended'
     // Tool call lifecycle
     | 'tool_call_started'
     | 'tool_call_waiting'
@@ -409,7 +410,7 @@ export interface SSEEvent {
     op?: string;
     patch?: JSONObject;
     content?: string;
-    preamble?: string;
+    narration?: string;
     toolName?: string;
     skillName?: string;
     skillExecutionId?: string;

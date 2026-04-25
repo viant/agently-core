@@ -53,13 +53,20 @@ func normalizeToolName(server, name string) string {
 	if name == "" {
 		return name
 	}
+	// service:method → method (MCP expects method scoped to this server)
+	if i := strings.IndexByte(name, ':'); i != -1 {
+		if strings.TrimSpace(server) == strings.TrimSpace(name[:i]) {
+			return name[i+1:]
+		}
+		return name
+	}
 	// server/method → method (MCP expects method scoped to this server)
 	if i := strings.IndexByte(name, '/'); i != -1 {
 		// Only strip when the prefix matches our server; otherwise leave as-is
 		if strings.TrimSpace(server) == strings.TrimSpace(name[:i]) {
 			return name[i+1:]
 		}
-		return name[i+1:]
+		return name
 	}
 	// service-method canonical → method when prefix matches
 	if i := strings.LastIndexByte(name, '-'); i != -1 {

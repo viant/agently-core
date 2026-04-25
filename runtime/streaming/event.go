@@ -33,8 +33,42 @@ const (
 	EventTypeModelCompleted EventType = "model_completed"
 
 	// Assistant content (aggregated).
-	EventTypeAssistantPreamble EventType = "assistant_preamble"
-	EventTypeAssistantFinal    EventType = "assistant_final"
+	//
+	// EventTypeNarration carries ephemeral assistant-side text — formerly
+	// split conceptually between "preamble" (model-emitted, pre-tool-call)
+	// and "narration" (runtime-emitted, during-tool-call). These are one
+	// concept: running commentary. Wire payload fields: messageId,
+	// content, and optionally toolCallId when emitted by the async
+	// narrator pipeline.
+	EventTypeNarration EventType = "narration"
+
+	// EventTypeAssistant fires for a real turn message row (user or
+	// assistant, NOT interim narration). One event type covers all
+	// message appends — the `patch.role` field distinguishes user vs.
+	// assistant. Replaces legacy final/control message events with a
+	// single semantic surface.
+	//
+	// Contract:
+	//   - Idempotent by messageId. First emission creates the client
+	//     bubble; subsequent emissions update its fields.
+	//   - Carries semantic fields: role (in patch), content, mode,
+	//     status (in patch), sequence (in patch), createdAt. Never
+	//     raw DB column diffs.
+	//   - Fires only for real messages (interim=0). Interim
+	//     commentary flows through `narration`.
+	//   - A turn may carry any number of these; NONE is "the final".
+	//     End-of-turn is signaled ONLY by EventTypeTurnCompleted /
+	//     EventTypeTurnFailed / EventTypeTurnCanceled.
+	//
+	// The wire value is `"assistant"` for historical / path clarity
+	// on the main case (assistant message append); user messages
+	// carry `patch.role = "user"` on the same event type.
+	EventTypeAssistant EventType = "assistant"
+
+	// EventTypeMessageAppended is an alias of EventTypeAssistant kept
+	// for in-flight session code that typed the name before the rename
+	// settled. Deprecated: use EventTypeAssistant.
+	EventTypeMessageAppended = EventTypeAssistant
 
 	// Tool call lifecycle.
 	EventTypeToolCallsPlanned  EventType = "tool_calls_planned"
@@ -122,28 +156,49 @@ type Event struct {
 	Op                        string                 `json:"op,omitempty"`
 	Patch                     map[string]interface{} `json:"patch,omitempty"`
 	Content                   string                 `json:"content,omitempty"`
-	Preamble                  string                 `json:"preamble,omitempty"`
-	ToolName                  string                 `json:"toolName,omitempty"`
-	SkillName                 string                 `json:"skillName,omitempty"`
-	SkillExecutionID          string                 `json:"skillExecutionId,omitempty"`
-	Arguments                 map[string]interface{} `json:"arguments,omitempty"`
-	Error                     string                 `json:"error,omitempty"`
-	Status                    string                 `json:"status,omitempty"`
-	Iteration                 int                    `json:"iteration,omitempty"`
-	PageIndex                 int                    `json:"pageIndex,omitempty"`
-	PageCount                 int                    `json:"pageCount,omitempty"`
-	LatestPage                bool                   `json:"latestPage,omitempty"`
-	FinalResponse             bool                   `json:"finalResponse,omitempty"`
-	Model                     *EventModel            `json:"model,omitempty"`
-	ToolCallsPlanned          []PlannedToolCall      `json:"toolCallsPlanned,omitempty"`
-	CreatedAt                 time.Time              `json:"createdAt,omitempty"`
-	ElicitationID             string                 `json:"elicitationId,omitempty"`
-	ElicitationData           map[string]interface{} `json:"elicitationData,omitempty"`
-	CallbackURL               string                 `json:"callbackUrl,omitempty"`
-	ResponsePayload           map[string]interface{} `json:"responsePayload,omitempty"`
-	CompletedAt               *time.Time             `json:"completedAt,omitempty"`
-	StartedAt                 *time.Time             `json:"startedAt,omitempty"`
-	UserMessageID             string                 `json:"userMessageId,omitempty"`
+	Narration                 string                 `json:"narration,omitempty"`
+	// NarrationSource identifies the author of a narration payload.
+	// Populated on narration events and on model_completed events that
+	// carry an inline Narration field. Values:
+	//
+	//   - "model"     — emitted by the model as pre-tool-call framing
+	//   - "reasoning" — model's thinking / reasoning content
+	//   - "narrator"  — emitted by the async runtime narrator pipeline
+	//
+	// Empty when no narration is present on the event. Clients that want
+	// to render reasoning differently from progress commentary (e.g. to
+	// hide reasoning, tag it, or group it separately) branch on this
+	// field. Tool-agnostic and event-agnostic.
+	NarrationSource  string                 `json:"narrationSource,omitempty"`
+	ToolName         string                 `json:"toolName,omitempty"`
+	SkillName        string                 `json:"skillName,omitempty"`
+	SkillExecutionID string                 `json:"skillExecutionId,omitempty"`
+	Arguments        map[string]interface{} `json:"arguments,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Status           string                 `json:"status,omitempty"`
+	Iteration        int                    `json:"iteration,omitempty"`
+	PageIndex        int                    `json:"pageIndex,omitempty"`
+	PageCount        int                    `json:"pageCount,omitempty"`
+	LatestPage       bool                   `json:"latestPage,omitempty"`
+	// FinalResponse is DEPRECATED on streaming events. The "final
+	// assistant message" concept has been removed — end-of-turn is
+	// signaled by EventTypeTurnCompleted / EventTypeTurnFailed /
+	// EventTypeTurnCanceled; individual messages are all equal-rank.
+	// The field remains on the wire for transcript-snapshot fidelity
+	// (see sdk/api.ExecutionPage.FinalResponse) but MUST NOT be set on
+	// live stream emissions. New code sets it only when copying from
+	// persisted page state in a transcript-refresh path.
+	FinalResponse    bool                   `json:"finalResponse,omitempty"`
+	Model            *EventModel            `json:"model,omitempty"`
+	ToolCallsPlanned []PlannedToolCall      `json:"toolCallsPlanned,omitempty"`
+	CreatedAt        time.Time              `json:"createdAt,omitempty"`
+	ElicitationID    string                 `json:"elicitationId,omitempty"`
+	ElicitationData  map[string]interface{} `json:"elicitationData,omitempty"`
+	CallbackURL      string                 `json:"callbackUrl,omitempty"`
+	ResponsePayload  map[string]interface{} `json:"responsePayload,omitempty"`
+	CompletedAt      *time.Time             `json:"completedAt,omitempty"`
+	StartedAt        *time.Time             `json:"startedAt,omitempty"`
+	UserMessageID    string                 `json:"userMessageId,omitempty"`
 	// Queue fields — present on turn_queued events.
 	QueueSeq           int    `json:"queueSeq,omitempty"`
 	StartedByMessageID string `json:"startedByMessageId,omitempty"`

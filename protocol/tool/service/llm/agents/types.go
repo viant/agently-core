@@ -109,7 +109,7 @@ type StatusItem struct {
 	Error                 string `json:"error,omitempty"`
 	CreatedAt             string `json:"createdAt,omitempty"`
 	UpdatedAt             string `json:"updatedAt,omitempty"`
-	LastAssistantPreamble string `json:"lastAssistantPreamble,omitempty"`
+	LastAssistantNarration string `json:"lastAssistantNarration,omitempty"`
 	LastAssistantResponse string `json:"lastAssistantResponse,omitempty"`
 	HasFinalResponse      bool   `json:"hasFinalResponse,omitempty"`
 	LastMessageAt         string `json:"lastMessageAt,omitempty"`

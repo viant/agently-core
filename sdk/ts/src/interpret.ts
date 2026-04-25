@@ -2,15 +2,15 @@
  * interpret.ts — Helpers for interpreting message roles, phases, and iteration structure.
  *
  * Used by the UI's message normalization layer to classify messages for rendering
- * (preamble bubbles, tool call rows, final response bubbles, etc.)
+ * (narration bubbles, tool call rows, final response bubbles, etc.)
  */
 
 import type { Message, ToolMessageView } from './types';
 
 // ─── Message classification ────────────────────────────────────────────────────
 
-/** Is this message a preamble (assistant thinking/reasoning before tool calls)? */
-export function isPreamble(msg: Message): boolean {
+/** Is this message a narration (assistant thinking/reasoning before tool calls)? */
+export function isNarration(msg: Message): boolean {
     return msg.role === 'assistant' && msg.interim === 1;
 }
 
@@ -80,9 +80,9 @@ export function messageIteration(msg: Message): number | null {
     return msg.iteration ?? null;
 }
 
-/** Get the preamble text for a message (if set explicitly). */
-export function messagePreamble(msg: Message): string | null {
-    return msg.preamble ?? null;
+/** Get the narration text for a message (if set explicitly). */
+export function messageNarration(msg: Message): string | null {
+    return msg.narration ?? null;
 }
 
 // ─── Iteration grouping helpers ────────────────────────────────────────────────
@@ -107,7 +107,7 @@ export function groupByIteration(messages: Message[]): Map<number, Message[]> {
 /**
  * Determines the message type for UI rendering classification.
  *
- * Returns one of: 'user', 'preamble', 'tool', 'response', 'summary',
+ * Returns one of: 'user', 'narration', 'tool', 'response', 'summary',
  * 'summarized', 'system', 'elicitation', 'unknown'.
  */
 export function messageUIType(msg: Message): string {
@@ -118,7 +118,7 @@ export function messageUIType(msg: Message): string {
     if (isSystemMessage(msg)) return 'system';
     if (msg.elicitationId && msg.status !== 'accepted') return 'elicitation';
     if (isToolMessage(msg)) return 'tool';
-    if (isPreamble(msg)) return 'preamble';
+    if (isNarration(msg)) return 'narration';
     if (isFinalResponse(msg)) return 'response';
     return 'unknown';
 }

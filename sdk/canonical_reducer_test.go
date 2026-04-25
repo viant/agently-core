@@ -101,35 +101,39 @@ func TestReduce_ModelCallIDRemainsDistinctFromAssistantMessageID(t *testing.T) {
 	}
 }
 
-func TestReduce_AssistantFinalPreservesMarkdownBoundaries(t *testing.T) {
+func TestReduce_AssistantMessagePreservesMarkdownBoundaries(t *testing.T) {
 	now := time.Date(2026, 3, 31, 20, 0, 0, 0, time.UTC)
 	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
 
 	state := Reduce(nil, &streaming.Event{
-		Type:               streaming.EventTypeAssistantFinal,
-		ConversationID:     "conv-1",
-		TurnID:             "turn-1",
-		AssistantMessageID: "msg-1",
-		Content:            content,
-		CreatedAt:          now,
+		Type:           streaming.EventTypeAssistant,
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		MessageID:      "msg-1",
+		Content:        content,
+		CreatedAt:      now,
+		Patch: map[string]interface{}{
+			"role":     "assistant",
+			"sequence": 3,
+			"status":   "completed",
+		},
 	})
 
 	if state == nil || len(state.Turns) != 1 {
 		t.Fatalf("expected one turn, got %#v", state)
 	}
-	got := state.Turns[0].Assistant.Final.Content
-	if got != content {
-		t.Fatalf("expected assistant final content to preserve whitespace boundaries\nwant: %q\ngot:  %q", content, got)
+	if len(state.Turns[0].Messages) != 1 {
+		t.Fatalf("expected one assistant message, got %#v", state.Turns[0].Messages)
 	}
-	page := state.Turns[0].Execution.Pages[0]
-	if page.Content != content {
-		t.Fatalf("expected page content to preserve whitespace boundaries\nwant: %q\ngot:  %q", content, page.Content)
+	got := state.Turns[0].Messages[0].Content
+	if got != content {
+		t.Fatalf("expected assistant message content to preserve whitespace boundaries\nwant: %q\ngot:  %q", content, got)
 	}
 }
 
 func TestReduce_ModelCompletedPreservesMarkdownBoundaries(t *testing.T) {
 	now := time.Date(2026, 3, 31, 20, 1, 0, 0, time.UTC)
-	preamble := "Next best action\n\n"
+	narration := "Next best action\n\n"
 	content := "CSV\n\n## Supporting Metrics\n| Metric | Value |\n|---|---|\n| a | b |\n"
 
 	state := Reduce(nil, &streaming.Event{
@@ -146,15 +150,15 @@ func TestReduce_ModelCompletedPreservesMarkdownBoundaries(t *testing.T) {
 		TurnID:             "turn-1",
 		AssistantMessageID: "msg-1",
 		Status:             "completed",
-		Preamble:           preamble,
+		Narration:          narration,
 		Content:            content,
 		CreatedAt:          now.Add(time.Second),
 		FinalResponse:      true,
 	})
 
 	page := state.Turns[0].Execution.Pages[0]
-	if page.Preamble != preamble {
-		t.Fatalf("expected preamble to preserve whitespace boundaries\nwant: %q\ngot:  %q", preamble, page.Preamble)
+	if page.Narration != narration {
+		t.Fatalf("expected narration to preserve whitespace boundaries\nwant: %q\ngot:  %q", narration, page.Narration)
 	}
 	if page.Content != content {
 		t.Fatalf("expected content to preserve whitespace boundaries\nwant: %q\ngot:  %q", content, page.Content)
@@ -498,17 +502,17 @@ func TestReduce_TurnQueuedDoesNotDowngradeTerminalTurn(t *testing.T) {
 	}
 }
 
-func TestReduce_AssistantPreambleUpdateReusesMessageID(t *testing.T) {
+func TestReduce_NarrationUpdateReusesMessageID(t *testing.T) {
 	state := &ConversationState{}
 	state = Reduce(state, &streaming.Event{
-		Type:               streaming.EventTypeAssistantPreamble,
+		Type:               streaming.EventTypeNarration,
 		ConversationID:     "conv-1",
 		TurnID:             "turn-1",
 		AssistantMessageID: "msg-1",
 		Content:            "phase 1",
 	})
 	state = Reduce(state, &streaming.Event{
-		Type:               streaming.EventTypeAssistantPreamble,
+		Type:               streaming.EventTypeNarration,
 		ConversationID:     "conv-1",
 		TurnID:             "turn-1",
 		AssistantMessageID: "msg-1",
@@ -519,10 +523,10 @@ func TestReduce_AssistantPreambleUpdateReusesMessageID(t *testing.T) {
 		t.Fatalf("expected execution page state, got %#v", state)
 	}
 	page := state.Turns[0].Execution.Pages[0]
-	if page.PreambleMessageID != "msg-1" {
-		t.Fatalf("expected preambleMessageId msg-1, got %q", page.PreambleMessageID)
+	if page.NarrationMessageID != "msg-1" {
+		t.Fatalf("expected narrationMessageId msg-1, got %q", page.NarrationMessageID)
 	}
-	if page.Preamble != "phase 2" {
-		t.Fatalf("expected latest preamble phase 2, got %q", page.Preamble)
+	if page.Narration != "phase 2" {
+		t.Fatalf("expected latest narration phase 2, got %q", page.Narration)
 	}
 }

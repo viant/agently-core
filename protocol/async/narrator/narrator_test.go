@@ -2,13 +2,24 @@ package narrator
 
 import (
 	"context"
+	"os"
 	"testing"
+	"time"
 
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-func TestStartPreamble(t *testing.T) {
+// TestMain seeds a small LLM timeout for tests only. The production
+// default lives in the workspace baseline (`default.async.narrator.
+// llmTimeout`); with that removed from this package, tests must pick a
+// bound explicitly or risk unbounded runner contexts.
+func TestMain(m *testing.M) {
+	SetLLMTimeout(500 * time.Millisecond)
+	os.Exit(m.Run())
+}
+
+func TestStartNarration(t *testing.T) {
 	rec := &asynccfg.OperationRecord{
 		OperationIntent:  "inspect repo",
 		OperationSummary: "workdir=/tmp/ws | orderId=2639076",
@@ -16,65 +27,65 @@ func TestStartPreamble(t *testing.T) {
 		Status:           "running",
 		ToolName:         "tool:start",
 	}
-	got, err := StartPreamble(context.Background(), nil, rec)
+	got, err := StartNarration(context.Background(), nil, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble() error = %v", err)
+		t.Fatalf("StartNarration() error = %v", err)
 	}
 	if got != "inspect repo: phase 1" {
-		t.Fatalf("StartPreamble() = %q", got)
+		t.Fatalf("StartNarration() = %q", got)
 	}
-	got, err = StartPreamble(context.Background(), &asynccfg.Config{Narration: "none"}, rec)
+	got, err = StartNarration(context.Background(), &asynccfg.Config{Narration: "none"}, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble(none) error = %v", err)
+		t.Fatalf("StartNarration(none) error = %v", err)
 	}
 	if got != "" {
-		t.Fatalf("StartPreamble(none) = %q", got)
+		t.Fatalf("StartNarration(none) = %q", got)
 	}
-	got, err = StartPreamble(context.Background(), &asynccfg.Config{
+	got, err = StartNarration(context.Background(), &asynccfg.Config{
 		Narration:         "template",
 		NarrationTemplate: "{{tool}} {{status}} {{intent}} {{summary}} {{message}}",
 	}, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble(template) error = %v", err)
+		t.Fatalf("StartNarration(template) error = %v", err)
 	}
 	if got != "tool:start running inspect repo workdir=/tmp/ws | orderId=2639076 phase 1" {
-		t.Fatalf("StartPreamble(template) = %q", got)
+		t.Fatalf("StartNarration(template) = %q", got)
 	}
 	ctx := runtimerequestctx.WithUserAsk(context.Background(), "summarize progress")
-	got, err = StartPreamble(ctx, nil, rec)
+	got, err = StartNarration(ctx, nil, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble(user ask) error = %v", err)
+		t.Fatalf("StartNarration(user ask) error = %v", err)
 	}
 	if got != "summarize progress: phase 1" {
-		t.Fatalf("StartPreamble(user ask) = %q", got)
+		t.Fatalf("StartNarration(user ask) = %q", got)
 	}
 	ctx = WithLLMRunner(context.Background(), func(_ context.Context, in LLMInput) (string, error) {
 		return in.UserAsk + "|" + in.Intent + "|" + in.Summary + "|" + in.Message, nil
 	})
-	got, err = StartPreamble(ctx, &asynccfg.Config{Narration: "llm"}, rec)
+	got, err = StartNarration(ctx, &asynccfg.Config{Narration: "llm"}, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble(llm) error = %v", err)
+		t.Fatalf("StartNarration(llm) error = %v", err)
 	}
 	if got != "inspect repo|workdir=/tmp/ws | orderId=2639076|phase 1" && got != "|inspect repo|workdir=/tmp/ws | orderId=2639076|phase 1" {
-		t.Fatalf("StartPreamble(llm) = %q", got)
+		t.Fatalf("StartNarration(llm) = %q", got)
 	}
-	_, err = StartPreamble(context.Background(), &asynccfg.Config{Narration: "llm"}, rec)
+	_, err = StartNarration(context.Background(), &asynccfg.Config{Narration: "llm"}, rec)
 	if err == nil {
 		t.Fatal("expected llm mode without runner to error")
 	}
-	got, err = StartPreamble(context.Background(), &asynccfg.Config{Narration: "keydata"}, &asynccfg.OperationRecord{
+	got, err = StartNarration(context.Background(), &asynccfg.Config{Narration: "keydata"}, &asynccfg.OperationRecord{
 		KeyData: []byte("Primary baseline read: delivery is constrained by targeting and supply.\n```csv\nx\n```"),
 		Message: "fallback message",
 	})
 	if err != nil {
-		t.Fatalf("StartPreamble(keydata) error = %v", err)
+		t.Fatalf("StartNarration(keydata) error = %v", err)
 	}
 	if got != "Primary baseline read: delivery is constrained by targeting and supply." {
-		t.Fatalf("StartPreamble(keydata) = %q", got)
+		t.Fatalf("StartNarration(keydata) = %q", got)
 	}
 }
 
-func TestUpdatePreamble(t *testing.T) {
+func TestUpdateNarration(t *testing.T) {
 	ev := asynccfg.ChangeEvent{
 		Intent:   "inspect repo",
 		Summary:  "workdir=/tmp/ws | orderId=2639076",
@@ -82,53 +93,53 @@ func TestUpdatePreamble(t *testing.T) {
 		Status:   "running",
 		ToolName: "tool:start",
 	}
-	got, err := UpdatePreamble(context.Background(), nil, ev)
+	got, err := UpdateNarration(context.Background(), nil, ev)
 	if err != nil {
-		t.Fatalf("UpdatePreamble() error = %v", err)
+		t.Fatalf("UpdateNarration() error = %v", err)
 	}
 	if got != "inspect repo: phase 2" {
-		t.Fatalf("UpdatePreamble() = %q", got)
+		t.Fatalf("UpdateNarration() = %q", got)
 	}
-	got, err = UpdatePreamble(context.Background(), &asynccfg.Config{
+	got, err = UpdateNarration(context.Background(), &asynccfg.Config{
 		Narration:         "template",
 		NarrationTemplate: "{{intent}} {{summary}} -> {{message}}",
 	}, ev)
 	if err != nil {
-		t.Fatalf("UpdatePreamble(template) error = %v", err)
+		t.Fatalf("UpdateNarration(template) error = %v", err)
 	}
 	if got != "inspect repo workdir=/tmp/ws | orderId=2639076 -> phase 2" {
-		t.Fatalf("UpdatePreamble(template) = %q", got)
+		t.Fatalf("UpdateNarration(template) = %q", got)
 	}
 	ctx := runtimerequestctx.WithUserAsk(context.Background(), "summarize progress")
-	got, err = UpdatePreamble(ctx, nil, ev)
+	got, err = UpdateNarration(ctx, nil, ev)
 	if err != nil {
-		t.Fatalf("UpdatePreamble(user ask) error = %v", err)
+		t.Fatalf("UpdateNarration(user ask) error = %v", err)
 	}
 	if got != "summarize progress: phase 2" {
-		t.Fatalf("UpdatePreamble(user ask) = %q", got)
+		t.Fatalf("UpdateNarration(user ask) = %q", got)
 	}
 	ctx = WithLLMRunner(context.Background(), func(_ context.Context, in LLMInput) (string, error) {
 		return in.UserAsk + "|" + in.Intent + "|" + in.Summary + "|" + in.Message, nil
 	})
-	got, err = UpdatePreamble(ctx, &asynccfg.Config{Narration: "llm"}, ev)
+	got, err = UpdateNarration(ctx, &asynccfg.Config{Narration: "llm"}, ev)
 	if err != nil {
-		t.Fatalf("UpdatePreamble(llm) error = %v", err)
+		t.Fatalf("UpdateNarration(llm) error = %v", err)
 	}
 	if got != "|inspect repo|workdir=/tmp/ws | orderId=2639076|phase 2" {
-		t.Fatalf("UpdatePreamble(llm) = %q", got)
+		t.Fatalf("UpdateNarration(llm) = %q", got)
 	}
-	_, err = UpdatePreamble(context.Background(), &asynccfg.Config{Narration: "llm"}, ev)
+	_, err = UpdateNarration(context.Background(), &asynccfg.Config{Narration: "llm"}, ev)
 	if err == nil {
 		t.Fatal("expected llm mode without runner to error")
 	}
-	got, err = UpdatePreamble(context.Background(), &asynccfg.Config{Narration: "keydata"}, asynccfg.ChangeEvent{
+	got, err = UpdateNarration(context.Background(), &asynccfg.Config{Narration: "keydata"}, asynccfg.ChangeEvent{
 		KeyData: []byte("<!-- DATA:hierarchy rows=1 -->\n<!-- DATA:delivery_impact rows=7 -->"),
 	})
 	if err != nil {
-		t.Fatalf("UpdatePreamble(keydata) error = %v", err)
+		t.Fatalf("UpdateNarration(keydata) error = %v", err)
 	}
 	if got != "Reviewing Hierarchy, Delivery impact." {
-		t.Fatalf("UpdatePreamble(keydata) = %q", got)
+		t.Fatalf("UpdateNarration(keydata) = %q", got)
 	}
 }
 
@@ -143,12 +154,12 @@ func TestNarrationLLMEmptyFallsBackToDeterministicText(t *testing.T) {
 	ctx := WithLLMRunner(context.Background(), func(_ context.Context, in LLMInput) (string, error) {
 		return "   ", nil
 	})
-	got, err := StartPreamble(ctx, &asynccfg.Config{Narration: "llm"}, rec)
+	got, err := StartNarration(ctx, &asynccfg.Config{Narration: "llm"}, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble(empty llm) error = %v", err)
+		t.Fatalf("StartNarration(empty llm) error = %v", err)
 	}
 	if got != "inspect repo: phase 1" {
-		t.Fatalf("StartPreamble(empty llm) = %q", got)
+		t.Fatalf("StartNarration(empty llm) = %q", got)
 	}
 }
 
@@ -159,11 +170,11 @@ func TestFallbackUsesSummaryWhenIntentMissing(t *testing.T) {
 		Status:           "running",
 		ToolName:         "tool:start",
 	}
-	got, err := StartPreamble(context.Background(), nil, rec)
+	got, err := StartNarration(context.Background(), nil, rec)
 	if err != nil {
-		t.Fatalf("StartPreamble(summary fallback) error = %v", err)
+		t.Fatalf("StartNarration(summary fallback) error = %v", err)
 	}
 	if got != "workdir=/tmp/ws | orderId=2639076: phase 1" {
-		t.Fatalf("StartPreamble(summary fallback) = %q", got)
+		t.Fatalf("StartNarration(summary fallback) = %q", got)
 	}
 }

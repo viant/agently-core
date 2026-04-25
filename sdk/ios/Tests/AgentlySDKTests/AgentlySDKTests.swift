@@ -162,15 +162,15 @@ final class AgentlySDKTests: XCTestCase {
         let tracker = ConversationStreamTracker()
 
         _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-1"}"#))
-        _ = await tracker.apply(SSEEvent(data: #"{"type":"assistant_preamble","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Thinking...","status":"running"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"narration","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Thinking...","status":"running"}"#))
         _ = await tracker.apply(SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Hello "}"#))
-        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"assistant_final","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"Hello world","status":"completed","preamble":"Thinking..."}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"assistant","conversationId":"conv-1","turnId":"turn-1","messageId":"msg-1","content":"Hello world","status":"completed","narration":"Thinking...","patch":{"role":"assistant"}}"#))
 
         XCTAssertEqual(snapshot.conversationID, "conv-1")
         XCTAssertEqual(snapshot.activeTurnID, "turn-1")
         XCTAssertEqual(snapshot.bufferedMessages.count, 1)
         XCTAssertEqual(snapshot.bufferedMessages.first?.id, "msg-1")
-        XCTAssertEqual(snapshot.bufferedMessages.first?.preamble, "Thinking...")
+        XCTAssertEqual(snapshot.bufferedMessages.first?.narration, "Thinking...")
         XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Hello world")
         XCTAssertEqual(snapshot.bufferedMessages.first?.status, "completed")
         XCTAssertEqual(snapshot.bufferedMessages.first?.interim, 0)
@@ -196,8 +196,8 @@ final class AgentlySDKTests: XCTestCase {
         let tracker = ConversationStreamTracker()
 
         _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-1"}"#))
-        _ = await tracker.apply(SSEEvent(data: #"{"type":"assistant_final","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"First conversation","status":"completed"}"#))
-        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"assistant_final","conversationId":"conv-2","turnId":"turn-9","assistantMessageId":"msg-9","content":"Wrong conversation","status":"completed"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"assistant","conversationId":"conv-1","turnId":"turn-1","messageId":"msg-1","content":"First conversation","status":"completed","patch":{"role":"assistant"}}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"assistant","conversationId":"conv-2","turnId":"turn-9","messageId":"msg-9","content":"Wrong conversation","status":"completed","patch":{"role":"assistant"}}"#))
 
         XCTAssertEqual(snapshot.conversationID, "conv-1")
         XCTAssertEqual(snapshot.bufferedMessages.count, 1)

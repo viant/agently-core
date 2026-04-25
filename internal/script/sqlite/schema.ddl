@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS turn (
 CREATE INDEX IF NOT EXISTS idx_turn_conversation ON turn(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_turn_conv_status_created ON turn(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_turn_conv_queue_seq ON turn(conversation_id, queue_seq);
+-- idx_turn_conversation_created covers the "latest turn per conversation"
+-- correlated subquery used by conversation read endpoints:
+--   (SELECT id FROM turn WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1)
+-- The existing idx_turn_conv_status_created can't serve this because
+-- `status` isn't in the WHERE clause (SQLite won't skip a mid-index
+-- column to use the trailing created_at for ordering). With this
+-- index the subquery is a single index seek per outer row.
+CREATE INDEX IF NOT EXISTS idx_turn_conversation_created ON turn(conversation_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS turn_queue (
     id TEXT PRIMARY KEY,

@@ -32,7 +32,7 @@ type asyncNarrationHandle struct {
 	stepID   string
 	stepName string
 	cfg      *asynccfg.Config
-	pairing  *toolstatus.PreamblePairing
+	pairing  *toolstatus.NarrationPairing
 	session  *asyncnarrator.Session
 }
 
@@ -249,34 +249,37 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			}
 		}
 		normalizeAsyncExtracted(toolResult, extracted)
-		rec := manager.Register(ctx, asynccfg.RegisterInput{
-			ID:                opID,
-			ParentConvID:      turn.ConversationID,
-			ParentTurnID:      turn.TurnID,
-			ToolCallID:        step.ID,
-			ToolMessageID:     strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
-			ToolName:          step.Name,
-			StatusToolName:    strings.TrimSpace(cfg.Status.Tool),
-			StatusArgs:        asyncStatusArgs(cfg, opID, step.Args),
-			CancelToolName:    asyncCancelToolName(cfg),
-			RequestArgsDigest: requestDigest,
-			RequestArgs:       normalizedAsyncArgs(cfg, step.Args),
-			OperationIntent:   asynccfg.ExtractIntent(normalizedAsyncArgs(cfg, step.Args), cfg.Run.IntentPath, step.Name),
-			OperationSummary:  asynccfg.ExtractSummary(normalizedAsyncArgs(cfg, step.Args), cfg.Run.SummaryPaths),
-			ExecutionMode:     effectiveExecutionMode(cfg, step.Args),
-			Status:            extracted.Status,
-			Message:           extracted.Message,
-			Percent:           extracted.Percent,
-			KeyData:           cloneRaw(extracted.KeyData),
-			Error:             extracted.Error,
-			TimeoutMs:         cfg.TimeoutMs,
-			IdleTimeoutMs:     cfg.IdleTimeoutMs,
-			PollIntervalMs:    cfg.PollIntervalMs,
+		sameToolRecall := sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs
+		rec, _ := manager.Register(ctx, asynccfg.RegisterInput{
+			ID:                   opID,
+			ParentConvID:         turn.ConversationID,
+			ParentTurnID:         turn.TurnID,
+			ToolCallID:           step.ID,
+			ToolMessageID:        strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+			ToolName:             step.Name,
+			StatusToolName:       strings.TrimSpace(cfg.Status.Tool),
+			StatusOperationIDArg: strings.TrimSpace(cfg.Status.OperationIDArg),
+			SameToolRecall:       sameToolRecall,
+			StatusArgs:           asyncStatusArgs(cfg, opID, step.Args),
+			CancelToolName:       asyncCancelToolName(cfg),
+			RequestArgsDigest:    requestDigest,
+			RequestArgs:          normalizedAsyncArgs(cfg, step.Args),
+			OperationIntent:      asynccfg.ExtractIntent(normalizedAsyncArgs(cfg, step.Args), cfg.Run.IntentPath, step.Name),
+			OperationSummary:     asynccfg.ExtractSummary(normalizedAsyncArgs(cfg, step.Args), cfg.Run.SummaryPaths),
+			ExecutionMode:        effectiveExecutionMode(cfg, step.Args),
+			Status:               extracted.Status,
+			Message:              extracted.Message,
+			Percent:              extracted.Percent,
+			KeyData:              cloneRaw(extracted.KeyData),
+			Error:                extracted.Error,
+			TimeoutMs:            cfg.TimeoutMs,
+			IdleTimeoutMs:        cfg.IdleTimeoutMs,
+			PollIntervalMs:       cfg.PollIntervalMs,
 		})
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		if rec != nil {
 			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", extracted)
-			if asynccfg.ExecutionModeWaits(rec.ExecutionMode) && !(sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs) {
+			if asynccfg.ExecutionModeWaits(rec.ExecutionMode) && !sameToolRecall {
 				maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
 			}
 		}
@@ -325,7 +328,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 	return nil
 }
 
-func resolveAsyncStatusOperationID(ctx context.Context, manager AsyncManager, cfg *asynccfg.Config, step StepInfo) string {
+func resolveAsyncStatusOperationID(ctx context.Context, manager *asynccfg.Manager, cfg *asynccfg.Config, step StepInfo) string {
 	if cfg == nil {
 		return ""
 	}
@@ -377,9 +380,13 @@ func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step St
 		maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
 	}
 	narration := startAsyncNarration(ctx, cfg, step, rec)
-	var sub <-chan asynccfg.ChangeEvent
+	var (
+		sub   <-chan asynccfg.ChangeEvent
+		subID uint64
+	)
 	if narration != nil {
-		sub = manager.Subscribe([]string{opID})
+		sub, subID = manager.Subscribe([]string{opID})
+		defer manager.Unsubscribe(subID)
 	}
 	ch := manager.AwaitTerminal(ctx, []string{opID})
 	select {
@@ -441,7 +448,7 @@ func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInf
 		return nil
 	}
 	statusSvc := toolstatus.New(conv)
-	pairing := toolstatus.NewPreamblePairing(statusSvc)
+	pairing := toolstatus.NewNarrationPairing(statusSvc)
 	handle := &asyncNarrationHandle{
 		stepID:   step.ID,
 		stepName: step.Name,
@@ -453,7 +460,7 @@ func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInf
 		}),
 	}
 	narratorCtx := withAsyncNarratorRunnerIfPresent(ctx)
-	if text, err := asyncnarrator.StartPreamble(narratorCtx, cfg, rec); err == nil && text != "" {
+	if text, err := asyncnarrator.StartNarration(narratorCtx, cfg, rec); err == nil && text != "" {
 		logx.InfoCtxf(ctx, "conversation", "async narrator preamble tool=%q op_id=%q text=%q", strings.TrimSpace(step.Name), strings.TrimSpace(rec.ID), textutil.Head(text, 256))
 		if err := handle.session.Start(text); err != nil {
 			logx.WarnCtxf(ctx, "conversation", "async preamble start failed op_id=%q tool=%q err=%v", strings.TrimSpace(rec.ID), strings.TrimSpace(step.Name), err)
@@ -481,7 +488,7 @@ func observeAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, ev
 		return
 	}
 	narratorCtx := withAsyncNarratorRunnerIfPresent(ctx)
-	preamble, err := asyncnarrator.UpdatePreamble(narratorCtx, handle.cfg, ev)
+	preamble, err := asyncnarrator.UpdateNarration(narratorCtx, handle.cfg, ev)
 	if err != nil {
 		logx.WarnCtxf(ctx, "conversation", "async narrator update failed op_id=%q tool=%q err=%v", strings.TrimSpace(ev.OperationID), strings.TrimSpace(handle.stepName), err)
 		return
@@ -682,23 +689,26 @@ func sameToolName(actual, expected string) bool {
 	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(actual)), strings.TrimSpace(mcpname.Canonical(expected)))
 }
 
-func maybeStartAsyncPoller(ctx context.Context, manager AsyncManager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+func maybeStartAsyncPoller(ctx context.Context, manager *asynccfg.Manager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
 	if cfg == nil || manager == nil || reg == nil || strings.TrimSpace(opID) == "" {
 		return
 	}
 	if strings.TrimSpace(cfg.Status.Tool) == "" {
 		return
 	}
-	if !manager.TryStartPoller(ctx, opID) {
-		return
-	}
 	// Create a cancelable context rooted at Background so the poller outlives
-	// the parent HTTP request, while still being stoppable via CancelTurnPollers.
+	// the parent HTTP request, while still being stoppable via CancelTurnPollers
+	// or Manager.Close.
 	pollCtx, cancel := context.WithCancel(context.Background())
 	pollCtx = rehydrateAsyncPollContext(ctx, pollCtx, turn)
-	// Register the cancel so the service layer can stop this poller when the
-	// parent turn is explicitly canceled.
-	manager.StorePollerCancel(ctx, opID, cancel)
+	// AdmitPoller atomically checks the Manager isn't closed, gates
+	// double-start for the same op id, registers the cancel, and bumps
+	// pollerWG — Close() waits on that wg to join every admitted
+	// goroutine before returning.
+	if !manager.AdmitPoller(ctx, opID, cancel) {
+		cancel()
+		return
+	}
 	maybeCreateAsyncStatusCarrier(pollCtx, manager, cfg, turn, opID, conv)
 	go func() {
 		defer cancel() // idempotent — ensures cleanup if PollAsyncOperation returns early
@@ -706,7 +716,7 @@ func maybeStartAsyncPoller(ctx context.Context, manager AsyncManager, reg tool.R
 	}()
 }
 
-func maybeCreateAsyncStatusCarrier(ctx context.Context, manager AsyncManager, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+func maybeCreateAsyncStatusCarrier(ctx context.Context, manager *asynccfg.Manager, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
 	if conv == nil || manager == nil || cfg == nil {
 		return
 	}
@@ -806,11 +816,30 @@ func detachedAsyncPollContext(ctx context.Context, turn runtimerequestctx.TurnMe
 	return rehydrateAsyncPollContext(ctx, context.Background(), turn)
 }
 
-func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+// pollerState is the per-invocation setup of a PollAsyncOperation run.
+// Split out so the individual tick-path helpers can be unit-tested with
+// a synthetic state instead of standing up the full PollAsyncOperation
+// loop + ticker.
+type pollerState struct {
+	manager    *asynccfg.Manager
+	reg        tool.Registry
+	cfg        *asynccfg.Config
+	conv       apiconv.Client
+	opID       string
+	interval   time.Duration
+	statusArgs map[string]interface{}
+	cancelArgs map[string]interface{}
+	narration  *asyncNarrationHandle
+}
+
+// newPollerState resolves the setup-time inputs for a poller run:
+// narration handle (if a record exists), poll interval, pre-built
+// status/cancel arg maps. Returns nil when required inputs are missing
+// so PollAsyncOperation can bail fast.
+func newPollerState(ctx context.Context, manager *asynccfg.Manager, reg tool.Registry, cfg *asynccfg.Config, opID string, conv apiconv.Client) *pollerState {
 	if cfg == nil || manager == nil || reg == nil || strings.TrimSpace(opID) == "" {
-		return
+		return nil
 	}
-	defer manager.FinishPoller(ctx, opID)
 	var narration *asyncNarrationHandle
 	if rec, ok := manager.Get(context.Background(), opID); ok && rec != nil {
 		narration = startAsyncNarration(ctx, cfg, StepInfo{
@@ -818,86 +847,161 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 			Name: strings.TrimSpace(cfg.Status.Tool),
 		}, rec)
 	}
-	defer finishAsyncNarration(ctx, narration, opID, strings.TrimSpace(cfg.Status.Tool))
 	interval := time.Duration(cfg.PollIntervalMs) * time.Millisecond
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	// Resolve status args from the registered record so that ReuseRunArgs and
-	// ExtraArgs contributions from asyncStatusArgs() are honoured. Fall back to
-	// the config-derived minimal set only when the record is unavailable.
-	statusArgs := resolvePollerStatusArgs(context.Background(), manager, cfg, opID)
-
-	// cancelArgs only need the operation handle; CancelConfig has no ExtraArgs field.
 	cancelArgs := map[string]interface{}{}
 	if cfg.Cancel != nil && strings.TrimSpace(cfg.Cancel.OperationIDArg) != "" {
 		cancelArgs[cfg.Cancel.OperationIDArg] = opID
 	}
+	return &pollerState{
+		manager:    manager,
+		reg:        reg,
+		cfg:        cfg,
+		conv:       conv,
+		opID:       opID,
+		interval:   interval,
+		statusArgs: resolvePollerStatusArgs(context.Background(), manager, cfg, opID),
+		cancelArgs: cancelArgs,
+		narration:  narration,
+	}
+}
+
+// handleTimeoutIfExpired checks the op's wall-clock TimeoutAt and, if
+// expired, fires the cancel tool (best-effort, warns on failure),
+// transitions the op to StateFailed, narrates the change, persists, and
+// publishes a final event. Returns true when the timeout was handled —
+// the caller should stop the loop.
+//
+// now is injected so tests can drive the timeout deterministically
+// without sleeping.
+func (p *pollerState) handleTimeoutIfExpired(ctx context.Context, now time.Time) bool {
+	rec, ok := p.manager.Get(context.Background(), p.opID)
+	if !ok || rec == nil || rec.TimeoutAt == nil || !now.After(*rec.TimeoutAt) {
+		return false
+	}
+	if p.cfg.Cancel != nil && strings.TrimSpace(p.cfg.Cancel.Tool) != "" {
+		if _, err := p.reg.Execute(ctx, p.cfg.Cancel.Tool, p.cancelArgs); err != nil {
+			// Cancel is best-effort on timeout. Don't block the terminal
+			// transition on a failing cancel tool (silent failure
+			// re-creates the problem TimeoutMs was supposed to prevent).
+			// But log so operators see when cancel consistently fails.
+			logx.WarnCtxf(ctx, "conversation", "async cancel tool failed op_id=%q cancel_tool=%q err=%v",
+				strings.TrimSpace(p.opID),
+				strings.TrimSpace(p.cfg.Cancel.Tool),
+				err)
+		}
+	}
+	payload := &asynccfg.Extracted{
+		Status: "failed",
+		Error:  "operation timed out",
+	}
+	rec, _ = p.manager.Update(context.Background(), asynccfg.UpdateInput{
+		ID:     p.opID,
+		Status: "failed",
+		Error:  "operation timed out",
+		State:  asynccfg.StateFailed,
+	})
+	if rec != nil {
+		observeAsyncNarration(ctx, p.narration, changeEventFromRecord(rec))
+	}
+	patchAsyncToolPersistence(context.Background(), p.conv, rec, "operation timed out", nil)
+	publishAsyncUpdateEvent(ctx, p.cfg.Run.Tool, rec.ToolCallID, p.opID, payload, rec)
+	return true
+}
+
+// executeStatusTick runs one status-tool call and routes the result.
+// Return values:
+//
+//   - `continueLoop`: true when the poller should loop again (transient
+//     failure with unexhausted retries, or a non-terminal successful
+//     tick). false when the loop should exit (ctx cancelled during
+//     backoff, terminal failure, or terminal success).
+//
+// Splitting this out lets tests exercise each of the three outcome
+// classes — (a) status-tool error with transient retry, (b) terminal
+// failure from exhausted retries, (c) status success with extraction —
+// by injecting a registry / manager pair and a single expected payload.
+func (p *pollerState) executeStatusTick(ctx context.Context) (continueLoop bool) {
+	// Use the poll context (ctx) so that the registry receives the same
+	// conversation/turn/message/mode/publisher values assembled by
+	// detachedAsyncPollContext, rather than a bare context.Background().
+	result, err := p.reg.Execute(ctx, p.cfg.Status.Tool, p.statusArgs)
+	if err != nil {
+		rec, terminal := p.manager.RecordPollFailure(context.Background(), p.opID, err.Error(), isTransientPollError(err))
+		if terminal {
+			patchAsyncToolPersistence(context.Background(), p.conv, rec, err.Error(), nil)
+			publishAsyncUpdateEvent(ctx, p.cfg.Status.Tool, rec.ToolCallID, p.opID, &asynccfg.Extracted{Status: "failed", Error: err.Error()}, rec)
+			return false
+		}
+		if !waitPollBackoff(ctx, pollBackoff(p.interval, rec)) {
+			return false
+		}
+		return true
+	}
+	_, _ = p.manager.ResetPollFailures(context.Background(), p.opID)
+	payload, err := asynccfg.ExtractPayload(result, p.cfg.Status.Selector)
+	if err != nil || payload == nil {
+		// Extraction failure or nil payload: skip this tick but keep
+		// the loop alive — the next poll may succeed (selector
+		// extraction can transiently mismatch during streamed status
+		// responses). Poll-failure counter is NOT bumped here; that
+		// counter tracks status-tool-call errors only.
+		return true
+	}
+	rec, _ := p.manager.Update(context.Background(), asynccfg.UpdateInput{
+		ID:      p.opID,
+		Status:  payload.Status,
+		Message: payload.Message,
+		Percent: payload.Percent,
+		KeyData: cloneRaw(payload.KeyData),
+		Error:   payload.Error,
+	})
+	if rec != nil {
+		observeAsyncNarration(ctx, p.narration, changeEventFromRecord(rec))
+	}
+	patchAsyncToolPersistence(context.Background(), p.conv, rec, "", payload)
+	publishAsyncUpdateEvent(ctx, p.cfg.Status.Tool, rec.ToolCallID, p.opID, payload, rec)
+	if rec != nil && rec.Terminal() {
+		return false
+	}
+	return true
+}
+
+// PollAsyncOperation drives the background status-polling loop for an
+// async op. The heavy lifting is split into pollerState setup +
+// handleTimeoutIfExpired + executeStatusTick so the tick-path logic is
+// unit-testable with synthetic state. This function itself is just the
+// loop/ticker orchestrator plus the narration lifecycle.
+func PollAsyncOperation(ctx context.Context, manager *asynccfg.Manager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+	// FinishPoller defer is placed FIRST so it always runs for an
+	// admitted poller, even if newPollerState returns nil. Without
+	// this, a pathological setup path (missing cfg/manager/reg/opID)
+	// would leak the admission made by AdmitPoller in the caller —
+	// m.pollers and pollerWG would drift out of alignment with the
+	// actual goroutine population.
+	if manager != nil {
+		defer manager.FinishPoller(ctx, opID)
+	}
+	state := newPollerState(ctx, manager, reg, cfg, opID, conv)
+	if state == nil {
+		return
+	}
+	defer finishAsyncNarration(ctx, state.narration, opID, strings.TrimSpace(cfg.Status.Tool))
+
+	ticker := time.NewTicker(state.interval)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if rec, ok := manager.Get(context.Background(), opID); ok && rec != nil && rec.TimeoutAt != nil && time.Now().After(*rec.TimeoutAt) {
-				if cfg.Cancel != nil && strings.TrimSpace(cfg.Cancel.Tool) != "" {
-					_, _ = reg.Execute(ctx, cfg.Cancel.Tool, cancelArgs)
-				}
-				payload := &asynccfg.Extracted{
-					Status: "failed",
-					Error:  "operation timed out",
-				}
-				rec, _ = manager.Update(context.Background(), asynccfg.UpdateInput{
-					ID:     opID,
-					Status: "failed",
-					Error:  "operation timed out",
-					State:  asynccfg.StateFailed,
-				})
-				if rec != nil {
-					observeAsyncNarration(ctx, narration, changeEventFromRecord(rec))
-				}
-				patchAsyncToolPersistence(context.Background(), conv, rec, "operation timed out", nil)
-				publishAsyncUpdateEvent(ctx, cfg.Run.Tool, rec.ToolCallID, opID, payload, rec)
+			if state.handleTimeoutIfExpired(ctx, time.Now()) {
 				return
 			}
-			// Use the poll context (ctx) so that the registry receives the same
-			// conversation/turn/message/mode/publisher values assembled by
-			// detachedAsyncPollContext, rather than a bare context.Background().
-			result, err := reg.Execute(ctx, cfg.Status.Tool, statusArgs)
-			if err != nil {
-				rec, terminal := manager.RecordPollFailure(context.Background(), opID, err.Error(), isTransientPollError(err))
-				if terminal {
-					patchAsyncToolPersistence(context.Background(), conv, rec, err.Error(), nil)
-					publishAsyncUpdateEvent(ctx, cfg.Status.Tool, rec.ToolCallID, opID, &asynccfg.Extracted{Status: "failed", Error: err.Error()}, rec)
-					return
-				}
-				if !waitPollBackoff(ctx, pollBackoff(interval, rec)) {
-					return
-				}
-				continue
-			}
-			_, _ = manager.ResetPollFailures(context.Background(), opID)
-			payload, err := asynccfg.ExtractPayload(result, cfg.Status.Selector)
-			if err != nil || payload == nil {
-				continue
-			}
-			rec, _ := manager.Update(context.Background(), asynccfg.UpdateInput{
-				ID:      opID,
-				Status:  payload.Status,
-				Message: payload.Message,
-				Percent: payload.Percent,
-				KeyData: cloneRaw(payload.KeyData),
-				Error:   payload.Error,
-			})
-			if rec != nil {
-				observeAsyncNarration(ctx, narration, changeEventFromRecord(rec))
-			}
-			patchAsyncToolPersistence(context.Background(), conv, rec, "", payload)
-			publishAsyncUpdateEvent(ctx, cfg.Status.Tool, rec.ToolCallID, opID, payload, rec)
-			if rec != nil && rec.Terminal() {
+			if !state.executeStatusTick(ctx) {
 				return
 			}
 		}
@@ -909,7 +1013,7 @@ func PollAsyncOperation(ctx context.Context, manager AsyncManager, reg tool.Regi
 // already stored on the OperationRecord (which captures ReuseRunArgs and
 // ExtraArgs), and falls back to deriving the minimal set from cfg when the
 // record is not available.
-func resolvePollerStatusArgs(ctx context.Context, manager AsyncManager, cfg *asynccfg.Config, opID string) map[string]interface{} {
+func resolvePollerStatusArgs(ctx context.Context, manager *asynccfg.Manager, cfg *asynccfg.Config, opID string) map[string]interface{} {
 	if rec, ok := manager.Get(ctx, opID); ok && rec != nil && len(rec.StatusArgs) > 0 {
 		// Clone so the poller has a stable, immutable copy.
 		args := make(map[string]interface{}, len(rec.StatusArgs))

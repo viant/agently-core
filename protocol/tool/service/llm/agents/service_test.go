@@ -711,7 +711,7 @@ func TestService_Status_ByConversationID(t *testing.T) {
 	preamble.SetRole("assistant")
 	preamble.SetType("text")
 	preamble.SetInterim(1)
-	preamble.SetPreamble("calling tools")
+	preamble.SetNarration("calling tools")
 	preamble.SetContent("calling tools")
 	require.NoError(t, conv.PatchMessage(ctx, preamble))
 
@@ -735,7 +735,7 @@ func TestService_Status_ByConversationID(t *testing.T) {
 	assert.Equal(t, "response", out.MessageKind)
 }
 
-func TestService_Status_ByConversationID_UsesPreambleWhileRunning(t *testing.T) {
+func TestService_Status_ByConversationID_UsesNarrationWhileRunning(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()
 
@@ -758,7 +758,7 @@ func TestService_Status_ByConversationID_UsesPreambleWhileRunning(t *testing.T) 
 	preamble.SetRole("assistant")
 	preamble.SetType("text")
 	preamble.SetInterim(1)
-	preamble.SetPreamble("calling tools")
+	preamble.SetNarration("calling tools")
 	preamble.SetContent("calling tools")
 	require.NoError(t, conv.PatchMessage(ctx, preamble))
 
@@ -795,7 +795,7 @@ func TestService_Status_ByConversationID_HidesStaleChildToolFailureWhileRunning(
 	preamble.SetRole("assistant")
 	preamble.SetType("text")
 	preamble.SetInterim(1)
-	preamble.SetPreamble("still gathering evidence")
+	preamble.SetNarration("still gathering evidence")
 	preamble.SetContent("still gathering evidence")
 	require.NoError(t, conv.PatchMessage(ctx, preamble))
 
@@ -899,7 +899,7 @@ func TestService_Status_ByConversationID_TimesOutLongRunningChild(t *testing.T) 
 	preamble.SetRole("assistant")
 	preamble.SetType("text")
 	preamble.SetInterim(1)
-	preamble.SetPreamble("still working")
+	preamble.SetNarration("still working")
 	preamble.SetContent("still working")
 	preamble.SetCreatedAt(now.Add(-21 * time.Minute))
 	require.NoError(t, conv.PatchMessage(ctx, preamble))

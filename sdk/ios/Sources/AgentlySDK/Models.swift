@@ -648,7 +648,7 @@ public struct ConversationMessagePart: Codable, Sendable {
 }
 
 public struct AssistantTurnPart: Codable, Sendable {
-    public let preamble: ConversationMessagePart?
+    public let narration: ConversationMessagePart?
     public let final: ConversationMessagePart?
 }
 

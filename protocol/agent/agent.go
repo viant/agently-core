@@ -144,6 +144,14 @@ type (
 		// Runtime behavior remains controlled by QueryInput.elicitationMode and
 		// service options (router/awaiter).
 		ContextInputs *ContextInputs `yaml:"elicitation,omitempty" json:"elicitation,omitempty"`
+
+		// AsyncNarratorPrompt overrides the workspace-level
+		// `default.async.narrator.prompt` for async-op narration
+		// generated on this agent's turns. Empty → fall back to the
+		// workspace default. Active-skill overrides (see
+		// protocol/skill.Frontmatter.AsyncNarratorPrompt) take
+		// precedence over the agent override.
+		AsyncNarratorPrompt string `yaml:"asyncNarratorPrompt,omitempty" json:"asyncNarratorPrompt,omitempty"`
 	}
 
 	// StarterTask describes a suggested starter prompt for empty chat state.

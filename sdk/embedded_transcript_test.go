@@ -155,7 +155,7 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 	first := ts.Execution.Pages[0]
 	require.Equal(t, "m1", first.AssistantMessageID)
 	require.Equal(t, 1, first.Iteration)
-	require.Equal(t, content1, first.Preamble)
+	require.Equal(t, content1, first.Narration)
 	require.False(t, first.FinalResponse)
 	require.Len(t, first.ToolSteps, 2)
 	require.Equal(t, "resources-list", first.ToolSteps[0].ToolName)
@@ -174,7 +174,7 @@ func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testin
 	modelStatus := "running"
 	toolStatus := "completed"
 	rootID := "root-1"
-	preamble := "Using resources-list."
+	narration := "Using resources-list."
 
 	root := &agconv.MessageView{
 		Id:   rootID,
@@ -198,7 +198,7 @@ func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testin
 		Id:              "m1",
 		Role:            "assistant",
 		Interim:         1,
-		Content:         &preamble,
+		Content:         &narration,
 		Iteration:       &iteration1,
 		ParentMessageId: strPtr(rootID),
 		ModelCall: &agconv.ModelCallView{
@@ -222,7 +222,7 @@ func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testin
 
 	page := ts.Execution.Pages[0]
 	require.Equal(t, "m1", page.AssistantMessageID)
-	require.Equal(t, preamble, page.Preamble)
+	require.Equal(t, narration, page.Narration)
 	require.Len(t, page.ToolSteps, 1)
 	require.Equal(t, "resources/list", page.ToolSteps[0].ToolName)
 }
@@ -463,7 +463,7 @@ func TestBuildCanonicalState_PreservesModelPayloadsOnCanonicalStep(t *testing.T)
 func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2
-	preamble := "Let me check."
+	narration := "Let me check."
 	final := "Here is the answer."
 
 	turn := &agconv.TranscriptView{
@@ -474,7 +474,7 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
-				Content:   &preamble,
+				Content:   &narration,
 				Iteration: &iteration1,
 				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
@@ -493,17 +493,17 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	require.NotNil(t, state)
 	ts := state.Turns[0]
 	require.NotNil(t, ts.Assistant)
-	require.NotNil(t, ts.Assistant.Preamble)
-	require.Equal(t, preamble, ts.Assistant.Preamble.Content)
+	require.NotNil(t, ts.Assistant.Narration)
+	require.Equal(t, narration, ts.Assistant.Narration.Content)
 	require.NotNil(t, ts.Assistant.Final)
 	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
-func TestBuildCanonicalState_PrefersLatestInterimAssistantPreambleFromTranscript(t *testing.T) {
+func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscript(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2
-	modelPreamble := "Let me check."
-	statusPreamble := "Reviewing the order’s targeted and excluded site lists now."
+	modelNarration := "Let me check."
+	statusNarration := "Reviewing the order’s targeted and excluded site lists now."
 	final := "Here is the answer."
 	execMode := "exec"
 
@@ -515,8 +515,8 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantPreambleFromTranscript
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
-				Content:   &modelPreamble,
-				Preamble:  &modelPreamble,
+				Content:   &modelNarration,
+				Narration:  &modelNarration,
 				Iteration: &iteration1,
 				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
@@ -524,7 +524,7 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantPreambleFromTranscript
 				Id:       "m2",
 				Role:     "assistant",
 				Interim:  1,
-				Preamble: &statusPreamble,
+				Narration: &statusNarration,
 				Mode:     &execMode,
 			},
 			{
@@ -542,16 +542,16 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantPreambleFromTranscript
 	require.NotNil(t, state)
 	ts := state.Turns[0]
 	require.NotNil(t, ts.Assistant)
-	require.NotNil(t, ts.Assistant.Preamble)
-	require.Equal(t, "m2", ts.Assistant.Preamble.MessageID)
-	require.Equal(t, statusPreamble, ts.Assistant.Preamble.Content)
+	require.NotNil(t, ts.Assistant.Narration)
+	require.Equal(t, "m2", ts.Assistant.Narration.MessageID)
+	require.Equal(t, statusNarration, ts.Assistant.Narration.Content)
 	require.NotNil(t, ts.Assistant.Final)
 	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
 func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *testing.T) {
 	narratorMode := "narrator"
-	preamble := "Delegated child is still working through the file listing."
+	narration := "Delegated child is still working through the file listing."
 
 	turn := &agconv.TranscriptView{
 		Id:     "turn-1",
@@ -561,7 +561,7 @@ func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *
 				Id:       "n1",
 				Role:     "assistant",
 				Interim:  1,
-				Preamble: &preamble,
+				Narration: &narration,
 				Mode:     &narratorMode,
 			},
 		},
@@ -576,17 +576,17 @@ func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *
 	page := state.Turns[0].Execution.Pages[0]
 	require.Equal(t, "narrator", page.ExecutionRole)
 	require.Equal(t, narratorMode, page.Mode)
-	require.Equal(t, preamble, page.Preamble)
+	require.Equal(t, narration, page.Narration)
 	require.Len(t, page.ModelSteps, 1)
 	require.Equal(t, "narrator", page.ModelSteps[0].ExecutionRole)
 	require.NotNil(t, page.ModelSteps[0].ResponsePayload)
-	require.Contains(t, string(page.ModelSteps[0].ResponsePayload), preamble)
+	require.Contains(t, string(page.ModelSteps[0].ResponsePayload), narration)
 }
 
 func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2
-	preamble := "Let me check."
+	narration := "Let me check."
 	final := "Here is the answer."
 	summary := "Title: Summary\n\n- key point"
 	summaryMode := "summary"
@@ -599,7 +599,7 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
-				Content:   &preamble,
+				Content:   &narration,
 				Iteration: &iteration1,
 				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
@@ -779,7 +779,7 @@ func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
 func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T) {
 	iteration := 1
 	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
-	preamble := "Working through the request.\n\n"
+	narration := "Working through the request.\n\n"
 
 	turn := &agconv.TranscriptView{
 		Id:     "turn-1",
@@ -789,8 +789,8 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
-				Preamble:  &preamble,
-				Content:   &preamble,
+				Narration:  &narration,
+				Content:   &narration,
 				Iteration: &iteration,
 				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
@@ -812,7 +812,7 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 	require.Len(t, state.Turns[0].Execution.Pages, 1)
 
 	page := state.Turns[0].Execution.Pages[0]
-	require.Equal(t, preamble, page.Preamble)
+	require.Equal(t, narration, page.Narration)
 	require.Equal(t, content, page.Content)
 	require.NotNil(t, state.Turns[0].Assistant)
 	require.NotNil(t, state.Turns[0].Assistant.Final)

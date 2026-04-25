@@ -54,7 +54,7 @@ func (a *asyncStatusRegistry) Execute(_ context.Context, _ string, _ map[string]
 var _ tool.Registry = (*asyncStatusRegistry)(nil)
 var _ tool.AsyncResolver = (*asyncStatusRegistry)(nil)
 
-func TestExecuteToolStep_ActivatedStatusPollerPublishesAssistantPreambleEvents(t *testing.T) {
+func TestExecuteToolStep_ActivatedStatusPollerPublishesNarrationEvents(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	t.Setenv("AGENTLY_WORKSPACE", tmp)
@@ -149,15 +149,19 @@ func TestExecuteToolStep_ActivatedStatusPollerPublishesAssistantPreambleEvents(t
 	for len(preambleEvents) < 2 {
 		select {
 		case ev := <-sub.C():
-			if ev != nil && ev.Type == streaming.EventTypeAssistantPreamble {
+			if ev != nil && ev.Type == streaming.EventTypeNarration {
 				preambleEvents = append(preambleEvents, ev)
 			}
 		case <-deadline:
-			t.Fatalf("expected 2 assistant_preamble events, got %d", len(preambleEvents))
+			t.Fatalf("expected 2 narration events, got %d", len(preambleEvents))
 		}
 	}
 
-	require.Equal(t, preambleEvents[0].AssistantMessageID, preambleEvents[1].AssistantMessageID)
-	require.Contains(t, preambleEvents[0].Content, "same status")
-	require.Contains(t, preambleEvents[1].Content, "changed status")
+	// Narration payload now lives on the dedicated `Narration` field
+	// (not `Content`) — TS reducer reads `event.narration`.
+	require.Equal(t, preambleEvents[0].MessageID, preambleEvents[1].MessageID)
+	require.Contains(t, preambleEvents[0].Narration, "same status")
+	require.Contains(t, preambleEvents[1].Narration, "changed status")
+	require.Empty(t, preambleEvents[0].Content, "narration text must not leak into Content")
+	require.Empty(t, preambleEvents[1].Content)
 }

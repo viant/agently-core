@@ -15,7 +15,13 @@ type Frontmatter struct {
 	MaxTokens                int               `yaml:"max-tokens,omitempty"`
 	Preprocess               bool              `yaml:"preprocess,omitempty"`
 	PreprocessTimeoutSeconds int               `yaml:"preprocess-timeout,omitempty"`
-	Raw                      map[string]any    `yaml:"-"`
+	// AsyncNarratorPrompt overrides the agent-level and workspace-level
+	// async narrator system prompt when this skill is the active skill
+	// for a turn. Resolution order (highest precedence first):
+	// active-skill → agent → workspace default. Empty → fall through
+	// to the next level.
+	AsyncNarratorPrompt string         `yaml:"async-narrator-prompt,omitempty"`
+	Raw                 map[string]any `yaml:"-"`
 }
 
 type Skill struct {

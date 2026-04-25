@@ -103,11 +103,6 @@ func TestParity_NormalTurn(t *testing.T) {
 		ResponsePayloadID: respPID,
 	})
 	reducerState = Reduce(reducerState, &streaming.Event{
-		Type: streaming.EventTypeAssistantFinal, ConversationID: "conv-1", TurnID: "turn-1",
-		AssistantMessageID: "asst-1", Content: assistantContent, Iteration: 1,
-		CreatedAt: now.Add(time.Second),
-	})
-	reducerState = Reduce(reducerState, &streaming.Event{
 		Type: streaming.EventTypeModelCompleted, ConversationID: "conv-1", TurnID: "turn-1",
 		AssistantMessageID: "asst-1", ModelCallID: modelCallID, Status: "completed", Iteration: 1,
 		ResponsePayloadID: respPID, CompletedAt: &completedAt,
@@ -164,13 +159,12 @@ func TestParity_NormalTurn(t *testing.T) {
 	require.Equal(t, respPID, tp.ModelSteps[0].ResponsePayloadID)
 	require.Equal(t, respPID, rp.ModelSteps[0].ResponsePayloadID)
 
-	// Assistant final content
+	// Transcript keeps persisted past-turn final content on assistant.final;
+	// live reducer keeps active execution content on the page.
 	require.NotNil(t, tt.Assistant)
-	require.NotNil(t, rt.Assistant)
 	require.NotNil(t, tt.Assistant.Final)
-	require.NotNil(t, rt.Assistant.Final)
 	require.Equal(t, assistantContent, tt.Assistant.Final.Content)
-	require.Equal(t, assistantContent, rt.Assistant.Final.Content)
+	require.Equal(t, assistantContent, rp.Content)
 }
 
 // TestParity_SummaryPage verifies that summary pages are included in both paths
@@ -215,7 +209,7 @@ func TestParity_SummaryPage(t *testing.T) {
 func TestTranscriptBuild_DerivesSidecarPhaseForNonFinalToolPage(t *testing.T) {
 	now := time.Date(2026, 4, 1, 12, 30, 0, 0, time.UTC)
 	iter1 := 1
-	preamble := "Pulling delegated benchmark now."
+	narration := "Pulling delegated benchmark now."
 
 	turn := &agconv.TranscriptView{
 		Id:        "turn-1",
@@ -233,8 +227,8 @@ func TestTranscriptBuild_DerivesSidecarPhaseForNonFinalToolPage(t *testing.T) {
 				Id:        "asst-1",
 				Role:      "assistant",
 				TurnId:    strPtr("turn-1"),
-				Content:   &preamble,
-				Preamble:  &preamble,
+				Content:   &narration,
+				Narration: &narration,
 				Interim:   1,
 				Iteration: &iter1,
 				CreatedAt: now.Add(time.Second),

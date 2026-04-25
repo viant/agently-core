@@ -610,6 +610,12 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return err
 			}
 			// mcpresources: removed; use generic resources instead
+		case "asyncnarratorprompt":
+			// Scalar string override for the async narrator LLM system
+			// prompt. Resolution ladder lives in service/agent/run_query.go.
+			if valueNode.Kind == yaml.ScalarNode {
+				agent.AsyncNarratorPrompt = strings.TrimSpace(valueNode.Value)
+			}
 		}
 		return nil
 	})

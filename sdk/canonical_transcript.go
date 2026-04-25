@@ -125,14 +125,14 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		ts.Execution.ActivePageIdx = len(pages) - 1
 		ts.Execution.TotalElapsedMs = calcTotalElapsed(pages)
 
-		// Extract assistant preamble and final from execution pages
+		// Extract assistant narration and final from execution pages
 		ts.Assistant = extractAssistantState(pages)
 	}
-	if latestPreamble := latestTranscriptAssistantPreamble(turn.Message); latestPreamble != nil {
+	if latestNarration := latestTranscriptAssistantNarration(turn.Message); latestNarration != nil {
 		if ts.Assistant == nil {
 			ts.Assistant = &AssistantState{}
 		}
-		ts.Assistant.Preamble = latestPreamble
+		ts.Assistant.Narration = latestNarration
 	}
 
 	return ts
@@ -263,7 +263,7 @@ func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *E
 	if ts == nil || message == nil {
 		return nil
 	}
-	text := strings.TrimSpace(ptrString(message.Preamble))
+	text := strings.TrimSpace(ptrString(message.Narration))
 	if text == "" {
 		text = visibleContentOrEmpty(message.Content)
 	}
@@ -282,9 +282,9 @@ func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *E
 	page.Sequence = intValue(message.Sequence)
 	page.Mode = strings.TrimSpace(stringValue(message.Mode))
 	page.ExecutionRole = "narrator"
-	page.Preamble = text
+	page.Narration = text
 	page.Content = text
-	page.PreambleMessageID = message.Id
+	page.NarrationMessageID = message.Id
 	page.Status = stepStatusFromString(strings.TrimSpace(stringValue(message.Status)), "running")
 	if page.Status == "" {
 		page.Status = "running"
@@ -350,8 +350,8 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	page.Sequence = intValue(message.Sequence)
 	page.Phase = strings.TrimSpace(stringValue(message.Phase))
 	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
-	if preamble := executionPreamble(message); preamble != "" {
-		page.Preamble = preamble
+	if narration := executionNarration(message); narration != "" {
+		page.Narration = narration
 	}
 	if content := visibleContentOrEmpty(message.Content); content != "" {
 		page.Content = content
@@ -394,9 +394,9 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	deriveExecutionPagePhase(page)
 	refreshExecutionRole(page)
 
-	// Set preamble/final message IDs
-	if page.Preamble != "" {
-		page.PreambleMessageID = message.Id
+	// Set narration/final message IDs
+	if page.Narration != "" {
+		page.NarrationMessageID = message.Id
 	}
 	if page.FinalResponse {
 		page.FinalAssistantMessageID = message.Id
@@ -668,12 +668,12 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 		return nil
 	}
 	as := &AssistantState{}
-	// First page with preamble becomes the preamble
+	// First page with narration becomes the narration
 	for _, p := range pages {
-		if p.Preamble != "" && as.Preamble == nil {
-			as.Preamble = &AssistantMessageState{
-				MessageID: p.PreambleMessageID,
-				Content:   p.Preamble,
+		if p.Narration != "" && as.Narration == nil {
+			as.Narration = &AssistantMessageState{
+				MessageID: p.NarrationMessageID,
+				Content:   p.Narration,
 			}
 			break
 		}
@@ -692,13 +692,13 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 			break
 		}
 	}
-	if as.Preamble == nil && as.Final == nil {
+	if as.Narration == nil && as.Final == nil {
 		return nil
 	}
 	return as
 }
 
-func latestTranscriptAssistantPreamble(messages []*agconv.MessageView) *AssistantMessageState {
+func latestTranscriptAssistantNarration(messages []*agconv.MessageView) *AssistantMessageState {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		if msg == nil {
@@ -710,7 +710,7 @@ func latestTranscriptAssistantPreamble(messages []*agconv.MessageView) *Assistan
 		if strings.ToLower(strings.TrimSpace(msg.Role)) != "assistant" || msg.Interim == 0 {
 			continue
 		}
-		if text := strings.TrimSpace(ptrString(msg.Preamble)); text != "" {
+		if text := strings.TrimSpace(ptrString(msg.Narration)); text != "" {
 			return &AssistantMessageState{
 				MessageID: msg.Id,
 				Content:   text,

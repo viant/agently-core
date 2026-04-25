@@ -80,6 +80,9 @@ function storeEntry(buf: MessageBuffer, key: string, entry: Partial<Message>): v
 }
 
 function applyMessagePatch(existing: Partial<Message>, patch: JSONObject): void {
+    if (patch.role != null) {
+        existing.role = String(patch.role);
+    }
     if (patch.linkedConversationId != null) {
         existing.linkedConversationId = String(patch.linkedConversationId);
     }
@@ -89,13 +92,19 @@ function applyMessagePatch(existing: Partial<Message>, patch: JSONObject): void 
     if (patch.toolName != null) {
         existing.toolName = String(patch.toolName);
     }
-    if (patch.preamble != null) {
-        existing.preamble = String(patch.preamble);
+    if (patch.narration != null) {
+        existing.narration = String(patch.narration);
     }
     if (patch.interim != null) {
         const n = Number(patch.interim);
         if (Number.isFinite(n)) {
             existing.interim = n;
+        }
+    }
+    if (patch.sequence != null) {
+        const n = Number(patch.sequence);
+        if (Number.isFinite(n)) {
+            existing.sequence = n;
         }
     }
     if (patch.content != null) {
@@ -164,7 +173,7 @@ export function applyEvent(
 
         case 'reasoning_delta': {
             const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
-            existing.preamble = (existing.preamble || '') + (event.content || '');
+            existing.narration = (existing.narration || '') + (event.content || '');
             storeEntry(buf, key, existing);
             setActiveTurn(buf, turnId);
             return null;
@@ -199,20 +208,26 @@ export function applyEvent(
             return null;
         }
 
-        case 'assistant_preamble': {
+        case 'narration': {
             const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
-            existing.preamble = String(event.content || event.preamble || existing.preamble || '');
+            existing.narration = String(event.content || event.narration || existing.narration || '');
             existing.status = String(event.status || existing.status || 'running');
             storeEntry(buf, key, existing);
             setActiveTurn(buf, turnId);
             return null;
         }
 
-        case 'assistant_final': {
+        case 'assistant':
+        case 'message_appended': {
             const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
+            const role = String((event.patch && typeof event.patch === 'object' ? event.patch.role : '') || '').trim().toLowerCase();
+            if (role !== 'assistant' && role !== 'user') return null;
+            if (event.patch && typeof event.patch === 'object') {
+                applyMessagePatch(existing, event.patch);
+            }
             existing.content = String(event.content || existing.content || '');
-            existing.preamble = String(event.preamble || existing.preamble || '');
-            existing.status = String(event.status || 'completed');
+            existing.narration = String(event.narration || existing.narration || '');
+            existing.status = String(event.status || existing.status || 'completed');
             existing.interim = 0;
             storeEntry(buf, key, existing);
             setActiveTurn(buf, turnId);
@@ -341,7 +356,7 @@ export function reconcileFromTranscript(
                 role: 'assistant',
                 type: 'text',
                 content: String(page?.content || '').trim(),
-                preamble: String(page?.preamble || '').trim(),
+                narration: String(page?.narration || '').trim(),
                 interim: Boolean(page?.finalResponse) ? 0 : 1,
                 createdAt: String(page?.createdAt || turn?.createdAt || '').trim(),
                 status: String(page?.status || turn?.status || '').trim(),

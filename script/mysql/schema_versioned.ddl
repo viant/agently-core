@@ -166,7 +166,8 @@ CREATE TABLE `message`
     created_by_user_id     VARCHAR(255),
     status                 VARCHAR(255) CHECK (status IS NULL OR status IN
                                                                  ('', 'pending', 'accepted', 'rejected', 'cancel',
-                                                                  'open', 'summary', 'summarized','completed','error')),
+                                                                  'open', 'summary', 'summarized','completed','error',
+                                                                  'running', 'failed', 'canceled', 'in_progress')),
     mode                   VARCHAR(255),
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response')),
@@ -1392,7 +1393,7 @@ BEGIN
         END IF;
 
         ALTER TABLE `message`
-            ADD CONSTRAINT message_chk_1 CHECK ((`status` IS NULL) OR (`status` IN ('', 'pending', 'accepted', 'rejected', 'cancel', 'open', 'summary', 'summarized', 'completed', 'error', 'running', 'failed', 'canceled'))),
+            ADD CONSTRAINT message_chk_1 CHECK ((`status` IS NULL) OR (`status` IN ('', 'pending', 'accepted', 'rejected', 'cancel', 'open', 'summary', 'summarized', 'completed', 'error', 'running', 'failed', 'canceled', 'in_progress'))),
             ADD CONSTRAINT message_chk_3 CHECK ((`type` IN ('text', 'tool_op', 'control', 'task', 'elicitation_request', 'elicitation_response')));
 
         IF NOT EXISTS (
@@ -1819,5 +1820,31 @@ END $$
 
 CALL schema_upgrade_20() $$
 DROP PROCEDURE schema_upgrade_20 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_21 $$
+CREATE PROCEDURE schema_upgrade_21()
+BEGIN
+    DECLARE has_constraint INT DEFAULT 0;
+
+    IF get_schema_version() = 21 THEN
+        SELECT COUNT(*) INTO has_constraint
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'message'
+          AND CONSTRAINT_NAME = 'message_chk_1'
+          AND CONSTRAINT_TYPE = 'CHECK';
+        IF has_constraint > 0 THEN
+            ALTER TABLE `message` DROP CHECK message_chk_1;
+        END IF;
+
+        ALTER TABLE `message`
+            ADD CONSTRAINT message_chk_1 CHECK ((`status` IS NULL) OR (`status` IN ('', 'pending', 'accepted', 'rejected', 'cancel', 'open', 'summary', 'summarized', 'completed', 'error', 'running', 'failed', 'canceled', 'in_progress')));
+
+        CALL set_schema_version(22);
+    END IF;
+END $$
+
+CALL schema_upgrade_21() $$
+DROP PROCEDURE schema_upgrade_21 $$
 
 DELIMITER ;

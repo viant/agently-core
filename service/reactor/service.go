@@ -38,10 +38,10 @@ type Service struct {
 	turnToolResultsMu sync.Mutex
 	turnToolResults   map[string][]llm.ToolCall
 
-	// lastPreamble deduplicates patchStreamingToolPreamble calls: only patches
+	// lastNarration deduplicates patchStreamingToolPreamble calls: only patches
 	// when the preamble text has actually changed. Keyed by message ID.
 	lastPreambleMu sync.Mutex
-	lastPreamble   map[string]string
+	lastNarration   map[string]string
 }
 
 // ctxKeyLimitRecoveryAttempted guards one-shot presentation of the context-limit guidance within a single Run invocation.

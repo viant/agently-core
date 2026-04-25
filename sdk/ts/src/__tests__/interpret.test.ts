@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-    isPreamble, isFinalResponse, isUserMessage, isToolMessage,
+    isNarration, isFinalResponse, isUserMessage, isToolMessage,
     isSystemMessage, isArchived, isSummary, isSummarized,
     toolName, toolStatus, toolElapsedMs, toolCallId,
-    messageIteration, messagePreamble,
+    messageIteration, messageNarration,
     groupByIteration, messageUIType,
 } from '../interpret';
 import type { Message } from '../types';
@@ -21,15 +21,15 @@ function msg(overrides: Partial<Message>): Message {
     };
 }
 
-describe('isPreamble', () => {
+describe('isNarration', () => {
     it('true for assistant + interim=1', () => {
-        expect(isPreamble(msg({ role: 'assistant', interim: 1 }))).toBe(true);
+        expect(isNarration(msg({ role: 'assistant', interim: 1 }))).toBe(true);
     });
     it('false for assistant + interim=0', () => {
-        expect(isPreamble(msg({ role: 'assistant', interim: 0 }))).toBe(false);
+        expect(isNarration(msg({ role: 'assistant', interim: 0 }))).toBe(false);
     });
     it('false for user', () => {
-        expect(isPreamble(msg({ role: 'user', interim: 1 }))).toBe(false);
+        expect(isNarration(msg({ role: 'user', interim: 1 }))).toBe(false);
     });
 });
 
@@ -131,18 +131,18 @@ describe('toolName / toolStatus / toolElapsedMs / toolCallId', () => {
     });
 });
 
-describe('messageIteration / messagePreamble', () => {
+describe('messageIteration / messageNarration', () => {
     it('extracts iteration number', () => {
         expect(messageIteration(msg({ iteration: 3 }))).toBe(3);
     });
     it('returns null when no iteration', () => {
         expect(messageIteration(msg({}))).toBeNull();
     });
-    it('extracts preamble text', () => {
-        expect(messagePreamble(msg({ preamble: 'thinking...' }))).toBe('thinking...');
+    it('extracts narration text', () => {
+        expect(messageNarration(msg({ narration: 'thinking...' }))).toBe('thinking...');
     });
-    it('returns null when no preamble', () => {
-        expect(messagePreamble(msg({}))).toBeNull();
+    it('returns null when no narration', () => {
+        expect(messageNarration(msg({}))).toBeNull();
     });
 });
 
@@ -170,8 +170,8 @@ describe('messageUIType', () => {
     it('classifies user message', () => {
         expect(messageUIType(msg({ role: 'user' }))).toBe('user');
     });
-    it('classifies preamble', () => {
-        expect(messageUIType(msg({ role: 'assistant', interim: 1 }))).toBe('preamble');
+    it('classifies narration', () => {
+        expect(messageUIType(msg({ role: 'assistant', interim: 1 }))).toBe('narration');
     });
     it('classifies final response', () => {
         expect(messageUIType(msg({ role: 'assistant', interim: 0 }))).toBe('response');

@@ -404,7 +404,7 @@ func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "event: model_started\n")
 		_, _ = io.WriteString(w, "data:{\"type\":\"model_started\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"status\":\"thinking\"}\n\n")
-		_, _ = io.WriteString(w, "data:{\"type\":\"assistant_final\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"content\":\"done\",\"finalResponse\":true}\n\n")
+		_, _ = io.WriteString(w, "data:{\"type\":\"assistant\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"content\":\"done\"}\n\n")
 	}))
 	defer srv.Close()
 
@@ -438,14 +438,16 @@ func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
 	if got := events[0].TurnID; got != "t1" {
 		t.Fatalf("unexpected first event turn: %q", got)
 	}
-	if got := events[1].Type; got != streaming.EventTypeAssistantFinal {
+	if got := events[1].Type; got != streaming.EventTypeAssistant {
 		t.Fatalf("unexpected second event type: %q", got)
 	}
 	if got := events[1].Content; got != "done" {
 		t.Fatalf("unexpected second event content: %q", got)
 	}
-	if !events[1].FinalResponse {
-		t.Fatalf("expected assistant_final finalResponse=true")
+	// No `finalResponse` on live emissions — the "final message"
+	// concept was removed. End-of-turn is signaled separately.
+	if events[1].FinalResponse {
+		t.Fatalf("expected assistant event to NOT have finalResponse set on a live emission")
 	}
 }
 

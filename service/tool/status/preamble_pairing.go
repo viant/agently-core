@@ -9,22 +9,22 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-// PreamblePairing keeps the one parked-status-call -> one interim assistant
+// NarrationPairing keeps the one parked-status-call -> one interim assistant
 // message mapping used by backend-authored assistant_preamble updates.
-type PreamblePairing struct {
+type NarrationPairing struct {
 	svc *Service
 	mu  sync.Mutex
 	ids map[string]string
 }
 
-func NewPreamblePairing(svc *Service) *PreamblePairing {
-	return &PreamblePairing{
+func NewNarrationPairing(svc *Service) *NarrationPairing {
+	return &NarrationPairing{
 		svc: svc,
 		ids: map[string]string{},
 	}
 }
 
-func (p *PreamblePairing) Upsert(ctx context.Context, parkedToolCallID string, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode, preamble string) (string, error) {
+func (p *NarrationPairing) Upsert(ctx context.Context, parkedToolCallID string, parent runtimerequestctx.TurnMeta, toolName, role, actor, mode, preamble string) (string, error) {
 	if p == nil || p.svc == nil {
 		return "", fmt.Errorf("status: preamble pairing not configured")
 	}
@@ -42,7 +42,7 @@ func (p *PreamblePairing) Upsert(ctx context.Context, parkedToolCallID string, p
 	p.mu.Unlock()
 
 	if msgID == "" {
-		created, err := p.svc.StartPreamble(ctx, parent, toolName, role, actor, mode, preamble)
+		created, err := p.svc.StartNarration(ctx, parent, toolName, role, actor, mode, preamble)
 		if err != nil {
 			return "", err
 		}
@@ -52,13 +52,13 @@ func (p *PreamblePairing) Upsert(ctx context.Context, parkedToolCallID string, p
 		return strings.TrimSpace(created), nil
 	}
 
-	if err := p.svc.UpdatePreamble(ctx, parent, msgID, preamble); err != nil {
+	if err := p.svc.UpdateNarration(ctx, parent, msgID, preamble); err != nil {
 		return "", err
 	}
 	return msgID, nil
 }
 
-func (p *PreamblePairing) MessageID(parkedToolCallID string) string {
+func (p *NarrationPairing) MessageID(parkedToolCallID string) string {
 	if p == nil {
 		return ""
 	}
@@ -67,7 +67,7 @@ func (p *PreamblePairing) MessageID(parkedToolCallID string) string {
 	return strings.TrimSpace(p.ids[strings.TrimSpace(parkedToolCallID)])
 }
 
-func (p *PreamblePairing) Release(parkedToolCallID string) {
+func (p *NarrationPairing) Release(parkedToolCallID string) {
 	if p == nil {
 		return
 	}

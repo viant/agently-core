@@ -85,7 +85,7 @@ type MessageRowsView struct {
 	Mode                 *string    `sqlx:"mode"`
 	ParentMessageId      *string    `sqlx:"parent_message_id"`
 	Phase                *string    `sqlx:"phase"`
-	Preamble             *string    `sqlx:"preamble"`
+	Narration             *string    `sqlx:"preamble"`
 	RawContent           *string    `sqlx:"raw_content"`
 	Role                 string     `sqlx:"role"`
 	Sequence             *int       `sqlx:"sequence"`

@@ -2,14 +2,96 @@ package narrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
+
+// ErrNarratorTimeout indicates the LLM runner exceeded the per-call
+// budget. Callers typically treat it as a silent skip.
+var ErrNarratorTimeout = errors.New("narrator llm runner timed out")
+
+// effectiveLLMTimeout is the currently configured bound applied to LLM
+// narrator invocations when no ctx-scoped override is present. Starts
+// at zero (meaning "no timeout"); bootstrap MUST set it via
+// SetLLMTimeout using the workspace `default.async.narrator.llmTimeout`
+// baseline. This package holds no defaults of its own — the
+// authoritative default lives in
+// `workspace/config.DefaultsWithFallback`.
+var effectiveLLMTimeout time.Duration
+
+// SetLLMTimeout replaces the package-level LLM timeout used by
+// runLLMRunner when no ctx-scoped override is present. Typically called
+// once at application bootstrap from the workspace-config applier.
+// Passing a non-positive value means "no timeout" (runner ctx used
+// as-is).
+func SetLLMTimeout(d time.Duration) {
+	if d <= 0 {
+		effectiveLLMTimeout = 0
+		return
+	}
+	effectiveLLMTimeout = d
+}
+
+type llmTimeoutKey struct{}
+
+// WithLLMTimeout attaches a per-call timeout override to ctx. Used by
+// request-scoped code paths that need a different bound than the
+// package-level SetLLMTimeout value (e.g. admin flows, tests). A
+// non-positive duration is ignored.
+func WithLLMTimeout(ctx context.Context, d time.Duration) context.Context {
+	if ctx == nil || d <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, llmTimeoutKey{}, d)
+}
+
+func llmTimeoutFromContext(ctx context.Context) time.Duration {
+	if ctx == nil {
+		return effectiveLLMTimeout
+	}
+	if v, ok := ctx.Value(llmTimeoutKey{}).(time.Duration); ok && v > 0 {
+		return v
+	}
+	return effectiveLLMTimeout
+}
+
+// runLLMRunner invokes the configured LLM runner with a bounded
+// context. On timeout, returns ("", ErrNarratorTimeout). On any other
+// runner error, returns ("", err). Otherwise returns the trimmed text
+// (which may be empty, causing the caller to fall through to the
+// deterministic fallback ladder).
+func runLLMRunner(ctx context.Context, runner LLMRunner, in LLMInput) (string, error) {
+	if runner == nil {
+		return "", fmt.Errorf("async narrator llm mode not configured")
+	}
+	runCtx := ctx
+	if bound := llmTimeoutFromContext(ctx); bound > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, bound)
+		defer cancel()
+	}
+	text, err := runner(runCtx, in)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			return "", ErrNarratorTimeout
+		}
+		return "", err
+	}
+	// Even when the runner returns nil error, a cancelled runCtx means
+	// the bound tripped after the runner returned. Normalize to timeout
+	// so callers can treat it uniformly.
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return "", ErrNarratorTimeout
+	}
+	return strings.TrimSpace(text), nil
+}
 
 type LLMInput struct {
 	OperationID string
@@ -40,7 +122,7 @@ func llmRunnerFromContext(ctx context.Context) LLMRunner {
 	return runner
 }
 
-func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.OperationRecord) (string, error) {
+func StartNarration(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.OperationRecord) (string, error) {
 	if rec == nil {
 		return "", nil
 	}
@@ -58,11 +140,7 @@ func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Oper
 	case "template":
 		return renderTemplate(cfg, userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
 	case "llm":
-		runner := llmRunnerFromContext(ctx)
-		if runner == nil {
-			return "", fmt.Errorf("async narrator llm mode not configured")
-		}
-		text, err := runner(ctx, LLMInput{
+		text, err := runLLMRunner(ctx, llmRunnerFromContext(ctx), LLMInput{
 			OperationID: rec.ID,
 			UserAsk:     userAsk,
 			Intent:      rec.OperationIntent,
@@ -74,7 +152,6 @@ func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Oper
 		if err != nil {
 			return "", err
 		}
-		text = strings.TrimSpace(text)
 		if text == "" {
 			return fallback(userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
 		}
@@ -84,7 +161,7 @@ func StartPreamble(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Oper
 	}
 }
 
-func UpdatePreamble(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.ChangeEvent) (string, error) {
+func UpdateNarration(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.ChangeEvent) (string, error) {
 	userAsk := runtimerequestctx.UserAskFromContext(ctx)
 	mode := narrationMode(cfg)
 	switch mode {
@@ -99,11 +176,7 @@ func UpdatePreamble(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.Chang
 	case "template":
 		return renderTemplate(cfg, userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
 	case "llm":
-		runner := llmRunnerFromContext(ctx)
-		if runner == nil {
-			return "", fmt.Errorf("async narrator llm mode not configured")
-		}
-		text, err := runner(ctx, LLMInput{
+		text, err := runLLMRunner(ctx, llmRunnerFromContext(ctx), LLMInput{
 			OperationID: ev.OperationID,
 			UserAsk:     userAsk,
 			Intent:      ev.Intent,
@@ -115,7 +188,6 @@ func UpdatePreamble(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.Chang
 		if err != nil {
 			return "", err
 		}
-		text = strings.TrimSpace(text)
 		if text == "" {
 			return fallback(userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
 		}
