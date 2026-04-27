@@ -452,6 +452,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return fmt.Errorf("invalid tool block; expected sequence or mapping")
 			}
 
+		case "bootstrap":
+			if err := s.parseBootstrapBlock(valueNode, agent); err != nil {
+				return err
+			}
+
 		case "skills":
 			switch valueNode.Kind {
 			case yaml.ScalarNode:

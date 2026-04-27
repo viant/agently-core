@@ -164,6 +164,53 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 	return nil
 }
 
+func (s *Service) parseBootstrapBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("bootstrap must be a mapping")
+	}
+	var cfg agentmdl.Bootstrap
+	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "toolcalls", "tool_calls":
+			if v.Kind != yaml.SequenceNode {
+				return fmt.Errorf("bootstrap.toolCalls must be a sequence")
+			}
+			for _, item := range v.Content {
+				if item == nil {
+					continue
+				}
+				if item.Kind != yaml.MappingNode {
+					return fmt.Errorf("bootstrap.toolCalls entries must be mappings")
+				}
+				var call agentmdl.BootstrapToolCall
+				if err := (*yaml.Node)(item).Decode(&call); err != nil {
+					return fmt.Errorf("invalid bootstrap.toolCalls entry: %w", err)
+				}
+				call.ID = strings.TrimSpace(call.ID)
+				call.Tool = strings.TrimSpace(call.Tool)
+				call.Inject.As = strings.TrimSpace(call.Inject.As)
+				call.Inject.Title = strings.TrimSpace(call.Inject.Title)
+				call.Inject.SourceURI = strings.TrimSpace(call.Inject.SourceURI)
+				call.Inject.Header = strings.TrimSpace(call.Inject.Header)
+				if call.ID == "" {
+					return fmt.Errorf("bootstrap.toolCalls entry missing id")
+				}
+				if call.Tool == "" {
+					return fmt.Errorf("bootstrap.toolCalls[%s] missing tool", call.ID)
+				}
+				cfg.ToolCalls = append(cfg.ToolCalls, call)
+			}
+		default:
+			return fmt.Errorf("unsupported bootstrap key: %s", k)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	agent.Bootstrap = cfg
+	return nil
+}
+
 func (s *Service) parseCapabilitiesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
 	if valueNode.Kind != yaml.MappingNode {
 		return fmt.Errorf("capabilities must be a mapping")

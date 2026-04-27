@@ -204,6 +204,28 @@ func TestService_Load_ToolBundles(t *testing.T) {
 	}
 }
 
+func TestService_Load_BootstrapToolCalls(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "bootstrap_tool_calls.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got.Bootstrap.ToolCalls, 1)
+
+	call := got.Bootstrap.ToolCalls[0]
+	assert.Equal(t, "agent_directory", call.ID)
+	assert.Equal(t, "llm/agents:list", call.Tool)
+	assert.Equal(t, false, call.Args["includeInternal"])
+	assert.Equal(t, "systemContext", call.Inject.As)
+	assert.Equal(t, "agents/directory", call.Inject.Title)
+	assert.Equal(t, "internal://llm/agents/list", call.Inject.SourceURI)
+	assert.Contains(t, call.Inject.Header, "{{tool}}")
+	if assert.NotNil(t, call.Inject.IncludeHeader) {
+		assert.True(t, *call.Inject.IncludeHeader)
+	}
+}
+
 func TestService_Load_Capabilities(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))

@@ -184,6 +184,10 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
 		return nil, err
 	}
+	if err := s.appendBootstrapSystemDocuments(ctx, input, b); err != nil {
+		logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		return nil, err
+	}
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
 	b.Tools.Signatures = filterDelegationDiscoveryTools(b.Tools.Signatures, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
