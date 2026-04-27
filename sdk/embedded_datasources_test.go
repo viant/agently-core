@@ -51,8 +51,10 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 		Bindings: []loproto.Binding{{
 			Match: loproto.Match{FieldName: "advertiser_id", Type: "integer"},
 			Lookup: loproto.Lookup{
-				DataSource: "advertiser",
-				DialogId:   "advertiserPicker",
+				DataSource:   "advertiser",
+				DialogId:     "advertiserPicker",
+				QueryInput:   "q",
+				ResolveInput: "id",
 				Outputs: []loproto.Parameter{
 					{Location: "id", Name: "advertiser_id"},
 				},
@@ -109,6 +111,9 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 	att, _ := after["x-ui-lookup"].(map[string]interface{})
 	if att["dataSource"] != "advertiser" {
 		t.Fatalf("attachment missing dataSource: %+v", att)
+	}
+	if att["queryInput"] != "q" || att["resolveInput"] != "id" {
+		t.Fatalf("attachment missing query/resolve inputs: %+v", att)
 	}
 
 	// 5) HTTP dispatch reaches the same backend (handler picks up interface).

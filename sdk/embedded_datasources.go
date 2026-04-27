@@ -124,6 +124,7 @@ func toAPIRegistryEntries(in []loproto.RegistryEntry) []api.LookupRegistryEntry 
 	for _, e := range in {
 		entry := api.LookupRegistryEntry{
 			Name:       e.Name,
+			Title:      e.Title,
 			DataSource: e.DataSource,
 			DialogId:   e.DialogId,
 			WindowId:   e.WindowId,
@@ -135,9 +136,11 @@ func toAPIRegistryEntries(in []loproto.RegistryEntry) []api.LookupRegistryEntry 
 		}
 		if e.Token != nil {
 			entry.Token = &api.TokenFormat{
-				Store:     e.Token.Store,
-				Display:   e.Token.Display,
-				ModelForm: e.Token.ModelForm,
+				Store:        e.Token.Store,
+				Display:      e.Token.Display,
+				ModelForm:    e.Token.ModelForm,
+				QueryInput:   e.Token.QueryInput,
+				ResolveInput: e.Token.ResolveInput,
 			}
 		}
 		out = append(out, entry)

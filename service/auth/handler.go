@@ -312,7 +312,9 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 			CreatedAt: time.Now(),
 		}
 		if body.AccessToken != "" {
+			expiry := resolveTokenExpiry("", strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
 			sess.Tokens = newTokenBundle(body.AccessToken, body.IDToken, body.RefreshToken)
+			sess.Tokens.Expiry = expiry
 		}
 		h.sessions.Put(r.Context(), sess)
 

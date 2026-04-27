@@ -156,6 +156,12 @@ func attachLookup(schemaProps map[string]interface{}, propName string, lk loprot
 	if lk.Display != "" {
 		attachment["display"] = lk.Display
 	}
+	if lk.QueryInput != "" {
+		attachment["queryInput"] = lk.QueryInput
+	}
+	if lk.ResolveInput != "" {
+		attachment["resolveInput"] = lk.ResolveInput
+	}
 	if len(lk.Inputs) > 0 {
 		attachment["inputs"] = encodeParams(lk.Inputs)
 	}

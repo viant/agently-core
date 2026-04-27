@@ -180,3 +180,38 @@ func TestWriteLLMRequestDebugPayload_WritesNarratorPayload(t *testing.T) {
 		t.Fatalf("expected modelSource async.narrator, got %#v", payload.DebugContext)
 	}
 }
+
+func TestWriteLLMRequestDebugPayload_WritesWhenOnlyPayloadDirConfigured(t *testing.T) {
+	payloadDir := t.TempDir()
+	t.Setenv("AGENTLY_DEBUG_TRACE_FILE", "")
+	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-payload-only")
+	req := &llm.GenerateRequest{
+		Messages: []llm.Message{
+			llm.NewSystemMessage("System prompt"),
+			llm.NewTextMessage(llm.RoleUser, "hello"),
+		},
+	}
+
+	WriteLLMRequestDebugPayload(ctx, "test-model", req, nil, "")
+
+	data, err := os.ReadFile(filepath.Join(payloadDir, "llm-request-conv-payload-only.json"))
+	if err != nil {
+		t.Fatalf("read payload-only llm-request payload: %v", err)
+	}
+	var payload struct {
+		Model        string        `json:"model"`
+		Instructions string        `json:"instructions"`
+		Messages     []llm.Message `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload-only llm-request: %v", err)
+	}
+	if payload.Model != "test-model" {
+		t.Fatalf("expected model test-model, got %q", payload.Model)
+	}
+	if len(payload.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(payload.Messages))
+	}
+}

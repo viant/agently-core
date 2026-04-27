@@ -955,6 +955,32 @@ func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
 	}
 }
 
+type upstreamDeniedExecuteClient struct {
+	*HTTPClient
+}
+
+func (s *upstreamDeniedExecuteClient) ExecuteTool(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
+	return "", errors.New(`request failed: 500 Internal Server Error: {"status":"error","message":"user access denied","errors":[{"view":"taxonomy","parameter":"Auth","statusCode":403,"message":"user access denied"}]}`)
+}
+
+func TestHandler_ExecuteToolByName_PreservesUpstreamAuthStatus(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &upstreamDeniedExecuteClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	body := []byte(`{"name":"platform:Taxonomy","args":{"Name":"travel"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 type stubSubscription struct {
 	id      string
 	ch      chan *streaming.Event

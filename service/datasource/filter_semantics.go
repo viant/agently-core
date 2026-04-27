@@ -44,6 +44,10 @@ func normalizeFilterSemantics(inputs map[string]interface{}, ds *types.DataSourc
 		if !ok {
 			continue
 		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
+			delete(out, field)
+			continue
+		}
 		switch typ {
 		case "int", "integer", "number":
 			if coerced, ok := coerceInt(value); ok {
@@ -70,6 +74,7 @@ func normalizeFilterSemantics(inputs map[string]interface{}, ds *types.DataSourc
 		}
 		text = strings.TrimSpace(text)
 		if text == "" {
+			delete(out, field)
 			continue
 		}
 		if strings.Contains(text, "%") {

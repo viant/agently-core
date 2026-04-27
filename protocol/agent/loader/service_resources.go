@@ -14,38 +14,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// parseResourcesBlock parses agent.resources entries (list of mappings)
+// parseResourcesBlock parses agent.resources entries.
 func (s *Service) parseResourcesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
 	switch valueNode.Kind {
 	case yaml.SequenceNode:
 		for _, it := range valueNode.Content {
-			if it == nil || it.Kind != yaml.MappingNode {
+			if it == nil {
 				continue
 			}
-			if entries, handled, err := parseEmbediusResourcesEntry((*yml.Node)(it)); err != nil {
-				return err
-			} else if handled {
-				agent.Resources = append(agent.Resources, entries...)
-				continue
-			}
-			entry, err := parseResourceEntry((*yml.Node)(it))
+			entry, entries, err := parseResourceEntries((*yml.Node)(it))
 			if err != nil {
 				return err
+			}
+			if len(entries) > 0 {
+				agent.Resources = append(agent.Resources, entries...)
+				continue
 			}
 			if entry != nil {
 				agent.Resources = append(agent.Resources, entry)
 			}
 		}
-	case yaml.MappingNode:
-		if entries, handled, err := parseEmbediusResourcesEntry((*yml.Node)(valueNode)); err != nil {
-			return err
-		} else if handled {
-			agent.Resources = append(agent.Resources, entries...)
-			return nil
-		}
-		entry, err := parseResourceEntry((*yml.Node)(valueNode))
+	case yaml.MappingNode, yaml.ScalarNode:
+		entry, entries, err := parseResourceEntries((*yml.Node)(valueNode))
 		if err != nil {
 			return err
+		}
+		if len(entries) > 0 {
+			agent.Resources = append(agent.Resources, entries...)
+			return nil
 		}
 		if entry != nil {
 			agent.Resources = append(agent.Resources, entry)
@@ -54,6 +50,19 @@ func (s *Service) parseResourcesBlock(valueNode *yml.Node, agent *agentmdl.Agent
 		return fmt.Errorf("resources must be a sequence or mapping")
 	}
 	return nil
+}
+
+func parseResourceEntries(node *yml.Node) (*agentmdl.Resource, []*agentmdl.Resource, error) {
+	if entries, handled, err := parseEmbediusResourcesEntry(node); err != nil {
+		return nil, nil, err
+	} else if handled {
+		return nil, entries, nil
+	}
+	entry, err := parseResourceEntry(node)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry, nil, nil
 }
 
 func parseEmbediusResourcesEntry(node *yml.Node) ([]*agentmdl.Resource, bool, error) {
@@ -220,7 +229,17 @@ func matchesSelector(id, path string, selectors []string) bool {
 }
 
 func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
-	if node == nil || node.Kind != yaml.MappingNode {
+	if node == nil {
+		return nil, fmt.Errorf("resource entry must be a mapping or scalar")
+	}
+	if node.Kind == yaml.ScalarNode {
+		uri := expandUserHome(strings.TrimSpace(node.Value))
+		if uri == "" {
+			return nil, fmt.Errorf("resource entry missing uri")
+		}
+		return &agentmdl.Resource{URI: uri, Role: "user"}, nil
+	}
+	if node.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("resource entry must be a mapping")
 	}
 	re := &agentmdl.Resource{Role: "user"}

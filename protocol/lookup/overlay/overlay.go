@@ -126,6 +126,15 @@ type Lookup struct {
 	// Display is a template like "${name} (#${id})" used for chip text or
 	// post-selection rendering. Velty-style placeholder syntax.
 	Display string `json:"display,omitempty" yaml:"display,omitempty"`
+
+	// QueryInput declares which datasource input should receive free-text
+	// search text when a client offers inline lookup filtering. Usually "q".
+	QueryInput string `json:"queryInput,omitempty" yaml:"queryInput,omitempty"`
+
+	// ResolveInput declares which datasource input should receive an exact
+	// value/id when a client performs blur-time resolution without opening the
+	// lookup dialog. When omitted, clients must not guess.
+	ResolveInput string `json:"resolveInput,omitempty" yaml:"resolveInput,omitempty"`
 }
 
 // Parameter is a trimmed mirror of forge types.Parameter, enough to round-trip
@@ -147,12 +156,21 @@ type NamedToken struct {
 	// Name is what the user types after the trigger.
 	Name string `json:"name" yaml:"name"`
 
+	// Title is a user-facing label for menus and pickers. When empty, clients
+	// may fall back to a humanized name, but producers should prefer emitting it.
+	Title string `json:"title,omitempty" yaml:"title,omitempty"`
+
 	// Required — if true, unresolved authored tokens block form submit.
 	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
 
 	// QueryInput — which datasource input gets the typed text during live
 	// filtering. Usually "q".
 	QueryInput string `json:"queryInput,omitempty" yaml:"queryInput,omitempty"`
+
+	// ResolveInput — which datasource input should receive an exact id/value
+	// when a client performs blur-time resolution without opening the lookup
+	// dialog. When omitted, clients must not guess.
+	ResolveInput string `json:"resolveInput,omitempty" yaml:"resolveInput,omitempty"`
 
 	// Token formatting — store, display, modelForm are velty-style
 	// templates over the selected row.
@@ -166,6 +184,7 @@ type NamedToken struct {
 // the current context.
 type RegistryEntry struct {
 	Name       string            `json:"name"`
+	Title      string            `json:"title,omitempty"`
 	DataSource string            `json:"dataSource"`
 	DialogId   string            `json:"dialogId,omitempty"`
 	WindowId   string            `json:"windowId,omitempty"`
@@ -181,7 +200,9 @@ type RegistryEntry struct {
 // TokenFormat duplicates NamedToken's three template fields so the HTTP
 // response is stable under YAML schema evolution.
 type TokenFormat struct {
-	Store     string `json:"store,omitempty"`
-	Display   string `json:"display,omitempty"`
-	ModelForm string `json:"modelForm,omitempty"`
+	Store        string `json:"store,omitempty"`
+	Display      string `json:"display,omitempty"`
+	ModelForm    string `json:"modelForm,omitempty"`
+	QueryInput   string `json:"queryInput,omitempty"`
+	ResolveInput string `json:"resolveInput,omitempty"`
 }

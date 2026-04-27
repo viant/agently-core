@@ -81,6 +81,8 @@ public struct LookupTokenFormat: Codable, Sendable {
     public var store: String?
     public var display: String?
     public var modelForm: String?
+    public var queryInput: String?
+    public var resolveInput: String?
 }
 
 public struct LookupParameter: Codable, Sendable {

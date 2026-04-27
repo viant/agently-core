@@ -117,7 +117,7 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 }
 
 func WriteLLMRequestDebugPayload(ctx context.Context, modelName string, request *llm.GenerateRequest, extraDebugContext map[string]interface{}, traceSuffix string) {
-	if !debugtrace.Enabled() || request == nil {
+	if strings.TrimSpace(debugtrace.PayloadDir()) == "" || request == nil {
 		return
 	}
 	debugContext := map[string]interface{}{

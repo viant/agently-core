@@ -22,13 +22,15 @@ func NewCreatedByUserTokenProvider(cfg *Config, dao *datly.Service) token.Provid
 		return nil
 	}
 	store := NewTokenStoreDAO(dao, configURL)
+	users := NewDatlyUserService(dao)
+	canonicalStore := &canonicalTokenStore{inner: store, users: users}
 	broker := &oauthRefreshBroker{
 		configURL: configURL,
-		store:     store,
+		store:     canonicalStore,
 	}
 	return token.NewManager(
 		token.WithBroker(broker),
-		token.WithTokenStore(NewTokenStoreAdapter(store)),
+		token.WithTokenStore(NewTokenStoreAdapter(store, users)),
 	)
 }
 

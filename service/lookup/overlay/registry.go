@@ -50,6 +50,7 @@ func (s *Service) Registry(contextKind, contextID string) []loproto.RegistryEntr
 			}
 			entry := loproto.RegistryEntry{
 				Name:       b.Named.Name,
+				Title:      b.Named.Title,
 				DataSource: b.Lookup.DataSource,
 				DialogId:   b.Lookup.DialogId,
 				WindowId:   b.Lookup.WindowId,
@@ -61,9 +62,17 @@ func (s *Service) Registry(contextKind, contextID string) []loproto.RegistryEntr
 			}
 			if b.Named.Store != "" || b.Named.Display != "" || b.Named.ModelForm != "" {
 				entry.Token = &loproto.TokenFormat{
-					Store:     b.Named.Store,
-					Display:   b.Named.Display,
-					ModelForm: b.Named.ModelForm,
+					Store:        b.Named.Store,
+					Display:      firstNonEmpty(b.Named.Display, b.Lookup.Display),
+					ModelForm:    b.Named.ModelForm,
+					QueryInput:   b.Named.QueryInput,
+					ResolveInput: b.Named.ResolveInput,
+				}
+			} else if b.Named.QueryInput != "" || b.Named.ResolveInput != "" {
+				entry.Token = &loproto.TokenFormat{
+					Display:      firstNonEmpty(b.Named.Display, b.Lookup.Display),
+					QueryInput:   b.Named.QueryInput,
+					ResolveInput: b.Named.ResolveInput,
 				}
 			}
 			candidate := ranked{priority: ov.Priority, overlay: ov.ID, entry: entry}

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,6 +57,12 @@ func (unconfiguredBackend) ListLookupRegistry(_ context.Context, _ *api.ListLook
 	return nil, ErrDatasourceStackNotConfigured
 }
 
+type upstreamDeniedBackend struct{ Backend }
+
+func (upstreamDeniedBackend) FetchDatasource(_ context.Context, _ *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	return nil, errors.New(`{"status":"error","message":"user access denied","errors":[{"view":"tree","parameter":"SysConfig","statusCode":403,"message":"user access denied","object":[{"view":"systemconfig","parameter":"Auth","statusCode":403,"message":"user access denied"}]},{"view":"tree","parameter":"Auth","statusCode":403,"message":"user access denied"}]}`)
+}
+
 func TestHandleFetchDatasource_Returns501WhenStackNotConfigured(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/advertiser/fetch", strings.NewReader("{}"))
 	req.SetPathValue("id", "advertiser")
@@ -66,6 +73,25 @@ func TestHandleFetchDatasource_Returns501WhenStackNotConfigured(t *testing.T) {
 
 	if w.Code != http.StatusNotImplemented {
 		t.Fatalf("want 501 when backend returns ErrDatasourceStackNotConfigured, got %d", w.Code)
+	}
+}
+
+func TestHandleFetchDatasource_Returns403WhenUpstreamPermissionDenied(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/iris_segments_tree/fetch", strings.NewReader("{}"))
+	req.SetPathValue("id", "iris_segments_tree")
+	w := httptest.NewRecorder()
+
+	handleFetchDatasource(upstreamDeniedBackend{})(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403 when backend returns upstream permission denial, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestStatusForDatasourceErr_ParsesRequestFailedWrappedAuthStatus(t *testing.T) {
+	err := errors.New(`request failed: 500 Internal Server Error: {"status":"error","message":"user access denied","errors":[{"view":"tree","parameter":"Auth","statusCode":403,"message":"user access denied"}]}`)
+	if got := statusForDatasourceErr(err); got != http.StatusForbidden {
+		t.Fatalf("want wrapped upstream 403 to map to 403, got %d", got)
 	}
 }
 

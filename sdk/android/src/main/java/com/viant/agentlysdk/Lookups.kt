@@ -63,7 +63,9 @@ data class ListLookupRegistryInput(val context: String)
 data class LookupTokenFormat(
     val store: String? = null,
     val display: String? = null,
-    val modelForm: String? = null
+    val modelForm: String? = null,
+    val queryInput: String? = null,
+    val resolveInput: String? = null
 )
 
 @Serializable

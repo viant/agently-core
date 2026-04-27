@@ -1507,6 +1507,59 @@ func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *test
 	require.True(t, sawFailed, "expected terminal status tool call to patch the status carrier to failed")
 }
 
+func TestMaybeHandleAsyncTool_StatusRunningPreservesDisplayToolName(t *testing.T) {
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/skills:activate",
+			OperationIDPath: "name",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/skills:activate",
+			OperationIDArg: "name",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+			},
+		},
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncWaitState(ctx)
+	ctx = WithAsyncConversation(ctx, conv)
+	reg := &asyncRegistry{cfg: cfg}
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:             "targeting-tree",
+		ParentConvID:   "conv-1",
+		ParentTurnID:   "turn-1",
+		ToolCallID:     "call-skill",
+		ToolMessageID:  "tool-msg-skill",
+		ToolName:       "llm_skills-activate",
+		StatusToolName: "llm/skills:activate",
+		StatusArgs:     map[string]interface{}{"name": "targeting-tree"},
+		ExecutionMode:  string(asynccfg.ExecutionModeWait),
+		Status:         "running",
+		PollIntervalMs: 5,
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	rec := maybeHandleAsyncTool(ctx, reg, StepInfo{
+		ID:   "call-status",
+		Name: "llm/skills:activate",
+		Args: map[string]interface{}{"name": "targeting-tree"},
+	}, `{"status":"running","message":"still running"}`, nil)
+	require.NotNil(t, rec)
+	require.NotEmpty(t, conv.patchedToolCalls)
+	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
+	require.NotNil(t, last)
+	require.Equal(t, "llm/skills/activate", strings.TrimSpace(last.ToolName))
+}
+
 func TestMaybeHandleAsyncTool_StatusDoesNotPatchOriginalToolCallWhenExecutionModeDetach(t *testing.T) {
 	cfg := &asynccfg.Config{
 		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
