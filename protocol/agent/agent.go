@@ -77,6 +77,9 @@ type (
 		// contract: tool: { items: [], callExposure }.
 		// This preserves backward compatibility while enabling richer config.
 		Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+		// Bootstrap declares runtime-owned tool calls whose results are injected
+		// as model-visible startup context before model reasoning.
+		Bootstrap Bootstrap `yaml:"bootstrap,omitempty" json:"bootstrap,omitempty"`
 		// Skills is a closed-by-default allow-list of visible skills.
 		// When omitted or empty, the agent sees no skills.
 		Skills []string `yaml:"skills,omitempty" json:"skills,omitempty"`
@@ -272,6 +275,27 @@ type Tool struct {
 	Items                []*llm.Tool      `yaml:"items,omitempty" json:"items,omitempty"`
 	CallExposure         ToolCallExposure `yaml:"callExposure,omitempty" json:"callExposure,omitempty"`
 	AllowOverflowHelpers *bool            `yaml:"allowOverflowHelpers,omitempty" json:"allowOverflowHelpers,omitempty"`
+}
+
+type Bootstrap struct {
+	ToolCalls []BootstrapToolCall `yaml:"toolCalls,omitempty" json:"toolCalls,omitempty"`
+}
+
+type BootstrapToolCall struct {
+	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
+	Tool     string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
+	Args     map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
+	Inject   BootstrapInject        `yaml:"inject,omitempty" json:"inject,omitempty"`
+	Required bool                   `yaml:"required,omitempty" json:"required,omitempty"`
+}
+
+type BootstrapInject struct {
+	As            string `yaml:"as,omitempty" json:"as,omitempty"`
+	Title         string `yaml:"title,omitempty" json:"title,omitempty"`
+	SourceURI     string `yaml:"sourceURI,omitempty" json:"sourceURI,omitempty"`
+	Header        string `yaml:"header,omitempty" json:"header,omitempty"`
+	IncludeHeader *bool  `yaml:"includeHeader,omitempty" json:"includeHeader,omitempty"`
+	BudgetChars   int    `yaml:"budgetChars,omitempty" json:"budgetChars,omitempty"`
 }
 
 func (t *Tool) OverflowHelpersAllowed() bool {
