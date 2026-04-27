@@ -79,7 +79,73 @@ func statusForDatasourceErr(err error) int {
 	if errors.Is(err, ErrDatasourceStackNotConfigured) {
 		return http.StatusNotImplemented
 	}
+	if status, ok := upstreamAuthStatusFromError(err); ok {
+		return status
+	}
 	return http.StatusInternalServerError
+}
+
+type datasourceErrorEnvelope struct {
+	Status  string                  `json:"status"`
+	Message string                  `json:"message"`
+	Errors  []datasourceErrorDetail `json:"errors"`
+}
+
+type datasourceErrorDetail struct {
+	View       string                  `json:"view"`
+	Parameter  string                  `json:"parameter"`
+	StatusCode int                     `json:"statusCode"`
+	Message    string                  `json:"message"`
+	Object     []datasourceErrorDetail `json:"object"`
+}
+
+func upstreamAuthStatusFromError(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return 0, false
+	}
+	body := datasourceErrorBody(msg)
+	if body == "" {
+		return 0, false
+	}
+	var envelope datasourceErrorEnvelope
+	if json.Unmarshal([]byte(body), &envelope) != nil {
+		return 0, false
+	}
+	if status := datasourceDetailStatus(envelope.Errors); status != 0 {
+		return status, true
+	}
+	return 0, false
+}
+
+func datasourceErrorBody(msg string) string {
+	if idx := strings.Index(msg, "{"); idx >= 0 {
+		candidate := strings.TrimSpace(msg[idx:])
+		if strings.HasPrefix(candidate, "{") {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func datasourceDetailStatus(details []datasourceErrorDetail) int {
+	best := 0
+	for _, detail := range details {
+		if isAuthStatus(detail.StatusCode) && detail.StatusCode > best {
+			best = detail.StatusCode
+		}
+		if nested := datasourceDetailStatus(detail.Object); nested > best {
+			best = nested
+		}
+	}
+	return best
+}
+
+func isAuthStatus(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
 }
 
 // decodeJSONBody is a small helper tolerant of empty bodies.

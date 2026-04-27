@@ -123,7 +123,7 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 		updTC.SetOpID(opID)
 	}
 	if strings.TrimSpace(toolName) != "" {
-		updTC.SetToolName(toolName)
+		updTC.SetToolName(mcpname.Display(toolName))
 	}
 	// Propagate turn so the SSE event carries it for UI matching.
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
@@ -163,7 +163,7 @@ func updateAsyncToolCallState(ctx context.Context, conv apiconv.Client, toolMsgI
 		updTC.SetOpID(opID)
 	}
 	if strings.TrimSpace(toolName) != "" {
-		updTC.SetToolName(toolName)
+		updTC.SetToolName(mcpname.Display(toolName))
 	}
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
 		updTC.SetTurnID(turn.TurnID)

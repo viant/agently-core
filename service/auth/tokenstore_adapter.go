@@ -7,6 +7,57 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 )
 
+type canonicalTokenStore struct {
+	inner TokenStore
+	users UserService
+}
+
+func (s *canonicalTokenStore) resolveOwner(ctx context.Context, username, provider string) string {
+	if s == nil || s.inner == nil {
+		return ""
+	}
+	sess := &Session{
+		Username: username,
+		Subject:  username,
+		Provider: provider,
+	}
+	return resolveOAuthTokenOwnerID(ctx, s.users, provider, sess)
+}
+
+func (s *canonicalTokenStore) Get(ctx context.Context, username, provider string) (*OAuthToken, error) {
+	return s.inner.Get(ctx, s.resolveOwner(ctx, username, provider), provider)
+}
+
+func (s *canonicalTokenStore) Put(ctx context.Context, token *OAuthToken) error {
+	if token == nil {
+		return nil
+	}
+	next := *token
+	next.Username = s.resolveOwner(ctx, token.Username, token.Provider)
+	return s.inner.Put(ctx, &next)
+}
+
+func (s *canonicalTokenStore) Delete(ctx context.Context, username, provider string) error {
+	return s.inner.Delete(ctx, s.resolveOwner(ctx, username, provider), provider)
+}
+
+func (s *canonicalTokenStore) TryAcquireRefreshLease(ctx context.Context, username, provider, owner string, ttl time.Duration) (int64, bool, error) {
+	return s.inner.TryAcquireRefreshLease(ctx, s.resolveOwner(ctx, username, provider), provider, owner, ttl)
+}
+
+func (s *canonicalTokenStore) ReleaseRefreshLease(ctx context.Context, username, provider, owner string) error {
+	return s.inner.ReleaseRefreshLease(ctx, s.resolveOwner(ctx, username, provider), provider, owner)
+}
+
+func (s *canonicalTokenStore) CASPut(ctx context.Context, token *OAuthToken, expectedVersion int64, owner string) (bool, error) {
+	if token == nil {
+		return false, nil
+	}
+	next := *token
+	next.Username = s.resolveOwner(ctx, token.Username, token.Provider)
+	return s.inner.CASPut(ctx, &next, expectedVersion, owner)
+}
+
 // tokenStoreAdapter bridges service/auth.TokenStore to token.TokenStore.
 // This is needed because the two packages define mirrored types to avoid import cycles.
 type tokenStoreAdapter struct {
@@ -14,8 +65,8 @@ type tokenStoreAdapter struct {
 }
 
 // NewTokenStoreAdapter wraps a service/auth.TokenStore to satisfy token.TokenStore.
-func NewTokenStoreAdapter(store TokenStore) token.TokenStore {
-	return &tokenStoreAdapter{inner: store}
+func NewTokenStoreAdapter(store TokenStore, users UserService) token.TokenStore {
+	return &tokenStoreAdapter{inner: &canonicalTokenStore{inner: store, users: users}}
 }
 
 func (a *tokenStoreAdapter) Get(ctx context.Context, username, provider string) (*token.OAuthToken, error) {

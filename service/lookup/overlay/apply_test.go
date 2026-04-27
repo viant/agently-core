@@ -225,13 +225,14 @@ func TestRegistry_NamedTokensCompose(t *testing.T) {
 			Bindings: []loproto.Binding{
 				{
 					Named: &loproto.NamedToken{
-						Name:      "advertiser",
-						Required:  true,
-						Store:     "${id}",
-						Display:   "${name}",
-						ModelForm: "${id}",
+						Name:         "advertiser",
+						Required:     true,
+						QueryInput:   "q",
+						ResolveInput: "id",
+						Store:        "${id}",
+						ModelForm:    "${id}",
 					},
-					Lookup: loproto.Lookup{DataSource: "advertiser"},
+					Lookup: loproto.Lookup{DataSource: "advertiser", Display: "${adOrderName}"},
 				},
 			},
 		},
@@ -261,6 +262,12 @@ func TestRegistry_NamedTokensCompose(t *testing.T) {
 	}
 	if !entries[0].Required || entries[0].Token == nil || entries[0].Token.ModelForm != "${id}" {
 		t.Fatalf("advertiser entry missing token/required: %+v", entries[0])
+	}
+	if entries[0].Token.QueryInput != "q" || entries[0].Token.ResolveInput != "id" {
+		t.Fatalf("advertiser entry missing query/resolve inputs: %+v", entries[0].Token)
+	}
+	if entries[0].Token.Display != "${adOrderName}" {
+		t.Fatalf("advertiser entry missing inherited display: %+v", entries[0].Token)
 	}
 	// Default trigger.
 	if entries[0].Trigger != "/" {

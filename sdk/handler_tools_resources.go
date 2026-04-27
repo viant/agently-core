@@ -198,6 +198,9 @@ func statusForToolExecuteError(err error) int {
 	if toolpolicy.IsPolicyError(err) {
 		return http.StatusConflict
 	}
+	if status, ok := upstreamAuthStatusFromError(err); ok {
+		return status
+	}
 	return http.StatusInternalServerError
 }
 

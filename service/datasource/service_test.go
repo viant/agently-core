@@ -521,7 +521,7 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool(t *testing.T) {
 			Pinned: map[string]interface{}{
 				"dimensions.adOrderId": true,
 				"measures.adOrderName": true,
-				"orderBy":             []interface{}{"adOrderCreated:desc", "adOrderId:desc"},
+				"orderBy":              []interface{}{"adOrderCreated:desc", "adOrderId:desc"},
 			},
 		},
 		DataSource: types.DataSource{
@@ -541,6 +541,56 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool(t *testing.T) {
 	_, err := svc.Fetch(aliceCtx(), "orders_cube", map[string]interface{}{
 		"filters.adOrderId":   "1769800",
 		"filters.adOrderName": "adel",
+	}, datasource.FetchOptions{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+}
+
+func TestFetch_ExpandNestedArgsForCubeMCPTool_DropsBlankTypedFilter(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	captured := &captureExecutor{fn: func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		filters, ok := args["filters"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("want nested filters map, got %#v", args["filters"])
+		}
+		if _, exists := filters["adOrderId"]; exists {
+			t.Fatalf("did not expect blank filters.adOrderId to be forwarded, got %#v", filters["adOrderId"])
+		}
+		if gotName, _ := filters["adOrderName"].(string); gotName != "%Betty%" {
+			t.Fatalf("want filters.adOrderName=%%Betty%%, got %#v", filters["adOrderName"])
+		}
+		return `{"data":[{"adOrderId":2664777,"adOrderName":"Betty - Edmonton","campaignName":"Betty"}],"meta":{"recordCount":1,"pageCount":1}}`, nil
+	}}
+	store.Put(&dsproto.DataSource{
+		ID: "orders_cube",
+		Backend: &dsproto.Backend{
+			Kind:    dsproto.BackendMCPTool,
+			Service: "steward",
+			Method:  "AdHierarchyCube",
+			Pinned: map[string]interface{}{
+				"dimensions.adOrderId": true,
+				"measures.adOrderName": true,
+				"orderBy":              []interface{}{"adOrderId:desc"},
+			},
+		},
+		DataSource: types.DataSource{
+			Selectors: &types.Selectors{Data: "data", DataInfo: "meta"},
+			FilterSet: []types.Filter{
+				{
+					Name: "quick",
+					Template: []types.TemplateItem{
+						{ID: "filters.adOrderId", Operator: "equal", Type: "int[]"},
+						{ID: "filters.adOrderName", Operator: "contains"},
+					},
+				},
+			},
+		},
+	})
+	svc := datasource.New(datasource.Options{Store: store, Executor: captured})
+	_, err := svc.Fetch(aliceCtx(), "orders_cube", map[string]interface{}{
+		"filters.adOrderId":   "",
+		"filters.adOrderName": "Betty",
 	}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)

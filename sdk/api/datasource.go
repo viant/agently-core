@@ -44,6 +44,7 @@ type ListLookupRegistryInput struct {
 // render context.
 type LookupRegistryEntry struct {
 	Name       string            `json:"name"`
+	Title      string            `json:"title,omitempty"`
 	DataSource string            `json:"dataSource"`
 	DialogId   string            `json:"dialogId,omitempty"`
 	WindowId   string            `json:"windowId,omitempty"`
@@ -57,9 +58,11 @@ type LookupRegistryEntry struct {
 
 // TokenFormat is the client-facing token template set.
 type TokenFormat struct {
-	Store     string `json:"store,omitempty"`
-	Display   string `json:"display,omitempty"`
-	ModelForm string `json:"modelForm,omitempty"`
+	Store        string `json:"store,omitempty"`
+	Display      string `json:"display,omitempty"`
+	ModelForm    string `json:"modelForm,omitempty"`
+	QueryInput   string `json:"queryInput,omitempty"`
+	ResolveInput string `json:"resolveInput,omitempty"`
 }
 
 // LookupParameter is a wire mirror of forge Parameter — enough to round-trip

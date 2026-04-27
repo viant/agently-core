@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/kms"
@@ -131,6 +132,47 @@ func claimString(claims map[string]interface{}, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(val)
+}
+
+func claimUnixTime(claims map[string]interface{}, key string) (time.Time, bool) {
+	raw, ok := claims[key]
+	if !ok || raw == nil {
+		return time.Time{}, false
+	}
+	switch actual := raw.(type) {
+	case float64:
+		return time.Unix(int64(actual), 0).UTC(), true
+	case json.Number:
+		if n, err := actual.Int64(); err == nil {
+			return time.Unix(n, 0).UTC(), true
+		}
+	case int64:
+		return time.Unix(actual, 0).UTC(), true
+	case int:
+		return time.Unix(int64(actual), 0).UTC(), true
+	}
+	return time.Time{}, false
+}
+
+func tokenExpiryFromTokenStrings(idToken, accessToken string) time.Time {
+	for _, candidate := range []string{strings.TrimSpace(idToken), strings.TrimSpace(accessToken)} {
+		if candidate == "" {
+			continue
+		}
+		if exp, ok := claimUnixTime(parseJWTClaims(candidate), "exp"); ok {
+			return exp
+		}
+	}
+	return time.Time{}
+}
+
+func resolveTokenExpiry(explicitExpiresAt, idToken, accessToken string) time.Time {
+	if expiry := strings.TrimSpace(explicitExpiresAt); expiry != "" {
+		if parsed, err := time.Parse(time.RFC3339, expiry); err == nil {
+			return parsed
+		}
+	}
+	return tokenExpiryFromTokenStrings(idToken, accessToken)
 }
 
 var stateCipher = blowfish.Cipher{}

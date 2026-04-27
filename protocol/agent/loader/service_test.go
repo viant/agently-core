@@ -446,6 +446,49 @@ uri: workspace://foo`)
 	})
 }
 
+func TestParseResourceEntry_ScalarURI(t *testing.T) {
+	makeNode := func(doc string) *yml.Node {
+		var root yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &root))
+		require.Greater(t, len(root.Content), 0)
+		return (*yml.Node)(root.Content[0])
+	}
+
+	node := makeNode(`knowledge/targeting-tree/overview.md`)
+	res, err := parseResourceEntry(node)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, "knowledge/targeting-tree/overview.md", res.URI)
+	assert.Equal(t, "user", res.Role)
+}
+
+func TestParseResourcesBlock_AcceptsScalarSequenceEntries(t *testing.T) {
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte(`
+resources:
+  - knowledge/targeting-tree/overview.md
+  - knowledge/targeting-tree/operations.md
+`), &root))
+	require.Greater(t, len(root.Content), 0)
+	doc := (*yml.Node)(root.Content[0])
+
+	var resourcesNode *yml.Node
+	_ = doc.Pairs(func(key string, v *yml.Node) error {
+		if key == "resources" {
+			resourcesNode = v
+		}
+		return nil
+	})
+	require.NotNil(t, resourcesNode)
+
+	agentCfg := &agent.Agent{}
+	svc := &Service{}
+	require.NoError(t, svc.parseResourcesBlock(resourcesNode, agentCfg))
+	require.Len(t, agentCfg.Resources, 2)
+	assert.Equal(t, "knowledge/targeting-tree/overview.md", agentCfg.Resources[0].URI)
+	assert.Equal(t, "knowledge/targeting-tree/operations.md", agentCfg.Resources[1].URI)
+}
+
 func TestParseKnowledge_MinScoreAndMaxFiles(t *testing.T) {
 	makeNode := func(doc string) *yml.Node {
 		var root yaml.Node

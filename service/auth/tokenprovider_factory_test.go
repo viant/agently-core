@@ -15,10 +15,14 @@ import (
 )
 
 type brokerStoreStub struct {
-	token *OAuthToken
+	token       *OAuthToken
+	getUsername string
+	getProvider string
 }
 
 func (s *brokerStoreStub) Get(ctx context.Context, username, provider string) (*OAuthToken, error) {
+	s.getUsername = username
+	s.getProvider = provider
 	return s.token, nil
 }
 func (s *brokerStoreStub) Put(ctx context.Context, token *OAuthToken) error { return nil }
@@ -86,6 +90,61 @@ func TestOAuthRefreshBroker_Refresh_PreservesStoredIDTokenWhenRefreshResponseOmi
 	}
 	if got.RefreshToken != "new-refresh" {
 		t.Fatalf("RefreshToken = %q, want %q", got.RefreshToken, "new-refresh")
+	}
+	if got.IDToken != "stored-id-token" {
+		t.Fatalf("IDToken = %q, want %q", got.IDToken, "stored-id-token")
+	}
+}
+
+func TestOAuthRefreshBroker_Refresh_UsesCanonicalTokenOwner(t *testing.T) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"new-refresh","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer tokenSrv.Close()
+
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "oauth.json")
+	cfgBody, _ := json.Marshal(map[string]any{
+		"authURL":      "https://idp.example.com/auth",
+		"tokenURL":     tokenSrv.URL,
+		"clientID":     "client-1",
+		"clientSecret": "secret-1",
+		"redirectURL":  "http://localhost/callback",
+		"scopes":       []string{"openid"},
+	})
+	if err := os.WriteFile(cfgPath, cfgBody, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	rawStore := &brokerStoreStub{token: &OAuthToken{
+		Username:     "user-42",
+		Provider:     "oauth",
+		AccessToken:  "old-access",
+		IDToken:      "stored-id-token",
+		RefreshToken: "refresh-1",
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	}}
+	users := &testUserService{userBySubjectProvider: map[string]*User{
+		"user-sub-123|oauth": {ID: "user-42", Username: "awitas"},
+	}}
+	broker := &oauthRefreshBroker{
+		configURL: cfgPath,
+		store:     &canonicalTokenStore{inner: rawStore, users: users},
+	}
+
+	got, err := broker.Refresh(context.Background(), token.Key{Subject: "user-sub-123", Provider: "oauth"}, "refresh-1")
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if got == nil {
+		t.Fatalf("Refresh() returned nil token")
+	}
+	if rawStore.getUsername != "user-42" {
+		t.Fatalf("stored token lookup username = %q, want canonical user ID %q", rawStore.getUsername, "user-42")
+	}
+	if rawStore.getProvider != "oauth" {
+		t.Fatalf("stored token lookup provider = %q, want %q", rawStore.getProvider, "oauth")
 	}
 	if got.IDToken != "stored-id-token" {
 		t.Fatalf("IDToken = %q, want %q", got.IDToken, "stored-id-token")

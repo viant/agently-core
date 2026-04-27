@@ -430,6 +430,30 @@ func TestExecuteToolStep_PersistsToolMessageNameAndStatus(t *testing.T) {
 	assert.True(t, sawCompletedPatch, "expected tool_op patch with terminal completed status")
 }
 
+func TestExecuteToolStep_PreservesDisplayToolNameOnCompletion(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-skill", TurnID: "t-skill", ParentMessageID: "p-skill"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"body":"ok"}`}}}
+	conv := &stubConv{}
+
+	step := StepInfo{
+		ID:         "call-skill",
+		Name:       "llm_skills-activate",
+		Args:       map[string]interface{}{"name": "targeting-tree"},
+		ResponseID: "resp-skill",
+	}
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+	require.NotEmpty(t, conv.patchedToolCalls)
+
+	started := conv.patchedToolCalls[0]
+	completed := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
+	require.NotNil(t, started)
+	require.NotNil(t, completed)
+	assert.Equal(t, "llm/skills/activate", strings.TrimSpace(started.ToolName))
+	assert.Equal(t, "llm/skills/activate", strings.TrimSpace(completed.ToolName))
+}
+
 type stubConv struct {
 	patchedMessages  []*apiconv.MutableMessage
 	insertedMessages []*apiconv.MutableMessage

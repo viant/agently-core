@@ -35,3 +35,20 @@ func TestBuildConstraintsAndValidateExecution(t *testing.T) {
 		t.Fatalf("expected command rejection")
 	}
 }
+
+func TestBuildConstraints_AllowsWorkspaceToolAlongsidePreprocessExec(t *testing.T) {
+	skills := []*skillproto.Skill{{
+		Frontmatter: skillproto.Frontmatter{
+			Name:         "targeting-tree",
+			AllowedTools: "system/exec:execute platform:TargetingTree",
+		},
+	}}
+	c := BuildConstraints(skills)
+	if c == nil {
+		t.Fatalf("expected constraints")
+	}
+	ctx := WithConstraints(context.Background(), c)
+	if err := ValidateExecution(ctx, "platform:TargetingTree", map[string]interface{}{"Field": "IRIS_SEGMENTS"}); err != nil {
+		t.Fatalf("ValidateExecution() unexpected platform tool error: %v", err)
+	}
+}

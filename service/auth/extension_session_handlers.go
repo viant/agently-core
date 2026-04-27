@@ -215,17 +215,14 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			CreatedAt: time.Now(),
 		}
 		if strings.TrimSpace(in.AccessToken) != "" || strings.TrimSpace(in.IDToken) != "" || strings.TrimSpace(in.RefreshToken) != "" {
+			expiry := resolveTokenExpiry(strings.TrimSpace(in.ExpiresAt), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken))
 			sess.Tokens = &scyauth.Token{
 				Token: oauth2.Token{
 					AccessToken:  strings.TrimSpace(in.AccessToken),
 					RefreshToken: strings.TrimSpace(in.RefreshToken),
+					Expiry:       expiry,
 				},
 				IDToken: strings.TrimSpace(in.IDToken),
-			}
-			if expiry := strings.TrimSpace(in.ExpiresAt); expiry != "" {
-				if parsed, err := time.Parse(time.RFC3339, expiry); err == nil {
-					sess.Tokens.Expiry = parsed
-				}
 			}
 		}
 		a.sessions.Put(r.Context(), sess)
