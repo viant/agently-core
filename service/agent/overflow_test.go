@@ -47,6 +47,39 @@ func TestBuildOverflowPreview_AnnotatesNativeContinuationJSONWithMessageShowArgs
 	}
 }
 
+func TestBuildOverflowPreview_TruncatedJSONAddsMessageShowArgs(t *testing.T) {
+	body := `{"description":"x","content":"` + strings.Repeat("A", 5000) + `"}`
+	preview, overflow := buildOverflowPreview(body, 1000, "msg-789", true)
+	if !overflow {
+		t.Fatalf("expected overflow=true")
+	}
+	if !strings.Contains(preview, `"messageId":"msg-789"`) {
+		t.Fatalf("expected generic truncated continuation preview to carry messageId, got: %s", preview)
+	}
+	if !strings.Contains(preview, `"nextArgs":{"byteRange":{"from":900,"to":1800},"messageId":"msg-789"}`) &&
+		!strings.Contains(preview, `"nextArgs":{"messageId":"msg-789","byteRange":{"from":900,"to":1800}}`) {
+		t.Fatalf("expected generic truncated continuation preview to carry message-show nextArgs, got: %s", preview)
+	}
+}
+
+func TestBuildOverflowPreview_TruncatedJSONPreservesExistingMessageID(t *testing.T) {
+	body := `{"messageId":"source-msg","content":"` + strings.Repeat("A", 5000) + `"}`
+	preview, overflow := buildOverflowPreview(body, 1000, "tool-msg", true)
+	if !overflow {
+		t.Fatalf("expected overflow=true")
+	}
+	if !strings.Contains(preview, `"messageId":"source-msg"`) {
+		t.Fatalf("expected generic truncated continuation preview to preserve source messageId, got: %s", preview)
+	}
+	if strings.Contains(preview, `"messageId":"tool-msg"`) {
+		t.Fatalf("expected generic truncated continuation preview to avoid rebasing to tool message id, got: %s", preview)
+	}
+	if !strings.Contains(preview, `"nextArgs":{"byteRange":{"from":900,"to":1800},"messageId":"source-msg"}`) &&
+		!strings.Contains(preview, `"nextArgs":{"messageId":"source-msg","byteRange":{"from":900,"to":1800}}`) {
+		t.Fatalf("expected generic truncated continuation preview to carry source message-show nextArgs, got: %s", preview)
+	}
+}
+
 func TestAnnotateNativeContinuationJSON_DataDriven(t *testing.T) {
 	testCases := []struct {
 		name         string

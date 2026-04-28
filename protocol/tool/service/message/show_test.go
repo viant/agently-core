@@ -113,6 +113,7 @@ func TestShow_TransformAndRanges(t *testing.T) {
 			var out ShowOutput
 			err := svc.show(context.Background(), &in, &out)
 			assert.NoError(t, err)
+			assert.Equal(t, msgID, out.MessageID)
 			assert.EqualValues(t, tc.wantContent, out.Content)
 			assert.EqualValues(t, tc.wantOffset, out.Offset)
 		})
@@ -134,6 +135,7 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		var out ShowOutput
 		err := svc.show(context.Background(), &in, &out)
 		assert.NoError(t, err)
+		assert.Equal(t, msgID, out.MessageID)
 		assert.Equal(t, 0, out.Offset)
 		assert.Equal(t, 10, out.Limit)
 		assert.Equal(t, 100, out.Size)
@@ -153,6 +155,7 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		var out ShowOutput
 		err := svc.show(context.Background(), &in, &out)
 		assert.NoError(t, err)
+		assert.Equal(t, msgID, out.MessageID)
 		assert.Nil(t, out.Continuation)
 		assert.Equal(t, 90, out.Offset)
 		assert.Equal(t, 10, out.Limit)
@@ -163,6 +166,7 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		var out ShowOutput
 		err := svc.show(context.Background(), &in, &out)
 		assert.NoError(t, err)
+		assert.Equal(t, msgID, out.MessageID)
 		// Returned zero bytes, continuation should cover the entire remainder
 		if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
 			assert.True(t, out.Continuation.HasMore)
@@ -180,6 +184,7 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		var out ShowOutput
 		err := svc.show(context.Background(), &in, &out)
 		assert.NoError(t, err)
+		assert.Equal(t, msgID, out.MessageID)
 		// Returned 85, remaining 15, so nextLength=min(returned, remaining)=15
 		if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
 			assert.Equal(t, true, out.Continuation.HasMore, "HasMore")
@@ -196,6 +201,7 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		var out ShowOutput
 		err := svc.show(context.Background(), &in, &out)
 		assert.NoError(t, err)
+		assert.Equal(t, msgID, out.MessageID)
 		// Last page: returned 15 bytes, no continuation expected
 		assert.Nil(t, out.Continuation)
 		assert.Equal(t, 85, out.Offset, "Offset")

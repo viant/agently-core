@@ -23,10 +23,11 @@ type ShowInput struct {
 }
 
 type ShowOutput struct {
-	Content string `json:"content"`
-	Offset  int    `json:"offset"`
-	Limit   int    `json:"limit"`
-	Size    int    `json:"size"`
+	MessageID string `json:"messageId,omitempty"`
+	Content   string `json:"content"`
+	Offset    int    `json:"offset"`
+	Limit     int    `json:"limit"`
+	Size      int    `json:"size"`
 	// Continuation carries paging/truncation hints when only part of the message is returned.
 	Continuation *extension.Continuation `json:"continuation,omitempty"`
 }
@@ -87,6 +88,7 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	}
 
 	output.Content = string(transformed)
+	output.MessageID = strings.TrimSpace(input.MessageID)
 	output.Offset = start
 	output.Limit = end - start
 	output.Size = size
