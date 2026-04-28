@@ -4,13 +4,20 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	"github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/service/core"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
@@ -153,6 +160,79 @@ func TestService_BuildBinding_InjectsSelectedTemplateAndRemovesTemplateTools(t *
 			t.Fatalf("expected template tools to be removed after template injection, got %#v", binding.Tools.Signatures)
 		}
 	}
+}
+
+func TestService_BuildBinding_ExposesMessageShowWhenCurrentTurnToolResultOverflows(t *testing.T) {
+	now := time.Now().UTC()
+	turnID := "turn-overflow"
+	conv := &apiconv.Conversation{
+		Id: "conv-overflow",
+		Transcript: []*conversation.TranscriptView{
+			{
+				Id: turnID,
+				Message: []*conversation.MessageView{
+					{
+						Id:             "tool-parent-1",
+						ConversationId: "conv-overflow",
+						TurnId:         strPtr(turnID),
+						Role:           "assistant",
+						Type:           "tool_op",
+						CreatedAt:      now,
+						ToolMessage: []*conversation.ToolMessageView{
+							{
+								Id:        "tool-msg-1",
+								CreatedAt: now,
+								ToolCall: &conversation.ToolCallView{
+									OpId:            "op-1",
+									ToolName:        "template-get",
+									RequestPayload:  &conversation.ModelCallStreamPayloadView{InlineBody: strPtr("{}")},
+									ResponsePayload: &conversation.ModelCallStreamPayloadView{InlineBody: strPtr(strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512))},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	service := &Service{
+		conversation: &stubConv{result: conv},
+		registry: &fakeRegistry{defs: []llm.ToolDefinition{
+			{Name: "message/show"},
+			{Name: "message/match"},
+			{Name: "message/summarize"},
+		}},
+		llm: core.New(continuationFinder{}, nil, nil),
+		defaults: &config.Defaults{
+			PreviewSettings: config.PreviewSettings{
+				Limit:           1024,
+				ToolResultLimit: 1024,
+			},
+		},
+	}
+
+	ctx := requestctx.WithTurnMeta(context.Background(), requestctx.TurnMeta{ConversationID: "conv-overflow", TurnID: turnID})
+	binding, err := service.BuildBinding(ctx, &QueryInput{
+		ConversationID: "conv-overflow",
+		Agent: &agentmdl.Agent{
+			Identity:       agentmdl.Identity{ID: "coder"},
+			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.4"},
+		},
+		Query: "read the whole thing",
+	})
+	if err != nil {
+		t.Fatalf("BuildBinding error: %v", err)
+	}
+	var names []string
+	for _, sig := range binding.Tools.Signatures {
+		if sig == nil {
+			continue
+		}
+		names = append(names, sig.Name)
+	}
+	require.Contains(t, names, "message-show")
+	require.Contains(t, names, "message-match")
 }
 
 type panicConversationClient struct{}

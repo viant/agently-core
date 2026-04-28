@@ -145,6 +145,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 			}
 		}
 		s.handleOverflow(ctx, input, current, b)
+		s.ensureInternalToolsIfNeeded(ctx, input, b)
 		// Allow tool-use if we appended any
 		if len(b.Tools.Signatures) > 0 && b.Model != "" {
 			b.Flags.CanUseTool = s.llm.ModelImplements(ctx, b.Model, base.CanUseTools)
