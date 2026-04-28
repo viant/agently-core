@@ -6,6 +6,63 @@ import (
 	"strings"
 )
 
+type nativeContinuationEnvelope struct {
+	MessageID        string                      `json:"messageId,omitempty"`
+	ContinuationHint string                      `json:"continuationHint,omitempty"`
+	NextArgs         map[string]interface{}      `json:"nextArgs,omitempty"`
+	Continuation     nativeContinuationEnvelopeC `json:"continuation"`
+}
+
+type nativeContinuationEnvelopeC struct {
+	HasMore   bool                        `json:"hasMore"`
+	Remaining int                         `json:"remaining,omitempty"`
+	Returned  int                         `json:"returned,omitempty"`
+	NextRange nativeContinuationNextRange `json:"nextRange"`
+}
+
+type nativeContinuationNextRange struct {
+	Bytes *nativeContinuationByteRange `json:"bytes,omitempty"`
+	Lines *nativeContinuationLineRange `json:"lines,omitempty"`
+}
+
+type nativeContinuationByteRange struct {
+	Offset      int `json:"offset,omitempty"`
+	OffsetBytes int `json:"offsetBytes,omitempty"`
+	Length      int `json:"length,omitempty"`
+	LengthBytes int `json:"lengthBytes,omitempty"`
+}
+
+type nativeContinuationLineRange struct {
+	Start     int `json:"start,omitempty"`
+	StartLine int `json:"startLine,omitempty"`
+	Count     int `json:"count,omitempty"`
+	LineCount int `json:"lineCount,omitempty"`
+}
+
+func (r nativeContinuationByteRange) normalized() (offset, length int, ok bool) {
+	offset = r.Offset
+	if offset == 0 {
+		offset = r.OffsetBytes
+	}
+	length = r.Length
+	if length == 0 {
+		length = r.LengthBytes
+	}
+	return offset, length, offset > 0 && length > 0
+}
+
+func (r nativeContinuationLineRange) normalized() (start, count int, ok bool) {
+	start = r.Start
+	if start == 0 {
+		start = r.StartLine
+	}
+	count = r.Count
+	if count == 0 {
+		count = r.LineCount
+	}
+	return start, count, start > 0 && count > 0
+}
+
 // buildOverflowPreview trims body to limit and appends a simple omitted trailer.
 // When allowContinuation is true and refMessageID is provided, it will emit a
 // continuation wrapper (or JSON truncation) and return overflow=true to enable
@@ -14,7 +71,7 @@ import (
 func buildOverflowPreview(body string, threshold int, refMessageID string, allowContinuation bool) (string, bool) {
 	body = strings.TrimSpace(body)
 	if allowContinuation {
-		body = annotateNativeContinuationJSON(body)
+		body = annotateNativeContinuationJSON(body, strings.TrimSpace(refMessageID))
 	}
 	if threshold <= 0 || len(body) <= threshold {
 		return body, false
@@ -70,76 +127,111 @@ content: |
 // annotateNativeContinuationJSON adds an explicit follow-up hint for tool
 // results that already expose native continuation ranges. This keeps the body
 // JSON while making the next call args obvious to the model.
-func annotateNativeContinuationJSON(body string) string {
+func annotateNativeContinuationJSON(body string, refMessageID string) string {
 	if !strings.HasPrefix(strings.TrimSpace(body), "{") {
 		return body
 	}
-	var root map[string]interface{}
+	var root map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(body), &root); err != nil || root == nil {
 		return body
 	}
-	cont, _ := root["continuation"].(map[string]interface{})
-	if cont == nil {
+	var envelope nativeContinuationEnvelope
+	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
 		return body
 	}
-	hasMore, _ := cont["hasMore"].(bool)
-	if !hasMore {
+	if !envelope.Continuation.HasMore {
 		return body
 	}
-	nextRange, _ := cont["nextRange"].(map[string]interface{})
-	if nextRange == nil {
+	if err := annotateNativeContinuationRoot(root, envelope, refMessageID); err != nil {
 		return body
 	}
-	if bytesHint, ok := nextRange["bytes"].(map[string]interface{}); ok && bytesHint != nil {
-		offset := intFromAny(bytesHint["offset"])
-		if offset == 0 {
-			offset = intFromAny(bytesHint["offsetBytes"])
-		}
-		length := intFromAny(bytesHint["length"])
-		if length == 0 {
-			length = intFromAny(bytesHint["lengthBytes"])
-		}
-		if offset > 0 && length > 0 {
-			if _, exists := root["continuationHint"]; !exists {
-				root["continuationHint"] = fmt.Sprintf("Call the same tool again with offsetBytes=%d, lengthBytes=%d, maxBytes=%d. Do not restart at 0.", offset, length, length)
-			}
-			if _, exists := root["nextArgs"]; !exists {
-				root["nextArgs"] = map[string]interface{}{
-					"offsetBytes": offset,
-					"lengthBytes": length,
-					"maxBytes":    length,
-				}
-			}
-			if out, err := json.Marshal(root); err == nil {
-				return string(out)
-			}
-		}
-	}
-	if linesHint, ok := nextRange["lines"].(map[string]interface{}); ok && linesHint != nil {
-		start := intFromAny(linesHint["start"])
-		if start == 0 {
-			start = intFromAny(linesHint["startLine"])
-		}
-		count := intFromAny(linesHint["count"])
-		if count == 0 {
-			count = intFromAny(linesHint["lineCount"])
-		}
-		if start > 0 && count > 0 {
-			if _, exists := root["continuationHint"]; !exists {
-				root["continuationHint"] = fmt.Sprintf("Call the same tool again with startLine=%d and lineCount=%d.", start, count)
-			}
-			if _, exists := root["nextArgs"]; !exists {
-				root["nextArgs"] = map[string]interface{}{
-					"startLine": start,
-					"lineCount": count,
-				}
-			}
-			if out, err := json.Marshal(root); err == nil {
-				return string(out)
-			}
-		}
+	if out, err := json.Marshal(root); err == nil {
+		return string(out)
 	}
 	return body
+}
+
+func annotateNativeContinuationRoot(root map[string]json.RawMessage, envelope nativeContinuationEnvelope, refMessageID string) error {
+	if root == nil || !envelope.Continuation.HasMore {
+		return nil
+	}
+	if bytesHint := envelope.Continuation.NextRange.Bytes; bytesHint != nil {
+		offset, length, ok := bytesHint.normalized()
+		if ok {
+			return applyNativeContinuationBytes(root, refMessageID, offset, length)
+		}
+	}
+	if linesHint := envelope.Continuation.NextRange.Lines; linesHint != nil {
+		start, count, ok := linesHint.normalized()
+		if ok {
+			return applyNativeContinuationLines(root, refMessageID, start, count)
+		}
+	}
+	return nil
+}
+
+func applyNativeContinuationBytes(root map[string]json.RawMessage, refMessageID string, offset, length int) error {
+	if offset <= 0 || length <= 0 {
+		return nil
+	}
+	if refMessageID != "" {
+		putJSONFieldIfMissing(root, "messageId", refMessageID)
+	}
+	putJSONFieldIfMissing(root, "continuationHint",
+		fmt.Sprintf("Call the same tool again with offsetBytes=%d, lengthBytes=%d, maxBytes=%d. Do not restart at 0.", offset, length, length))
+	if _, exists := root["nextArgs"]; !exists {
+		nextArgs := map[string]interface{}{}
+		if refMessageID != "" {
+			nextArgs["messageId"] = refMessageID
+			nextArgs["byteRange"] = map[string]interface{}{
+				"from": offset,
+				"to":   offset + length,
+			}
+		} else {
+			nextArgs["offsetBytes"] = offset
+			nextArgs["lengthBytes"] = length
+			nextArgs["maxBytes"] = length
+		}
+		return putJSONField(root, "nextArgs", nextArgs)
+	}
+	return nil
+}
+
+func applyNativeContinuationLines(root map[string]json.RawMessage, refMessageID string, start, count int) error {
+	if start <= 0 || count <= 0 {
+		return nil
+	}
+	if refMessageID != "" {
+		putJSONFieldIfMissing(root, "messageId", refMessageID)
+	}
+	putJSONFieldIfMissing(root, "continuationHint",
+		fmt.Sprintf("Call the same tool again with startLine=%d and lineCount=%d.", start, count))
+	if _, exists := root["nextArgs"]; !exists {
+		nextArgs := map[string]interface{}{}
+		if refMessageID != "" {
+			nextArgs["messageId"] = refMessageID
+		}
+		nextArgs["startLine"] = start
+		nextArgs["lineCount"] = count
+		return putJSONField(root, "nextArgs", nextArgs)
+	}
+	return nil
+}
+
+func putJSONFieldIfMissing(root map[string]json.RawMessage, key string, value interface{}) {
+	if _, exists := root[key]; exists {
+		return
+	}
+	_ = putJSONField(root, key, value)
+}
+
+func putJSONField(root map[string]json.RawMessage, key string, value interface{}) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	root[key] = encoded
+	return nil
 }
 
 func intFromAny(v interface{}) int {
