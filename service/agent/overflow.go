@@ -79,7 +79,7 @@ func buildOverflowPreview(body string, threshold int, refMessageID string, allow
 	limit := int(0.9 * float64(threshold)) // to prevent internal show result being over threshold when wrapped as json + metadata
 
 	if allowContinuation && strings.TrimSpace(refMessageID) != "" {
-		if jsonPreview, ok := truncateContinuationJSON(body, limit); ok {
+		if jsonPreview, ok := truncateContinuationJSON(body, limit, strings.TrimSpace(refMessageID)); ok {
 			return jsonPreview, true
 		}
 		size := len(body)
@@ -155,16 +155,20 @@ func annotateNativeContinuationRoot(root map[string]json.RawMessage, envelope na
 	if root == nil || !envelope.Continuation.HasMore {
 		return nil
 	}
+	sourceMessageID := strings.TrimSpace(envelope.MessageID)
+	if sourceMessageID == "" {
+		sourceMessageID = strings.TrimSpace(refMessageID)
+	}
 	if bytesHint := envelope.Continuation.NextRange.Bytes; bytesHint != nil {
 		offset, length, ok := bytesHint.normalized()
 		if ok {
-			return applyNativeContinuationBytes(root, refMessageID, offset, length)
+			return applyNativeContinuationBytes(root, sourceMessageID, offset, length)
 		}
 	}
 	if linesHint := envelope.Continuation.NextRange.Lines; linesHint != nil {
 		start, count, ok := linesHint.normalized()
 		if ok {
-			return applyNativeContinuationLines(root, refMessageID, start, count)
+			return applyNativeContinuationLines(root, sourceMessageID, start, count)
 		}
 	}
 	return nil
@@ -251,7 +255,7 @@ func intFromAny(v interface{}) int {
 // a JSON object (searching nested objects/arrays) while preserving continuation
 // metadata. Returns the modified JSON and true when truncation occurred,
 // otherwise false.
-func truncateContinuationJSON(body string, limit int) (string, bool) {
+func truncateContinuationJSON(body string, limit int, refMessageID string) (string, bool) {
 	if !strings.HasPrefix(body, "{") {
 		return "", false
 	}
@@ -311,6 +315,33 @@ func truncateContinuationJSON(body string, limit int) (string, bool) {
 	bytesHint["length"] = nextLength
 	nextRange["bytes"] = bytesHint
 	cont["nextRange"] = nextRange
+	sourceMessageID := strings.TrimSpace(refMessageID)
+	if rawID, ok := rootMap["messageId"]; ok {
+		if existing, ok := rawID.(string); ok && strings.TrimSpace(existing) != "" {
+			sourceMessageID = strings.TrimSpace(existing)
+		}
+	}
+	if sourceMessageID != "" {
+		rootMap["messageId"] = sourceMessageID
+	}
+	if _, ok := rootMap["continuationHint"]; !ok {
+		rootMap["continuationHint"] = fmt.Sprintf("Call message-show with messageId=%s and byteRange.from=%d, byteRange.to=%d.", sourceMessageID, returned, returned+nextLength)
+	}
+	if _, ok := rootMap["nextArgs"]; !ok {
+		nextArgs := map[string]interface{}{}
+		if sourceMessageID != "" {
+			nextArgs["messageId"] = sourceMessageID
+			nextArgs["byteRange"] = map[string]interface{}{
+				"from": returned,
+				"to":   returned + nextLength,
+			}
+		} else {
+			nextArgs["offsetBytes"] = returned
+			nextArgs["lengthBytes"] = nextLength
+			nextArgs["maxBytes"] = nextLength
+		}
+		rootMap["nextArgs"] = nextArgs
+	}
 
 	out, err := json.Marshal(root)
 	if err != nil {
