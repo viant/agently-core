@@ -31,11 +31,20 @@ func buildOverflowPreview(body string, threshold int, refMessageID string, allow
 			returned = size
 		}
 		remaining := size - returned
+		nextTo := returned + returned
+		if nextTo > size {
+			nextTo = size
+		}
 		chunk := strings.TrimSpace(body[:returned])
 		chunk += "[... omitted from " + fmt.Sprintf("%d", returned) + " to " + fmt.Sprintf("%d", size) + "]"
 		id := strings.TrimSpace(refMessageID)
 		return fmt.Sprintf(`overflow: true
 messageId: %s
+nextArgs:
+  messageId: %s
+  byteRange:
+    from: %d
+    to: %d
 nextRange:
   bytes:
     offset: %d
@@ -45,7 +54,7 @@ remaining: %d
 returned: %d
 useToolToSeeMore: message-show
 content: |
-%s`, id, returned, returned, remaining, returned, chunk), true
+%s`, id, id, returned, nextTo, returned, returned, remaining, returned, chunk), true
 	}
 
 	size := len(body)
