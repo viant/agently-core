@@ -36,6 +36,7 @@ import type {
 } from './types';
 
 import { compareTemporalEntries } from '../ordering';
+import { getFieldProvenance } from './reducer';
 
 // ─── Public render-row types ──────────────────────────────────────────────────
 
@@ -127,6 +128,9 @@ export interface ElicitationRenderView {
     elicitationId?: string;
     status?: ClientElicitation['status'];
     message?: string;
+    requestedSchema?: ClientElicitation['requestedSchema'];
+    callbackUrl?: ClientElicitation['callbackUrl'];
+    responsePayload?: ClientElicitation['responsePayload'];
 }
 
 export interface LinkedConversationRenderView {
@@ -338,7 +342,9 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
     const rounds = turn.pages.map((p) => projectRound(p));
     const renderableCount = rounds.filter((r) => r.hasContent).length;
     const header = describeHeader(turn.lifecycle, renderableCount);
-    const isStreaming = turn.lifecycle === 'pending' || turn.lifecycle === 'running';
+    const lifecycleProvenance = getFieldProvenance(turn, 'lifecycle');
+    const isStreaming = (turn.lifecycle === 'pending' || turn.lifecycle === 'running')
+        && lifecycleProvenance !== 'transcript';
     return {
         kind: 'iteration',
         renderKey: turn.renderKey,
@@ -489,6 +495,9 @@ function projectElicitation(elicitation: ClientElicitation | null | undefined): 
         elicitationId: elicitation.elicitationId,
         status: elicitation.status,
         message: elicitation.message,
+        requestedSchema: elicitation.requestedSchema,
+        callbackUrl: elicitation.callbackUrl,
+        responsePayload: elicitation.responsePayload,
     };
 }
 

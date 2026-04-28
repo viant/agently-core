@@ -54,14 +54,13 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("content is required")
 	}
 
-	parentMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
-	if parentMessageID == "" {
-		parentMessageID = strings.TrimSpace(turn.ParentMessageID)
-	}
-
 	interim := 0
 	if input.Interim != nil && *input.Interim {
 		interim = 1
+	}
+	parentMessageID := strings.TrimSpace(turn.ParentMessageID)
+	if interim != 0 && parentMessageID == "" {
+		parentMessageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
 	addCtx := ctx
 	if interim == 0 {
