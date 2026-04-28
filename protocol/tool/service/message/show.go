@@ -12,6 +12,7 @@ import (
 	sed "github.com/rwtodd/Go.Sed/sed"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/textutil"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/mcp-protocol/extension"
 )
 
@@ -80,6 +81,11 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	if input.Transform == nil && len(input.Sed) == 0 {
+		if previewLimit := runtimerequestctx.ToolResultPreviewLimitFromContext(ctx); previewLimit > 0 {
+			clipped, end = clampMessageShowChunkToPreviewBudget(result, clipped, start, end, size, strings.TrimSpace(input.MessageID), previewLimit)
+		}
+	}
 
 	// 3) Optional sed programs (in order)
 	transformed, err := applySedAll(clipped, toSedList(*input))
@@ -118,6 +124,69 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	return nil
+}
+
+func clampMessageShowChunkToPreviewBudget(source, clipped []byte, start, end, size int, messageID string, previewLimit int) ([]byte, int) {
+	if previewLimit <= 0 || start < 0 || end < start || end > len(source) {
+		return clipped, end
+	}
+	candidateContinuation := func(candidateEnd int) *extension.Continuation {
+		if candidateEnd >= size {
+			return nil
+		}
+		remaining := size - candidateEnd
+		nextLength := candidateEnd - start
+		if nextLength <= 0 {
+			nextLength = remaining
+		}
+		if nextLength > remaining {
+			nextLength = remaining
+		}
+		return &extension.Continuation{
+			HasMore:   true,
+			Remaining: remaining,
+			Returned:  candidateEnd - start,
+			NextRange: &extension.RangeHint{
+				Bytes: &extension.ByteRange{
+					Offset: candidateEnd,
+					Length: nextLength,
+				},
+			},
+		}
+	}
+	fits := func(candidateEnd int) bool {
+		if candidateEnd < start || candidateEnd > len(source) {
+			return false
+		}
+		candidate := ShowOutput{
+			MessageID:    messageID,
+			Content:      string(source[start:candidateEnd]),
+			Offset:       start,
+			Limit:        candidateEnd - start,
+			Size:         size,
+			Continuation: candidateContinuation(candidateEnd),
+		}
+		encoded, err := json.Marshal(candidate)
+		return err == nil && len(encoded) <= previewLimit
+	}
+	if fits(end) {
+		return clipped, end
+	}
+	lo, hi := start, end
+	best := start
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		if fits(mid) {
+			best = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	if best <= start {
+		return source[start:start], start
+	}
+	return source[start:best], best
 }
 
 func clipWithOffsets(b []byte, in *ShowInput) ([]byte, int, int, error) {

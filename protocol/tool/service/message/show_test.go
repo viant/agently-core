@@ -2,12 +2,14 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/textutil"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // fakeConv implements a minimal conversation client returning static messages.
@@ -208,4 +210,27 @@ func TestShow_ContinuationEdgeCases(t *testing.T) {
 		assert.Equal(t, 15, out.Limit, "Limit")
 	})
 
+}
+
+func TestShow_ClampsChunkToPreviewBudget(t *testing.T) {
+	mem := &fakeConv{msgs: map[string]*apiconv.Message{}}
+	svc := New(mem)
+	body := strings.Repeat("z", 2000)
+	msgID := "msg-budget"
+	mem.msgs[msgID] = &apiconv.Message{RawContent: &body}
+
+	in := ShowInput{MessageID: msgID, ByteRange: &textutil.IntRange{From: intPtr(0), To: intPtr(900)}}
+	var out ShowOutput
+	ctx := runtimerequestctx.WithToolResultPreviewLimit(context.Background(), 1000)
+	err := svc.show(ctx, &in, &out)
+	assert.NoError(t, err)
+	assert.Equal(t, msgID, out.MessageID)
+	assert.Less(t, out.Limit, 900)
+	if assert.NotNil(t, out.Continuation) && assert.NotNil(t, out.Continuation.NextRange) && assert.NotNil(t, out.Continuation.NextRange.Bytes) {
+		assert.Equal(t, out.Limit, out.Continuation.Returned)
+		assert.Equal(t, out.Offset+out.Limit, out.Continuation.NextRange.Bytes.Offset)
+	}
+	encoded, err := json.Marshal(out)
+	assert.NoError(t, err)
+	assert.LessOrEqual(t, len(encoded), 1000)
 }

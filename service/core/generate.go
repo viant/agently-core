@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -80,6 +81,11 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
 	if input != nil && input.Options != nil {
 		ctx = runtimerequestctx.WithRequestMode(ctx, input.Options.Mode)
+		if input.Options.Metadata != nil {
+			if previewLimit := toolResultPreviewLimitFromMetadata(input.Options.Metadata); previewLimit > 0 {
+				ctx = runtimerequestctx.WithToolResultPreviewLimit(ctx, previewLimit)
+			}
+		}
 	}
 	if tp, ok := s.llmFinder.(modelcallctx.TokenPriceProvider); ok {
 		declared := strings.TrimSpace(input.Model)
@@ -212,6 +218,34 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		output.MessageID = msgID
 	}
 	return nil
+}
+
+func toolResultPreviewLimitFromMetadata(metadata map[string]interface{}) int {
+	if metadata == nil {
+		return 0
+	}
+	switch actual := metadata["toolResultPreviewLimit"].(type) {
+	case int:
+		if actual > 0 {
+			return actual
+		}
+	case int64:
+		if actual > 0 {
+			return int(actual)
+		}
+	case float64:
+		if actual > 0 {
+			return int(actual)
+		}
+	case string:
+		actual = strings.TrimSpace(actual)
+		if actual != "" {
+			if parsed, err := json.Number(actual).Int64(); err == nil && parsed > 0 {
+				return int(parsed)
+			}
+		}
+	}
+	return 0
 }
 
 var ErrContextLimitExceeded = errors.New("llm/core: context limit exceeded")

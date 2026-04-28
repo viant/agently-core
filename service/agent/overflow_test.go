@@ -80,6 +80,23 @@ func TestBuildOverflowPreview_TruncatedJSONPreservesExistingMessageID(t *testing
 	}
 }
 
+func TestBuildOverflowPreview_FallbackWrapperPreservesExistingContinuationSource(t *testing.T) {
+	body := `{"content":"` + strings.Repeat("A", 900) + `","continuation":{"hasMore":true,"remaining":13066,"returned":900,"nextRange":{"bytes":{"offset":3600,"length":900}}},"limit":900,"messageId":"source-msg","offset":2700,"size":16666}`
+	preview, overflow := buildOverflowPreview(body, 1000, "tool-msg", true)
+	if !overflow {
+		t.Fatalf("expected overflow=true")
+	}
+	if !strings.Contains(preview, "messageId: source-msg") {
+		t.Fatalf("expected fallback wrapper to preserve source message id, got: %s", preview)
+	}
+	if strings.Contains(preview, "messageId: tool-msg") {
+		t.Fatalf("expected fallback wrapper not to rebase to tool message id, got: %s", preview)
+	}
+	if !strings.Contains(preview, "from: 3600") || !strings.Contains(preview, "to: 3989") {
+		t.Fatalf("expected fallback wrapper to reuse native next range, got: %s", preview)
+	}
+}
+
 func TestAnnotateNativeContinuationJSON_DataDriven(t *testing.T) {
 	testCases := []struct {
 		name         string
