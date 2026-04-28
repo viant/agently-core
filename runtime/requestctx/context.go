@@ -169,7 +169,7 @@ func TurnMetaFromContext(ctx context.Context) (TurnMeta, bool) {
 
 type ModelCompletionMeta struct {
 	Content       string
-	Narration      string
+	Narration     string
 	FinalResponse bool
 	FinishReason  string
 }
@@ -289,6 +289,10 @@ type runMetaKeyT string
 
 var runMetaKey = runMetaKeyT("runMeta")
 
+type toolResultPreviewLimitKeyT string
+
+var toolResultPreviewLimitKey = toolResultPreviewLimitKeyT("toolResultPreviewLimit")
+
 func WithRunMeta(ctx context.Context, meta RunMeta) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -306,4 +310,28 @@ func RunMetaFromContext(ctx context.Context) (RunMeta, bool) {
 		}
 	}
 	return RunMeta{}, false
+}
+
+func WithToolResultPreviewLimit(ctx context.Context, limit int) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if limit <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, toolResultPreviewLimitKey, limit)
+}
+
+func ToolResultPreviewLimitFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	value := ctx.Value(toolResultPreviewLimitKey)
+	if value == nil {
+		return 0
+	}
+	if limit, ok := value.(int); ok && limit > 0 {
+		return limit
+	}
+	return 0
 }

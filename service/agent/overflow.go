@@ -88,13 +88,29 @@ func buildOverflowPreview(body string, threshold int, refMessageID string, allow
 			returned = size
 		}
 		remaining := size - returned
-		nextTo := returned + returned
-		if nextTo > size {
+		sourceMessageID, nextFrom, nextLength, hasNativeNext := resolveContinuationSource(body, strings.TrimSpace(refMessageID))
+		if sourceMessageID == "" {
+			sourceMessageID = strings.TrimSpace(refMessageID)
+		}
+		if nextFrom <= 0 {
+			nextFrom = returned
+		}
+		if nextLength <= 0 {
+			nextLength = returned
+		}
+		nextTo := nextFrom + nextLength
+		if hasNativeNext {
+			if nextLength > remaining && remaining > 0 {
+				nextLength = remaining
+				nextTo = nextFrom + nextLength
+			}
+		} else if nextTo > size {
 			nextTo = size
+			nextLength = nextTo - nextFrom
 		}
 		chunk := strings.TrimSpace(body[:returned])
 		chunk += "[... omitted from " + fmt.Sprintf("%d", returned) + " to " + fmt.Sprintf("%d", size) + "]"
-		id := strings.TrimSpace(refMessageID)
+		id := sourceMessageID
 		return fmt.Sprintf(`overflow: true
 messageId: %s
 nextArgs:
@@ -111,7 +127,7 @@ remaining: %d
 returned: %d
 useToolToSeeMore: message-show
 content: |
-%s`, id, id, returned, nextTo, returned, returned, remaining, returned, chunk), true
+%s`, id, id, nextFrom, nextTo, nextFrom, nextLength, remaining, returned, chunk), true
 	}
 
 	size := len(body)
@@ -172,6 +188,30 @@ func annotateNativeContinuationRoot(root map[string]json.RawMessage, envelope na
 		}
 	}
 	return nil
+}
+
+func resolveContinuationSource(body string, refMessageID string) (sourceMessageID string, nextFrom int, nextLength int, ok bool) {
+	if !strings.HasPrefix(strings.TrimSpace(body), "{") {
+		return strings.TrimSpace(refMessageID), 0, 0, false
+	}
+	var envelope nativeContinuationEnvelope
+	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+		return strings.TrimSpace(refMessageID), 0, 0, false
+	}
+	sourceMessageID = strings.TrimSpace(envelope.MessageID)
+	if sourceMessageID == "" {
+		sourceMessageID = strings.TrimSpace(refMessageID)
+	}
+	if !envelope.Continuation.HasMore {
+		return sourceMessageID, 0, 0, false
+	}
+	if bytesHint := envelope.Continuation.NextRange.Bytes; bytesHint != nil {
+		from, length, bytesOK := bytesHint.normalized()
+		if bytesOK {
+			return sourceMessageID, from, length, true
+		}
+	}
+	return sourceMessageID, 0, 0, false
 }
 
 func applyNativeContinuationBytes(root map[string]json.RawMessage, refMessageID string, offset, length int) error {
