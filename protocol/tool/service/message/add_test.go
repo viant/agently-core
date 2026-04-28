@@ -28,7 +28,7 @@ func (f *addFakeConv) PatchConversations(_ context.Context, conv *apiconv.Mutabl
 	return nil
 }
 
-func TestAdd_UsesContextTurnAndModelParentMessage(t *testing.T) {
+func TestAdd_UsesTurnParentMessageForStandaloneAssistantNote(t *testing.T) {
 	conv := &addFakeConv{}
 	svc := New(conv)
 	turn := memory.TurnMeta{
@@ -52,11 +52,37 @@ func TestAdd_UsesContextTurnAndModelParentMessage(t *testing.T) {
 	require.Equal(t, "assistant", msg.Role)
 	require.Equal(t, "conv-1", msg.ConversationID)
 	require.Equal(t, "turn-1", deref(msg.TurnID))
-	require.Equal(t, "assistant-msg-1", deref(msg.ParentMessageID))
+	require.Equal(t, "parent-from-turn", deref(msg.ParentMessageID))
 	require.Equal(t, "task", deref(msg.Mode))
 	require.Equal(t, "Preliminary investigation: PMP supply looks concentrated.", deref(msg.Content))
-	require.Equal(t, "assistant-msg-1", out.ParentMessageID)
+	require.Equal(t, "parent-from-turn", out.ParentMessageID)
 	require.Equal(t, 17, out.Sequence)
+}
+
+func TestAdd_UsesModelParentForInterimNoteWhenTurnParentMissing(t *testing.T) {
+	conv := &addFakeConv{}
+	svc := New(conv)
+	turn := memory.TurnMeta{
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+	}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	ctx = memory.WithModelMessageID(ctx, "assistant-msg-1")
+	isInterim := true
+
+	input := &AddInput{
+		Role:    "assistant",
+		Content: "Streaming note",
+		Mode:    "task",
+		Interim: &isInterim,
+	}
+	var out AddOutput
+	err := svc.add(ctx, input, &out)
+	require.NoError(t, err)
+	require.Len(t, conv.patchedMessages, 1)
+	msg := conv.patchedMessages[0]
+	require.Equal(t, "assistant-msg-1", deref(msg.ParentMessageID))
+	require.Equal(t, "assistant-msg-1", out.ParentMessageID)
 }
 
 func TestAdd_RejectsNonAssistantRole(t *testing.T) {

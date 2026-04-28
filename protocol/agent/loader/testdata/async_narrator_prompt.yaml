@@ -1,0 +1,6 @@
+id: narrator-override-demo
+name: Narrator Override Demo
+model: gpt-4o
+asyncNarratorPrompt: |
+  You are this agent's async narrator. Keep progress lines terse and
+  audit-friendly — no filler, no emoji, no second-person.

@@ -115,6 +115,42 @@ describe('chatStore/projector — projectConversation', () => {
         expect(it.header).toEqual({ label: 'Execution details (1)', tone: 'running', count: 1 });
         expect(it.rounds.length).toBe(1);
         expect(it.rounds[0].hasContent).toBe(true);
+        expect(it.isStreaming).toBe(true);
+    });
+
+    it('transcript-owned running turn is not marked streaming for wall-clock UI updates', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_tr_running',
+                status: 'running',
+                createdAt: '2026-04-18T19:00:00Z',
+                user: {
+                    messageId: 'msg_user_done',
+                    content: 'check how many files are in my ~/Download folder',
+                },
+                execution: {
+                    pages: [{
+                        pageId: 'pg_tr_running',
+                        assistantMessageId: 'msg_assistant_done',
+                        status: 'running',
+                        narration: 'Using prompt/get.',
+                        modelSteps: [{
+                            modelCallId: 'mc_done',
+                            assistantMessageId: 'msg_assistant_done',
+                            provider: 'openai',
+                            model: 'gpt-5-mini',
+                            status: 'running',
+                        }]
+                    }]
+                }
+            }],
+        });
+        const rows = projectConversation(state);
+        const it = rows.find((row) => row.kind === 'iteration') as IterationRenderRow;
+        expect(it.header).toEqual({ label: 'Execution details (1)', tone: 'running', count: 1 });
+        expect(it.isStreaming).toBe(false);
     });
 
     it('terminal lifecycle-only cancelled turn → header "Cancelled" with neutral tone', () => {
@@ -387,7 +423,12 @@ describe('chatStore/projector — projectConversation', () => {
         });
 
         const rows = projectConversation(state);
-        expect(rows.map((row) => row.kind)).toEqual(['iteration']);
+        expect(rows.map((row) => row.kind)).toEqual(['assistant', 'iteration']);
+        expect(rows[0]).toMatchObject({
+            kind: 'assistant',
+            messageId: 'msg_note_live',
+            content: 'PRELIMINARY NOTE',
+        });
     });
 });
 

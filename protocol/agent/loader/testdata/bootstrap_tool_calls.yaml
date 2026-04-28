@@ -1,0 +1,20 @@
+id: bootstrap-demo
+name: Bootstrap Demo
+model: gpt-4o-mini
+bootstrap:
+  toolCalls:
+    - id: agent_directory
+      tool: llm/agents:list
+      args:
+        includeInternal: false
+      inject:
+        as: systemContext
+        title: agents/directory
+        sourceURI: internal://llm/agents/list
+        header: |
+          # Bootstrap Context
+          Tool `{{tool}}` was executed with:
+          ```json
+          {{args}}
+          ```
+        includeHeader: true
