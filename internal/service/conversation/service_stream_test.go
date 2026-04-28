@@ -210,6 +210,7 @@ func TestEmitCanonicalModelEvent_ThinkingPublishesModelStarted(t *testing.T) {
 		require.Equal(t, "conv-parent", ev.StreamID)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "mc-1", ev.MessageID)
+		require.Equal(t, "mc-1", ev.PageID)
 		require.Equal(t, "openai", ev.Model.Provider)
 		require.Equal(t, "gpt-5.2", ev.Model.Model)
 	case <-time.After(2 * time.Second):
@@ -657,6 +658,7 @@ func TestEmitCanonicalAssistantEvents_NarrationPublishesNarration(t *testing.T) 
 		require.Equal(t, "conv-1", ev.ConversationID)
 		require.Equal(t, "turn-1", ev.TurnID)
 		require.Equal(t, "msg-1", ev.MessageID)
+		require.Equal(t, "msg-1", ev.PageID)
 		// Narration text lives on the dedicated Narration field, NOT
 		// Content — TS reducer reads `event.narration`.
 		require.Equal(t, "Let me analyze...", ev.Narration)
@@ -907,6 +909,7 @@ func TestPatchToolCallPublishesTypedTimelineEvent(t *testing.T) {
 	require.Equal(t, streaming.EventTypeToolCallStarted, got.Type)
 	require.Equal(t, "tool-msg-1", got.MessageID)
 	require.Equal(t, "assistant-1", got.AssistantMessageID)
+	require.Equal(t, "assistant-1", got.PageID)
 	require.Equal(t, "tool-call-1", got.ToolCallID)
 	require.Equal(t, "tool-msg-1", got.ToolMessageID)
 	require.Equal(t, "llm/agents/run", got.ToolName)
@@ -941,6 +944,7 @@ func TestToolCallEvent_CompletedFallsBackToContextTurnIDAndKeepsOpID(t *testing.
 	require.Equal(t, "tool-call-1", got.ToolCallID)
 	require.Equal(t, "tool-msg-1", got.ToolMessageID)
 	require.Equal(t, "assistant-1", got.AssistantMessageID)
+	require.Equal(t, "assistant-1", got.PageID)
 	require.Equal(t, "req-1", got.RequestPayloadID)
 	require.Equal(t, "resp-1", got.ResponsePayloadID)
 }

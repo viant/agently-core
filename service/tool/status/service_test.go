@@ -2,19 +2,23 @@ package status
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type recordingConv struct {
-	patched []*apiconv.MutableMessage
+	patched      []*apiconv.MutableMessage
+	conversation *apiconv.Conversation
 }
 
 func (r *recordingConv) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
-	return nil, nil
+	return r.conversation, nil
 }
 func (r *recordingConv) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
 	return nil, nil
@@ -28,6 +32,64 @@ func (r *recordingConv) GetPayload(context.Context, string) (*apiconv.Payload, e
 func (r *recordingConv) PatchPayload(context.Context, *apiconv.MutablePayload) error { return nil }
 func (r *recordingConv) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
 	r.patched = append(r.patched, message)
+	if r.conversation == nil {
+		return nil
+	}
+	turnID := strings.TrimSpace(func() string {
+		if message.TurnID != nil {
+			return *message.TurnID
+		}
+		return ""
+	}())
+	if turnID == "" {
+		return nil
+	}
+	var turn *agconv.TranscriptView
+	for _, candidate := range r.conversation.Transcript {
+		if candidate != nil && strings.TrimSpace(candidate.Id) == turnID {
+			turn = candidate
+			break
+		}
+	}
+	if turn == nil {
+		turn = &agconv.TranscriptView{Id: turnID}
+		r.conversation.Transcript = append(r.conversation.Transcript, turn)
+	}
+	msgID := strings.TrimSpace(message.Id)
+	if msgID == "" {
+		return nil
+	}
+	for _, existing := range turn.Message {
+		if existing != nil && strings.TrimSpace(existing.Id) == msgID {
+			if message.Content != nil {
+				existing.Content = message.Content
+			}
+			if message.Narration != nil {
+				existing.Narration = message.Narration
+			}
+			if message.Interim != nil {
+				existing.Interim = *message.Interim
+			}
+			return nil
+		}
+	}
+	role := message.Role
+	msgType := message.Type
+	turnRef := turnID
+	created := &agconv.MessageView{
+		Id:             msgID,
+		ConversationId: strings.TrimSpace(message.ConversationID),
+		TurnId:         &turnRef,
+		CreatedAt:      time.Now(),
+		Role:           role,
+		Type:           msgType,
+		Content:        message.Content,
+		Narration:      message.Narration,
+	}
+	if message.Interim != nil {
+		created.Interim = *message.Interim
+	}
+	turn.Message = append(turn.Message, created)
 	return nil
 }
 func (r *recordingConv) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
@@ -72,6 +134,45 @@ func TestStartNarration_CreatesInterimAssistantMessage(t *testing.T) {
 	require.Equal(t, "Working on it", *last.Narration)
 }
 
+func TestStartNarration_ReusesExistingInterimAssistantMessage(t *testing.T) {
+	turnID := "turn-1"
+	msgID := "assistant-existing"
+	content := "Old preamble"
+	role := "assistant"
+	turnRef := turnID
+	conv := &recordingConv{
+		conversation: &apiconv.Conversation{
+			Transcript: []*agconv.TranscriptView{
+				{
+					Id: turnID,
+					Message: []*agconv.MessageView{
+						{
+							Id:             msgID,
+							ConversationId: "conv-1",
+							TurnId:         &turnRef,
+							CreatedAt:      time.Now(),
+							Role:           role,
+							Type:           "text",
+							Interim:        1,
+							Content:        &content,
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := New(conv)
+	parent := runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: turnID}
+
+	gotID, err := svc.StartNarration(context.Background(), parent, "llm/agents:status", "", "", "", "Updated preamble")
+	require.NoError(t, err)
+	require.Equal(t, msgID, gotID)
+	require.Len(t, conv.patched, 1)
+	require.Equal(t, msgID, conv.patched[0].Id)
+	require.NotNil(t, conv.patched[0].Narration)
+	require.Equal(t, "Updated preamble", *conv.patched[0].Narration)
+}
+
 func TestUpdateNarration_RefreshesSameMessageID(t *testing.T) {
 	conv := &recordingConv{}
 	svc := New(conv)
@@ -108,6 +209,29 @@ func TestNarrationPairing_UpsertReusesMessageIDAndReleaseClearsMapping(t *testin
 
 	pairing.Release("tool-call-1")
 	require.Equal(t, "", pairing.MessageID("tool-call-1"))
+}
+
+func TestNarrationPairing_DifferentParkedCallsReuseSameTurnNarrationSlot(t *testing.T) {
+	conv := &recordingConv{
+		conversation: &apiconv.Conversation{
+			Transcript: []*agconv.TranscriptView{
+				{Id: "turn-1"},
+			},
+		},
+	}
+	svc := New(conv)
+	pairing := NewNarrationPairing(svc)
+	parent := runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}
+
+	firstID, err := pairing.Upsert(context.Background(), "tool-call-1", parent, "llm/agents:status", "assistant", "tool", "narrator", "phase 1")
+	require.NoError(t, err)
+	require.NotEmpty(t, firstID)
+
+	secondID, err := pairing.Upsert(context.Background(), "tool-call-2", parent, "llm/agents:status", "assistant", "tool", "narrator", "phase 2")
+	require.NoError(t, err)
+	require.Equal(t, firstID, secondID)
+	require.Equal(t, firstID, pairing.MessageID("tool-call-1"))
+	require.Equal(t, secondID, pairing.MessageID("tool-call-2"))
 }
 
 func TestPublishFinal_CreatesFinalLinkedAssistantMessage(t *testing.T) {

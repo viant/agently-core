@@ -231,7 +231,7 @@ export function roundHasContent(round: RoundRenderView | ClientExecutionPage): b
 
 function deriveRoundPhase(page: ClientExecutionPage): ClientExecutionPhase {
     const explicit = page.phase;
-    if (explicit === 'intake' || explicit === 'sidecar' || explicit === 'summary') {
+    if (explicit === 'intake' || explicit === 'sidecar' || explicit === 'summary' || explicit === 'bootstrap') {
         return explicit;
     }
     return 'main';
@@ -258,15 +258,42 @@ export function projectTurn(turn: ClientTurnState): RenderRow[] {
     const users = turn.users;
     const firstUser = users.length > 0 ? users[0] : null;
     const restUsers = users.length > 1 ? users.slice(1) : [];
+    const standaloneMessages = projectStandaloneMessages(turn);
 
     if (firstUser) rows.push({ ...userToRow(firstUser, turn), _source: 'primary_user' });
     const trailing = [
         { ...iterationRow(turn), _source: 'iteration' },
         ...restUsers.map((u) => ({ ...userToRow(u, turn), _source: 'steer_user' })),
-        ...(turn.messages ?? []).map((message) => ({ ...messageToRow(message, turn), _source: 'turn_message' })),
+        ...standaloneMessages.map((message) => ({ ...messageToRow(message, turn), _source: 'turn_message' })),
     ];
     trailing.sort(compareProjectedRows);
     return [...rows, ...trailing];
+}
+
+function pageOwnedAssistantMessageIds(turn: ClientTurnState): Set<string> {
+    const ids = new Set<string>();
+    for (const page of Array.isArray(turn.pages) ? turn.pages : []) {
+        const narrationId = String(page?.narrationMessageId || '').trim();
+        const finalId = String(page?.finalAssistantMessageId || '').trim();
+        if (narrationId) ids.add(narrationId);
+        if (finalId) ids.add(finalId);
+    }
+    const aggregateNarrationId = String(turn.assistantNarration?.messageId || '').trim();
+    const aggregateFinalId = String(turn.assistantFinal?.messageId || '').trim();
+    if (aggregateNarrationId) ids.add(aggregateNarrationId);
+    if (aggregateFinalId) ids.add(aggregateFinalId);
+    return ids;
+}
+
+function projectStandaloneMessages(turn: ClientTurnState): ClientStandaloneMessage[] {
+    const pageOwnedIds = pageOwnedAssistantMessageIds(turn);
+    return (Array.isArray(turn.messages) ? turn.messages : []).filter((message) => {
+        if (message.role !== 'assistant') return true;
+        if (Number(message.interim ?? 0) > 0) return false;
+        const messageId = String(message.messageId || '').trim();
+        if (messageId && pageOwnedIds.has(messageId)) return false;
+        return true;
+    });
 }
 
 function userToRow(user: ClientUserMessage, turn: ClientTurnState): UserRenderRow {

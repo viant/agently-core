@@ -254,14 +254,20 @@ export function matchModelStep(
     observation: IncomingModelStepObservation,
 ): ClientModelStep | null {
     const mcid = (observation.modelCallId ?? '').trim();
+    const amid = (observation.assistantMessageId ?? '').trim();
     if (mcid) {
         for (const entity of existing) {
             if ((entity.modelCallId ?? '') === mcid) return entity;
         }
+        if (amid) {
+            for (const entity of existing) {
+                if ((entity.modelCallId ?? '').trim() !== '') continue;
+                if ((entity.assistantMessageId ?? '') === amid) return entity;
+            }
+        }
         // Explicit mcid with no match -> new entity (caller creates).
         return null;
     }
-    const amid = (observation.assistantMessageId ?? '').trim();
     if (amid) {
         for (const entity of existing) {
             if ((entity.assistantMessageId ?? '') === amid) return entity;

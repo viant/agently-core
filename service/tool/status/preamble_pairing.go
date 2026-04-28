@@ -9,8 +9,10 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-// NarrationPairing keeps the one parked-status-call -> one interim assistant
-// message mapping used by backend-authored assistant_preamble updates.
+// NarrationPairing keeps the parked-status-call -> interim assistant message
+// mapping used by backend-authored assistant_preamble updates. Multiple parked
+// calls in the same parent turn may resolve to the same reused interim
+// assistant message id when the turn already owns a transient narration slot.
 type NarrationPairing struct {
 	svc *Service
 	mu  sync.Mutex

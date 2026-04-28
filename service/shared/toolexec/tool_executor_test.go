@@ -257,6 +257,54 @@ func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) 
 	}
 }
 
+func TestExecuteToolStep_InitToolCallFailureMarksToolMessageFailed(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-init-fail", TurnID: "t-init-fail", ParentMessageID: "p-init-fail"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok"}`}}}
+	conv := &stubConv{
+		failPatchToolCallAt: map[int]error{
+			1: fmt.Errorf("persist tool call start: duplicate op"),
+		},
+	}
+	step := StepInfo{
+		ID:         "call-init-fail",
+		Name:       "resources-list",
+		Args:       map[string]interface{}{"path": "/"},
+		ResponseID: "resp-init-fail",
+	}
+
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.Error(t, err)
+	require.NotEmpty(t, conv.patchedMessages)
+
+	var toolMsg *apiconv.MutableMessage
+	var toolMsgID string
+	for _, msg := range conv.patchedMessages {
+		if msg != nil && strings.EqualFold(msg.Role, "tool") && strings.EqualFold(msg.Type, "tool_op") {
+			toolMsg = msg
+			toolMsgID = strings.TrimSpace(msg.Id)
+		}
+	}
+	require.NotNil(t, toolMsg)
+	require.NotEmpty(t, toolMsgID)
+	var failedPatch *apiconv.MutableMessage
+	var contentPatch *apiconv.MutableMessage
+	for _, msg := range conv.patchedMessages {
+		if msg != nil && strings.TrimSpace(msg.Id) == toolMsgID && msg.Status != nil {
+			failedPatch = msg
+		}
+		if msg != nil && strings.TrimSpace(msg.Id) == toolMsgID && msg.Content != nil {
+			contentPatch = msg
+		}
+	}
+	require.NotNil(t, failedPatch)
+	require.NotNil(t, failedPatch.Status)
+	assert.Equal(t, "failed", strings.ToLower(strings.TrimSpace(*failedPatch.Status)))
+	require.NotNil(t, contentPatch)
+	require.NotNil(t, contentPatch.Content)
+	assert.Contains(t, strings.ToLower(strings.TrimSpace(*contentPatch.Content)), "persist tool call start")
+}
+
 func TestExecuteToolStep_PersistsReadImageAsAttachment(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-img", TurnID: "t-img", ParentMessageID: "p-img", Assistant: "agent-test"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)

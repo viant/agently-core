@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	padapter "github.com/viant/agently-core/protocol/binding/adapter"
+	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/service/elicitation"
 	"github.com/viant/agently-core/service/shared/toolexec"
 )
@@ -493,10 +494,11 @@ func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *binding.B
 	}
 }
 
-// allowContinuationPreview reports whether continuation preview formatting is
-// enabled for the selected model on this turn. It resolves the effective model
-// from QueryInput (ModelOverride > Agent.Model) and inspects the provider
-// config option EnableContinuationFormat when available.
+// allowContinuationPreview reports whether overflow continuation formatting is
+// enabled for the selected model on this turn. Generic request assembly owns
+// overflow shaping, so this must follow the same model continuation capability
+// the provider request path actually supports, not a narrower provider-specific
+// formatting toggle.
 func (s *Service) allowContinuationPreview(ctx context.Context, input *QueryInput) bool {
 	if s == nil || input == nil {
 		return false
@@ -514,9 +516,13 @@ func (s *Service) allowContinuationPreview(ctx context.Context, input *QueryInpu
 	if f == nil {
 		return false
 	}
+	model, err := f.Find(ctx, modelName)
+	if err == nil && model != nil {
+		return core.IsContextContinuationEnabled(model)
+	}
 	if mf, ok := f.(*intmodel.Finder); ok {
-		if cfg := mf.ConfigByIDOrModel(modelName); cfg != nil {
-			return cfg.Options.EnableContinuationFormat
+		if cfg := mf.ConfigByIDOrModel(modelName); cfg != nil && cfg.Options.ContextContinuation != nil {
+			return *cfg.Options.ContextContinuation
 		}
 	}
 	return false

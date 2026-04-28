@@ -30,39 +30,40 @@ const (
 )
 
 type OperationRecord struct {
-	ID                  string
-	ParentConvID        string
-	ParentTurnID        string
-	ToolCallID          string
-	ToolMessageID       string
-	ToolName            string
-	StatusToolName      string
+	ID                   string
+	ParentConvID         string
+	ParentTurnID         string
+	ToolCallID           string
+	ToolMessageID        string
+	ToolName             string
+	StatusToolName       string
 	StatusOperationIDArg string
-	SameToolRecall      bool
-	StatusArgs          map[string]interface{}
-	CancelToolName      string
-	RequestArgsDigest   string
-	RequestArgs         map[string]interface{}
-	OperationIntent     string
-	OperationSummary    string
-	ExecutionMode       string
-	State               State
-	Status              string
-	Message             string
-	Percent             *int
-	LastSignaledPercent *int
-	KeyData             json.RawMessage
-	Error               string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	LastPayloadChangeAt time.Time
-	TimeoutAt           *time.Time
-	TimeoutMs           int
-	IdleTimeoutMs       int
-	PollIntervalMs      int
-	PollFailures        int
-	changeDigest        string
-	pendingChange       bool
+	SameToolRecall       bool
+	StatusArgs           map[string]interface{}
+	CancelToolName       string
+	RequestArgsDigest    string
+	RequestArgs          map[string]interface{}
+	OperationIntent      string
+	OperationSummary     string
+	ExecutionMode        string
+	State                State
+	Status               string
+	Message              string
+	MessageKind          string
+	Percent              *int
+	LastSignaledPercent  *int
+	KeyData              json.RawMessage
+	Error                string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	LastPayloadChangeAt  time.Time
+	TimeoutAt            *time.Time
+	TimeoutMs            int
+	IdleTimeoutMs        int
+	PollIntervalMs       int
+	PollFailures         int
+	changeDigest         string
+	pendingChange        bool
 }
 
 func (r *OperationRecord) Terminal() bool {
@@ -96,6 +97,7 @@ type RegisterInput struct {
 	ExecutionMode        string
 	Status               string
 	Message              string
+	MessageKind          string
 	Percent              *int
 	KeyData              json.RawMessage
 	Error                string
@@ -110,6 +112,7 @@ type ChangeEvent struct {
 	NewDigest    string          `json:"newDigest,omitempty"`
 	Status       string          `json:"status,omitempty"`
 	Message      string          `json:"message,omitempty"`
+	MessageKind  string          `json:"messageKind,omitempty"`
 	Percent      *int            `json:"percent,omitempty"`
 	KeyData      json.RawMessage `json:"keyData,omitempty"`
 	Error        string          `json:"error,omitempty"`
@@ -171,11 +174,11 @@ type Filter struct {
 // (logging, debugging, LLM transparency) but are not required for a
 // correct status call — `statusArgs` alone is sufficient.
 type PendingOp struct {
-	OperationID    string                 `json:"operationId"`
-	Tool           string                 `json:"tool"`
-	StatusTool     string                 `json:"statusTool,omitempty"`
-	OperationIDArg string                 `json:"operationIdArg,omitempty"`
-	SameToolRecall bool                   `json:"sameToolRecall,omitempty"`
+	OperationID    string `json:"operationId"`
+	Tool           string `json:"tool"`
+	StatusTool     string `json:"statusTool,omitempty"`
+	OperationIDArg string `json:"operationIdArg,omitempty"`
+	SameToolRecall bool   `json:"sameToolRecall,omitempty"`
 	// StatusArgs is the ready-to-send argument map for StatusTool.
 	// Includes the op id under OperationIDArg plus any declared
 	// StatusConfig.ExtraArgs (and, for same-tool-recall patterns, any
@@ -194,13 +197,14 @@ type changeSubscription struct {
 }
 
 type UpdateInput struct {
-	ID      string
-	Status  string
-	Message string
-	Percent *int
-	KeyData json.RawMessage
-	Error   string
-	State   State
+	ID          string
+	Status      string
+	Message     string
+	MessageKind string
+	Percent     *int
+	KeyData     json.RawMessage
+	Error       string
+	State       State
 }
 
 type Manager struct {
@@ -530,35 +534,36 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) (*OperationRe
 	m.registerCount.Add(1)
 	now := time.Now()
 	rec := &OperationRecord{
-		ID:                  id,
-		ParentConvID:        strings.TrimSpace(input.ParentConvID),
-		ParentTurnID:        strings.TrimSpace(input.ParentTurnID),
-		ToolCallID:          strings.TrimSpace(input.ToolCallID),
-		ToolMessageID:       strings.TrimSpace(input.ToolMessageID),
+		ID:                   id,
+		ParentConvID:         strings.TrimSpace(input.ParentConvID),
+		ParentTurnID:         strings.TrimSpace(input.ParentTurnID),
+		ToolCallID:           strings.TrimSpace(input.ToolCallID),
+		ToolMessageID:        strings.TrimSpace(input.ToolMessageID),
 		ToolName:             strings.TrimSpace(input.ToolName),
 		StatusToolName:       strings.TrimSpace(input.StatusToolName),
 		StatusOperationIDArg: strings.TrimSpace(input.StatusOperationIDArg),
 		SameToolRecall:       input.SameToolRecall,
 		StatusArgs:           deepCloneMap(input.StatusArgs),
-		CancelToolName:      strings.TrimSpace(input.CancelToolName),
-		RequestArgsDigest:   strings.TrimSpace(input.RequestArgsDigest),
-		RequestArgs:         deepCloneMap(input.RequestArgs),
-		OperationIntent:     strings.TrimSpace(input.OperationIntent),
-		OperationSummary:    strings.TrimSpace(input.OperationSummary),
-		ExecutionMode:       NormalizeExecutionMode(input.ExecutionMode, string(ExecutionModeWait)),
-		Status:              strings.TrimSpace(input.Status),
-		Message:             strings.TrimSpace(input.Message),
-		Percent:             cloneIntPtr(input.Percent),
-		LastSignaledPercent: cloneIntPtr(input.Percent),
-		KeyData:             cloneJSON(input.KeyData),
-		Error:               strings.TrimSpace(input.Error),
-		CreatedAt:           now,
-		UpdatedAt:           now,
-		LastPayloadChangeAt: now,
-		TimeoutMs:           input.TimeoutMs,
-		IdleTimeoutMs:       input.IdleTimeoutMs,
-		PollIntervalMs:      input.PollIntervalMs,
-		pendingChange:       true,
+		CancelToolName:       strings.TrimSpace(input.CancelToolName),
+		RequestArgsDigest:    strings.TrimSpace(input.RequestArgsDigest),
+		RequestArgs:          deepCloneMap(input.RequestArgs),
+		OperationIntent:      strings.TrimSpace(input.OperationIntent),
+		OperationSummary:     strings.TrimSpace(input.OperationSummary),
+		ExecutionMode:        NormalizeExecutionMode(input.ExecutionMode, string(ExecutionModeWait)),
+		Status:               strings.TrimSpace(input.Status),
+		Message:              strings.TrimSpace(input.Message),
+		MessageKind:          strings.TrimSpace(input.MessageKind),
+		Percent:              cloneIntPtr(input.Percent),
+		LastSignaledPercent:  cloneIntPtr(input.Percent),
+		KeyData:              cloneJSON(input.KeyData),
+		Error:                strings.TrimSpace(input.Error),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		LastPayloadChangeAt:  now,
+		TimeoutMs:            input.TimeoutMs,
+		IdleTimeoutMs:        input.IdleTimeoutMs,
+		PollIntervalMs:       input.PollIntervalMs,
+		pendingChange:        true,
 	}
 	// TimeoutAt is a wall-clock ceiling used by both the wait-mode poller
 	// loop (`PollAsyncOperation.handleTimeoutIfExpired`) AND the activated
@@ -607,6 +612,10 @@ func (m *Manager) Update(_ context.Context, input UpdateInput) (*OperationRecord
 	}
 	if msg := strings.TrimSpace(input.Message); msg != rec.Message {
 		rec.Message = msg
+		changed = true
+	}
+	if kind := strings.TrimSpace(input.MessageKind); kind != rec.MessageKind {
+		rec.MessageKind = kind
 		changed = true
 	}
 	percentChanged := !equalIntPtr(rec.Percent, input.Percent)
@@ -1282,6 +1291,7 @@ func (m *Manager) publishChangeLocked(rec *OperationRecord, priorDigest, newDige
 		NewDigest:    newDigest,
 		Status:       rec.Status,
 		Message:      rec.Message,
+		MessageKind:  rec.MessageKind,
 		Percent:      cloneIntPtr(rec.Percent),
 		KeyData:      cloneJSON(rec.KeyData),
 		Error:        rec.Error,

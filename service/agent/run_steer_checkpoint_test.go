@@ -79,6 +79,52 @@ func TestService_latestTurnTaskCheckpoint(t *testing.T) {
 	assert.Equal(t, now, checkpoint.CreatedAt)
 }
 
+func TestService_latestTurnTaskCheckpoint_ModeTaskFallback(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	conversation := &apiconv.Conversation{
+		Id: "conv-1",
+		Transcript: []*agconv.TranscriptView{
+			{
+				Id:             "turn-1",
+				ConversationId: "conv-1",
+				CreatedAt:      now,
+				Message: []*agconv.MessageView{
+					{
+						Id:             "user-1",
+						ConversationId: "conv-1",
+						CreatedAt:      now.Add(-time.Minute),
+						Role:           "user",
+						Type:           "text",
+						Mode:           steerPtr("task"),
+						TurnId:         steerPtr("turn-1"),
+					},
+					{
+						Id:             "user-2",
+						ConversationId: "conv-1",
+						CreatedAt:      now,
+						Role:           "user",
+						Type:           "text",
+						Mode:           steerPtr("task"),
+						TurnId:         steerPtr("turn-1"),
+					},
+				},
+			},
+		},
+	}
+
+	svc := &Service{conversation: &dedupeConvClient{conversation: conversation}}
+	checkpoint, err := svc.latestTurnTaskCheckpoint(context.Background(), memory.TurnMeta{
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+	})
+	require.NoError(t, err)
+	require.True(t, checkpoint.Found)
+	assert.Equal(t, "user-2", checkpoint.MessageID)
+	assert.Equal(t, now, checkpoint.CreatedAt)
+}
+
 func TestService_hasNewTurnTaskSince(t *testing.T) {
 	t.Parallel()
 
@@ -138,6 +184,41 @@ func TestService_hasNewTurnTaskSince(t *testing.T) {
 			conv:       makeConversation("steer-2", now),
 			want:       true,
 		},
+		{
+			name:       "mode task messages count as follow-up inputs",
+			checkpoint: turnTaskCheckpoint{MessageID: "user-1", CreatedAt: now.Add(-time.Minute), Found: true},
+			conv: &apiconv.Conversation{
+				Id: "conv-1",
+				Transcript: []*agconv.TranscriptView{
+					{
+						Id:             "turn-1",
+						ConversationId: "conv-1",
+						CreatedAt:      now,
+						Message: []*agconv.MessageView{
+							{
+								Id:             "user-1",
+								ConversationId: "conv-1",
+								CreatedAt:      now.Add(-time.Minute),
+								Role:           "user",
+								Type:           "text",
+								Mode:           steerPtr("task"),
+								TurnId:         steerPtr("turn-1"),
+							},
+							{
+								Id:             "user-2",
+								ConversationId: "conv-1",
+								CreatedAt:      now,
+								Role:           "user",
+								Type:           "text",
+								Mode:           steerPtr("task"),
+								TurnId:         steerPtr("turn-1"),
+							},
+						},
+					},
+				},
+			},
+			want: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -179,6 +260,32 @@ func TestEffectiveFollowUpCheckpoint(t *testing.T) {
 		got := effectiveFollowUpCheckpoint(initial, nil)
 		assert.Equal(t, initial, got)
 	})
+}
+
+func TestShouldContinueAfterAsyncChange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		planEmpty        bool
+		hasActiveWaitOps bool
+		changedOpsCount  int
+		want             bool
+	}{
+		{name: "no changed ops", planEmpty: false, hasActiveWaitOps: true, changedOpsCount: 0, want: false},
+		{name: "non terminal plan reruns on changed ops", planEmpty: false, hasActiveWaitOps: false, changedOpsCount: 1, want: true},
+		{name: "active wait reruns on changed ops", planEmpty: true, hasActiveWaitOps: true, changedOpsCount: 1, want: true},
+		{name: "terminal no-wait answer is preserved", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, want: false},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := shouldContinueAfterAsyncChange(tc.planEmpty, tc.hasActiveWaitOps, tc.changedOpsCount)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func steerPtr(value string) *string {

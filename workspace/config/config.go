@@ -251,6 +251,9 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if src.PreviewSettings.AgedAfterSteps > 0 {
 		dst.PreviewSettings.AgedAfterSteps = src.PreviewSettings.AgedAfterSteps
 	}
+	if src.PreviewSettings.ToolResultLimit > 0 {
+		dst.PreviewSettings.ToolResultLimit = src.PreviewSettings.ToolResultLimit
+	}
 	if src.PreviewSettings.SummarizeChunk > 0 {
 		dst.PreviewSettings.SummarizeChunk = src.PreviewSettings.SummarizeChunk
 	}

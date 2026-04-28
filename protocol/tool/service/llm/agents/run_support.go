@@ -13,11 +13,15 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	coreauth "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/shared/convterm"
+	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
@@ -37,21 +41,21 @@ type childRunResult struct {
 }
 
 type childConversationState struct {
-	conversationID        string
-	parentConversationID  string
-	parentTurnID          string
-	agentID               string
-	status                string
-	rawStatus             string
-	terminal              bool
-	errorSummary          string
-	createdAt             string
-	updatedAt             string
+	conversationID         string
+	parentConversationID   string
+	parentTurnID           string
+	agentID                string
+	status                 string
+	rawStatus              string
+	terminal               bool
+	errorSummary           string
+	createdAt              string
+	updatedAt              string
 	lastAssistantNarration string
-	lastAssistantResponse string
-	hasFinalResponse      bool
-	lastMessageAt         string
-	lastActivityAt        time.Time
+	lastAssistantResponse  string
+	hasFinalResponse       bool
+	lastMessageAt          string
+	lastActivityAt         time.Time
 }
 
 const (
@@ -497,7 +501,63 @@ func (s *Service) childConversationState(ctx context.Context, conversationID str
 	state.hasFinalResponse = hasFinal
 	state.lastMessageAt = lastMessageAt
 	state = normalizeChildConversationState(state, conv.GetTranscript())
+	if state.terminal && !isTerminalChildStatus(state.rawStatus) {
+		s.terminalizeTimedOutChildConversation(context.WithoutCancel(ctx), conv, state)
+	}
 	return state, true
+}
+
+func (s *Service) terminalizeTimedOutChildConversation(ctx context.Context, conv *apiconv.Conversation, state childConversationState) {
+	if s == nil || conv == nil || s.conv == nil {
+		return
+	}
+	conversationID := strings.TrimSpace(conv.Id)
+	if conversationID == "" {
+		return
+	}
+	now := time.Now().UTC()
+
+	convPatch := apiconv.NewConversation()
+	convPatch.SetId(conversationID)
+	convPatch.SetStatus("failed")
+	if err := s.conv.PatchConversations(ctx, convPatch); err != nil {
+		logx.Warnf("conversation", "agents.status timed-out child patch conversation failed conv=%q err=%v", conversationID, err)
+	}
+	if err := convterm.PatchExecutionTerminal(ctx, s.conv, conv, "failed"); err != nil {
+		logx.Warnf("conversation", "agents.status timed-out child patch execution failed conv=%q err=%v", conversationID, err)
+	}
+
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(turn.Id)
+		if turnID == "" {
+			continue
+		}
+		turnPatch := apiconv.NewTurn()
+		turnPatch.SetId(turnID)
+		turnPatch.SetConversationID(conversationID)
+		turnPatch.SetStatus("failed")
+		if msg := strings.TrimSpace(state.errorSummary); msg != "" {
+			turnPatch.SetErrorMessage(msg)
+		}
+		if err := s.conv.PatchTurn(ctx, turnPatch); err != nil {
+			logx.Warnf("conversation", "agents.status timed-out child patch turn failed conv=%q turn=%q err=%v", conversationID, turnID, err)
+		}
+		if s.data != nil {
+			run := &agrunwrite.MutableRunView{}
+			run.SetId(turnID)
+			run.SetStatus("failed")
+			run.SetCompletedAt(now)
+			if msg := strings.TrimSpace(state.errorSummary); msg != "" {
+				run.SetErrorMessage(msg)
+			}
+			if _, err := s.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+				logx.Warnf("conversation", "agents.status timed-out child patch run failed conv=%q turn=%q err=%v", conversationID, turnID, err)
+			}
+		}
+	}
 }
 
 func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusItem {
@@ -509,20 +569,20 @@ func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusI
 		return StatusItem{}
 	}
 	item := StatusItem{
-		ConversationID:        state.conversationID,
-		ParentConversationID:  state.parentConversationID,
-		ParentTurnID:          state.parentTurnID,
-		AgentID:               state.agentID,
-		Status:                state.status,
-		RawStatus:             state.rawStatus,
-		Terminal:              state.terminal,
-		Error:                 state.errorSummary,
-		CreatedAt:             state.createdAt,
-		UpdatedAt:             state.updatedAt,
+		ConversationID:         state.conversationID,
+		ParentConversationID:   state.parentConversationID,
+		ParentTurnID:           state.parentTurnID,
+		AgentID:                state.agentID,
+		Status:                 state.status,
+		RawStatus:              state.rawStatus,
+		Terminal:               state.terminal,
+		Error:                  state.errorSummary,
+		CreatedAt:              state.createdAt,
+		UpdatedAt:              state.updatedAt,
 		LastAssistantNarration: state.lastAssistantNarration,
-		LastAssistantResponse: state.lastAssistantResponse,
-		HasFinalResponse:      state.hasFinalResponse,
-		LastMessageAt:         state.lastMessageAt,
+		LastAssistantResponse:  state.lastAssistantResponse,
+		HasFinalResponse:       state.hasFinalResponse,
+		LastMessageAt:          state.lastMessageAt,
 	}
 	return normalizeStatusItem(item)
 }
@@ -830,6 +890,9 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 		}
 		runCtx.childConversationID = childConversationID
 	}
+	if strings.TrimSpace(runCtx.childConversationID) != "" {
+		attachLinkedConversation(ctx, s.conv, runCtx.parent, runCtx.statusMessageID, runCtx.childConversationID)
+	}
 	statusToolName := "llm/agents:run"
 	if ri != nil && ri.Async != nil && *ri.Async {
 		statusToolName = "llm/agents:start"
@@ -968,6 +1031,57 @@ func (s *Service) surfaceAsyncCompletion(ctx context.Context, runCtx linkedRun, 
 	if strings.TrimSpace(runCtx.childConversationID) == "" {
 		return
 	}
+	attachLinkedConversation(ctx, s.conv, runCtx.parent, runCtx.statusMessageID, runCtx.childConversationID)
+	if s.agent != nil && s.conv != nil {
+		status := strings.TrimSpace(result.status)
+		message := strings.TrimSpace(result.answer)
+		messageKind := ""
+		errText := ""
+		if state, ok := s.childConversationState(context.Background(), runCtx.childConversationID); ok {
+			status = strings.TrimSpace(state.status)
+			if text := strings.TrimSpace(state.lastAssistantResponse); text != "" {
+				message = text
+				messageKind = "response"
+			} else if text := strings.TrimSpace(state.lastAssistantNarration); text != "" {
+				message = text
+				messageKind = "preamble"
+			}
+			errText = strings.TrimSpace(state.errorSummary)
+		} else if result.err != nil {
+			errText = strings.TrimSpace(result.err.Error())
+		}
+		if status == "" {
+			if errText != "" {
+				status = "failed"
+			} else {
+				status = "succeeded"
+			}
+		}
+		if message == "" {
+			message = status
+		}
+		if provider, ok := any(s.agent).(interface{ AsyncManager() *asynccfg.Manager }); ok && provider != nil {
+			mgr := provider.AsyncManager()
+			if mgr == nil {
+				goto linkedEvent
+			}
+			if rec, _ := mgr.Update(context.Background(), asynccfg.UpdateInput{
+				ID:          runCtx.childConversationID,
+				Status:      status,
+				Message:     message,
+				MessageKind: messageKind,
+				Error:       errText,
+			}); rec != nil {
+				toolexec.PatchAsyncToolPersistence(context.Background(), s.conv, rec, "", &asynccfg.Extracted{
+					Status:      status,
+					Message:     message,
+					MessageKind: messageKind,
+					Error:       errText,
+				})
+			}
+		}
+	}
+linkedEvent:
 	if s.linker != nil {
 		s.linker.EmitLinkedConversationAttached(ctx, runCtx.parent, runCtx.childConversationID, "", agentID, "")
 	}

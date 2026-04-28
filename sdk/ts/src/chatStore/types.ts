@@ -79,10 +79,10 @@ export type ClientLifecycle =
 /**
  * Execution-page phase tag. Mirrors backend `ExecutionPageState.Phase`.
  * The value `'main'` is the default when the backend emits nothing. `'intake'`
- * / `'sidecar'` / `'summary'` are phase-scoped annotations on a round, not
+ * / `'sidecar'` / `'summary'` / `'bootstrap'` are phase-scoped annotations on a round, not
  * turn-level states.
  */
-export type ClientExecutionPhase = 'intake' | 'sidecar' | 'summary' | 'main';
+export type ClientExecutionPhase = 'intake' | 'sidecar' | 'summary' | 'bootstrap' | 'main';
 
 export interface ClientModelStep extends EntityIdentity {
     modelCallId?: string;

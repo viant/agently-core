@@ -11,11 +11,12 @@ import (
 )
 
 type Extracted struct {
-	Status  string
-	Message string
-	Percent *int
-	KeyData json.RawMessage
-	Error   string
+	Status      string
+	Message     string
+	MessageKind string
+	Percent     *int
+	KeyData     json.RawMessage
+	Error       string
 }
 
 func ExtractOperationID(raw string, path string) (string, error) {
@@ -62,6 +63,9 @@ func ExtractPayload(raw string, selector Selector) (*Extracted, error) {
 		if value, ok := lookup(root, selector.MessagePath); ok && value != nil {
 			result.Message = strings.TrimSpace(fmt.Sprint(value))
 		}
+	}
+	if value, ok := lookup(root, "messageKind"); ok && value != nil {
+		result.MessageKind = strings.TrimSpace(fmt.Sprint(value))
 	}
 	if selector.DataPath != "" {
 		if value, ok := lookup(root, selector.DataPath); ok && value != nil {

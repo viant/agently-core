@@ -220,15 +220,16 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			return nil
 		}
 		rec, changed := manager.Update(ctx, asynccfg.UpdateInput{
-			ID:      matched.ID,
-			Status:  payload.Status,
-			Message: payload.Message,
-			Percent: payload.Percent,
-			KeyData: cloneRaw(payload.KeyData),
-			Error:   payload.Error,
+			ID:          matched.ID,
+			Status:      payload.Status,
+			Message:     payload.Message,
+			MessageKind: payload.MessageKind,
+			Percent:     payload.Percent,
+			KeyData:     cloneRaw(payload.KeyData),
+			Error:       payload.Error,
 		})
 		if rec != nil {
-			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
+			PatchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
 		if rec != nil && (asynccfg.ExecutionModeWaits(rec.ExecutionMode) || !changed) {
 			asyncwait.MarkAfterStatus(ctx, matched.ID)
@@ -269,6 +270,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			ExecutionMode:        effectiveExecutionMode(cfg, step.Args),
 			Status:               extracted.Status,
 			Message:              extracted.Message,
+			MessageKind:          extracted.MessageKind,
 			Percent:              extracted.Percent,
 			KeyData:              cloneRaw(extracted.KeyData),
 			Error:                extracted.Error,
@@ -278,7 +280,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		})
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		if rec != nil {
-			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", extracted)
+			PatchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", extracted)
 			if asynccfg.ExecutionModeWaits(rec.ExecutionMode) && !sameToolRecall {
 				maybeStartAsyncPoller(ctx, manager, reg, cfg, turn, opID, convFromContext(ctx))
 			}
@@ -303,12 +305,13 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		}
 		normalizeAsyncExtracted(toolResult, payload)
 		rec, changed := manager.Update(ctx, asynccfg.UpdateInput{
-			ID:      opID,
-			Status:  payload.Status,
-			Message: payload.Message,
-			Percent: payload.Percent,
-			KeyData: cloneRaw(payload.KeyData),
-			Error:   payload.Error,
+			ID:          opID,
+			Status:      payload.Status,
+			Message:     payload.Message,
+			MessageKind: payload.MessageKind,
+			Percent:     payload.Percent,
+			KeyData:     cloneRaw(payload.KeyData),
+			Error:       payload.Error,
 		})
 		if rec != nil && asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
 			if rebound, _ := manager.BindToolCarrier(ctx, opID, step.ID, strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)), step.Name); rebound != nil {
@@ -316,7 +319,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			}
 		}
 		if rec != nil {
-			patchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
+			PatchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 		}
 		if rec != nil && (asynccfg.ExecutionModeWaits(rec.ExecutionMode) || !changed) {
 			asyncwait.MarkAfterStatus(ctx, opID)
@@ -484,6 +487,13 @@ func observeAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, ev
 	if handle == nil || handle.session == nil || handle.pairing == nil {
 		return
 	}
+	if ev.State == asynccfg.StateCompleted || ev.State == asynccfg.StateFailed || ev.State == asynccfg.StateCanceled {
+		return
+	}
+	kind := strings.TrimSpace(strings.ToLower(ev.MessageKind))
+	if kind != "" && kind != "preamble" && kind != "progress" {
+		return
+	}
 	if strings.TrimSpace(handle.pairing.MessageID(handle.stepID)) == "" {
 		return
 	}
@@ -491,6 +501,12 @@ func observeAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, ev
 	preamble, err := asyncnarrator.UpdateNarration(narratorCtx, handle.cfg, ev)
 	if err != nil {
 		logx.WarnCtxf(ctx, "conversation", "async narrator update failed op_id=%q tool=%q err=%v", strings.TrimSpace(ev.OperationID), strings.TrimSpace(handle.stepName), err)
+		return
+	}
+	if strings.TrimSpace(handle.pairing.MessageID(handle.stepID)) == "" {
+		if err := handle.session.Start(preamble); err != nil {
+			logx.WarnCtxf(ctx, "conversation", "async preamble late start failed op_id=%q tool=%q err=%v", strings.TrimSpace(ev.OperationID), strings.TrimSpace(handle.stepName), err)
+		}
 		return
 	}
 	if err := handle.session.Push(preamble); err != nil {
@@ -533,6 +549,7 @@ func changeEventFromRecord(rec *asynccfg.OperationRecord) asynccfg.ChangeEvent {
 		OperationID:  strings.TrimSpace(rec.ID),
 		Status:       strings.TrimSpace(rec.Status),
 		Message:      strings.TrimSpace(rec.Message),
+		MessageKind:  strings.TrimSpace(rec.MessageKind),
 		Percent:      percent,
 		KeyData:      cloneRaw(rec.KeyData),
 		Error:        strings.TrimSpace(rec.Error),
@@ -753,7 +770,7 @@ func maybeCreateAsyncStatusCarrier(ctx context.Context, manager *asynccfg.Manage
 		KeyData: cloneRaw(rebound.KeyData),
 		Error:   strings.TrimSpace(rebound.Error),
 	}
-	patchAsyncToolPersistence(context.Background(), conv, rebound, "", payload)
+	PatchAsyncToolPersistence(context.Background(), conv, rebound, "", payload)
 }
 
 // rehydrateAsyncPollContext copies the request-scoped values that the autonomous
@@ -906,7 +923,7 @@ func (p *pollerState) handleTimeoutIfExpired(ctx context.Context, now time.Time)
 	if rec != nil {
 		observeAsyncNarration(ctx, p.narration, changeEventFromRecord(rec))
 	}
-	patchAsyncToolPersistence(context.Background(), p.conv, rec, "operation timed out", nil)
+	PatchAsyncToolPersistence(context.Background(), p.conv, rec, "operation timed out", nil)
 	publishAsyncUpdateEvent(ctx, p.cfg.Run.Tool, rec.ToolCallID, p.opID, payload, rec)
 	return true
 }
@@ -931,7 +948,7 @@ func (p *pollerState) executeStatusTick(ctx context.Context) (continueLoop bool)
 	if err != nil {
 		rec, terminal := p.manager.RecordPollFailure(context.Background(), p.opID, err.Error(), isTransientPollError(err))
 		if terminal {
-			patchAsyncToolPersistence(context.Background(), p.conv, rec, err.Error(), nil)
+			PatchAsyncToolPersistence(context.Background(), p.conv, rec, err.Error(), nil)
 			publishAsyncUpdateEvent(ctx, p.cfg.Status.Tool, rec.ToolCallID, p.opID, &asynccfg.Extracted{Status: "failed", Error: err.Error()}, rec)
 			return false
 		}
@@ -951,17 +968,18 @@ func (p *pollerState) executeStatusTick(ctx context.Context) (continueLoop bool)
 		return true
 	}
 	rec, _ := p.manager.Update(context.Background(), asynccfg.UpdateInput{
-		ID:      p.opID,
-		Status:  payload.Status,
-		Message: payload.Message,
-		Percent: payload.Percent,
-		KeyData: cloneRaw(payload.KeyData),
-		Error:   payload.Error,
+		ID:          p.opID,
+		Status:      payload.Status,
+		Message:     payload.Message,
+		MessageKind: payload.MessageKind,
+		Percent:     payload.Percent,
+		KeyData:     cloneRaw(payload.KeyData),
+		Error:       payload.Error,
 	})
 	if rec != nil {
 		observeAsyncNarration(ctx, p.narration, changeEventFromRecord(rec))
 	}
-	patchAsyncToolPersistence(context.Background(), p.conv, rec, "", payload)
+	PatchAsyncToolPersistence(context.Background(), p.conv, rec, "", payload)
 	publishAsyncUpdateEvent(ctx, p.cfg.Status.Tool, rec.ToolCallID, p.opID, payload, rec)
 	if rec != nil && rec.Terminal() {
 		return false
@@ -1033,7 +1051,7 @@ func resolvePollerStatusArgs(ctx context.Context, manager *asynccfg.Manager, cfg
 	return args
 }
 
-func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *asynccfg.OperationRecord, fallbackErr string, payload *asynccfg.Extracted) {
+func PatchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *asynccfg.OperationRecord, fallbackErr string, payload *asynccfg.Extracted) {
 	if conv == nil || rec == nil || strings.TrimSpace(rec.ToolMessageID) == "" {
 		return
 	}
@@ -1061,19 +1079,36 @@ func patchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *as
 	if content != "" {
 		_ = updateToolMessageContent(ctx, conv, rec.ToolMessageID, content)
 	}
-	status := "running"
-	if rec.Terminal() {
-		status = strings.TrimSpace(string(rec.State))
-	}
-	errMsg := fallbackErr
-	if payload != nil && strings.TrimSpace(payload.Error) != "" {
-		errMsg = strings.TrimSpace(payload.Error)
-	}
+	status, errMsg := asyncPersistenceToolCallOutcome(rec, payload, fallbackErr)
 	if rec.Terminal() {
 		_ = completeToolCall(ctx, conv, rec.ToolMessageID, rec.ToolCallID, rec.ToolName, status, time.Now(), respPayloadID, errMsg)
 		return
 	}
 	_ = updateAsyncToolCallState(ctx, conv, rec.ToolMessageID, rec.ToolCallID, rec.ToolName, status, respPayloadID, errMsg)
+}
+
+func asyncPersistenceToolCallOutcome(rec *asynccfg.OperationRecord, payload *asynccfg.Extracted, fallbackErr string) (string, string) {
+	if rec == nil {
+		return "running", ""
+	}
+	if !rec.Terminal() {
+		return "running", ""
+	}
+	// A terminal async payload means the status tool completed successfully
+	// and reported the child operation's terminal state. The carrier tool call
+	// must therefore be completed even when the child state is failed/canceled.
+	if payload != nil {
+		return "completed", ""
+	}
+	status := strings.TrimSpace(string(rec.State))
+	if status == "" {
+		status = "failed"
+	}
+	errMsg := strings.TrimSpace(fallbackErr)
+	if errMsg == "" {
+		errMsg = strings.TrimSpace(rec.Error)
+	}
+	return status, errMsg
 }
 
 func asyncPersistenceContent(rec *asynccfg.OperationRecord, payload *asynccfg.Extracted) string {
@@ -1084,7 +1119,7 @@ func asyncPersistenceContent(rec *asynccfg.OperationRecord, payload *asynccfg.Ex
 	if sameToolName(toolName, "llm/agents:start") || sameToolName(toolName, "llm/agents:status") {
 		kind := "progress"
 		if rec.Terminal() {
-			kind = "answer"
+			kind = "response"
 		}
 		message := strings.TrimSpace(payload.Message)
 		if rec.Terminal() && message == "" {

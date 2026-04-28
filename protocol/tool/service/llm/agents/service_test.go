@@ -11,9 +11,11 @@ import (
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
+	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
+	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	toolpol "github.com/viant/agently-core/protocol/tool"
@@ -27,6 +29,18 @@ import (
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
+
+type capturePatchRunsService struct {
+	data.Service
+	rows []*agrunwrite.MutableRunView
+}
+
+func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+	s.rows = append(s.rows, rows...)
+	return rows, nil
+}
+
+func ptrTime(v time.Time) *time.Time { return &v }
 
 func TestService_List_DataDriven(t *testing.T) {
 	ctx := context.Background()
@@ -500,6 +514,16 @@ func TestService_Run_Internal_ChildFailureReturnsToolResult(t *testing.T) {
 		ConversationID: "parent-conv",
 		TurnID:         "turn-1",
 	})
+	runCtx = memory.WithToolMessageID(runCtx, "parent-tool-msg")
+
+	parentToolMsg := convcli.NewMessage()
+	parentToolMsg.SetId("parent-tool-msg")
+	parentToolMsg.SetConversationID("parent-conv")
+	parentToolMsg.SetTurnID("turn-1")
+	parentToolMsg.SetRole("tool")
+	parentToolMsg.SetType("tool_op")
+	parentToolMsg.SetToolName("llm/agents/start")
+	require.NoError(t, conv.PatchMessage(ctx, parentToolMsg))
 
 	fake := &fakeAgentRuntime{
 		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
@@ -916,6 +940,108 @@ func TestService_Status_ByConversationID_TimesOutLongRunningChild(t *testing.T) 
 	assert.Contains(t, out.Error, "maximum wait time of 20 minutes")
 }
 
+func TestService_TerminalizeTimedOutChildConversation_PatchesExecutionState(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+	runStore := &capturePatchRunsService{}
+	svc := New(nil, WithConversationClient(conv), WithDataService(runStore))
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-timeout")
+	childConv.SetStatus("running")
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-timeout")
+	childTurn.SetConversationID("child-timeout")
+	childTurn.SetStatus("running")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	turnRef := "child-turn-timeout"
+	pendingText := "still working"
+	msgView := &convcli.Message{
+		Id:             "child-msg-timeout",
+		ConversationId: "child-timeout",
+		TurnId:         &turnRef,
+		Role:           "assistant",
+		Type:           "text",
+		Interim:        1,
+		Content:        &pendingText,
+	}
+	require.NoError(t, conv.PatchMessage(ctx, msgView.NewMutable()))
+
+	modelCall := convcli.NewModelCall()
+	modelCall.SetMessageID("child-msg-timeout")
+	modelCall.SetTurnID("child-turn-timeout")
+	modelCall.SetProvider("openai")
+	modelCall.SetModel("gpt-5.4")
+	modelCall.SetStatus("streaming")
+	require.NoError(t, conv.PatchModelCall(ctx, modelCall))
+
+	toolMsg := convcli.NewMessage()
+	toolMsg.SetId("child-tool-timeout")
+	toolMsg.SetConversationID("child-timeout")
+	toolMsg.SetTurnID("child-turn-timeout")
+	toolMsg.SetRole("tool")
+	toolMsg.SetType("tool_op")
+	toolMsg.SetParentMessageID("child-msg-timeout")
+	toolMsg.SetStatus("running")
+	toolMsg.SetToolName("forecasting/Total")
+	require.NoError(t, conv.PatchMessage(ctx, toolMsg))
+
+	toolCall := convcli.NewToolCall()
+	toolCall.SetMessageID("child-tool-timeout")
+	toolCall.SetTurnID("child-turn-timeout")
+	toolCall.SetOpID("tool-op-timeout")
+	toolCall.SetToolName("forecasting/Total")
+	toolCall.SetStatus("running")
+	require.NoError(t, conv.PatchToolCall(ctx, toolCall))
+
+	child, err := conv.GetConversation(ctx, "child-timeout", convcli.WithIncludeTranscript(true), convcli.WithIncludeToolCall(true), convcli.WithIncludeModelCall(true))
+	require.NoError(t, err)
+	require.NotNil(t, child)
+
+	svc.terminalizeTimedOutChildConversation(ctx, child, childConversationState{
+		conversationID: "child-timeout",
+		rawStatus:      "running",
+		status:         "failed",
+		terminal:       true,
+		errorSummary:   "Child agent exceeded the maximum wait time of 20 minutes without reaching a terminal state.",
+	})
+
+	gotConv, err := conv.GetConversation(ctx, "child-timeout", convcli.WithIncludeTranscript(true), convcli.WithIncludeToolCall(true), convcli.WithIncludeModelCall(true))
+	require.NoError(t, err)
+	require.NotNil(t, gotConv)
+	require.NotNil(t, gotConv.Status)
+	assert.Equal(t, "failed", strings.ToLower(strings.TrimSpace(*gotConv.Status)))
+	require.Len(t, gotConv.GetTranscript(), 1)
+	assert.Equal(t, "failed", strings.ToLower(strings.TrimSpace(gotConv.GetTranscript()[0].Status)))
+
+	msg, err := conv.GetMessage(ctx, "child-msg-timeout")
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	require.NotNil(t, msg.Status)
+	assert.Equal(t, "failed", strings.ToLower(strings.TrimSpace(*msg.Status)))
+	require.NotNil(t, msg.ModelCall)
+	assert.Equal(t, "canceled", strings.ToLower(strings.TrimSpace(msg.ModelCall.Status)))
+	require.NotNil(t, msg.ModelCall.CompletedAt)
+
+	require.Len(t, gotConv.GetTranscript(), 1)
+	assistantTurnMsg := gotConv.GetTranscript()[0].Message[0]
+	require.NotNil(t, assistantTurnMsg)
+	require.NotNil(t, assistantTurnMsg.ToolMessage)
+	require.NotEmpty(t, assistantTurnMsg.ToolMessage)
+	require.NotNil(t, assistantTurnMsg.ToolMessage[0].ToolCall)
+	assert.Equal(t, "canceled", strings.ToLower(strings.TrimSpace(assistantTurnMsg.ToolMessage[0].ToolCall.Status)))
+	require.NotNil(t, assistantTurnMsg.ToolMessage[0].ToolCall.CompletedAt)
+
+	require.NotEmpty(t, runStore.rows)
+	last := runStore.rows[len(runStore.rows)-1]
+	require.Equal(t, "child-turn-timeout", last.Id)
+	require.Equal(t, "failed", strings.ToLower(strings.TrimSpace(last.Status)))
+	require.NotNil(t, last.CompletedAt)
+}
+
 func TestService_Status_ByConversationID_TimesOutWaitingForUserChildAfterFiveMinutes(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()
@@ -1032,6 +1158,7 @@ func TestService_AsyncConfig(t *testing.T) {
 	cfg := svc.AsyncConfig("llm/agents:start")
 	require.NotNil(t, cfg)
 	assert.Equal(t, string(asynccfg.ExecutionModeDetach), cfg.DefaultExecutionMode)
+	assert.Zero(t, cfg.TimeoutMs)
 	assert.Equal(t, "keydata", cfg.Narration)
 	assert.Equal(t, "llm/agents:start", cfg.Run.Tool)
 	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
@@ -1186,6 +1313,55 @@ func TestService_Run_Internal_AsyncCompletionEmitsLinkedConversationEvent(t *tes
 			}
 		}
 	}, time.Second, 10*time.Millisecond, "expected linked conversation event for detached completion resurfacing")
+
+}
+
+func TestAttachLinkedConversation_PatchesCurrentToolMessage(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	parentTurn := convcli.NewTurn()
+	parentTurn.SetId("turn-1")
+	parentTurn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, parentTurn))
+
+	parentToolMsg := convcli.NewMessage()
+	parentToolMsg.SetId("parent-tool-msg")
+	parentToolMsg.SetConversationID("parent-conv")
+	parentToolMsg.SetTurnID("turn-1")
+	parentToolMsg.SetRole("tool")
+	parentToolMsg.SetType("tool_op")
+	parentToolMsg.SetToolName("llm/agents/start")
+	require.NoError(t, conv.PatchMessage(ctx, parentToolMsg))
+
+	runCtx := memory.WithToolMessageID(ctx, "parent-tool-msg")
+	attachLinkedConversation(runCtx, conv, memory.TurnMeta{
+		ConversationID: "parent-conv",
+		TurnID:         "turn-1",
+	}, "", "child-conv")
+
+	parentSnapshot, err := conv.GetConversation(ctx, "parent-conv", convcli.WithIncludeTranscript(true))
+	require.NoError(t, err)
+	require.NotNil(t, parentSnapshot)
+	var sawLinked bool
+	for _, turn := range parentSnapshot.GetTranscript() {
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.GetMessages() {
+			if msg == nil || msg.Id != "parent-tool-msg" {
+				continue
+			}
+			if msg.LinkedConversationId != nil && strings.TrimSpace(*msg.LinkedConversationId) == "child-conv" {
+				sawLinked = true
+			}
+		}
+	}
+	require.True(t, sawLinked, "expected current tool message to receive linked_conversation_id")
 }
 
 func TestService_Run_Internal_AsyncFailureDoesNotResurfaceHelperMessage(t *testing.T) {

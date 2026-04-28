@@ -29,6 +29,22 @@ func (continuationModel) Implements(feature string) bool {
 	return feature == base.SupportsContextContinuation
 }
 
+type noContinuationFinder struct{}
+
+func (noContinuationFinder) Find(context.Context, string) (llm.Model, error) {
+	return noContinuationModel{}, nil
+}
+
+type noContinuationModel struct{}
+
+func (noContinuationModel) Generate(context.Context, *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	return nil, nil
+}
+
+func (noContinuationModel) Implements(feature string) bool {
+	return false
+}
+
 func TestService_BuildToolSignatures_WithBundles(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -202,4 +218,49 @@ func TestBuildToolSignatures_ExposesMessageShowOnlyWhenOverflowDetected(t *testi
 	assert.NotContains(t, normalNames, "message-match")
 	assert.NotContains(t, normalNames, "message-summarize")
 	assert.NotContains(t, normalNames, "message-remove")
+}
+
+func TestAllowContinuationPreview_UsesModelContinuationCapability(t *testing.T) {
+	svc := &Service{
+		llm: core.New(continuationFinder{}, nil, nil),
+	}
+	got := svc.allowContinuationPreview(context.Background(), &QueryInput{
+		ModelOverride: "openai_gpt-5_4",
+	})
+	assert.True(t, got)
+}
+
+func TestAllowContinuationPreview_DisabledWithoutModelContinuationCapability(t *testing.T) {
+	svc := &Service{
+		llm: core.New(noContinuationFinder{}, nil, nil),
+	}
+	got := svc.allowContinuationPreview(context.Background(), &QueryInput{
+		ModelOverride: "openai_gpt-5_4",
+	})
+	assert.False(t, got)
+}
+
+func TestEnsureInternalToolsIfNeeded_SkipsMessageShowWhenContinuationDisabled(t *testing.T) {
+	reg := &fakeRegistry{
+		defs: []llm.ToolDefinition{
+			{Name: "message/show"},
+			{Name: "message/match"},
+			{Name: "message/summarize"},
+			{Name: "message/remove"},
+		},
+	}
+	svc := &Service{
+		registry: reg,
+		llm:      core.New(noContinuationFinder{}, reg, nil),
+	}
+	withOverflow := &binding.Binding{
+		Model: "openai_gpt-5.4",
+		Flags: binding.Flags{
+			HasMessageOverflow: true,
+		},
+	}
+	svc.ensureInternalToolsIfNeeded(context.Background(), &QueryInput{
+		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward", Name: "Steward"}},
+	}, withOverflow)
+	assert.Empty(t, withOverflow.Tools.Signatures)
 }

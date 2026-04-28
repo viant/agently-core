@@ -318,7 +318,7 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 	})
 }
 
-func TestToRequest_PreviewsLargeToolResultReplay(t *testing.T) {
+func TestToRequest_DoesNotRewriteLargeToolResultReplay(t *testing.T) {
 	large := strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512)
 	in := llm.GenerateRequest{
 		Messages: []llm.Message{
@@ -354,11 +354,9 @@ func TestToRequest_PreviewsLargeToolResultReplay(t *testing.T) {
 	got := ToRequest(&in)
 	if assert.Len(t, got.Messages, 3) {
 		text := messageTextContent(got.Messages[2].Content)
-		assert.Contains(t, text, "overflow: true")
-		assert.Contains(t, text, "useToolToSeeMore: message-show")
-		assert.Contains(t, text, "messageId: call_1")
-		assert.Contains(t, text, "[... omitted middle ...]")
-		assert.NotContains(t, text, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))
+		assert.NotContains(t, text, "overflow: true")
+		assert.NotContains(t, text, "useToolToSeeMore: message-show")
+		assert.Contains(t, text, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))
 	}
 }
 
@@ -385,8 +383,8 @@ func TestToRequest_PreservesNativeContinuationShape(t *testing.T) {
 	if assert.Len(t, got.Messages, 1) {
 		text := messageTextContent(got.Messages[0].Content)
 		assert.Contains(t, text, `"continuation":{"hasMore":true`)
-		assert.Contains(t, text, `"nextRange":{"bytes":{"length":512,"offset":512}}`)
+		assert.Contains(t, text, `"nextRange":{"bytes":{"offset":512,"length":512}}`)
 		assert.NotContains(t, text, "useToolToSeeMore: message-show")
-		assert.Contains(t, text, "[... omitted middle ...]")
+		assert.NotContains(t, text, "[... omitted middle ...]")
 	}
 }

@@ -77,6 +77,7 @@ type RunHas struct {
 	LeaseOwner            bool
 	LeaseUntil            bool
 	LastHeartbeatAt       bool
+	HeartbeatIntervalSec  bool
 	SecurityContext       bool
 	UserCredURL           bool
 	EffectiveUserID       bool
@@ -198,6 +199,11 @@ func (r *MutableRunView) SetEffectiveUserID(v string) {
 	r.EffectiveUserID = &v
 	r.ensureHas()
 	r.Has.EffectiveUserID = true
+}
+func (r *MutableRunView) SetHeartbeatIntervalSec(v int) {
+	r.HeartbeatIntervalSec = &v
+	r.ensureHas()
+	r.Has.HeartbeatIntervalSec = true
 }
 func (r *MutableRunView) SetScheduledFor(v time.Time) {
 	r.ScheduledFor = &v

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
@@ -44,7 +45,12 @@ func TestEnsureRunRecordPreservesScheduledKind(t *testing.T) {
 
 func TestEnsureRunRecordDefaultsToInteractive(t *testing.T) {
 	store := &capturePatchRunsService{}
-	svc := &Service{dataService: store}
+	svc := &Service{
+		dataService:             store,
+		runWorkerHost:           "host-a",
+		runLeaseOwner:           "host-a:123:lease",
+		runHeartbeatIntervalSec: 60,
+	}
 	turn := memory.TurnMeta{TurnID: "run-2", ConversationID: "conv-2"}
 
 	err := svc.ensureRunRecord(context.Background(), turn, "running", "")
@@ -59,4 +65,38 @@ func TestEnsureRunRecordDefaultsToInteractive(t *testing.T) {
 	require.Equal(t, "interactive", *row.ConversationKind)
 	require.NotNil(t, row.StartedAt)
 	require.NotNil(t, row.CreatedAt)
+	require.NotNil(t, row.WorkerHost)
+	require.Equal(t, "host-a", *row.WorkerHost)
+	require.NotNil(t, row.LeaseOwner)
+	require.Equal(t, "host-a:123:lease", *row.LeaseOwner)
+	require.NotNil(t, row.LastHeartbeatAt)
+	require.NotNil(t, row.HeartbeatIntervalSec)
+	require.Equal(t, 60, *row.HeartbeatIntervalSec)
+	require.NotNil(t, row.LeaseUntil)
+}
+
+func TestStartRunHeartbeatPatchesInteractiveRunLiveness(t *testing.T) {
+	store := &capturePatchRunsService{}
+	svc := &Service{
+		dataService:             store,
+		runWorkerHost:           "host-a",
+		runLeaseOwner:           "host-a:123:lease",
+		runHeartbeatIntervalSec: 2,
+		runHeartbeatEvery:       50 * time.Millisecond,
+	}
+	turn := memory.TurnMeta{TurnID: "run-heartbeat", ConversationID: "conv-heartbeat"}
+
+	stop := svc.startRunHeartbeat(context.Background(), turn)
+	defer stop()
+
+	require.Eventually(t, func() bool {
+		return len(store.rows) > 0
+	}, 3*time.Second, 50*time.Millisecond)
+
+	last := store.rows[len(store.rows)-1]
+	require.Equal(t, "run-heartbeat", last.Id)
+	require.NotNil(t, last.LastHeartbeatAt)
+	require.NotNil(t, last.LeaseUntil)
+	require.NotNil(t, last.LeaseOwner)
+	require.Equal(t, "host-a:123:lease", *last.LeaseOwner)
 }

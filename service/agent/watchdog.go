@@ -87,6 +87,9 @@ func (w *Watchdog) sweep(ctx context.Context) {
 }
 
 func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
+	if shouldSkipStaleRun(run) {
+		return nil
+	}
 	// Try to resume if we have auth context and a conversation to continue.
 	if run.ConversationId != nil && strings.TrimSpace(*run.ConversationId) != "" {
 		resumeCtx := ctx
@@ -166,4 +169,17 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	failRun.SetCompletedAt(time.Now())
 	_, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failRun})
 	return err
+}
+
+func shouldSkipStaleRun(run *agrunstale.StaleRunsView) bool {
+	if run == nil {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(run.ConversationKind), "scheduled") {
+		return true
+	}
+	if run.ResumedFromRunId != nil && strings.TrimSpace(*run.ResumedFromRunId) != "" {
+		return true
+	}
+	return false
 }

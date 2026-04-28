@@ -151,6 +151,7 @@ type Event struct {
 	LinkedConversationTitle   string                 `json:"linkedConversationTitle,omitempty"`
 	ExecutionRole             string                 `json:"executionRole,omitempty"`
 	Phase                     string                 `json:"phase,omitempty"`
+	PageID                    string                 `json:"pageId,omitempty"`
 	Mode                      string                 `json:"mode,omitempty"`
 	Type                      EventType              `json:"type"`
 	Op                        string                 `json:"op,omitempty"`

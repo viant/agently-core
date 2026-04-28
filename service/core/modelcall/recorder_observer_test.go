@@ -437,6 +437,61 @@ func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {
 	}
 }
 
+func TestRecorderObserver_OnCallEnd_UserEchoLookupIgnoresCanceledParentContext(t *testing.T) {
+	baseClient := convmem.New()
+	client := &uncanceledGetMessageClient{Client: baseClient, t: t}
+	base := memory.WithConversationID(context.Background(), "conv-echo")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-echo", "")))
+
+	userTurn := apiconv.NewTurn()
+	userTurn.SetId("turn-echo")
+	userTurn.SetConversationID("conv-echo")
+	userTurn.SetStatus("running")
+	require.NoError(t, client.PatchTurn(base, userTurn))
+
+	userMsg := apiconv.NewMessage()
+	userMsg.SetId("user-msg-echo")
+	userMsg.SetConversationID("conv-echo")
+	userMsg.SetTurnID("turn-echo")
+	userMsg.SetRole("user")
+	userMsg.SetType("text")
+	userMsg.SetContent("Echo me")
+	userMsg.SetRawContent("Echo me")
+	require.NoError(t, client.PatchMessage(base, userMsg))
+
+	runCtx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID:  "conv-echo",
+		TurnID:          "turn-echo",
+		ParentMessageID: "user-msg-echo",
+	})
+	runCtx, cancel := context.WithCancel(runCtx)
+
+	ctx := WithRecorderObserver(runCtx, client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+	cancel()
+
+	err = ob.OnCallEnd(ctx2, Info{
+		Model: "test-model",
+		LLMResponse: &llm.GenerateResponse{
+			Choices: []llm.Choice{{
+				Message: llm.Message{
+					Role:      llm.RoleAssistant,
+					Content:   "Echo me",
+					ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "resources-roots"}},
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+}
+
 func TestOnCallEnd_DoesNotPatchConversationWhenFinishModelCallFails(t *testing.T) {
 	baseClient := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
@@ -964,4 +1019,16 @@ type capturingModelCallClient struct {
 func (c *capturingModelCallClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
 	c.modelCalls = append(c.modelCalls, modelCall)
 	return c.Client.PatchModelCall(ctx, modelCall)
+}
+
+type uncanceledGetMessageClient struct {
+	apiconv.Client
+	t *testing.T
+}
+
+func (c *uncanceledGetMessageClient) GetMessage(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Message, error) {
+	if err := ctx.Err(); err != nil {
+		c.t.Fatalf("GetMessage received canceled context: %v", err)
+	}
+	return c.Client.GetMessage(ctx, id, options...)
 }

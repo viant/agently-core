@@ -40,8 +40,15 @@ type Config struct {
 	TimeoutMs            int           `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty"`
 	PollIntervalMs       int           `json:"pollIntervalMs,omitempty" yaml:"pollIntervalMs,omitempty"`
 	IdleTimeoutMs        int           `json:"idleTimeoutMs,omitempty" yaml:"idleTimeoutMs,omitempty"`
-	Narration            string        `json:"narration,omitempty" yaml:"narration,omitempty"`
-	NarrationTemplate    string        `json:"narrationTemplate,omitempty" yaml:"narrationTemplate,omitempty"`
+	// Narration controls how wait-mode async progress is surfaced to the parent
+	// turn. Supported values:
+	//   - "none": silent
+	//   - "keydata": no narrator LLM; surface the async update directly from
+	//     selector-extracted payload data/message (used by llm/agents)
+	//   - "template": deterministic template rendering
+	//   - "llm": supervising narrator LLM summarizes each async update
+	Narration         string `json:"narration,omitempty" yaml:"narration,omitempty"`
+	NarrationTemplate string `json:"narrationTemplate,omitempty" yaml:"narrationTemplate,omitempty"`
 }
 
 type RunConfig struct {

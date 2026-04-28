@@ -424,11 +424,9 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 
 	// Convert messages
-	previewLimit := toolResultPreviewLimit(request)
 	req.Messages = make([]Message, 0) //len(request.Messages))
 	for _, originalMsg := range request.Messages {
-		// Work on a local copy so we can transform tool messages if needed.
-		msg := sanitizeToolReplayMessage(originalMsg, previewLimit)
+		msg := originalMsg
 		message := Message{
 			Role: string(msg.Role),
 		}

@@ -13,9 +13,10 @@ func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 		Embedder: "fallback-embedder",
 		Agent:    "fallback-agent",
 		PreviewSettings: execconfig.PreviewSettings{
-			Limit:          1000,
-			AgedLimit:      200,
-			AgedAfterSteps: 3,
+			Limit:           1000,
+			AgedLimit:       200,
+			ToolResultLimit: 300,
+			AgedAfterSteps:  3,
 		},
 		ToolCallMaxResults:    2,
 		ToolCallTimeoutSec:    5,
@@ -31,6 +32,7 @@ default:
   previewSettings:
     limit: 8000
     agedLimit: 2500
+    toolResultLimit: 32000
     agedAfterSteps: 2
   toolCallMaxResults: 7
   toolCallTimeoutSec: 45
@@ -59,6 +61,9 @@ default:
 	}
 	if got.PreviewSettings.AgedAfterSteps != 2 {
 		t.Fatalf("expected agedAfterSteps 2, got %d", got.PreviewSettings.AgedAfterSteps)
+	}
+	if got.PreviewSettings.ToolResultLimit != 32000 {
+		t.Fatalf("expected toolResultLimit 32000, got %d", got.PreviewSettings.ToolResultLimit)
 	}
 	if got.ToolCallMaxResults != 7 {
 		t.Fatalf("expected ToolCallMaxResults 7, got %d", got.ToolCallMaxResults)

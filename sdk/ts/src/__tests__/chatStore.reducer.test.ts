@@ -233,6 +233,100 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
         });
     });
 
+    it('assistant message_add-style rows stay standalone even when execution pages already exist', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_A',
+            createdAt: '2025-01-01T00:00:00.000Z',
+        }));
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_A',
+            assistantMessageId: 'msg_exec',
+            pageId: 'pg_1',
+            status: 'running',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'assistant',
+            turnId: 'tn_A',
+            iteration: 1,
+            messageId: 'msg_prelim',
+            content: 'PRELIMINARY DASHBOARD',
+            createdAt: '2025-01-01T00:00:08.000Z',
+            patch: {
+                role: 'assistant',
+                mode: 'task',
+                interim: 0,
+                sequence: 12,
+                status: 'completed',
+            },
+        } as SSEEvent));
+
+        expect(state.turns[0].messages).toHaveLength(1);
+        expect(state.turns[0].messages[0]).toMatchObject({
+            messageId: 'msg_prelim',
+            role: 'assistant',
+            content: 'PRELIMINARY DASHBOARD',
+            mode: 'task',
+            interim: 0,
+        });
+        expect(state.turns[0].pages[0].content ?? '').not.toBe('PRELIMINARY DASHBOARD');
+        expect(state.turns[0].pages[0].finalAssistantMessageId ?? '').not.toBe('msg_prelim');
+    });
+
+    it('later standalone assistant rows in the same iteration stay standalone', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_A',
+            createdAt: '2025-01-01T00:00:00.000Z',
+        }));
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_A',
+            assistantMessageId: 'msg_exec_1',
+            pageId: 'pg_1',
+            iteration: 4,
+            status: 'running',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'assistant',
+            turnId: 'tn_A',
+            iteration: 4,
+            messageId: 'msg_prelim_1',
+            content: 'FIRST PRELIMINARY',
+            createdAt: '2025-01-01T00:00:08.000Z',
+            patch: {
+                role: 'assistant',
+                mode: 'task',
+                interim: 0,
+                sequence: 12,
+                status: 'completed',
+            },
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'assistant',
+            turnId: 'tn_A',
+            iteration: 4,
+            messageId: 'msg_prelim_2',
+            content: 'SECOND PRELIMINARY',
+            createdAt: '2025-01-01T00:00:09.000Z',
+            patch: {
+                role: 'assistant',
+                mode: 'task',
+                interim: 0,
+                sequence: 13,
+                status: 'completed',
+            },
+        } as SSEEvent));
+
+        expect(state.turns[0].messages.map((message) => message.messageId)).toEqual(['msg_prelim_1', 'msg_prelim_2']);
+        expect(state.turns[0].pages[0].content ?? '').not.toBe('FIRST PRELIMINARY');
+        expect(state.turns[0].pages[0].content ?? '').not.toBe('SECOND PRELIMINARY');
+    });
+
     it('elicitation_requested copies message and schema from SSE payload', () => {
         let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
         state = applyEvent(state, sse({
@@ -516,6 +610,211 @@ describe('chatStore/reducer — merge rule', () => {
 
         const workerPage = state.turns[0].pages[state.turns[0].pages.length - 1]!;
         expect(workerPage.toolCalls[0].executionRole).toBe('worker');
+    });
+
+    it('keeps bootstrap tool events in a dedicated bootstrap page instead of attaching them to intake', () => {
+        let state = fresh();
+
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_bootstrap',
+            pageId: 'pg_intake',
+            assistantMessageId: 'msg-intake',
+            phase: 'intake',
+            model: { provider: 'openai', model: 'gpt-5-mini' },
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_bootstrap',
+            toolCallId: 'bootstrap-1',
+            toolName: 'llm/agents:list',
+            phase: 'bootstrap',
+            executionRole: 'bootstrap',
+            status: 'running',
+        } as SSEEvent));
+
+        expect(state.turns[0].pages).toHaveLength(2);
+        expect(state.turns[0].pages[0].phase).toBe('intake');
+        expect(state.turns[0].pages[0].toolCalls).toHaveLength(0);
+        expect(state.turns[0].pages[1].phase).toBe('bootstrap');
+        expect(state.turns[0].pages[1].executionRole).toBe('bootstrap');
+        expect(state.turns[0].pages[1].toolCalls[0]).toMatchObject({
+            toolCallId: 'bootstrap-1',
+            toolName: 'llm/agents:list',
+            executionRole: 'bootstrap',
+            status: 'running',
+        });
+    });
+
+    it('derives bootstrap phase from systemContext mode even when phase is omitted', () => {
+        let state = fresh();
+
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_bootstrap_mode',
+            pageId: 'pg_intake',
+            assistantMessageId: 'msg-intake',
+            phase: 'intake',
+            model: { provider: 'openai', model: 'gpt-5-mini' },
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_bootstrap_mode',
+            toolCallId: 'bootstrap-2',
+            toolName: 'llm/skills:list',
+            mode: 'systemContext',
+            status: 'running',
+        } as SSEEvent));
+
+        expect(state.turns[0].pages).toHaveLength(2);
+        expect(state.turns[0].pages[1].phase).toBe('bootstrap');
+        expect(state.turns[0].pages[1].executionRole).toBe('bootstrap');
+        expect(state.turns[0].pages[1].toolCalls[0]).toMatchObject({
+            toolCallId: 'bootstrap-2',
+            toolName: 'llm/skills:list',
+            executionRole: 'bootstrap',
+            status: 'running',
+        });
+    });
+
+    it('creates a new main page after bootstrap instead of attaching model work to the bootstrap page', () => {
+        let state = fresh();
+
+        state = applyEvent(state, sse({
+            type: 'turn_started',
+            turnId: 'tn_bootstrap_main',
+            createdAt: '2025-01-01T00:00:00.000Z',
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_bootstrap_main',
+            toolCallId: 'bootstrap-3',
+            toolName: 'llm/agents:list',
+            mode: 'systemContext',
+            status: 'running',
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_bootstrap_main',
+            assistantMessageId: 'msg-main',
+            modelCallId: 'mc-main',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+            status: 'running',
+        } as SSEEvent));
+
+        expect(state.turns[0].pages).toHaveLength(3);
+        expect(state.turns[0].pages[0].pageId).toBe('tn_bootstrap_main:anchor');
+        expect(state.turns[0].pages[1].phase).toBe('bootstrap');
+        expect(state.turns[0].pages[1].iteration).toBeUndefined();
+        expect(state.turns[0].pages[1].toolCalls).toHaveLength(1);
+        expect(state.turns[0].pages[1].modelSteps).toHaveLength(0);
+        expect(state.turns[0].pages[2].phase).toBe('main');
+        expect(state.turns[0].pages[2].iteration).toBe(2);
+        expect(state.turns[0].pages[2].modelSteps[0]).toMatchObject({
+            assistantMessageId: 'msg-main',
+            modelCallId: 'mc-main',
+            provider: 'openai',
+            model: 'gpt-5.4',
+            status: 'running',
+        });
+    });
+
+    it('does not collapse a pageId-scoped main round onto a bootstrap page that shares the same iteration', () => {
+        let state = fresh();
+
+        state = applyEvent(state, sse({
+            type: 'turn_started',
+            turnId: 'tn_bootstrap_iter',
+            createdAt: '2025-01-01T00:00:00.000Z',
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_bootstrap_iter',
+            pageId: 'tn_bootstrap_iter:bootstrap',
+            toolCallId: 'bootstrap-iter-1',
+            toolName: 'llm/agents:list',
+            mode: 'systemContext',
+            iteration: 1,
+            status: 'running',
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_bootstrap_iter',
+            pageId: 'msg-main-iter',
+            assistantMessageId: 'msg-main-iter',
+            modelCallId: 'mc-main-iter',
+            iteration: 1,
+            model: { provider: 'openai', model: 'gpt-5.4' },
+            status: 'running',
+        } as SSEEvent));
+
+        expect(state.turns[0].pages).toHaveLength(3);
+        expect(state.turns[0].pages[1]).toMatchObject({
+            pageId: 'tn_bootstrap_iter:bootstrap',
+            phase: 'bootstrap',
+            iteration: 1,
+        });
+        expect(state.turns[0].pages[1].toolCalls[0]).toMatchObject({
+            toolCallId: 'bootstrap-iter-1',
+            toolName: 'llm/agents:list',
+            executionRole: 'bootstrap',
+        });
+        expect(state.turns[0].pages[1].modelSteps).toHaveLength(0);
+        expect(state.turns[0].pages[2]).toMatchObject({
+            pageId: 'msg-main-iter',
+            phase: 'main',
+            iteration: 1,
+        });
+        expect(state.turns[0].pages[2].modelSteps[0]).toMatchObject({
+            assistantMessageId: 'msg-main-iter',
+            modelCallId: 'mc-main-iter',
+            status: 'running',
+        });
+    });
+
+    it('merges a late modelCallId onto the existing anonymous assistant step', () => {
+        let state = fresh();
+
+        state = applyEvent(state, sse({
+            type: 'turn_started',
+            turnId: 'tn_model_identity',
+            createdAt: '2025-01-01T00:00:00.000Z',
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_model_identity',
+            pageId: 'msg-main',
+            assistantMessageId: 'msg-main',
+            iteration: 1,
+            model: { provider: 'openai', model: 'gpt-5.4' },
+            status: 'running',
+        } as SSEEvent));
+
+        state = applyEvent(state, sse({
+            type: 'model_completed',
+            turnId: 'tn_model_identity',
+            pageId: 'msg-main',
+            assistantMessageId: 'msg-main',
+            modelCallId: 'mc-final',
+            iteration: 1,
+            status: 'completed',
+        } as SSEEvent));
+
+        const page = state.turns[0].pages.find((p) => p.pageId === 'msg-main');
+        expect(page).toBeTruthy();
+        expect(page?.modelSteps).toHaveLength(1);
+        expect(page?.modelSteps?.[0]).toMatchObject({
+            assistantMessageId: 'msg-main',
+            modelCallId: 'mc-final',
+            status: 'completed',
+        });
     });
 
     it('event supersedes local on the same field', () => {
