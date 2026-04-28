@@ -923,25 +923,27 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 					scanner := bufio.NewScanner(bytes.NewReader(respBody))
 					buf := make([]byte, 0, sseInitialBuf)
 					scanner.Buffer(buf, sseMaxBuf)
-					currentEvent := ""
-					for scanner.Scan() {
-						line := scanner.Text()
-						if strings.HasPrefix(line, "event: ") {
-							currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
-							continue
+					func() {
+						defer proc.finalize(scanner.Err())
+						currentEvent := ""
+						for scanner.Scan() {
+							line := scanner.Text()
+							if strings.HasPrefix(line, "event: ") {
+								currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+								continue
+							}
+							if !strings.HasPrefix(line, "data: ") {
+								continue
+							}
+							data := strings.TrimPrefix(line, "data: ")
+							if data == "[DONE]" {
+								break
+							}
+							if ok := proc.handleEvent(currentEvent, data); !ok {
+								return
+							}
 						}
-						if !strings.HasPrefix(line, "data: ") {
-							continue
-						}
-						data := strings.TrimPrefix(line, "data: ")
-						if data == "[DONE]" {
-							break
-						}
-						if ok := proc.handleEvent(currentEvent, data); !ok {
-							return
-						}
-					}
-					proc.finalize(scanner.Err())
+					}()
 				}
 			}()
 			return events, nil
@@ -1011,53 +1013,55 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		scanner := bufio.NewScanner(io.TeeReader(resp.Body, &respBodyBuf))
 		buf := make([]byte, 0, sseInitialBuf)
 		scanner.Buffer(buf, sseMaxBuf)
-		currentEvent := ""
-		gotSSEData := false
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, "event: ") {
-				currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
-				continue
-			}
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-			gotSSEData = true
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				break
-			}
-			if ok := proc.handleEvent(currentEvent, data); !ok {
+		func() {
+			gotSSEData := false
+			defer func() {
 				proc.respBody = respBodyBuf.Bytes()
-				return
-			}
-		}
-		proc.respBody = respBodyBuf.Bytes()
-		// If no SSE data was seen, the response may be a JSON error body.
-		if !gotSSEData {
-			respBody := proc.respBody
-			if msg, code := parseOpenAIError(respBody); msg != "" {
-				if isContinuationError(respBody) {
-					full := fmt.Sprintf("openai continuation error: %s", msg)
-					events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
-					if proc.observer != nil && !proc.state.ended {
-						if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
-							events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+				// If no SSE data was seen, the response may be a JSON error body.
+				if !gotSSEData {
+					respBody := proc.respBody
+					if msg, code := parseOpenAIError(respBody); msg != "" {
+						if isContinuationError(respBody) {
+							full := fmt.Sprintf("openai continuation error: %s", msg)
+							events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+							if proc.observer != nil && !proc.state.ended {
+								if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+									events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+								}
+							}
+						} else {
+							full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+							events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+							if proc.observer != nil && !proc.state.ended {
+								if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
+									events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
+								}
+							}
 						}
 					}
+				}
+				proc.finalize(scanner.Err())
+			}()
+			currentEvent := ""
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.HasPrefix(line, "event: ") {
+					currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+					continue
+				}
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				gotSSEData = true
+				data := strings.TrimPrefix(line, "data: ")
+				if data == "[DONE]" {
+					break
+				}
+				if ok := proc.handleEvent(currentEvent, data); !ok {
 					return
 				}
-				full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
-				events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
-				if proc.observer != nil && !proc.state.ended {
-					if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
-						events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
-					}
-				}
-				return
 			}
-		}
-		proc.finalize(scanner.Err())
+		}()
 	}()
 	return events, nil
 }

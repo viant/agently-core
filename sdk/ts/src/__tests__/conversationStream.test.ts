@@ -201,6 +201,54 @@ describe('ConversationStreamTracker', () => {
         });
     });
 
+    it('projects bootstrap and first main round as separate execution pages when pageId is explicit', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyEvent({
+            type: 'tool_call_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            pageId: 'turn-1:bootstrap',
+            toolCallId: 'bootstrap-1',
+            toolName: 'llm/agents:list',
+            mode: 'systemContext',
+            iteration: 0,
+            status: 'running',
+        } as SSEEvent);
+
+        tracker.applyEvent({
+            type: 'model_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            pageId: 'msg-main-1',
+            messageId: 'msg-main-1',
+            assistantMessageId: 'msg-main-1',
+            iteration: 1,
+            status: 'running',
+            model: { provider: 'openai', model: 'gpt-5.4' },
+        } as SSEEvent);
+
+        const turns = projectTrackerToTurns(tracker.canonicalState, 'conv-1');
+        expect(turns).toHaveLength(1);
+        expect(turns[0]?.execution?.pages).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    pageId: 'turn-1:bootstrap',
+                    assistantMessageId: 'turn-1:bootstrap',
+                    phase: 'bootstrap',
+                    executionRole: 'bootstrap',
+                    toolSteps: [expect.objectContaining({ toolName: 'llm/agents:list' })],
+                }),
+                expect.objectContaining({
+                    pageId: 'msg-main-1',
+                    assistantMessageId: 'msg-main-1',
+                    iteration: 1,
+                    modelSteps: [expect.objectContaining({ provider: 'openai', model: 'gpt-5.4' })],
+                }),
+            ]),
+        );
+    });
+
     it('orders projected live assistant rows before selecting the latest row for a turn', () => {
         const tracker = new ConversationStreamTracker('conv-1');
 

@@ -83,6 +83,15 @@ func TestStartNarration(t *testing.T) {
 	if got != "Primary baseline read: delivery is constrained by targeting and supply." {
 		t.Fatalf("StartNarration(keydata) = %q", got)
 	}
+	got, err = StartNarration(runtimerequestctx.WithUserAsk(context.Background(), "Troubleshoot 2654884"), &asynccfg.Config{Narration: "keydata"}, &asynccfg.OperationRecord{
+		Message: "Checking whether the last-7-day delivery pattern confirms a setup or supply restriction rather than a pacing problem for ad order 2654884.",
+	})
+	if err != nil {
+		t.Fatalf("StartNarration(keydata direct message) error = %v", err)
+	}
+	if got != "Checking whether the last-7-day delivery pattern confirms a setup or supply restriction rather than a pacing problem for ad order 2654884." {
+		t.Fatalf("StartNarration(keydata direct message) = %q", got)
+	}
 }
 
 func TestUpdateNarration(t *testing.T) {
@@ -140,6 +149,15 @@ func TestUpdateNarration(t *testing.T) {
 	}
 	if got != "Reviewing Hierarchy, Delivery impact." {
 		t.Fatalf("UpdateNarration(keydata) = %q", got)
+	}
+	got, err = UpdateNarration(runtimerequestctx.WithUserAsk(context.Background(), "Troubleshoot 2654884"), &asynccfg.Config{Narration: "keydata"}, asynccfg.ChangeEvent{
+		Message: "I’m translating the baseline limiting stack into forecastable parameters and reading each of the last three complete days separately.",
+	})
+	if err != nil {
+		t.Fatalf("UpdateNarration(keydata direct message) error = %v", err)
+	}
+	if got != "I’m translating the baseline limiting stack into forecastable parameters and reading each of the last three complete days separately." {
+		t.Fatalf("UpdateNarration(keydata direct message) = %q", got)
 	}
 }
 

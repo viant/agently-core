@@ -134,6 +134,9 @@ func StartNarration(ctx context.Context, cfg *asynccfg.Config, rec *asynccfg.Ope
 	case "keydata":
 		text := renderKeyData(rec.KeyData, rec.Message)
 		if text == "" {
+			if msg := strings.TrimSpace(rec.Message); msg != "" {
+				return msg, nil
+			}
 			return fallback(userAsk, rec.OperationIntent, rec.OperationSummary, rec.Message, rec.Status, rec.ToolName), nil
 		}
 		return text, nil
@@ -170,6 +173,9 @@ func UpdateNarration(ctx context.Context, cfg *asynccfg.Config, ev asynccfg.Chan
 	case "keydata":
 		text := renderKeyData(ev.KeyData, ev.Message)
 		if text == "" {
+			if msg := strings.TrimSpace(ev.Message); msg != "" {
+				return msg, nil
+			}
 			return fallback(userAsk, ev.Intent, ev.Summary, ev.Message, ev.Status, ev.ToolName), nil
 		}
 		return text, nil

@@ -210,6 +210,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, startTurnMeta, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err
 	}
+	stopRunHeartbeat := func() {}
+	if strings.TrimSpace(input.ScheduleId) == "" {
+		stopRunHeartbeat = s.startRunHeartbeat(ctx, turn)
+	}
+	defer stopRunHeartbeat()
 	if strings.TrimSpace(input.AgentID) != "" {
 		upd := apiconv.NewTurn()
 		upd.SetId(turn.TurnID)
@@ -369,6 +374,16 @@ func resolveUserAsk(input *QueryInput, displayQuery string) string {
 		}
 	}
 	return strings.TrimSpace(displayQuery)
+}
+
+func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, changedOpsCount int) bool {
+	if changedOpsCount <= 0 {
+		return false
+	}
+	if hasActiveWaitOps {
+		return true
+	}
+	return !planEmpty
 }
 
 func skillActivationModeOverride(input *QueryInput, skillName string) string {
@@ -592,6 +607,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		if modelSource != "" {
 			modelSelection.Options.Metadata["modelSource"] = modelSource
+		}
+		if s.defaults != nil {
+			previewLimit := s.defaults.PreviewSettings.ToolResultLimit
+			if previewLimit <= 0 {
+				previewLimit = s.defaults.PreviewSettings.Limit
+			}
+			if previewLimit > 0 {
+				modelSelection.Options.Metadata["toolResultPreviewLimit"] = previewLimit
+			}
 		}
 		// activeSkill is hoisted out of the `if s.skillSvc != nil` block
 		// so downstream resolvers (e.g. the async narrator system-prompt
@@ -859,10 +883,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		if s.asyncManager != nil {
 			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
-			if len(changedOps) > 0 {
+			hasActiveWaitOps := s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
+			if shouldContinueAfterAsyncChange(aPlan.IsEmpty(), hasActiveWaitOps, len(changedOps)) {
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
-				if !s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
-					logx.Infof("conversation", "agent.runPlan async-terminal-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+				if !hasActiveWaitOps {
+					logx.Infof("conversation", "agent.runPlan async-rerun-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				} else {
 					logx.Infof("conversation", "agent.runPlan async-wait-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 				}
@@ -958,6 +983,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					msg.SetInterim(0)
 					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
 						logx.Errorf("conversation", "runPlan-final patching msg=%q err=%v", msgID, err)
+					} else {
+						s.archiveOlderInterimAssistantMessages(ctx, turn.ConversationID, turn.TurnID, msgID)
 					}
 				}
 			}

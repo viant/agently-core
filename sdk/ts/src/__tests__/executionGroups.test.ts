@@ -131,6 +131,35 @@ describe('executionGroups', () => {
         });
     });
 
+    it('creates a dedicated bootstrap live group from explicit pageId and systemContext mode', () => {
+        const groups = applyExecutionStreamEventToGroups({}, event({
+            type: 'tool_call_started',
+            pageId: 'turn-1:bootstrap',
+            turnId: 'turn-1',
+            toolCallId: 'bootstrap-1',
+            toolName: 'llm/agents:list',
+            mode: 'systemContext',
+            iteration: 0,
+            status: 'running',
+        }));
+
+        expect(Object.keys(groups)).toContain('turn-1:bootstrap');
+        expect(groups['turn-1:bootstrap']).toMatchObject({
+            pageId: 'turn-1:bootstrap',
+            assistantMessageId: 'turn-1:bootstrap',
+            turnId: 'turn-1',
+            phase: 'bootstrap',
+            executionRole: 'bootstrap',
+            iteration: 1,
+        });
+        expect(groups['turn-1:bootstrap']?.toolSteps?.[0]).toMatchObject({
+            toolCallId: 'bootstrap-1',
+            toolName: 'llm/agents:list',
+            executionRole: 'bootstrap',
+            status: 'running',
+        });
+    });
+
     it('preserves leading-space text deltas in live execution group content', () => {
         const live1 = applyExecutionStreamEventToGroups({}, event({
             type: 'model_started',

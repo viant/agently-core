@@ -4,10 +4,12 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/viant/afs"
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -85,6 +87,11 @@ type Service struct {
 	skillSvc  *skillsvc.Service
 
 	templateRepo *tplrepo.Repository
+
+	runWorkerHost           string
+	runLeaseOwner           string
+	runHeartbeatIntervalSec int
+	runHeartbeatEvery       time.Duration
 }
 
 func (s *Service) Finder() agent.Finder {
@@ -172,16 +179,25 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 
 	opts ...Option) *Service {
 	srv := &Service{
-		defaults:     defaults,
-		llm:          llm,
-		agentFinder:  agentFinder,
-		augmenter:    augmenter,
-		registry:     registry,
-		conversation: convClient,
-		fs:           afs.New(),
-		cancelReg:    cancels.Default(),
-		asyncManager: asynccfg.NewManager(),
+		defaults:                defaults,
+		llm:                     llm,
+		agentFinder:             agentFinder,
+		augmenter:               augmenter,
+		registry:                registry,
+		conversation:            convClient,
+		fs:                      afs.New(),
+		cancelReg:               cancels.Default(),
+		asyncManager:            asynccfg.NewManager(),
+		runHeartbeatIntervalSec: 60,
+		runHeartbeatEvery:       30 * time.Second,
 	}
+	host, _ := os.Hostname()
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "unknown-host"
+	}
+	srv.runWorkerHost = host
+	srv.runLeaseOwner = fmt.Sprintf("%s:%d:%s", host, os.Getpid(), uuid.NewString())
 
 	for _, o := range opts {
 		o(srv)

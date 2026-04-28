@@ -59,7 +59,7 @@ func TestRedactGenerateRequestForTranscript_DataDriven(t *testing.T) {
 			},
 		},
 		{
-			name: "previews oversized replayed tool result",
+			name: "preserves oversized replayed tool result shape",
 			request: &llm.GenerateRequest{
 				Messages: []llm.Message{
 					{
@@ -87,11 +87,9 @@ func TestRedactGenerateRequestForTranscript_DataDriven(t *testing.T) {
 				var got llm.GenerateRequest
 				assert.EqualValues(t, nil, json.Unmarshal(raw, &got))
 				if assert.EqualValues(t, 2, len(got.Messages)) {
-					assert.Contains(t, got.Messages[0].ToolCalls[0].Result, "useToolToSeeMore: message-show")
-					assert.Contains(t, got.Messages[0].ToolCalls[0].Result, "messageId: msg_tool_1")
-					assert.Contains(t, got.Messages[1].Content, "useToolToSeeMore: message-show")
-					assert.Contains(t, got.Messages[1].Content, "[... omitted middle ...]")
-					assert.NotContains(t, got.Messages[1].Content, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))
+					assert.NotContains(t, got.Messages[0].ToolCalls[0].Result, "useToolToSeeMore: message-show")
+					assert.NotContains(t, got.Messages[1].Content, "useToolToSeeMore: message-show")
+					assert.Contains(t, got.Messages[1].Content, strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 20))
 				}
 			},
 		},
@@ -116,7 +114,6 @@ func TestRedactGenerateRequestForTranscript_DataDriven(t *testing.T) {
 				assert.EqualValues(t, nil, json.Unmarshal(raw, &got))
 				if assert.EqualValues(t, 1, len(got.Messages)) {
 					assert.Contains(t, got.Messages[0].Content, `"continuation":{"hasMore":true`)
-					assert.Contains(t, got.Messages[0].Content, "[... omitted middle ...]")
 					assert.NotContains(t, got.Messages[0].Content, "useToolToSeeMore: message-show")
 				}
 			},

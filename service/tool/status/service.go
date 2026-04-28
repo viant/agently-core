@@ -60,6 +60,12 @@ func (s *Service) StartNarration(ctx context.Context, parent runtimerequestctx.T
 	if s == nil || s.conv == nil {
 		return "", fmt.Errorf("status: conversation client not configured")
 	}
+	if existingID := strings.TrimSpace(s.findNarrationMessageID(ctx, parent)); existingID != "" {
+		if err := s.UpdateNarration(ctx, parent, existingID, preamble); err != nil {
+			return "", err
+		}
+		return existingID, nil
+	}
 	if strings.TrimSpace(role) == "" {
 		role = "assistant"
 	}
@@ -82,6 +88,44 @@ func (s *Service) StartNarration(ctx context.Context, parent runtimerequestctx.T
 		return "", fmt.Errorf("status: start preamble failed: %w", err)
 	}
 	return m.Id, nil
+}
+
+func (s *Service) findNarrationMessageID(ctx context.Context, parent runtimerequestctx.TurnMeta) string {
+	if strings.TrimSpace(parent.TurnID) != "" {
+		if existingID := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(parent.TurnID)); existingID != "" {
+			return existingID
+		}
+	}
+	if s == nil || s.conv == nil || strings.TrimSpace(parent.ConversationID) == "" || strings.TrimSpace(parent.TurnID) == "" {
+		return ""
+	}
+	conv, err := s.conv.GetConversation(ctx, parent.ConversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return ""
+	}
+	transcript := conv.GetTranscript()
+	for i := len(transcript) - 1; i >= 0; i-- {
+		turn := transcript[i]
+		if turn == nil || strings.TrimSpace(turn.Id) != strings.TrimSpace(parent.TurnID) {
+			continue
+		}
+		for j := len(turn.Message) - 1; j >= 0; j-- {
+			msg := turn.Message[j]
+			if msg == nil {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if msg.Interim != 1 {
+				continue
+			}
+			if id := strings.TrimSpace(msg.Id); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 // Update sets interim content (e.g., progress text) on the status message.

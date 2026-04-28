@@ -243,9 +243,14 @@ describe('chatStore/identity — matchModelStep', () => {
         expect(matchModelStep([s1, s2], { modelCallId: 'mc_2' })).toBe(s2);
     });
 
-    it('explicit modelCallId with no match returns null (does not fall through)', () => {
+    it('explicit modelCallId still returns null when assistantMessageId only matches a different identified step', () => {
         const s1 = step({ modelCallId: 'mc_1', assistantMessageId: 'am_1' });
         expect(matchModelStep([s1], { modelCallId: 'mc_2', assistantMessageId: 'am_1' })).toBeNull();
+    });
+
+    it('explicit modelCallId reattaches to the anonymous step for the same assistant message', () => {
+        const s1 = step({ assistantMessageId: 'am_1' });
+        expect(matchModelStep([s1], { modelCallId: 'mc_2', assistantMessageId: 'am_1' })).toBe(s1);
     });
 
     it('matches by assistantMessageId when modelCallId absent', () => {

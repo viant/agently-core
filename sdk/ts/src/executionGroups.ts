@@ -10,6 +10,26 @@ function appendText(existing: unknown, incoming: unknown): string {
     return `${rawText(existing)}${rawText(incoming)}`;
 }
 
+function normalizeEventPhase(event: SSEEvent = {} as SSEEvent): string {
+    const explicit = firstString(event?.phase).trim().toLowerCase();
+    if (explicit) return explicit;
+    const mode = firstString(event?.mode).trim().toLowerCase();
+    if (mode === 'systemcontext') return 'bootstrap';
+    return '';
+}
+
+function normalizeEventExecutionRole(event: SSEEvent = {} as SSEEvent): string {
+    const explicit = firstString((event as any)?.executionRole).trim().toLowerCase();
+    if (explicit) return explicit;
+    const phase = normalizeEventPhase(event);
+    if (phase === 'bootstrap') return 'bootstrap';
+    return '';
+}
+
+function liveGroupId(event: SSEEvent = {} as SSEEvent): string {
+    return firstString((event as any)?.pageId, event?.assistantMessageId, event?.id);
+}
+
 export function normalizeExecutionPageSize(value: string | number | null | undefined): '1' | '5' | '10' | 'all' {
     const text = String(value || '1').trim().toLowerCase();
     if (text === 'all') return 'all';
@@ -133,8 +153,11 @@ function mergeExecutionGroup(existing: LiveExecutionGroup = {}, incoming: LiveEx
     return {
         ...existing,
         ...incoming,
+        pageId: firstString(incoming?.pageId, existing?.pageId, incoming?.assistantMessageId, existing?.assistantMessageId),
         assistantMessageId: firstString(incoming?.assistantMessageId, existing?.assistantMessageId),
         parentMessageId: firstString(incoming?.parentMessageId, existing?.parentMessageId),
+        executionRole: firstString(incoming?.executionRole, existing?.executionRole),
+        phase: firstString(incoming?.phase, existing?.phase),
         sequence: firstNumber(incoming?.sequence, existing?.sequence),
         iteration: firstNumber(incoming?.iteration, existing?.iteration),
         narration: firstString(incoming?.narration, existing?.narration),
@@ -151,16 +174,20 @@ function mergeExecutionGroup(existing: LiveExecutionGroup = {}, incoming: LiveEx
 }
 
 function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
-    const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
-    if (!assistantMessageId) return null;
+    const groupId = liveGroupId(event);
+    if (!groupId) return null;
+    const assistantMessageId = firstString(event?.assistantMessageId, groupId, event?.id);
+    const phase = normalizeEventPhase(event);
+    const executionRole = normalizeEventExecutionRole(event);
     const group: LiveExecutionGroup = {
-        pageId: assistantMessageId,
+        pageId: firstString((event as any)?.pageId, groupId, assistantMessageId),
         assistantMessageId,
         turnId: firstString(event?.turnId),
         parentMessageId: firstString(event?.parentMessageId),
+        executionRole,
         sequence: eventSequenceValue(event, 1),
         iteration: eventIterationValue(event, 1),
-        phase: firstString(event?.phase),
+        phase,
         narration: firstString(event?.narration),
         content: firstString(event?.content),
         errorMessage: firstString(event?.error),
@@ -168,7 +195,8 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
         finalResponse: Boolean(event?.finalResponse),
         modelSteps: event?.model ? [{
             modelCallId: firstString(event?.modelCallId),
-            phase: firstString(event?.phase),
+            executionRole: firstString(executionRole),
+            phase,
             provider: firstString(event?.model?.provider),
             model: firstString(event?.model?.model),
             status: firstString(event?.status, 'running'),
@@ -184,25 +212,30 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
     return group;
 }
 
-function ensureLiveExecutionGroup(groupsById: LiveExecutionGroupsById, assistantMessageId: string, event: SSEEvent): LiveExecutionGroup | null {
-    return groupsById[assistantMessageId] || createLiveExecutionGroup(event);
+function ensureLiveExecutionGroup(groupsById: LiveExecutionGroupsById, groupId: string, event: SSEEvent): LiveExecutionGroup | null {
+    return groupsById[groupId] || createLiveExecutionGroup(event);
 }
 
 function applyLiveGroupIdentity(current: LiveExecutionGroup, event: SSEEvent) {
+    current.pageId = firstString((event as any)?.pageId, current.pageId, current.assistantMessageId);
+    current.assistantMessageId = firstString(event?.assistantMessageId, current.assistantMessageId, current.pageId);
     current.turnId = firstString(event?.turnId, current.turnId);
+    current.executionRole = firstString(normalizeEventExecutionRole(event), current.executionRole);
     current.sequence = eventSequenceValue(event, current.sequence || 1);
     current.iteration = eventIterationValue(event, current.iteration || 1);
-    current.phase = firstString(event?.phase, current.phase);
+    current.phase = firstString(normalizeEventPhase(event), current.phase);
     return current;
 }
 
 function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fallbackStatus = 'running') {
-    const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
+    const phase = normalizeEventPhase(event);
+    const executionRole = normalizeEventExecutionRole(event);
     const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
     current.modelSteps = [{
         ...existMs,
         modelCallId: firstString(event?.modelCallId, existMs?.modelCallId),
-        phase: firstString(event?.phase, existMs?.phase),
+        executionRole: firstString(executionRole, existMs?.executionRole),
+        phase: firstString(phase, existMs?.phase),
         provider: firstString(event?.model?.provider, existMs?.provider),
         model: firstString(event?.model?.model, existMs?.model),
         errorMessage: firstString(event?.error, existMs?.errorMessage),
@@ -229,10 +262,12 @@ function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Par
     const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
     const existingIndex = priorList.findIndex((entry) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.toolName) === toolKey);
     const operationId = firstString(event?.operationId, existingIndex >= 0 ? priorList[existingIndex]?.operationId : '');
+    const executionRole = normalizeEventExecutionRole(event);
     const toolEntry: ToolStepState = {
         toolCallId: firstString(extra?.toolCallId, event?.toolCallId),
         toolMessageId: firstString(extra?.toolMessageId, event?.toolMessageId, event?.id),
         toolName: firstString(extra?.toolName, event?.toolName),
+        executionRole: firstString(extra?.executionRole, executionRole, existingIndex >= 0 ? priorList[existingIndex]?.executionRole : ''),
         content: firstString(extra?.content, event?.content),
         operationId,
         errorMessage: firstString(event?.error, existingIndex >= 0 ? priorList[existingIndex]?.errorMessage : ''),
@@ -283,15 +318,15 @@ function applyTerminalState(current: LiveExecutionGroup, terminalStatus: string,
 export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroupsById = {}, rawEvent: SSEEvent = {} as SSEEvent) {
     const event = rawEvent || ({} as SSEEvent);
     const type = firstString(event?.type).toLowerCase();
-    const assistantMessageId = firstString(event?.assistantMessageId, event?.id);
+    const groupId = liveGroupId(event);
     const next: LiveExecutionGroupsById = { ...groupsById };
 
-    if (type === 'model_started' && assistantMessageId) {
-        next[assistantMessageId] = mergeExecutionGroup(next[assistantMessageId], createLiveExecutionGroup(event) || {});
+    if (type === 'model_started' && groupId) {
+        next[groupId] = mergeExecutionGroup(next[groupId], createLiveExecutionGroup(event) || {});
         return next;
     }
-    if ((type === 'narration' || type === 'reasoning_delta') && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+    if ((type === 'narration' || type === 'reasoning_delta') && groupId) {
+        const current = ensureLiveExecutionGroup(next, groupId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         current.narration = type === 'reasoning_delta'
@@ -299,11 +334,11 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
             : firstString(event?.content, event?.narration, current.narration);
         current.status = firstString(event?.status, current.status, 'running');
         mergePrimaryModelStep(current, event, current.status || 'running');
-        next[assistantMessageId] = current;
+        next[groupId] = current;
         return next;
     }
-    if (type === 'tool_calls_planned' && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+    if (type === 'tool_calls_planned' && groupId) {
+        const current = ensureLiveExecutionGroup(next, groupId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         current.narration = firstString(event?.content, event?.narration, current.narration);
@@ -311,11 +346,11 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
         current.toolCallsPlanned = Array.isArray(event?.toolCallsPlanned) && event.toolCallsPlanned.length > 0
             ? event.toolCallsPlanned
             : (Array.isArray(current?.toolCallsPlanned) ? current.toolCallsPlanned : []);
-        next[assistantMessageId] = current;
+        next[groupId] = current;
         return next;
     }
-    if ((type === 'model_completed' || type === 'text_delta') && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+    if ((type === 'model_completed' || type === 'text_delta') && groupId) {
+        const current = ensureLiveExecutionGroup(next, groupId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         current.content = type === 'text_delta'
@@ -329,15 +364,15 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
             ? event.toolCallsPlanned
             : (Array.isArray(current?.toolCallsPlanned) ? current.toolCallsPlanned : []);
         mergePrimaryModelStep(current, event, current.status || 'running');
-        next[assistantMessageId] = current;
+        next[groupId] = current;
         return next;
     }
     if ((type === 'tool_call_started'
         || type === 'tool_call_waiting'
         || type === 'tool_call_completed'
         || type === 'tool_call_failed'
-        || type === 'tool_call_canceled') && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+        || type === 'tool_call_canceled') && groupId) {
+        const current = ensureLiveExecutionGroup(next, groupId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         upsertToolStep(current, event);
@@ -347,11 +382,11 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
             current.status,
             type === 'tool_call_failed' ? 'failed' : (type === 'tool_call_canceled' ? 'canceled' : current.status),
         );
-        next[assistantMessageId] = current;
+        next[groupId] = current;
         return next;
     }
-    if ((type === 'skill_started' || type === 'skill_completed') && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+    if ((type === 'skill_started' || type === 'skill_completed') && groupId) {
+        const current = ensureLiveExecutionGroup(next, groupId, event);
         if (!current) return next;
         applyLiveGroupIdentity(current, event);
         upsertToolStep(current, event, {
@@ -361,25 +396,25 @@ export function applyExecutionStreamEventToGroups(groupsById: LiveExecutionGroup
             content: firstString(event?.content, event?.skillName),
         });
         current.status = firstString(event?.status, current.status, type === 'skill_started' ? 'running' : 'completed');
-        next[assistantMessageId] = current;
+        next[groupId] = current;
         return next;
     }
-    if (type === 'linked_conversation_attached' && assistantMessageId) {
-        const current = ensureLiveExecutionGroup(next, assistantMessageId, event);
+    if (type === 'linked_conversation_attached' && groupId) {
+        const current = ensureLiveExecutionGroup(next, groupId, event);
         if (!current) return next;
         current.turnId = firstString(event?.turnId, current.turnId);
         const linkedConversationId = firstString(event?.linkedConversationId);
         if (!linkedConversationId) return next;
         upsertToolStep(current, event, { linkedConversationId });
-        next[assistantMessageId] = current;
+        next[groupId] = current;
         return next;
     }
     if (type === 'turn_completed' || type === 'turn_failed' || type === 'turn_canceled') {
         const targetTurnId = firstString(event?.turnId);
         const terminalStatus = firstString(event?.status, terminalStatusForType(type));
         const terminalError = firstString(event?.error);
-        if (assistantMessageId && next[assistantMessageId]) {
-            next[assistantMessageId] = applyTerminalState(next[assistantMessageId], terminalStatus, terminalError);
+        if (groupId && next[groupId]) {
+            next[groupId] = applyTerminalState(next[groupId], terminalStatus, terminalError);
             return next;
         }
         if (targetTurnId) {

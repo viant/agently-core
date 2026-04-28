@@ -635,6 +635,9 @@ function findPageByIteration(
 
 function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: WriteSource): ClientExecutionPage {
     const pageId = ((event as unknown as { pageId?: string }).pageId ?? '').trim();
+    const normalizedPhase = deriveExecutionPhase(event.phase, event.mode);
+    const normalizedRole = executionRoleFromSignals((event as any).executionRole, event.phase, event.mode, event.toolName);
+    const isBootstrapEvent = normalizedPhase === 'bootstrap' || normalizedRole === 'bootstrap';
     if (pageId) {
         const matched = matchExecutionPage(turn.pages, { pageId });
         if (matched) {
@@ -646,48 +649,62 @@ function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: Writ
             return matched;
         }
     }
-    const iterationMatched = findPageByIteration(turn, event.iteration);
-    if (iterationMatched) {
-        if (pageId) writeField(iterationMatched, 'pageId', pageId, source);
-        return iterationMatched;
+    if (!pageId) {
+        const iterationMatched = findPageByIteration(turn, event.iteration);
+        if (iterationMatched) {
+            return iterationMatched;
+        }
     }
-    if (typeof event.iteration !== 'number' && turn.pages.length > 0) {
-        return turn.pages[turn.pages.length - 1];
+    if (isBootstrapEvent && typeof event.iteration !== 'number' && turn.pages.length > 0) {
+        const last = turn.pages[turn.pages.length - 1];
+        if (String(last?.phase || '').trim().toLowerCase() === 'bootstrap') {
+            return last;
+        }
+    }
+    if (!isBootstrapEvent && typeof event.iteration !== 'number' && turn.pages.length > 0) {
+        const last = turn.pages[turn.pages.length - 1];
+        if (String(last?.phase || '').trim().toLowerCase() !== 'bootstrap') {
+            return last;
+        }
     }
     // Reuse the last page if it's an anchor without real model/tool content
     // yet — the lifecycle-only anchor created by onTurnStarted merges into
     // the first real model round.
-    if (turn.pages.length > 0) {
+    if (!isBootstrapEvent && turn.pages.length > 0) {
         const last = turn.pages[turn.pages.length - 1];
-        const isAnchor = last.modelSteps.length === 0 && last.toolCalls.length === 0;
-        if (isAnchor && pageId) {
-            writeField(last, 'pageId', pageId, source);
-            if (typeof event.iteration === 'number') {
-                writeField(last, 'iteration', event.iteration, source);
+        if (String(last?.phase || '').trim().toLowerCase() !== 'bootstrap') {
+            const isAnchor = last.modelSteps.length === 0 && last.toolCalls.length === 0;
+            if (isAnchor && pageId) {
+                writeField(last, 'pageId', pageId, source);
+                if (typeof event.iteration === 'number') {
+                    writeField(last, 'iteration', event.iteration, source);
+                }
+                return last;
             }
-            return last;
-        }
-        if (isAnchor && !pageId) {
-            if (typeof event.iteration === 'number') {
-                writeField(last, 'iteration', event.iteration, source);
+            if (isAnchor && !pageId) {
+                if (typeof event.iteration === 'number') {
+                    writeField(last, 'iteration', event.iteration, source);
+                }
+                return last;
             }
-            return last;
         }
     }
     const created: ClientExecutionPage = {
         renderKey: allocateRenderKey(),
         pageId: pageId || undefined,
-        iteration: typeof event.iteration === 'number' ? event.iteration : turn.pages.length,
-        executionRole: executionRoleFromSignals((event as any).executionRole, event.phase, event.mode),
-        phase: normalisePhase(event.phase),
+        iteration: typeof event.iteration === 'number'
+            ? event.iteration
+            : (isBootstrapEvent ? undefined : turn.pages.length),
+        executionRole: normalizedRole,
+        phase: normalizedPhase,
         modelSteps: [],
         toolCalls: [],
         lifecycleEntries: [],
         createdAt: event.createdAt,
     };
     if (pageId) setFieldProvenance(created, 'pageId', source);
-    setFieldProvenance(created, 'iteration', source);
-    if (event.phase) setFieldProvenance(created, 'phase', source);
+    if (typeof created.iteration === 'number') setFieldProvenance(created, 'iteration', source);
+    if (normalizedPhase !== 'main') setFieldProvenance(created, 'phase', source);
     if (created.executionRole) setFieldProvenance(created, 'executionRole', source);
     if (event.createdAt) setFieldProvenance(created, 'createdAt', source);
     turn.pages.push(created);
@@ -695,13 +712,24 @@ function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: Writ
 }
 
 function normalisePhase(raw: string | undefined): ClientExecutionPhase {
-    if (raw === 'intake' || raw === 'sidecar' || raw === 'summary' || raw === 'main') return raw;
+    const text = String(raw || '').trim().toLowerCase();
+    if (text === 'intake' || text === 'sidecar' || text === 'summary' || text === 'bootstrap' || text === 'main') {
+        return text;
+    }
     return 'main';
+}
+
+function deriveExecutionPhase(raw: string | undefined, mode: string | undefined): ClientExecutionPhase {
+    const normalized = normalisePhase(raw);
+    if (normalized !== 'main') return normalized;
+    const normalizedMode = String(mode || '').trim().toLowerCase();
+    if (normalizedMode === 'systemcontext') return 'bootstrap';
+    return normalized;
 }
 
 function normaliseExecutionRole(raw: string | undefined): string {
     const text = String(raw || '').trim().toLowerCase();
-    if (text === 'react' || text === 'intake' || text === 'narrator' || text === 'router' || text === 'summary' || text === 'worker') {
+    if (text === 'react' || text === 'intake' || text === 'narrator' || text === 'router' || text === 'summary' || text === 'worker' || text === 'bootstrap') {
         return text;
     }
     return '';
@@ -734,7 +762,9 @@ function executionRoleFromSignals(explicit: string | undefined, phase: string | 
     const normalizedPhase = String(phase || '').trim().toLowerCase();
     if (normalizedPhase === 'intake') return 'intake';
     if (normalizedPhase === 'summary') return 'summary';
+    if (normalizedPhase === 'bootstrap') return 'bootstrap';
     const normalizedMode = String(mode || '').trim().toLowerCase();
+    if (normalizedMode === 'systemcontext') return 'bootstrap';
     if (normalizedMode === 'router') return 'router';
     if (normalizedMode === 'summary') return 'summary';
     const normalizedTool = String(toolName || '').trim().toLowerCase();
@@ -769,7 +799,8 @@ function onModelStarted(state: ClientConversationState, event: SSEEvent): Client
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
     writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
-    if (event.phase) writeField(step, 'phase', event.phase, 'event');
+    const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
+    if (derivedPhase && derivedPhase !== 'main') writeField(step, 'phase', derivedPhase, 'event');
     if (event.provider ?? event.model?.provider) {
         writeField(step, 'provider', event.provider ?? event.model?.provider ?? '', 'event');
     }
@@ -779,7 +810,7 @@ function onModelStarted(state: ClientConversationState, event: SSEEvent): Client
     writeField(step, 'status', 'running', 'event');
     if (event.startedAt) writeField(step, 'startedAt', event.startedAt, 'event');
     // If an explicit phase is on the event, carry it on the page too.
-    if (event.phase) writeField(page, 'phase', normalisePhase(event.phase), 'event');
+    if (derivedPhase !== 'main') writeField(page, 'phase', derivedPhase, 'event');
     return state;
 }
 
@@ -798,14 +829,20 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     const step = matched ?? appendModelStep(page, 'event');
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
+    const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
     writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
+    if (derivedPhase && derivedPhase !== 'main') writeField(step, 'phase', derivedPhase, 'event');
     writeField(step, 'status', event.status ?? 'completed', 'event');
+    if (event.content) writeField(page, 'content', event.content, 'event');
+    if (assistantMessageId) writeField(page, 'finalAssistantMessageId', assistantMessageId, 'event');
+    if (event.content || assistantMessageId) writeField(page, 'finalResponse', true, 'event');
     if (event.requestPayloadId) writeField(step, 'requestPayloadId', event.requestPayloadId, 'event');
     if (event.responsePayloadId) writeField(step, 'responsePayloadId', event.responsePayloadId, 'event');
     if (event.providerRequestPayloadId) writeField(step, 'providerRequestPayloadId', event.providerRequestPayloadId, 'event');
     if (event.providerResponsePayloadId) writeField(step, 'providerResponsePayloadId', event.providerResponsePayloadId, 'event');
     if (event.streamPayloadId) writeField(step, 'streamPayloadId', event.streamPayloadId, 'event');
     if (event.completedAt) writeField(step, 'completedAt', event.completedAt, 'event');
+    if (derivedPhase !== 'main') writeField(page, 'phase', derivedPhase, 'event');
     // NOTE: model_completed does NOT change turn lifecycle per §4.3.
     return state;
 }
@@ -833,6 +870,8 @@ function onToolCallEvent(state: ClientConversationState, event: SSEEvent): Clien
     if (toolCallId) writeField(step, 'toolCallId', toolCallId, 'event');
     if (event.toolName) writeField(step, 'toolName', event.toolName, 'event');
     writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode, event.toolName), 'event');
+    const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
+    if (derivedPhase !== 'main') writeField(page, 'phase', derivedPhase, 'event');
     if (event.operationId) writeField(step, 'operationId', event.operationId, 'event');
     if (event.status) writeField(step, 'status', event.status, 'event');
     if (event.error) writeField(step, 'errorMessage', event.error, 'event');
@@ -867,59 +906,6 @@ function onAssistantNarration(state: ClientConversationState, event: SSEEvent): 
     if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
     if (narrationText) writeField(page, 'narration', narrationText, 'event');
     if (messageId) writeField(page, 'narrationMessageId', messageId, 'event');
-
-    // Bubble state: upsert into turn.messages by messageId with
-    // interim=1. Each in-flight assistant message (narrated and about
-    // to arrive as a real `assistant` event later) gets its OWN bubble.
-    // A turn may interleave narration → message/add → narration → final;
-    // each messageId tracks its own bubble so sequential narrations
-    // don't overwrite each other. When the real `assistant` event
-    // arrives for the same messageId, onAssistantMessage flips
-    // interim=0 and replaces content.
-    //
-    // Sequence propagation: the narration event carries the DB-
-    // assigned sequence on `event.patch.sequence` so the bubble is
-    // orderable against siblings from the moment it appears — before
-    // the real `assistant` event for the same id arrives.
-    const narrationPatch = (event.patch && typeof event.patch === 'object')
-        ? (event.patch as Record<string, unknown>)
-        : {};
-    if (messageId && (narrationText || event.createdAt)) {
-        let entry = turn.messages.find((m) => (m.messageId ?? '').trim() === messageId) || null;
-        if (entry) {
-            writeField(entry, 'role', 'assistant', 'event');
-            if (narrationText) writeField(entry, 'content', narrationText, 'event');
-            if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
-            if (event.mode) writeField(entry, 'mode', event.mode, 'event');
-            if (typeof narrationPatch.sequence === 'number') writeField(entry, 'sequence', narrationPatch.sequence, 'event');
-            if (typeof narrationPatch.status === 'string' && narrationPatch.status) writeField(entry, 'status', String(narrationPatch.status), 'event');
-            // interim=1 only if the bubble is currently interim; don't
-            // regress a finalized bubble back to interim on a stray
-            // trailing narration event.
-            if (entry.interim !== 0) writeField(entry, 'interim', 1, 'event');
-        } else {
-            entry = {
-                renderKey: allocateRenderKey(),
-                messageId,
-                role: 'assistant',
-                content: narrationText,
-                createdAt: event.createdAt,
-                mode: event.mode,
-                sequence: typeof narrationPatch.sequence === 'number' ? narrationPatch.sequence : undefined,
-                status: typeof narrationPatch.status === 'string' ? String(narrationPatch.status) : undefined,
-                interim: 1,
-            };
-            setFieldProvenance(entry, 'messageId', 'event');
-            setFieldProvenance(entry, 'role', 'event');
-            setFieldProvenance(entry, 'content', 'event');
-            if (entry.createdAt) setFieldProvenance(entry, 'createdAt', 'event');
-            if (entry.mode) setFieldProvenance(entry, 'mode', 'event');
-            if (typeof entry.sequence === 'number') setFieldProvenance(entry, 'sequence', 'event');
-            if (entry.status) setFieldProvenance(entry, 'status', 'event');
-            setFieldProvenance(entry, 'interim', 'event');
-            turn.messages.push(entry);
-        }
-    }
     return state;
 }
 
@@ -1039,26 +1025,24 @@ function onLinkedConversationAttached(state: ClientConversationState, event: SSE
     return state;
 }
 
-// onAssistantMessage handles `assistant` events (wire name): upserts
-// a turn message entry (user or assistant — role carried via patch).
-// Idempotent by messageId. Replaces both the legacy
-// `control:message_add` path.
-//
-// **Always renders as a standalone bubble.** The `assistant` event is
-// only emitted by the server for explicit message ADDs (message/add
-// tool, user submit, etc.) — NOT for patches to existing rows whose
-// content is already live via `text_delta` accumulation into
-// `page.content`. Because the server restricts emission to adds, the
-// reducer never has to guess whether a bubble or a page iteration is
-// the right target: it's always a standalone bubble.
-//
-// Past-turn messages that DID belong to an execution page come via
-// `applyTranscript` and populate `page.content` there — the same
-// rendered output, but sourced from the persisted snapshot.
-//
-// Note: there's NO "final message" treatment. Every message is
-// equal-rank; end-of-turn is signaled separately via turn_completed /
-// turn_failed / turn_canceled.
+function assistantEventTargetsPage(turn: ClientTurnState, event: SSEEvent): boolean {
+    const messageId = String((event.messageId ?? event.id ?? '')).trim();
+    if (messageId) {
+        for (const page of turn.pages) {
+            const assistantMessageId = String(page?.finalAssistantMessageId || '').trim()
+                || String(page?.narrationMessageId || '').trim()
+                || String(page?.modelSteps?.[0]?.assistantMessageId || '').trim()
+                || String(page?.pageId || '').trim();
+            if (assistantMessageId && assistantMessageId === messageId) {
+                return true;
+            }
+        }
+    }
+    const pageId = String((event as unknown as { pageId?: string }).pageId ?? '').trim();
+    if (pageId) return true;
+    return false;
+}
+
 function onAssistantMessage(state: ClientConversationState, event: SSEEvent): ClientConversationState {
     const patch = (event.patch && typeof event.patch === 'object')
         ? (event.patch as Record<string, unknown>)
@@ -1101,17 +1085,28 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
         return state;
     }
 
-    // role === 'assistant' — always a standalone bubble. Iteration
-    // number on the event is informational (preserves ordering against
-    // pages) but does NOT route into page.content — a distinct add
-    // always wins its own bubble.
+    if (assistantEventTargetsPage(turn, event)) {
+        const page = ensurePageForEvent(turn, event, 'event');
+        if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
+        writeField(page, 'content', content, 'event');
+        if (messageId) writeField(page, 'finalAssistantMessageId', messageId, 'event');
+        writeField(page, 'finalResponse', true, 'event');
+        turn.assistantFinal = turn.assistantFinal ?? { renderKey: allocateRenderKey() };
+        const af = turn.assistantFinal as ClientAssistantFinal;
+        if (messageId) writeField(af, 'messageId', messageId, 'event');
+        writeField(af, 'content', content, 'event');
+        if (event.createdAt) writeField(af, 'createdAt', event.createdAt, 'event');
+        return state;
+    }
+
+    // Standalone assistant add outside the execution timeline.
     let entry = turn.messages.find((m) => (m.messageId ?? '').trim() === messageId) || null;
     if (entry) {
         writeField(entry, 'role', 'assistant', 'event');
         writeField(entry, 'content', content, 'event');
         if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
         if (typeof patch.sequence === 'number') writeField(entry, 'sequence', patch.sequence, 'event');
-        if (event.mode) writeField(entry, 'mode', event.mode, 'event');
+        if (typeof patch.mode === 'string' && patch.mode) writeField(entry, 'mode', String(patch.mode), 'event');
         if (typeof patch.status === 'string' && patch.status) writeField(entry, 'status', String(patch.status), 'event');
         // Real assistant message: flip interim off. A narration that
         // pre-filled this same bubble (interim=1) gets replaced here.
@@ -1125,7 +1120,7 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
         content,
         createdAt: event.createdAt,
         sequence: typeof patch.sequence === 'number' ? patch.sequence : undefined,
-        mode: event.mode,
+        mode: typeof patch.mode === 'string' ? String(patch.mode) : undefined,
         status: typeof patch.status === 'string' ? String(patch.status) : undefined,
         interim: 0,
     };

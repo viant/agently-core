@@ -1,6 +1,7 @@
 package toolexec
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,48 @@ var (
 	errToolPromptDeclined = errors.New("tool execution declined by user")
 	errToolPromptCanceled = errors.New("tool execution canceled by user")
 )
+
+func asyncPayloadChangedMeaningfully(
+	priorStatus, priorMessage, priorKind string,
+	priorPercent *int,
+	priorKeyData []byte,
+	priorError string,
+	payload *asynccfg.Extracted,
+) bool {
+	if payload == nil {
+		return false
+	}
+	if strings.TrimSpace(payload.Status) != strings.TrimSpace(priorStatus) {
+		return true
+	}
+	if strings.TrimSpace(payload.Message) != strings.TrimSpace(priorMessage) {
+		return true
+	}
+	if strings.TrimSpace(payload.Error) != strings.TrimSpace(priorError) {
+		return true
+	}
+	if !equalOptionalInt(priorPercent, payload.Percent) {
+		return true
+	}
+	if !bytes.Equal(priorKeyData, payload.KeyData) {
+		return true
+	}
+	// MessageKind is semantic metadata for the same update. On the activated
+	// status path it should not, by itself, stop polling early.
+	_ = priorKind
+	return false
+}
+
+func equalOptionalInt(left, right *int) bool {
+	switch {
+	case left == nil && right == nil:
+		return true
+	case left == nil || right == nil:
+		return false
+	default:
+		return *left == *right
+	}
+}
 
 // StepInfo carries the tool step data needed for execution.
 type StepInfo struct {
@@ -137,6 +180,8 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 
 	// 2) Initialize tool call (running) with LLM op id
 	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, span.StartedAt, step.ResponseID); err != nil {
+		_ = updateToolMessageStatus(ctx, conv, toolMsgID, "failed")
+		_ = updateToolMessageContent(ctx, conv, toolMsgID, err.Error())
 		retErr = err
 		return
 	}
@@ -365,21 +410,41 @@ func maybeExecuteActivatedStatusTool(ctx context.Context, reg tool.Registry, ste
 			return out, toolResult, execErr, true
 		}
 		normalizeAsyncExtracted(toolResult, payload)
+		priorStatus := strings.TrimSpace(rec.Status)
+		priorMessage := strings.TrimSpace(rec.Message)
+		priorError := strings.TrimSpace(rec.Error)
+		priorKind := strings.TrimSpace(rec.MessageKind)
+		var priorPercent *int
+		if rec.Percent != nil {
+			value := *rec.Percent
+			priorPercent = &value
+		}
+		priorKeyData := cloneRaw(rec.KeyData)
 		updated, changed := manager.Update(ctx, asynccfg.UpdateInput{
-			ID:      opID,
-			Status:  payload.Status,
-			Message: payload.Message,
-			Percent: payload.Percent,
-			KeyData: cloneRaw(payload.KeyData),
-			Error:   payload.Error,
+			ID:          opID,
+			Status:      payload.Status,
+			Message:     payload.Message,
+			MessageKind: payload.MessageKind,
+			Percent:     payload.Percent,
+			KeyData:     cloneRaw(payload.KeyData),
+			Error:       payload.Error,
 		})
 		if updated == nil {
 			return out, toolResult, execErr, true
 		}
-		if changed || updated.Terminal() {
+		meaningfulChange := changed && asyncPayloadChangedMeaningfully(
+			priorStatus,
+			priorMessage,
+			priorKind,
+			priorPercent,
+			priorKeyData,
+			priorError,
+			payload,
+		)
+		if meaningfulChange || updated.Terminal() {
 			observeAsyncNarration(ctx, narration, changeEventFromRecord(updated))
 		}
-		if changed || updated.Terminal() {
+		if meaningfulChange || updated.Terminal() {
 			return out, toolResult, execErr, true
 		}
 		if updated.TimeoutAt != nil && time.Now().After(*updated.TimeoutAt) {

@@ -517,6 +517,7 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 
 func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
 	var result []*llm.ToolDefinition
+	seen := map[string]struct{}{}
 
 	// removed noisy debug logging
 	// Strip suffix selector (e.g., "|root=...;") when present
@@ -529,13 +530,36 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 		if tmatch.Match(pattern, id) {
 			copyDef := def
 			result = append(result, &copyDef)
+			seen[mcpnames.Canonical(strings.TrimSpace(copyDef.Name))] = struct{}{}
 		}
 	}
 	r.mu.RUnlock()
+	// Cached MCP definitions remain authoritative for tools we've already
+	// resolved. If the backing MCP server is temporarily unavailable, callers
+	// should still be able to match those concrete definitions without forcing
+	// another discovery round.
+	r.mu.RLock()
+	for alias, entry := range r.cache {
+		if entry == nil || !tmatch.Match(pattern, alias) {
+			continue
+		}
+		key := mcpnames.Canonical(strings.TrimSpace(entry.def.Name))
+		if key == "" {
+			key = mcpnames.Canonical(strings.TrimSpace(alias))
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		defCopy := entry.def
+		result = append(result, &defCopy)
+		seen[key] = struct{}{}
+	}
+	r.mu.RUnlock()
 	// When an explicit tool id already matches a virtual definition,
-	// do not probe MCP discovery for that service. This avoids spurious
-	// warnings for internal tools such as llm/agents:list where no MCP
-	// config file is expected.
+	// or a cached MCP definition, do not probe MCP discovery for that
+	// service. This avoids spurious warnings for internal tools such as
+	// llm/agents:list where no MCP config file is expected, and preserves
+	// already-known remote tool definitions when a server is temporarily down.
 	if len(result) > 0 && isExplicitPattern(pattern) {
 		return result
 	}
@@ -563,7 +587,11 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 					continue
 				}
 				defCopy := entry.def
-				result = append(result, &defCopy)
+				key := mcpnames.Canonical(strings.TrimSpace(defCopy.Name))
+				if _, ok := seen[key]; !ok {
+					result = append(result, &defCopy)
+					seen[key] = struct{}{}
+				}
 				r.mu.Lock()
 				if _, ok := r.cache[def.Name]; !ok {
 					cacheToolAliases(r.cache, entry, def.Name)

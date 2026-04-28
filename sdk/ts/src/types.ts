@@ -406,6 +406,7 @@ export interface SSEEvent {
     linkedConversationTitle?: string;
     executionRole?: string;
     phase?: string;
+    pageId?: string;
     type: SSEEventType;
     op?: string;
     patch?: JSONObject;

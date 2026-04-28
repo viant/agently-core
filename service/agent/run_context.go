@@ -287,6 +287,18 @@ type turnTaskCheckpoint struct {
 	Found     bool
 }
 
+func isTurnTaskMessage(role, msgType, mode string, interim int) bool {
+	if interim != 0 {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(role), "user") {
+		return false
+	}
+	typeLower := strings.ToLower(strings.TrimSpace(msgType))
+	modeLower := strings.ToLower(strings.TrimSpace(mode))
+	return typeLower == "task" || modeLower == "task"
+}
+
 func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequestctx.TurnMeta) (turnTaskCheckpoint, error) {
 	checkpoint := turnTaskCheckpoint{}
 	if s == nil {
@@ -302,12 +314,10 @@ func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequ
 			ConversationId: conversationID,
 			TurnId:         turnID,
 			Roles:          []string{"user"},
-			Types:          []string{"task"},
 			Has: &agmessagelist.MessageRowsInputHas{
 				ConversationId: true,
 				TurnId:         true,
 				Roles:          true,
-				Types:          true,
 			},
 		}, nil)
 		if err != nil {
@@ -315,6 +325,9 @@ func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequ
 		}
 		for _, row := range page.Rows {
 			if row == nil {
+				continue
+			}
+			if !isTurnTaskMessage(row.Role, row.Type, valueOrEmpty(row.Mode), row.Interim) {
 				continue
 			}
 			candidate := turnTaskCheckpoint{
@@ -342,10 +355,10 @@ func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequ
 			continue
 		}
 		for _, msg := range transcriptTurn.Message {
-			if msg == nil || msg.Interim != 0 {
+			if msg == nil {
 				continue
 			}
-			if !strings.EqualFold(strings.TrimSpace(msg.Role), "user") || !strings.EqualFold(strings.TrimSpace(msg.Type), "task") {
+			if !isTurnTaskMessage(msg.Role, msg.Type, valueOrEmpty(msg.Mode), msg.Interim) {
 				continue
 			}
 			candidate := turnTaskCheckpoint{MessageID: strings.TrimSpace(msg.Id), CreatedAt: msg.CreatedAt, Found: true}

@@ -1083,7 +1083,7 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 			if !strings.Contains(body, `"conversationId":"child-1"`) {
 				continue
 			}
-			if !strings.Contains(body, `"messageKind":"answer"`) {
+			if !strings.Contains(body, `"messageKind":"response"`) {
 				continue
 			}
 			require.Contains(t, body, `"message":"final child answer"`)
@@ -1446,6 +1446,212 @@ func TestExecuteToolStep_ActivatedStatusPollerCompletesOnChangedSnapshot(t *test
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestPollerExecuteStatusTick_PreservesMessageKind(t *testing.T) {
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
+		PollIntervalMs:       5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","message":"changed status","messageKind":"preamble"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	rec, _ := manager.Register(context.Background(), asynccfg.RegisterInput{
+		ID:             "child-1",
+		ParentConvID:   "conv-1",
+		ParentTurnID:   "turn-1",
+		ToolCallID:     "call-start",
+		ToolMessageID:  "tool-msg-start",
+		ToolName:       "llm/agents:start",
+		StatusToolName: "llm/agents:status",
+		StatusArgs:     map[string]interface{}{"conversationId": "child-1"},
+		ExecutionMode:  string(asynccfg.ExecutionModeDetach),
+		Status:         "running",
+		Message:        "same status",
+		MessageKind:    "preamble",
+		PollIntervalMs: 5,
+	})
+	require.NotNil(t, rec)
+
+	state := newPollerState(context.Background(), manager, reg, cfg, "child-1", conv)
+	require.NotNil(t, state)
+
+	continueLoop := state.executeStatusTick(context.Background())
+	require.True(t, continueLoop)
+
+	stored, ok := manager.Get(context.Background(), "child-1")
+	require.True(t, ok)
+	require.NotNil(t, stored)
+	require.Equal(t, "preamble", stored.MessageKind)
+}
+
+func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulUpdate(t *testing.T) {
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
+		PollIntervalMs:       5,
+		Narration:            "keydata",
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","message":"Translating the baseline targeting stack into forecast parameters and checking the last three complete days one day at a time.","messageKind":"preamble"}`},
+			{result: `{"status":"completed","message":"{\"name\":\"forecast\"}","messageKind":"response"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncWaitState(ctx)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:             "child-1",
+		ParentConvID:   "conv-1",
+		ParentTurnID:   "turn-1",
+		ToolCallID:     "call-start",
+		ToolMessageID:  "tool-msg-start",
+		ToolName:       "llm/agents:start",
+		StatusToolName: "llm/agents:status",
+		StatusArgs:     map[string]interface{}{"conversationId": "child-1"},
+		ExecutionMode:  string(asynccfg.ExecutionModeDetach),
+		Status:         "running",
+		Message:        "",
+		PollIntervalMs: 5,
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	out, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-status",
+		Name: "llm/agents:status",
+		Args: map[string]interface{}{"conversationId": "child-1"},
+	}, conv)
+	require.NoError(t, err)
+	require.Contains(t, out.Result, `"messageKind":"preamble"`)
+	require.Contains(t, out.Result, "Translating the baseline targeting stack")
+	require.Eventually(t, func() bool {
+		for _, msg := range conv.patchedMessages {
+			if msg == nil || msg.Narration == nil {
+				continue
+			}
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "Translating the baseline targeting stack") {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestExecuteToolStep_ActivatedStatusPollerDoesNotNarrateTerminalResponse(t *testing.T) {
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
+		PollIntervalMs:       5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","message":"same status","messageKind":"preamble"}`},
+			{result: `{"status":"completed","message":"{\"name\":\"forecast\"}","messageKind":"response"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncWaitState(ctx)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:             "child-1",
+		ParentConvID:   "conv-1",
+		ParentTurnID:   "turn-1",
+		ToolCallID:     "call-start",
+		ToolMessageID:  "tool-msg-start",
+		ToolName:       "llm/agents:start",
+		StatusToolName: "llm/agents:status",
+		StatusArgs:     map[string]interface{}{"conversationId": "child-1"},
+		ExecutionMode:  string(asynccfg.ExecutionModeDetach),
+		Status:         "running",
+		Message:        "same status",
+		PollIntervalMs: 5,
+	})
+	_ = manager.ConsumeChanged("conv-1", "turn-1")
+
+	out, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+		ID:   "call-status",
+		Name: "llm/agents:status",
+		Args: map[string]interface{}{"conversationId": "child-1"},
+	}, conv)
+	require.NoError(t, err)
+	require.Contains(t, out.Result, `"messageKind":"response"`)
+	require.Equal(t, 2, reg.calls, "status-attached observation should poll through the terminal response")
+	stored, ok := manager.Get(context.Background(), "child-1")
+	require.True(t, ok)
+	require.NotNil(t, stored)
+	require.Equal(t, "response", stored.MessageKind)
+	require.Eventually(t, func() bool {
+		for _, msg := range conv.patchedMessages {
+			if msg == nil || msg.Narration == nil {
+				continue
+			}
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "same status") {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+	for _, msg := range conv.patchedMessages {
+		if msg == nil || msg.Narration == nil {
+			continue
+		}
+		require.NotContains(t, strings.TrimSpace(*msg.Narration), `{"name":"forecast"}`)
+	}
+}
+
 func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *testing.T) {
 	cfg := &asynccfg.Config{
 		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
@@ -1492,19 +1698,20 @@ func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *test
 	}, `{"status":"failed","stdout":"WAITING","stderr":"TERMINAL_FAILURE"}`, nil)
 	require.Nil(t, rec)
 
-	var sawFailed bool
+	var sawCompleted bool
 	for _, patched := range conv.patchedToolCalls {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
-		if patched.Status == "failed" {
-			sawFailed = true
+		if patched.Status == "completed" {
+			sawCompleted = true
 			if patched.ResponsePayloadID != nil {
 				require.NotEmpty(t, strings.TrimSpace(*patched.ResponsePayloadID))
 			}
+			require.Nil(t, patched.ErrorMessage)
 		}
 	}
-	require.True(t, sawFailed, "expected terminal status tool call to patch the status carrier to failed")
+	require.True(t, sawCompleted, "expected terminal status payload to complete the status carrier tool call")
 }
 
 func TestMaybeHandleAsyncTool_StatusRunningPreservesDisplayToolName(t *testing.T) {
@@ -1608,12 +1815,13 @@ func TestMaybeHandleAsyncTool_StatusDoesNotPatchOriginalToolCallWhenExecutionMod
 	require.NotNil(t, stored)
 	require.Equal(t, asynccfg.StateCompleted, stored.State)
 	require.Equal(t, "child final answer", stored.Message)
+	require.Equal(t, "response", stored.MessageKind)
 	require.Empty(t, conv.patchedMessages, "non-wait async ops should not overwrite the start tool message")
 	require.Empty(t, conv.patchedToolCalls, "non-wait async ops should not patch the original start tool call state")
 	require.Empty(t, conv.patchedPayloads, "non-wait async ops should not persist synthetic payloads onto the start tool row")
 }
 
-func TestMaybeHandleAsyncTool_StatusCanceledPatchesOriginalAsyncToolCall(t *testing.T) {
+func TestMaybeHandleAsyncTool_StatusTerminalPayloadCompletesCarrierToolCall(t *testing.T) {
 	cfg := &asynccfg.Config{
 		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
 		Run: asynccfg.RunConfig{
@@ -1658,19 +1866,40 @@ func TestMaybeHandleAsyncTool_StatusCanceledPatchesOriginalAsyncToolCall(t *test
 	}, `{"status":"canceled","stdout":"canceled"}`, nil)
 	require.Nil(t, rec)
 
-	var sawCanceled bool
+	var sawCompleted bool
 	for _, patched := range conv.patchedToolCalls {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
-		if patched.Status == "canceled" {
-			sawCanceled = true
+		if patched.Status == "completed" {
+			sawCompleted = true
 			if patched.ResponsePayloadID != nil {
 				require.NotEmpty(t, strings.TrimSpace(*patched.ResponsePayloadID))
 			}
+			require.Nil(t, patched.ErrorMessage)
 		}
 	}
-	require.True(t, sawCanceled, "expected terminal canceled status tool call to patch the status carrier to canceled")
+	require.True(t, sawCompleted, "expected terminal canceled payload to complete the status carrier tool call")
+}
+
+func TestChangeEventFromRecord_PreservesMessageKind(t *testing.T) {
+	rec := &asynccfg.OperationRecord{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolName:        "llm/agents:start",
+		Status:          "completed",
+		Message:         "child final answer",
+		MessageKind:     "response",
+		State:           asynccfg.StateCompleted,
+		OperationIntent: "Troubleshoot 2654884",
+	}
+
+	ev := changeEventFromRecord(rec)
+	require.Equal(t, "response", ev.MessageKind)
+	require.Equal(t, "child final answer", ev.Message)
+	require.Equal(t, "conv-1", ev.Conversation)
+	require.Equal(t, "turn-1", ev.TurnID)
 }
 
 func TestMaybeHandleAsyncTool_SameToolReuseRunArgsTreatsRecallAsStatus(t *testing.T) {

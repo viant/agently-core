@@ -24,7 +24,7 @@ func RedactGenerateRequestForTranscript(req *llm.GenerateRequest) []byte {
 	clone.Messages = make([]llm.Message, 0, len(req.Messages))
 
 	for _, msg := range req.Messages {
-		m := sanitizeToolReplayMessage(msg, toolResultPreviewLimit(req))
+		m := msg
 		if len(m.Items) > 0 {
 			items := make([]llm.ContentItem, 0, len(m.Items))
 			for _, item := range m.Items {

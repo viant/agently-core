@@ -309,6 +309,7 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.Tu
 	} else {
 		run.SetConversationKind("interactive")
 		run.SetCreatedAt(now)
+		s.populateInteractiveRunRuntime(run, now)
 	}
 	run.SetStatus(status)
 	run.SetIteration(1)
@@ -325,9 +326,83 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 	run.SetId(turn.TurnID)
 	run.SetIteration(iteration)
 	run.SetStatus("running")
+	s.touchInteractiveRunHeartbeat(run, time.Now())
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
 		logx.Warnf("conversation", "agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
+}
+
+func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.TurnMeta) func() {
+	if s == nil || s.dataService == nil || strings.TrimSpace(turn.TurnID) == "" {
+		return func() {}
+	}
+	interval := s.runHeartbeatEvery
+	if interval <= 0 {
+		if s.runHeartbeatIntervalSec > 0 {
+			interval = time.Duration(s.runHeartbeatIntervalSec) * time.Second / 2
+		}
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+	}
+	if interval < time.Second {
+		interval = time.Second
+	}
+	heartbeatCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				run := &agrunwrite.MutableRunView{}
+				run.SetId(turn.TurnID)
+				s.touchInteractiveRunHeartbeat(run, time.Now())
+				if _, err := s.dataService.PatchRuns(heartbeatCtx, []*agrunwrite.MutableRunView{run}); err != nil {
+					logx.Warnf("conversation", "agent.runHeartbeat failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func (s *Service) populateInteractiveRunRuntime(run *agrunwrite.MutableRunView, now time.Time) {
+	if s == nil || run == nil {
+		return
+	}
+	if strings.TrimSpace(s.runWorkerHost) != "" {
+		run.SetWorkerHost(strings.TrimSpace(s.runWorkerHost))
+	}
+	if strings.TrimSpace(s.runLeaseOwner) != "" {
+		run.SetLeaseOwner(strings.TrimSpace(s.runLeaseOwner))
+	}
+	if s.runHeartbeatIntervalSec > 0 {
+		run.SetHeartbeatIntervalSec(s.runHeartbeatIntervalSec)
+		run.SetLeaseUntil(now.Add(2 * time.Duration(s.runHeartbeatIntervalSec) * time.Second))
+	}
+	run.SetLastHeartbeatAt(now)
+}
+
+func (s *Service) touchInteractiveRunHeartbeat(run *agrunwrite.MutableRunView, now time.Time) {
+	if s == nil || run == nil {
+		return
+	}
+	if strings.TrimSpace(s.runLeaseOwner) != "" {
+		run.SetLeaseOwner(strings.TrimSpace(s.runLeaseOwner))
+	}
+	if s.runHeartbeatIntervalSec > 0 {
+		run.SetHeartbeatIntervalSec(s.runHeartbeatIntervalSec)
+		run.SetLeaseUntil(now.Add(2 * time.Duration(s.runHeartbeatIntervalSec) * time.Second))
+	}
+	run.SetLastHeartbeatAt(now)
 }
 
 func (s *Service) markAssistantMessageInterim(ctx context.Context, turn *runtimerequestctx.TurnMeta, genOutput *core.GenerateOutput) {
@@ -380,7 +455,9 @@ func (s *Service) archiveOlderInterimAssistantMessages(ctx context.Context, conv
 			if message.Archived != nil && *message.Archived == 1 {
 				continue
 			}
-			if message.Mode != nil && strings.TrimSpace(*message.Mode) != "" {
+			mode := strings.ToLower(strings.TrimSpace(valueOrEmpty(message.Mode)))
+			switch mode {
+			case "chain", "router", "summary":
 				continue
 			}
 			upd := apiconv.NewMessage()

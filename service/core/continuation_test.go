@@ -74,6 +74,32 @@ func TestBuildContinuationRequest_BackfillsModeFromContextWhenRequestOptionsEmpt
 	}
 }
 
+func TestBuildContinuationRequest_PreservesInstructionsAndPromptCacheKey(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
+	}
+	toolKey := binding.KindToolCall.Key("call-1")
+	history.Traces[toolKey] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+
+	req := &llm.GenerateRequest{
+		Instructions:   "Preserve this instruction block.",
+		PromptCacheKey: "conv-1",
+	}
+	req.Messages = append(req.Messages,
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "toolA"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1"},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	if assert.NotNil(t, cont) {
+		assert.Equal(t, "Preserve this instruction block.", cont.Instructions)
+		assert.Equal(t, "conv-1", cont.PromptCacheKey)
+	}
+}
+
 // TestBuildContinuationRequest_AllowsMultiToolAnchor verifies that multi-tool
 // continuations succeed when all tool results are present.
 func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {

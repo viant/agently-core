@@ -16,8 +16,10 @@ import (
 )
 
 type recordingObserver struct {
-	last   mcbuf.Info
-	deltas []string
+	last     mcbuf.Info
+	deltas   []string
+	endCount int
+	deltaErr error
 }
 
 func (r *recordingObserver) OnCallStart(ctx context.Context, info mcbuf.Info) (context.Context, error) {
@@ -26,10 +28,14 @@ func (r *recordingObserver) OnCallStart(ctx context.Context, info mcbuf.Info) (c
 
 func (r *recordingObserver) OnCallEnd(_ context.Context, info mcbuf.Info) error {
 	r.last = info
+	r.endCount++
 	return nil
 }
 
 func (r *recordingObserver) OnStreamDelta(_ context.Context, data []byte) error {
+	if r.deltaErr != nil {
+		return r.deltaErr
+	}
 	r.deltas = append(r.deltas, string(data))
 	return nil
 }
@@ -412,6 +418,47 @@ func TestStream_EventError_Fallback(t *testing.T) {
 	if assert.Error(t, gotErr) {
 		assert.Contains(t, gotErr.Error(), "gpt-5.3-codex")
 	}
+}
+
+func TestStream_ObserverDeltaFailureStillFinalizesModelCall(t *testing.T) {
+	lines := []string{
+		"event: response.output_text.delta",
+		`data: {"item_id":"msg_1","delta":"Hi"}`,
+		`data: [DONE]`,
+	}
+	body := strings.Join(lines, "\n")
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	observer := &recordingObserver{deltaErr: fmt.Errorf("observer delta failed")}
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-5.4"
+
+	ctx, cancel := context.WithTimeout(mcbuf.WithObserver(context.Background(), observer), 2*time.Second)
+	defer cancel()
+	ch, err := c.Stream(ctx, &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}})
+	require.NoError(t, err)
+
+	var gotErr error
+	for ev := range ch {
+		if ev.Err != nil {
+			gotErr = ev.Err
+			break
+		}
+	}
+	require.Error(t, gotErr)
+	require.Contains(t, gotErr.Error(), "observer OnStreamDelta failed")
+	require.Equal(t, 1, observer.endCount, "stream early-exit should still invoke OnCallEnd via finalize")
+	require.False(t, observer.last.CompletedAt.IsZero())
 }
 
 func TestStream_ObserverReceivesWhitespaceDeltaChunks(t *testing.T) {

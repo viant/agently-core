@@ -210,6 +210,8 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 
 	// Build continuation request with selected tool-call messages
 	continuationRequest := &llm.GenerateRequest{}
+	continuationRequest.Instructions = strings.TrimSpace(req.Instructions)
+	continuationRequest.PromptCacheKey = strings.TrimSpace(req.PromptCacheKey)
 	if req.Options != nil {
 		opts := *req.Options
 		if strings.TrimSpace(opts.Mode) == "" {

@@ -1238,6 +1238,12 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 	if event.AssistantMessageID == "" {
 		event.AssistantMessageID = strings.TrimSpace(turn.ParentMessageID)
 	}
+	if event.PageID == "" {
+		event.PageID = strings.TrimSpace(event.AssistantMessageID)
+	}
+	if event.PageID == "" {
+		event.PageID = strings.TrimSpace(event.ParentMessageID)
+	}
 	if toolCall.Has != nil {
 		if toolCall.Has.StartedAt && toolCall.StartedAt != nil && !toolCall.StartedAt.IsZero() {
 			event.StartedAt = toolCall.StartedAt
@@ -1570,6 +1576,7 @@ func (s *Service) emitCanonicalAssistantEvents(ctx context.Context, message *con
 			StreamID:        conversationID,
 			ConversationID:  conversationID,
 			MessageID:       strings.TrimSpace(message.Id),
+			PageID:          strings.TrimSpace(message.Id),
 			Mode:            firstNonEmpty(strings.TrimSpace(valueOrEmptyStr(message.Mode)), requestModeForEvent(ctx)),
 			Type:            streaming.EventTypeNarration,
 			TurnID:          turnID,
@@ -1633,6 +1640,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			StreamID:        conversationID,
 			ConversationID:  conversationID,
 			MessageID:       strings.TrimSpace(modelCall.MessageID),
+			PageID:          strings.TrimSpace(modelCall.MessageID),
 			Mode:            mode,
 			Type:            streaming.EventTypeModelStarted,
 			TurnID:          resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),
@@ -1683,6 +1691,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 			StreamID:        conversationID,
 			ConversationID:  conversationID,
 			MessageID:       strings.TrimSpace(modelCall.MessageID),
+			PageID:          strings.TrimSpace(modelCall.MessageID),
 			Mode:            mode,
 			Type:            streaming.EventTypeModelCompleted,
 			TurnID:          resolveTurnID(ctx, valueOrEmptyStr(modelCall.TurnID)),

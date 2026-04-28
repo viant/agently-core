@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -148,7 +149,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		finalResponse := isFinalStop && !isToolRelated && content != ""
 		patchCtx = runtimerequestctx.WithModelCompletionMeta(ctx, runtimerequestctx.ModelCompletionMeta{
 			Content:       content,
-			Narration:      preamble,
+			Narration:     preamble,
 			FinalResponse: finalResponse,
 			FinishReason:  finishReason,
 		})
@@ -291,7 +292,9 @@ func (o *recorderObserver) isLikelyUserEcho(ctx context.Context, assistantConten
 		if candidateID == "" {
 			continue
 		}
-		msg, err := o.client.GetMessage(ctx, candidateID)
+		readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		msg, err := o.client.GetMessage(readCtx, candidateID)
+		cancel()
 		if err != nil || msg == nil || !strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
 			continue
 		}

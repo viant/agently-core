@@ -241,6 +241,64 @@ describe('chatStore/projector — projectConversation', () => {
         });
     });
 
+    it('does not project page-owned assistant narration or final messages as standalone rows', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_owned',
+                status: 'completed',
+                user: {
+                    messageId: 'user-1',
+                    content: 'Initial ask',
+                    sequence: 1,
+                    createdAt: '2026-04-21T00:00:00Z',
+                },
+                messages: [{
+                    messageId: 'msg-final',
+                    role: 'assistant',
+                    content: 'Final answer',
+                    sequence: 9,
+                    createdAt: '2026-04-21T00:00:09Z',
+                    interim: 0,
+                }, {
+                    messageId: 'msg-narration',
+                    role: 'assistant',
+                    content: 'Thinking…',
+                    sequence: 8,
+                    createdAt: '2026-04-21T00:00:08Z',
+                    interim: 1,
+                }],
+                assistant: {
+                    narration: {
+                        messageId: 'msg-narration',
+                        content: 'Thinking…',
+                    },
+                    final: {
+                        messageId: 'msg-final',
+                        content: 'Final answer',
+                    },
+                },
+                execution: {
+                    pages: [{
+                        pageId: 'page-final',
+                        assistantMessageId: 'page-final',
+                        finalAssistantMessageId: 'msg-final',
+                        narrationMessageId: 'msg-narration',
+                        status: 'completed',
+                        finalResponse: true,
+                        content: 'Final answer',
+                        narration: 'Thinking…',
+                        sequence: 9,
+                    }],
+                },
+            }],
+        });
+
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'iteration']);
+    });
+
     it('keeps transcript extra user messages after the iteration when their sequence is later', () => {
         const state = fresh();
         applyTranscript(state, {
@@ -329,12 +387,7 @@ describe('chatStore/projector — projectConversation', () => {
         });
 
         const rows = projectConversation(state);
-        expect(rows.map((row) => row.kind)).toEqual(['assistant', 'iteration']);
-        expect(rows[0]).toMatchObject({
-            kind: 'assistant',
-            messageId: 'msg_note_live',
-            content: 'PRELIMINARY NOTE',
-        });
+        expect(rows.map((row) => row.kind)).toEqual(['iteration']);
     });
 });
 

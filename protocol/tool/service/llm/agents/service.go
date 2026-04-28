@@ -9,6 +9,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
+	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -46,6 +47,7 @@ type Service struct {
 	allowed map[string]string // id -> source (internal|external)
 	// Conversation/linking/status helpers
 	conv   apiconv.Client
+	data   data.Service
 	linker *linksvc.Service
 	status *statussvc.Service
 	// ChildTimeout overrides DefaultChildAgentTimeout for internal runs.
@@ -115,6 +117,10 @@ func WithConversationClient(c apiconv.Client) Option {
 	}
 }
 
+func WithDataService(d data.Service) Option {
+	return func(s *Service) { s.data = d }
+}
+
 // WithStreamPublisher wires a streaming publisher to the linking service so
 // linked_conversation_attached events reach the SSE bus.
 func WithStreamPublisher(p streaming.Publisher) Option {
@@ -172,9 +178,14 @@ func (s *Service) AsyncConfigs() []*asynccfg.Config {
 	return []*asynccfg.Config{
 		{
 			DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
-			TimeoutMs:            int((5 * time.Minute) / time.Millisecond),
-			PollIntervalMs:       int((2 * time.Second) / time.Millisecond),
-			Narration:            "keydata",
+			// Child-agent timeout ownership lives in llm/agents:status
+			// normalization, which uses conversation activity to derive the
+			// correct terminal child state (20m normal, 5m waiting_for_user).
+			// A separate async wrapper wall-clock timeout would create a
+			// conflicting carrier-level failure contract.
+			TimeoutMs:      0,
+			PollIntervalMs: int((2 * time.Second) / time.Millisecond),
+			Narration:      "keydata",
 			Run: asynccfg.RunConfig{
 				Tool:              "llm/agents:start",
 				OperationIDPath:   "conversationId",

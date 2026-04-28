@@ -251,7 +251,7 @@ AGENTLY_SCHEDULER_RUNNER=true AGENTLY_SCHEDULER_API=false ./agently serve
 |---------|---------|---------|
 | `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler CRUD endpoints |
 | `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
-| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable watchdog in-process |
+| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable scheduler watchdog in-process (scheduled runs only) |
 
 ## SDK Modes
 

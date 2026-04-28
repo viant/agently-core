@@ -375,6 +375,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	promptRepo := promptrepo.NewWithStore(out.Store)
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
 		llmagents.WithConversationClient(out.Conversation),
+		llmagents.WithDataService(out.Data),
 		llmagents.WithPromptRepo(promptRepo),
 		llmagents.WithMCPManager(out.MCPManager),
 		llmagents.WithModelFinder(b.modelFinder),

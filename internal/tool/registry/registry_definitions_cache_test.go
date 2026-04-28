@@ -139,3 +139,21 @@ func TestMatchDefinitionWithContext_SupportsFullyQualifiedMCPToolNames(t *testin
 	}
 	assert.Equal(t, "steward:AdHierarchy", defs[0].Name)
 }
+
+func TestMatchDefinitionWithContext_UsesCachedMCPDefinitionsWhenDiscoveryFails(t *testing.T) {
+	mgr, _ := manager.New(nil)
+	reg, err := NewWithManager(mgr)
+	if err != nil {
+		t.Fatalf("registry init failed: %v", err)
+	}
+	reg.internal = map[string]mcpclient.Interface{
+		"steward": &fakeClient{mode: "down"},
+	}
+	reg.replaceServerTools("steward", []mcpschema.Tool{{Name: "AdTargetingProfile"}})
+
+	defs := reg.MatchDefinitionWithContext(context.Background(), "steward-AdTargetingProfile")
+	if len(defs) != 1 {
+		t.Fatalf("expected 1 cached matched tool, got %d", len(defs))
+	}
+	assert.Equal(t, "steward/AdTargetingProfile", defs[0].Name)
+}

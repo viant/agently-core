@@ -18,6 +18,7 @@ func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID
 	}
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
+	helperOwnsTurnLifecycle := !ok || strings.TrimSpace(turn.TurnID) == ""
 	if !ok {
 		turn = runtimerequestctx.TurnMeta{}
 	}
@@ -41,7 +42,12 @@ func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID
 		rec := apiconv.NewTurn()
 		rec.SetId(turn.TurnID)
 		rec.SetConversationID(turn.ConversationID)
-		rec.SetStatus("running")
+		// Only the authoritative turn-start path owns the running transition.
+		// Helper-sidecar contexts reuse an existing turn and must not restate
+		// turn_started, otherwise SSE emits duplicate turn lifecycle events.
+		if helperOwnsTurnLifecycle {
+			rec.SetStatus("running")
+		}
 		if strings.TrimSpace(assistant) != "" {
 			rec.SetAgentIDUsed(strings.TrimSpace(assistant))
 		}
