@@ -118,14 +118,15 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		return err
 	}
 	childContext := inheritDelegatedContext(ctx, ri.Context)
-	qi := &agentsvc.QueryInput{AgentID: ri.AgentID, Query: normalizedDelegatedObjective(ri), Context: childContext}
-	if s.agent != nil && s.agent.Finder() != nil && strings.TrimSpace(ri.AgentID) != "" {
-		if ag, err := s.agent.Finder().Find(ctx, strings.TrimSpace(ri.AgentID)); err == nil && ag != nil {
+	agentID := effectiveRunAgentID(ri)
+	qi := &agentsvc.QueryInput{AgentID: agentID, Agent: ri.Agent, Query: normalizedDelegatedObjective(ri), Context: childContext}
+	if qi.Agent == nil && s.agent != nil && s.agent.Finder() != nil && agentID != "" {
+		if ag, err := s.agent.Finder().Find(ctx, agentID); err == nil && ag != nil {
 			qi.Agent = ag
 		}
 	}
-	if strings.TrimSpace(ri.AgentID) != "" {
-		childContext = setDelegationDepth(childContext, strings.TrimSpace(ri.AgentID), depth+1)
+	if agentID != "" {
+		childContext = setDelegationDepth(childContext, agentID, depth+1)
 		ri.Context = childContext
 		qi.Context = childContext
 	}
@@ -236,12 +237,12 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 	}
 	childCtx, childCancel := context.WithTimeout(childCtx, childTimeout)
 	defer childCancel()
-	logx.Infof("conversation", "agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), childTimeout)
+	logx.Infof("conversation", "agents.run internal invoke agent_id=%q child_convo=%q timeout=%s", strings.TrimSpace(qi.Actor()), strings.TrimSpace(runCtx.childConversationID), childTimeout)
 	if err := s.agent.Query(childCtx, qi, qo); err != nil {
-		logx.Errorf("conversation", "agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), err)
+		logx.Errorf("conversation", "agents.run internal error agent_id=%q child_convo=%q err=%v", strings.TrimSpace(qi.Actor()), strings.TrimSpace(runCtx.childConversationID), err)
 		return s.resolveChildRunError(ctx, runCtx, qo, err)
 	}
-	logx.Infof("conversation", "agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(qi.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
+	logx.Infof("conversation", "agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(qi.Actor()), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
 	return childRunResult{
 		answer:         qo.Content,
 		status:         "succeeded",
@@ -869,22 +870,23 @@ func latestChildFailureSummary(transcript apiconv.Transcript) string {
 
 func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route string, waitForConversation bool) (linkedRun, error) {
 	runCtx := linkedRun{parent: turnMetaFromContext(ctx)}
+	agentID := effectiveRunAgentID(ri)
 	if s.linker == nil || strings.TrimSpace(runCtx.parent.ConversationID) == "" {
 		return runCtx, nil
 	}
 	scope := "new"
 	if strings.EqualFold(strings.TrimSpace(route), "internal") {
-		scope = s.agentConversationScope(ctx, strings.TrimSpace(ri.AgentID))
+		scope = s.agentConversationScopeForRun(ctx, ri)
 	}
-	logx.Infof("conversation", "agents.run %s scope agent_id=%q scope=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(scope))
+	logx.Infof("conversation", "agents.run %s scope agent_id=%q scope=%q", route, agentID, strings.TrimSpace(scope))
 	if strings.EqualFold(strings.TrimSpace(route), "internal") {
-		runCtx.childConversationID = s.resolveReusableChildConversation(ctx, ri.AgentID, runCtx.parent, scope, route)
+		runCtx.childConversationID = s.resolveReusableChildConversation(ctx, agentID, runCtx.parent, scope, route)
 	}
 	// Only create a local child conversation for internal runs.
 	// External A2A agents host their own conversation on a remote server;
 	// creating a local stub would produce a dead linked-conversation card in the UI.
 	if strings.TrimSpace(runCtx.childConversationID) == "" && strings.EqualFold(strings.TrimSpace(route), "internal") {
-		childConversationID, err := s.createChildConversation(ctx, ri.AgentID, ri.Objective, runCtx.parent, route, waitForConversation)
+		childConversationID, err := s.createChildConversation(ctx, agentID, ri.Objective, runCtx.parent, route, waitForConversation)
 		if err != nil {
 			return runCtx, err
 		}
@@ -897,13 +899,13 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 	if ri != nil && ri.Async != nil && *ri.Async {
 		statusToolName = "llm/agents:start"
 	}
-	logx.Infof("conversation", "agents.run %s status routing agent_id=%q child_convo=%q async_present=%v async_value=%v status_tool=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), ri != nil && ri.Async != nil, ri != nil && ri.Async != nil && *ri.Async, strings.TrimSpace(statusToolName))
+	logx.Infof("conversation", "agents.run %s status routing agent_id=%q child_convo=%q async_present=%v async_value=%v status_tool=%q", route, agentID, strings.TrimSpace(runCtx.childConversationID), ri != nil && ri.Async != nil, ri != nil && ri.Async != nil && *ri.Async, strings.TrimSpace(statusToolName))
 	runCtx.statusToolName = statusToolName
 	if !strings.EqualFold(statusToolName, "llm/agents:start") {
-		logx.Infof("conversation", "agents.run %s creating status message agent_id=%q child_convo=%q status_tool=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(statusToolName))
-		runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, strings.TrimSpace(ri.AgentID), route, statusToolName)
+		logx.Infof("conversation", "agents.run %s creating status message agent_id=%q child_convo=%q status_tool=%q", route, agentID, strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(statusToolName))
+		runCtx.statusMessageID = s.startRunStatus(ctx, runCtx.parent, runCtx.childConversationID, agentID, route, statusToolName)
 	} else {
-		logx.Infof("conversation", "agents.run %s skipping status message for async child agent_id=%q child_convo=%q", route, strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
+		logx.Infof("conversation", "agents.run %s skipping status message for async child agent_id=%q child_convo=%q", route, agentID, strings.TrimSpace(runCtx.childConversationID))
 	}
 	return runCtx, nil
 }
@@ -927,6 +929,15 @@ func (s *Service) agentConversationScope(ctx context.Context, agentID string) st
 		}
 	}
 	return scope
+}
+
+func (s *Service) agentConversationScopeForRun(ctx context.Context, ri *RunInput) string {
+	if ri != nil && ri.Agent != nil && ri.Agent.Profile != nil {
+		if v := strings.ToLower(strings.TrimSpace(ri.Agent.Profile.ConversationScope)); v == "parent" || v == "parentturn" || v == "new" {
+			return v
+		}
+	}
+	return s.agentConversationScope(ctx, effectiveRunAgentID(ri))
 }
 
 func (s *Service) resolveReusableChildConversation(ctx context.Context, agentID string, parent runtimerequestctx.TurnMeta, scope, route string) string {

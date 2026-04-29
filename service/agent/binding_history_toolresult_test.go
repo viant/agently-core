@@ -275,6 +275,50 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 	}
 }
 
+func TestBuildHistory_DedupesRepeatedMessageIDs(t *testing.T) {
+	now := time.Now().UTC()
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{
+			Id: "turn-1",
+			Message: []*agconv.MessageView{
+				{
+					Id:        "msg-dup",
+					TurnId:    strPtr("turn-1"),
+					Role:      "assistant",
+					Type:      "text",
+					Content:   strPtr("first copy"),
+					CreatedAt: now,
+				},
+				{
+					Id:        "msg-dup",
+					TurnId:    strPtr("turn-1"),
+					Role:      "assistant",
+					Type:      "text",
+					Content:   strPtr("latest copy"),
+					CreatedAt: now.Add(time.Second),
+				},
+			},
+		},
+	}
+
+	history, err := (&Service{}).buildHistory(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+	if len(history.Past) != 1 {
+		t.Fatalf("expected one turn, got %#v", history.Past)
+	}
+	if len(history.Past[0].Messages) != 1 {
+		t.Fatalf("expected one deduped message, got %#v", history.Past[0].Messages)
+	}
+	if got := history.Past[0].Messages[0].ID; got != "msg-dup" {
+		t.Fatalf("message id = %q", got)
+	}
+	if got := history.Past[0].Messages[0].Content; got != "latest copy" {
+		t.Fatalf("content = %q, want latest copy", got)
+	}
+}
+
 func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStatusText(t *testing.T) {
 	now := time.Now().UTC()
 	transcript := apiconv.Transcript{

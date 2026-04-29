@@ -407,6 +407,22 @@ func skillActivationOverridePair(input *QueryInput) (string, string) {
 	return strings.TrimSpace(name), strings.TrimSpace(mode)
 }
 
+func preactivatedSkillPayload(input *QueryInput) (string, string, string, bool) {
+	if input == nil || input.Context == nil {
+		return "", "", "", false
+	}
+	name, _ := input.Context["skillActivationName"].(string)
+	body, _ := input.Context["skillActivationBody"].(string)
+	args, _ := input.Context["skillActivationArgs"].(string)
+	name = strings.TrimSpace(name)
+	body = strings.TrimSpace(body)
+	args = strings.TrimSpace(args)
+	if name == "" || body == "" {
+		return "", "", "", false
+	}
+	return name, args, body, true
+}
+
 func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 	if len(input.ToolsAllowed) > 0 {
 		return &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
@@ -492,7 +508,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
 		iterHistoryMsgs := append([]*bindpkg.Message(nil), loopHistoryMsgs...)
 		if iter == 1 && len(iterHistoryMsgs) == 0 && s.skillSvc != nil {
-			if name, args, ok := parseExplicitSkillInvocation(input.Query); ok {
+			if name, args, body, ok := preactivatedSkillPayload(input); ok {
+				logx.Infof("conversation", "agent.runPlan preactivated skill payload detected convo=%q turn_id=%q skill=%q body_len=%d agent_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(name), len(body), strings.TrimSpace(input.AgentID))
+				input.Query = strings.TrimSpace(args)
+			} else if name, args, ok := parseExplicitSkillInvocation(input.Query); ok {
+				logx.Infof("conversation", "agent.runPlan explicit skill invocation detected convo=%q turn_id=%q skill=%q args_len=%d agent_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(name), len(args), strings.TrimSpace(input.AgentID))
 				var (
 					body string
 					err  error
@@ -501,12 +521,18 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if override := skillActivationModeOverride(input, name); override != "" {
 					skillCtx = skillsvc.WithActivationModeOverride(skillCtx, name, override)
 				}
-				if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+				if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" && input.Agent != nil {
+					body, err = s.skillSvc.ActivateForConversationWithAgent(skillCtx, convID, input.Agent, name, args)
+				} else if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
 					body, err = s.skillSvc.ActivateForConversation(skillCtx, convID, name, args)
 				} else {
 					body, err = s.skillSvc.Activate(input.Agent, name, args)
 				}
+				if err != nil {
+					logx.Warnf("conversation", "agent.runPlan explicit skill activation failed convo=%q turn_id=%q skill=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(name), err)
+				}
 				if err == nil {
+					logx.Infof("conversation", "agent.runPlan explicit skill activation ok convo=%q turn_id=%q skill=%q body_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(name), len(strings.TrimSpace(body)))
 					opID := "skill-activate-" + name
 					input.Query = strings.TrimSpace(args)
 					msg := &bindpkg.Message{
@@ -541,11 +567,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
 		overrideName, overrideMode := skillActivationOverridePair(input)
 		if s.skillSvc != nil && input.Agent != nil {
-			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent, overrideName, overrideMode)
+			activeNames := resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
 			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
 		}
 		if s.skillSvc != nil {
-			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent, overrideName, overrideMode)
+			activeNames := resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
 				binding.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(binding.Tools.Signatures, s.registry, activeSkills)
@@ -635,7 +661,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// ladder) can inspect it without re-running skill discovery.
 		var activeSkill *skillproto.Skill
 		if s.skillSvc != nil {
-			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent, overrideName, overrideMode)
+			activeNames := resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
 				if len(activeSkills) > 0 {

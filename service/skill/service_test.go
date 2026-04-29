@@ -280,14 +280,133 @@ func TestService_ActivateForConversation_DetachLaunchesChildConversation(t *test
 	if len(calls) != 1 {
 		t.Fatalf("calls = %#v", calls)
 	}
-	if got := calls[0].Args["agentId"]; got != "coder" {
+	if got := calls[0].Args["agentId"]; got != "coder/demo" {
 		t.Fatalf("agentId = %#v", got)
+	}
+	agentArg, ok := calls[0].Args["agent"].(*agentmdl.Agent)
+	if !ok || agentArg == nil {
+		t.Fatalf("agent = %#v", calls[0].Args["agent"])
+	}
+	if agentArg.ID != "coder/demo" {
+		t.Fatalf("derived agent id = %q", agentArg.ID)
+	}
+	if !strings.Contains(agentArg.SystemPrompt.Text, "\"demo\" skill") || !strings.Contains(agentArg.SystemPrompt.Text, "body") {
+		t.Fatalf("derived system prompt = %q", agentArg.SystemPrompt.Text)
 	}
 	if got := calls[0].Args["executionMode"]; got != "detach" {
 		t.Fatalf("executionMode = %#v", got)
 	}
-	if got := calls[0].Args["objective"]; got != "/demo arg1" {
+	if got, _ := calls[0].Args["objective"].(string); !strings.Contains(got, "/demo arg1") || !strings.Contains(got, "Runtime date context:") {
 		t.Fatalf("objective = %#v", got)
+	}
+}
+
+func TestService_ActivateForConversation_DetachUsesSkillAgentID(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: detach\nagent-id: forecast-skill\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	var calls []struct {
+		Name string
+		Args map[string]interface{}
+	}
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		calls = append(calls, struct {
+			Name string
+			Args map[string]interface{}
+		}{Name: name, Args: args})
+		if name != "llm/agents:start" {
+			t.Fatalf("unexpected tool call %q", name)
+		}
+		return `{"conversationId":"child-1","status":"running"}`, nil
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	body, err := svc.ActivateForConversation(ctx, "conv-skill", "demo", "arg1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `child-1`) || !strings.Contains(body, `llm/agents:status`) {
+		t.Fatalf("body = %q", body)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls = %#v", calls)
+	}
+	if got := calls[0].Args["agentId"]; got != "forecast-skill" {
+		t.Fatalf("agentId = %#v", got)
+	}
+	agentArg, ok := calls[0].Args["agent"].(*agentmdl.Agent)
+	if !ok || agentArg == nil {
+		t.Fatalf("agent = %#v", calls[0].Args["agent"])
+	}
+	if agentArg.ID != "forecast-skill" {
+		t.Fatalf("derived agent id = %q", agentArg.ID)
+	}
+}
+
+func TestService_activate_DetachReturnsStructuredChildState(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: detach\nagent-id: forecast-skill\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		if name != "llm/agents:start" {
+			t.Fatalf("unexpected tool call %q", name)
+		}
+		return `{"conversationId":"child-1","status":"running"}`, nil
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	in := &ActivateInput{Name: "demo"}
+	out := &ActivateOutput{}
+	if err := svc.activate(ctx, in, out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != "detach" {
+		t.Fatalf("mode = %q", out.Mode)
+	}
+	if !out.Started {
+		t.Fatalf("started = %#v", out.Started)
+	}
+	if out.Terminal {
+		t.Fatalf("terminal = %#v", out.Terminal)
+	}
+	if out.Status != "running" {
+		t.Fatalf("status = %q", out.Status)
+	}
+	if out.ChildConversationID != "child-1" {
+		t.Fatalf("childConversationId = %q", out.ChildConversationID)
+	}
+	if out.ChildAgentID != "forecast-skill" {
+		t.Fatalf("childAgentId = %q", out.ChildAgentID)
 	}
 }
 

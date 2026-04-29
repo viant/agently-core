@@ -79,7 +79,7 @@ func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List visible skills for the current agent", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "activate", Description: "Activate one skill and return its SKILL.md body for the current turn", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&ActivateOutput{})},
+		{Name: "activate", Description: "Activate one skill. Inline skills return their body for the current turn; fork/detach skills may already start a child conversation and return its execution state. When started=true and childConversationId is set, do not launch another agent into that conversation; poll llm/agents:status on the returned childConversationId instead.", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&ActivateOutput{})},
 	}
 }
 
@@ -104,8 +104,14 @@ type ActivateInput struct {
 	Args string `json:"args,omitempty"`
 }
 type ActivateOutput struct {
-	Name string `json:"name,omitempty"`
-	Body string `json:"body,omitempty"`
+	Name                string `json:"name,omitempty"`
+	Body                string `json:"body,omitempty"`
+	Mode                string `json:"mode,omitempty"`
+	Started             bool   `json:"started,omitempty"`
+	Terminal            bool   `json:"terminal,omitempty"`
+	Status              string `json:"status,omitempty"`
+	ChildConversationID string `json:"childConversationId,omitempty"`
+	ChildAgentID        string `json:"childAgentId,omitempty"`
 }
 
 func (s *Service) Visible(agent *agentmdl.Agent) ([]skillproto.Metadata, string) {
@@ -280,7 +286,7 @@ func (s *Service) activateResolvedWithContext(ctx context.Context, item *skillpr
 		}
 	}
 	text := fmt.Sprintf("Loaded skill %q. Follow the instructions below:\n\n%s", strings.TrimSpace(item.Frontmatter.Name), body)
-	if v := strings.TrimSpace(args); v != "" {
+	if v := strings.TrimSpace(augmentSkillArgsWithRuntimeClock(strings.TrimSpace(args))); v != "" {
 		text += "\n\nArguments:\n" + v
 	}
 	return text, stats, nil
@@ -304,10 +310,159 @@ type agentsStatusOutput struct {
 
 func explicitSkillObjective(name, args string) string {
 	command := "/" + strings.TrimSpace(name)
-	if v := strings.TrimSpace(args); v != "" {
+	if v := strings.TrimSpace(augmentSkillArgsWithRuntimeClock(strings.TrimSpace(args))); v != "" {
 		return command + " " + v
 	}
 	return command
+}
+
+func dynamicSkillAgentID(parent *agentmdl.Agent, item *skillproto.Skill) string {
+	if item != nil {
+		if id := strings.TrimSpace(item.Frontmatter.AgentID); id != "" {
+			return id
+		}
+	}
+	skillName := ""
+	if item != nil {
+		skillName = strings.TrimSpace(item.Frontmatter.Name)
+	}
+	parentID := ""
+	if parent != nil {
+		parentID = strings.TrimSpace(parent.ID)
+	}
+	switch {
+	case parentID != "" && skillName != "":
+		return parentID + "/" + skillName
+	case skillName != "":
+		return "skill/" + skillName
+	case parentID != "":
+		return parentID + "/skill-child"
+	default:
+		return "skill/child"
+	}
+}
+
+func dynamicSkillAgentName(parent *agentmdl.Agent, item *skillproto.Skill) string {
+	skillName := ""
+	if item != nil {
+		skillName = strings.TrimSpace(item.Frontmatter.Name)
+	}
+	parentName := ""
+	if parent != nil {
+		parentName = strings.TrimSpace(parent.Name)
+	}
+	label := strings.ReplaceAll(skillName, "-", " ")
+	label = strings.TrimSpace(label)
+	label = strings.Title(label)
+	switch {
+	case parentName != "" && label != "":
+		return parentName + " / " + label
+	case label != "":
+		return label
+	case parentName != "":
+		return parentName + " / Skill Child"
+	default:
+		return "Skill Child"
+	}
+}
+
+func dynamicSkillSystemPrompt(item *skillproto.Skill, loadedBody string) string {
+	name := ""
+	if item != nil {
+		name = strings.TrimSpace(item.Frontmatter.Name)
+	}
+	body := strings.TrimSpace(loadedBody)
+	parts := []string{
+		fmt.Sprintf("You are a child agent derived dynamically from the %q skill.", name),
+		"Rules:",
+		"- Execute only the delegated skill task.",
+		"- Do not perform broad orchestration or re-route the task elsewhere.",
+		"- Treat the rest of this system prompt as the authoritative skill contract.",
+	}
+	if body != "" {
+		parts = append(parts, "", body)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func deriveDynamicSkillAgent(parent *agentmdl.Agent, item *skillproto.Skill, loadedBody string) *agentmdl.Agent {
+	if item == nil {
+		return nil
+	}
+	var toolItems []*llm.Tool
+	for _, token := range skillproto.ParseAllowedTools(item.Frontmatter.AllowedTools) {
+		switch {
+		case strings.TrimSpace(token.ToolPattern) != "":
+			toolItems = append(toolItems, &llm.Tool{Name: strings.TrimSpace(token.ToolPattern)})
+		case strings.TrimSpace(token.BashCommand) != "":
+			toolItems = append(toolItems, &llm.Tool{Name: "system/exec:execute"})
+		}
+	}
+	derived := &agentmdl.Agent{
+		Identity: agentmdl.Identity{
+			ID:   dynamicSkillAgentID(parent, item),
+			Name: dynamicSkillAgentName(parent, item),
+		},
+		Internal:     true,
+		Description:  fmt.Sprintf("Dynamic child agent derived from skill %q.", strings.TrimSpace(item.Frontmatter.Name)),
+		Prompt:       &binding.Prompt{Text: "{{.Task.Prompt}}", Engine: "go"},
+		SystemPrompt: &binding.Prompt{Text: dynamicSkillSystemPrompt(item, loadedBody), Engine: "go"},
+		Persona:      &binding.Persona{Role: "assistant", Actor: "Specialist"},
+		Source:       &agentmdl.Source{URL: "internal://skill-derived/" + strings.TrimSpace(item.Frontmatter.Name)},
+		Skills:       []string{strings.TrimSpace(item.Frontmatter.Name)},
+		Tool: agentmdl.Tool{
+			Items: toolItems,
+		},
+	}
+	if parent != nil {
+		derived.ToolCallExposure = parent.ToolCallExposure
+		derived.Tool.CallExposure = parent.Tool.CallExposure
+		derived.DefaultWorkdir = strings.TrimSpace(parent.DefaultWorkdir)
+		if parent.Attachment != nil {
+			attachment := *parent.Attachment
+			derived.Attachment = &attachment
+		}
+		derived.ModelSelection = parent.ModelSelection
+		derived.AllowedProviders = append([]string{}, parent.AllowedProviders...)
+		derived.AllowedModels = append([]string{}, parent.AllowedModels...)
+		if parent.Reasoning != nil {
+			reasoning := *parent.Reasoning
+			derived.Reasoning = &reasoning
+		}
+		if parent.ParallelToolCalls != nil {
+			value := *parent.ParallelToolCalls
+			derived.ParallelToolCalls = &value
+		}
+		derived.Temperature = parent.Temperature
+	}
+	if item.Frontmatter.Temperature != nil {
+		derived.Temperature = *item.Frontmatter.Temperature
+	}
+	if strings.TrimSpace(item.Frontmatter.Model) != "" {
+		derived.ModelSelection.Model = strings.TrimSpace(item.Frontmatter.Model)
+	}
+	if strings.TrimSpace(item.Frontmatter.Effort) != "" {
+		if derived.Reasoning == nil {
+			derived.Reasoning = &llm.Reasoning{}
+		}
+		derived.Reasoning.Effort = strings.TrimSpace(item.Frontmatter.Effort)
+	}
+	return derived
+}
+
+func augmentSkillArgsWithRuntimeClock(args string) string {
+	now := time.Now()
+	date := now.Format("2006-01-02")
+	zone := strings.TrimSpace(now.Location().String())
+	if zone == "" {
+		zone = "Local"
+	}
+	context := fmt.Sprintf("Runtime date context:\n- current_date: %s\n- timezone: %s", date, zone)
+	trimmed := strings.TrimSpace(args)
+	if trimmed == "" {
+		return context
+	}
+	return trimmed + "\n\n" + context
 }
 
 func WithActivationModeOverride(ctx context.Context, name, mode string) context.Context {
@@ -417,17 +572,32 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 	if ExecFn == nil {
 		return "", nil, fmt.Errorf("skill runtime not configured")
 	}
-	if agent == nil || strings.TrimSpace(agent.ID) == "" {
+	targetAgent := deriveDynamicSkillAgent(agent, item, "")
+	targetAgentID := ""
+	if targetAgent != nil {
+		targetAgentID = strings.TrimSpace(targetAgent.ID)
+	}
+	if targetAgentID == "" {
 		return "", nil, fmt.Errorf("skill %q requires an agent identity for %s execution", strings.TrimSpace(item.Frontmatter.Name), item.Frontmatter.ContextMode())
 	}
 	mode := item.Frontmatter.ContextMode()
+	loadedBody, stats, err := s.activateResolvedWithContext(ctx, item, args)
+	if err != nil {
+		return "", nil, err
+	}
+	targetAgent = deriveDynamicSkillAgent(agent, item, loadedBody)
+	targetAgentID = strings.TrimSpace(targetAgent.ID)
 	startPayload := map[string]interface{}{
-		"agentId":       strings.TrimSpace(agent.ID),
+		"agentId":       targetAgentID,
+		"agent":         targetAgent,
 		"objective":     explicitSkillObjective(item.Frontmatter.Name, args),
 		"executionMode": mode,
 		"context": map[string]interface{}{
-			"skillActivationName": strings.TrimSpace(item.Frontmatter.Name),
-			"skillActivationMode": "inline",
+			"skillActivationName":     strings.TrimSpace(item.Frontmatter.Name),
+			"skillActivationMode":     "inline",
+			"skillActivationArgs":     strings.TrimSpace(args),
+			"skillActivationBody":     strings.TrimSpace(loadedBody),
+			"skillActivationEmbedded": true,
 		},
 	}
 	serialized, err := ExecFn(ctx, "llm/agents:start", startPayload)
@@ -443,9 +613,18 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 		return "", nil, fmt.Errorf("llm/agents:start returned empty conversationId for skill %q", strings.TrimSpace(item.Frontmatter.Name))
 	}
 	eventArgs := map[string]interface{}{
+		"childAgentId":        targetAgentID,
 		"executionMode":       mode,
 		"childConversationId": childConversationID,
 		"childStatus":         strings.TrimSpace(startOut.Status),
+	}
+	if stats.CommandsRun > 0 || stats.Denied > 0 || stats.TimedOut > 0 || stats.BytesExpanded > 0 {
+		eventArgs["preprocess"] = map[string]interface{}{
+			"commandsRun":   stats.CommandsRun,
+			"denied":        stats.Denied,
+			"timedOut":      stats.TimedOut,
+			"bytesExpanded": stats.BytesExpanded,
+		}
 	}
 	if mode == "detach" {
 		text := fmt.Sprintf("Activated skill %q in detached child conversation %q. Poll with llm/agents:status using conversationId=%q.", strings.TrimSpace(item.Frontmatter.Name), childConversationID, childConversationID)
@@ -604,12 +783,15 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
-		body, err := s.ActivateForConversation(ctx, convID, ai.Name, ai.Args)
+		agent, err := s.currentAgent(ctx)
 		if err != nil {
 			return err
 		}
-		ao.Name = strings.TrimSpace(ai.Name)
-		ao.Body = body
+		body, mode, arguments, err := s.activateForConversationDetailed(ctx, convID, agent, ai.Name, ai.Args)
+		if err != nil {
+			return err
+		}
+		populateActivateOutput(ao, ai.Name, body, mode, arguments)
 		return nil
 	}
 	agent, err := s.currentAgent(ctx)
@@ -620,9 +802,37 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	ao.Name = strings.TrimSpace(ai.Name)
-	ao.Body = body
+	populateActivateOutput(ao, ai.Name, body, "inline", nil)
 	return nil
+}
+
+func populateActivateOutput(out *ActivateOutput, name, body, mode string, arguments map[string]interface{}) {
+	if out == nil {
+		return
+	}
+	out.Name = strings.TrimSpace(name)
+	out.Body = strings.TrimSpace(body)
+	out.Mode = strings.TrimSpace(mode)
+	if strings.EqualFold(out.Mode, "inline") || strings.EqualFold(out.Mode, "fork") {
+		out.Terminal = true
+		out.Status = "completed"
+	}
+	if len(arguments) == 0 {
+		return
+	}
+	if v, ok := arguments["childConversationId"].(string); ok {
+		out.ChildConversationID = strings.TrimSpace(v)
+		out.Started = out.ChildConversationID != ""
+	}
+	if v, ok := arguments["childAgentId"].(string); ok {
+		out.ChildAgentID = strings.TrimSpace(v)
+	}
+	if v, ok := arguments["childStatus"].(string); ok && strings.TrimSpace(v) != "" {
+		out.Status = strings.TrimSpace(v)
+	}
+	if v, ok := arguments["childTerminal"].(bool); ok {
+		out.Terminal = v
+	}
 }
 
 func (s *Service) currentAgent(ctx context.Context) (*agentmdl.Agent, error) {
@@ -665,9 +875,26 @@ func (s *Service) ActivateForConversation(ctx context.Context, conversationID, n
 	if err != nil {
 		return "", err
 	}
+	body, _, _, err := s.activateForConversationDetailed(ctx, conversationID, agent, name, args)
+	return body, err
+}
+
+func (s *Service) ActivateForConversationWithAgent(ctx context.Context, conversationID string, agent *agentmdl.Agent, name, args string) (string, error) {
+	body, _, _, err := s.activateForConversationDetailed(ctx, conversationID, agent, name, args)
+	return body, err
+}
+
+func (s *Service) activateForConversationDetailed(ctx context.Context, conversationID string, agent *agentmdl.Agent, name, args string) (string, string, map[string]interface{}, error) {
+	if strings.TrimSpace(conversationID) == "" {
+		return "", "", nil, fmt.Errorf("conversation ID is required")
+	}
+	if agent == nil {
+		return "", "", nil, fmt.Errorf("agent is required")
+	}
+	ctx = runtimerequestctx.WithConversationID(ctx, conversationID)
 	item, err := s.findVisibleSkill(agent, name)
 	if err != nil {
-		return "", err
+		return "", "", nil, err
 	}
 	mode := effectiveActivationMode(ctx, item)
 	executionID := uuid.NewString()
@@ -701,7 +928,7 @@ func (s *Service) ActivateForConversation(ctx context.Context, conversationID, n
 		}
 		s.publishSkillLifecycle(ctx, conversationID, name, args, executionID, streaming.EventTypeSkillCompleted, "completed", arguments)
 	}
-	return body, err
+	return body, mode, arguments, err
 }
 
 func (s *Service) ActivateByPathForConversation(ctx context.Context, conversationID, skillPath, args string) (string, error) {

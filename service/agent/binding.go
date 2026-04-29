@@ -3,10 +3,11 @@ package agent
 import (
 	"context"
 	"fmt"
-	"github.com/viant/agently-core/internal/logx"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/viant/agently-core/internal/logx"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
@@ -199,6 +200,23 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	if s.skillSvc != nil {
 		b.Skills, b.SkillsPrompt = s.skillSvc.Visible(input.Agent)
+	}
+
+	if name, body, ok := runtimeActivatedSkill(input); ok && !runtimeActivatedSkillEmbedded(input) {
+		uri := "internal://active-skill/" + strings.TrimSpace(name)
+		if !hasDocumentURI(b.SystemDocuments.Items, uri) {
+			b.SystemDocuments.Items = append(b.SystemDocuments.Items, &binding.Document{
+				Title:       "Active Skill: " + strings.TrimSpace(name),
+				PageContent: strings.TrimSpace(body),
+				SourceURI:   uri,
+				MimeType:    "text/markdown",
+				Metadata: map[string]string{
+					"kind":  "active_skill",
+					"skill": strings.TrimSpace(name),
+				},
+			})
+		}
+		b.SkillsPrompt = ""
 	}
 	b.Context = input.Context
 

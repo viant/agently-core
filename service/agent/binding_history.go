@@ -433,6 +433,23 @@ func (s *Service) collectNormalizedMessages(
 ) ([]normalizedMsg, []*binding.Message) {
 	var normalized []normalizedMsg
 	var elicitation []*binding.Message
+	normalizedByID := map[string]int{}
+	appendNormalized := func(item normalizedMsg) {
+		if item.msg == nil {
+			return
+		}
+		id := strings.TrimSpace(item.msg.Id)
+		if id == "" {
+			normalized = append(normalized, item)
+			return
+		}
+		if idx, ok := normalizedByID[id]; ok {
+			normalized[idx] = item
+			return
+		}
+		normalizedByID[id] = len(normalized)
+		normalized = append(normalized, item)
+	}
 	hiddenTurns := make(map[string]struct{}, len(projection.HiddenTurnIDs))
 	for _, turnID := range projection.HiddenTurnIDs {
 		turnID = strings.TrimSpace(turnID)
@@ -500,7 +517,7 @@ func (s *Service) collectNormalizedMessages(
 				if baseMsg.IsArchived() {
 					continue
 				}
-				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+				appendNormalized(normalizedMsg{turnIdx: ti, msg: baseMsg})
 				continue
 			}
 			if baseMsg.IsArchived() || baseMsg.IsInterim() {
@@ -509,7 +526,7 @@ func (s *Service) collectNormalizedMessages(
 				// model can see prior tool results and continuation can work.
 				for _, toolMsg := range toolMsgs {
 					if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
-						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
+						appendNormalized(normalizedMsg{turnIdx: ti, msg: toolMsg})
 					}
 				}
 				continue
@@ -521,9 +538,9 @@ func (s *Service) collectNormalizedMessages(
 				}
 			}
 			if isAttachmentCarrier(baseMsg) {
-				normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+				appendNormalized(normalizedMsg{turnIdx: ti, msg: baseMsg})
 				for _, toolMsg := range toolMsgs {
-					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
+					appendNormalized(normalizedMsg{turnIdx: ti, msg: toolMsg})
 				}
 				continue
 			}
@@ -534,7 +551,7 @@ func (s *Service) collectNormalizedMessages(
 				role := strings.ToLower(strings.TrimSpace(baseMsg.Role))
 				msgID := strings.TrimSpace(baseMsg.Id)
 				if (mtype == "tool_op" || role == "tool") && msgID != "" {
-					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+					appendNormalized(normalizedMsg{turnIdx: ti, msg: baseMsg})
 				} else if mtype == "text" || mtype == "task" || isElicitationType {
 					// Steer/follow-up inputs are persisted as user task messages on the
 					// active turn. They must enter prompt history for the next iteration,
@@ -554,10 +571,10 @@ func (s *Service) collectNormalizedMessages(
 							}
 							elicitation = append(elicitation, &binding.Message{Kind: kind, Role: baseMsg.Role, Content: *baseMsg.Content, CreatedAt: baseMsg.CreatedAt})
 						} else if role == "user" || role == "assistant" {
-							normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+							appendNormalized(normalizedMsg{turnIdx: ti, msg: baseMsg})
 						}
 					} else if role == "user" || role == "assistant" {
-						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
+						appendNormalized(normalizedMsg{turnIdx: ti, msg: baseMsg})
 					}
 				}
 			}
@@ -573,7 +590,7 @@ func (s *Service) collectNormalizedMessages(
 					continue
 				}
 				if body := strings.TrimSpace(toolMsg.GetContentPreferContent()); body != "" {
-					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
+					appendNormalized(normalizedMsg{turnIdx: ti, msg: toolMsg})
 				} else if logx.Enabled() {
 					opID := ""
 					toolName := ""

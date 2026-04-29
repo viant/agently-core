@@ -2,6 +2,8 @@ module github.com/viant/agently-core
 
 go 1.25.5
 
+replace github.com/viant/datly => ../datly
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.2
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
@@ -201,5 +203,4 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
 
