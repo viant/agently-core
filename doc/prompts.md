@@ -81,7 +81,7 @@ Replace the proliferation of specialist agents with three layers:
 
 Do not encode every scenario as a separate agent. Encode most scenarios as profiles.
 
-Separate workers are only justified when the tool family, validation rules, or failure modes are fundamentally different (e.g. `forecast-analyst`, `platform-lookup`).
+Separate workers are only justified when the tool family, validation rules, or failure modes are fundamentally different (e.g. a detached forecasting skill path, `platform-lookup`).
 
 ---
 
@@ -377,7 +377,7 @@ intake:
   model: haiku
   maxTokens: 200
 
-# agent: forecast-analyst  (narrow worker)
+# skill-first forecasting path (narrow worker-equivalent)
 intake:
   enabled: true
   scope: [title]

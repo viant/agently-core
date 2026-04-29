@@ -410,6 +410,143 @@ func TestService_activate_DetachReturnsStructuredChildState(t *testing.T) {
 	}
 }
 
+func TestService_activate_ModeOverride_InlineWinsOverDetachSkill(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: detach\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		t.Fatalf("unexpected tool call %q", name)
+		return "", nil
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	out := &ActivateOutput{}
+	if err := svc.activate(ctx, &ActivateInput{Name: "demo", Mode: "inline"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != "inline" {
+		t.Fatalf("mode = %q", out.Mode)
+	}
+	if !out.Terminal {
+		t.Fatalf("terminal = %#v", out.Terminal)
+	}
+	if out.ChildConversationID != "" {
+		t.Fatalf("childConversationId = %q", out.ChildConversationID)
+	}
+}
+
+func TestService_activate_ModeOverride_ForkWinsOverInlineSkill(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: inline\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	var names []string
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		names = append(names, name)
+		switch name {
+		case "llm/agents:start":
+			return `{"conversationId":"child-1","status":"running"}`, nil
+		case "llm/agents:status":
+			return `{"conversationId":"child-1","status":"succeeded","terminal":true}`, nil
+		default:
+			t.Fatalf("unexpected tool call %q", name)
+			return "", nil
+		}
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	out := &ActivateOutput{}
+	if err := svc.activate(ctx, &ActivateInput{Name: "demo", Mode: "fork"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != "fork" {
+		t.Fatalf("mode = %q", out.Mode)
+	}
+	if !out.Terminal {
+		t.Fatalf("terminal = %#v", out.Terminal)
+	}
+	if out.ChildConversationID != "child-1" {
+		t.Fatalf("childConversationId = %q", out.ChildConversationID)
+	}
+	if strings.Join(names, ",") != "llm/agents:start,llm/agents:status" {
+		t.Fatalf("callNames = %#v", names)
+	}
+}
+
+func TestService_activate_ModeOverride_DetachWinsOverInlineSkill(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: inline\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		if name != "llm/agents:start" {
+			t.Fatalf("unexpected tool call %q", name)
+		}
+		return `{"conversationId":"child-1","status":"running"}`, nil
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	out := &ActivateOutput{}
+	if err := svc.activate(ctx, &ActivateInput{Name: "demo", Mode: "detach"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != "detach" {
+		t.Fatalf("mode = %q", out.Mode)
+	}
+	if !out.Started {
+		t.Fatalf("started = %#v", out.Started)
+	}
+	if out.Terminal {
+		t.Fatalf("terminal = %#v", out.Terminal)
+	}
+	if out.ChildConversationID != "child-1" {
+		t.Fatalf("childConversationId = %q", out.ChildConversationID)
+	}
+}
+
 func TestService_ActivateForConversation_ForkWaitsForChildStatus(t *testing.T) {
 	root := t.TempDir()
 	skillRoot := filepath.Join(root, "skills", "demo")

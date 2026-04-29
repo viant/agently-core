@@ -13,9 +13,10 @@ func TestParseExplicitSkillInvocation(t *testing.T) {
 		args  string
 		ok    bool
 	}{
-		{input: "/playwright-cli https://example.com", name: "playwright-cli", args: "https://example.com", ok: true},
-		{input: "   $playwright-cli run smoke", name: "playwright-cli", args: "run smoke", ok: true},
-		{input: "/help", ok: false},
+		{input: "$playwright-cli https://example.com", name: "playwright-cli", args: "https://example.com", ok: true},
+		{input: "   $playwright-cli run smoke", ok: false},
+		{input: "$$playwright-cli", ok: false},
+		{input: "/playwright-cli", ok: false},
 		{input: "please use /playwright-cli", ok: false},
 	}
 	for _, tc := range tests {

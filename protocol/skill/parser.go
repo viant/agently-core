@@ -10,6 +10,18 @@ import (
 
 var skillNameRegex = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+var legacyAgentlyFieldTargets = map[string]string{
+	"context":               "metadata.agently-context",
+	"agent-id":              "metadata.agently-agent-id",
+	"model":                 "metadata.agently-model",
+	"effort":                "metadata.agently-effort or metadata.model-preferences",
+	"temperature":           "metadata.agently-temperature",
+	"max-tokens":            "metadata.agently-max-tokens",
+	"preprocess":            "metadata.agently-preprocess",
+	"preprocess-timeout":    "metadata.agently-preprocess-timeout",
+	"async-narrator-prompt": "metadata.agently-async-narrator-prompt",
+}
+
 func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	front, body, err := splitFrontmatter(content)
@@ -20,8 +32,13 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 	if err := yaml.Unmarshal([]byte(front), &fm); err != nil {
 		return nil, nil, fmt.Errorf("parse skill frontmatter: %w", err)
 	}
-	raw := map[string]any{}
-	if err := yaml.Unmarshal([]byte(front), &raw); err == nil {
+	fm.Agently = parseAgentlyMetadata(fm)
+	frontMap := map[string]any{}
+	if err := yaml.Unmarshal([]byte(front), &frontMap); err == nil {
+		raw := map[string]any{}
+		for k, v := range frontMap {
+			raw[k] = v
+		}
 		delete(raw, "name")
 		delete(raw, "description")
 		delete(raw, "license")
@@ -46,6 +63,15 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 		Source:      strings.TrimSpace(source),
 	}
 	var diags []Diagnostic
+	for key, target := range legacyAgentlyFieldTargets {
+		if rawValue, ok := frontMap[key]; ok && rawValue != nil {
+			diags = append(diags, Diagnostic{
+				Level:   "warn",
+				Message: fmt.Sprintf("top-level field %q is deprecated; move it to %s", key, target),
+				Path:    path,
+			})
+		}
+	}
 	if v := strings.TrimSpace(fm.Name); v == "" {
 		diags = append(diags, Diagnostic{Level: "error", Message: "missing required frontmatter field: name", Path: path})
 	} else if !skillNameRegex.MatchString(v) {
@@ -57,31 +83,32 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 	} else if len(desc) > 1024 {
 		diags = append(diags, Diagnostic{Level: "error", Message: "description exceeds 1024 characters", Path: path})
 	}
-	if effort := strings.ToLower(strings.TrimSpace(fm.Effort)); effort != "" {
+	if effort := strings.ToLower(strings.TrimSpace(fm.EffortValue())); effort != "" {
 		switch effort {
 		case "low", "medium", "high":
 		default:
 			diags = append(diags, Diagnostic{Level: "error", Message: "invalid effort value", Path: path})
 		}
 	}
-	if mode := NormalizeContextMode(fm.Context); strings.TrimSpace(fm.Context) != "" && mode != strings.ToLower(strings.TrimSpace(fm.Context)) {
-		diags = append(diags, Diagnostic{Level: "error", Message: "invalid context value", Path: path})
-	} else {
-		s.Frontmatter.Context = mode
+	if rawMode := strings.TrimSpace(fm.Context); rawMode != "" {
+		if mode := NormalizeContextMode(rawMode); mode != strings.ToLower(rawMode) {
+			diags = append(diags, Diagnostic{Level: "error", Message: "invalid context value", Path: path})
+		}
 	}
-	if fm.Temperature != nil {
-		if *fm.Temperature < 0 || *fm.Temperature > 2 {
+	if temp := fm.TemperatureValue(); temp != nil {
+		if *temp < 0 || *temp > 2 {
 			diags = append(diags, Diagnostic{Level: "error", Message: "temperature must be between 0 and 2", Path: path})
 		}
 	}
 	if fm.MaxTokens < 0 || fm.MaxTokens >= 200000 {
 		diags = append(diags, Diagnostic{Level: "error", Message: "max-tokens must be between 1 and 199999", Path: path})
 	}
-	if fm.Preprocess {
-		if fm.PreprocessTimeoutSeconds == 0 {
+	if fm.PreprocessEnabled() {
+		timeout := fm.PreprocessTimeoutValue()
+		if timeout == 0 {
 			fm.PreprocessTimeoutSeconds = 10
 			s.Frontmatter.PreprocessTimeoutSeconds = 10
-		} else if fm.PreprocessTimeoutSeconds < 1 || fm.PreprocessTimeoutSeconds > 60 {
+		} else if timeout < 1 || timeout > 60 {
 			diags = append(diags, Diagnostic{Level: "error", Message: "preprocess-timeout must be between 1 and 60", Path: path})
 		}
 	}
