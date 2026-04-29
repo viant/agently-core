@@ -10,6 +10,7 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	skillproto "github.com/viant/agently-core/protocol/skill"
+	"github.com/viant/agently-core/protocol/tool"
 )
 
 type Constraints struct {
@@ -188,6 +189,39 @@ func NarrowDefinitionsForConstraints(defs []*llm.ToolDefinition, c *Constraints)
 	return out
 }
 
+func ExpandDefinitionsForConstraints(defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) []*llm.ToolDefinition {
+	if c == nil || reg == nil || len(c.ToolPatterns) == 0 {
+		return defs
+	}
+	out := make([]*llm.ToolDefinition, 0, len(defs))
+	seen := map[string]struct{}{}
+	appendDef := func(def *llm.ToolDefinition) {
+		if def == nil {
+			return
+		}
+		key := strings.TrimSpace(strings.ToLower(mcpname.Canonical(def.Name)))
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, def)
+	}
+	for _, def := range defs {
+		appendDef(def)
+	}
+	for _, pattern := range c.ToolPatterns {
+		for _, variant := range toolPatternVariants(pattern) {
+			for _, def := range reg.MatchDefinition(variant) {
+				appendDef(def)
+			}
+		}
+	}
+	return out
+}
+
 func ValidateExecution(ctx context.Context, toolName string, args map[string]interface{}) error {
 	c, ok := ConstraintsFromContext(ctx)
 	if (!ok || c == nil) && ctx != nil {
@@ -254,4 +288,29 @@ func toolPatternMatch(name, pattern string) bool {
 	default:
 		return name == pattern
 	}
+}
+
+func toolPatternVariants(pattern string) []string {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]struct{}{}
+	appendVariant := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+	}
+	appendVariant(pattern)
+	appendVariant(mcpname.Canonical(pattern))
+	appendVariant(mcpname.Display(pattern))
+	return out
 }

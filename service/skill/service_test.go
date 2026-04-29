@@ -116,7 +116,7 @@ func TestService_EmitsRegistryAndActivationEvents(t *testing.T) {
 	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nname: demo\ndescription: Demo skill.\n---\n\nbody\n"
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: inline\n---\n\nbody\n"
 	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestService_EmitsPreprocessStatsOnSkillCompleted(t *testing.T) {
 	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nname: demo\ndescription: Demo skill.\npreprocess: true\nallowed-tools: Bash(echo:*) system/exec:execute\n---\n\n`!`echo hi`\n"
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: inline\npreprocess: true\nallowed-tools: Bash(echo:*) system/exec:execute\n---\n\n`!`echo hi`\n"
 	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +435,7 @@ func TestInlineActiveSkillsFromHistory_FiltersNonInlineSkills(t *testing.T) {
 	if err := os.MkdirAll(betaRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(alphaRoot, "SKILL.md"), []byte("---\nname: alpha\ndescription: Inline.\n---\n\nalpha\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(alphaRoot, "SKILL.md"), []byte("---\nname: alpha\ndescription: Inline.\ncontext: inline\n---\n\nalpha\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(betaRoot, "SKILL.md"), []byte("---\nname: beta\ndescription: Detached.\ncontext: detach\n---\n\nbeta\n"), 0o644); err != nil {
@@ -454,9 +454,36 @@ func TestInlineActiveSkillsFromHistory_FiltersNonInlineSkills(t *testing.T) {
 			},
 		},
 	}
-	got := InlineActiveSkillsFromHistory(history, svc, agent)
+	got := InlineActiveSkillsFromHistory(history, svc, agent, "", "")
 	if len(got) != 1 || got[0] != "alpha" {
 		t.Fatalf("inline active skills = %#v", got)
+	}
+}
+
+func TestInlineActiveSkillsFromHistory_RespectsInlineOverride(t *testing.T) {
+	root := t.TempDir()
+	betaRoot := filepath.Join(root, "skills", "beta")
+	if err := os.MkdirAll(betaRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(betaRoot, "SKILL.md"), []byte("---\nname: beta\ndescription: Fork by default.\ncontext: fork\n---\n\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, nil, nil)
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Skills: []string{"beta"}}
+	history := &binding.History{
+		Current: &binding.Turn{
+			Messages: []*binding.Message{
+				{Kind: binding.MessageKindToolResult, ToolName: "llm/skills:activate", ToolArgs: map[string]interface{}{"name": "beta"}},
+			},
+		},
+	}
+	got := InlineActiveSkillsFromHistory(history, svc, agent, "beta", "inline")
+	if len(got) != 1 || got[0] != "beta" {
+		t.Fatalf("inline active skills with override = %#v", got)
 	}
 }
 

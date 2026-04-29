@@ -135,6 +135,21 @@ func TestApplyTurnContext_ProfileSuggestionGated(t *testing.T) {
 	applyTurnContext(high, &intakesvc.TurnContext{SuggestedProfileId: "deal_impact", Confidence: 0.9}, cfg)
 	require.Equal(t, "deal_impact", high.Context["intake.suggestedProfileId"])
 	require.InDelta(t, 0.9, high.Context["intake.suggestedProfileConfidence"], 0.001)
+	require.Equal(t, "deal_impact", high.PromptProfileId)
+}
+
+func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:             true,
+		Scope:               []string{agentmdl.IntakeScopeProfile},
+		ConfidenceThreshold: 0.8,
+	}
+	input := &QueryInput{PromptProfileId: "caller_choice"}
+	tc := &intakesvc.TurnContext{SuggestedProfileId: "repo_analysis", Confidence: 0.95}
+	applyTurnContext(input, tc, cfg)
+
+	require.Equal(t, "caller_choice", input.PromptProfileId)
+	require.Equal(t, "repo_analysis", input.Context["intake.suggestedProfileId"])
 }
 
 func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {

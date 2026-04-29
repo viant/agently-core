@@ -398,6 +398,15 @@ func skillActivationModeOverride(input *QueryInput, skillName string) string {
 	return strings.TrimSpace(overrideMode)
 }
 
+func skillActivationOverridePair(input *QueryInput) (string, string) {
+	if input == nil || input.Context == nil {
+		return "", ""
+	}
+	name, _ := input.Context["skillActivationName"].(string)
+	mode, _ := input.Context["skillActivationMode"].(string)
+	return strings.TrimSpace(name), strings.TrimSpace(mode)
+}
+
 func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 	if len(input.ToolsAllowed) > 0 {
 		return &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
@@ -500,7 +509,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if err == nil {
 					opID := "skill-activate-" + name
 					input.Query = strings.TrimSpace(args)
-					iterHistoryMsgs = append(iterHistoryMsgs, &bindpkg.Message{
+					msg := &bindpkg.Message{
 						ID:       opID,
 						Kind:     bindpkg.MessageKindToolResult,
 						Role:     string(llm.RoleAssistant),
@@ -508,7 +517,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 						ToolName: "llm/skills:activate",
 						ToolArgs: map[string]interface{}{"name": name, "args": args},
 						Content:  strings.TrimSpace(body),
-					})
+					}
+					iterHistoryMsgs = append(iterHistoryMsgs, msg)
+					loopHistoryMsgs = mergeReplayMessages(loopHistoryMsgs, []*bindpkg.Message{msg})
 				}
 			}
 		}
@@ -528,14 +539,16 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			return bErr
 		}
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
+		overrideName, overrideMode := skillActivationOverridePair(input)
 		if s.skillSvc != nil && input.Agent != nil {
-			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
+			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent, overrideName, overrideMode)
 			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
 		}
 		if s.skillSvc != nil {
-			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
+			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent, overrideName, overrideMode)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
+				binding.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(binding.Tools.Signatures, s.registry, activeSkills)
 				binding.Tools.Signatures = skillsvc.NarrowDefinitionsForActiveSkills(binding.Tools.Signatures, activeSkills)
 				if constraints := skillsvc.BuildConstraints(activeSkills); constraints != nil {
 					ctx = skillsvc.WithConstraints(ctx, constraints)
@@ -622,7 +635,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// ladder) can inspect it without re-running skill discovery.
 		var activeSkill *skillproto.Skill
 		if s.skillSvc != nil {
-			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent)
+			activeNames := skillsvc.InlineActiveSkillsFromHistory(&binding.History, s.skillSvc, input.Agent, overrideName, overrideMode)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
 				if len(activeSkills) > 0 {
@@ -874,7 +887,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					})
 				}
 				if len(nextHistory) > 0 {
-					loopHistoryMsgs = nextHistory
+					loopHistoryMsgs = mergeReplayMessages(loopHistoryMsgs, nextHistory)
 				}
 			}
 		}
@@ -972,6 +985,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				}
 				if msgID == "" {
 					msgID = s.findLastInterimAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
+				}
+				if msgID == "" {
+					msgID = s.findLastAssistantMessageID(ctx, turn.ConversationID, turn.TurnID)
 				}
 				logx.Infof("conversation", "runPlan-final patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
 					msgID, turn.ConversationID, turn.TurnID, len(genOutput.Content))
@@ -1152,6 +1168,52 @@ func appendMissingReplayMessages(history *bindpkg.History, msgs []*bindpkg.Messa
 		}
 	}
 	appendCurrentMessages(history, pending...)
+}
+
+func mergeReplayMessages(existing []*bindpkg.Message, incoming []*bindpkg.Message) []*bindpkg.Message {
+	if len(existing) == 0 {
+		return append([]*bindpkg.Message(nil), incoming...)
+	}
+	if len(incoming) == 0 {
+		return append([]*bindpkg.Message(nil), existing...)
+	}
+	merged := append([]*bindpkg.Message(nil), existing...)
+	seenIDs := map[string]struct{}{}
+	seenOps := map[string]struct{}{}
+	for _, msg := range existing {
+		if msg == nil {
+			continue
+		}
+		if id := strings.TrimSpace(msg.ID); id != "" {
+			seenIDs[id] = struct{}{}
+		}
+		if op := strings.TrimSpace(msg.ToolOpID); op != "" {
+			seenOps[op] = struct{}{}
+		}
+	}
+	for _, msg := range incoming {
+		if msg == nil {
+			continue
+		}
+		if id := strings.TrimSpace(msg.ID); id != "" {
+			if _, ok := seenIDs[id]; ok {
+				continue
+			}
+		}
+		if op := strings.TrimSpace(msg.ToolOpID); op != "" {
+			if _, ok := seenOps[op]; ok {
+				continue
+			}
+		}
+		merged = append(merged, msg)
+		if id := strings.TrimSpace(msg.ID); id != "" {
+			seenIDs[id] = struct{}{}
+		}
+		if op := strings.TrimSpace(msg.ToolOpID); op != "" {
+			seenOps[op] = struct{}{}
+		}
+	}
+	return merged
 }
 
 func parseExplicitSkillInvocation(query string) (string, string, bool) {

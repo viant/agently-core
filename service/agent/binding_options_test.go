@@ -18,6 +18,7 @@ import (
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
@@ -160,6 +161,66 @@ func TestService_BuildBinding_InjectsSelectedTemplateAndRemovesTemplateTools(t *
 			t.Fatalf("expected template tools to be removed after template injection, got %#v", binding.Tools.Signatures)
 		}
 	}
+}
+
+func TestService_BuildBinding_InjectsSelectedPromptProfile(t *testing.T) {
+	store := convmem.New()
+	ctx := context.Background()
+
+	conversation := apiconv.NewConversation()
+	conversation.SetId("conv-profile")
+	require.NoError(t, store.PatchConversations(ctx, conversation))
+	message := apiconv.NewMessage()
+	message.SetId("msg-profile")
+	message.SetConversationID("conv-profile")
+	message.SetTurnID("turn-profile")
+	message.SetRole("user")
+	message.SetType("text")
+	message.SetContent("analyze this repository")
+	require.NoError(t, store.PatchMessage(ctx, message))
+
+	tmpDir := t.TempDir()
+	promptDir := filepath.Join(tmpDir, "prompts")
+	require.NoError(t, os.MkdirAll(promptDir, 0o755))
+	profileBody := []byte("id: repo_analysis\nname: Repository Analysis\ndescription: repo analysis profile\nmessages:\n  - role: system\n    text: Delegate repository analysis first.\n")
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "repo_analysis.yaml"), profileBody, 0o644))
+
+	service := &Service{
+		conversation: store,
+		registry: &fakeRegistry{defs: []llm.ToolDefinition{
+			{Name: "system/os:getEnv"},
+		}},
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{
+				{ID: "system/os", Match: []llm.Tool{{Name: "system/os/*"}}},
+			}, nil
+		},
+		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+	}
+
+	binding, err := service.BuildBinding(ctx, &QueryInput{
+		ConversationID:  "conv-profile",
+		PromptProfileId: "repo_analysis",
+		Agent: &agentmdl.Agent{
+			Identity:       agentmdl.Identity{ID: "coder"},
+			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.2"},
+			Tool:           agentmdl.Tool{Bundles: []string{"system/os"}},
+		},
+		Query: "analyze this repository",
+	})
+	require.NoError(t, err)
+
+	found := false
+	for _, doc := range binding.SystemDocuments.Items {
+		if doc == nil {
+			continue
+		}
+		if doc.SourceURI == "prompt://repo_analysis/message/0" && strings.Contains(doc.PageContent, "Delegate repository analysis first.") {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected selected prompt profile to inject a system document")
 }
 
 func TestService_BuildBinding_ExposesMessageShowWhenCurrentTurnToolResultOverflows(t *testing.T) {

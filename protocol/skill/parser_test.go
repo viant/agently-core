@@ -43,6 +43,25 @@ body`
 	}
 }
 
+func TestParse_DefaultContextModeIsFork(t *testing.T) {
+	content := `---
+name: demo
+description: Demo
+---
+
+body`
+	s, diags, err := Parse("/tmp/SKILL.md", "/tmp/demo", "workspace", content)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if got := s.Frontmatter.ContextMode(); got != "fork" {
+		t.Fatalf("default context = %q", got)
+	}
+}
+
 func TestParse_AcceptsAsyncNarratorPromptOverride(t *testing.T) {
 	content := `---
 name: delivery-impact-check

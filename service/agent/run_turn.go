@@ -146,15 +146,6 @@ func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx
 }
 
 func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, output *QueryOutput) (string, error) {
-	if handled, err := s.maybeForceInitialRepoAnalysisDelegation(ctx, input, output); handled {
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return "canceled", err
-			}
-			return "failed", err
-		}
-		return "succeeded", nil
-	}
 	if err := s.runPlanLoop(ctx, input, output); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "canceled", err

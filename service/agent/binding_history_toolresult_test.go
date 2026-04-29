@@ -275,6 +275,182 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 	}
 }
 
+func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStatusText(t *testing.T) {
+	now := time.Now().UTC()
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{
+			Id: "turn-1",
+			Message: []*agconv.MessageView{
+				{
+					Id:             "msg-user",
+					ConversationId: "conv-1",
+					TurnId:         strPtr("turn-1"),
+					Role:           "user",
+					Type:           "text",
+					Content:        strPtr("Troubleshoot order"),
+					CreatedAt:      now,
+				},
+				{
+					Id:             "msg-progress",
+					ConversationId: "conv-1",
+					TurnId:         strPtr("turn-1"),
+					Role:           "assistant",
+					Type:           "text",
+					Content:        strPtr("I’m continuing the blocker cross-check."),
+					CreatedAt:      now.Add(time.Second),
+					ToolMessage: []*agconv.ToolMessageView{
+						{
+							Id:        "tool-msg-status",
+							CreatedAt: now.Add(2 * time.Second),
+							ToolCall: &agconv.ToolCallView{
+								OpId:            "op-status",
+								ToolName:        "llm/agents/status",
+								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`The order has some display delivery but almost no video/CTV`)},
+							},
+						},
+					},
+				},
+				{
+					Id:              "tool-msg-status",
+					ConversationId:  "conv-1",
+					TurnId:          strPtr("turn-1"),
+					ParentMessageId: strPtr("msg-progress"),
+					Role:            "tool",
+					Type:            "tool_op",
+					Content:         strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=steward-MetricsAdCube -->"}`),
+					CreatedAt:       now.Add(3 * time.Second),
+					ToolMessage: []*agconv.ToolMessageView{
+						{
+							Id:        "tool-msg-status",
+							CreatedAt: now.Add(3 * time.Second),
+							ToolCall: &agconv.ToolCallView{
+								OpId:            "op-status",
+								ToolName:        "llm/agents/status",
+								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=steward-MetricsAdCube -->"}`)},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	history, err := (&Service{}).buildHistory(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+	if len(history.Past) != 1 {
+		t.Fatalf("expected a single turn in history, got %#v", history.Past)
+	}
+	if len(history.Past[0].Messages) != 3 {
+		t.Fatalf("expected user + assistant progress + final tool result, got %#v", history.Past[0].Messages)
+	}
+	if history.Past[0].Messages[1].Kind != binding.MessageKindChatAssistant {
+		t.Fatalf("expected assistant wrapper to remain chat context, got %v", history.Past[0].Messages[1].Kind)
+	}
+	if got := history.Past[0].Messages[1].Content; got != "I’m continuing the blocker cross-check." {
+		t.Fatalf("expected assistant progress content, got %q", got)
+	}
+	if history.Past[0].Messages[2].Kind != binding.MessageKindToolResult {
+		t.Fatalf("expected final concrete tool row to be the tool result, got %v", history.Past[0].Messages[2].Kind)
+	}
+	if got := history.Past[0].Messages[2].ToolName; got != "llm/agents/status" {
+		t.Fatalf("expected llm/agents/status tool result, got %q", got)
+	}
+	if got := history.Past[0].Messages[2].Content; got != `{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=steward-MetricsAdCube -->"}` {
+		t.Fatalf("expected concrete final tool payload, got %q", got)
+	}
+}
+
+func TestBuildHistory_RecognizesDirectToolCallOnConcreteToolRow(t *testing.T) {
+	now := time.Now().UTC()
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{
+			Id: "turn-1",
+			Message: []*agconv.MessageView{
+				{
+					Id:             "msg-user",
+					ConversationId: "conv-1",
+					TurnId:         strPtr("turn-1"),
+					Role:           "user",
+					Type:           "text",
+					Content:        strPtr("Troubleshoot order"),
+					CreatedAt:      now,
+				},
+				{
+					Id:              "tool-msg-status-1",
+					ConversationId:  "conv-1",
+					TurnId:          strPtr("turn-1"),
+					ParentMessageId: strPtr("msg-user"),
+					Role:            "tool",
+					Type:            "tool_op",
+					Content:         strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"config result"}`),
+					CreatedAt:       now.Add(time.Second),
+					MessageToolCall: &agconv.MessageToolCallView{
+						OpId:                   "async-status:child-1",
+						ToolName:               "llm/agents/status",
+						MessageRequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1"}`)},
+						MessageResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"config result"}`)},
+					},
+				},
+				{
+					Id:              "tool-msg-status-2",
+					ConversationId:  "conv-1",
+					TurnId:          strPtr("turn-1"),
+					ParentMessageId: strPtr("msg-user"),
+					Role:            "tool",
+					Type:            "tool_op",
+					Content:         strPtr(`{"conversationId":"child-2","hasFinalResponse":true,"message":"inventory result"}`),
+					CreatedAt:       now.Add(2 * time.Second),
+					MessageToolCall: &agconv.MessageToolCallView{
+						OpId:                   "async-status:child-2",
+						ToolName:               "llm/agents/status",
+						MessageRequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-2"}`)},
+						MessageResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-2","hasFinalResponse":true,"message":"inventory result"}`)},
+					},
+				},
+				{
+					Id:              "tool-msg-status-3",
+					ConversationId:  "conv-1",
+					TurnId:          strPtr("turn-1"),
+					ParentMessageId: strPtr("msg-user"),
+					Role:            "tool",
+					Type:            "tool_op",
+					Content:         strPtr(`{"conversationId":"child-3","hasFinalResponse":true,"message":"performance result"}`),
+					CreatedAt:       now.Add(3 * time.Second),
+					MessageToolCall: &agconv.MessageToolCallView{
+						OpId:                   "async-status:child-3",
+						ToolName:               "llm/agents/status",
+						MessageRequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-3"}`)},
+						MessageResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-3","hasFinalResponse":true,"message":"performance result"}`)},
+					},
+				},
+			},
+		},
+	}
+
+	history, err := (&Service{}).buildHistory(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+	if len(history.Past) != 1 {
+		t.Fatalf("expected a single turn in history, got %#v", history.Past)
+	}
+	gotToolResults := 0
+	for _, msg := range history.Past[0].Messages {
+		if msg.Kind != binding.MessageKindToolResult {
+			continue
+		}
+		if got := msg.ToolName; got != "llm/agents/status" {
+			t.Fatalf("expected llm/agents/status tool result, got %q", got)
+		}
+		gotToolResults++
+	}
+	if gotToolResults != 3 {
+		t.Fatalf("expected 3 concrete status tool results, got %d with history=%#v", gotToolResults, history.Past[0].Messages)
+	}
+}
+
 func TestBuildHistory_SkipsInjectedDocumentToolResultWhenMessagesArePersisted(t *testing.T) {
 	now := time.Now().UTC()
 	turnID := "turn-1"

@@ -45,12 +45,14 @@ type Diagnostic struct {
 
 func NormalizeContextMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "inline":
+	case "":
+		return "fork"
+	case "inline":
 		return "inline"
 	case "fork", "detach":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return "inline"
+		return "fork"
 	}
 }
 

@@ -280,13 +280,17 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 	}
 
 	// Class B: store profile suggestion when confidence meets the threshold.
-	// Profile selection is advisory here — the orchestrator's routing logic
-	// reads intake.suggestedProfileId from input.Context. We deliberately do
-	// not clobber an explicit caller-set profile upstream.
+	// Profile selection is explicit turn state. We record it for observability
+	// and populate QueryInput.PromptProfileId when the caller did not already
+	// choose one.
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.SuggestedProfileId) != "" {
 		if tc.Confidence >= cfg.EffectiveConfidenceThreshold() {
-			input.Context["intake.suggestedProfileId"] = strings.TrimSpace(tc.SuggestedProfileId)
+			suggested := strings.TrimSpace(tc.SuggestedProfileId)
+			input.Context["intake.suggestedProfileId"] = suggested
 			input.Context["intake.suggestedProfileConfidence"] = tc.Confidence
+			if strings.TrimSpace(input.PromptProfileId) == "" {
+				input.PromptProfileId = suggested
+			}
 		}
 	}
 }

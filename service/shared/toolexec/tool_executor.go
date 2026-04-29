@@ -216,6 +216,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			ctx = WithToolTimeout(ctx, d)
 		}
 	}
+	if argsTimeoutMs, ok := timeoutMsFromArgs(callStep.Args); ok && argsTimeoutMs > 0 {
+		ctx = WithToolTimeout(ctx, time.Duration(argsTimeoutMs)*time.Millisecond)
+	}
 	wrapperTimeout, wrapperTimeoutOK := toolTimeoutFromContext(ctx)
 	argsTimeoutMs, hasArgsTimeout := timeoutMsFromArgs(step.Args)
 	ctxDeadline, ctxRemaining := formatContextDeadline(ctx)
