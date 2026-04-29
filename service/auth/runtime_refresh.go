@@ -135,7 +135,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 			return nil
 		}
 		logx.Warnf("token-refresh", "transient refresh failure user=%q err=%v", username, err)
-		sess.TransientRefreshRetryAt = time.Now().Add(transientRefreshRetryWindow)
+		r.storeRefreshRetryAt(sess, time.Now().Add(transientRefreshRetryWindow))
 		r.sessions.Put(ctx, sess)
 		return nil
 	}
@@ -146,7 +146,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	refreshedIDToken := refreshedOAuthIDToken(refreshed, previousIDToken)
 	result := &scyauth.Token{Token: *refreshed, IDToken: refreshedIDToken}
 	sess.Tokens = result
-	sess.TransientRefreshRetryAt = time.Time{}
+	r.clearRefreshRetryAt(sess)
 	sess.Provider = provider
 	r.sessions.Put(ctx, sess)
 	if tokenStore != nil {

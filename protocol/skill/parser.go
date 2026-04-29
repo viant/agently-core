@@ -27,6 +27,7 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 		delete(raw, "license")
 		delete(raw, "metadata")
 		delete(raw, "context")
+		delete(raw, "agent-id")
 		delete(raw, "allowed-tools")
 		delete(raw, "model")
 		delete(raw, "effort")

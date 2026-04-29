@@ -352,11 +352,12 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	maxDepth := s.maxDelegationDepth(ctx, strings.TrimSpace(ri.AgentID))
-	depth := delegationDepthFor(ri.Context, strings.TrimSpace(ri.AgentID))
-	if depth >= maxDepth {
+	agentID := effectiveRunAgentID(ri)
+	maxDepth := s.maxDelegationDepthForRun(ctx, ri)
+	depth := delegationDepthFor(ri.Context, agentID)
+	if agentID != "" && depth >= maxDepth {
 		ro.Status = "skipped"
-		ro.Answer = "delegation depth reached for agent " + strings.TrimSpace(ri.AgentID)
+		ro.Answer = "delegation depth reached for agent " + agentID
 		return nil
 	}
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
@@ -367,40 +368,46 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	ro.ConversationID = convID
-	logx.Infof("conversation", "agents.run start convo=%q agent_id=%q objective_len=%d objective_head=%q objective_tail=%q context_keys=%d", strings.TrimSpace(convID), strings.TrimSpace(ri.AgentID), len(ri.Objective), headString(ri.Objective, 512), tailString(ri.Objective, 512), len(ri.Context))
+	logx.Infof("conversation", "agents.run start convo=%q agent_id=%q objective_len=%d objective_head=%q objective_tail=%q context_keys=%d", strings.TrimSpace(convID), agentID, len(ri.Objective), headString(ri.Objective, 512), tailString(ri.Objective, 512), len(ri.Context))
 	// Strict routing: require id present in directory
 	if s.strict {
-		if _, ok := s.allowed[strings.TrimSpace(ri.AgentID)]; !ok {
-			logx.Errorf("conversation", "agents.run strict reject agent_id=%q", strings.TrimSpace(ri.AgentID))
-			return svc.NewMethodNotFoundError("agent not registered in directory: " + strings.TrimSpace(ri.AgentID))
+		if ri.Agent == nil {
+			if _, ok := s.allowed[agentID]; !ok {
+				logx.Errorf("conversation", "agents.run strict reject agent_id=%q", agentID)
+				return svc.NewMethodNotFoundError("agent not registered in directory: " + agentID)
+			}
 		}
 	}
 	// Resolve intended route when directory provided
 	intended := ""
-	if s.allowed != nil {
-		if v, ok := s.allowed[strings.TrimSpace(ri.AgentID)]; ok {
-			intended = v
+	if ri.Agent != nil {
+		intended = "internal"
+	} else {
+		if s.allowed != nil {
+			if v, ok := s.allowed[agentID]; ok {
+				intended = v
+			}
+		}
+		if intended == "" {
+			intended = s.directorySource(agentID)
 		}
 	}
-	if intended == "" {
-		intended = s.directorySource(strings.TrimSpace(ri.AgentID))
-	}
-	logx.Infof("conversation", "agents.run routing agent_id=%q intended=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(intended))
+	logx.Infof("conversation", "agents.run routing agent_id=%q intended=%q", agentID, strings.TrimSpace(intended))
 
 	// Directory/source routing is authoritative. External/A2A agents must fail
 	// explicitly when external execution is unavailable; they must never fall
 	// back to local agent loading.
-	internalKnown := s.isInternalAgent(ctx, strings.TrimSpace(ri.AgentID))
-	logx.Infof("conversation", "agents.run route check agent_id=%q internal_known=%v external_enabled=%v", strings.TrimSpace(ri.AgentID), internalKnown, s.runExternal != nil)
+	internalKnown := ri.Agent != nil || s.isInternalAgent(ctx, agentID)
+	logx.Infof("conversation", "agents.run route check agent_id=%q internal_known=%v external_enabled=%v", agentID, internalKnown, s.runExternal != nil)
 	if intended == "external" {
 		if s.runExternal == nil {
-			return svc.NewMethodNotFoundError("external agent route unavailable for: " + strings.TrimSpace(ri.AgentID))
+			return svc.NewMethodNotFoundError("external agent route unavailable for: " + agentID)
 		}
 		handled, err := s.tryExternalRun(ctx, ri, ro, intended)
 		if handled || err != nil {
 			return err
 		}
-		return svc.NewMethodNotFoundError("external agent route did not handle: " + strings.TrimSpace(ri.AgentID))
+		return svc.NewMethodNotFoundError("external agent route did not handle: " + agentID)
 	}
 	if intended == "internal" {
 		return s.runInternal(ctx, ri, ro, convID, depth)
@@ -413,7 +420,7 @@ func (s *Service) run(ctx context.Context, in, out interface{}) error {
 			}
 		}
 		if s.dirProvider != nil {
-			return svc.NewMethodNotFoundError("agent not resolvable internally or externally: " + strings.TrimSpace(ri.AgentID))
+			return svc.NewMethodNotFoundError("agent not resolvable internally or externally: " + agentID)
 		}
 	}
 	return s.runInternal(ctx, ri, ro, convID, depth)
@@ -457,6 +464,19 @@ func (s *Service) directorySource(agentID string) string {
 			continue
 		}
 		return strings.ToLower(strings.TrimSpace(item.Source))
+	}
+	return ""
+}
+
+func effectiveRunAgentID(ri *RunInput) string {
+	if ri == nil {
+		return ""
+	}
+	if id := strings.TrimSpace(ri.AgentID); id != "" {
+		return id
+	}
+	if ri.Agent != nil {
+		return strings.TrimSpace(ri.Agent.ID)
 	}
 	return ""
 }
@@ -510,6 +530,13 @@ func (s *Service) maxDelegationDepth(ctx context.Context, agentID string) int {
 		return ag.Delegation.MaxDepth
 	}
 	return defaultMaxSameAgentDepth
+}
+
+func (s *Service) maxDelegationDepthForRun(ctx context.Context, ri *RunInput) int {
+	if ri != nil && ri.Agent != nil && ri.Agent.Delegation != nil && ri.Agent.Delegation.MaxDepth > 0 {
+		return ri.Agent.Delegation.MaxDepth
+	}
+	return s.maxDelegationDepth(ctx, effectiveRunAgentID(ri))
 }
 
 func isNilAgentRuntime(v agentRuntime) bool {

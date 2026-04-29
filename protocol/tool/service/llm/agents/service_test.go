@@ -144,6 +144,36 @@ func TestService_Query_ForwardsFullQueryInput(t *testing.T) {
 	assert.Equal(t, "msg-1", output.MessageID)
 }
 
+func TestService_Run_Internal_AllowsDynamicAgentOverride(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeAgentRuntime{
+		queryFn: func(_ context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			require.NotNil(t, in.Agent)
+			require.Equal(t, "skill/demo", in.Agent.ID)
+			require.Equal(t, "skill/demo", in.AgentID)
+			if out != nil {
+				out.Content = "ok"
+			}
+			return nil
+		},
+	}
+	s := &Service{
+		agent:   fake,
+		strict:  true,
+		allowed: map[string]string{},
+	}
+	out := &RunOutput{}
+	err := s.run(ctx, &RunInput{
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "skill/demo", Name: "Skill Demo"},
+			Internal: true,
+		},
+		Objective: "do work",
+	}, out)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out.Answer)
+}
+
 func TestService_Run_External_DataDriven(t *testing.T) {
 	ctx := context.Background()
 	testCases := []struct {

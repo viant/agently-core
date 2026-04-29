@@ -97,24 +97,37 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 			if sess := r.sessions.Get(req.Context(), strings.TrimSpace(c.Value)); sess != nil {
 				if r.requiresOAuthTokens() && !r.ensureSessionOAuthTokens(req.Context(), sess) {
 					log.Printf("[auth] session missing usable oauth tokens, invalidating session user=%q", sess.Subject)
+					r.clearRefreshRetryAt(sess)
 					r.sessions.Delete(req.Context(), strings.TrimSpace(c.Value))
 					return nil
 				}
 				if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !sess.Tokens.Valid() {
-					if !sess.TransientRefreshRetryAt.IsZero() && time.Now().Before(sess.TransientRefreshRetryAt) {
-						log.Printf("[auth] token refresh cooldown active, preserving authenticated session user=%q retry_at=%q", sess.Subject, sess.TransientRefreshRetryAt.UTC().Format(time.RFC3339))
+					retryAt := r.loadRefreshRetryAt(sess)
+					if !retryAt.IsZero() && time.Now().Before(retryAt) {
+						if r.shouldLogRefreshRetry(sess, retryAt) {
+							log.Printf("[auth] token refresh cooldown active, preserving authenticated session user=%q retry_at=%q", sess.Subject, retryAt.UTC().Format(time.RFC3339))
+						}
 						return runtimeAuthUserFromSession(sess, nil)
 					}
 					refreshCtx := context.Background()
 					if refreshed := r.tryRefreshToken(refreshCtx, sess); refreshed != nil {
 						sess.Tokens = refreshed
-						sess.TransientRefreshRetryAt = time.Time{}
+						r.clearRefreshRetryAt(sess)
 					} else {
 						if sess.Tokens == nil {
 							log.Printf("[auth] token expired and refresh failed permanently, invalidating session user=%q", sess.Subject)
+							r.clearRefreshRetryAt(sess)
 							r.sessions.Delete(refreshCtx, c.Value)
 						} else {
-							log.Printf("[auth] token expired and refresh failed transiently, preserving authenticated session user=%q retry_at=%q", sess.Subject, sess.TransientRefreshRetryAt.UTC().Format(time.RFC3339))
+							retryAt := r.loadRefreshRetryAt(sess)
+							if retryAt.IsZero() {
+								retryAt = time.Now().Add(transientRefreshRetryWindow)
+								r.storeRefreshRetryAt(sess, retryAt)
+								r.sessions.Put(refreshCtx, sess)
+							}
+							if r.shouldLogRefreshRetry(sess, retryAt) {
+								log.Printf("[auth] token expired and refresh failed transiently, preserving authenticated session user=%q retry_at=%q", sess.Subject, retryAt.UTC().Format(time.RFC3339))
+							}
 							return runtimeAuthUserFromSession(sess, nil)
 						}
 						return nil

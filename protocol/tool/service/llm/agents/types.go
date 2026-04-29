@@ -1,6 +1,9 @@
 package agents
 
-import "github.com/viant/agently-core/genai/llm"
+import (
+	"github.com/viant/agently-core/genai/llm"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
+)
 
 // ListItem is a directory entry describing an agent option for selection.
 type ListItem struct {
@@ -31,6 +34,7 @@ type ListOutput struct {
 // intentionally not part of the input contract.
 type RunInput struct {
 	AgentID       string                 `json:"agentId"`
+	Agent         *agentmdl.Agent        `json:"agent,omitempty" internal:"true"`
 	Objective     string                 `json:"objective"`
 	Context       map[string]interface{} `json:"context,omitempty"`
 	ExecutionMode string                 `json:"executionMode,omitempty"`
@@ -99,20 +103,20 @@ type StatusInput struct {
 }
 
 type StatusItem struct {
-	ConversationID        string `json:"conversationId,omitempty"`
-	ParentConversationID  string `json:"parentConversationId,omitempty"`
-	ParentTurnID          string `json:"parentTurnId,omitempty"`
-	AgentID               string `json:"agentId,omitempty"`
-	Status                string `json:"status,omitempty"`
-	RawStatus             string `json:"rawStatus,omitempty"`
-	Terminal              bool   `json:"terminal,omitempty"`
-	Error                 string `json:"error,omitempty"`
-	CreatedAt             string `json:"createdAt,omitempty"`
-	UpdatedAt             string `json:"updatedAt,omitempty"`
+	ConversationID         string `json:"conversationId,omitempty"`
+	ParentConversationID   string `json:"parentConversationId,omitempty"`
+	ParentTurnID           string `json:"parentTurnId,omitempty"`
+	AgentID                string `json:"agentId,omitempty"`
+	Status                 string `json:"status,omitempty"`
+	RawStatus              string `json:"rawStatus,omitempty"`
+	Terminal               bool   `json:"terminal,omitempty"`
+	Error                  string `json:"error,omitempty"`
+	CreatedAt              string `json:"createdAt,omitempty"`
+	UpdatedAt              string `json:"updatedAt,omitempty"`
 	LastAssistantNarration string `json:"lastAssistantNarration,omitempty"`
-	LastAssistantResponse string `json:"lastAssistantResponse,omitempty"`
-	HasFinalResponse      bool   `json:"hasFinalResponse,omitempty"`
-	LastMessageAt         string `json:"lastMessageAt,omitempty"`
+	LastAssistantResponse  string `json:"lastAssistantResponse,omitempty"`
+	HasFinalResponse       bool   `json:"hasFinalResponse,omitempty"`
+	LastMessageAt          string `json:"lastMessageAt,omitempty"`
 }
 
 type StatusOutput struct {

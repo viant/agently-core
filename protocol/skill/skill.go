@@ -8,6 +8,7 @@ type Frontmatter struct {
 	License                  string            `yaml:"license,omitempty"`
 	Metadata                 map[string]string `yaml:"metadata,omitempty"`
 	Context                  string            `yaml:"context,omitempty"`
+	AgentID                  string            `yaml:"agent-id,omitempty"`
 	AllowedTools             string            `yaml:"allowed-tools,omitempty"`
 	Model                    string            `yaml:"model,omitempty"`
 	Effort                   string            `yaml:"effort,omitempty"`

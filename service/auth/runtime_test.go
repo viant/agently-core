@@ -154,6 +154,8 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 	}
 	if got := rt.sessions.Get(context.Background(), "sess-expired"); got == nil {
 		t.Fatalf("expected session to be preserved after transient refresh failure")
+	} else if got.TransientRefreshRetryAt.IsZero() {
+		t.Fatalf("expected preserved session to carry transient refresh cooldown")
 	}
 }
 
@@ -204,5 +206,58 @@ func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *
 	}
 	if got.TransientRefreshRetryAt.IsZero() {
 		t.Fatalf("expected transient refresh retry timestamp to remain set")
+	}
+}
+
+func TestRuntimeRefreshCooldown_PersistsAcrossSessionObjects(t *testing.T) {
+	rt := &Runtime{}
+	until := time.Now().Add(30 * time.Second).UTC()
+
+	seed := &Session{
+		ID:       "sess-a",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+	}
+	rt.storeRefreshRetryAt(seed, until)
+
+	reloaded := &Session{
+		ID:       "sess-b",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+	}
+	got := rt.loadRefreshRetryAt(reloaded)
+	if got.IsZero() {
+		t.Fatalf("expected non-zero retry timestamp")
+	}
+	if !got.Equal(until) {
+		t.Fatalf("retry timestamp = %v, want %v", got, until)
+	}
+	if reloaded.TransientRefreshRetryAt.IsZero() || !reloaded.TransientRefreshRetryAt.Equal(until) {
+		t.Fatalf("session retry timestamp = %v, want %v", reloaded.TransientRefreshRetryAt, until)
+	}
+
+	rt.clearRefreshRetryAt(reloaded)
+	if got := rt.loadRefreshRetryAt(&Session{Subject: "awitas_viant_devtest", Provider: "oauth"}); !got.IsZero() {
+		t.Fatalf("expected cleared retry timestamp, got %v", got)
+	}
+}
+
+func TestRuntimeShouldLogRefreshRetry_LogsOncePerCooldownWindow(t *testing.T) {
+	rt := &Runtime{}
+	sess := &Session{Subject: "awitas_viant_devtest", Provider: "oauth"}
+	until := time.Now().Add(30 * time.Second).UTC()
+
+	if !rt.shouldLogRefreshRetry(sess, until) {
+		t.Fatalf("expected first log allowance")
+	}
+	if rt.shouldLogRefreshRetry(sess, until) {
+		t.Fatalf("expected duplicate cooldown log to be suppressed")
+	}
+	if !rt.shouldLogRefreshRetry(sess, until.Add(time.Second)) {
+		t.Fatalf("expected new cooldown window to log again")
+	}
+	rt.clearRefreshRetryAt(sess)
+	if !rt.shouldLogRefreshRetry(sess, until) {
+		t.Fatalf("expected logging to reset after clear")
 	}
 }

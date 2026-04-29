@@ -99,7 +99,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		i.Message = append(i.Message, llm.NewSystemMessage(expanded))
 	}
 	if i.Binding != nil {
-		if prompt := strings.TrimSpace(i.Binding.SkillsPrompt); prompt != "" {
+		if prompt := strings.TrimSpace(i.Binding.SkillsPrompt); prompt != "" && !hasActiveSkillHistory(i.Binding) {
 			i.Message = append(i.Message, llm.NewSystemMessage(prompt))
 		}
 	}
@@ -161,6 +161,36 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func hasActiveSkillHistory(b *binding.Binding) bool {
+	if b == nil {
+		return false
+	}
+	check := func(turn *binding.Turn) bool {
+		if turn == nil {
+			return false
+		}
+		for _, msg := range turn.Messages {
+			if msg == nil {
+				continue
+			}
+			toolName := strings.TrimSpace(strings.ToLower(msg.ToolName))
+			if toolName == "llm/skills:activate" || toolName == "llm_skills-activate" {
+				return true
+			}
+		}
+		return false
+	}
+	if check(b.History.Current) {
+		return true
+	}
+	for _, turn := range b.History.Past {
+		if check(turn) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendCurrentHistoryMessages(h *binding.History, msgs ...*binding.Message) {
