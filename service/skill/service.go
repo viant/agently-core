@@ -79,7 +79,7 @@ func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List visible skills for the current agent", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "activate", Description: "Activate one skill. Inline skills return their body for the current turn; fork/detach skills may already start a child conversation and return its execution state. When started=true and childConversationId is set, do not launch another agent into that conversation; poll llm/agents:status on the returned childConversationId instead.", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&ActivateOutput{})},
+		{Name: "activate", Description: "Activate one skill. Inline skills return their body for the current turn; fork/detach skills may already start a child conversation and return its execution state. When started=true and childConversationId is set, do not launch another agent into that conversation; poll llm/agents:status on the returned childConversationId instead. Optional input.mode may override the skill's default mode with inline, fork, or detach.", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&ActivateOutput{})},
 	}
 }
 
@@ -102,6 +102,7 @@ type ListOutput struct {
 type ActivateInput struct {
 	Name string `json:"name,omitempty"`
 	Args string `json:"args,omitempty"`
+	Mode string `json:"mode,omitempty"`
 }
 type ActivateOutput struct {
 	Name                string `json:"name,omitempty"`
@@ -278,7 +279,7 @@ func (s *Service) activateResolvedWithContext(ctx context.Context, item *skillpr
 		return "", preprocessStats{}, fmt.Errorf("skill %q has empty body", name)
 	}
 	stats := preprocessStats{}
-	if item.Frontmatter.Preprocess {
+	if item.Frontmatter.PreprocessEnabled() {
 		var diags []string
 		body, diags, stats = preprocessBody(ctx, body, item, strings.TrimSpace(args), preprocessConversationID(ctx))
 		if len(diags) > 0 {
@@ -318,7 +319,7 @@ func explicitSkillObjective(name, args string) string {
 
 func dynamicSkillAgentID(parent *agentmdl.Agent, item *skillproto.Skill) string {
 	if item != nil {
-		if id := strings.TrimSpace(item.Frontmatter.AgentID); id != "" {
+		if id := strings.TrimSpace(item.Frontmatter.AgentIDValue()); id != "" {
 			return id
 		}
 	}
@@ -429,23 +430,33 @@ func deriveDynamicSkillAgent(parent *agentmdl.Agent, item *skillproto.Skill, loa
 			reasoning := *parent.Reasoning
 			derived.Reasoning = &reasoning
 		}
+		derived.AsyncNarratorPrompt = strings.TrimSpace(parent.AsyncNarratorPrompt)
 		if parent.ParallelToolCalls != nil {
 			value := *parent.ParallelToolCalls
 			derived.ParallelToolCalls = &value
 		}
 		derived.Temperature = parent.Temperature
 	}
-	if item.Frontmatter.Temperature != nil {
-		derived.Temperature = *item.Frontmatter.Temperature
+	if temp := item.Frontmatter.TemperatureValue(); temp != nil {
+		derived.Temperature = *temp
 	}
-	if strings.TrimSpace(item.Frontmatter.Model) != "" {
-		derived.ModelSelection.Model = strings.TrimSpace(item.Frontmatter.Model)
+	if maxTokens := item.Frontmatter.MaxTokensValue(); maxTokens > 0 {
+		if derived.ModelSelection.Options == nil {
+			derived.ModelSelection.Options = &llm.Options{}
+		}
+		derived.ModelSelection.Options.MaxTokens = maxTokens
 	}
-	if strings.TrimSpace(item.Frontmatter.Effort) != "" {
+	if model := strings.TrimSpace(item.Frontmatter.ModelValue()); model != "" {
+		derived.ModelSelection.Model = model
+	}
+	if effort := strings.TrimSpace(item.Frontmatter.EffortValue()); effort != "" {
 		if derived.Reasoning == nil {
 			derived.Reasoning = &llm.Reasoning{}
 		}
-		derived.Reasoning.Effort = strings.TrimSpace(item.Frontmatter.Effort)
+		derived.Reasoning.Effort = effort
+	}
+	if prompt := strings.TrimSpace(item.Frontmatter.AsyncNarratorPromptValue()); prompt != "" {
+		derived.AsyncNarratorPrompt = prompt
 	}
 	return derived
 }
@@ -568,7 +579,7 @@ func (s *Service) awaitChildConversationTerminal(ctx context.Context, childConve
 	}
 }
 
-func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl.Agent, item *skillproto.Skill, args string) (string, map[string]interface{}, error) {
+func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl.Agent, item *skillproto.Skill, args, mode string) (string, map[string]interface{}, error) {
 	if ExecFn == nil {
 		return "", nil, fmt.Errorf("skill runtime not configured")
 	}
@@ -580,7 +591,6 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 	if targetAgentID == "" {
 		return "", nil, fmt.Errorf("skill %q requires an agent identity for %s execution", strings.TrimSpace(item.Frontmatter.Name), item.Frontmatter.ContextMode())
 	}
-	mode := item.Frontmatter.ContextMode()
 	loadedBody, stats, err := s.activateResolvedWithContext(ctx, item, args)
 	if err != nil {
 		return "", nil, err
@@ -783,6 +793,9 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+		if override := strings.TrimSpace(ai.Mode); override != "" {
+			ctx = WithActivationModeOverride(ctx, ai.Name, override)
+		}
 		agent, err := s.currentAgent(ctx)
 		if err != nil {
 			return err
@@ -798,11 +811,18 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	body, err := s.Activate(agent, ai.Name, ai.Args)
+	if override := strings.TrimSpace(ai.Mode); override != "" {
+		ctx = WithActivationModeOverride(ctx, ai.Name, override)
+	}
+	body, _, err := s.activateWithContext(ctx, agent, ai.Name, ai.Args)
 	if err != nil {
 		return err
 	}
-	populateActivateOutput(ao, ai.Name, body, "inline", nil)
+	mode := "inline"
+	if override := strings.TrimSpace(ai.Mode); override != "" {
+		mode = skillproto.NormalizeContextMode(override)
+	}
+	populateActivateOutput(ao, ai.Name, body, mode, nil)
 	return nil
 }
 
@@ -907,7 +927,7 @@ func (s *Service) activateForConversationDetailed(ctx context.Context, conversat
 	)
 	switch mode {
 	case "fork", "detach":
-		body, arguments, err = s.activateChildConversation(ctx, agent, item, args)
+		body, arguments, err = s.activateChildConversation(ctx, agent, item, args, mode)
 	default:
 		body, stats, err = s.activateResolvedWithContext(ctx, item, args)
 	}

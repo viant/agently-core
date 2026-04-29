@@ -28,7 +28,7 @@ type GenerateInput struct {
 }
 
 func (i *GenerateInput) MatchModelIfNeeded(matcher llm.Matcher) {
-	if i.Model == "" && i.Binding != nil {
+	if i.Model == "" && i.Preferences == nil && i.Binding != nil {
 		if model := strings.TrimSpace(i.Binding.Model); model != "" {
 			i.Model = model
 		}

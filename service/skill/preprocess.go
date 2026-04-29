@@ -116,7 +116,7 @@ func preprocessBody(ctx context.Context, raw string, sk *skillproto.Skill, args 
 			result.WriteString("<!-- preprocess: denied by allowed-tools -->")
 			continue
 		}
-		timeoutSec := sk.Frontmatter.PreprocessTimeoutSeconds
+		timeoutSec := sk.Frontmatter.PreprocessTimeoutValue()
 		if timeoutSec <= 0 {
 			timeoutSec = 10
 		}

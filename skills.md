@@ -93,25 +93,26 @@ explicitly chooses to honor them.
 That keeps Agently aligned with the existing ecosystem and avoids breaking
 skills authored for other runtimes.
 
-### Current `context:` behavior
+### Current Agently execution-mode behavior
 
-Agently now parses `context:` as a first-class frontmatter field. A portable
+Agently now honors execution mode through the metadata extension namespace. A portable
 skill containing:
 
 ```yaml
 ---
 name: demo
 description: Demo
-context: fork
+metadata:
+  agently-context: fork
 ---
 ```
 
 will:
 
 - parse successfully
-- normalize `context:` to one of `inline`, `fork`, or `detach`
-- activate inline when `context` is empty or `inline`
-- launch a child `llm/agents:start` run when `context` is `fork` or `detach`
+- normalize `metadata.agently-context` to one of `inline`, `fork`, or `detach`
+- activate inline when the Agently-specific mode is empty or `inline`
+- launch a child `llm/agents:start` run when the Agently-specific mode is `fork` or `detach`
 - use `llm/agents:status` to wait for terminal child output in `fork` mode
 
 Fork/detach reuse the existing `llm/agents` runtime rather than introducing a
@@ -291,7 +292,7 @@ The MVP should focus on portability, not management surfaces.
 
 ### Phase 2: runtime usage
 
-- add explicit user activation via `/<skill-name>` and `$<skill-name>`
+- add explicit user activation via `$<skill-name>`
 - allow lazy access to `references/`, `assets/`, and `scripts/`
 - run scripts through existing approval/policy controls (scripts are not
   invoked by a skill-specific tool; they go through the normal tool surface
@@ -310,12 +311,18 @@ The plan should support two activation modes.
 
 ### Explicit activation
 
-Support compatibility-friendly invocations such as:
+Support explicit user activation via a leading `$skill-name` token.
 
-- `/skill-name`
-- `$skill-name`
+Examples:
 
-These should map to the same activation path.
+- `$playwright-cli`
+- `$playwright-cli run smoke`
+
+Rules:
+
+- `$` must be the first character of the user message
+- `$$foo` is treated as a literal `$foo`, not an activation
+- `/skill-name` is not an activation prefix in agently-core
 
 ### Model-driven activation
 

@@ -59,6 +59,37 @@ func (f *skillTestModelFinder) ConfigByIDOrModel(id string) *provider.Config {
 	return nil
 }
 
+func (f *skillTestModelFinder) Best(preferences *llm.ModelPreferences) string {
+	return f.BestWithFilter(preferences, nil)
+}
+
+func (f *skillTestModelFinder) BestWithFilter(preferences *llm.ModelPreferences, allow func(id string) bool) string {
+	if preferences == nil || len(f.byID) == 0 {
+		return ""
+	}
+	for _, hint := range preferences.Hints {
+		want := strings.TrimSpace(strings.ToLower(hint))
+		if want == "" {
+			continue
+		}
+		for id := range f.byID {
+			if allow != nil && !allow(id) {
+				continue
+			}
+			candidate := strings.TrimSpace(strings.ToLower(id))
+			if candidate == want || strings.Contains(candidate, want) {
+				return id
+			}
+		}
+	}
+	for id := range f.byID {
+		if allow == nil || allow(id) {
+			return id
+		}
+	}
+	return ""
+}
+
 type skillSequenceModel struct {
 	outcomes []llm.GenerateResponse
 	calls    int
@@ -157,6 +188,17 @@ func writeSkillWithFrontmatter(t *testing.T, root, name string, frontmatter map[
 		}
 	}
 	content += "---\n\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSkillRaw(t *testing.T, root, name, content string) {
+	t.Helper()
+	dir := filepath.Join(root, "skills", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -637,6 +679,181 @@ func TestRuntimeQuery_ExplicitSkillActivation_AppliesFrontmatterOptions(t *testi
 	}
 }
 
+func TestRuntimeQuery_ExplicitSkillActivation_AppliesMetadataOptions(t *testing.T) {
+	root := t.TempDir()
+	writeSkillRaw(t, root, "demo", `---
+name: demo
+description: Demo skill.
+metadata:
+  agently-context: inline
+  agently-temperature: "0.2"
+  agently-max-tokens: "8000"
+  agently-effort: high
+  agently-preprocess: "true"
+  agently-preprocess-timeout: "7"
+allowed-tools: system/exec:execute
+---
+
+# Demo Skill
+Follow the demo instructions.
+`)
+	payloadDir := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	workspace.SetRoot(root)
+	t.Setenv("AGENTLY_DEBUG_TRACE_FILE", filepath.Join(t.TempDir(), "trace.jsonl"))
+	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+	agent := newTestAgent("demo")
+	model := &skillSequenceModel{outcomes: []llm.GenerateResponse{
+		{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}}}},
+	}}
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(&skillTestAgentFinder{agent: agent}).
+		WithModelFinder(&skillTestModelFinder{model: model}).
+		Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if err := rt.Agent.Query(context.Background(), &agentsvc.QueryInput{
+		ConversationID: "conv-skill-metadata-options",
+		AgentID:        "coder",
+		UserId:         "tester",
+		Query:          "$demo use it",
+		DisplayQuery:   "$demo use it",
+		Agent:          agent,
+	}, &agentsvc.QueryOutput{}); err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(payloadDir, "llm-request-conv-skill-metadata-options.json"))
+	if err != nil {
+		t.Fatalf("read llm-request payload: %v", err)
+	}
+	var payload struct {
+		Options struct {
+			Metadata map[string]interface{} `json:"metadata"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Options.Metadata["activeSkillTemperature"] != 0.2 {
+		t.Fatalf("expected activeSkillTemperature 0.2, got %#v", payload.Options.Metadata)
+	}
+	if payload.Options.Metadata["activeSkillMaxTokens"] != float64(8000) {
+		t.Fatalf("expected activeSkillMaxTokens 8000, got %#v", payload.Options.Metadata)
+	}
+	if payload.Options.Metadata["activeSkillReasoningEffort"] != "high" {
+		t.Fatalf("expected activeSkillReasoningEffort high, got %#v", payload.Options.Metadata)
+	}
+	if payload.Options.Metadata["activeSkillPreprocess"] != true {
+		t.Fatalf("expected activeSkillPreprocess true, got %#v", payload.Options.Metadata)
+	}
+	if payload.Options.Metadata["activeSkillPreprocessTimeoutSeconds"] != float64(7) {
+		t.Fatalf("expected activeSkillPreprocessTimeoutSeconds 7, got %#v", payload.Options.Metadata)
+	}
+}
+
+func TestRuntimeQuery_ExplicitSkillActivation_IgnoresInvisibleDollarSkill(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "demo", "Demo skill.", "", "# Demo Skill\nFollow the demo instructions.")
+	payloadDir := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	workspace.SetRoot(root)
+	t.Setenv("AGENTLY_DEBUG_TRACE_FILE", filepath.Join(t.TempDir(), "trace.jsonl"))
+	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+	agent := newTestAgent("other-skill")
+	model := &skillSequenceModel{outcomes: []llm.GenerateResponse{
+		{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}}}},
+	}}
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(&skillTestAgentFinder{agent: agent}).
+		WithModelFinder(&skillTestModelFinder{model: model}).
+		Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if err := rt.Agent.Query(context.Background(), &agentsvc.QueryInput{
+		ConversationID: "conv-skill-dollar-invisible",
+		AgentID:        "coder",
+		UserId:         "tester",
+		Query:          "$demo use it",
+		DisplayQuery:   "$demo use it",
+		Agent:          agent,
+	}, &agentsvc.QueryOutput{}); err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(payloadDir, "llm-request-conv-skill-dollar-invisible.json"))
+	if err != nil {
+		t.Fatalf("read llm-request payload: %v", err)
+	}
+	text := string(data)
+	if strings.Contains(text, "llm_skills-activate") || strings.Contains(text, "llm/skills:activate") {
+		t.Fatalf("expected no skill activation for invisible skill, payload=%s", text)
+	}
+	if !strings.Contains(text, "$demo use it") {
+		t.Fatalf("expected raw $demo query to pass through, payload=%s", text)
+	}
+}
+
+func TestRuntimeQuery_ExplicitSkillActivation_IgnoresEscapedDollarSkill(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "demo", "Demo skill.", "", "# Demo Skill\nFollow the demo instructions.")
+	payloadDir := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	workspace.SetRoot(root)
+	t.Setenv("AGENTLY_DEBUG_TRACE_FILE", filepath.Join(t.TempDir(), "trace.jsonl"))
+	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+	agent := newTestAgent("demo")
+	model := &skillSequenceModel{outcomes: []llm.GenerateResponse{
+		{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}}}},
+	}}
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(&skillTestAgentFinder{agent: agent}).
+		WithModelFinder(&skillTestModelFinder{model: model}).
+		Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if err := rt.Agent.Query(context.Background(), &agentsvc.QueryInput{
+		ConversationID: "conv-skill-dollar-escaped",
+		AgentID:        "coder",
+		UserId:         "tester",
+		Query:          "$$demo use it",
+		DisplayQuery:   "$$demo use it",
+		Agent:          agent,
+	}, &agentsvc.QueryOutput{}); err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(payloadDir, "llm-request-conv-skill-dollar-escaped.json"))
+	if err != nil {
+		t.Fatalf("read llm-request payload: %v", err)
+	}
+	var payload struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	for _, msg := range payload.Messages {
+		if msg.Role == "tool" && (msg.Name == "llm_skills-activate" || msg.Name == "llm/skills:activate") {
+			t.Fatalf("expected no skill activation tool result for escaped token, payload=%#v", payload.Messages)
+		}
+	}
+	foundRaw := false
+	for _, msg := range payload.Messages {
+		if strings.Contains(msg.Content, "$$demo use it") {
+			foundRaw = true
+			break
+		}
+	}
+	if !foundRaw {
+		t.Fatalf("expected raw $$demo query to pass through, payload=%#v", payload.Messages)
+	}
+}
+
 func TestRuntimeQuery_ExplicitSkillActivation_PreprocessesBodyInLLMRequest(t *testing.T) {
 	root := t.TempDir()
 	writeSkillWithFrontmatter(t, root, "demo", map[string]string{
@@ -755,8 +972,8 @@ func TestRuntimeQuery_QueryModelOverride_WinsOverSkillFrontmatterAndSkillsModel(
 		ConversationID: "conv-query-model-override",
 		AgentID:        "coder",
 		UserId:         "tester",
-		Query:          "/demo use it",
-		DisplayQuery:   "/demo use it",
+		Query:          "$demo use it",
+		DisplayQuery:   "$demo use it",
 		ModelOverride:  "openai_gpt-5.2",
 		Agent:          agent,
 	}, &agentsvc.QueryOutput{}); err != nil {
@@ -781,8 +998,91 @@ func TestRuntimeQuery_QueryModelOverride_WinsOverSkillFrontmatterAndSkillsModel(
 	if payload.Options.Metadata["modelSource"] != "query.modelOverride" {
 		t.Fatalf("expected modelSource query.modelOverride, got %#v", payload.Options.Metadata)
 	}
-	if payload.Options.Metadata["activeSkillModel"] != "openai_gpt-5.2" {
-		t.Fatalf("expected activeSkillModel to reflect final override, got %#v", payload.Options.Metadata)
+}
+
+func TestRuntimeQuery_SkillMetadataModelPreferences_SelectModelThroughExistingMatcher(t *testing.T) {
+	root := t.TempDir()
+	writeSkillRaw(t, root, "demo", `---
+name: demo
+description: Demo skill.
+metadata:
+  agently-context: inline
+  model-preferences:
+    hints:
+      - name: openai_gpt-5.4
+    intelligencePriority: 0.9
+    speedPriority: 0.2
+allowed-tools: system/exec:execute
+---
+
+# Demo Skill
+Follow the demo instructions.
+`)
+	payloadDir := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	workspace.SetRoot(root)
+	t.Setenv("AGENTLY_DEBUG_TRACE_FILE", filepath.Join(t.TempDir(), "trace.jsonl"))
+	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+
+	agent := newTestAgent("demo")
+	model52 := &skillSequenceModel{outcomes: []llm.GenerateResponse{
+		{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "from-5.2"}}}},
+	}}
+	model54 := &skillSequenceModel{outcomes: []llm.GenerateResponse{
+		{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "from-5.4"}}}},
+	}}
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(&skillTestAgentFinder{agent: agent}).
+		WithModelFinder(&skillTestModelFinder{
+			model: model52,
+			byID: map[string]llm.Model{
+				"openai_gpt-5.2": model52,
+				"openai_gpt-5.4": model54,
+			},
+		}).
+		WithDefaults(&execconfig.Defaults{
+			Skills: execconfig.SkillsDefaults{Model: "openai_gpt-5.2"},
+		}).
+		Build(context.Background())
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if err := rt.Agent.Query(context.Background(), &agentsvc.QueryInput{
+		ConversationID: "conv-skill-model-preferences",
+		AgentID:        "coder",
+		UserId:         "tester",
+		Query:          "$demo use it",
+		DisplayQuery:   "$demo use it",
+		Agent:          agent,
+	}, &agentsvc.QueryOutput{}); err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	if model54.calls == 0 {
+		t.Fatalf("expected preferred model to be invoked, got model52.calls=%d model54.calls=%d", model52.calls, model54.calls)
+	}
+	data, err := os.ReadFile(filepath.Join(payloadDir, "llm-request-conv-skill-model-preferences.json"))
+	if err != nil {
+		t.Fatalf("read llm-request payload: %v", err)
+	}
+	var payload struct {
+		Model   string `json:"model"`
+		Options struct {
+			Metadata map[string]interface{} `json:"metadata"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Options.Metadata["modelSource"] != "skill.metadata.modelPreferences" {
+		t.Fatalf("expected modelSource skill.metadata.modelPreferences, got %#v", payload.Options.Metadata)
+	}
+	prefs, ok := payload.Options.Metadata["activeSkillModelPreferences"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected activeSkillModelPreferences metadata, got %#v", payload.Options.Metadata)
+	}
+	hints, ok := prefs["hints"].([]interface{})
+	if !ok || len(hints) != 1 || hints[0] != "openai_gpt-5.4" {
+		t.Fatalf("expected hints [openai_gpt-5.4], got %#v", prefs)
 	}
 }
 

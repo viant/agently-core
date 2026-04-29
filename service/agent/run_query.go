@@ -667,19 +667,32 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if len(activeSkills) > 0 {
 					activeSkill = activeSkills[0]
 				}
-				if input.ModelOverride == "" && activeSkill != nil && strings.TrimSpace(activeSkill.Frontmatter.Model) != "" {
-					if _, err := s.llm.ModelFinder().Find(ctx, strings.TrimSpace(activeSkill.Frontmatter.Model)); err == nil {
-						modelSelection.Model = strings.TrimSpace(activeSkill.Frontmatter.Model)
+				if input.ModelOverride == "" && activeSkill != nil && strings.TrimSpace(activeSkill.Frontmatter.ModelValue()) != "" {
+					if _, err := s.llm.ModelFinder().Find(ctx, strings.TrimSpace(activeSkill.Frontmatter.ModelValue())); err == nil {
+						modelSelection.Model = strings.TrimSpace(activeSkill.Frontmatter.ModelValue())
 						modelSelection.Preferences = nil
 						modelSource = "skill.frontmatter"
 					} else {
 						modelSelection.Options.Metadata["modelSourceIntended"] = "skill.frontmatter"
-						modelSelection.Options.Metadata["modelSourceIntendedValue"] = strings.TrimSpace(activeSkill.Frontmatter.Model)
+						modelSelection.Options.Metadata["modelSourceIntendedValue"] = strings.TrimSpace(activeSkill.Frontmatter.ModelValue())
 						modelSelection.Options.Metadata["modelSourceError"] = "model not in finder registry"
 					}
 				}
+				if input.ModelOverride == "" && activeSkill != nil && modelSource != "skill.frontmatter" {
+					if prefs := activeSkill.Frontmatter.ModelPreferencesValue(); prefs != nil {
+						modelSelection.Model = ""
+						modelSelection.Preferences = prefs
+						modelSource = "skill.metadata.modelPreferences"
+						modelSelection.Options.Metadata["activeSkillModelPreferences"] = map[string]interface{}{
+							"intelligencePriority": prefs.IntelligencePriority,
+							"speedPriority":        prefs.SpeedPriority,
+							"costPriority":         prefs.CostPriority,
+							"hints":                append([]string(nil), prefs.Hints...),
+						}
+					}
+				}
 				if input.ModelOverride == "" && s.defaults != nil && strings.TrimSpace(s.defaults.Skills.Model) != "" {
-					if modelSource == "" || modelSource == "agent.model" {
+					if (modelSource == "" || modelSource == "agent.model") && modelSelection.Preferences == nil {
 						modelSelection.Model = strings.TrimSpace(s.defaults.Skills.Model)
 						modelSelection.Preferences = nil
 						modelSource = "skills.model"
@@ -687,24 +700,24 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				}
 				if activeSkill != nil {
 					modelSelection.Options.Metadata["activeSkillSourceName"] = strings.TrimSpace(activeSkill.Frontmatter.Name)
-					if activeSkill.Frontmatter.Temperature != nil {
-						modelSelection.Options.Temperature = *activeSkill.Frontmatter.Temperature
-						modelSelection.Options.Metadata["activeSkillTemperature"] = *activeSkill.Frontmatter.Temperature
+					if temp := activeSkill.Frontmatter.TemperatureValue(); temp != nil {
+						modelSelection.Options.Temperature = *temp
+						modelSelection.Options.Metadata["activeSkillTemperature"] = *temp
 					}
-					if activeSkill.Frontmatter.MaxTokens > 0 {
-						modelSelection.Options.MaxTokens = activeSkill.Frontmatter.MaxTokens
-						modelSelection.Options.Metadata["activeSkillMaxTokens"] = activeSkill.Frontmatter.MaxTokens
+					if maxTokens := activeSkill.Frontmatter.MaxTokensValue(); maxTokens > 0 {
+						modelSelection.Options.MaxTokens = maxTokens
+						modelSelection.Options.Metadata["activeSkillMaxTokens"] = maxTokens
 					}
-					if effort := strings.TrimSpace(strings.ToLower(activeSkill.Frontmatter.Effort)); effort != "" {
+					if effort := strings.TrimSpace(strings.ToLower(activeSkill.Frontmatter.EffortValue())); effort != "" {
 						if modelSelection.Options.Reasoning == nil {
 							modelSelection.Options.Reasoning = &llm.Reasoning{}
 						}
 						modelSelection.Options.Reasoning.Effort = effort
 						modelSelection.Options.Metadata["activeSkillReasoningEffort"] = effort
 					}
-					if activeSkill.Frontmatter.Preprocess {
+					if activeSkill.Frontmatter.PreprocessEnabled() {
 						modelSelection.Options.Metadata["activeSkillPreprocess"] = true
-						timeoutSec := activeSkill.Frontmatter.PreprocessTimeoutSeconds
+						timeoutSec := activeSkill.Frontmatter.PreprocessTimeoutValue()
 						if timeoutSec <= 0 {
 							timeoutSec = 10
 						}
@@ -795,7 +808,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		if activeSkill != nil {
-			if v := strings.TrimSpace(activeSkill.Frontmatter.AsyncNarratorPrompt); v != "" {
+			if v := strings.TrimSpace(activeSkill.Frontmatter.AsyncNarratorPromptValue()); v != "" {
 				narratorSystemPrompt = v
 				narratorPromptSource = "skill:" + strings.TrimSpace(activeSkill.Frontmatter.Name)
 			}
@@ -1243,14 +1256,16 @@ func mergeReplayMessages(existing []*bindpkg.Message, incoming []*bindpkg.Messag
 }
 
 func parseExplicitSkillInvocation(query string) (string, string, bool) {
-	trimmed := strings.TrimLeft(query, " \t\r\n")
-	if trimmed == "" {
+	if query == "" {
 		return "", "", false
 	}
-	if !(strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "$")) {
+	if strings.HasPrefix(query, "$$") {
 		return "", "", false
 	}
-	fields := strings.Fields(trimmed)
+	if !strings.HasPrefix(query, "$") {
+		return "", "", false
+	}
+	fields := strings.Fields(query)
 	if len(fields) == 0 {
 		return "", "", false
 	}
@@ -1269,7 +1284,7 @@ func parseExplicitSkillInvocation(query string) (string, string, bool) {
 		}
 		return "", "", false
 	}
-	return name, strings.TrimSpace(strings.TrimPrefix(trimmed, head)), true
+	return name, strings.TrimSpace(strings.TrimPrefix(query, head)), true
 }
 
 func rewriteSandboxMarkdownLinks(content string, files []*gfread.GeneratedFileView) string {
