@@ -9,8 +9,10 @@ import (
 	base "github.com/viant/agently-core/genai/llm/provider/base"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/service/core"
+	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
 type continuationFinder struct{}
@@ -218,6 +220,36 @@ func TestBuildToolSignatures_ExposesMessageShowOnlyWhenOverflowDetected(t *testi
 	assert.NotContains(t, normalNames, "message-match")
 	assert.NotContains(t, normalNames, "message-summarize")
 	assert.NotContains(t, normalNames, "message-remove")
+}
+
+func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
+	reg := &fakeRegistry{
+		defs: []llm.ToolDefinition{
+			{Name: "prompt:list"},
+			{Name: "steward:ForecastingCube"},
+		},
+	}
+	baseDefs := []*llm.ToolDefinition{
+		{Name: "prompt:list"},
+	}
+	activeSkills := []*skillproto.Skill{{
+		Frontmatter: skillproto.Frontmatter{
+			Name:         "forecasting-cube",
+			AllowedTools: "steward:ForecastingCube",
+		},
+	}}
+
+	expanded := skillsvc.ExpandDefinitionsForActiveSkills(baseDefs, reg, activeSkills)
+	narrowed := skillsvc.NarrowDefinitionsForActiveSkills(expanded, activeSkills)
+
+	var got []string
+	for _, def := range narrowed {
+		if def == nil {
+			continue
+		}
+		got = append(got, def.Name)
+	}
+	assert.EqualValues(t, []string{"steward:ForecastingCube"}, got)
 }
 
 func TestAllowContinuationPreview_UsesModelContinuationCapability(t *testing.T) {

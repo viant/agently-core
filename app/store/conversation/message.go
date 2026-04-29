@@ -14,6 +14,35 @@ func (m *Message) firstToolCall() *ToolCallView {
 	if m == nil {
 		return nil
 	}
+	if m.MessageToolCall != nil {
+		tc := &ToolCallView{
+			MessageSequence:   m.MessageToolCall.MessageSequence,
+			MessageId:         m.MessageToolCall.MessageId,
+			TurnId:            m.MessageToolCall.TurnId,
+			OpId:              m.MessageToolCall.OpId,
+			Attempt:           m.MessageToolCall.Attempt,
+			ToolName:          m.MessageToolCall.ToolName,
+			ToolKind:          m.MessageToolCall.ToolKind,
+			Status:            m.MessageToolCall.Status,
+			RequestHash:       m.MessageToolCall.RequestHash,
+			ErrorCode:         m.MessageToolCall.ErrorCode,
+			ErrorMessage:      m.MessageToolCall.ErrorMessage,
+			Retriable:         m.MessageToolCall.Retriable,
+			StartedAt:         m.MessageToolCall.StartedAt,
+			CompletedAt:       m.MessageToolCall.CompletedAt,
+			LatencyMs:         m.MessageToolCall.LatencyMs,
+			Cost:              m.MessageToolCall.Cost,
+			TraceId:           m.MessageToolCall.TraceId,
+			SpanId:            m.MessageToolCall.SpanId,
+			RequestPayloadId:  m.MessageToolCall.RequestPayloadId,
+			ResponsePayloadId: m.MessageToolCall.ResponsePayloadId,
+			RunId:             m.MessageToolCall.RunId,
+			Iteration:         m.MessageToolCall.Iteration,
+			RequestPayload:    m.MessageToolCall.MessageRequestPayload,
+			ResponsePayload:   m.MessageToolCall.MessageResponsePayload,
+		}
+		return tc
+	}
 	for _, tm := range m.ToolMessage {
 		if tm != nil && tm.ToolCall != nil {
 			return tm.ToolCall
@@ -59,11 +88,11 @@ func (m *Message) GetContentPreferContent() string {
 	if m == nil {
 		return ""
 	}
-	if tc := m.firstToolCall(); tc != nil && tc.ResponsePayload != nil && tc.ResponsePayload.InlineBody != nil {
-		return decodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
-	}
 	if m.Content != nil && strings.TrimSpace(*m.Content) != "" {
 		return *m.Content
+	}
+	if tc := m.firstToolCall(); tc != nil && tc.ResponsePayload != nil && tc.ResponsePayload.InlineBody != nil {
+		return decodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
 	}
 	if m.RawContent != nil {
 		return *m.RawContent

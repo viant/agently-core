@@ -59,6 +59,71 @@ func TestMessage_GetContent(t *testing.T) {
 	}
 }
 
+func TestMessage_GetContentPreferContent(t *testing.T) {
+	toolBody := "tool response"
+	finalBody := "final persisted tool message"
+	cases := []struct {
+		name     string
+		message  *Message
+		expected string
+	}{
+		{
+			name: "message content overrides stale tool payload",
+			message: &Message{
+				Content: ptr(finalBody),
+				ToolMessage: []*agconv.ToolMessageView{{
+					ToolCall: &agconv.ToolCallView{
+						ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: ptr(toolBody)},
+					},
+				}},
+			},
+			expected: finalBody,
+		},
+		{
+			name: "tool payload still used when message content missing",
+			message: &Message{
+				ToolMessage: []*agconv.ToolMessageView{{
+					ToolCall: &agconv.ToolCallView{
+						ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: ptr(toolBody)},
+					},
+				}},
+			},
+			expected: toolBody,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.message.GetContentPreferContent())
+		})
+	}
+}
+
+func TestMessage_FirstToolCall_PrefersDirectToolCall(t *testing.T) {
+	message := &Message{
+		MessageToolCall: &agconv.MessageToolCallView{
+			OpId:     "async-status:child-1",
+			ToolName: "llm/agents/status",
+		},
+		ToolMessage: []*agconv.ToolMessageView{
+			{
+				ToolCall: &agconv.ToolCallView{
+					OpId:     "wrapped-op",
+					ToolName: "message/add",
+				},
+			},
+		},
+	}
+
+	got := message.firstToolCall()
+	if got == nil {
+		t.Fatalf("expected direct tool call metadata")
+	}
+	if got.OpId != "async-status:child-1" {
+		t.Fatalf("expected direct tool call op id, got %q", got.OpId)
+	}
+}
+
 func ptr(v string) *string { return &v }
 
 func gzipString(t *testing.T, value string) string {

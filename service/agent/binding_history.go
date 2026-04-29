@@ -25,99 +25,7 @@ func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 func (s *Service) buildTaskBinding(input *QueryInput) binding.Task {
-	task := input.Query
-	if directive := runtimeDelegationDirective(input); directive != "" {
-		task = directive + "\n\nUser request:\n" + strings.TrimSpace(task)
-	}
-	return binding.Task{Prompt: task, Attachments: input.Attachments}
-}
-
-func runtimeDelegationDirective(input *QueryInput) string {
-	if input == nil || input.Agent == nil {
-		return ""
-	}
-	agentID := strings.TrimSpace(input.Agent.ID)
-	if agentID != "coder" {
-		return ""
-	}
-	if input.Agent.Delegation == nil || !input.Agent.Delegation.Enabled {
-		return ""
-	}
-	maxDepth := input.Agent.Delegation.MaxDepth
-	if maxDepth <= 0 {
-		maxDepth = 2
-	}
-	currentDepth := delegationDepthFromContextMap(input.Context, agentID)
-	if currentDepth >= maxDepth || currentDepth > 0 {
-		return ""
-	}
-	query := strings.TrimSpace(input.Query)
-	if !looksLikeRepoAnalysisRequest(query) {
-		return ""
-	}
-	workdir := resolveDelegationWorkdir(input)
-	if workdir == "" {
-		return ""
-	}
-	objective := fmt.Sprintf(
-		"Inspect the repository at %s, explore its structure and key modules, and return a focused summary or findings for the parent to relay.",
-		workdir,
-	)
-	return fmt.Sprintf(
-		"Runtime directive: this is a top-level repository-analysis request. Before any local repo exploration, call `llm/agents:run` exactly once with `agentId: \"coder\"`, `context.workdir: %q`, and an objective equivalent to %q. Only `orchestration:updatePlan` may come before that delegated call. After the child returns, validate and relay its result in the parent response.",
-		workdir,
-		objective,
-	)
-}
-
-func looksLikeRepoAnalysisRequest(query string) bool {
-	lower := strings.ToLower(strings.TrimSpace(query))
-	if lower == "" {
-		return false
-	}
-	hasAnalysisVerb := strings.Contains(lower, "analyze") ||
-		strings.Contains(lower, "analyse") ||
-		strings.Contains(lower, "review") ||
-		strings.Contains(lower, "inspect") ||
-		strings.Contains(lower, "scan") ||
-		strings.Contains(lower, "summarize") ||
-		strings.Contains(lower, "summarise") ||
-		strings.Contains(lower, "explain")
-	if !hasAnalysisVerb {
-		return false
-	}
-	hasRepoNoun := strings.Contains(lower, "repo") ||
-		strings.Contains(lower, "repository") ||
-		strings.Contains(lower, "project") ||
-		strings.Contains(lower, "codebase") ||
-		strings.Contains(lower, "directory")
-	if hasRepoNoun {
-		return true
-	}
-	for _, candidate := range extractPathCandidates(query) {
-		if resolveExistingWorkdir(candidate) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func resolveDelegationWorkdir(input *QueryInput) string {
-	if input == nil {
-		return ""
-	}
-	if existing := normalizeWorkdirValue(input.Context["workdir"]); existing != "" {
-		return existing
-	}
-	if existing := normalizeWorkdirValue(input.Context["resolvedWorkdir"]); existing != "" {
-		return existing
-	}
-	for _, candidate := range extractPathCandidates(input.Query) {
-		if resolved := resolveExistingWorkdir(candidate); resolved != "" {
-			return resolved
-		}
-	}
-	return ""
+	return binding.Task{Prompt: input.Query, Attachments: input.Attachments}
 }
 
 // buildHistory derives history from a provided conversation transcript.
@@ -318,14 +226,14 @@ func (s *Service) buildChronologicalHistory(
 		msg := item.msg
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		orig := ""
-		if messageToolCall(msg) != nil {
-			orig = strings.TrimSpace(msg.GetContent())
+		if isConcreteToolResultMessage(msg) {
+			orig = strings.TrimSpace(msg.GetContentPreferContent())
 		} else if msg.Content != nil {
 			orig = *msg.Content
 		}
 		text := orig
 		if applyPreview && orig != "" {
-			limit := s.messagePreviewLimit(item.turnIdx, totalTurns, true, messageToolCall(msg) != nil)
+			limit := s.messagePreviewLimit(item.turnIdx, totalTurns, true, isConcreteToolResultMessage(msg))
 			if limit > 0 {
 				preview, of := buildOverflowPreview(orig, limit, msg.Id, allowContinuation)
 				if of {
@@ -394,7 +302,7 @@ func (s *Service) buildChronologicalHistory(
 		// Normalize tool-call messages to assistant role for history so
 		// they are rendered as assistant context rather than tool role
 		// messages, which require a preceding tool_calls message.
-		if messageToolCall(msg) != nil {
+		if isConcreteToolResultMessage(msg) {
 			pmsgRole = "assistant"
 		}
 
@@ -415,7 +323,7 @@ func (s *Service) buildChronologicalHistory(
 		}
 
 		// Classify message kind and, when applicable, attach tool metadata.
-		if tc := messageToolCall(msg); tc != nil {
+		if tc := messageToolCall(msg); tc != nil && isConcreteToolResultMessage(msg) {
 			pmsg.Kind = binding.MessageKindToolResult
 			pmsg.ToolOpID = tc.OpId
 			pmsg.ToolName = tc.ToolName
@@ -556,7 +464,17 @@ func (s *Service) collectNormalizedMessages(
 			continue
 		}
 		messages := turn.GetMessages()
-		syntheticToolMessageIDs := map[string]struct{}{}
+		concreteToolMessageIDs := map[string]struct{}{}
+		for _, candidate := range messages {
+			if candidate == nil {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(candidate.Role))
+			mtype := strings.ToLower(strings.TrimSpace(candidate.Type))
+			if (mtype == "tool_op" || role == "tool") && strings.TrimSpace(candidate.Id) != "" {
+				concreteToolMessageIDs[strings.TrimSpace(candidate.Id)] = struct{}{}
+			}
+		}
 		for _, m := range messages {
 			if m == nil {
 				continue
@@ -565,16 +483,6 @@ func (s *Service) collectNormalizedMessages(
 				continue
 			}
 			toolMsgs := s.syntheticToolMessages(ctx, m)
-			if len(toolMsgs) > 0 {
-				for _, toolMsg := range toolMsgs {
-					if toolMsg == nil {
-						continue
-					}
-					if toolMsgID := strings.TrimSpace(toolMsg.Id); toolMsgID != "" {
-						syntheticToolMessageIDs[toolMsgID] = struct{}{}
-					}
-				}
-			}
 			baseMsg := cloneMessageWithoutToolMessages(m)
 			if baseMsg == nil {
 				baseMsg = m
@@ -626,10 +534,6 @@ func (s *Service) collectNormalizedMessages(
 				role := strings.ToLower(strings.TrimSpace(baseMsg.Role))
 				msgID := strings.TrimSpace(baseMsg.Id)
 				if (mtype == "tool_op" || role == "tool") && msgID != "" {
-					if _, exists := syntheticToolMessageIDs[msgID]; !exists {
-						normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
-					}
-				} else if messageToolCall(baseMsg) != nil {
 					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: baseMsg})
 				} else if mtype == "text" || mtype == "task" || isElicitationType {
 					// Steer/follow-up inputs are persisted as user task messages on the
@@ -662,10 +566,13 @@ func (s *Service) collectNormalizedMessages(
 				if _, ok := hiddenMessages[strings.TrimSpace(toolMsg.Id)]; ok {
 					continue
 				}
+				if _, ok := concreteToolMessageIDs[strings.TrimSpace(toolMsg.Id)]; ok {
+					continue
+				}
 				if shouldSkipInjectedDocumentToolResult(toolMsg) {
 					continue
 				}
-				if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
+				if body := strings.TrimSpace(toolMsg.GetContentPreferContent()); body != "" {
 					normalized = append(normalized, normalizedMsg{turnIdx: ti, msg: toolMsg})
 				} else if logx.Enabled() {
 					opID := ""
@@ -803,12 +710,49 @@ func messageToolCall(msg *apiconv.Message) *apiconv.ToolCallView {
 	if msg == nil {
 		return nil
 	}
+	if msg.MessageToolCall != nil {
+		return &apiconv.ToolCallView{
+			MessageSequence:   msg.MessageToolCall.MessageSequence,
+			MessageId:         msg.MessageToolCall.MessageId,
+			TurnId:            msg.MessageToolCall.TurnId,
+			OpId:              msg.MessageToolCall.OpId,
+			Attempt:           msg.MessageToolCall.Attempt,
+			ToolName:          msg.MessageToolCall.ToolName,
+			ToolKind:          msg.MessageToolCall.ToolKind,
+			Status:            msg.MessageToolCall.Status,
+			RequestHash:       msg.MessageToolCall.RequestHash,
+			ErrorCode:         msg.MessageToolCall.ErrorCode,
+			ErrorMessage:      msg.MessageToolCall.ErrorMessage,
+			Retriable:         msg.MessageToolCall.Retriable,
+			StartedAt:         msg.MessageToolCall.StartedAt,
+			CompletedAt:       msg.MessageToolCall.CompletedAt,
+			LatencyMs:         msg.MessageToolCall.LatencyMs,
+			Cost:              msg.MessageToolCall.Cost,
+			TraceId:           msg.MessageToolCall.TraceId,
+			SpanId:            msg.MessageToolCall.SpanId,
+			RequestPayloadId:  msg.MessageToolCall.RequestPayloadId,
+			ResponsePayloadId: msg.MessageToolCall.ResponsePayloadId,
+			RunId:             msg.MessageToolCall.RunId,
+			Iteration:         msg.MessageToolCall.Iteration,
+			RequestPayload:    msg.MessageToolCall.MessageRequestPayload,
+			ResponsePayload:   msg.MessageToolCall.MessageResponsePayload,
+		}
+	}
 	for _, tm := range msg.ToolMessage {
 		if tm != nil && tm.ToolCall != nil {
 			return tm.ToolCall
 		}
 	}
 	return nil
+}
+
+func isConcreteToolResultMessage(msg *apiconv.Message) bool {
+	if msg == nil {
+		return false
+	}
+	role := strings.ToLower(strings.TrimSpace(msg.Role))
+	mtype := strings.ToLower(strings.TrimSpace(msg.Type))
+	return role == "tool" || mtype == "tool_op"
 }
 
 // turnPreviewLimit returns the preview limit for a given turn index,

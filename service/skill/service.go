@@ -18,6 +18,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	skillproto "github.com/viant/agently-core/protocol/skill"
+	"github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -796,17 +797,30 @@ func ActiveSkillsFromHistory(history *binding.History) []string {
 	return out
 }
 
-func InlineActiveSkillsFromHistory(history *binding.History, svc *Service, agent *agentmdl.Agent) []string {
+func InlineActiveSkillsFromHistory(history *binding.History, svc *Service, agent *agentmdl.Agent, overrideName, overrideMode string) []string {
 	names := ActiveSkillsFromHistory(history)
 	if len(names) == 0 || svc == nil || agent == nil {
 		return names
 	}
 	inline := map[string]struct{}{}
+	overrideName = strings.ToLower(strings.TrimSpace(overrideName))
+	overrideMode = skillproto.NormalizeContextMode(overrideMode)
 	for _, item := range svc.VisibleSkillsByName(agent, names) {
-		if item == nil || item.Frontmatter.ContextMode() != "inline" {
+		if item == nil {
 			continue
 		}
-		inline[strings.ToLower(strings.TrimSpace(item.Frontmatter.Name))] = struct{}{}
+		name := strings.ToLower(strings.TrimSpace(item.Frontmatter.Name))
+		if name == "" {
+			continue
+		}
+		mode := item.Frontmatter.ContextMode()
+		if overrideName != "" && overrideMode == "inline" && overrideName == name {
+			mode = "inline"
+		}
+		if mode != "inline" {
+			continue
+		}
+		inline[name] = struct{}{}
 	}
 	if len(inline) == 0 {
 		return nil
@@ -835,4 +849,8 @@ func normalizeSkillPath(path string) string {
 
 func NarrowDefinitionsForActiveSkills(defs []*llm.ToolDefinition, skills []*skillproto.Skill) []*llm.ToolDefinition {
 	return NarrowDefinitionsForConstraints(defs, BuildConstraints(skills))
+}
+
+func ExpandDefinitionsForActiveSkills(defs []*llm.ToolDefinition, reg tool.Registry, skills []*skillproto.Skill) []*llm.ToolDefinition {
+	return ExpandDefinitionsForConstraints(defs, reg, BuildConstraints(skills))
 }

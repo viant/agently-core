@@ -117,8 +117,8 @@ will:
 Fork/detach reuse the existing `llm/agents` runtime rather than introducing a
 second skill-specific orchestration loop. The child run executes the same
 explicit skill invocation inside the child conversation, so preprocess,
-allowed-tools, and skill constraints are enforced there through the existing
-inline skill path.
+allowed-tools, tool-surface augmentation, and skill constraints are enforced
+there through the existing inline skill path.
 
 ## 5. Workspace model
 
@@ -324,9 +324,24 @@ Expose two tool-level capabilities:
 - `llm/skills-list` — return the high-level list (`name` + `description`) so
   the model can decide which skill fits the task
 - `llm/skills-activate` — activate one skill: inject the `SKILL.md` body into
-  the current turn, apply the skill's `allowed-tools` narrowing, emit a
+  the current turn, augment the bound tool surface from the skill's
+  `allowed-tools` patterns, then apply skill constraints/narrowing and emit a
   `skill.activated` event. Does **not** execute scripts — scripts run through
   the normal tool surface after activation.
+
+Important contract:
+
+- Inline skill activation is now allowed to add specialized tools that the
+  owning agent did not permanently expose.
+- The active skill, not the owning agent, is the capability boundary for those
+  specialized tools.
+- The final exposed tool set for the turn is:
+  1. the existing bound tool surface
+  2. plus any tool definitions matched from the active skill's
+     `allowed-tools`
+  3. then constrained back down to the active skill's allowed surface
+- This keeps large orchestrator agents small by default while still letting a
+  skill contribute its own MCP/tool access when explicitly activated.
 
 This matches progressive disclosure and keeps the full skill body out of the
 prompt until needed. There is deliberately no install/load tool at the LLM

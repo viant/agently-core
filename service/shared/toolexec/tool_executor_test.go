@@ -508,6 +508,7 @@ type stubConv struct {
 	patchedPayloads  []*apiconv.MutablePayload
 	patchedToolCalls []*apiconv.MutableToolCall
 	patchedConvs     []*apiconv.MutableConversation
+	conversation     *apiconv.Conversation
 
 	patchToolCallCount     int
 	patchConversationCount int
@@ -517,7 +518,7 @@ type stubConv struct {
 }
 
 func (s *stubConv) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
-	return nil, nil
+	return s.conversation, nil
 }
 
 func (s *stubConv) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
@@ -592,6 +593,10 @@ func derefString(ptr *string) string {
 		return ""
 	}
 	return *ptr
+}
+
+func strPtr(value string) *string {
+	return &value
 }
 
 type stubRegistry struct {
@@ -712,6 +717,29 @@ func TestExecuteToolStep_InheritsContextWorkdir(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reg.lastArgs)
 	assert.EqualValues(t, "/tmp/workdir", reg.lastArgs["workdir"])
+}
+
+func TestExecuteToolStep_TimeoutMsOverridesDefaultWrapperTimeout(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-timeout", TurnID: "t-timeout", ParentMessageID: "p-timeout"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	original := maxRetryDuration
+	maxRetryDuration = 500 * time.Millisecond
+	t.Cleanup(func() { maxRetryDuration = original })
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok"}`, delay: 75 * time.Millisecond}}}
+	conv := &stubConv{}
+	step := StepInfo{
+		ID:         "call-timeout-override",
+		Name:       "steward/ForecastingCube",
+		Args:       map[string]interface{}{"timeoutMs": 200, "filters": map[string]interface{}{"includeDealsPmp": []interface{}{147961}}, "measures": map[string]interface{}{"avails": true}},
+		ResponseID: "resp-timeout-override",
+	}
+
+	_ = os.Setenv("AGENTLY_TOOLCALL_TIMEOUT", "50ms")
+	defer os.Unsetenv("AGENTLY_TOOLCALL_TIMEOUT")
+
+	call, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+	assert.Equal(t, `{"status":"ok"}`, call.Result)
 }
 
 // TestExecuteToolStep_ParentMessageID verifies that the tool_op message's

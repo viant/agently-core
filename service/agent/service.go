@@ -30,6 +30,7 @@ import (
 	intakesvc "github.com/viant/agently-core/service/intake"
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
@@ -86,6 +87,7 @@ type Service struct {
 	intakeSvc *intakesvc.Service
 	skillSvc  *skillsvc.Service
 
+	promptRepo   *promptrepo.Repository
 	templateRepo *tplrepo.Repository
 
 	runWorkerHost           string
@@ -206,6 +208,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	if srv.toolBundles == nil {
 		repo := bundlerepo.New(afs.New())
 		srv.toolBundles = func(ctx context.Context) ([]*toolbundle.Bundle, error) { return repo.LoadAll(ctx) }
+	}
+	if srv.promptRepo == nil {
+		srv.promptRepo = promptrepo.New(afs.New())
 	}
 	if srv.templateRepo == nil {
 		srv.templateRepo = tplrepo.New(afs.New())

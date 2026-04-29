@@ -494,9 +494,6 @@ func observeAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, ev
 	if kind != "" && kind != "preamble" && kind != "progress" {
 		return
 	}
-	if strings.TrimSpace(handle.pairing.MessageID(handle.stepID)) == "" {
-		return
-	}
 	narratorCtx := withAsyncNarratorRunnerIfPresent(ctx)
 	preamble, err := asyncnarrator.UpdateNarration(narratorCtx, handle.cfg, ev)
 	if err != nil {

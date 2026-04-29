@@ -151,9 +151,10 @@ type MessageView struct {
 	ElicitationPayloadId *string                  `sqlx:"elicitation_payload_id"`
 	ToolName             *string                  `sqlx:"tool_name"`
 	EmbeddingIndex       *string                  `sqlx:"embedding_index"`
-	Narration             *string                  `sqlx:"preamble"`
+	Narration            *string                  `sqlx:"preamble"`
 	Iteration            *int                     `sqlx:"iteration"`
 	Phase                *string                  `sqlx:"phase"`
+	MessageToolCall      *MessageToolCallView     `view:",table=tool_call" on:"Id:m.id=MessageId:message_id" sql:"uri=conversation/tool_call.sql"`
 	ToolMessage          []*ToolMessageView       `view:",table=message" on:"Id:id=ParentMessageId:m.parent_message_id" sql:"uri=conversation/tool_message.sql"`
 	UserElicitationData  *UserElicitationDataView `view:",table=message" on:"Id:id=MessageId:m.id" sql:"uri=conversation/user_elicitation_data.sql"`
 	LinkedConversation   *LinkedConversationView  `view:",table=conversation" on:"LinkedConversationId:linked_conversation_id=Id:id" sql:"uri=conversation/linked_conversation.sql"`
@@ -199,6 +200,33 @@ type ToolCallView struct {
 	Iteration         *int                        `sqlx:"iteration"`
 	RequestPayload    *ModelCallStreamPayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/request_payload.sql"`
 	ResponsePayload   *ModelCallStreamPayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/response_payload.sql"`
+}
+
+type MessageToolCallView struct {
+	MessageSequence        *int                        `sqlx:"message_sequence" source:"sequence"`
+	MessageId              string                      `sqlx:"message_id"`
+	TurnId                 *string                     `sqlx:"turn_id"`
+	OpId                   string                      `sqlx:"op_id"`
+	Attempt                int                         `sqlx:"attempt"`
+	ToolName               string                      `sqlx:"tool_name"`
+	ToolKind               string                      `sqlx:"tool_kind"`
+	Status                 string                      `sqlx:"status"`
+	RequestHash            *string                     `sqlx:"request_hash"`
+	ErrorCode              *string                     `sqlx:"error_code"`
+	ErrorMessage           *string                     `sqlx:"error_message"`
+	Retriable              *int                        `sqlx:"retriable"`
+	StartedAt              *time.Time                  `sqlx:"started_at"`
+	CompletedAt            *time.Time                  `sqlx:"completed_at"`
+	LatencyMs              *int                        `sqlx:"latency_ms"`
+	Cost                   *float64                    `sqlx:"cost"`
+	TraceId                *string                     `sqlx:"trace_id"`
+	SpanId                 *string                     `sqlx:"span_id"`
+	RequestPayloadId       *string                     `sqlx:"request_payload_id"`
+	ResponsePayloadId      *string                     `sqlx:"response_payload_id"`
+	RunId                  *string                     `sqlx:"run_id"`
+	Iteration              *int                        `sqlx:"iteration"`
+	MessageRequestPayload  *ModelCallStreamPayloadView `view:",table=call_payload" on:"RequestPayloadId:request_payload_id=Id:id" sql:"uri=conversation/request_payload.sql"`
+	MessageResponsePayload *ModelCallStreamPayloadView `view:",table=call_payload" on:"ResponsePayloadId:response_payload_id=Id:id" sql:"uri=conversation/response_payload.sql"`
 }
 
 type ModelCallStreamPayloadView struct {
