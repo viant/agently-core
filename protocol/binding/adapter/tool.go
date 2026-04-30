@@ -15,8 +15,7 @@ func ToToolDefinition(t llm.Tool) *llm.ToolDefinition {
 	}
 	// Canonicalize tool names to provider-safe form (service_path-method)
 	name = mcpname.Canonical(name)
-	// llm.ToolDefinition already uses structured maps; no need to re-marshal.
-	return &llm.ToolDefinition{
+	def := &llm.ToolDefinition{
 		Name:         name,
 		Description:  t.Definition.Description,
 		Parameters:   t.Definition.Parameters,
@@ -24,6 +23,8 @@ func ToToolDefinition(t llm.Tool) *llm.ToolDefinition {
 		OutputSchema: t.Definition.OutputSchema,
 		Cacheable:    t.Definition.Cacheable,
 	}
+	def.Normalize()
+	return def
 }
 
 // ToToolDefinitions converts a slice of llm.Tool to prompt.ToolDefinition list,

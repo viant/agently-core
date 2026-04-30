@@ -123,6 +123,7 @@ type ModelStepState struct {
 type ToolStepState struct {
 	ToolCallID                string               `json:"toolCallId"`
 	ToolMessageID             string               `json:"toolMessageId"`
+	ParentMessageID           string               `json:"parentMessageId,omitempty"`
 	ToolName                  string               `json:"toolName"`
 	Content                   string               `json:"content,omitempty"`
 	ExecutionRole             string               `json:"executionRole,omitempty"`

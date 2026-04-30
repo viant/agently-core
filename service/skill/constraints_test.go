@@ -98,14 +98,6 @@ func TestBuildConstraintsAndValidateExecution(t *testing.T) {
 	if c == nil {
 		t.Fatalf("expected constraints")
 	}
-	defs := []*llm.ToolDefinition{
-		{Name: "system/exec:execute"},
-		{Name: "system/patch:apply"},
-	}
-	narrowed := NarrowDefinitionsForConstraints(defs, c)
-	if len(narrowed) != 1 || narrowed[0].Name != "system/exec:execute" {
-		t.Fatalf("narrowed defs = %#v", narrowed)
-	}
 	ctx := WithConstraints(context.Background(), c)
 	if err := ValidateExecution(ctx, "system/exec:execute", map[string]interface{}{"commands": []string{"playwright-cli open", "npx playwright --version"}}); err != nil {
 		t.Fatalf("ValidateExecution() unexpected error: %v", err)
@@ -149,12 +141,8 @@ func TestExpandDefinitionsForConstraints_AddsAllowedSkillTools(t *testing.T) {
 	}}
 	defs := []*llm.ToolDefinition{{Name: "prompt:list"}}
 	expanded := ExpandDefinitionsForConstraints(defs, reg, c)
-	if len(expanded) != 2 {
+	if len(expanded) != 2 || expanded[0].Name != "prompt:list" || expanded[1].Name != "steward:ForecastingCube" {
 		t.Fatalf("expanded defs = %#v", expanded)
-	}
-	narrowed := NarrowDefinitionsForConstraints(expanded, c)
-	if len(narrowed) != 1 || narrowed[0].Name != "steward:ForecastingCube" {
-		t.Fatalf("narrowed defs = %#v", narrowed)
 	}
 }
 
@@ -175,5 +163,25 @@ func TestExpandDefinitionsForConstraints_NormalizesAllowedToolPatternForRegistry
 	expanded := ExpandDefinitionsForConstraints(nil, reg, c)
 	if len(expanded) != 1 || expanded[0] == nil || expanded[0].Name != "steward:ForecastingCube" {
 		t.Fatalf("expanded defs = %#v", expanded)
+	}
+}
+
+func TestValidateExecution_RejectsToolOutsideAllowedPatterns(t *testing.T) {
+	skills := []*skillproto.Skill{{
+		Frontmatter: skillproto.Frontmatter{
+			Name:         "forecasting-cube",
+			AllowedTools: "steward:ForecastingCube",
+		},
+	}}
+	c := BuildConstraints(skills)
+	if c == nil {
+		t.Fatalf("expected constraints")
+	}
+	ctx := WithConstraints(context.Background(), c)
+	if err := ValidateExecution(ctx, "steward:ForecastingCube", nil); err != nil {
+		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "steward:ForecastingCube", err)
+	}
+	if err := ValidateExecution(ctx, "platform:TargetingTree", nil); err == nil {
+		t.Fatalf("expected non-runtime tool rejection")
 	}
 }

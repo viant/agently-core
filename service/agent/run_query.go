@@ -575,10 +575,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
 				binding.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(binding.Tools.Signatures, s.registry, activeSkills)
-				binding.Tools.Signatures = skillsvc.NarrowDefinitionsForActiveSkills(binding.Tools.Signatures, activeSkills)
-				if constraints := skillsvc.BuildConstraints(activeSkills); constraints != nil {
-					ctx = skillsvc.WithConstraints(ctx, constraints)
-				}
 			}
 		}
 		keys := []string{}
@@ -733,15 +729,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				if modelSource != "" {
 					modelSelection.Options.Metadata["modelSource"] = modelSource
 				}
-				if constraints := skillsvc.BuildConstraints(activeSkills); constraints != nil {
-					if meta := skillsvc.ConstraintMetadata(constraints); meta != nil {
-						modelSelection.Options.Metadata["activeSkillConstraints"] = meta
-					} else {
-						modelSelection.Options.Metadata["activeSkillConstraints"] = map[string]interface{}{}
-					}
-				} else {
-					modelSelection.Options.Metadata["activeSkillConstraints"] = map[string]interface{}{}
-				}
+				modelSelection.Options.Metadata["activeSkillConstraints"] = map[string]interface{}{}
 			}
 		}
 		if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {

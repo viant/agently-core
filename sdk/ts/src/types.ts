@@ -182,6 +182,7 @@ export interface ModelStepState {
 export interface ToolStepState {
     toolCallId: string;
     toolMessageId?: string;
+    parentMessageId?: string;
     toolName: string;
     executionRole?: string;
     content?: string;

@@ -191,6 +191,17 @@ func (d *ToolDefinition) Normalize() {
 			}
 		}
 	}
+	if len(d.Required) > 0 {
+		req := make([]interface{}, 0, len(d.Required))
+		for _, item := range d.Required {
+			if v := strings.TrimSpace(item); v != "" {
+				req = append(req, v)
+			}
+		}
+		if len(req) > 0 {
+			d.Parameters["required"] = req
+		}
+	}
 	// OutputSchema
 	if d.OutputSchema == nil {
 		d.OutputSchema = map[string]interface{}{}

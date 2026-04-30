@@ -266,6 +266,7 @@ function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Par
     const toolEntry: ToolStepState = {
         toolCallId: firstString(extra?.toolCallId, event?.toolCallId),
         toolMessageId: firstString(extra?.toolMessageId, event?.toolMessageId, event?.id),
+        parentMessageId: firstString(event?.parentMessageId, existingIndex >= 0 ? priorList[existingIndex]?.parentMessageId : ''),
         toolName: firstString(extra?.toolName, event?.toolName),
         executionRole: firstString(extra?.executionRole, executionRole, existingIndex >= 0 ? priorList[existingIndex]?.executionRole : ''),
         content: firstString(extra?.content, event?.content),

@@ -163,32 +163,6 @@ func BuildConstraints(skills []*skillproto.Skill) *Constraints {
 	return out
 }
 
-func NarrowDefinitionsForConstraints(defs []*llm.ToolDefinition, c *Constraints) []*llm.ToolDefinition {
-	if len(defs) == 0 || c == nil {
-		return defs
-	}
-	if len(c.ToolPatterns) == 0 {
-		return defs
-	}
-	var out []*llm.ToolDefinition
-	for _, def := range defs {
-		if def == nil {
-			continue
-		}
-		name := strings.TrimSpace(mcpname.Canonical(def.Name))
-		for _, pattern := range c.ToolPatterns {
-			if toolPatternMatch(name, pattern) {
-				out = append(out, def)
-				break
-			}
-		}
-	}
-	if len(out) == 0 {
-		return defs
-	}
-	return out
-}
-
 func ExpandDefinitionsForConstraints(defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) []*llm.ToolDefinition {
 	if c == nil || reg == nil || len(c.ToolPatterns) == 0 {
 		return defs

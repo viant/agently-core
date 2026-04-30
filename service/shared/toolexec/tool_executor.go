@@ -568,10 +568,6 @@ func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo,
 // executeTool runs the tool and returns the normalized ToolCall, raw result and error.
 func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (plan.ToolCall, string, error) {
 	applyContextWorkdir(step.Name, step.Args, ctx)
-	if err := skillsvc.ValidateExecution(ctx, step.Name, step.Args); err != nil {
-		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
-		return out, "", err
-	}
 	if err := tool.ValidateExecution(ctx, tool.FromContext(ctx), step.Name, step.Args); err != nil {
 		out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: err.Error()}
 		return out, "", err

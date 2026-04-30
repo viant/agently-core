@@ -576,6 +576,9 @@ func applyToolStart(step *ToolStepState, event *streaming.Event) {
 		return
 	}
 	step.Status = stepStatusFromString(event.Status, step.Status)
+	if step.ParentMessageID == "" {
+		step.ParentMessageID = strings.TrimSpace(event.ParentMessageID)
+	}
 	if step.ToolMessageID == "" {
 		step.ToolMessageID = strings.TrimSpace(event.ToolMessageID)
 	}
@@ -624,6 +627,9 @@ func applyToolCompletion(step *ToolStepState, event *streaming.Event) {
 		return
 	}
 	step.Status = stepStatusFromString(event.Status, step.Status)
+	if step.ParentMessageID == "" {
+		step.ParentMessageID = strings.TrimSpace(event.ParentMessageID)
+	}
 	if event.ResponsePayloadID != "" {
 		step.ResponsePayloadID = strings.TrimSpace(event.ResponsePayloadID)
 	}

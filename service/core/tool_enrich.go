@@ -77,6 +77,7 @@ func (s *Service) EnrichToolDefinition(def *llm.ToolDefinition) {
 	if def == nil {
 		return
 	}
+	def.Normalize()
 	if params := def.Parameters; len(params) > 0 {
 		def.Parameters = enrichSchema(params)
 	}
@@ -85,6 +86,7 @@ func (s *Service) EnrichToolDefinition(def *llm.ToolDefinition) {
 // enriched returns a copy of defs with enriched parameter schemas.
 func (s *Service) enriched(defs []llm.ToolDefinition) []llm.ToolDefinition {
 	for i := range defs {
+		defs[i].Normalize()
 		if params := defs[i].Parameters; len(params) > 0 {
 			defs[i].Parameters = enrichSchema(params)
 		}

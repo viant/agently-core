@@ -27,6 +27,15 @@ describe('ordering', () => {
         expect(rows.map((row) => row.id)).toEqual(['assistant-1', 'assistant-2']);
     });
 
+    it('does not let a missing same-turn sequence outrank a sequenced row', () => {
+        const rows = [
+            { id: 'assistant-note', role: 'assistant', turnId: 'turn-1', createdAt: '2026-01-01T00:00:03Z' },
+            { id: 'assistant-main', role: 'assistant', turnId: 'turn-1', createdAt: '2026-01-01T00:00:01Z', sequence: 1 },
+        ];
+        rows.sort(compareTemporalEntries);
+        expect(rows.map((row) => row.id)).toEqual(['assistant-main', 'assistant-note']);
+    });
+
     it('falls back cleanly when createdAt is invalid or missing', () => {
         expect(temporalTimeValue({ createdAt: 'not-a-date' })).toBe(0);
         expect(temporalTimeValue({})).toBe(0);
