@@ -471,13 +471,14 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	}
 	tc := tm.ToolCall
 	step := &ToolStepState{
-		ToolCallID:    normalizeCanonicalToolCallID(tc.OpId),
-		ToolMessageID: strings.TrimSpace(tm.Id),
-		ToolName:      strings.TrimSpace(tc.ToolName),
-		Content:       visibleContentOrEmpty(tm.Content),
-		Status:        stepStatusFromString(tc.Status, ""),
-		StartedAt:     tc.StartedAt,
-		CompletedAt:   tc.CompletedAt,
+		ToolCallID:      normalizeCanonicalToolCallID(tc.OpId),
+		ToolMessageID:   strings.TrimSpace(tm.Id),
+		ParentMessageID: strings.TrimSpace(ptrString(tm.ParentMessageId)),
+		ToolName:        strings.TrimSpace(tc.ToolName),
+		Content:         visibleContentOrEmpty(tm.Content),
+		Status:          stepStatusFromString(tc.Status, ""),
+		StartedAt:       tc.StartedAt,
+		CompletedAt:     tc.CompletedAt,
 	}
 	if tc.RequestPayloadId != nil {
 		step.RequestPayloadID = strings.TrimSpace(*tc.RequestPayloadId)
@@ -523,6 +524,9 @@ func mergeToolStepState(existing, incoming *ToolStepState) ToolStepState {
 	}
 	if strings.TrimSpace(incoming.ToolMessageID) != "" && toolStepStatusRank(incoming.Status) >= toolStepStatusRank(existing.Status) {
 		merged.ToolMessageID = incoming.ToolMessageID
+	}
+	if strings.TrimSpace(incoming.ParentMessageID) != "" {
+		merged.ParentMessageID = incoming.ParentMessageID
 	}
 	if strings.TrimSpace(incoming.ToolName) != "" {
 		merged.ToolName = incoming.ToolName

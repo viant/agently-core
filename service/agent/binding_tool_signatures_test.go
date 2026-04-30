@@ -240,16 +240,15 @@ func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 	}}
 
 	expanded := skillsvc.ExpandDefinitionsForActiveSkills(baseDefs, reg, activeSkills)
-	narrowed := skillsvc.NarrowDefinitionsForActiveSkills(expanded, activeSkills)
 
 	var got []string
-	for _, def := range narrowed {
+	for _, def := range expanded {
 		if def == nil {
 			continue
 		}
 		got = append(got, def.Name)
 	}
-	assert.EqualValues(t, []string{"steward:ForecastingCube"}, got)
+	assert.EqualValues(t, []string{"prompt:list", "steward:ForecastingCube"}, got)
 }
 
 func TestAllowContinuationPreview_UsesModelContinuationCapability(t *testing.T) {

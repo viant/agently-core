@@ -332,9 +332,9 @@ Expose two tool-level capabilities:
   the model can decide which skill fits the task
 - `llm/skills-activate` — activate one skill: inject the `SKILL.md` body into
   the current turn, augment the bound tool surface from the skill's
-  `allowed-tools` patterns, then apply skill constraints/narrowing and emit a
-  `skill.activated` event. Does **not** execute scripts — scripts run through
-  the normal tool surface after activation.
+  `allowed-tools` patterns, and emit a `skill.activated` event. Does **not**
+  execute scripts — scripts run through the normal tool surface after
+  activation.
 
 Important contract:
 
@@ -346,9 +346,13 @@ Important contract:
   1. the existing bound tool surface
   2. plus any tool definitions matched from the active skill's
      `allowed-tools`
-  3. then constrained back down to the active skill's allowed surface
 - This keeps large orchestrator agents small by default while still letting a
   skill contribute its own MCP/tool access when explicitly activated.
+- In a bundle-first workspace, the preferred design is:
+  - agent bundles define the base surface
+  - skill activation adds the skill-owned surface for the turn
+  - specialized tools should not be permanently exposed on thin orchestrator
+    agents
 
 This matches progressive disclosure and keeps the full skill body out of the
 prompt until needed. There is deliberately no install/load tool at the LLM
@@ -382,7 +386,8 @@ Rules:
 
 - scripts run only through Agently's tool and approval system
 - default workspace stance is allow; deployments may tighten review explicitly
-- a skill can narrow the allowed tool set, but not widen it
+- a skill contributes an allowed tool surface for the turn; it should not widen
+  beyond what the workspace/runtime is willing to expose through activation
 - working directory should be the skill root
 - relative paths should resolve from the skill root
 

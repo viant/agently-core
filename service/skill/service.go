@@ -15,6 +15,7 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	skillproto "github.com/viant/agently-core/protocol/skill"
@@ -32,6 +33,12 @@ type activationModeOverrideKey struct{}
 type activationModeOverride struct {
 	name string
 	mode string
+}
+
+type nestedToolCallRecord struct {
+	ToolMessageID string
+	ToolCallID    string
+	ParentMessage string
 }
 
 type Service struct {
@@ -604,24 +611,30 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 		"executionMode": mode,
 		"context": map[string]interface{}{
 			"skillActivationName":     strings.TrimSpace(item.Frontmatter.Name),
-			"skillActivationMode":     "inline",
+			"skillActivationMode":     mode,
 			"skillActivationArgs":     strings.TrimSpace(args),
 			"skillActivationBody":     strings.TrimSpace(loadedBody),
 			"skillActivationEmbedded": true,
 		},
 	}
+	nestedCall, _ := s.startNestedToolCall(ctx, "llm/agents:start", startPayload)
 	serialized, err := ExecFn(ctx, "llm/agents:start", startPayload)
 	if err != nil {
+		s.finishNestedToolCall(ctx, nestedCall, "llm/agents:start", "failed", err.Error(), "")
 		return "", nil, err
 	}
 	startOut, err := parseAgentsStartOutput(serialized)
 	if err != nil {
+		s.finishNestedToolCall(ctx, nestedCall, "llm/agents:start", "failed", err.Error(), "")
 		return "", nil, fmt.Errorf("parse llm/agents:start output: %w", err)
 	}
 	childConversationID := strings.TrimSpace(startOut.ConversationID)
 	if childConversationID == "" {
+		s.finishNestedToolCall(ctx, nestedCall, "llm/agents:start", "failed", fmt.Sprintf("llm/agents:start returned empty conversationId for skill %q", strings.TrimSpace(item.Frontmatter.Name)), serialized)
 		return "", nil, fmt.Errorf("llm/agents:start returned empty conversationId for skill %q", strings.TrimSpace(item.Frontmatter.Name))
 	}
+	s.finishNestedToolCall(ctx, nestedCall, "llm/agents:start", "completed", "", serialized)
+	s.emitNestedLinkedConversation(ctx, nestedCall, childConversationID, targetAgentID, targetAgent.Name)
 	eventArgs := map[string]interface{}{
 		"childAgentId":        targetAgentID,
 		"executionMode":       mode,
@@ -661,6 +674,211 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 		}
 	}
 	return body, eventArgs, nil
+}
+
+func (s *Service) startNestedToolCall(ctx context.Context, toolName string, args map[string]interface{}) (*nestedToolCallRecord, error) {
+	if s == nil || s.conv == nil {
+		return nil, nil
+	}
+	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
+	if !ok || strings.TrimSpace(turn.ConversationID) == "" || strings.TrimSpace(turn.TurnID) == "" {
+		return nil, nil
+	}
+	parentMessageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
+	if parentMessageID == "" {
+		parentMessageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	}
+	if parentMessageID == "" {
+		parentMessageID = strings.TrimSpace(turn.ParentMessageID)
+	}
+	startedAt := time.Now()
+	toolMsgID := uuid.New().String()
+	opts := []apiconv.MessageOption{
+		apiconv.WithId(toolMsgID),
+		apiconv.WithRole("tool"),
+		apiconv.WithType("tool_op"),
+		apiconv.WithStatus("running"),
+		apiconv.WithCreatedAt(startedAt),
+		apiconv.WithToolName(mcpname.Display(toolName)),
+	}
+	if parentMessageID != "" {
+		opts = append(opts, apiconv.WithParentMessageID(parentMessageID))
+	}
+	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
+		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))
+	}
+	if _, err := apiconv.AddMessage(ctx, s.conv, &turn, opts...); err != nil {
+		return nil, err
+	}
+	toolCallID := "skill-child:" + uuid.NewString()
+	tc := apiconv.NewToolCall()
+	tc.SetMessageID(toolMsgID)
+	tc.SetOpID(toolCallID)
+	tc.SetToolName(mcpname.Display(toolName))
+	tc.SetToolKind("general")
+	tc.SetStatus("running")
+	tc.SetTurnID(turn.TurnID)
+	now := startedAt
+	tc.StartedAt = &now
+	tc.Has.StartedAt = true
+	if err := s.conv.PatchToolCall(ctx, tc); err != nil {
+		return nil, err
+	}
+	if len(args) > 0 {
+		_ = s.attachNestedRequestPayload(ctx, toolMsgID, args)
+	}
+	record := &nestedToolCallRecord{
+		ToolMessageID: toolMsgID,
+		ToolCallID:    toolCallID,
+		ParentMessage: parentMessageID,
+	}
+	s.publishNestedToolLifecycleEvent(ctx, record, toolName, streaming.EventTypeToolCallStarted, "running", "", "", args)
+	return record, nil
+}
+
+func (s *Service) finishNestedToolCall(ctx context.Context, rec *nestedToolCallRecord, toolName, status, errMsg, responseBody string) {
+	if s == nil || s.conv == nil || rec == nil || strings.TrimSpace(rec.ToolMessageID) == "" {
+		return
+	}
+	respPayloadID := ""
+	if strings.TrimSpace(responseBody) != "" {
+		if id, err := s.createInlinePayload(ctx, "tool_response", "text/plain", []byte(strings.TrimSpace(responseBody))); err == nil {
+			respPayloadID = id
+		}
+		_ = s.conv.PatchMessage(ctx, func() *apiconv.MutableMessage {
+			upd := apiconv.NewMessage()
+			upd.SetId(rec.ToolMessageID)
+			upd.SetContent(strings.TrimSpace(responseBody))
+			return upd
+		}())
+	}
+	updTC := apiconv.NewToolCall()
+	updTC.SetMessageID(rec.ToolMessageID)
+	updTC.SetOpID(rec.ToolCallID)
+	updTC.SetToolName(mcpname.Display(toolName))
+	updTC.SetStatus(status)
+	done := time.Now()
+	updTC.CompletedAt = &done
+	updTC.Has.CompletedAt = true
+	if respPayloadID != "" {
+		updTC.ResponsePayloadID = &respPayloadID
+		updTC.Has.ResponsePayloadID = true
+	}
+	if strings.TrimSpace(errMsg) != "" {
+		errCopy := strings.TrimSpace(errMsg)
+		updTC.ErrorMessage = &errCopy
+		updTC.Has.ErrorMessage = true
+		_ = s.conv.PatchMessage(ctx, func() *apiconv.MutableMessage {
+			upd := apiconv.NewMessage()
+			upd.SetId(rec.ToolMessageID)
+			upd.SetContent(errCopy)
+			return upd
+		}())
+	}
+	_ = s.conv.PatchToolCall(ctx, updTC)
+	_ = s.conv.PatchMessage(ctx, func() *apiconv.MutableMessage {
+		upd := apiconv.NewMessage()
+		upd.SetId(rec.ToolMessageID)
+		upd.SetStatus(status)
+		return upd
+	}())
+	eventType := streaming.EventTypeToolCallCompleted
+	if status == "failed" {
+		eventType = streaming.EventTypeToolCallFailed
+	}
+	s.publishNestedToolLifecycleEvent(ctx, rec, toolName, eventType, status, strings.TrimSpace(responseBody), strings.TrimSpace(errMsg), nil)
+}
+
+func (s *Service) attachNestedRequestPayload(ctx context.Context, toolMsgID string, args map[string]interface{}) error {
+	body, err := json.Marshal(args)
+	if err != nil {
+		return err
+	}
+	reqID, err := s.createInlinePayload(ctx, "tool_request", "application/json", body)
+	if err != nil {
+		return err
+	}
+	upd := apiconv.NewToolCall()
+	upd.SetMessageID(toolMsgID)
+	upd.RequestPayloadID = &reqID
+	upd.Has.RequestPayloadID = true
+	return s.conv.PatchToolCall(ctx, upd)
+}
+
+func (s *Service) createInlinePayload(ctx context.Context, kind, mime string, body []byte) (string, error) {
+	if s == nil || s.conv == nil {
+		return "", fmt.Errorf("conversation client not configured")
+	}
+	pid := uuid.NewString()
+	p := apiconv.NewPayload()
+	p.SetId(pid)
+	p.SetKind(kind)
+	p.SetMimeType(mime)
+	p.SetSizeBytes(len(body))
+	p.SetStorage("inline")
+	p.SetInlineBody(body)
+	if err := s.conv.PatchPayload(ctx, p); err != nil {
+		return "", err
+	}
+	return pid, nil
+}
+
+func (s *Service) publishNestedToolLifecycleEvent(ctx context.Context, rec *nestedToolCallRecord, toolName string, eventType streaming.EventType, status, content, errMsg string, args map[string]interface{}) {
+	if s == nil || s.streamPub == nil || rec == nil {
+		return
+	}
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(turn.ParentMessageID)
+	}
+	event := &streaming.Event{
+		Type:               eventType,
+		ConversationID:     strings.TrimSpace(turn.ConversationID),
+		StreamID:           strings.TrimSpace(turn.ConversationID),
+		TurnID:             strings.TrimSpace(turn.TurnID),
+		MessageID:          strings.TrimSpace(rec.ToolMessageID),
+		ToolMessageID:      strings.TrimSpace(rec.ToolMessageID),
+		ToolCallID:         strings.TrimSpace(rec.ToolCallID),
+		ToolName:           strings.TrimSpace(toolName),
+		AssistantMessageID: assistantMessageID,
+		ParentMessageID:    strings.TrimSpace(rec.ParentMessage),
+		Status:             strings.TrimSpace(status),
+		Content:            strings.TrimSpace(content),
+		Error:              strings.TrimSpace(errMsg),
+		Arguments:          args,
+		CreatedAt:          time.Now(),
+	}
+	event.NormalizeIdentity(strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	_ = s.streamPub.Publish(ctx, event)
+}
+
+func (s *Service) emitNestedLinkedConversation(ctx context.Context, rec *nestedToolCallRecord, childConversationID, childAgentID, childTitle string) {
+	if s == nil || s.streamPub == nil || rec == nil {
+		return
+	}
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	assistantMessageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(turn.ParentMessageID)
+	}
+	event := &streaming.Event{
+		Type:                      streaming.EventTypeLinkedConversationAttached,
+		ConversationID:            strings.TrimSpace(turn.ConversationID),
+		StreamID:                  strings.TrimSpace(turn.ConversationID),
+		TurnID:                    strings.TrimSpace(turn.TurnID),
+		MessageID:                 strings.TrimSpace(rec.ToolMessageID),
+		ToolMessageID:             strings.TrimSpace(rec.ToolMessageID),
+		ToolCallID:                strings.TrimSpace(rec.ToolCallID),
+		AssistantMessageID:        assistantMessageID,
+		ParentMessageID:           strings.TrimSpace(rec.ParentMessage),
+		LinkedConversationID:      strings.TrimSpace(childConversationID),
+		LinkedConversationAgentID: strings.TrimSpace(childAgentID),
+		LinkedConversationTitle:   strings.TrimSpace(childTitle),
+		CreatedAt:                 time.Now(),
+	}
+	event.NormalizeIdentity(strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	_ = s.streamPub.Publish(ctx, event)
 }
 
 func (s *Service) publishSkillLifecycle(ctx context.Context, conversationID, skillName, args, executionID string, eventType streaming.EventType, status string, arguments map[string]interface{}) {
@@ -1092,10 +1310,6 @@ func normalizeSkillPath(path string) string {
 		}
 	}
 	return strings.TrimRight(path, "/")
-}
-
-func NarrowDefinitionsForActiveSkills(defs []*llm.ToolDefinition, skills []*skillproto.Skill) []*llm.ToolDefinition {
-	return NarrowDefinitionsForConstraints(defs, BuildConstraints(skills))
 }
 
 func ExpandDefinitionsForActiveSkills(defs []*llm.ToolDefinition, reg tool.Registry, skills []*skillproto.Skill) []*llm.ToolDefinition {

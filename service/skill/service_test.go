@@ -23,8 +23,11 @@ type testFinder struct{ agent *agentmdl.Agent }
 func (f *testFinder) Find(context.Context, string) (*agentmdl.Agent, error) { return f.agent, nil }
 
 type testConversationClient struct {
-	conv  *apiconv.Conversation
-	convs map[string]*apiconv.Conversation
+	conv      *apiconv.Conversation
+	convs     map[string]*apiconv.Conversation
+	messages  []*apiconv.MutableMessage
+	toolCalls []*apiconv.MutableToolCall
+	payloads  []*apiconv.MutablePayload
 }
 
 func (c *testConversationClient) GetConversation(_ context.Context, id string, _ ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -44,10 +47,16 @@ func (c *testConversationClient) PatchConversations(context.Context, *apiconv.Mu
 func (c *testConversationClient) GetPayload(context.Context, string) (*apiconv.Payload, error) {
 	return nil, nil
 }
-func (c *testConversationClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+func (c *testConversationClient) PatchPayload(_ context.Context, payload *apiconv.MutablePayload) error {
+	if c != nil {
+		c.payloads = append(c.payloads, payload)
+	}
 	return nil
 }
-func (c *testConversationClient) PatchMessage(context.Context, *apiconv.MutableMessage) error {
+func (c *testConversationClient) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
+	if c != nil {
+		c.messages = append(c.messages, message)
+	}
 	return nil
 }
 func (c *testConversationClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
@@ -59,7 +68,10 @@ func (c *testConversationClient) GetMessageByElicitation(context.Context, string
 func (c *testConversationClient) PatchModelCall(context.Context, *apiconv.MutableModelCall) error {
 	return nil
 }
-func (c *testConversationClient) PatchToolCall(context.Context, *apiconv.MutableToolCall) error {
+func (c *testConversationClient) PatchToolCall(ctx context.Context, call *apiconv.MutableToolCall) error {
+	if c != nil {
+		c.toolCalls = append(c.toolCalls, call)
+	}
 	return nil
 }
 func (c *testConversationClient) PatchTurn(context.Context, *apiconv.MutableTurn) error { return nil }
@@ -67,6 +79,12 @@ func (c *testConversationClient) DeleteConversation(context.Context, string) err
 func (c *testConversationClient) DeleteMessage(context.Context, string, string) error   { return nil }
 
 func stringPtr(value string) *string { return &value }
+func ptrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
 
 func TestService_LoadVisibleAndActivate(t *testing.T) {
 	root := t.TempDir()
@@ -355,6 +373,113 @@ func TestService_ActivateForConversation_DetachUsesSkillAgentID(t *testing.T) {
 	}
 	if agentArg.ID != "forecast-skill" {
 		t.Fatalf("derived agent id = %q", agentArg.ID)
+	}
+}
+
+func TestService_ActivateForConversation_DetachPersistsNestedAgentsStartAndEmitsEvents(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: detach\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bus := streaming.NewMemoryBus(16)
+	sub, err := bus.Subscribe(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	rec := &testConversationClient{conv: conv}
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, rec, &testFinder{agent: agent})
+	svc.SetStreamPublisher(bus)
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		if name != "llm/agents:start" {
+			t.Fatalf("unexpected tool call %q", name)
+		}
+		return `{"conversationId":"child-1","status":"running"}`, nil
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
+		ConversationID:  "conv-skill",
+		TurnID:          "turn-1",
+		ParentMessageID: "assistant-msg-1",
+	})
+	ctx = runtimerequestctx.WithToolMessageID(ctx, "skill-tool-msg-1")
+	ctx = runtimerequestctx.WithModelMessageID(ctx, "assistant-msg-1")
+	body, err := svc.ActivateForConversation(ctx, "conv-skill", "demo", "arg1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `child-1`) {
+		t.Fatalf("body = %q", body)
+	}
+	var nestedMsg *apiconv.MutableMessage
+	for _, msg := range rec.messages {
+		if msg == nil {
+			continue
+		}
+		if strings.EqualFold(msg.Type, "tool_op") && ptrValue(msg.ParentMessageID) == "skill-tool-msg-1" {
+			nestedMsg = msg
+			break
+		}
+	}
+	if nestedMsg == nil {
+		t.Fatalf("expected persisted nested tool_op message, got %#v", rec.messages)
+	}
+	if ptrValue(nestedMsg.ParentMessageID) != "skill-tool-msg-1" {
+		t.Fatalf("nested parent message = %q", ptrValue(nestedMsg.ParentMessageID))
+	}
+	var nestedCall *apiconv.MutableToolCall
+	for _, call := range rec.toolCalls {
+		if call == nil {
+			continue
+		}
+		if strings.TrimSpace(call.MessageID) == strings.TrimSpace(nestedMsg.Id) && strings.TrimSpace(call.OpID) != "" {
+			nestedCall = call
+		}
+	}
+	if nestedCall == nil {
+		t.Fatalf("expected persisted nested tool call, got %#v", rec.toolCalls)
+	}
+	if len(rec.payloads) < 2 {
+		t.Fatalf("expected request/response payload persistence, got %#v", rec.payloads)
+	}
+	var sawStarted, sawCompleted, sawLinked bool
+	deadline := time.After(2 * time.Second)
+	for !(sawStarted && sawCompleted && sawLinked) {
+		select {
+		case ev := <-sub.C():
+			if ev == nil || strings.TrimSpace(ev.ToolCallID) != strings.TrimSpace(nestedCall.OpID) {
+				continue
+			}
+			switch ev.Type {
+			case streaming.EventTypeToolCallStarted:
+				if ev.ParentMessageID == "skill-tool-msg-1" && ev.ToolMessageID == nestedMsg.Id {
+					sawStarted = true
+				}
+			case streaming.EventTypeToolCallCompleted:
+				if ev.ParentMessageID == "skill-tool-msg-1" && ev.ToolMessageID == nestedMsg.Id {
+					sawCompleted = true
+				}
+			case streaming.EventTypeLinkedConversationAttached:
+				if ev.ParentMessageID == "skill-tool-msg-1" && ev.ToolMessageID == nestedMsg.Id && ev.LinkedConversationID == "child-1" {
+					sawLinked = true
+				}
+			}
+		case <-deadline:
+			t.Fatalf("missing nested events started=%v completed=%v linked=%v", sawStarted, sawCompleted, sawLinked)
+		}
 	}
 }
 

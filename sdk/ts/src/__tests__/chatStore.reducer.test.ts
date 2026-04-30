@@ -469,6 +469,41 @@ describe('chatStore/reducer — merge rule', () => {
         expect(step.responsePayloadId).toBe('resp_1');
     });
 
+    it('does not replace progressive text_delta content with model_completed content unless finalResponse is explicit', () => {
+        const state = startedState();
+        applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_M',
+            pageId: 'pg_1',
+            assistantMessageId: 'msg_1',
+            modelCallId: 'mc_1',
+            iteration: 1,
+        } as SSEEvent));
+        applyEvent(state, sse({
+            type: 'text_delta',
+            turnId: 'tn_M',
+            pageId: 'pg_1',
+            assistantMessageId: 'msg_1',
+            content: 'streaming partial',
+            iteration: 1,
+        } as SSEEvent));
+        applyEvent(state, sse({
+            type: 'model_completed',
+            turnId: 'tn_M',
+            pageId: 'pg_1',
+            assistantMessageId: 'msg_1',
+            modelCallId: 'mc_1',
+            content: 'final answer arrived too early',
+            status: 'completed',
+            iteration: 1,
+        } as SSEEvent));
+
+        const page = state.turns[0].pages.find((p) => p.pageId === 'pg_1')!;
+        expect(page.content).toBe('streaming partial');
+        expect(page.finalResponse).not.toBe(true);
+        expect(page.finalAssistantMessageId).toBeUndefined();
+    });
+
     it('applyTranscript is idempotent: same snapshot twice leaves state equal', () => {
         const state = startedState();
         const snapshot: CanonicalConversationState = {

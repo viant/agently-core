@@ -827,15 +827,24 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     const assistantMessageId = ((event.messageId ?? event.assistantMessageId) ?? '').trim();
     const matched = matchModelStep(page.modelSteps, { modelCallId, assistantMessageId, positionHint: page.modelSteps.length - 1 });
     const step = matched ?? appendModelStep(page, 'event');
+    const explicitFinalResponse = Boolean(event.finalResponse);
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
     const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
     writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
     if (derivedPhase && derivedPhase !== 'main') writeField(step, 'phase', derivedPhase, 'event');
     writeField(step, 'status', event.status ?? 'completed', 'event');
-    if (event.content) writeField(page, 'content', event.content, 'event');
-    if (assistantMessageId) writeField(page, 'finalAssistantMessageId', assistantMessageId, 'event');
-    if (event.content || assistantMessageId) writeField(page, 'finalResponse', true, 'event');
+    // Do not infer "final" from model_completed alone. Some providers emit a
+    // completion record with content before the turn itself is terminal or
+    // before progressive text_delta streaming has fully played out. Only an
+    // explicit finalResponse marker should flip the page into final-answer
+    // mode. When there is no progressive page content yet, we still accept
+    // model_completed content as a fallback detail payload.
+    if (event.content && (explicitFinalResponse || !String(page.content ?? '').trim())) {
+        writeField(page, 'content', event.content, 'event');
+    }
+    if (explicitFinalResponse && assistantMessageId) writeField(page, 'finalAssistantMessageId', assistantMessageId, 'event');
+    if (explicitFinalResponse) writeField(page, 'finalResponse', true, 'event');
     if (event.requestPayloadId) writeField(step, 'requestPayloadId', event.requestPayloadId, 'event');
     if (event.responsePayloadId) writeField(step, 'responsePayloadId', event.responsePayloadId, 'event');
     if (event.providerRequestPayloadId) writeField(step, 'providerRequestPayloadId', event.providerRequestPayloadId, 'event');

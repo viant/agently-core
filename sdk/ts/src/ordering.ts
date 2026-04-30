@@ -56,22 +56,25 @@ export function temporalTimeValue(item: TemporalEntryLike = {}): number {
 export function compareTemporalEntries(left: TemporalEntryLike = {}, right: TemporalEntryLike = {}): number {
     const leftTurnId = firstString(left?.turnId);
     const rightTurnId = firstString(right?.turnId);
+    const leftSeq = temporalSequenceValue(left);
+    const rightSeq = temporalSequenceValue(right);
+    const leftHasSeq = leftSeq > 0;
+    const rightHasSeq = rightSeq > 0;
     if (leftTurnId && rightTurnId && leftTurnId === rightTurnId) {
         const leftRole = firstString(left?.role).toLowerCase();
         const rightRole = firstString(right?.role).toLowerCase();
         const leftIsUser = leftRole === 'user';
         const rightIsUser = rightRole === 'user';
         if (leftIsUser !== rightIsUser) return leftIsUser ? -1 : 1;
-        const leftSeq = temporalSequenceValue(left);
-        const rightSeq = temporalSequenceValue(right);
-        if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+        if (leftHasSeq && rightHasSeq && leftSeq !== rightSeq) return leftSeq - rightSeq;
     }
     const leftTime = temporalTimeValue(left);
     const rightTime = temporalTimeValue(right);
     if (leftTime !== rightTime) return leftTime - rightTime;
-    const leftSeq = temporalSequenceValue(left);
-    const rightSeq = temporalSequenceValue(right);
-    if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+    if (leftHasSeq && rightHasSeq && leftSeq !== rightSeq) return leftSeq - rightSeq;
+    if (leftTurnId && rightTurnId && leftTurnId === rightTurnId && leftHasSeq !== rightHasSeq) {
+        return leftHasSeq ? -1 : 1;
+    }
     return firstString(left?.id, left?.messageId, left?.assistantMessageId).localeCompare(
         firstString(right?.id, right?.messageId, right?.assistantMessageId),
     );
