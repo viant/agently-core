@@ -75,6 +75,54 @@ func TestEnsureRunRecordDefaultsToInteractive(t *testing.T) {
 	require.NotNil(t, row.LeaseUntil)
 }
 
+func TestUpdateRunIterationPreservesScheduledLease(t *testing.T) {
+	store := &capturePatchRunsService{}
+	svc := &Service{
+		dataService:             store,
+		runLeaseOwner:           "host-a:123:lease",
+		runHeartbeatIntervalSec: 60,
+	}
+	turn := memory.TurnMeta{TurnID: "run-scheduled", ConversationID: "conv-scheduled"}
+
+	svc.updateRunIteration(context.Background(), turn, 3, "sched-1")
+	require.Len(t, store.rows, 1)
+
+	row := store.rows[0]
+	require.Equal(t, "run-scheduled", row.Id)
+	require.Equal(t, "running", row.Status)
+	require.NotNil(t, row.Iteration)
+	require.Equal(t, 3, *row.Iteration)
+	require.Nil(t, row.LeaseOwner)
+	require.Nil(t, row.LeaseUntil)
+	require.Nil(t, row.LastHeartbeatAt)
+	require.Nil(t, row.HeartbeatIntervalSec)
+}
+
+func TestUpdateRunIterationTouchesInteractiveRunHeartbeat(t *testing.T) {
+	store := &capturePatchRunsService{}
+	svc := &Service{
+		dataService:             store,
+		runLeaseOwner:           "host-a:123:lease",
+		runHeartbeatIntervalSec: 60,
+	}
+	turn := memory.TurnMeta{TurnID: "run-interactive", ConversationID: "conv-interactive"}
+
+	svc.updateRunIteration(context.Background(), turn, 2, "")
+	require.Len(t, store.rows, 1)
+
+	row := store.rows[0]
+	require.Equal(t, "run-interactive", row.Id)
+	require.Equal(t, "running", row.Status)
+	require.NotNil(t, row.Iteration)
+	require.Equal(t, 2, *row.Iteration)
+	require.NotNil(t, row.LeaseOwner)
+	require.Equal(t, "host-a:123:lease", *row.LeaseOwner)
+	require.NotNil(t, row.LeaseUntil)
+	require.NotNil(t, row.LastHeartbeatAt)
+	require.NotNil(t, row.HeartbeatIntervalSec)
+	require.Equal(t, 60, *row.HeartbeatIntervalSec)
+}
+
 func TestStartRunHeartbeatPatchesInteractiveRunLiveness(t *testing.T) {
 	store := &capturePatchRunsService{}
 	svc := &Service{
