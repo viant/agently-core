@@ -31,24 +31,29 @@ body`
 			t.Fatalf("expected warn diagnostics, got %#v", diags)
 		}
 	}
-	if s.Frontmatter.Model != "openai_gpt-5.4" {
-		t.Fatalf("model = %q", s.Frontmatter.Model)
+	if got := s.Frontmatter.ModelValue(); got != "openai_gpt-5.4" {
+		t.Fatalf("model = %q", got)
 	}
 	if s.Frontmatter.ContextMode() != "fork" {
 		t.Fatalf("context = %q", s.Frontmatter.ContextMode())
 	}
-	if s.Frontmatter.Effort != "high" {
-		t.Fatalf("effort = %q", s.Frontmatter.Effort)
+	if got := s.Frontmatter.EffortValue(); got != "high" {
+		t.Fatalf("effort = %q", got)
 	}
-	if s.Frontmatter.Temperature == nil || *s.Frontmatter.Temperature != temp {
-		t.Fatalf("temperature = %#v", s.Frontmatter.Temperature)
+	if got := s.Frontmatter.TemperatureValue(); got == nil || *got != temp {
+		t.Fatalf("temperature = %#v", got)
 	}
-	if s.Frontmatter.MaxTokens != 8000 {
-		t.Fatalf("max tokens = %d", s.Frontmatter.MaxTokens)
+	if got := s.Frontmatter.MaxTokensValue(); got != 8000 {
+		t.Fatalf("max tokens = %d", got)
 	}
 }
 
-func TestParse_DefaultContextModeIsFork(t *testing.T) {
+func TestParse_DefaultContextModeIsInline(t *testing.T) {
+	// Default execution mode is "inline" — the safest cross-runtime
+	// behavior. Skills authored without an explicit context: directive run
+	// in the parent's context, matching how Claude/Codex parsers treat
+	// unknown execution-mode hints. Authors who want fork/detach must opt
+	// in via metadata.agently-context.
 	content := `---
 name: demo
 description: Demo
@@ -62,7 +67,7 @@ body`
 	if len(diags) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", diags)
 	}
-	if got := s.Frontmatter.ContextMode(); got != "fork" {
+	if got := s.Frontmatter.ContextMode(); got != "inline" {
 		t.Fatalf("default context = %q", got)
 	}
 }
@@ -85,8 +90,8 @@ body`
 		t.Fatalf("unexpected diagnostics: %#v", diags)
 	}
 	want := "Write a crisp one-line progress update for a delivery-impact lookup.\nMention the order and the dimension being checked. No filler phrases."
-	if s.Frontmatter.AsyncNarratorPrompt != want {
-		t.Fatalf("AsyncNarratorPrompt = %q want %q", s.Frontmatter.AsyncNarratorPrompt, want)
+	if got := s.Frontmatter.AsyncNarratorPromptValue(); got != want {
+		t.Fatalf("AsyncNarratorPrompt = %q want %q", got, want)
 	}
 	// Raw should NOT leak the field (it has a dedicated slot now).
 	if _, ok := s.Frontmatter.Raw["async-narrator-prompt"]; ok {

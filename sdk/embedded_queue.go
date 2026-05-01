@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/toolvalidate"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
@@ -1085,7 +1086,7 @@ func executeTool(c *backendClient, ctx context.Context, name string, args map[st
 	if c.toolPolicy != nil && tool.FromContext(ctx) == nil {
 		ctx = tool.WithPolicy(ctx, c.toolPolicy)
 	}
-	if err := tool.ValidateExecution(ctx, tool.FromContext(ctx), name, args); err != nil {
+	if err := toolvalidate.ValidateExecution(ctx, tool.FromContext(ctx), name, args); err != nil {
 		return "", err
 	}
 	return c.registry.Execute(ctx, name, args)

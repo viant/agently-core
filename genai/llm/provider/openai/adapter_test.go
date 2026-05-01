@@ -141,6 +141,18 @@ func TestToRequest_ReasoningSummary(t *testing.T) {
 				Messages: []Message{{Role: "user", Content: []ContentItem{{Type: "text", Text: "Ignore"}}}},
 			},
 		},
+		{
+			description: "reasoning effort propagates for gpt-5-mini",
+			input: llm.GenerateRequest{
+				Messages: []llm.Message{llm.NewUserMessage("Classify")},
+				Options:  &llm.Options{Model: "gpt-5-mini", Reasoning: &llm.Reasoning{Effort: "low"}},
+			},
+			expected: &Request{
+				Model:     "gpt-5-mini",
+				Reasoning: &llm.Reasoning{Effort: "low"},
+				Messages:  []Message{{Role: "user", Content: []ContentItem{{Type: "text", Text: "Classify"}}}},
+			},
+		},
 	}
 
 	for _, tc := range testCases {

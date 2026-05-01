@@ -8,27 +8,13 @@ import (
 )
 
 type Frontmatter struct {
-	Name                     string           `yaml:"name"`
-	Description              string           `yaml:"description"`
-	License                  string           `yaml:"license,omitempty"`
-	Metadata                 map[string]any   `yaml:"metadata,omitempty"`
-	Agently                  *AgentlyMetadata `yaml:"-"`
-	Context                  string           `yaml:"context,omitempty"`
-	AgentID                  string           `yaml:"agent-id,omitempty"`
-	AllowedTools             string           `yaml:"allowed-tools,omitempty"`
-	Model                    string           `yaml:"model,omitempty"`
-	Effort                   string           `yaml:"effort,omitempty"`
-	Temperature              *float64         `yaml:"temperature,omitempty"`
-	MaxTokens                int              `yaml:"max-tokens,omitempty"`
-	Preprocess               bool             `yaml:"preprocess,omitempty"`
-	PreprocessTimeoutSeconds int              `yaml:"preprocess-timeout,omitempty"`
-	// AsyncNarratorPrompt overrides the agent-level and workspace-level
-	// async narrator system prompt when this skill is the active skill
-	// for a turn. Resolution order (highest precedence first):
-	// active-skill → agent → workspace default. Empty → fall through
-	// to the next level.
-	AsyncNarratorPrompt string         `yaml:"async-narrator-prompt,omitempty"`
-	Raw                 map[string]any `yaml:"-"`
+	Name         string           `yaml:"name"`
+	Description  string           `yaml:"description"`
+	License      string           `yaml:"license,omitempty"`
+	Metadata     map[string]any   `yaml:"metadata,omitempty"`
+	Agently      *AgentlyMetadata `yaml:"-"`
+	AllowedTools string           `yaml:"allowed-tools,omitempty"`
+	Raw          map[string]any   `yaml:"-"`
 }
 
 type AgentlyMetadata struct {
@@ -53,8 +39,9 @@ type Skill struct {
 }
 
 type Metadata struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
+	Name          string `json:"name,omitempty"`
+	Description   string `json:"description,omitempty"`
+	ExecutionMode string `json:"executionMode,omitempty"`
 }
 
 type Diagnostic struct {
@@ -63,105 +50,128 @@ type Diagnostic struct {
 	Path    string `json:"path,omitempty"`
 }
 
+// NormalizeContextMode resolves a skill's `context:` value to one of the
+// canonical execution modes:
+//
+//	"inline"  — body injected into the current turn (default)
+//	"fork"    — child agent in its own conversation; runtime awaits result
+//	"detach"  — child agent in its own conversation; fire-and-forget
+//
+// Unset or unrecognized values default to "inline" — the safest cross-runtime
+// behavior, matching how Claude / Codex parsers treat unknown execution-mode
+// hints (the body just runs in the current context). Authors who want
+// fork/detach must opt in explicitly via metadata.agently-context.
 func NormalizeContextMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
-		return "fork"
+		return "inline"
 	case "inline":
 		return "inline"
 	case "fork", "detach":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return "fork"
+		return "inline"
 	}
 }
 
+// ContextMode returns the canonical execution-mode hint (inline / fork /
+// detach). Legacy top-level fields are normalized in parser.go; runtime code
+// only reads canonical Agently metadata from Frontmatter.
 func (f Frontmatter) ContextMode() string {
-	if ag := f.agentlyMetadata(); ag != nil && strings.TrimSpace(ag.Context) != "" {
-		return NormalizeContextMode(ag.Context)
+	if f.Agently != nil && strings.TrimSpace(f.Agently.Context) != "" {
+		return NormalizeContextMode(f.Agently.Context)
 	}
 	return NormalizeContextMode("")
 }
 
+// AgentIDValue returns the skill's canonical preferred child-agent identity
+// for fork/detach runs. Legacy top-level fields are normalized in parser.go.
 func (f Frontmatter) AgentIDValue() string {
-	if ag := f.agentlyMetadata(); ag != nil && strings.TrimSpace(ag.AgentID) != "" {
-		return strings.TrimSpace(ag.AgentID)
+	if f.Agently != nil && strings.TrimSpace(f.Agently.AgentID) != "" {
+		return strings.TrimSpace(f.Agently.AgentID)
 	}
 	return ""
 }
 
+// ModelValue returns the canonical exact-name model override for this skill.
 func (f Frontmatter) ModelValue() string {
-	if ag := f.agentlyMetadata(); ag != nil && strings.TrimSpace(ag.Model) != "" {
-		return strings.TrimSpace(ag.Model)
+	if f.Agently != nil && strings.TrimSpace(f.Agently.Model) != "" {
+		return strings.TrimSpace(f.Agently.Model)
 	}
 	return ""
 }
 
+// EffortValue returns the canonical reasoning-effort hint.
 func (f Frontmatter) EffortValue() string {
-	if ag := f.agentlyMetadata(); ag != nil && strings.TrimSpace(ag.Effort) != "" {
-		return strings.TrimSpace(ag.Effort)
+	if f.Agently != nil && strings.TrimSpace(f.Agently.Effort) != "" {
+		return strings.TrimSpace(f.Agently.Effort)
 	}
 	return ""
 }
 
+// TemperatureValue returns the canonical per-skill sampling temperature.
 func (f Frontmatter) TemperatureValue() *float64 {
-	if ag := f.agentlyMetadata(); ag != nil && ag.Temperature != nil {
-		return ag.Temperature
+	if f.Agently != nil && f.Agently.Temperature != nil {
+		return f.Agently.Temperature
 	}
 	return nil
 }
 
+// MaxTokensValue returns the canonical per-skill max-output-tokens cap.
 func (f Frontmatter) MaxTokensValue() int {
-	if ag := f.agentlyMetadata(); ag != nil && ag.MaxTokens != nil {
-		return *ag.MaxTokens
+	if f.Agently != nil && f.Agently.MaxTokens != nil {
+		return *f.Agently.MaxTokens
 	}
 	return 0
 }
 
+// PreprocessEnabled reports the canonical preprocess flag.
 func (f Frontmatter) PreprocessEnabled() bool {
-	if ag := f.agentlyMetadata(); ag != nil && ag.Preprocess != nil {
-		return *ag.Preprocess
+	if f.Agently != nil && f.Agently.Preprocess != nil {
+		return *f.Agently.Preprocess
 	}
 	return false
 }
 
+// PreprocessTimeoutValue returns the canonical preprocess timeout.
 func (f Frontmatter) PreprocessTimeoutValue() int {
-	if ag := f.agentlyMetadata(); ag != nil && ag.PreprocessTimeoutSec != nil {
-		return *ag.PreprocessTimeoutSec
+	if f.Agently != nil && f.Agently.PreprocessTimeoutSec != nil {
+		return *f.Agently.PreprocessTimeoutSec
 	}
 	return 0
 }
 
+// AsyncNarratorPromptValue returns the canonical async narrator override.
 func (f Frontmatter) AsyncNarratorPromptValue() string {
-	if ag := f.agentlyMetadata(); ag != nil && strings.TrimSpace(ag.AsyncNarratorPrompt) != "" {
-		return strings.TrimSpace(ag.AsyncNarratorPrompt)
+	if f.Agently != nil && strings.TrimSpace(f.Agently.AsyncNarratorPrompt) != "" {
+		return strings.TrimSpace(f.Agently.AsyncNarratorPrompt)
 	}
 	return ""
 }
 
+// ModelPreferencesValue returns the canonical MCP-aligned model preferences.
 func (f Frontmatter) ModelPreferencesValue() *llm.ModelPreferences {
-	if ag := f.agentlyMetadata(); ag != nil && ag.ModelPreferences != nil {
-		return ag.ModelPreferences
+	if f.Agently != nil && f.Agently.ModelPreferences != nil {
+		return f.Agently.ModelPreferences
 	}
 	return nil
 }
 
-func (f Frontmatter) agentlyMetadata() *AgentlyMetadata {
-	if f.Agently != nil {
-		return f.Agently
-	}
-	return parseAgentlyMetadata(f)
+type LegacyAgentlyFields struct {
+	Context              string
+	AgentID              string
+	Model                string
+	Effort               string
+	Temperature          *float64
+	MaxTokens            *int
+	Preprocess           *bool
+	PreprocessTimeoutSec *int
+	AsyncNarratorPrompt  string
 }
 
-func parseAgentlyMetadata(f Frontmatter) *AgentlyMetadata {
-	metadata := f.Metadata
-	if len(metadata) == 0 {
-		if strings.TrimSpace(f.Context) == "" && strings.TrimSpace(f.AgentID) == "" && strings.TrimSpace(f.Model) == "" &&
-			strings.TrimSpace(f.Effort) == "" && f.Temperature == nil && f.MaxTokens == 0 &&
-			!f.Preprocess && f.PreprocessTimeoutSeconds == 0 && strings.TrimSpace(f.AsyncNarratorPrompt) == "" {
-			return nil
-		}
-		return legacyAgentlyMetadata(f)
+func parseAgentlyMetadata(metadata map[string]any, legacy *LegacyAgentlyFields) *AgentlyMetadata {
+	if len(metadata) == 0 && legacy == nil {
+		return nil
 	}
 	ret := &AgentlyMetadata{}
 	source := metadata
@@ -218,18 +228,17 @@ func parseAgentlyMetadata(f Frontmatter) *AgentlyMetadata {
 	} else if prefs := parseModelPreferences(metadata); prefs != nil {
 		ret.ModelPreferences = prefs
 	}
-	legacy := legacyAgentlyMetadata(f)
 	if strings.TrimSpace(ret.Context) == "" && legacy != nil {
-		ret.Context = legacy.Context
+		ret.Context = strings.TrimSpace(legacy.Context)
 	}
 	if strings.TrimSpace(ret.AgentID) == "" && legacy != nil {
-		ret.AgentID = legacy.AgentID
+		ret.AgentID = strings.TrimSpace(legacy.AgentID)
 	}
 	if strings.TrimSpace(ret.Model) == "" && legacy != nil {
-		ret.Model = legacy.Model
+		ret.Model = strings.TrimSpace(legacy.Model)
 	}
 	if strings.TrimSpace(ret.Effort) == "" && legacy != nil {
-		ret.Effort = legacy.Effort
+		ret.Effort = strings.TrimSpace(legacy.Effort)
 	}
 	if ret.Temperature == nil && legacy != nil {
 		ret.Temperature = legacy.Temperature
@@ -244,51 +253,11 @@ func parseAgentlyMetadata(f Frontmatter) *AgentlyMetadata {
 		ret.PreprocessTimeoutSec = legacy.PreprocessTimeoutSec
 	}
 	if strings.TrimSpace(ret.AsyncNarratorPrompt) == "" && legacy != nil {
-		ret.AsyncNarratorPrompt = legacy.AsyncNarratorPrompt
+		ret.AsyncNarratorPrompt = strings.TrimSpace(legacy.AsyncNarratorPrompt)
 	}
 	if ret.Context == "" && ret.AgentID == "" && ret.Model == "" && ret.Effort == "" &&
 		ret.Temperature == nil && ret.MaxTokens == nil && ret.Preprocess == nil &&
 		ret.PreprocessTimeoutSec == nil && ret.AsyncNarratorPrompt == "" && ret.ModelPreferences == nil {
-		return nil
-	}
-	return ret
-}
-
-func legacyAgentlyMetadata(f Frontmatter) *AgentlyMetadata {
-	ret := &AgentlyMetadata{}
-	if text := strings.TrimSpace(f.Context); text != "" {
-		ret.Context = text
-	}
-	if text := strings.TrimSpace(f.AgentID); text != "" {
-		ret.AgentID = text
-	}
-	if text := strings.TrimSpace(f.Model); text != "" {
-		ret.Model = text
-	}
-	if text := strings.TrimSpace(f.Effort); text != "" {
-		ret.Effort = text
-	}
-	if f.Temperature != nil {
-		ret.Temperature = f.Temperature
-	}
-	if f.MaxTokens > 0 {
-		v := f.MaxTokens
-		ret.MaxTokens = &v
-	}
-	if f.Preprocess {
-		v := true
-		ret.Preprocess = &v
-	}
-	if f.PreprocessTimeoutSeconds > 0 {
-		v := f.PreprocessTimeoutSeconds
-		ret.PreprocessTimeoutSec = &v
-	}
-	if text := strings.TrimSpace(f.AsyncNarratorPrompt); text != "" {
-		ret.AsyncNarratorPrompt = text
-	}
-	if ret.Context == "" && ret.AgentID == "" && ret.Model == "" && ret.Effort == "" &&
-		ret.Temperature == nil && ret.MaxTokens == nil && ret.Preprocess == nil &&
-		ret.PreprocessTimeoutSec == nil && ret.AsyncNarratorPrompt == "" {
 		return nil
 	}
 	return ret

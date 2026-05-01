@@ -163,11 +163,39 @@ func BuildConstraints(skills []*skillproto.Skill) *Constraints {
 	return out
 }
 
+// ExpandDefinitionsForConstraints rewrites the tool surface for the service
+// families named by `allowed-tools` and preserves unrelated tool families.
+//
+// Example: when a skill allows only `system/exec:execute`, the parent's
+// `system/exec:start|cancel|status` tools are removed from the presented
+// surface and only `execute` is re-added. Unrelated tools such as
+// `prompt:list` or `llm/skills:list` remain available.
+//
+// Wraps ExpandDefinitionsForConstraintsWithDiag and discards the unmatched
+// pattern list. Callers that want to surface "skill requested an unavailable
+// tool" diagnostics should call the WithDiag variant directly.
 func ExpandDefinitionsForConstraints(defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) []*llm.ToolDefinition {
+	out, _ := ExpandDefinitionsForConstraintsWithDiag(defs, reg, c)
+	return out
+}
+
+// ExpandDefinitionsForConstraintsWithDiag is identical to
+// ExpandDefinitionsForConstraints but additionally returns the list of
+// allowed-tools patterns that did not match any registered tool. The
+// runtime can convert these into warn-level skillproto.Diagnostics
+// surfaced on the activation event so the model and operators see "skill
+// 'X' requested tool 'Y' which is not available in the current agent's
+// tool registry."
+//
+// Returns an empty unmatched slice (not nil) when nothing is missing.
+// Returns nil unmatched when c, reg, or c.ToolPatterns is empty (no
+// expansion attempted).
+func ExpandDefinitionsForConstraintsWithDiag(defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) (out []*llm.ToolDefinition, unmatched []string) {
 	if c == nil || reg == nil || len(c.ToolPatterns) == 0 {
-		return defs
+		return defs, nil
 	}
-	out := make([]*llm.ToolDefinition, 0, len(defs))
+	constrainedServices := constrainedServiceFamilies(c.ToolPatterns)
+	out = make([]*llm.ToolDefinition, 0, len(defs))
 	seen := map[string]struct{}{}
 	appendDef := func(def *llm.ToolDefinition) {
 		if def == nil {
@@ -184,16 +212,29 @@ func ExpandDefinitionsForConstraints(defs []*llm.ToolDefinition, reg tool.Regist
 		out = append(out, def)
 	}
 	for _, def := range defs {
+		if belongsToConstrainedService(def, constrainedServices) {
+			if !definitionMatchesAnyPattern(def, c.ToolPatterns) {
+				continue
+			}
+		}
 		appendDef(def)
 	}
+	unmatched = make([]string, 0)
 	for _, pattern := range c.ToolPatterns {
+		matchedAny := false
 		for _, variant := range toolPatternVariants(pattern) {
 			for _, def := range reg.MatchDefinition(variant) {
 				appendDef(def)
+				matchedAny = true
+			}
+		}
+		if !matchedAny {
+			if p := strings.TrimSpace(pattern); p != "" {
+				unmatched = append(unmatched, p)
 			}
 		}
 	}
-	return out
+	return out, unmatched
 }
 
 func ValidateExecution(ctx context.Context, toolName string, args map[string]interface{}) error {
@@ -208,15 +249,19 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 	}
 	toolName = strings.TrimSpace(mcpname.Canonical(toolName))
 	if len(c.ToolPatterns) > 0 {
-		allowed := false
-		for _, pattern := range c.ToolPatterns {
-			if toolPatternMatch(toolName, pattern) {
-				allowed = true
-				break
+		if constrained := constrainedServiceFamilies(c.ToolPatterns); len(constrained) > 0 {
+			if belongsToConstrainedService(&llm.ToolDefinition{Name: toolName}, constrained) {
+				allowed := false
+				for _, pattern := range c.ToolPatterns {
+					if toolPatternMatch(toolName, pattern) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					return fmt.Errorf("tool %q is not allowed by active skill constraints", toolName)
+				}
 			}
-		}
-		if !allowed {
-			return fmt.Errorf("tool %q is not allowed by active skill constraints", toolName)
 		}
 	}
 	if toolName == strings.TrimSpace(mcpname.Canonical("system/exec:execute")) && len(c.ExecFirstTokenAllow) > 0 {
@@ -287,4 +332,62 @@ func toolPatternVariants(pattern string) []string {
 	appendVariant(mcpname.Canonical(pattern))
 	appendVariant(mcpname.Display(pattern))
 	return out
+}
+
+func constrainedServiceFamilies(patterns []string) map[string]struct{} {
+	if len(patterns) == 0 {
+		return nil
+	}
+	out := map[string]struct{}{}
+	for _, pattern := range patterns {
+		service := patternServiceFamily(pattern)
+		if service == "" {
+			continue
+		}
+		out[service] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func patternServiceFamily(pattern string) string {
+	canonical := strings.TrimSpace(mcpname.Canonical(pattern))
+	if canonical == "" {
+		return ""
+	}
+	service := strings.TrimSpace(strings.ToLower(mcpname.Name(canonical).Service()))
+	if service == "" || service == "*" {
+		return ""
+	}
+	return service
+}
+
+func belongsToConstrainedService(def *llm.ToolDefinition, constrained map[string]struct{}) bool {
+	if def == nil || len(constrained) == 0 {
+		return false
+	}
+	service := strings.TrimSpace(strings.ToLower(mcpname.Name(mcpname.Canonical(def.Name)).Service()))
+	if service == "" {
+		return false
+	}
+	_, ok := constrained[service]
+	return ok
+}
+
+func definitionMatchesAnyPattern(def *llm.ToolDefinition, patterns []string) bool {
+	if def == nil || len(patterns) == 0 {
+		return false
+	}
+	name := strings.TrimSpace(def.Name)
+	if name == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		if toolPatternMatch(name, pattern) {
+			return true
+		}
+	}
+	return false
 }
