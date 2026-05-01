@@ -615,7 +615,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		iterStart := time.Now()
-		s.updateRunIteration(ctx, turn, iter)
+		s.updateRunIteration(ctx, turn, iter, input.ScheduleId)
 
 		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
 		if ckErr != nil {
