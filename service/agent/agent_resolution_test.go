@@ -21,49 +21,14 @@ func (f *testFinder) Find(_ context.Context, name string) (*agentmdl.Agent, erro
 	return nil, nil
 }
 
-func TestResolveAgentIDForConversation_AutoCapabilityFallback(t *testing.T) {
-	svc := &Service{
-		agentFinder: &testFinder{items: map[string]*agentmdl.Agent{
-			"agent_selector": {Identity: agentmdl.Identity{ID: "agent_selector", Name: "Agent Selector"}, Internal: false},
-		}},
-	}
-
-	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "", "what can you do agent?", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !auto {
-		t.Fatalf("expected auto selection")
-	}
-	if selected != "agent_selector" {
-		t.Fatalf("unexpected selected id: %s", selected)
-	}
-	if reason != "capability_direct" {
-		t.Fatalf("unexpected routing reason: %s", reason)
-	}
-}
-
-func TestResolveAgentIDForConversation_AutoCapabilityFallbackSkipsInternal(t *testing.T) {
-	svc := &Service{
-		agentFinder: &testFinder{items: map[string]*agentmdl.Agent{
-			"agent_selector": {Identity: agentmdl.Identity{ID: "agent_selector", Name: "Agent Selector"}, Internal: true},
-		}},
-	}
-
-	selected, auto, reason, err := svc.resolveAgentIDForConversation(context.Background(), nil, "", "what can you do agent?", "")
-	if err != nil {
-		t.Fatalf("unexpected error when synthetic selector fallback should be used: %v", err)
-	}
-	if !auto {
-		t.Fatalf("expected auto selection")
-	}
-	if selected != "agent_selector" {
-		t.Fatalf("unexpected selected id: %s", selected)
-	}
-	if reason != "capability_direct" {
-		t.Fatalf("unexpected routing reason: %s", reason)
-	}
-}
+// NOTE: TestResolveAgentIDForConversation_AutoCapabilityFallback and its
+// SkipsInternal variant were removed when the heuristic
+// `isCapabilityDiscoveryQuery` shortcut was deleted. Capability-question
+// detection now lives entirely inside the workspace-intake LLM router
+// (agent_classifier.classifyAgentIDWithLLM), which produces a structured
+// {action: "route" | "answer" | "clarify"} output rather than relying on
+// hardcoded marker strings. End-to-end tests of that LLM-driven decision
+// belong in integration tests, not unit tests of resolveAgentIDForConversation.
 
 func TestResolveAgentIDForConversation_ExplicitAutoSelectsCoderFromPublishedCatalog(t *testing.T) {
 	svc := &Service{

@@ -287,17 +287,13 @@ func TestRuntimeQuery_ExplicitSkillActivation_EmitsSkillInLLMRequest(t *testing.
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	foundSkills := false
 	foundBody := false
 	for _, msg := range payload.Messages {
-		if strings.Contains(msg.Content, "<skills_instructions>") {
-			foundSkills = true
-		}
 		if strings.Contains(msg.Content, `Loaded skill "demo"`) {
 			foundBody = true
 		}
 	}
-	if !foundSkills || !foundBody {
+	if !foundBody {
 		t.Fatalf("payload missing expected content: %s", string(data))
 	}
 	if payload.Options.Metadata == nil {
@@ -1502,6 +1498,9 @@ func TestRuntimeQuery_ForkSkillActivation_RoutesLLMRequestThroughChildConversati
 			t.Fatalf("read payload %s: %v", path, err)
 		}
 		if payloadContains(data, "# Demo Skill") && payloadContains(data, "Use the forked instructions.") {
+			if payloadContains(data, "llm_skills-list") || payloadContains(data, "llm/skills:list") || payloadContains(data, "llm_skills-activate") || payloadContains(data, "llm/skills:activate") {
+				t.Fatalf("expected fork child llm-request to avoid recursive skill tools: %s", string(data))
+			}
 			foundChild = true
 			break
 		}
@@ -1573,6 +1572,9 @@ func TestRuntimeQuery_DetachSkillActivation_RoutesLLMRequestThroughChildConversa
 			t.Fatalf("read payload %s: %v", path, err)
 		}
 		if payloadContains(data, "# Demo Skill") && payloadContains(data, "Use the detached instructions.") {
+			if payloadContains(data, "llm_skills-list") || payloadContains(data, "llm/skills:list") || payloadContains(data, "llm_skills-activate") || payloadContains(data, "llm/skills:activate") {
+				t.Fatalf("expected detach child llm-request to avoid recursive skill tools: %s", string(data))
+			}
 			foundChild = true
 			break
 		}

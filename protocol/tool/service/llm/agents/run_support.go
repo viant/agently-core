@@ -20,6 +20,7 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	coreauth "github.com/viant/agently-core/service/auth"
+	intakesvc "github.com/viant/agently-core/service/intake"
 	"github.com/viant/agently-core/service/shared/convterm"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	skillsvc "github.com/viant/agently-core/service/skill"
@@ -129,6 +130,16 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		childContext = setDelegationDepth(childContext, agentID, depth+1)
 		ri.Context = childContext
 		qi.Context = childContext
+	}
+	// Skip rule §2.c (intake-impt.md): caller pre-provides the workspace-intake
+	// result. When set, the runtime stores it under the well-known
+	// intakesvc.ContextKey with Source="caller-provided"; the agent-intake
+	// sidecar (service/agent/intake_query.go) honors this and skips its own
+	// LLM call. Validation (authorized agent set, visible skills, allowlisted
+	// bundles) runs at downstream gates that already enforce those checks.
+	if ri.WorkspaceIntake != nil {
+		qi.Context, _ = intakesvc.StoreCallerProvided(qi.Context, ri.WorkspaceIntake)
+		ri.Context = qi.Context
 	}
 	qi.ToolsAllowed = delegatedToolAllowList(ri)
 	// Pre-assign the turn ID so profile messages and the agent turn share the

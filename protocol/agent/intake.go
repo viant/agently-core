@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/viant/agently-core/genai/llm"
+)
 
 // Intake configures the pre-turn intake sidecar for an agent.
 // The sidecar runs a lightweight LLM call before the main turn to extract
@@ -16,9 +20,17 @@ type Intake struct {
 	// When empty, defaults to Class A only.
 	Scope []string `yaml:"scope,omitempty" json:"scope,omitempty"`
 
-	// Model is the sidecar model id (e.g. "haiku"). Falls back to the
-	// tool-auto-selection model when empty.
+	// Model is the sidecar model id (e.g. "haiku"). Falls back to ModelPreferences
+	// resolution and then to the tool-auto-selection model when empty.
 	Model string `yaml:"model,omitempty" json:"model,omitempty"`
+
+	// ModelPreferences expresses MCP-style sampling preferences for selecting the
+	// sidecar model. When Model is empty and ModelPreferences is non-nil, the
+	// runtime resolves a concrete model via the existing
+	// internal/finder/model.Finder. Both YAML hint shapes
+	// (hints: ["X"] and hints: [{name: "X"}]) parse correctly via the custom
+	// (Un)Marshal methods on llm.ModelPreferences.
+	ModelPreferences *llm.ModelPreferences `yaml:"modelPreferences,omitempty" json:"modelPreferences,omitempty"`
 
 	// MaxTokens caps the sidecar output. Default: 400.
 	MaxTokens int `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`

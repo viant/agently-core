@@ -164,17 +164,11 @@ func (s *Service) ensureEnvironment(ctx context.Context, input *QueryInput) erro
 	if err := s.ensureConversation(ctx, input); err != nil {
 		return err
 	}
-	if input != nil && input.Agent == nil && isAutoAgentRef(strings.TrimSpace(input.AgentID)) && isCapabilityDiscoveryQuery(input.Query) {
-		autoTools := false
-		input.AgentID = "agent_selector"
-		input.Agent = newCapabilityAgent(s.defaults)
-		input.AutoSelected = true
-		input.RoutingReason = "capability_direct"
-		input.AutoSelectTools = &autoTools
-		input.ToolsAllowed = nil
-		input.DisableChains = true
-		logx.Infof("conversation", "agent.ensureEnvironment forced capability mode convo=%q query_head=%q", strings.TrimSpace(input.ConversationID), textutil.Head(input.Query, 256))
-	}
+	// Capability-question forced mode removed: the workspace intake LLM
+	// router (agent_classifier.classifyAgentIDWithLLM) is the single decider
+	// for whether a turn routes to an agent or answers a capability question
+	// directly. No heuristic markers, no zero-LLM shortcuts. The router's
+	// unified output schema covers {action: "route" | "answer" | "clarify"}.
 	if err := s.ensureAgent(ctx, input); err != nil {
 		return err
 	}

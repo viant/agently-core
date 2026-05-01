@@ -273,3 +273,99 @@ func TestRunSkillValidateAndShow_ContextExecutionModes(t *testing.T) {
 		t.Fatalf("expected context detach in show json, got %#v", showJSON)
 	}
 }
+
+// TestSkillAdd_LocalPath_Workspace exercises the v1 install path end-to-end
+// from a local directory into the workspace root. Verifies:
+//   - the skill directory is copied into <workspace>/skills/<name>
+//   - the SKILL.md content is preserved verbatim
+//   - the _SOURCE provenance file is written
+//   - --yes bypasses the confirmation prompt
+//   - sub-resources (scripts/) copy recursively
+//
+// Persistence reuse: install just writes files; the watcher (when running)
+// detects them via existing fsnotify infrastructure. The CLI doesn't emit
+// registry-reload events — same contract per skill-impr.md S12.
+func TestSkillAdd_LocalPath_Workspace(t *testing.T) {
+	srcRoot := t.TempDir()
+	srcSkill := filepath.Join(srcRoot, "demo")
+	if err := os.MkdirAll(srcSkill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: demo\ndescription: Demo for skill add.\nlicense: Apache-2.0\n---\n\n# Demo Skill\n"
+	if err := os.WriteFile(filepath.Join(srcSkill, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcSkill, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcSkill, "scripts", "hello.sh"), []byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dstRoot := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", dstRoot)
+	workspace.SetRoot(dstRoot)
+
+	var out bytes.Buffer
+	err := run([]string{"skill", "add", "--workspace", dstRoot, "--root", "workspace", "--yes", srcSkill}, &out, &out)
+	if err != nil {
+		t.Fatalf("skill add error: %v\noutput: %s", err, out.String())
+	}
+
+	installed := filepath.Join(dstRoot, "skills", "demo", "SKILL.md")
+	gotBody, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatalf("installed SKILL.md missing: %v", err)
+	}
+	if string(gotBody) != body {
+		t.Fatalf("body mismatch:\nwant: %q\ngot:  %q", body, string(gotBody))
+	}
+
+	provPath := filepath.Join(dstRoot, "skills", "demo", "_SOURCE")
+	prov, err := os.ReadFile(provPath)
+	if err != nil {
+		t.Fatalf("_SOURCE missing: %v", err)
+	}
+	if !strings.Contains(string(prov), "name: demo") {
+		t.Fatalf("_SOURCE missing name: %q", string(prov))
+	}
+	if !strings.Contains(string(prov), "origin: ") {
+		t.Fatalf("_SOURCE missing origin: %q", string(prov))
+	}
+
+	if _, err := os.Stat(filepath.Join(dstRoot, "skills", "demo", "scripts", "hello.sh")); err != nil {
+		t.Fatalf("recursive copy failed: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Installed") {
+		t.Fatalf("expected 'Installed' in output, got: %s", out.String())
+	}
+}
+
+// TestSkillAdd_RejectsInvalidSkill: install must validate via skillproto.Parse
+// before touching the target tree. A skill with an empty name fails fast
+// without any filesystem write.
+func TestSkillAdd_RejectsInvalidSkill(t *testing.T) {
+	srcRoot := t.TempDir()
+	srcSkill := filepath.Join(srcRoot, "broken")
+	if err := os.MkdirAll(srcSkill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ndescription: no name\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(srcSkill, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dstRoot := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", dstRoot)
+	workspace.SetRoot(dstRoot)
+
+	var out bytes.Buffer
+	err := run([]string{"skill", "add", "--workspace", dstRoot, "--yes", srcSkill}, &out, &out)
+	if err == nil {
+		t.Fatalf("expected error on invalid skill, got nil; output: %s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(dstRoot, "skills", "broken")); err == nil {
+		t.Fatalf("invalid skill should not write target tree")
+	}
+}

@@ -22,17 +22,51 @@ var legacyAgentlyFieldTargets = map[string]string{
 	"async-narrator-prompt": "metadata.agently-async-narrator-prompt",
 }
 
+type frontmatterWire struct {
+	Name                string         `yaml:"name"`
+	Description         string         `yaml:"description"`
+	License             string         `yaml:"license,omitempty"`
+	Metadata            map[string]any `yaml:"metadata,omitempty"`
+	AllowedTools        string         `yaml:"allowed-tools,omitempty"`
+	Context             string         `yaml:"context,omitempty"`
+	AgentID             string         `yaml:"agent-id,omitempty"`
+	Model               string         `yaml:"model,omitempty"`
+	Effort              string         `yaml:"effort,omitempty"`
+	Temperature         *float64       `yaml:"temperature,omitempty"`
+	MaxTokens           *int           `yaml:"max-tokens,omitempty"`
+	Preprocess          *bool          `yaml:"preprocess,omitempty"`
+	PreprocessTimeout   *int           `yaml:"preprocess-timeout,omitempty"`
+	AsyncNarratorPrompt string         `yaml:"async-narrator-prompt,omitempty"`
+}
+
 func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	front, body, err := splitFrontmatter(content)
 	if err != nil {
 		return nil, nil, err
 	}
-	fm := Frontmatter{}
-	if err := yaml.Unmarshal([]byte(front), &fm); err != nil {
+	wire := frontmatterWire{}
+	if err := yaml.Unmarshal([]byte(front), &wire); err != nil {
 		return nil, nil, fmt.Errorf("parse skill frontmatter: %w", err)
 	}
-	fm.Agently = parseAgentlyMetadata(fm)
+	fm := Frontmatter{
+		Name:         wire.Name,
+		Description:  wire.Description,
+		License:      wire.License,
+		Metadata:     wire.Metadata,
+		AllowedTools: wire.AllowedTools,
+	}
+	fm.Agently = parseAgentlyMetadata(wire.Metadata, &LegacyAgentlyFields{
+		Context:              wire.Context,
+		AgentID:              wire.AgentID,
+		Model:                wire.Model,
+		Effort:               wire.Effort,
+		Temperature:          wire.Temperature,
+		MaxTokens:            wire.MaxTokens,
+		Preprocess:           wire.Preprocess,
+		PreprocessTimeoutSec: wire.PreprocessTimeout,
+		AsyncNarratorPrompt:  wire.AsyncNarratorPrompt,
+	})
 	frontMap := map[string]any{}
 	if err := yaml.Unmarshal([]byte(front), &frontMap); err == nil {
 		raw := map[string]any{}
@@ -90,7 +124,7 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 			diags = append(diags, Diagnostic{Level: "error", Message: "invalid effort value", Path: path})
 		}
 	}
-	if rawMode := strings.TrimSpace(fm.Context); rawMode != "" {
+	if rawMode := strings.TrimSpace(wire.Context); rawMode != "" {
 		if mode := NormalizeContextMode(rawMode); mode != strings.ToLower(rawMode) {
 			diags = append(diags, Diagnostic{Level: "error", Message: "invalid context value", Path: path})
 		}
@@ -100,14 +134,20 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 			diags = append(diags, Diagnostic{Level: "error", Message: "temperature must be between 0 and 2", Path: path})
 		}
 	}
-	if fm.MaxTokens < 0 || fm.MaxTokens >= 200000 {
-		diags = append(diags, Diagnostic{Level: "error", Message: "max-tokens must be between 1 and 199999", Path: path})
+	if maxTokens := fm.MaxTokensValue(); maxTokens != 0 {
+		if maxTokens < 0 || maxTokens >= 200000 {
+			diags = append(diags, Diagnostic{Level: "error", Message: "max-tokens must be between 1 and 199999", Path: path})
+		}
 	}
 	if fm.PreprocessEnabled() {
 		timeout := fm.PreprocessTimeoutValue()
 		if timeout == 0 {
-			fm.PreprocessTimeoutSeconds = 10
-			s.Frontmatter.PreprocessTimeoutSeconds = 10
+			if fm.Agently == nil {
+				fm.Agently = &AgentlyMetadata{}
+			}
+			v := 10
+			fm.Agently.PreprocessTimeoutSec = &v
+			s.Frontmatter.Agently = fm.Agently
 		} else if timeout < 1 || timeout > 60 {
 			diags = append(diags, Diagnostic{Level: "error", Message: "preprocess-timeout must be between 1 and 60", Path: path})
 		}

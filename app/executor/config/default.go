@@ -412,6 +412,17 @@ type AgentAutoSelectionDefaults struct {
 	// to the conversation default model or Defaults.Model.
 	Model string `yaml:"model,omitempty" json:"model,omitempty"`
 	// Prompt optionally overrides the default system prompt used by the router.
+	// The prompt MUST instruct the LLM to output one of:
+	//   {"action":"route","agentId":"<id>"}
+	//   {"action":"answer","text":"<capability answer>"}
+	//   {"action":"clarify","question":"<clarification>"}
+	// (See `agentRouterSystemPrompt` for the built-in default.)
+	//
+	// Capability detection is the LLM's responsibility, not a pattern-match
+	// heuristic — `action: "answer"` is how the router signals "this is a
+	// workspace-capability question; here is the answer directly." This
+	// eliminates the prior hardcoded `isCapabilityDiscoveryQuery` shortcut
+	// and unifies the auto-selection intake into a single LLM call.
 	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 	// OutputKey controls the JSON field name the classifier should output.
 	// Examples: "agentId" (default), "agent_id".

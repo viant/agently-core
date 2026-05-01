@@ -121,6 +121,43 @@ explicit skill invocation inside the child conversation, so preprocess,
 allowed-tools, tool-surface augmentation, and skill constraints are enforced
 there through the existing inline skill path.
 
+### 4a. Agently extensions (non-portable opt-ins)
+
+The agentskills.io spec defines exactly six top-level frontmatter fields:
+`name`, `description`, `license`, `compatibility`, `metadata`,
+`allowed-tools`. Agently-specific behavior lives **inside** `metadata` per
+the spec's documented extension point, vendor-prefixed with `agently-` to
+prevent collisions with other runtimes that adopt the same metadata
+extension surface. Skills using only the six spec fields are fully portable.
+
+**Behavior on Claude / Codex parsers**: every Agently extension below is an
+unknown key from those parsers' perspective. They preserve the value under
+`metadata` and ignore it; the skill body runs normally. The extension is
+non-portable in the sense that authors who depend on it should expect
+graceful degradation, not identical behavior, when the same SKILL.md is
+loaded by another runtime.
+
+| Field | Default | Purpose | Behavior in non-Agently runtimes |
+|---|---|---|---|
+| `metadata.agently-context` | `inline` | Execution mode: `inline` / `fork` / `detach`. Inline injects the body into the current turn. Fork delegates to a child agent and awaits result. Detach delegates fire-and-forget. | Ignored — body always runs inline. |
+| `metadata.agently-model` | (unset) | Exact-name override for the model used during this skill's activation. Wins over `metadata.model-preferences` when set. | Ignored. |
+| `metadata.model-preferences` | (unset) | MCP-aligned model-selection hints (`hints`, `costPriority`, `speedPriority`, `intelligencePriority`). Authored without an `agently-` prefix because the shape mirrors the standard MCP `ModelPreferences` contract. | Honored by MCP-aware runtimes; ignored by others. |
+| `metadata.agently-effort` | (unset) | Legacy reasoning-effort hint (`low` / `medium` / `high`). Prefer `model-preferences.intelligencePriority` for new skills. | Ignored. |
+| `metadata.agently-temperature` | (unset) | Sampling temperature (0..2) override for this skill. | Ignored. |
+| `metadata.agently-max-tokens` | (unset) | Max output tokens for this skill's response. | Ignored. |
+| `metadata.agently-async-narrator-prompt` | (inherits) | Override the async narrator's system prompt when this skill is active. | Ignored. |
+| `metadata.agently-agent-id` | (derived) | Override the dynamic child-agent identity used for fork/detach activations. | Ignored. |
+| `metadata.agently-preprocess` | `false` | When `true`, expand `!`-prefixed inline shell commands and ` ```!` fenced blocks in the body **at activation time**, before the body is rendered. Output of each `!`-block replaces the directive in the rendered body. Useful for embedding command output (e.g. `!date` → today's date) directly into skill bodies. | **Ignored** — `!`-blocks render as literal markdown text. Skills relying on this feature for correctness will produce different output. |
+| `metadata.agently-preprocess-timeout` | `60` | Wall-clock budget (seconds) for the entire preprocess pass. Enforced via `context.WithTimeout` around the expansion loop. | Ignored. |
+
+**Portability note for `agently-preprocess`**: a skill that emits its date
+in the response by writing `Today is !date` works in Agently with
+`agently-preprocess: true` (renders `Today is 2025-01-15`). Loaded in
+Claude or Codex, the same skill renders the literal text `Today is !date`,
+because those parsers do not know to expand `!`-prefixed blocks. Authors
+who need cross-runtime portability should compute dynamic content via the
+agent's tools at runtime instead of relying on preprocess.
+
 ## 5. Workspace model
 
 This is the main architectural decision that must be settled early.

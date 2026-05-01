@@ -40,6 +40,7 @@ import (
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
 	callbackrepo "github.com/viant/agently-core/workspace/repository/callback"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/datly"
@@ -336,9 +337,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			agentOpts = append(agentOpts, agentsvc.WithDataService(out.Data))
 		}
 		promptRepo := promptrepo.NewWithStore(out.Store)
+		templateRepo := tplrepo.NewWithStore(out.Store)
 		bundleRepo := toolbundlerepo.NewWithStore(out.Store)
 		intakeSvc := intakesvc.New(out.Core,
 			intakesvc.WithProfileRepo(promptRepo),
+			intakesvc.WithTemplateRepo(templateRepo),
 			intakesvc.WithBundleRepo(bundleRepo),
 		)
 		agentOpts = append(agentOpts, agentsvc.WithIntakeService(intakeSvc))

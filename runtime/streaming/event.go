@@ -94,6 +94,28 @@ const (
 	EventTypeSkillCompleted       EventType = "skill_completed"
 	EventTypeSkillRegistryUpdated EventType = "skill_registry_updated"
 
+	// Intake lifecycle (workspace-intake LLM router).
+	//
+	// EventTypeIntakeWorkspaceCompleted fires when the workspace-intake LLM
+	// call finishes successfully and produced a usable ClassifierResult.
+	// Patch payload (consistent shape regardless of action):
+	//   - "action"          — "route" | "answer" | "clarify"
+	//   - "selectedAgentId" — agent id (only when action="route")
+	//   - "answerLen"       — length of the answer text (only when action="answer")
+	//   - "questionLen"     — length of the clarification question (only when action="clarify")
+	//   - "durationMs"      — wall-clock duration of the LLM call
+	//   - "model"           — model id used
+	//   - "source"          — always "workspace"
+	//
+	// EventTypeIntakeWorkspaceFailed fires when the workspace-intake LLM
+	// call errors, times out, or returns unparseable output. Patch payload:
+	//   - "reason"          — short failure reason (e.g. "llm_error", "parse_error")
+	//   - "fallbackAgentId" — agent id the runtime fell back to (when applicable)
+	//   - "model"           — model id attempted
+	//   - "errMessage"      — trimmed error message (when present)
+	EventTypeIntakeWorkspaceCompleted EventType = "intake.workspace.completed"
+	EventTypeIntakeWorkspaceFailed    EventType = "intake.workspace.failed"
+
 	// Tool feed lifecycle.
 	EventTypeToolFeedActive   EventType = "tool_feed_active"
 	EventTypeToolFeedInactive EventType = "tool_feed_inactive"

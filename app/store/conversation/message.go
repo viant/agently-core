@@ -109,7 +109,7 @@ func (m *Message) ToolCallArguments() map[string]interface{} {
 	if m == nil || tc == nil || tc.RequestPayload == nil || tc.RequestPayload.InlineBody == nil {
 		return args
 	}
-	raw := strings.TrimSpace(*tc.RequestPayload.InlineBody)
+	raw := strings.TrimSpace(decodeInlineBody(*tc.RequestPayload.InlineBody, tc.RequestPayload.Compression))
 	if raw == "" {
 		return args
 	}

@@ -113,8 +113,17 @@ Use Playwright CLI.
 	if len(meta) != 1 || meta[0].Name != "playwright-cli" {
 		t.Fatalf("visible skills = %#v", meta)
 	}
+	if meta[0].ExecutionMode != "inline" {
+		t.Fatalf("execution mode = %q, want inline", meta[0].ExecutionMode)
+	}
 	if !strings.Contains(prompt, "llm/skills:list") || !strings.Contains(prompt, "llm/skills:activate") {
 		t.Fatalf("prompt = %q", prompt)
+	}
+	if !strings.Contains(prompt, "playwright-cli (inline)") {
+		t.Fatalf("prompt missing execution mode: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Do not set `input.mode` unless you intentionally need to override") {
+		t.Fatalf("prompt missing mode override guidance: %q", prompt)
 	}
 	if strings.Contains(prompt, skillRoot) {
 		t.Fatalf("prompt leaked skill path: %q", prompt)
@@ -572,6 +581,107 @@ func TestService_activate_ModeOverride_InlineWinsOverDetachSkill(t *testing.T) {
 	}
 	if out.ChildConversationID != "" {
 		t.Fatalf("childConversationId = %q", out.ChildConversationID)
+	}
+}
+
+func TestService_activate_ModelToolCallCannotOverrideDetachSkillToInline(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: detach\nagent-id: forecast-skill\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	agentID := "coder"
+	conv.AgentId = &agentID
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		if name != "llm/agents:start" {
+			t.Fatalf("unexpected tool call %q", name)
+		}
+		return `{"conversationId":"child-1","status":"running"}`, nil
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	ctx = runtimerequestctx.WithToolMessageID(ctx, "tool-msg-1")
+	out := &ActivateOutput{}
+	if err := svc.activate(ctx, &ActivateInput{Name: "demo", Mode: "inline"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != "detach" {
+		t.Fatalf("mode = %q", out.Mode)
+	}
+	if !out.Started {
+		t.Fatalf("started = %#v", out.Started)
+	}
+	if out.ChildConversationID != "child-1" {
+		t.Fatalf("childConversationId = %q", out.ChildConversationID)
+	}
+}
+
+func TestService_activate_ForkFallsBackToParentUserTaskWhenArgsMissing(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "demo")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: demo\ndescription: Demo skill.\ncontext: fork\nagent-id: forecast-skill\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "coder"}, Skills: []string{"demo"}}
+	agentID := "coder"
+	conv := &apiconv.Conversation{
+		Id:      "conv-skill",
+		AgentId: &agentID,
+		Transcript: []*agconv.TranscriptView{{
+			Id: "turn-1",
+			Message: []*agconv.MessageView{{
+				Id:      "user-1",
+				Role:    "user",
+				Type:    "text",
+				Content: stringPtr("run forecast for audience 7268995"),
+			}},
+		}},
+	}
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prev := ExecFn
+	defer func() { ExecFn = prev }()
+	var startObjective string
+	ExecFn = func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		switch name {
+		case "llm/agents:start":
+			startObjective, _ = args["objective"].(string)
+			return `{"conversationId":"child-1","status":"running"}`, nil
+		case "llm/agents:status":
+			return `{"conversationId":"child-1","status":"succeeded","terminal":true}`, nil
+		default:
+			t.Fatalf("unexpected tool call %q", name)
+			return "", nil
+		}
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	ctx = runtimerequestctx.WithToolMessageID(ctx, "tool-msg-1")
+	out := &ActivateOutput{}
+	if err := svc.activate(ctx, &ActivateInput{Name: "demo"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != "fork" {
+		t.Fatalf("mode = %q", out.Mode)
+	}
+	if strings.TrimSpace(startObjective) != "run forecast for audience 7268995" {
+		t.Fatalf("objective = %q", startObjective)
 	}
 }
 

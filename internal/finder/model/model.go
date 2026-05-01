@@ -2,7 +2,9 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -25,6 +27,18 @@ type Finder struct {
 	models         map[string]llm.Model
 	mux            sync.RWMutex
 	version        int64
+
+	// Candidates cache. Skill activation, intake, and `llm/agents:start`
+	// all hit Best/BestWithFilter on the hot path; without this cache
+	// each call iterates the full config registry. The cache is keyed by
+	// d.version (atomic.Int64) — rebuilds happen only when the registry
+	// actually changes (provider added, removed, or replaced). Cache and
+	// its version snapshot are guarded by candCacheMux to keep
+	// Candidates() concurrent-safe with config-registry mutations.
+	candCacheMux     sync.RWMutex
+	candCache        []matcher.Candidate
+	candCacheVersion int64
+	candCacheValid   bool // distinguishes "never built" from "built and empty"
 }
 
 // ConfigByIDOrModel returns the provider config matching the given identifier.
@@ -95,16 +109,27 @@ func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 			}
 		}
 		if err != nil {
-			config = inferConfigFromID(id)
+			// H1 (modelpref-pkg.md §3): heuristic provider inference is
+			// disabled by default. Workspaces that depended on
+			// `inferConfigFromID` (e.g. an agent referencing
+			// `openai_gpt-5_mini` without a corresponding YAML) opt in via
+			// AGENTLY_ALLOW_LEGACY_INFER=1 while migrating to explicit
+			// model registrations. Default behavior surfaces a clean
+			// ErrModelNotRegistered so missing configs are obvious.
+			if legacyInferEnabled() {
+				config = inferConfigFromID(id)
+			}
 			if config == nil {
-				return nil, err
+				return nil, fmt.Errorf("%w: %s", ErrModelNotRegistered, id)
 			}
 		}
 	}
 	if config == nil {
-		config = inferConfigFromID(id)
+		if legacyInferEnabled() {
+			config = inferConfigFromID(id)
+		}
 		if config == nil {
-			return nil, fmt.Errorf("model config not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", ErrModelNotRegistered, id)
 		}
 	}
 	if config != nil && strings.TrimSpace(config.ID) != "" {
@@ -131,6 +156,32 @@ func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 }
 
 var versionUnderscorePattern = regexp.MustCompile(`-(\d+)-(\d+)(?:$|-)`)
+
+// ErrModelNotRegistered is returned by Finder.Find when no model
+// configuration matches the requested id and no registered config can
+// be loaded. Wrapped with the offending id via fmt.Errorf("%w: <id>", ...)
+// so errors.Is(err, ErrModelNotRegistered) detects the condition while
+// the wrapped message still names the missing model.
+//
+// Per H1 (modelpref-pkg.md §3): the legacy provider-prefix heuristic
+// `inferConfigFromID` is opt-in via AGENTLY_ALLOW_LEGACY_INFER=1.
+// Default behavior surfaces this typed error so missing model configs
+// are caught at the boundary rather than papered over by inference.
+// Callers (skill activation, intake, agent.Query) that today rely on
+// inference must register an explicit YAML under
+// `<workspace>/models/<id>.yaml` or set the env flag during migration.
+var ErrModelNotRegistered = errors.New("model not registered")
+
+// legacyInferEnabled returns true when the back-compat escape hatch is
+// set. Off by default — callers should register models explicitly.
+func legacyInferEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("AGENTLY_ALLOW_LEGACY_INFER"))
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
 
 func inferConfigFromID(id string) *provider.Config {
 	id = strings.TrimSpace(id)
@@ -215,11 +266,33 @@ func (d *Finder) TokenPrices(id string) (in float64, out float64, cached float64
 	return 0, 0, 0, false
 }
 
-// Candidates returns lightweight view used by matcher.
+// Candidates returns the matcher view of registered models. Cached by
+// registry version — rebuilds only when configs change (provider added,
+// removed, replaced). On cache hit returns the same slice every time;
+// callers MUST treat the result as read-only (no mutation, no in-place
+// sort). The matcher does so already.
+//
+// Concurrency: a single read lock + one fast atomic load on the hot
+// path. Rebuild path takes a write lock, computes once, stores, then
+// downgrades to read-only access for subsequent calls.
 func (d *Finder) Candidates() []matcher.Candidate {
-	// Build candidates from current model configs. We intentionally base
-	// this on configuration registry instead of instantiated models so that
-	// matching can consider all known models, even those not yet used.
+	currentVersion := atomic.LoadInt64(&d.version)
+	// Fast path: cache hit.
+	d.candCacheMux.RLock()
+	if d.candCacheValid && d.candCacheVersion == currentVersion {
+		out := d.candCache
+		d.candCacheMux.RUnlock()
+		return out
+	}
+	d.candCacheMux.RUnlock()
+	return d.rebuildCandidates(currentVersion)
+}
+
+// rebuildCandidates computes the candidate slice once for the given
+// registry version and stores it. If the registry version has advanced
+// since `seen` was sampled, the rebuild still proceeds but stores the
+// freshest version it sees so subsequent callers cache-hit.
+func (d *Finder) rebuildCandidates(seen int64) []matcher.Candidate {
 	configs, err := d.configRegistry.List(context.Background())
 	if err != nil {
 		return nil
@@ -243,7 +316,27 @@ func (d *Finder) Candidates() []matcher.Candidate {
 			Version:      ver,
 		})
 	}
+	// Re-sample version under the write lock so we don't store a cache
+	// keyed to a stale version number if the registry updated mid-build.
+	current := atomic.LoadInt64(&d.version)
+	d.candCacheMux.Lock()
+	d.candCache = out
+	d.candCacheVersion = current
+	d.candCacheValid = true
+	d.candCacheMux.Unlock()
+	_ = seen // retained for telemetry/debugging if needed
 	return out
+}
+
+// invalidateCandidatesCache forces the next Candidates() call to rebuild.
+// Currently the version-keyed cache invalidates automatically, but this
+// helper is kept as an explicit lever for tests and unusual reload paths
+// that bump version state without going through the registry's normal
+// mutation surface.
+func (d *Finder) invalidateCandidatesCache() {
+	d.candCacheMux.Lock()
+	d.candCacheValid = false
+	d.candCacheMux.Unlock()
 }
 
 func deriveBaseAndVersion(id, model string) (string, string) {

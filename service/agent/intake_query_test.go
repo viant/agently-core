@@ -178,7 +178,8 @@ func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {
 }
 
 type intakeRecordingConvClient struct {
-	lastTurn *apiconv.MutableTurn
+	lastTurn    *apiconv.MutableTurn
+	lastMessage *apiconv.MutableMessage
 }
 
 func (r *intakeRecordingConvClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -196,7 +197,8 @@ func (r *intakeRecordingConvClient) GetPayload(context.Context, string) (*apicon
 func (r *intakeRecordingConvClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
 	return nil
 }
-func (r *intakeRecordingConvClient) PatchMessage(context.Context, *apiconv.MutableMessage) error {
+func (r *intakeRecordingConvClient) PatchMessage(_ context.Context, m *apiconv.MutableMessage) error {
+	r.lastMessage = m
 	return nil
 }
 func (r *intakeRecordingConvClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
@@ -220,4 +222,207 @@ func (r *intakeRecordingConvClient) DeleteConversation(context.Context, string) 
 }
 func (r *intakeRecordingConvClient) DeleteMessage(context.Context, string, string) error {
 	return nil
+}
+
+// TestPublishPresetAssistantMessage verifies that the workspace-intake preset
+// short-circuit ("ONE LLM call for capability turns") writes the assistant
+// message through the standard conversation client. PatchMessage is the
+// canonical write path — it persists to the DB and emits the
+// streaming.EventTypeAssistant SSE event automatically (verified at
+// internal/service/conversation/service.go:800–822). Asserting the message
+// shape proves both DB write and SSE wiring are correct.
+func TestPublishPresetAssistantMessage(t *testing.T) {
+	t.Run("answer kind writes assistant message with status hint", func(t *testing.T) {
+		recorder := &intakeRecordingConvClient{}
+		s := &Service{conversation: recorder}
+		input := &QueryInput{
+			ConversationID: "conv-1",
+			MessageID:      "turn-1",
+		}
+		err := s.publishPresetAssistantMessage(context.Background(), input, "## Summary\nWorkspace can do X.", "answer")
+		require.NoError(t, err)
+		require.NotNil(t, recorder.lastMessage)
+		require.NotEmpty(t, recorder.lastMessage.Id, "message id must be set")
+		require.Equal(t, "conv-1", recorder.lastMessage.ConversationID)
+		require.NotNil(t, recorder.lastMessage.TurnID)
+		require.Equal(t, "turn-1", *recorder.lastMessage.TurnID)
+		require.Equal(t, "assistant", recorder.lastMessage.Role)
+		require.Equal(t, "text", recorder.lastMessage.Type)
+		require.NotNil(t, recorder.lastMessage.Content)
+		require.Equal(t, "## Summary\nWorkspace can do X.", *recorder.lastMessage.Content)
+		require.NotNil(t, recorder.lastMessage.Status)
+		require.Equal(t, "intake.answer", *recorder.lastMessage.Status)
+	})
+
+	t.Run("clarify kind writes with intake.clarify status", func(t *testing.T) {
+		recorder := &intakeRecordingConvClient{}
+		s := &Service{conversation: recorder}
+		input := &QueryInput{ConversationID: "c", MessageID: "t"}
+		err := s.publishPresetAssistantMessage(context.Background(), input, "Which order?", "clarify")
+		require.NoError(t, err)
+		require.NotNil(t, recorder.lastMessage)
+		require.NotNil(t, recorder.lastMessage.Content)
+		require.Equal(t, "Which order?", *recorder.lastMessage.Content)
+		require.NotNil(t, recorder.lastMessage.Status)
+		require.Equal(t, "intake.clarify", *recorder.lastMessage.Status)
+	})
+
+	t.Run("nil conversation client is a no-op (callers still get output.Content)", func(t *testing.T) {
+		s := &Service{conversation: nil}
+		input := &QueryInput{ConversationID: "c", MessageID: "t"}
+		err := s.publishPresetAssistantMessage(context.Background(), input, "x", "answer")
+		require.NoError(t, err, "missing conversation client must not break the short-circuit")
+	})
+
+	t.Run("empty text is a no-op", func(t *testing.T) {
+		recorder := &intakeRecordingConvClient{}
+		s := &Service{conversation: recorder}
+		input := &QueryInput{ConversationID: "c", MessageID: "t"}
+		err := s.publishPresetAssistantMessage(context.Background(), input, "  ", "answer")
+		require.NoError(t, err)
+		require.Nil(t, recorder.lastMessage, "empty text must not write a stub message")
+	})
+
+	t.Run("kind missing leaves status unset", func(t *testing.T) {
+		recorder := &intakeRecordingConvClient{}
+		s := &Service{conversation: recorder}
+		input := &QueryInput{ConversationID: "c", MessageID: "t"}
+		err := s.publishPresetAssistantMessage(context.Background(), input, "answer text", "")
+		require.NoError(t, err)
+		require.NotNil(t, recorder.lastMessage)
+		require.Nil(t, recorder.lastMessage.Status, "no kind hint → no status field")
+	})
+}
+
+// TestMaybeRunIntakeSidecar_CallerProvidedOverride verifies skip rule §2.c:
+// when input.Context already holds a TurnContext with
+// Source=SourceCallerProvided, the sidecar must skip its LLM call entirely
+// (no panic on nil intakeSvc) and still apply the merge logic so that
+// suggested template / profile / bundles take effect.
+func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
+	t.Run("skips sidecar and applies override", func(t *testing.T) {
+		// Service with intakeSvc==nil. If our skip rule fires correctly we
+		// never enter the sidecar branch, so nil is safe. If the skip rule
+		// is broken we panic on nil.intakeSvc.Run.
+		s := &Service{}
+
+		override := &intakesvc.TurnContext{
+			Title:              "caller-supplied",
+			Intent:             "forecast_review",
+			SelectedAgentID:    "steward",
+			Mode:               intakesvc.ModeRoute,
+			Source:             intakesvc.SourceCallerProvided,
+			TemplateId:         "audience_forecast_dashboard",
+			SuggestedProfileId: "steward-forecast",
+			Confidence:         0.94,
+			AppendToolBundles:  []string{"forecasting-cube"},
+		}
+
+		input := &QueryInput{
+			Agent: &agentmdl.Agent{
+				Intake: agentmdl.Intake{
+					Enabled: true,
+					Scope:   []string{agentmdl.IntakeScopeTemplate, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTools},
+				},
+			},
+			Query:   "forecast order 2652067",
+			Context: map[string]interface{}{intakesvc.ContextKey: override},
+		}
+
+		// Should not panic and should apply the override.
+		s.maybeRunIntakeSidecar(context.Background(), input)
+
+		require.Equal(t, "audience_forecast_dashboard", input.TemplateId,
+			"caller-provided template must land on input.TemplateId")
+		require.Contains(t, input.ToolBundles, "forecasting-cube",
+			"caller-provided AppendToolBundles must merge into input.ToolBundles")
+	})
+
+	t.Run("non-caller-provided source does not trigger skip path", func(t *testing.T) {
+		// A TurnContext with a different Source (e.g. agent-side cached
+		// reuse) must NOT trip the caller-provided early return — that path
+		// is reserved for explicit caller overrides only.
+		s := &Service{} // nil intakeSvc means non-caller-provided falls through to "intakeSvc == nil" return
+
+		other := &intakesvc.TurnContext{
+			Title:  "from-elsewhere",
+			Source: intakesvc.SourceReused, // not "caller-provided"
+		}
+		input := &QueryInput{
+			Agent: &agentmdl.Agent{
+				Intake: agentmdl.Intake{Enabled: true},
+			},
+			Query:      "hello",
+			Context:    map[string]interface{}{intakesvc.ContextKey: other},
+			TemplateId: "preset",
+		}
+
+		// Must not panic; falls through and exits because intakeSvc is nil.
+		// Importantly: it does NOT call applyTurnContext, so input.TemplateId
+		// stays at "preset" rather than being overridden by the non-caller TC.
+		s.maybeRunIntakeSidecar(context.Background(), input)
+		require.Equal(t, "preset", input.TemplateId,
+			"non-caller-provided source must not enter the override apply path")
+	})
+
+	t.Run("nil context is a no-op", func(t *testing.T) {
+		s := &Service{}
+		input := &QueryInput{
+			Agent: &agentmdl.Agent{
+				Intake: agentmdl.Intake{Enabled: true},
+			},
+			Query:   "hello",
+			Context: nil,
+		}
+		s.maybeRunIntakeSidecar(context.Background(), input)
+		// No panic, no template applied.
+		require.Equal(t, "", input.TemplateId)
+	})
+}
+
+// TestStoreCallerProvided_AnnotatesSourceAndStores verifies the helper
+// produces an isolated copy with Source=SourceCallerProvided and stores it
+// under the well-known key. This is the primary contract that
+// run_support.go relies on.
+func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
+	t.Run("populates ContextKey with copy", func(t *testing.T) {
+		original := &intakesvc.TurnContext{
+			SelectedAgentID: "forecaster",
+			Mode:            intakesvc.ModeRoute,
+			Title:           "do the thing",
+			Source:          "", // not yet annotated
+		}
+		ctxMap, stored := intakesvc.StoreCallerProvided(nil, original)
+		require.NotNil(t, ctxMap)
+		require.NotNil(t, stored)
+		require.Equal(t, intakesvc.SourceCallerProvided, stored.Source,
+			"stored copy must be annotated as caller-provided")
+		require.Equal(t, "", original.Source,
+			"original caller struct must not be mutated")
+		require.Same(t, stored, ctxMap[intakesvc.ContextKey],
+			"stored value must be findable under ContextKey")
+	})
+
+	t.Run("nil override leaves map untouched", func(t *testing.T) {
+		ctxMap, stored := intakesvc.StoreCallerProvided(map[string]any{"existing": "value"}, nil)
+		require.Nil(t, stored)
+		require.Equal(t, "value", ctxMap["existing"])
+		require.NotContains(t, ctxMap, intakesvc.ContextKey)
+	})
+
+	t.Run("FromContext round-trips", func(t *testing.T) {
+		ctxMap := map[string]any{}
+		original := &intakesvc.TurnContext{Title: "t", Source: ""}
+		ctxMap, _ = intakesvc.StoreCallerProvided(ctxMap, original)
+		got := intakesvc.FromContext(ctxMap)
+		require.NotNil(t, got)
+		require.Equal(t, "t", got.Title)
+		require.Equal(t, intakesvc.SourceCallerProvided, got.Source)
+	})
+
+	t.Run("FromContext nil safety", func(t *testing.T) {
+		require.Nil(t, intakesvc.FromContext(nil))
+		require.Nil(t, intakesvc.FromContext(map[string]any{}))
+		require.Nil(t, intakesvc.FromContext(map[string]any{"other": "value"}))
+	})
 }

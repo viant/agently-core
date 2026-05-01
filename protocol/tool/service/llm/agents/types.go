@@ -3,6 +3,7 @@ package agents
 import (
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 // ListItem is a directory entry describing an agent option for selection.
@@ -61,6 +62,21 @@ type RunInput struct {
 	// TemplateId optionally overrides the output template selected by the
 	// profile (highest-priority tier in the three-tier resolution chain).
 	TemplateId string `json:"templateId,omitempty"`
+
+	// WorkspaceIntake optionally pre-provides the workspace-intake result for
+	// this run. When present and validated, the runtime SKIPS the workspace-
+	// intake LLM call entirely and uses this value as the turn's TurnContext
+	// (annotated as Source="caller-provided"). Validation rules are identical
+	// to workspace intake's own output — SelectedAgentID must be in the
+	// authorized agent set, ActivateSkills must be visible to the chosen
+	// agent, AppendToolBundles must be on the workspace allowlist. When any
+	// validation fails, the override is dropped (with a diagnostic) and
+	// workspace intake runs normally.
+	//
+	// Use cases: programmatic clients with their own classifier, UI that
+	// pre-populates routing fields, cached prior turns, or cross-conversation
+	// seeds. See intake-impt.md §9 skip-rule (c).
+	WorkspaceIntake *intakesvc.TurnContext `json:"workspaceIntake,omitempty"`
 }
 
 // StartInput launches an agent asynchronously and returns a conversation handle.

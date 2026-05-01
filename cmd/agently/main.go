@@ -109,7 +109,7 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agently skill <list|activate|diagnostics|show|validate> [options]")
+		return fmt.Errorf("usage: agently skill <list|activate|add|diagnostics|show|validate> [options]")
 	}
 	switch strings.TrimSpace(args[0]) {
 	case "skill":
@@ -123,13 +123,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 func runSkill(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agently skill <list|activate|diagnostics|show|validate> [options]")
+		return fmt.Errorf("usage: agently skill <list|activate|add|diagnostics|show|validate> [options]")
 	}
 	switch strings.TrimSpace(args[0]) {
 	case "list":
 		return runSkillList(args[1:], stdout)
 	case "activate":
 		return runSkillActivate(args[1:], stdout)
+	case "add":
+		return runSkillAdd(args[1:], stdout, stderr)
 	case "diagnostics":
 		return runSkillDiagnostics(args[1:], stdout)
 	case "show":
@@ -318,6 +320,177 @@ func runSkillShow(args []string, stdout io.Writer) error {
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, body)
 	return nil
+}
+
+// runSkillAdd installs a skill from a local source into the workspace's
+// skill root or the user's home root. v1 supports local-path sources only;
+// git-URL and curated-shorthand resolution come later. Validates the skill
+// via the same skillproto.Parse path used by `skill validate`, requires
+// explicit confirmation (or --yes), and writes a _SOURCE provenance file
+// alongside the installed SKILL.md.
+//
+// Persistence path: filesystem write only — the existing fsnotify watcher
+// (service/skill/watcher.go) detects the new directory and reloads the
+// registry without restart. No install-side event emission.
+func runSkillAdd(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("skill add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	rootChoice := fs.String("root", "workspace", "install location: workspace | user")
+	workspaceRoot := fs.String("workspace", "", "workspace root override (when --root=workspace)")
+	nameOverride := fs.String("name", "", "override the skill directory name")
+	yes := fs.Bool("yes", false, "skip confirmation prompt")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: agently skill add <local-path> [--root user|workspace] [--name <name>] [--yes]")
+	}
+	source := strings.TrimSpace(fs.Arg(0))
+	if source == "" {
+		return fmt.Errorf("source path is required")
+	}
+	if strings.HasPrefix(source, "~/") {
+		source = filepath.Join(mustUserHome(), source[2:])
+	}
+	srcInfo, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("source not found: %w", err)
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("source must be a skill directory containing SKILL.md, got file")
+	}
+	srcSkillMD := filepath.Join(source, "SKILL.md")
+	srcData, err := os.ReadFile(srcSkillMD)
+	if err != nil {
+		return fmt.Errorf("source missing SKILL.md: %w", err)
+	}
+
+	// Validate via the canonical parser before touching the target tree.
+	parsed, diags, err := skillproto.Parse(srcSkillMD, source, "workspace", string(srcData))
+	if err != nil {
+		return fmt.Errorf("invalid skill: %w", err)
+	}
+	if parsed == nil || strings.TrimSpace(parsed.Frontmatter.Name) == "" {
+		return fmt.Errorf("invalid skill: missing frontmatter name")
+	}
+	for _, d := range diags {
+		if strings.EqualFold(strings.TrimSpace(d.Level), "error") {
+			return fmt.Errorf("skill failed validation: %s (%s)", d.Message, d.Path)
+		}
+	}
+
+	skillName := strings.TrimSpace(parsed.Frontmatter.Name)
+	if override := strings.TrimSpace(*nameOverride); override != "" {
+		skillName = override
+	}
+
+	// Resolve install root.
+	var targetRoot string
+	switch strings.ToLower(strings.TrimSpace(*rootChoice)) {
+	case "user":
+		targetRoot = filepath.Join(mustUserHome(), ".agently", "skills")
+	case "workspace", "":
+		ws := strings.TrimSpace(*workspaceRoot)
+		if ws == "" {
+			resolved, _, err := resolveWorkspace("")
+			if err != nil {
+				return fmt.Errorf("resolve workspace: %w", err)
+			}
+			ws = resolved
+		}
+		targetRoot = filepath.Join(ws, "skills")
+	default:
+		return fmt.Errorf("--root must be 'workspace' or 'user', got %q", *rootChoice)
+	}
+	targetDir := filepath.Join(targetRoot, skillName)
+
+	// Surface the trust-relevant frontmatter to the user before any write.
+	fmt.Fprintf(stdout, "Installing skill %q from %s\n", skillName, source)
+	fmt.Fprintf(stdout, "  Target:      %s\n", targetDir)
+	fmt.Fprintf(stdout, "  Description: %s\n", strings.TrimSpace(parsed.Frontmatter.Description))
+	if lic := strings.TrimSpace(parsed.Frontmatter.License); lic != "" {
+		fmt.Fprintf(stdout, "  License:     %s\n", lic)
+	}
+	if at := strings.TrimSpace(parsed.Frontmatter.AllowedTools); at != "" {
+		fmt.Fprintf(stdout, "  Allowed-tools: %s   *** review carefully ***\n", at)
+	}
+	if parsed.Frontmatter.PreprocessEnabled() {
+		fmt.Fprintln(stdout, "  Preprocess:  ENABLED — body `!`-blocks will be expanded at activation time")
+	}
+	if mode := parsed.Frontmatter.ContextMode(); mode != "inline" {
+		fmt.Fprintf(stdout, "  Context:     %s (Agently extension; runs in a child agent)\n", mode)
+	}
+	for _, d := range diags {
+		fmt.Fprintf(stdout, "  diag (%s): %s\n", d.Level, d.Message)
+	}
+	if existing, err := os.Stat(targetDir); err == nil && existing != nil {
+		fmt.Fprintf(stdout, "  Note: target directory already exists; install will overwrite.\n")
+	}
+	if !*yes {
+		fmt.Fprint(stdout, "Proceed? [y/N]: ")
+		var ans string
+		fmt.Fscanln(os.Stdin, &ans)
+		ans = strings.ToLower(strings.TrimSpace(ans))
+		if ans != "y" && ans != "yes" {
+			fmt.Fprintln(stdout, "aborted")
+			return nil
+		}
+	}
+
+	// Stage in temp dir, then atomic-ish move into place.
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		return fmt.Errorf("mkdir target root: %w", err)
+	}
+	if err := os.RemoveAll(targetDir); err != nil {
+		return fmt.Errorf("clean target dir: %w", err)
+	}
+	if err := copyDir(source, targetDir); err != nil {
+		return fmt.Errorf("copy source: %w", err)
+	}
+
+	// Write _SOURCE provenance. Same shape used by portable test fixtures so
+	// there is one provenance convention across vendored and installed skills.
+	provenance := strings.Join([]string{
+		"origin: " + source,
+		"installed-by: agently skill add",
+		"name: " + skillName,
+		"workspace-root: " + filepath.Dir(targetDir),
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(targetDir, "_SOURCE"), []byte(provenance), 0o644); err != nil {
+		fmt.Fprintf(stderr, "warning: install succeeded but _SOURCE write failed: %v\n", err)
+	}
+
+	fmt.Fprintf(stdout, "Installed %q to %s\n", skillName, targetDir)
+	fmt.Fprintln(stdout, "The fsnotify watcher (when running) will reload the registry automatically.")
+	return nil
+}
+
+// copyDir recursively copies a directory tree. Symlinks, special files,
+// and permissions beyond mode bits are not preserved (skill folders are
+// plain text + scripts; that suffices for v1).
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm())
+	})
 }
 
 func runSkillValidate(args []string, stdout io.Writer) error {

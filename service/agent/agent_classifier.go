@@ -12,23 +12,64 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/agent/prompts"
 	"github.com/viant/agently-core/service/core"
 )
 
 type agentSelection struct {
+	// Unified action envelope — workspace intake schema. Action is one of
+	// "route" | "answer" | "clarify". For action=route, the agent id rides
+	// alongside under one of the AgentID/AgentId/ID/Agent fields. For
+	// action=answer the Text field carries the capability answer; for
+	// action=clarify the Question field carries the disambiguation question.
+	Action   string `json:"action,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Question string `json:"question,omitempty"`
+	// Agent-id fields (used when action=route, or when the LLM emits the
+	// legacy {agentId: X} schema without an action key). Multiple key names
+	// are accepted for backward compatibility.
 	AgentID string `json:"agentId"`
 	AgentId string `json:"agent_id"`
 	ID      string `json:"id"`
 	Agent   string `json:"agent"`
 }
 
-func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query, preferredTurnID string, candidates []*agentmdl.Agent) (string, error) {
+// ClassifierAction enumerates the three terminal outcomes of a workspace
+// intake LLM call. Exactly one of {AgentID, Answer, Question} is populated
+// per result.
+const (
+	ClassifierActionRoute   = "route"
+	ClassifierActionAnswer  = "answer"
+	ClassifierActionClarify = "clarify"
+)
+
+// ClassifierResult is the structured output of the workspace intake LLM call.
+// This is the single source of truth for "agentId=auto" turn outcomes.
+//
+// Exactly one of AgentID / Answer / Question is non-empty per Action:
+//
+//	Action=ClassifierActionRoute   → AgentID  is set
+//	Action=ClassifierActionAnswer  → Answer   is set (capability response)
+//	Action=ClassifierActionClarify → Question is set (one disambiguation question)
+//
+// An empty ClassifierResult (Action == "") means the LLM call produced no
+// usable output; callers fall through to the deterministic continuity /
+// default chain.
+type ClassifierResult struct {
+	Action   string
+	AgentID  string
+	Answer   string
+	Question string
+}
+
+func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query, preferredTurnID string, candidates []*agentmdl.Agent) (*ClassifierResult, error) {
 	started := time.Now()
 	query = strings.TrimSpace(query)
 	candidates = filterAutoSelectableAgents(candidates)
 	if query == "" || len(candidates) == 0 || s == nil || s.llm == nil || s.llm.ModelFinder() == nil {
-		return "", nil
+		return nil, nil
 	}
 
 	modelName := ""
@@ -44,13 +85,13 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	logx.Infof("conversation", "agent.selector config convo=%q agent_auto_model=%q default_model=%q effective_model=%q candidates=%d", strings.TrimSpace(convID(conv)), strings.TrimSpace(valueOrDefaultDefaultsModel(s)), strings.TrimSpace(valueOrDefaultModel(s)), strings.TrimSpace(modelName), len(candidates))
 	if modelName == "" {
 		logx.Infof("conversation", "agent.selector skip convo=%q reason=%q", strings.TrimSpace(convID(conv)), "empty_model")
-		return "", nil
+		return nil, nil
 	}
 
 	model, err := s.llm.ModelFinder().Find(ctx, modelName)
 	if err != nil || model == nil {
 		logx.Infof("conversation", "agent.selector skip convo=%q reason=%q model=%q err=%v", strings.TrimSpace(convID(conv)), "model_not_found", strings.TrimSpace(modelName), err)
-		return "", nil
+		return nil, nil
 	}
 
 	candidateByKey := map[string]string{}
@@ -94,7 +135,7 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 		}
 	}
 	if len(candidateLines) == 0 {
-		return "", nil
+		return nil, nil
 	}
 
 	history := recentNonInterimTurnsText(conv, 3)
@@ -157,27 +198,144 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	err = s.llm.Generate(runCtx, in, out)
 	if err != nil {
 		logx.Warnf("conversation", "agent.selector error convo=%q model=%q elapsed=%s err=%v", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started), err)
-		return "", err
+		s.publishIntakeWorkspaceFailed(ctx, convID, "llm_error", "", modelName, err.Error())
+		return nil, err
 	}
-	selected := parseSelectedAgentID(responseForContent(out.Response, out.Content), outputKey)
+	parsed := parseClassifierResult(responseForContent(out.Response, out.Content), outputKey)
+	if parsed == nil {
+		logx.Infof("conversation", "agent.selector done convo=%q model=%q selected=\"\" elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started))
+		s.publishIntakeWorkspaceFailed(ctx, convID, "parse_error", "", modelName, "")
+		return nil, nil
+	}
+	durationMs := time.Since(started).Milliseconds()
+
+	// Action=answer / action=clarify: pass through as-is. The runtime
+	// (resolveAgentIDForConversation + downstream) writes the text as the
+	// turn's assistant message — no agent runs.
+	if parsed.Action == ClassifierActionAnswer {
+		logx.Infof("conversation", "agent.selector done convo=%q model=%q action=%q elapsed=%s answer_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), parsed.Action, time.Since(started), len(parsed.Answer))
+		s.publishIntakeWorkspaceCompleted(ctx, convID, parsed, modelName, durationMs)
+		return parsed, nil
+	}
+	if parsed.Action == ClassifierActionClarify {
+		logx.Infof("conversation", "agent.selector done convo=%q model=%q action=%q elapsed=%s question_len=%d", strings.TrimSpace(convID), strings.TrimSpace(modelName), parsed.Action, time.Since(started), len(parsed.Question))
+		s.publishIntakeWorkspaceCompleted(ctx, convID, parsed, modelName, durationMs)
+		return parsed, nil
+	}
+
+	// Action=route (or legacy schema with bare agentId): canonicalize the id
+	// against the authorized candidate set. Drop unauthorized selections.
+	selected := strings.TrimSpace(parsed.AgentID)
 	if selected == "" {
 		logx.Infof("conversation", "agent.selector done convo=%q model=%q selected=\"\" elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), time.Since(started))
-		return "", nil
+		s.publishIntakeWorkspaceFailed(ctx, convID, "empty_agent_id", "", modelName, "")
+		return nil, nil
 	}
-	logx.Infof("conversation", "agent.selector done convo=%q model=%q selected=%q elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), strings.TrimSpace(selected), time.Since(started))
-	if strings.EqualFold(strings.TrimSpace(selected), "agent_selector") {
-		return "agent_selector", nil
-	}
+	logx.Infof("conversation", "agent.selector done convo=%q model=%q selected=%q elapsed=%s", strings.TrimSpace(convID), strings.TrimSpace(modelName), selected, time.Since(started))
+	canonicalID := ""
 	if canonical, ok := candidateByKey[strings.ToLower(selected)]; ok {
-		return canonical, nil
-	}
-	// Allow agents to be referred by name when name differs from ID.
-	for key, canonical := range candidateByKey {
-		if strings.EqualFold(key, selected) {
-			return canonical, nil
+		canonicalID = canonical
+	} else {
+		// Allow agents to be referred by name when name differs from ID.
+		for key, canonical := range candidateByKey {
+			if strings.EqualFold(key, selected) {
+				canonicalID = canonical
+				break
+			}
 		}
 	}
-	return "", nil
+	if canonicalID == "" {
+		// LLM picked an agent not in the authorized set — drop and let the
+		// caller fall through to the deterministic continuity / default chain.
+		s.publishIntakeWorkspaceFailed(ctx, convID, "agent_unauthorized", "", modelName, "")
+		return nil, nil
+	}
+	result := &ClassifierResult{Action: ClassifierActionRoute, AgentID: canonicalID}
+	s.publishIntakeWorkspaceCompleted(ctx, convID, result, modelName, durationMs)
+	return result, nil
+}
+
+// publishIntakeWorkspaceCompleted emits an intake.workspace.completed
+// streaming event after a successful workspace-intake LLM call. Wraps the
+// existing streaming.Publisher infrastructure — same pattern as bootstrap
+// tool events — so subscribers receive a uniform shape regardless of
+// whether the action was route, answer, or clarify.
+func (s *Service) publishIntakeWorkspaceCompleted(ctx context.Context, conversationID string, result *ClassifierResult, modelName string, durationMs int64) {
+	if s == nil || s.streamPub == nil || result == nil {
+		return
+	}
+	patch := map[string]interface{}{
+		"action":     result.Action,
+		"durationMs": durationMs,
+		"model":      strings.TrimSpace(modelName),
+		"source":     "workspace",
+	}
+	switch result.Action {
+	case ClassifierActionRoute:
+		patch["selectedAgentId"] = strings.TrimSpace(result.AgentID)
+	case ClassifierActionAnswer:
+		patch["answerLen"] = len(result.Answer)
+	case ClassifierActionClarify:
+		patch["questionLen"] = len(result.Question)
+	}
+	turnID := ""
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(tm.TurnID)
+	}
+	convID := strings.TrimSpace(conversationID)
+	event := &streaming.Event{
+		Type:           streaming.EventTypeIntakeWorkspaceCompleted,
+		StreamID:       convID,
+		ConversationID: convID,
+		TurnID:         turnID,
+		Phase:          "intake",
+		Mode:           "router",
+		Patch:          patch,
+		CreatedAt:      time.Now(),
+	}
+	event.NormalizeIdentity(convID, turnID)
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		logx.Warnf("conversation", "intake.workspace.completed publish err=%v convo=%q turn=%q", err, convID, turnID)
+	}
+}
+
+// publishIntakeWorkspaceFailed emits intake.workspace.failed for any case
+// where the workspace-intake LLM call did not produce a usable result —
+// LLM error, timeout, parse failure, unauthorized agent selection, or empty
+// agent id from the model.
+func (s *Service) publishIntakeWorkspaceFailed(ctx context.Context, conversationID, reason, fallbackAgentID, modelName, errMessage string) {
+	if s == nil || s.streamPub == nil {
+		return
+	}
+	patch := map[string]interface{}{
+		"reason": strings.TrimSpace(reason),
+		"model":  strings.TrimSpace(modelName),
+	}
+	if fb := strings.TrimSpace(fallbackAgentID); fb != "" {
+		patch["fallbackAgentId"] = fb
+	}
+	if msg := strings.TrimSpace(errMessage); msg != "" {
+		patch["errMessage"] = msg
+	}
+	turnID := ""
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(tm.TurnID)
+	}
+	convID := strings.TrimSpace(conversationID)
+	event := &streaming.Event{
+		Type:           streaming.EventTypeIntakeWorkspaceFailed,
+		StreamID:       convID,
+		ConversationID: convID,
+		TurnID:         turnID,
+		Phase:          "intake",
+		Mode:           "router",
+		Patch:          patch,
+		CreatedAt:      time.Now(),
+	}
+	event.NormalizeIdentity(convID, turnID)
+	if err := s.streamPub.Publish(ctx, event); err != nil {
+		logx.Warnf("conversation", "intake.workspace.failed publish err=%v convo=%q turn=%q", err, convID, turnID)
+	}
 }
 
 func responseForContent(resp *llm.GenerateResponse, content string) *llm.GenerateResponse {
@@ -190,53 +348,107 @@ func responseForContent(resp *llm.GenerateResponse, content string) *llm.Generat
 	return &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Content: content}}}}
 }
 
-func parseSelectedAgentID(resp *llm.GenerateResponse, outputKey string) string {
+// parseClassifierResult extracts the unified action envelope from the LLM
+// response. Recognizes both the new schema:
+//
+//	{"action":"route","agentId":"X"}
+//	{"action":"answer","text":"..."}
+//	{"action":"clarify","question":"..."}
+//
+// and the legacy bare-agent-id schema:
+//
+//	{"agentId":"X"}
+//
+// Returns nil when content is empty / unparseable AND no fallback id can be
+// extracted. Returns a ClassifierResult with Action=ClassifierActionRoute and
+// non-empty AgentID for legacy outputs (so callers see a single normalized
+// shape regardless of which schema the LLM emitted).
+func parseClassifierResult(resp *llm.GenerateResponse, outputKey string) *ClassifierResult {
 	if resp == nil || len(resp.Choices) == 0 {
-		return ""
+		return nil
 	}
 	content := strings.TrimSpace(resp.Choices[0].Message.Content)
 	if content == "" {
-		return ""
+		return nil
 	}
 	content = strings.TrimSpace(strings.TrimPrefix(content, "```json"))
 	content = strings.TrimSpace(strings.TrimPrefix(content, "```"))
 	content = strings.TrimSpace(strings.TrimSuffix(content, "```"))
 
 	var sel agentSelection
-	if json.Unmarshal([]byte(content), &sel) == nil {
-		if key := strings.TrimSpace(outputKey); key != "" {
-			switch strings.ToLower(key) {
-			case "agentid":
-				if v := strings.TrimSpace(sel.AgentID); v != "" {
-					return v
-				}
-			case "agent_id":
-				if v := strings.TrimSpace(sel.AgentId); v != "" {
-					return v
-				}
+	if err := json.Unmarshal([]byte(content), &sel); err == nil {
+		// Unified action envelope takes precedence.
+		switch strings.ToLower(strings.TrimSpace(sel.Action)) {
+		case ClassifierActionAnswer:
+			if text := strings.TrimSpace(sel.Text); text != "" {
+				return &ClassifierResult{Action: ClassifierActionAnswer, Answer: text}
 			}
+			return nil
+		case ClassifierActionClarify:
+			if q := strings.TrimSpace(sel.Question); q != "" {
+				return &ClassifierResult{Action: ClassifierActionClarify, Question: q}
+			}
+			return nil
+		case ClassifierActionRoute, "":
+			// Empty action = legacy {"agentId":"X"} schema. Route action
+			// with explicit "route" string also lands here.
+			if id := pickAgentIDField(sel, outputKey); id != "" {
+				return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id}
+			}
+			return nil
 		}
-		if v := strings.TrimSpace(sel.AgentID); v != "" {
-			return v
+		// Unknown action value — defensive recovery: if a usable agentId is
+		// also present, treat as a route. Otherwise nil. We do NOT fall
+		// through to the non-JSON token fallback because the input parsed
+		// as JSON; treating its raw bytes as an agent id would be nonsense.
+		if id := pickAgentIDField(sel, outputKey); id != "" {
+			return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id}
 		}
-		if v := strings.TrimSpace(sel.AgentId); v != "" {
-			return v
-		}
-		if v := strings.TrimSpace(sel.ID); v != "" {
-			return v
-		}
-		if v := strings.TrimSpace(sel.Agent); v != "" {
-			return v
-		}
+		return nil
 	}
-	// Best-effort fallback: treat first token/line as agent id.
+	// Non-JSON content: best-effort fallback — treat the first token/line as
+	// agent id (legacy "raw model output" handling).
 	if idx := strings.IndexByte(content, '\n'); idx >= 0 {
 		content = strings.TrimSpace(content[:idx])
 	}
 	if idx := strings.IndexAny(content, " \t"); idx >= 0 {
 		content = strings.TrimSpace(content[:idx])
 	}
-	return strings.Trim(content, `"'`)
+	if id := strings.Trim(content, `"'`); id != "" {
+		return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id}
+	}
+	return nil
+}
+
+// pickAgentIDField selects the agent-id field according to the configured
+// output key, falling back to any of the known synonyms (id, agent_id,
+// agent). Returns the trimmed value or "" when none populated.
+func pickAgentIDField(sel agentSelection, outputKey string) string {
+	if key := strings.TrimSpace(outputKey); key != "" {
+		switch strings.ToLower(key) {
+		case "agentid":
+			if v := strings.TrimSpace(sel.AgentID); v != "" {
+				return v
+			}
+		case "agent_id":
+			if v := strings.TrimSpace(sel.AgentId); v != "" {
+				return v
+			}
+		}
+	}
+	if v := strings.TrimSpace(sel.AgentID); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(sel.AgentId); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(sel.ID); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(sel.Agent); v != "" {
+		return v
+	}
+	return ""
 }
 
 func agentRouterOutputKey(defaults *config.Defaults) string {

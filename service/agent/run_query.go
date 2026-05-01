@@ -68,6 +68,46 @@ func (g *convGuardMap) release(convID string) {
 	g.mu.Unlock()
 }
 
+// publishPresetAssistantMessage writes the workspace-intake preset answer (or
+// clarification) as the turn's assistant message. The message goes through the
+// existing conversation client's PatchMessage path, which both persists to
+// the DB and publishes the standard streaming.EventTypeAssistant SSE event
+// — same write path normal turns take. This keeps the transcript and the
+// SSE stream consistent regardless of whether the assistant content came
+// from the workspace-intake LLM call or from a per-agent generate.
+//
+// Returns nil when the conversation client is not bound (tests), so callers
+// always see the preset content on output.Content even when persistence is
+// unavailable.
+func (s *Service) publishPresetAssistantMessage(ctx context.Context, input *QueryInput, text, kind string) error {
+	if s == nil || s.conversation == nil || input == nil {
+		return nil
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	convID := strings.TrimSpace(input.ConversationID)
+	turnID := strings.TrimSpace(input.MessageID)
+	msg := apiconv.NewMessage()
+	msg.SetId(uuid.New().String())
+	if convID != "" {
+		msg.SetConversationID(convID)
+	}
+	if turnID != "" {
+		msg.SetTurnID(turnID)
+	}
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetContent(text)
+	// `kind` rides as a status hint so consumers can distinguish a
+	// capability answer from a clarification when they care, without
+	// changing the message-role contract.
+	if k := strings.TrimSpace(kind); k != "" {
+		msg.SetStatus("intake." + k)
+	}
+	return s.conversation.PatchMessage(ctx, msg)
+}
+
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) (retErr error) {
 	defer func() {
 		if output == nil {
@@ -97,6 +137,29 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return fmt.Errorf("invalid input: agent is required")
 	}
 	output.ConversationID = input.ConversationID
+
+	// Workspace-intake preset short-circuit ("ONE LLM call for capability
+	// turns"). When the classifier produced action=answer or action=clarify,
+	// ensureAgent stashes the text under PresetAssistantTextKey. Publish it
+	// directly as the assistant response and return — no agent LLM call
+	// runs. Total intake-side LLM calls for the turn: exactly 1 (the
+	// classifier's).
+	if presetText, presetKind := presetAssistantFromContext(input.Context); presetText != "" {
+		output.MessageID = input.MessageID
+		output.Content = presetText
+		logx.Infof("conversation",
+			"agent.Query preset short-circuit convo=%q kind=%q text_len=%d",
+			strings.TrimSpace(input.ConversationID), presetKind, len(presetText))
+		if err := s.publishPresetAssistantMessage(ctx, input, presetText, presetKind); err != nil {
+			// Persistence failure must not swallow the answer for the caller
+			// (the text is already in output.Content). Log and continue.
+			logx.Warnf("conversation",
+				"agent.Query preset persist error convo=%q kind=%q err=%v",
+				strings.TrimSpace(input.ConversationID), presetKind, err)
+		}
+		return nil
+	}
+
 	if queued, err := s.tryQueueTurn(ctx, input); err != nil {
 		return err
 	} else if queued {
@@ -489,6 +552,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	iter := 0
 	var resolvedModel string
 	var loopHistoryMsgs []*bindpkg.Message
+	var activeInlineSkillNames []string
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
@@ -533,6 +597,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				}
 				if err == nil {
 					logx.Infof("conversation", "agent.runPlan explicit skill activation ok convo=%q turn_id=%q skill=%q body_len=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(name), len(strings.TrimSpace(body)))
+					activeInlineSkillNames = appendUniqueSkillName(activeInlineSkillNames, name)
 					opID := "skill-activate-" + name
 					input.Query = strings.TrimSpace(args)
 					msg := &bindpkg.Message{
@@ -566,12 +631,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
 		overrideName, overrideMode := skillActivationOverridePair(input)
+		activeNames := []string(nil)
+		if s.skillSvc != nil {
+			activeNames = resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
+			activeNames = mergeActiveSkillNames(activeNames, activeInlineSkillNames)
+		}
 		if s.skillSvc != nil && input.Agent != nil {
-			activeNames := resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
 			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
 		}
 		if s.skillSvc != nil {
-			activeNames := resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
 				binding.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(binding.Tools.Signatures, s.registry, activeSkills)
@@ -657,7 +725,6 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// ladder) can inspect it without re-running skill discovery.
 		var activeSkill *skillproto.Skill
 		if s.skillSvc != nil {
-			activeNames := resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
 			if len(activeNames) > 0 {
 				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
 				if len(activeSkills) > 0 {
@@ -1057,6 +1124,30 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 	}
 }
 
+func appendUniqueSkillName(names []string, name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return names
+	}
+	for _, existing := range names {
+		if strings.EqualFold(strings.TrimSpace(existing), name) {
+			return names
+		}
+	}
+	return append(names, name)
+}
+
+func mergeActiveSkillNames(left, right []string) []string {
+	if len(right) == 0 {
+		return left
+	}
+	out := append([]string(nil), left...)
+	for _, name := range right {
+		out = appendUniqueSkillName(out, name)
+	}
+	return out
+}
+
 func (s *Service) findToolMessageIDByOpID(ctx context.Context, conversationID, turnID, opID string) string {
 	if s == nil || s.conversation == nil {
 		return ""
@@ -1247,10 +1338,10 @@ func parseExplicitSkillInvocation(query string) (string, string, bool) {
 	if query == "" {
 		return "", "", false
 	}
-	if strings.HasPrefix(query, "$$") {
+	if strings.HasPrefix(query, "$$") || strings.HasPrefix(query, "//") {
 		return "", "", false
 	}
-	if !strings.HasPrefix(query, "$") {
+	if !strings.HasPrefix(query, "$") && !strings.HasPrefix(query, "/") {
 		return "", "", false
 	}
 	fields := strings.Fields(query)

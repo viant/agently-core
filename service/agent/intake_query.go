@@ -17,6 +17,9 @@ import (
 //   - the intake service is not wired
 //   - the agent's Intake.Enabled is false
 //   - this is not the first turn and TriggerOnTopicShift is false
+//   - the caller already provided a TurnContext via RunInput.WorkspaceIntake
+//     (skip rule §2.c — caller's value short-circuits the LLM call but the
+//     merge logic still runs through applyTurnContext)
 //
 // On success the TurnContext is stored in input.Context so the agent can read
 // title, intent, context, and (when in Class B scope) profile suggestions.
@@ -24,10 +27,30 @@ import (
 // A high-confidence SuggestedProfileId is stored as a hint under a well-known
 // context key — the orchestrator may use it or override it.
 func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) {
-	if s == nil || s.intakeSvc == nil || input == nil || input.Agent == nil {
+	if s == nil || input == nil || input.Agent == nil {
 		return
 	}
 	cfg := &input.Agent.Intake
+
+	// Skip rule §2.c — caller-provided override.
+	// run_support.go places RunInput.WorkspaceIntake under intakesvc.ContextKey
+	// with Source = SourceCallerProvided. When present, skip the LLM call but
+	// still run the merge logic so AppendToolBundles, profile/template
+	// suggestions, etc. take effect uniformly across all skip paths.
+	if existing := intakesvc.FromContext(input.Context); existing != nil && existing.Source == intakesvc.SourceCallerProvided {
+		logx.Infof("conversation", "intake.skipped.caller-provided convo=%q agent=%q selectedAgent=%q",
+			strings.TrimSpace(input.ConversationID),
+			strings.TrimSpace(input.Agent.ID),
+			strings.TrimSpace(existing.SelectedAgentID),
+		)
+		applyTurnContext(input, existing, cfg)
+		s.maybeSetConversationTitle(ctx, input.ConversationID, existing.Title)
+		return
+	}
+
+	if s.intakeSvc == nil {
+		return
+	}
 	if !cfg.Enabled {
 		return
 	}

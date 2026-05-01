@@ -3,10 +3,12 @@ package skill
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,10 +69,17 @@ func (s *Service) Load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Snapshot the prior registry's name+fingerprint set BEFORE the swap so
+	// we can compute a {added, changed, removed} diff for the watcher event.
+	// First load (s.registry == nil) reports every name as "added".
+	priorFingerprints := s.skillFingerprints()
+
 	s.mu.Lock()
 	s.registry = reg
 	s.mu.Unlock()
-	s.publishRegistryUpdated(ctx)
+
+	added, changed, removed := diffRegistries(priorFingerprints, s.skillFingerprints())
+	s.publishRegistryUpdatedWithDiff(ctx, added, changed, removed)
 	return nil
 }
 
@@ -126,7 +135,11 @@ func (s *Service) Visible(agent *agentmdl.Agent) ([]skillproto.Metadata, string)
 	skills := s.visibleSkills(agent)
 	meta := make([]skillproto.Metadata, 0, len(skills))
 	for _, item := range skills {
-		meta = append(meta, skillproto.Metadata{Name: item.Frontmatter.Name, Description: item.Frontmatter.Description})
+		meta = append(meta, skillproto.Metadata{
+			Name:          item.Frontmatter.Name,
+			Description:   item.Frontmatter.Description,
+			ExecutionMode: item.Frontmatter.ContextMode(),
+		})
 	}
 	return meta, skillproto.RenderPrompt(meta, s.budgetChars)
 }
@@ -324,6 +337,52 @@ func explicitSkillObjective(name, args string) string {
 	return command
 }
 
+func (s *Service) delegatedSkillObjective(ctx context.Context, name, args string) string {
+	if strings.TrimSpace(args) != "" {
+		return explicitSkillObjective(name, args)
+	}
+	if s != nil && s.conv != nil {
+		if conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); conversationID != "" {
+			if fallback := strings.TrimSpace(s.latestUserTask(ctx, conversationID)); fallback != "" {
+				return fallback
+			}
+		}
+	}
+	return explicitSkillObjective(name, args)
+}
+
+func (s *Service) latestUserTask(ctx context.Context, conversationID string) string {
+	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" {
+		return ""
+	}
+	conv, err := s.conv.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return ""
+	}
+	tr := conv.GetTranscript()
+	for ti := len(tr) - 1; ti >= 0; ti-- {
+		turn := tr[ti]
+		if turn == nil {
+			continue
+		}
+		msgs := turn.GetMessages()
+		for mi := len(msgs) - 1; mi >= 0; mi-- {
+			msg := msgs[mi]
+			if msg == nil || msg.Content == nil {
+				continue
+			}
+			if strings.ToLower(strings.TrimSpace(msg.Role)) != "user" {
+				continue
+			}
+			content := strings.TrimSpace(*msg.Content)
+			if content != "" {
+				return content
+			}
+		}
+	}
+	return ""
+}
+
 func dynamicSkillAgentID(parent *agentmdl.Agent, item *skillproto.Skill) string {
 	if item != nil {
 		if id := strings.TrimSpace(item.Frontmatter.AgentIDValue()); id != "" {
@@ -417,7 +476,6 @@ func deriveDynamicSkillAgent(parent *agentmdl.Agent, item *skillproto.Skill, loa
 		SystemPrompt: &binding.Prompt{Text: dynamicSkillSystemPrompt(item, loadedBody), Engine: "go"},
 		Persona:      &binding.Persona{Role: "assistant", Actor: "Specialist"},
 		Source:       &agentmdl.Source{URL: "internal://skill-derived/" + strings.TrimSpace(item.Frontmatter.Name)},
-		Skills:       []string{strings.TrimSpace(item.Frontmatter.Name)},
 		Tool: agentmdl.Tool{
 			Items: toolItems,
 		},
@@ -586,9 +644,24 @@ func (s *Service) awaitChildConversationTerminal(ctx context.Context, childConve
 	}
 }
 
+// ErrForkCapabilityUnavailable signals that a skill requested fork or detach
+// activation but the runtime executor (ExecFn) is not bound. ExecFn is the
+// single function-pointer dependency for both `llm/agents:start` (kicks off
+// the child conversation) and `llm/agents:status` (polls for terminal
+// state); when nil, neither operation can run, so the skill cannot execute
+// in a child context.
+//
+// Callers receiving this error can degrade to inline activation, surface a
+// configuration warning to the user, or fail the turn — runtime policy
+// decision. The error is detectable via errors.Is so it survives wrapping.
+var ErrForkCapabilityUnavailable = errors.New(
+	"skill requested fork/detach but ExecFn (used for both llm/agents:start and llm/agents:status) is not bound")
+
 func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl.Agent, item *skillproto.Skill, args, mode string) (string, map[string]interface{}, error) {
 	if ExecFn == nil {
-		return "", nil, fmt.Errorf("skill runtime not configured")
+		// Wrap the typed sentinel with the requested mode for context;
+		// errors.Is(err, ErrForkCapabilityUnavailable) still returns true.
+		return "", nil, fmt.Errorf("requested mode=%q: %w", strings.TrimSpace(mode), ErrForkCapabilityUnavailable)
 	}
 	targetAgent := deriveDynamicSkillAgent(agent, item, "")
 	targetAgentID := ""
@@ -607,7 +680,7 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 	startPayload := map[string]interface{}{
 		"agentId":       targetAgentID,
 		"agent":         targetAgent,
-		"objective":     explicitSkillObjective(item.Frontmatter.Name, args),
+		"objective":     s.delegatedSkillObjective(ctx, item.Frontmatter.Name, args),
 		"executionMode": mode,
 		"context": map[string]interface{}{
 			"skillActivationName":     strings.TrimSpace(item.Frontmatter.Name),
@@ -921,7 +994,23 @@ func (s *Service) publishSkillLifecycle(ctx context.Context, conversationID, ski
 	_ = s.streamPub.Publish(ctx, ev)
 }
 
+// publishRegistryUpdated emits a registry-updated event with no diff payload.
+// Retained for back-compat callers; new code uses publishRegistryUpdatedWithDiff
+// which carries {added, changed, removed} arrays alongside count and diagnostics.
 func (s *Service) publishRegistryUpdated(ctx context.Context) {
+	s.publishRegistryUpdatedWithDiff(ctx, nil, nil, nil)
+}
+
+// publishRegistryUpdatedWithDiff emits the existing
+// EventTypeSkillRegistryUpdated event with the diff payload extension —
+// added/changed/removed skill names by registry version. Same EventType
+// constant, same publisher call site, richer Patch shape.
+//
+// The Replace decision (no parallel new event) means subscribers continue
+// to receive a single event per registry change; the new arrays sit
+// alongside the existing count/diagnostics fields. Subscribers that ignore
+// the new keys keep working unchanged.
+func (s *Service) publishRegistryUpdatedWithDiff(ctx context.Context, added, changed, removed []string) {
 	if s == nil || s.streamPub == nil {
 		return
 	}
@@ -933,19 +1022,75 @@ func (s *Service) publishRegistryUpdated(ctx context.Context) {
 		diagnostics = len(s.registry.Diagnostics())
 	}
 	s.mu.RUnlock()
+	patch := map[string]interface{}{
+		"count":       count,
+		"diagnostics": diagnostics,
+	}
+	if len(added) > 0 {
+		patch["added"] = added
+	}
+	if len(changed) > 0 {
+		patch["changed"] = changed
+	}
+	if len(removed) > 0 {
+		patch["removed"] = removed
+	}
 	ev := &streaming.Event{
 		StreamID:       "skills",
 		ConversationID: "skills",
 		Type:           streaming.EventTypeSkillRegistryUpdated,
 		Status:         "updated",
-		Patch: map[string]interface{}{
-			"count":       count,
-			"diagnostics": diagnostics,
-		},
-		CreatedAt: time.Now(),
+		Patch:          patch,
+		CreatedAt:      time.Now(),
 	}
 	ev.NormalizeIdentity("skills", "")
 	_ = s.streamPub.Publish(ctx, ev)
+}
+
+// skillFingerprints returns a snapshot map of skill name → fingerprint for
+// the currently-loaded registry. Used by Load to compute a diff between
+// pre/post-reload state. Fingerprint is a cheap content-derived string —
+// frontmatter description + body length — sufficient to detect "changed"
+// without computing a full hash on every reload.
+func (s *Service) skillFingerprints() map[string]string {
+	out := map[string]string{}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.registry == nil {
+		return out
+	}
+	for _, sk := range s.registry.List() {
+		if sk == nil {
+			continue
+		}
+		name := strings.TrimSpace(sk.Frontmatter.Name)
+		if name == "" {
+			continue
+		}
+		out[name] = sk.Frontmatter.Description + "|" + sk.Path + "|" + strconv.Itoa(len(sk.Body))
+	}
+	return out
+}
+
+// diffRegistries returns sorted name lists of additions, changes (same name,
+// different fingerprint), and removals between two registry snapshots.
+func diffRegistries(prior, current map[string]string) (added, changed, removed []string) {
+	for name, fp := range current {
+		if priorFP, ok := prior[name]; !ok {
+			added = append(added, name)
+		} else if priorFP != fp {
+			changed = append(changed, name)
+		}
+	}
+	for name := range prior {
+		if _, ok := current[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(changed)
+	sort.Strings(removed)
+	return added, changed, removed
 }
 
 func (s *Service) Diagnostics() []string {
@@ -1011,7 +1156,7 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
-		if override := strings.TrimSpace(ai.Mode); override != "" {
+		if override := requestedActivationModeOverride(ctx, ai); override != "" {
 			ctx = WithActivationModeOverride(ctx, ai.Name, override)
 		}
 		agent, err := s.currentAgent(ctx)
@@ -1029,7 +1174,7 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	if override := strings.TrimSpace(ai.Mode); override != "" {
+	if override := requestedActivationModeOverride(ctx, ai); override != "" {
 		ctx = WithActivationModeOverride(ctx, ai.Name, override)
 	}
 	body, _, err := s.activateWithContext(ctx, agent, ai.Name, ai.Args)
@@ -1042,6 +1187,25 @@ func (s *Service) activate(ctx context.Context, in, out interface{}) error {
 	}
 	populateActivateOutput(ao, ai.Name, body, mode, nil)
 	return nil
+}
+
+func requestedActivationModeOverride(ctx context.Context, ai *ActivateInput) string {
+	if ai == nil {
+		return ""
+	}
+	override := strings.TrimSpace(ai.Mode)
+	if override == "" {
+		return ""
+	}
+	// The skill's declared execution mode is runtime-owned contract for
+	// model-emitted tool calls. Owner LLMs may choose whether to activate a
+	// skill, but they should not silently rewrite fork/detach skills back to
+	// inline by passing input.mode. Runtime/API callers can still override the
+	// mode explicitly when they invoke the tool outside the model tool path.
+	if strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)) != "" {
+		return ""
+	}
+	return override
 }
 
 func populateActivateOutput(out *ActivateOutput, name, body, mode string, arguments map[string]interface{}) {
@@ -1312,6 +1476,22 @@ func normalizeSkillPath(path string) string {
 	return strings.TrimRight(path, "/")
 }
 
+// ExpandDefinitionsForActiveSkills returns the widened tool surface for the
+// given active skills, ignoring any unmatched-pattern diagnostics. Existing
+// callers that don't observe diagnostics use this.
 func ExpandDefinitionsForActiveSkills(defs []*llm.ToolDefinition, reg tool.Registry, skills []*skillproto.Skill) []*llm.ToolDefinition {
-	return ExpandDefinitionsForConstraints(defs, reg, BuildConstraints(skills))
+	out, _ := ExpandDefinitionsForActiveSkillsWithDiag(defs, reg, skills)
+	return out
+}
+
+// ExpandDefinitionsForActiveSkillsWithDiag returns the widened tool surface
+// AND a list of allowed-tools patterns from the active skills that did not
+// resolve to any registered tool. Callers can convert the unmatched list
+// into warn-level skillproto.Diagnostics surfaced on the activation event
+// so the model and operators see "skill 'X' requested tool 'Y' which is
+// not available in the current agent's tool registry."
+//
+// Returns an empty unmatched slice when nothing is missing.
+func ExpandDefinitionsForActiveSkillsWithDiag(defs []*llm.ToolDefinition, reg tool.Registry, skills []*skillproto.Skill) ([]*llm.ToolDefinition, []string) {
+	return ExpandDefinitionsForConstraintsWithDiag(defs, reg, BuildConstraints(skills))
 }

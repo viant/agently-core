@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,16 +12,19 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
+	tpldef "github.com/viant/agently-core/protocol/template"
 	"github.com/viant/agently-core/service/core"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
 
 // Service runs the intake sidecar LLM call and returns a TurnContext.
 type Service struct {
-	llm         *core.Service
-	profileRepo *promptrepo.Repository
-	bundleRepo  *toolbundlerepo.Repository
+	llm          *core.Service
+	profileRepo  *promptrepo.Repository
+	templateRepo *tplrepo.Repository
+	bundleRepo   *toolbundlerepo.Repository
 }
 
 // New creates an intake Service. llm is required; repos are optional.
@@ -36,6 +40,10 @@ func New(llm *core.Service, opts ...func(*Service)) *Service {
 
 func WithProfileRepo(r *promptrepo.Repository) func(*Service) {
 	return func(s *Service) { s.profileRepo = r }
+}
+
+func WithTemplateRepo(r *tplrepo.Repository) func(*Service) {
+	return func(s *Service) { s.templateRepo = r }
 }
 
 func WithBundleRepo(r *toolbundlerepo.Repository) func(*Service) {
@@ -58,9 +66,9 @@ func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 }
 
 func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) (*TurnContext, error) {
-	modelName := strings.TrimSpace(cfg.Model)
+	modelName := s.resolveModel(cfg)
 	if modelName == "" {
-		return nil, fmt.Errorf("intake: no model configured")
+		return nil, fmt.Errorf("intake: no model configured (set cfg.Model or cfg.ModelPreferences with a matcher available)")
 	}
 
 	systemPrompt, err := s.buildSystemPrompt(ctx, cfg)
@@ -72,24 +80,7 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	in := &core.GenerateInput{
-		UserID: userID,
-		ModelSelection: llm.ModelSelection{
-			Model: modelName,
-			Options: &llm.Options{
-				Temperature:      0.0000001,
-				MaxTokens:        cfg.EffectiveMaxTokens(),
-				JSONMode:         true,
-				ResponseMIMEType: "application/json",
-				ToolChoice:       llm.NewNoneToolChoice(),
-				Mode:             "router",
-			},
-		},
-		Message: []llm.Message{
-			llm.NewSystemMessage(systemPrompt),
-			llm.NewUserMessage(userMessage),
-		},
-	}
+	in := s.buildGenerateInput(modelName, systemPrompt, userMessage, userID, cfg)
 	if strings.TrimSpace(in.UserID) == "" {
 		in.UserID = "system"
 	}
@@ -114,6 +105,60 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	return tc, nil
 }
 
+func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userID string, cfg *agentmdl.Intake) *core.GenerateInput {
+	return &core.GenerateInput{
+		UserID: userID,
+		ModelSelection: llm.ModelSelection{
+			Model: modelName,
+			Options: &llm.Options{
+				Temperature:      0.0000001,
+				MaxTokens:        cfg.EffectiveMaxTokens(),
+				JSONMode:         true,
+				ResponseMIMEType: "application/json",
+				OutputSchema:     buildOutputJSONSchema(cfg),
+				ToolChoice:       llm.NewNoneToolChoice(),
+				Mode:             "router",
+				Reasoning:        &llm.Reasoning{Effort: "low"},
+			},
+		},
+		Message: []llm.Message{
+			llm.NewSystemMessage(systemPrompt),
+			llm.NewUserMessage(userMessage),
+		},
+	}
+}
+
+// resolveModel selects a concrete model id for the intake call.
+//
+// Resolution order:
+//
+//  1. Explicit cfg.Model when non-empty (matches existing behavior).
+//  2. cfg.ModelPreferences via the matcher exposed by core.Service.ModelMatcher()
+//     (the existing internal/finder/model.Finder selector). No new abstraction;
+//     the matcher already drives `llm/agents:start` and skill activation.
+//
+// Returns "" when neither path yields a model. Callers treat that as a
+// configuration error (intake is skipped/fails per existing semantics).
+func (s *Service) resolveModel(cfg *agentmdl.Intake) string {
+	if cfg == nil {
+		return ""
+	}
+	if name := strings.TrimSpace(cfg.Model); name != "" {
+		return name
+	}
+	if cfg.ModelPreferences == nil {
+		return ""
+	}
+	if s == nil || s.llm == nil {
+		return ""
+	}
+	matcher := s.llm.ModelMatcher()
+	if matcher == nil {
+		return ""
+	}
+	return strings.TrimSpace(matcher.Best(cfg.ModelPreferences))
+}
+
 // buildSystemPrompt constructs the sidecar's system instruction, embedding
 // profile and bundle metadata when Class B scope is active.
 func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (string, error) {
@@ -122,6 +167,7 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 
 	hasProfile := cfg.HasScope(agentmdl.IntakeScopeProfile)
 	hasTools := cfg.HasScope(agentmdl.IntakeScopeTools)
+	hasTemplate := cfg.HasScope(agentmdl.IntakeScopeTemplate)
 
 	if hasProfile && s.profileRepo != nil {
 		profiles, err := s.profileRepo.LoadAll(ctx)
@@ -156,8 +202,35 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 		}
 	}
 
+	if hasTemplate && s.templateRepo != nil {
+		templates, err := s.templateRepo.LoadAll(ctx)
+		if err == nil && len(templates) > 0 {
+			b.WriteString("\n\nAvailable output templates (id → description → appliesTo tags):\n")
+			for _, tpl := range templates {
+				if tpl == nil {
+					continue
+				}
+				b.WriteString(fmt.Sprintf("- %s: %s [%s]\n",
+					strings.TrimSpace(tpl.ID),
+					strings.TrimSpace(tpl.Description),
+					strings.Join(templateAppliesTo(tpl), ", "),
+				))
+			}
+		}
+	}
+
 	b.WriteString(buildOutputSchema(cfg))
 	return b.String(), nil
+}
+
+func templateAppliesTo(tpl *tpldef.Template) []string {
+	if tpl == nil {
+		return nil
+	}
+	if len(tpl.AppliesTo) > 0 {
+		return tpl.AppliesTo
+	}
+	return []string{"general"}
 }
 
 // buildOutputSchema appends a JSON schema description to the system prompt
@@ -188,6 +261,60 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	}
 	b.WriteString("\n\nReturn ONLY the JSON object. No prose, no markdown fences.")
 	return b.String()
+}
+
+func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
+	properties := map[string]interface{}{
+		"title": map[string]interface{}{"type": "string"},
+	}
+	if cfg == nil {
+		required := []string{"title"}
+		return map[string]interface{}{
+			"type":                 "object",
+			"properties":           properties,
+			"required":             required,
+			"additionalProperties": false,
+		}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeIntent) {
+		properties["intent"] = map[string]interface{}{"type": "string"}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeContext) {
+		properties["context"] = map[string]interface{}{
+			"type":                 "object",
+			"properties":           map[string]interface{}{},
+			"required":             []string{},
+			"additionalProperties": map[string]interface{}{"type": "string"},
+		}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeClarification) {
+		properties["clarificationNeeded"] = map[string]interface{}{"type": "boolean"}
+		properties["clarificationQuestion"] = map[string]interface{}{"type": "string"}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
+		properties["suggestedProfileId"] = map[string]interface{}{"type": "string"}
+		properties["confidence"] = map[string]interface{}{"type": "number"}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeTools) {
+		properties["appendToolBundles"] = map[string]interface{}{
+			"type":  "array",
+			"items": map[string]interface{}{"type": "string"},
+		}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
+		properties["templateId"] = map[string]interface{}{"type": "string"}
+	}
+	required := make([]string, 0, len(properties))
+	for key := range properties {
+		required = append(required, key)
+	}
+	sort.Strings(required)
+	return map[string]interface{}{
+		"type":                 "object",
+		"properties":           properties,
+		"required":             required,
+		"additionalProperties": false,
+	}
 }
 
 const intakeBasePrompt = `You are a request classifier that extracts structured metadata from user messages.
@@ -268,6 +395,13 @@ type turnContextWire struct {
 	AppendToolBundles     []string          `json:"appendToolBundles,omitempty"`
 	TemplateId            string            `json:"templateId,omitempty"`
 	Confidence            float64           `json:"confidence,omitempty"`
+	// Workspace-intake fields (additive). Legacy agent-intake outputs do not
+	// emit these keys; their absence leaves zero-values, which is the correct
+	// fallback semantics.
+	SelectedAgentID string   `json:"selectedAgentId,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
+	Source          string   `json:"source,omitempty"`
+	ActivateSkills  []string `json:"activateSkills,omitempty"`
 }
 
 func unmarshalTurnContext(data []byte, tc *TurnContext) error {
@@ -287,5 +421,9 @@ func unmarshalTurnContext(data []byte, tc *TurnContext) error {
 	tc.AppendToolBundles = wire.AppendToolBundles
 	tc.TemplateId = wire.TemplateId
 	tc.Confidence = wire.Confidence
+	tc.SelectedAgentID = wire.SelectedAgentID
+	tc.Mode = wire.Mode
+	tc.Source = wire.Source
+	tc.ActivateSkills = wire.ActivateSkills
 	return nil
 }

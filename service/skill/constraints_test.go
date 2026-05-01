@@ -146,6 +146,37 @@ func TestExpandDefinitionsForConstraints_AddsAllowedSkillTools(t *testing.T) {
 	}
 }
 
+func TestExpandDefinitionsForConstraints_ReplacesConstrainedServiceFamily(t *testing.T) {
+	skills := []*skillproto.Skill{{
+		Frontmatter: skillproto.Frontmatter{
+			Name:         "demo",
+			AllowedTools: "Bash(echo:*) system/exec:execute",
+		},
+	}}
+	c := BuildConstraints(skills)
+	if c == nil {
+		t.Fatalf("expected constraints")
+	}
+	reg := &constraintRegistry{defs: []llm.ToolDefinition{
+		{Name: "prompt:list"},
+		{Name: "system/exec:start"},
+		{Name: "system/exec:execute"},
+		{Name: "system/exec:cancel"},
+		{Name: "system/exec:status"},
+	}}
+	defs := []*llm.ToolDefinition{
+		{Name: "prompt:list"},
+		{Name: "system/exec:start"},
+		{Name: "system/exec:execute"},
+		{Name: "system/exec:cancel"},
+		{Name: "system/exec:status"},
+	}
+	expanded := ExpandDefinitionsForConstraints(defs, reg, c)
+	if len(expanded) != 2 || expanded[0].Name != "prompt:list" || expanded[1].Name != "system/exec:execute" {
+		t.Fatalf("expanded defs = %#v", expanded)
+	}
+}
+
 func TestExpandDefinitionsForConstraints_NormalizesAllowedToolPatternForRegistryLookup(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
@@ -181,7 +212,30 @@ func TestValidateExecution_RejectsToolOutsideAllowedPatterns(t *testing.T) {
 	if err := ValidateExecution(ctx, "steward:ForecastingCube", nil); err != nil {
 		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "steward:ForecastingCube", err)
 	}
-	if err := ValidateExecution(ctx, "platform:TargetingTree", nil); err == nil {
-		t.Fatalf("expected non-runtime tool rejection")
+	if err := ValidateExecution(ctx, "steward:SaveRecommendation", nil); err == nil {
+		t.Fatalf("expected constrained steward tool rejection")
+	}
+}
+
+func TestValidateExecution_AllowsUnconstrainedServiceFamilies(t *testing.T) {
+	skills := []*skillproto.Skill{{
+		Frontmatter: skillproto.Frontmatter{
+			Name:         "forecasting-cube",
+			AllowedTools: "steward:ForecastingCube",
+		},
+	}}
+	c := BuildConstraints(skills)
+	if c == nil {
+		t.Fatalf("expected constraints")
+	}
+	ctx := WithConstraints(context.Background(), c)
+	if err := ValidateExecution(ctx, "template:get", map[string]interface{}{"name": "audience_forecast_dashboard"}); err != nil {
+		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "template:get", err)
+	}
+	if err := ValidateExecution(ctx, "prompt:list", nil); err != nil {
+		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "prompt:list", err)
+	}
+	if err := ValidateExecution(ctx, "steward:SaveRecommendation", nil); err == nil {
+		t.Fatalf("expected constrained steward tool rejection")
 	}
 }
