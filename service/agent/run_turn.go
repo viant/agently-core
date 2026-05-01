@@ -309,7 +309,7 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.Tu
 	return err
 }
 
-func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx.TurnMeta, iteration int) {
+func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx.TurnMeta, iteration int, scheduleID string) {
 	if s == nil || s.dataService == nil || iteration <= 0 {
 		return
 	}
@@ -317,7 +317,10 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 	run.SetId(turn.TurnID)
 	run.SetIteration(iteration)
 	run.SetStatus("running")
-	s.touchInteractiveRunHeartbeat(run, time.Now())
+	// Scheduled runs keep their lease under scheduler ownership.
+	if strings.TrimSpace(scheduleID) == "" {
+		s.touchInteractiveRunHeartbeat(run, time.Now())
+	}
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
 		logx.Warnf("conversation", "agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
