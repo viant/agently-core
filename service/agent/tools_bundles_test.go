@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -94,12 +95,18 @@ func TestResolveTools_WithBundles(t *testing.T) {
 		expectNames []string
 	}{
 		{
-			name: "runtime_bundle_selection_expands_tools",
+			name: "runtime_bundle_selection_merges_with_agent_bundles",
 			query: &QueryInput{
 				ToolBundles: []string{"resources"},
 				Agent:       &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"system"}}},
 			},
 			bundles: []*toolbundle.Bundle{
+				{
+					ID: "system",
+					Match: []llm.Tool{
+						{Name: "system/*"},
+					},
+				},
 				{
 					ID: "resources",
 					Match: []llm.Tool{
@@ -112,8 +119,9 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "resources:list"},
 				{Name: "resources:matchDocuments"},
 				{Name: "system/exec:execute"},
+				{Name: "system/os:getEnv"},
 			},
-			expectNames: []string{"resources:list", "resources:read"},
+			expectNames: []string{"resources:list", "resources:read", "system/exec:execute", "system/os:getEnv"},
 		},
 		{
 			name: "agent_bundle_selection_used_when_no_runtime_override",
@@ -226,6 +234,8 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			for _, t := range actual {
 				got = append(got, t.Definition.Name)
 			}
+			sort.Strings(got)
+			sort.Strings(tc.expectNames)
 			assert.EqualValues(t, tc.expectNames, got)
 		})
 	}
@@ -259,4 +269,20 @@ func TestResolveBundleDefinitions_WithPromptApprovalBundle(t *testing.T) {
 			assert.True(t, cfg.IsPrompt())
 		}
 	}
+}
+
+func TestSelectedBundleIDs_MergesAgentAndRuntimeBundles(t *testing.T) {
+	actual := selectedBundleIDs(&QueryInput{
+		ToolBundles: []string{"analyst-performance-tools", "analyst-baseline"},
+		Agent: &agentmdl.Agent{
+			Tool: agentmdl.Tool{
+				Bundles: []string{"orchestrator"},
+			},
+		},
+	})
+
+	assert.EqualValues(t,
+		[]string{"orchestrator", "analyst-performance-tools", "analyst-baseline"},
+		actual,
+	)
 }
