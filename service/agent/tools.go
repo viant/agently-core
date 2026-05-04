@@ -142,14 +142,14 @@ func selectedBundleIDs(qi *QueryInput) []string {
 	if qi == nil {
 		return nil
 	}
-	// runtime override
+	merged := make([]string, 0, len(qi.ToolBundles)+4)
+	if qi.Agent != nil && len(qi.Agent.Tool.Bundles) > 0 {
+		merged = append(merged, qi.Agent.Tool.Bundles...)
+	}
 	if len(qi.ToolBundles) > 0 {
-		return normalizeStringList(qi.ToolBundles)
+		merged = append(merged, qi.ToolBundles...)
 	}
-	if qi.Agent == nil {
-		return nil
-	}
-	return normalizeStringList(qi.Agent.Tool.Bundles)
+	return normalizeStringList(merged)
 }
 
 func normalizeStringList(in []string) []string {
