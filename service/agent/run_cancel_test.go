@@ -31,7 +31,7 @@ func (canceledModel) Generate(context.Context, *llm.GenerateRequest) (*llm.Gener
 
 func (canceledModel) Implements(string) bool { return false }
 
-func TestServiceRunPlanAndStatus_ReturnsCanceledWhenFirstLLMCallIsCanceled(t *testing.T) {
+func TestServiceRunPlanAndStatus_EmptyCanceledResultFallsBackToFailed(t *testing.T) {
 	t.Parallel()
 
 	convClient := &dedupeConvClient{
@@ -82,10 +82,81 @@ func TestServiceRunPlanAndStatus_ReturnsCanceledWhenFirstLLMCallIsCanceled(t *te
 
 	status, err := svc.runPlanAndStatus(ctx, input, output)
 	require.Error(t, err)
-	require.Contains(t, strings.ToLower(err.Error()), "context canceled")
-	require.Equal(t, "canceled", status)
+	require.Contains(t, strings.ToLower(err.Error()), "no final content produced")
+	require.Equal(t, "failed", status)
 }
 
 func cancelPtr(value string) *string {
 	return &value
+}
+
+type emptyFinder struct{}
+
+func (f *emptyFinder) Find(context.Context, string) (llm.Model, error) {
+	return emptyModel{}, nil
+}
+
+type emptyModel struct{}
+
+func (emptyModel) Generate(context.Context, *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	return &llm.GenerateResponse{
+		Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: ""}}},
+	}, nil
+}
+
+func (emptyModel) Implements(string) bool { return false }
+
+func TestServiceRunPlanAndStatus_EmptyResultIsFailedNotCanceled(t *testing.T) {
+	t.Parallel()
+
+	convClient := &dedupeConvClient{
+		conversation: &apiconv.Conversation{
+			Id: "conv-empty",
+			Transcript: []*agconv.TranscriptView{
+				{
+					Id:             "turn-empty",
+					ConversationId: "conv-empty",
+					Message: []*agconv.MessageView{
+						{
+							Id:             "user-empty",
+							ConversationId: "conv-empty",
+							Role:           "user",
+							Type:           "task",
+							Content:        cancelPtr("hello"),
+							TurnId:         cancelPtr("turn-empty"),
+						},
+					},
+				},
+			},
+		},
+	}
+	llmSvc := core.New(&emptyFinder{}, nil, convClient)
+	svc := &Service{
+		llm:          llmSvc,
+		conversation: convClient,
+		orchestrator: reactor.New(llmSvc, nil, convClient, nil, nil),
+		defaults:     &config.Defaults{},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-empty",
+		UserId:         "user-1",
+		Query:          "hello",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "simple"},
+			ModelSelection: llm.ModelSelection{
+				Model: "mock-model",
+			},
+			Prompt: &binding.Prompt{Text: "You are helpful."},
+		},
+	}
+	output := &QueryOutput{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID: "conv-empty",
+		TurnID:         "turn-empty",
+	})
+
+	status, err := svc.runPlanAndStatus(ctx, input, output)
+	require.Error(t, err)
+	require.Contains(t, strings.ToLower(err.Error()), "no final content produced")
+	require.Equal(t, "failed", status)
 }
