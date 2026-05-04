@@ -160,9 +160,15 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 		if waitingForUser {
 			return "waiting_for_user", nil
 		}
+		if s.isTurnCanceled(context.WithoutCancel(ctx), turn.ConversationID, turn.TurnID) {
+			return "canceled", context.Canceled
+		}
+	}
+	if err := ctx.Err(); errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "canceled", err
 	}
 	if output != nil && output.Plan != nil && output.Plan.IsEmpty() && strings.TrimSpace(output.Content) == "" {
-		return "canceled", context.Canceled
+		return "failed", fmt.Errorf("no final content produced")
 	}
 	return "succeeded", nil
 }
