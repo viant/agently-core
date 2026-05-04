@@ -1076,6 +1076,13 @@ func PatchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *as
 	if content != "" {
 		_ = updateToolMessageContent(ctx, conv, rec.ToolMessageID, content)
 	}
+	// Split-tool wait mode uses a synchronous start call plus a parked status
+	// carrier. The start call itself must complete immediately once the child
+	// conversation handle is known; only the status carrier remains open.
+	if !rec.Terminal() && strings.TrimSpace(rec.StatusToolName) != "" && !sameToolName(rec.ToolName, rec.StatusToolName) {
+		_ = completeToolCall(ctx, conv, rec.ToolMessageID, rec.ToolCallID, rec.ToolName, "completed", time.Now(), respPayloadID, "")
+		return
+	}
 	status, errMsg := asyncPersistenceToolCallOutcome(rec, payload, fallbackErr)
 	if rec.Terminal() {
 		_ = completeToolCall(ctx, conv, rec.ToolMessageID, rec.ToolCallID, rec.ToolName, status, time.Now(), respPayloadID, errMsg)

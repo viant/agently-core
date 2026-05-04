@@ -1034,6 +1034,9 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	if src.Has.CreatedByUserID {
 		dst.CreatedByUserId = src.CreatedByUserID
 	}
+	if src.Has.Mode {
+		dst.Mode = src.Mode
+	}
 	if src.Has.Role {
 		dst.Role = src.Role
 	}
@@ -1084,6 +1087,9 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	}
 	if src.Has.ToolName {
 		dst.ToolName = src.ToolName
+	}
+	if src.Has.Narration {
+		dst.Narration = src.Narration
 	}
 	if src.Has.AttachmentPayloadID {
 		dst.AttachmentPayloadId = src.AttachmentPayloadID

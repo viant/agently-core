@@ -826,6 +826,53 @@ func TestService_Status_ByConversationID_UsesNarrationWhileRunning(t *testing.T)
 	assert.Equal(t, "preamble", out.MessageKind)
 }
 
+func TestService_Status_ByConversationID_IgnoresRouterPayloadWhileRunning(t *testing.T) {
+	ctx := context.Background()
+	conv := convmem.New()
+
+	childConv := convcli.NewConversation()
+	childConv.SetId("child-running-router")
+	childConv.SetAgentId("data-analyst")
+	childConv.SetStatus("running")
+	require.NoError(t, conv.PatchConversations(ctx, childConv))
+
+	childTurn := convcli.NewTurn()
+	childTurn.SetId("child-turn-running-router")
+	childTurn.SetConversationID("child-running-router")
+	childTurn.SetStatus("running")
+	require.NoError(t, conv.PatchTurn(ctx, childTurn))
+
+	router := convcli.NewMessage()
+	router.SetId("child-msg-router")
+	router.SetConversationID("child-running-router")
+	router.SetTurnID("child-turn-running-router")
+	router.SetRole("assistant")
+	router.SetType("text")
+	router.SetInterim(0)
+	router.SetMode("router")
+	router.SetContent(`{"context":{"scope":"internal"}}`)
+	require.NoError(t, conv.PatchMessage(ctx, router))
+
+	preamble := convcli.NewMessage()
+	preamble.SetId("child-msg-preamble")
+	preamble.SetConversationID("child-running-router")
+	preamble.SetTurnID("child-turn-running-router")
+	preamble.SetRole("assistant")
+	preamble.SetType("text")
+	preamble.SetInterim(1)
+	preamble.SetNarration("collecting supporting evidence")
+	preamble.SetContent("collecting supporting evidence")
+	require.NoError(t, conv.PatchMessage(ctx, preamble))
+
+	svc := New(nil, WithConversationClient(conv))
+	var out StatusOutput
+	err := svc.statusMethod(ctx, &StatusInput{ConversationID: "child-running-router"}, &out)
+	require.NoError(t, err)
+	assert.Equal(t, "running", out.Status)
+	assert.Equal(t, "collecting supporting evidence", out.Message)
+	assert.Equal(t, "preamble", out.MessageKind)
+}
+
 func TestService_Status_ByConversationID_HidesStaleChildToolFailureWhileRunning(t *testing.T) {
 	ctx := context.Background()
 	conv := convmem.New()

@@ -353,10 +353,10 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	if narration := executionNarration(message); narration != "" {
 		page.Narration = narration
 	}
-	if content := visibleContentOrEmpty(message.Content); content != "" {
+	if content := visibleContentOrEmpty(message.Content); content != "" && shouldExposeTranscriptExecutionContent(page, message) {
 		page.Content = content
 	}
-	if isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message) {
+	if isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message) && !isInternalTranscriptExecutionPage(page) {
 		page.FinalResponse = true
 	}
 	page.Status = pageStatus(message)
@@ -403,6 +403,31 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	}
 
 	return page
+}
+
+func shouldExposeTranscriptExecutionContent(page *ExecutionPageState, message *agconv.MessageView) bool {
+	if message == nil {
+		return false
+	}
+	if isInternalTranscriptExecutionPage(page) {
+		return false
+	}
+	if isFinalExecutionMessage(message) {
+		return true
+	}
+	if page == nil {
+		return true
+	}
+	return true
+}
+
+func isInternalTranscriptExecutionPage(page *ExecutionPageState) bool {
+	if page == nil {
+		return false
+	}
+	phase := strings.ToLower(strings.TrimSpace(page.Phase))
+	role := strings.ToLower(strings.TrimSpace(page.ExecutionRole))
+	return phase == "intake" || role == "router"
 }
 
 func pageStatus(message *agconv.MessageView) string {

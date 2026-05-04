@@ -73,7 +73,7 @@ func (s *Service) StartNarration(ctx context.Context, parent runtimerequestctx.T
 		actor = "tool"
 	}
 	if strings.TrimSpace(mode) == "" {
-		mode = "exec"
+		mode = "narrator"
 	}
 	m, err := apiconv.AddMessage(ctx, s.conv, &parent,
 		apiconv.WithRole(role),
@@ -91,11 +91,6 @@ func (s *Service) StartNarration(ctx context.Context, parent runtimerequestctx.T
 }
 
 func (s *Service) findNarrationMessageID(ctx context.Context, parent runtimerequestctx.TurnMeta) string {
-	if strings.TrimSpace(parent.TurnID) != "" {
-		if existingID := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(parent.TurnID)); existingID != "" {
-			return existingID
-		}
-	}
 	if s == nil || s.conv == nil || strings.TrimSpace(parent.ConversationID) == "" || strings.TrimSpace(parent.TurnID) == "" {
 		return ""
 	}
@@ -118,6 +113,9 @@ func (s *Service) findNarrationMessageID(ctx context.Context, parent runtimerequ
 				continue
 			}
 			if msg.Interim != 1 {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(ptrString(msg.Mode)), "narrator") {
 				continue
 			}
 			if id := strings.TrimSpace(msg.Id); id != "" {
@@ -167,6 +165,7 @@ func (s *Service) UpdateNarration(ctx context.Context, parent runtimerequestctx.
 	mu.SetNarration(strings.TrimSpace(preamble))
 	mu.SetContent(strings.TrimSpace(preamble))
 	mu.SetInterim(1)
+	mu.SetMode("narrator")
 	if err := s.conv.PatchMessage(ctx, mu); err != nil {
 		return fmt.Errorf("status: preamble update failed: %w", err)
 	}
@@ -258,4 +257,11 @@ func normalizeMessageStatus(status string) string {
 	default:
 		return v
 	}
+}
+
+func ptrString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

@@ -828,10 +828,11 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     const matched = matchModelStep(page.modelSteps, { modelCallId, assistantMessageId, positionHint: page.modelSteps.length - 1 });
     const step = matched ?? appendModelStep(page, 'event');
     const explicitFinalResponse = Boolean(event.finalResponse);
+    const executionRole = executionRoleFromSignals((event as any).executionRole, event.phase, event.mode);
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
     const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
-    writeField(step, 'executionRole', executionRoleFromSignals((event as any).executionRole, event.phase, event.mode), 'event');
+    writeField(step, 'executionRole', executionRole, 'event');
     if (derivedPhase && derivedPhase !== 'main') writeField(step, 'phase', derivedPhase, 'event');
     writeField(step, 'status', event.status ?? 'completed', 'event');
     // Do not infer "final" from model_completed alone. Some providers emit a
@@ -840,7 +841,9 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     // explicit finalResponse marker should flip the page into final-answer
     // mode. When there is no progressive page content yet, we still accept
     // model_completed content as a fallback detail payload.
-    if (event.content && (explicitFinalResponse || !String(page.content ?? '').trim())) {
+    const hidesInterimModelContent = !explicitFinalResponse
+        && (derivedPhase === 'intake' || executionRole === 'router');
+    if (event.content && !hidesInterimModelContent && (explicitFinalResponse || !String(page.content ?? '').trim())) {
         writeField(page, 'content', event.content, 'event');
     }
     if (explicitFinalResponse && assistantMessageId) writeField(page, 'finalAssistantMessageId', assistantMessageId, 'event');
