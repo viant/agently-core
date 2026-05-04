@@ -502,6 +502,46 @@ func TestExecuteToolStep_PreservesDisplayToolNameOnCompletion(t *testing.T) {
 	assert.Equal(t, "llm/skills/activate", strings.TrimSpace(completed.ToolName))
 }
 
+func TestExecuteToolStep_FinalizesToolCallBeforeFeedNotification(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-feed", TurnID: "t-feed", ParentMessageID: "p-feed"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"body":"ok"}`}}}
+	conv := &stubConv{}
+	notifier := &recordingFeedNotifier{
+		onCall: func() {
+			require.NotEmpty(t, conv.patchedToolCalls)
+			last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
+			require.NotNil(t, last)
+			require.Equal(t, "completed", strings.TrimSpace(last.Status))
+			require.NotNil(t, last.ResponsePayloadID)
+			require.NotEmpty(t, strings.TrimSpace(derefString(last.ResponsePayloadID)))
+		},
+	}
+	ctx = WithFeedNotifier(ctx, notifier)
+
+	step := StepInfo{
+		ID:         "call-feed",
+		Name:       "llm_skills-activate",
+		Args:       map[string]interface{}{"name": "targeting-tree"},
+		ResponseID: "resp-feed",
+	}
+	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
+	require.NoError(t, err)
+	require.Equal(t, 1, notifier.calls)
+}
+
+type recordingFeedNotifier struct {
+	calls  int
+	onCall func()
+}
+
+func (r *recordingFeedNotifier) NotifyToolCompleted(_ context.Context, _ string, _ string) {
+	r.calls++
+	if r.onCall != nil {
+		r.onCall()
+	}
+}
+
 type stubConv struct {
 	patchedMessages  []*apiconv.MutableMessage
 	insertedMessages []*apiconv.MutableMessage
