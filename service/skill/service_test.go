@@ -116,7 +116,7 @@ Use Playwright CLI.
 	if meta[0].ExecutionMode != "inline" {
 		t.Fatalf("execution mode = %q, want inline", meta[0].ExecutionMode)
 	}
-	if !strings.Contains(prompt, "llm/skills:list") || !strings.Contains(prompt, "llm/skills:activate") {
+	if !strings.Contains(prompt, "llm_skills-list") || !strings.Contains(prompt, "llm_skills-activate") {
 		t.Fatalf("prompt = %q", prompt)
 	}
 	if !strings.Contains(prompt, "playwright-cli (inline)") {
