@@ -296,11 +296,6 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		debugtrace.LogToolCall(step.Name, step.ID, status, len(toolResult), toolResult, errStr)
 	}
 
-	// Notify feed system about tool completion (for SSE feed events).
-	if notifier := feedNotifierFromContext(ctx); notifier != nil {
-		notifier.NotifyToolCompleted(ctx, step.Name, toolResult)
-	}
-
 	// 5) Persist side effects + response payload.
 	// When the parent context is already cancelled (e.g. user cancelled the turn),
 	// fall back to a detached context so the tool result is still persisted for
@@ -345,6 +340,12 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		errs = append(errs, fmt.Errorf("complete tool call: %w", cErr))
 	} else {
 		toolCallClosed = true
+	}
+	// Notify feed system only after the core tool row is durably finalized.
+	// Feed activation is ancillary; it must never be able to strand the
+	// conversation's canonical tool_call state in "running".
+	if notifier := feedNotifierFromContext(ctx); notifier != nil {
+		notifier.NotifyToolCompleted(ctx, step.Name, toolResult)
 	}
 
 	if len(errs) > 0 {
