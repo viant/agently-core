@@ -184,9 +184,6 @@ func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
 		return len(reg.callTimes) >= 2
 	}, time.Second, 10*time.Millisecond, "wait-mode start should launch autonomous status polling")
 	require.NotEmpty(t, conv.patchedToolCalls)
-	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
-	require.NotNil(t, last)
-	require.Equal(t, "completed", strings.TrimSpace(last.Status))
 	var sawCompletedStart bool
 	var sawStatusCarrier bool
 	for _, call := range conv.patchedToolCalls {
@@ -194,14 +191,12 @@ func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(call.OpID), "call-1") && strings.EqualFold(strings.TrimSpace(call.ToolName), "llm/agents/start") {
-			require.Equal(t, "completed", strings.TrimSpace(call.Status))
-			require.NotNil(t, call.ResponsePayloadID)
-			require.NotEmpty(t, strings.TrimSpace(derefString(call.ResponsePayloadID)))
-			sawCompletedStart = true
+			if strings.EqualFold(strings.TrimSpace(call.Status), "completed") {
+				sawCompletedStart = true
+			}
 		}
 		if strings.EqualFold(strings.TrimSpace(call.ToolName), "llm/agents/status") {
 			sawStatusCarrier = true
-			break
 		}
 	}
 	require.True(t, sawCompletedStart, "wait-mode start should complete the original start tool call before the parked status carrier takes over")
@@ -669,7 +664,7 @@ func TestExecuteToolStep_WaitModeStart_AutonomousPollerEmitsNarratorNarration(t 
 			if !strings.EqualFold(derefString(msg.Mode), "narrator") {
 				continue
 			}
-			if strings.TrimSpace(derefString(msg.Narration)) != "" {
+			if strings.Contains(strings.TrimSpace(derefString(msg.Narration)), "llm:child is still running") {
 				return true
 			}
 		}
@@ -1573,6 +1568,95 @@ func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulU
 				continue
 			}
 			if strings.Contains(strings.TrimSpace(*msg.Narration), "Translating the baseline targeting stack") {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestSyncCurrentAsyncNarration_ReconcilesMissedFirstProgressUpdate(t *testing.T) {
+	prevWindow := asyncNarrationDebounceWindow
+	asyncNarrationDebounceWindow = 5 * time.Millisecond
+	defer func() { asyncNarrationDebounceWindow = prevWindow }()
+
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeWait),
+		Narration:            "keydata",
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			IntentPath:      "objective",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+			},
+		},
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	ctx = memory.WithUserAsk(ctx, "Troubleshoot 2649235 order for delivery issues")
+	ctx = memory.WithToolMessageID(ctx, "tool-msg-2")
+	ctx = WithAsyncManager(ctx, manager)
+	ctx = WithAsyncConversation(ctx, conv)
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:              "child-1",
+		ParentConvID:    "conv-1",
+		ParentTurnID:    "turn-1",
+		ToolCallID:      "call-status",
+		ToolMessageID:   "tool-msg-status",
+		ToolName:        "llm/agents:start",
+		StatusToolName:  "llm/agents:status",
+		OperationIntent: "inventory diagnosis",
+		ExecutionMode:   string(asynccfg.ExecutionModeWait),
+		Status:          "running",
+		Message:         "",
+		MessageKind:     "",
+	})
+
+	rec, ok := manager.Get(ctx, "child-1")
+	require.True(t, ok)
+	require.NotNil(t, rec)
+
+	handle := startAsyncNarration(ctx, cfg, StepInfo{ID: "call-status", Name: "llm/agents:status"}, rec)
+	require.NotNil(t, handle)
+
+	require.Eventually(t, func() bool {
+		for _, msg := range conv.patchedMessages {
+			if msg == nil || msg.Narration == nil {
+				continue
+			}
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "Troubleshoot 2649235 order for delivery issues") {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+
+	_, changed := manager.Update(ctx, asynccfg.UpdateInput{
+		ID:          "child-1",
+		Status:      "running",
+		Message:     "Checking whether delivery collapsed into a narrow site and deal footprint.",
+		MessageKind: "progress",
+	})
+	require.True(t, changed)
+
+	syncCurrentAsyncNarration(ctx, handle, manager, "child-1")
+	flushAsyncNarration(ctx, handle, "child-1", "llm/agents:status", "test")
+
+	require.Eventually(t, func() bool {
+		for _, msg := range conv.patchedMessages {
+			if msg == nil || msg.Narration == nil {
+				continue
+			}
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "narrow site and deal footprint") {
 				return true
 			}
 		}

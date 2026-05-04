@@ -390,6 +390,7 @@ func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step St
 	if narration != nil {
 		sub, subID = manager.Subscribe([]string{opID})
 		defer manager.Unsubscribe(subID)
+		syncCurrentAsyncNarration(ctx, narration, manager, opID)
 	}
 	ch := manager.AwaitTerminal(ctx, []string{opID})
 	select {
@@ -509,6 +510,17 @@ func observeAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, ev
 	if err := handle.session.Push(preamble); err != nil {
 		logx.WarnCtxf(ctx, "conversation", "async preamble update failed op_id=%q tool=%q err=%v", strings.TrimSpace(ev.OperationID), strings.TrimSpace(handle.stepName), err)
 	}
+}
+
+func syncCurrentAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, manager *asynccfg.Manager, opID string) {
+	if handle == nil || manager == nil || strings.TrimSpace(opID) == "" {
+		return
+	}
+	rec, ok := manager.Get(ctx, opID)
+	if !ok || rec == nil {
+		return
+	}
+	observeAsyncNarration(ctx, handle, changeEventFromRecord(rec))
 }
 
 func flushAsyncNarration(ctx context.Context, handle *asyncNarrationHandle, opID, toolName, phase string) {
@@ -1012,6 +1024,8 @@ func PollAsyncOperation(ctx context.Context, manager *asynccfg.Manager, reg tool
 		select {
 		case <-ctx.Done():
 			return
+		case <-asyncNarrationChannel(state.narration):
+			flushAsyncNarration(ctx, state.narration, opID, strings.TrimSpace(cfg.Status.Tool), "debounced update")
 		case <-ticker.C:
 			if state.handleTimeoutIfExpired(ctx, time.Now()) {
 				return

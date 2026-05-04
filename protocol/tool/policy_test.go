@@ -37,6 +37,9 @@ func TestBestPathAllowed(t *testing.T) {
 		{"system/exec:start", false},
 		{"system/exec:cancel", false},
 		{"system/patch:apply", false},
+		{"system/patch:replace", false},
+		{"system/patch:commit", false},
+		{"system/patch:rollback", false},
 	}
 	for _, tc := range cases {
 		if got := BestPathAllowed(tc.name); got != tc.want {

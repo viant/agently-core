@@ -15,7 +15,7 @@ import (
 const Name = "system/patch"
 
 // Service exposes filesystem patching capabilities as a Fluxor action service.
-// It is stateless – every method call operates with its own ephemeral Session.
+// Apply calls stage changes in a conversation-scoped session until host commit or rollback.
 type Service struct {
 	mu       sync.Mutex
 	sessions map[string]*Session // conversationID -> session
@@ -40,9 +40,15 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{
 			Name:        "apply",
-			Description: "Apply a patch to files. Requires workdir. Supports unified diff or simplified patch.",
+			Description: "Stage a patch in the active patch session for host review. Requires workdir. Supports unified diff or simplified patch. Patch paths must resolve inside workdir.",
 			Input:       reflect.TypeOf(&ApplyInput{}),
 			Output:      reflect.TypeOf(&ApplyOutput{}),
+		},
+		{
+			Name:        "replace",
+			Description: "Stage an exact string replacement in the active patch session for host review. Requires workdir. Path must resolve inside workdir. The old text must match exactly; ambiguous replacements fail unless replaceAll is true.",
+			Input:       reflect.TypeOf(&ReplaceInput{}),
+			Output:      reflect.TypeOf(&ReplaceOutput{}),
 		},
 		{
 			Name:        "diff",
@@ -76,6 +82,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(name) {
 	case "apply":
 		return s.apply, nil
+	case "replace":
+		return s.replace, nil
 	case "diff":
 		return s.diff, nil
 	case "snapshot":
@@ -117,22 +125,10 @@ func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *App
 	if strings.TrimSpace(input.Workdir) == "" {
 		return fmt.Errorf("workdir is required for system/patch:apply")
 	}
-	convID := runtimerequestctx.ConversationIDFromContext(ctx)
-	if convID == "" {
-		convID = "_global"
+	sess, err := s.sessionForContext(ctx)
+	if err != nil {
+		return err
 	}
-	s.mu.Lock()
-	sess := s.sessions[convID]
-	if sess == nil {
-		var err error
-		sess, err = NewSessionFor(convID)
-		if err != nil {
-			s.mu.Unlock()
-			return err
-		}
-		s.sessions[convID] = sess
-	}
-	s.mu.Unlock()
 
 	if err := sess.ApplyPatch(ctx, input.Patch, input.Workdir); err != nil {
 		// Do not auto-rollback; leave the session active so the caller
@@ -145,6 +141,69 @@ func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *App
 	output.Stats = patchStats(input.Patch)
 	// Session remains open for further apply calls until commit/rollback.
 	return nil
+}
+
+func (s *Service) replace(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*ReplaceInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*ReplaceOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	output.Status = "ok"
+	err := s.replaceText(ctx, input, output)
+	if err != nil {
+		output.Error = err.Error()
+		output.Status = "error"
+	}
+	return nil
+}
+
+func (s *Service) replaceText(ctx context.Context, input *ReplaceInput, output *ReplaceOutput) error {
+	if strings.TrimSpace(input.Workdir) == "" {
+		return fmt.Errorf("workdir is required for system/patch:replace")
+	}
+	if strings.TrimSpace(input.Path) == "" {
+		return fmt.Errorf("path is required for system/patch:replace")
+	}
+	path, err := resolvePath(input.Path, input.Workdir)
+	if err != nil {
+		return err
+	}
+	sess, err := s.sessionForContext(ctx)
+	if err != nil {
+		return err
+	}
+	replacements, stats, err := sess.Replace(ctx, path, input.Old, input.New, input.ReplaceAll, input.ExpectedOccurrences)
+	if err != nil {
+		return err
+	}
+	output.Path = path
+	output.Replacements = replacements
+	output.Stats = stats
+	return nil
+}
+
+func (s *Service) sessionForContext(ctx context.Context) (*Session, error) {
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
+	if convID == "" {
+		convID = "_global"
+	}
+	s.mu.Lock()
+	sess := s.sessions[convID]
+	if sess == nil {
+		var err error
+		sess, err = NewSessionFor(convID)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		s.sessions[convID] = sess
+	}
+	s.mu.Unlock()
+	return sess, nil
 }
 
 // commit finalises the active session and clears it.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,7 +19,7 @@ import (
 	sgdiff "github.com/sourcegraph/go-diff/diff"
 	"github.com/viant/afs"
 	"github.com/viant/afs/file"
-	"github.com/viant/afs/url"
+	afsurl "github.com/viant/afs/url"
 )
 
 type DiffResult struct {
@@ -77,9 +78,9 @@ func NewSession() (*Session, error) {
 	// ("tmp") depending on environment and OS. A valid file URL for an absolute
 	// path must have three slashes: file:///tmp/...
 	//
-	// We therefore join using url.Join which normalizes slashes and preserves the
+	// We therefore join using afsurl.Join which normalizes slashes and preserves the
 	// file scheme, instead of string formatting.
-	tmp := url.Join("file:///"+strings.TrimLeft(baseTempDir, string(os.PathSeparator)), fmt.Sprintf("onpatch-%s", uuid.NewString()))
+	tmp := afsurl.Join("file:///"+strings.TrimLeft(baseTempDir, string(os.PathSeparator)), fmt.Sprintf("onpatch-%s", uuid.NewString()))
 	if err := fs.Create(ctx, tmp, file.DefaultDirOsMode, true); err != nil {
 		return nil, err
 	}
@@ -102,11 +103,11 @@ func NewSessionFor(convID string) (*Session, error) {
 		baseTempDir = "/tmp"
 	}
 	safe := sanitizeID(convID)
-	parent := url.Join("file:///"+strings.TrimLeft(baseTempDir, string(os.PathSeparator)), "agently", safe)
+	parent := afsurl.Join("file:///"+strings.TrimLeft(baseTempDir, string(os.PathSeparator)), "agently", safe)
 	if err := fs.Create(ctx, parent, file.DefaultDirOsMode, true); err != nil {
 		return nil, err
 	}
-	tmp := url.Join(parent, fmt.Sprintf("onpatch-%s", uuid.NewString()))
+	tmp := afsurl.Join(parent, fmt.Sprintf("onpatch-%s", uuid.NewString()))
 	if err := fs.Create(ctx, tmp, file.DefaultDirOsMode, true); err != nil {
 		return nil, err
 	}
@@ -144,9 +145,9 @@ func (s *Session) backup(ctx context.Context, path string) (string, error) {
 	}
 	rel := strings.TrimPrefix(path, string(os.PathSeparator))
 	unique := fmt.Sprintf("%s.%d.bak", rel, time.Now().UnixNano())
-	dst := url.Join(s.tempDir, unique)
+	dst := afsurl.Join(s.tempDir, unique)
 
-	parent, _ := url.Split(dst, file.Scheme)
+	parent, _ := afsurl.Split(dst, file.Scheme)
 	if err := s.fs.Create(ctx, parent, file.DefaultDirOsMode, true); err != nil {
 		return "", err
 	}
@@ -198,7 +199,7 @@ func (s *Session) Move(ctx context.Context, src, dst string) error {
 		return err
 	}
 
-	parent, _ := url.Split(dst, file.Scheme)
+	parent, _ := afsurl.Split(dst, file.Scheme)
 	if err := s.fs.Create(ctx, parent, file.DefaultDirOsMode, true); err != nil {
 		return err
 	}
@@ -232,6 +233,70 @@ func (s *Session) Update(ctx context.Context, path string, newData []byte) error
 	return nil
 }
 
+func (s *Session) Replace(ctx context.Context, path, oldText, newText string, replaceAll bool, expectedOccurrences int) (int, DiffStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.assertActive(); err != nil {
+		return 0, DiffStats{}, err
+	}
+	if oldText == "" {
+		return 0, DiffStats{}, errors.New("old text must be non-empty")
+	}
+	if oldText == newText {
+		return 0, DiffStats{}, errors.New("old and new text are identical")
+	}
+	exists, err := s.fs.Exists(ctx, path)
+	if err != nil || !exists {
+		if err != nil {
+			return 0, DiffStats{}, err
+		}
+		return 0, DiffStats{}, fmt.Errorf("replace: file does not exist: %s", path)
+	}
+	oldData, err := s.fs.DownloadWithURL(ctx, path)
+	if err != nil {
+		return 0, DiffStats{}, err
+	}
+	oldContent := string(oldData)
+	occurrences := strings.Count(oldContent, oldText)
+	if occurrences == 0 {
+		return 0, DiffStats{}, fmt.Errorf("replace: old text not found in %s", path)
+	}
+	if expectedOccurrences < 0 {
+		return 0, DiffStats{}, errors.New("expectedOccurrences must be non-negative")
+	}
+	if expectedOccurrences > 0 && occurrences != expectedOccurrences {
+		return 0, DiffStats{}, fmt.Errorf("replace: expected %d occurrence(s), found %d in %s", expectedOccurrences, occurrences, path)
+	}
+	if !replaceAll && occurrences != 1 {
+		return 0, DiffStats{}, fmt.Errorf("replace: found %d occurrences in %s; provide more context or set replaceAll", occurrences, path)
+	}
+
+	limit := 1
+	if replaceAll {
+		limit = -1
+	}
+	newContent := strings.Replace(oldContent, oldText, newText, limit)
+	newData := []byte(newContent)
+	_, stats, err := GenerateDiff(oldData, newData, path, 3)
+	if err != nil {
+		return 0, DiffStats{}, err
+	}
+
+	backup, err := s.backup(ctx, path)
+	if err != nil {
+		return 0, DiffStats{}, err
+	}
+	if err := s.fs.Upload(ctx, path, file.DefaultFileOsMode, bytes.NewReader(newData)); err != nil {
+		return 0, DiffStats{}, err
+	}
+	s.trackUpdate(ctx, path, backup)
+	if replaceAll {
+		return occurrences, stats, nil
+	}
+	return 1, stats, nil
+}
+
 func (s *Session) Add(ctx context.Context, path string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -239,7 +304,7 @@ func (s *Session) Add(ctx context.Context, path string, data []byte) error {
 	if err := s.assertActive(); err != nil {
 		return err
 	}
-	parent, _ := url.Split(path, file.Scheme)
+	parent, _ := afsurl.Split(path, file.Scheme)
 	if err := s.fs.Create(ctx, parent, file.DefaultDirOsMode, true); err != nil {
 		return err
 	}
@@ -300,7 +365,7 @@ func (s *Session) Rollback(ctx ...context.Context) error {
 					rollbackErrors = append(rollbackErrors, fmt.Errorf("rollback read backup %s: %v", e.backup, err))
 					continue
 				}
-				parent, _ := url.Split(e.orig, file.Scheme)
+				parent, _ := afsurl.Split(e.orig, file.Scheme)
 				if err := s.fs.Create(c, parent, file.DefaultDirOsMode, true); err != nil {
 					rollbackErrors = append(rollbackErrors, fmt.Errorf("rollback mkdir %s: %v", parent, err))
 					continue
@@ -317,7 +382,7 @@ func (s *Session) Rollback(ctx ...context.Context) error {
 					rollbackErrors = append(rollbackErrors, fmt.Errorf("rollback read backup %s: %v", e.backup, err))
 					continue
 				}
-				parent, _ := url.Split(e.orig, file.Scheme)
+				parent, _ := afsurl.Split(e.orig, file.Scheme)
 				if err := s.fs.Create(c, parent, file.DefaultDirOsMode, true); err != nil {
 					rollbackErrors = append(rollbackErrors, fmt.Errorf("rollback mkdir %s: %v", parent, err))
 					continue
@@ -416,9 +481,17 @@ func (s *Session) ApplyPatch(ctx context.Context, patchText string, directory ..
 		newer := strings.TrimPrefix(fd.NewName, "b/")
 
 		// Resolve paths based on directory parameter
-		orig = resolvePath(orig, dir)
+		if fd.OrigName != "/dev/null" {
+			orig, err = resolvePath(orig, dir)
+			if err != nil {
+				return err
+			}
+		}
 		if newer != "/dev/null" {
-			newer = resolvePath(newer, dir)
+			newer, err = resolvePath(newer, dir)
+			if err != nil {
+				return err
+			}
 		}
 
 		switch {
@@ -462,51 +535,134 @@ func (s *Session) ApplyPatch(ctx context.Context, patchText string, directory ..
 	return nil
 }
 
-// resolvePath resolves a file path based on a directory parameter.
-// If the path is absolute and directory is provided, the path is treated as relative to the directory.
-// If the path is absolute and directory is not provided, the path is returned as is.
-// If the path is relative and directory is provided, the path is resolved relative to the directory.
-// If the path is relative and directory is not provided, the path is returned as is (relative to current working directory).
-func resolvePath(path, directory string) string {
+// resolvePath resolves a patch path against workdir without changing caller
+// intent. Relative paths are resolved under workdir. Absolute paths are accepted
+// only when they already point inside workdir.
+func resolvePath(path, directory string) (string, error) {
 	path = strings.TrimSpace(path)
 	directory = strings.TrimSpace(directory)
 
-	// No workdir provided or path already has a scheme -> return as is
-	if directory == "" || strings.Contains(path, "://") {
-		return path
+	if path == "" {
+		return "", fmt.Errorf("patch path is empty")
 	}
-
-	// If workdir looks like a URL, use URL join to preserve scheme.
-	// Ensure the resolved path cannot escape the workdir by cleaning and stripping
-	// any leading slashes or ".." segments.
+	if directory == "" {
+		return path, nil
+	}
 	if strings.Contains(directory, "://") {
-		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
-		clean = strings.TrimPrefix(clean, "/")
-		for clean == ".." || strings.HasPrefix(clean, "../") {
-			clean = strings.TrimPrefix(clean, "../")
-		}
-		if filepath.IsAbs(path) {
-			clean = filepath.Base(path)
-		}
-		if clean == "." || clean == "" {
-			return directory
-		}
-		return url.Join(directory, clean)
+		return resolveURLPath(path, directory)
+	}
+	return resolveFilesystemPath(path, directory)
+}
+
+func resolveFilesystemPath(path, directory string) (string, error) {
+	base, err := filepath.Abs(filepath.Clean(directory))
+	if err != nil {
+		return "", fmt.Errorf("resolve workdir %q: %w", directory, err)
 	}
 
-	// Filesystem path join.
-	clean := filepath.Clean(path)
-	if filepath.IsAbs(clean) {
-		clean = filepath.Base(clean)
+	var target string
+	if strings.Contains(path, "://") {
+		baseURL, targetPath := afsurl.Base(path, file.Scheme)
+		if baseURL != "file://localhost" && baseURL != "file://" {
+			return "", fmt.Errorf("patch path %q is outside workdir %q", path, directory)
+		}
+		target = filepath.Clean(targetPath)
+	} else if filepath.IsAbs(path) {
+		target = filepath.Clean(path)
+	} else {
+		if relativePathEscapesBase(path) {
+			return "", fmt.Errorf("patch path %q resolves outside workdir %q", path, directory)
+		}
+		target = filepath.Clean(filepath.Join(base, path))
 	}
-	clean = strings.TrimPrefix(clean, string(filepath.Separator))
-	for clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		clean = strings.TrimPrefix(clean, ".."+string(filepath.Separator))
+
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve patch path %q: %w", path, err)
 	}
+	if !containsFilesystemPath(base, target) {
+		return "", fmt.Errorf("patch path %q resolves outside workdir %q", path, directory)
+	}
+	return target, nil
+}
+
+func resolveURLPath(path, directory string) (string, error) {
+	baseURL, basePath := afsurl.Base(directory, file.Scheme)
+	basePath = cleanURLPath(basePath)
+
+	var targetBaseURL string
+	var targetPath string
+	if strings.Contains(path, "://") {
+		targetBaseURL, targetPath = afsurl.Base(path, file.Scheme)
+		if targetBaseURL != baseURL {
+			return "", fmt.Errorf("patch path %q is outside workdir %q", path, directory)
+		}
+		targetPath = cleanURLPath(targetPath)
+	} else {
+		if pathpkg.IsAbs(path) {
+			if baseURL != "file://localhost" && baseURL != "file://" {
+				return "", fmt.Errorf("patch path %q is outside workdir %q", path, directory)
+			}
+			targetPath = cleanURLPath(path)
+		} else {
+			if relativePathEscapesBase(path) {
+				return "", fmt.Errorf("patch path %q resolves outside workdir %q", path, directory)
+			}
+			targetPath = cleanURLPath(pathpkg.Join(basePath, filepath.ToSlash(path)))
+		}
+		targetBaseURL = baseURL
+	}
+
+	if !containsURLPath(basePath, targetPath) {
+		return "", fmt.Errorf("patch path %q resolves outside workdir %q", path, directory)
+	}
+	if targetPath == "/" {
+		return afsurl.Join(targetBaseURL), nil
+	}
+	return afsurl.Join(targetBaseURL, targetPath), nil
+}
+
+func cleanURLPath(value string) string {
+	clean := pathpkg.Clean("/" + strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(value)), "/"))
 	if clean == "." || clean == "" {
-		return directory
+		return "/"
 	}
-	return filepath.Join(directory, clean)
+	return clean
+}
+
+func relativePathEscapesBase(value string) bool {
+	depth := 0
+	for _, segment := range strings.Split(filepath.ToSlash(value), "/") {
+		switch segment {
+		case "", ".":
+			continue
+		case "..":
+			if depth == 0 {
+				return true
+			}
+			depth--
+		default:
+			depth++
+		}
+	}
+	return false
+}
+
+func containsFilesystemPath(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
+}
+
+func containsURLPath(base, target string) bool {
+	base = cleanURLPath(base)
+	target = cleanURLPath(target)
+	if base == "/" {
+		return strings.HasPrefix(target, "/")
+	}
+	return target == base || strings.HasPrefix(target, base+"/")
 }
 
 // applyParsedHunks applies the hunks parsed by the new parser
@@ -515,25 +671,37 @@ func (s *Session) applyParsedHunks(ctx context.Context, hunks []Hunk, directory 
 		switch h := hunk.(type) {
 		case AddFile:
 			// Resolve path based on directory parameter
-			path := resolvePath(h.Path, directory)
+			path, err := resolvePath(h.Path, directory)
+			if err != nil {
+				return err
+			}
 			if err := s.Add(ctx, path, []byte(h.Contents)); err != nil {
 				return err
 			}
 
 		case DeleteFile:
 			// Resolve path based on directory parameter
-			path := resolvePath(h.Path, directory)
+			path, err := resolvePath(h.Path, directory)
+			if err != nil {
+				return err
+			}
 			if err := s.Delete(ctx, path); err != nil {
 				return err
 			}
 
 		case UpdateFile:
 			// Resolve path based on directory parameter
-			path := resolvePath(h.Path, directory)
+			path, err := resolvePath(h.Path, directory)
+			if err != nil {
+				return err
+			}
 
 			// Handle move if specified
 			if h.MovePath != "" {
-				newPath := resolvePath(h.MovePath, directory)
+				newPath, err := resolvePath(h.MovePath, directory)
+				if err != nil {
+					return err
+				}
 
 				// If there are no chunks, just move the file
 				if len(h.Chunks) == 0 {

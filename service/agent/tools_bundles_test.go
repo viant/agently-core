@@ -216,6 +216,21 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			},
 			expectNames: []string{"system/exec:execute"},
 		},
+		{
+			name: "default_system_patch_bundle_excludes_commit_and_rollback",
+			query: &QueryInput{
+				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"system/patch"}}},
+			},
+			bundles: nil,
+			defs: []llm.ToolDefinition{
+				{Name: "system/patch:apply"},
+				{Name: "system/patch:replace"},
+				{Name: "system/patch:snapshot"},
+				{Name: "system/patch:commit"},
+				{Name: "system/patch:rollback"},
+			},
+			expectNames: []string{"system/patch:apply", "system/patch:replace", "system/patch:snapshot"},
+		},
 	}
 
 	for _, tc := range testCases {
