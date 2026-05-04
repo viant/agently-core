@@ -16,6 +16,7 @@ import (
 	"github.com/viant/afs/storage"
 	"github.com/viant/afsc/openai/assets"
 	"github.com/viant/agently-core/internal/shared"
+	overwrap "github.com/viant/agently-core/protocol/tool/overflow"
 
 	pdf "github.com/ledongthuc/pdf"
 	openai "github.com/openai/openai-go/v3"
@@ -124,7 +125,7 @@ func buildToolResultPreview(body, ref string, threshold int) string {
 	if threshold <= 0 || len(body) <= threshold {
 		return body
 	}
-	if jsonPreview, ok := truncateContinuationJSON(body, threshold); ok {
+	if jsonPreview, ok := overwrap.BuildJSONContinuationPreview(body, ref, threshold); ok {
 		return jsonPreview
 	}
 	limit := int(0.9 * float64(threshold))
@@ -176,92 +177,6 @@ func middleTruncate(body string, limit int) string {
 		return start
 	}
 	return start + "\n[... omitted middle ...]\n" + end
-}
-
-func truncateContinuationJSON(body string, threshold int) (string, bool) {
-	if !strings.HasPrefix(strings.TrimSpace(body), "{") {
-		return "", false
-	}
-	var root map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &root); err != nil || root == nil {
-		return "", false
-	}
-	cont, _ := root["continuation"].(map[string]interface{})
-	if cont == nil {
-		return "", false
-	}
-	hasMore, _ := cont["hasMore"].(bool)
-	if !hasMore && intFromAny(cont["remaining"]) <= 0 {
-		return "", false
-	}
-	if _, ok := cont["nextRange"].(map[string]interface{}); !ok {
-		return "", false
-	}
-	parent, key, idx, value := findLargestString(root)
-	if parent == nil || value == "" {
-		out, err := json.Marshal(root)
-		return string(out), err == nil
-	}
-	limit := int(0.9 * float64(threshold))
-	if limit <= 0 || limit >= len(value) {
-		limit = threshold
-	}
-	if limit <= 0 || limit >= len(value) {
-		out, err := json.Marshal(root)
-		return string(out), err == nil
-	}
-	truncated := middleTruncate(value, limit)
-	switch container := parent.(type) {
-	case map[string]interface{}:
-		container[key] = truncated
-	case []interface{}:
-		if idx >= 0 && idx < len(container) {
-			container[idx] = truncated
-		}
-	default:
-		return "", false
-	}
-	out, err := json.Marshal(root)
-	return string(out), err == nil
-}
-
-func findLargestString(v interface{}) (parent interface{}, key string, idx int, val string) {
-	idx = -1
-	var visit func(node interface{}, p interface{}, k string, i int)
-	visit = func(node interface{}, p interface{}, k string, i int) {
-		switch n := node.(type) {
-		case string:
-			if len(n) > len(val) {
-				parent, key, idx, val = p, k, i, n
-			}
-		case map[string]interface{}:
-			for mk, mv := range n {
-				visit(mv, n, mk, -1)
-			}
-		case []interface{}:
-			for si, sv := range n {
-				visit(sv, n, "", si)
-			}
-		}
-	}
-	visit(v, nil, "", -1)
-	return parent, key, idx, val
-}
-
-func intFromAny(v interface{}) int {
-	switch t := v.(type) {
-	case int:
-		return t
-	case int64:
-		return int(t)
-	case float64:
-		return int(t)
-	case json.Number:
-		if i, err := t.Int64(); err == nil {
-			return int(i)
-		}
-	}
-	return 0
 }
 
 // ToRequest converts an llm.ChatRequest to a Request

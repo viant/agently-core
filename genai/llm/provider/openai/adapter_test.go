@@ -400,3 +400,19 @@ func TestToRequest_PreservesNativeContinuationShape(t *testing.T) {
 		assert.NotContains(t, text, "[... omitted middle ...]")
 	}
 }
+
+func TestToRequest_LargeJSONToolResultCarriesStructuredNextArgs(t *testing.T) {
+	body := `{"messageId":"source-msg","content":"` + strings.Repeat("A", 5000) + `"}`
+	msg := llm.Message{
+		ID:         "source-msg",
+		Role:       llm.RoleTool,
+		ToolCallId: "call_1",
+		Content:    body,
+	}
+	got := sanitizeToolReplayMessage(msg, 1000)
+	assert.Contains(t, got.Content, `"messageId":"source-msg"`)
+	assert.Contains(t, got.Content, `"nextArgs":{`)
+	assert.Contains(t, got.Content, `"messageId":"source-msg"`)
+	assert.Contains(t, got.Content, `"byteRange":{"from":900,"to":1800}`)
+	assert.NotContains(t, got.Content, "useToolToSeeMore: message-show")
+}
