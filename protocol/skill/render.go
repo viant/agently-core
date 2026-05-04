@@ -30,7 +30,7 @@ func RenderPrompt(skills []Metadata, budgetChars int) string {
 		line := fmt.Sprintf("- %s (%s): %s", strings.TrimSpace(item.Name), mode, strings.TrimSpace(item.Description))
 		candidate := append(lines, line)
 		text := strings.Join(candidate, "\n")
-		if len(text)+len("\n### How to use skills\n- Use `llm/skills-list` to re-inspect the visible skills.\n- Use `llm/skills-activate` with `name` and optional `args` to activate one skill.\n<!-- truncated 999 -->\n</skills_instructions>") > budgetChars {
+		if len(text)+len("\n### How to use skills\n- Use `llm_skills-list` to re-inspect the visible skills.\n- Use `llm_skills-activate` with `name` and optional `args` to activate one skill.\n<!-- truncated 999 -->\n</skills_instructions>") > budgetChars {
 			truncated++
 			continue
 		}
@@ -39,8 +39,8 @@ func RenderPrompt(skills []Metadata, budgetChars int) string {
 	lines = append(lines,
 		"",
 		"### How to use skills",
-		"- Use `llm/skills:list` to re-inspect the visible skills.",
-		"- Use `llm/skills:activate` with `name` and optional `args` to activate one skill.",
+		"- Use `llm_skills-list` to re-inspect the visible skills.",
+		"- Use `llm_skills-activate` with `name` and optional `args` to activate one skill.",
 		"- Each skill shows its default execution mode in parentheses: `inline`, `fork`, or `detach`.",
 		"- Do not set `input.mode` unless you intentionally need to override the skill's default execution mode.",
 		"- Activate a skill only when it is relevant to the current task.",

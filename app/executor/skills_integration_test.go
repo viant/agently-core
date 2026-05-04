@@ -234,7 +234,7 @@ func newTestAgent(skillName string) *agentmdl.Agent {
 		},
 		Prompt: &binding.Prompt{Engine: "go", Text: "{{.Task.Prompt}}"},
 		Tool: agentmdl.Tool{
-			Bundles: []string{"system/exec"},
+			Bundles: []string{"system/exec", "llm/skills"},
 		},
 		Skills: []string{skillName},
 	}
@@ -1158,7 +1158,7 @@ func TestRuntimeQuery_ConversationDefaultModel_AppearsInLLMRequest(t *testing.T)
 	}
 }
 
-func TestRuntimeQuery_SkillToolsAppearOnlyWhenAgentHasVisibleSkills(t *testing.T) {
+func TestRuntimeQuery_SkillToolsFollowExplicitBundles(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "demo", "Demo skill.", "", "# Demo Skill\nFollow the demo instructions.")
 	payloadDir := t.TempDir()
@@ -1209,17 +1209,17 @@ func TestRuntimeQuery_SkillToolsAppearOnlyWhenAgentHasVisibleSkills(t *testing.T
 	for _, item := range payload.Options.Tools {
 		names = append(names, item.Definition.Name)
 	}
-	if !contains(names, "llm/skills:list") || !contains(names, "llm/skills:activate") {
+	if !contains(names, "llm_skills-list") || !contains(names, "llm_skills-activate") {
 		t.Fatalf("expected skill tools in request, got %v", names)
 	}
 
-	noSkills := newTestAgent("demo")
-	noSkills.Skills = nil
+	noSkillBundle := newTestAgent("demo")
+	noSkillBundle.Tool.Bundles = []string{"system/exec"}
 	model2 := &skillSequenceModel{outcomes: []llm.GenerateResponse{
 		{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: "done"}}}},
 	}}
 	rt2, err := executor.NewBuilder().
-		WithAgentFinder(&skillTestAgentFinder{agent: noSkills}).
+		WithAgentFinder(&skillTestAgentFinder{agent: noSkillBundle}).
 		WithModelFinder(&skillTestModelFinder{model: model2}).
 		Build(context.Background())
 	if err != nil {
@@ -1231,7 +1231,7 @@ func TestRuntimeQuery_SkillToolsAppearOnlyWhenAgentHasVisibleSkills(t *testing.T
 		UserId:         "tester",
 		Query:          "hello",
 		DisplayQuery:   "hello",
-		Agent:          noSkills,
+		Agent:          noSkillBundle,
 	}, &agentsvc.QueryOutput{}); err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -1255,7 +1255,7 @@ func TestRuntimeQuery_SkillToolsAppearOnlyWhenAgentHasVisibleSkills(t *testing.T
 	for _, item := range payload2.Options.Tools {
 		names2 = append(names2, item.Definition.Name)
 	}
-	if contains(names2, "llm/skills:list") || contains(names2, "llm/skills:activate") {
+	if contains(names2, "llm_skills-list") || contains(names2, "llm_skills-activate") {
 		t.Fatalf("did not expect skill tools in request, got %v", names2)
 	}
 }
