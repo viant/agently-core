@@ -48,6 +48,12 @@ func TestEnsureDefaultAt_SeedsDefaultAssets(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "exec npx -y @playwright/cli")
 
+	data, err = os.ReadFile(filepath.Join(root, "tools", "bundles", "system_patch.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "system/patch:replace")
+	require.NotContains(t, string(data), "system/patch:commit")
+	require.NotContains(t, string(data), "system/patch:rollback")
+
 	info, err := os.Stat(filepath.Join(root, "bin", "playwright-cli"))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())

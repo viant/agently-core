@@ -655,7 +655,9 @@ func applyContextWorkdir(toolName string, args map[string]interface{}, ctx conte
 		return
 	}
 	switch strings.TrimSpace(toolName) {
-	case "system_exec-execute", "system/exec:execute", "system_patch-apply", "system/patch:apply":
+	case "system_exec-execute", "system/exec:execute",
+		"system_patch-apply", "system/patch:apply",
+		"system_patch-replace", "system/patch:replace":
 		args["workdir"] = workdir
 	}
 }

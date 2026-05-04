@@ -58,7 +58,7 @@ func DeriveBundles(defs []llm.ToolDefinition) []*Bundle {
 				ID:      service,
 				Title:   service,
 				IconRef: DefaultIconRef(service),
-				Match:   []llm.Tool{{Name: service + "/*"}},
+				Match:   defaultBundleMatch(service),
 			}
 			byService[service] = b
 		}
@@ -70,6 +70,19 @@ func DeriveBundles(defs []llm.ToolDefinition) []*Bundle {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+func defaultBundleMatch(service string) []llm.Tool {
+	switch strings.TrimSpace(service) {
+	case "system/patch":
+		return []llm.Tool{
+			{Name: "system/patch:apply"},
+			{Name: "system/patch:replace"},
+			{Name: "system/patch:snapshot"},
+		}
+	default:
+		return []llm.Tool{{Name: service + "/*"}}
+	}
 }
 
 func serviceFromToolName(name string) string {

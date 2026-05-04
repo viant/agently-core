@@ -3,7 +3,17 @@ package patch
 // ApplyInput is the payload for Service.Apply
 type ApplyInput struct {
 	Patch   string `json:"patch" description:"Patch text to apply (either unified-diff or simplified patch format)"`
-	Workdir string `json:"workdir" description:"Required. Base directory for all relative patch paths"`
+	Workdir string `json:"workdir" description:"Required. Base directory for patch paths; absolute patch paths are accepted only when they resolve inside workdir"`
+}
+
+// ReplaceInput is the payload for Service.Replace.
+type ReplaceInput struct {
+	Workdir             string `json:"workdir" description:"Required. Base directory for path; absolute path is accepted only when it resolves inside workdir"`
+	Path                string `json:"path" description:"File path to edit. Relative paths are resolved against workdir; absolute paths must resolve inside workdir"`
+	Old                 string `json:"old" description:"Exact text to replace. Must be non-empty and must already exist in the file"`
+	New                 string `json:"new" description:"Replacement text"`
+	ReplaceAll          bool   `json:"replaceAll,omitempty" description:"When true, replace all exact occurrences of old"`
+	ExpectedOccurrences int    `json:"expectedOccurrences,omitempty" description:"Optional exact occurrence count required before replacing"`
 }
 
 // DiffInput is the payload for Service.Diff
@@ -25,6 +35,15 @@ type ApplyOutput struct {
 	Stats  DiffStats `json:"stats,omitempty"`
 	Status string    `json:"status,omitempty"`
 	Error  string    `json:"error,omitempty"`
+}
+
+// ReplaceOutput summarises an exact replacement staged in the active session.
+type ReplaceOutput struct {
+	Path         string    `json:"path,omitempty"`
+	Replacements int       `json:"replacements,omitempty"`
+	Stats        DiffStats `json:"stats,omitempty"`
+	Status       string    `json:"status,omitempty"`
+	Error        string    `json:"error,omitempty"`
 }
 
 // DiffOutput mirrors DiffResult for JSON tags.

@@ -75,6 +75,9 @@ func BestPathAllowed(name string) bool {
 		"system/exec:start", "system/exec/start",
 		"system/exec:cancel", "system/exec/cancel",
 		"system/patch:apply", "system/patch/apply",
+		"system/patch:replace", "system/patch/replace",
+		"system/patch:commit", "system/patch/commit",
+		"system/patch:rollback", "system/patch/rollback",
 		"message:remove", "message-remove", "internal/message:remove":
 		return false
 	}
