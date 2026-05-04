@@ -169,6 +169,48 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 	require.Len(t, second.ToolSteps, 0)
 }
 
+func TestBuildCanonicalState_HidesIntakeRouterJSONUntilFinalResponse(t *testing.T) {
+	iteration := 0
+	routerJSON := `{"clarificationNeeded":true,"clarificationQuestion":"Which metric?"}`
+	mode := "router"
+	phase := "intake"
+	status := "completed"
+
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "running",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "m1",
+				Role:      "assistant",
+				Interim:   1,
+				Content:   &routerJSON,
+				Mode:      &mode,
+				Phase:     &phase,
+				Iteration: &iteration,
+				ModelCall: &agconv.ModelCallView{
+					MessageId: "m1",
+					Status:    status,
+				},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Execution)
+	require.Len(t, ts.Execution.Pages, 1)
+
+	page := ts.Execution.Pages[0]
+	require.Equal(t, "intake", page.Phase)
+	require.Equal(t, "intake", page.ExecutionRole)
+	require.False(t, page.FinalResponse)
+	require.Empty(t, page.Content)
+}
+
 func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testing.T) {
 	iteration1 := 1
 	modelStatus := "running"
@@ -516,16 +558,16 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscrip
 				Role:      "assistant",
 				Interim:   1,
 				Content:   &modelNarration,
-				Narration:  &modelNarration,
+				Narration: &modelNarration,
 				Iteration: &iteration1,
 				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
 			{
-				Id:       "m2",
-				Role:     "assistant",
-				Interim:  1,
+				Id:        "m2",
+				Role:      "assistant",
+				Interim:   1,
 				Narration: &statusNarration,
-				Mode:     &execMode,
+				Mode:      &execMode,
 			},
 			{
 				Id:        "m3",
@@ -558,11 +600,11 @@ func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *
 		Status: "running",
 		Message: []*agconv.MessageView{
 			{
-				Id:       "n1",
-				Role:     "assistant",
-				Interim:  1,
+				Id:        "n1",
+				Role:      "assistant",
+				Interim:   1,
 				Narration: &narration,
-				Mode:     &narratorMode,
+				Mode:      &narratorMode,
 			},
 		},
 	}
@@ -789,7 +831,7 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
-				Narration:  &narration,
+				Narration: &narration,
 				Content:   &narration,
 				Iteration: &iteration,
 				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},

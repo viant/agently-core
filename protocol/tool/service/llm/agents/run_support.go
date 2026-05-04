@@ -165,17 +165,24 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		qi.ConversationID = runCtx.childConversationID
 		ro.ConversationID = runCtx.childConversationID
 	}
-	// Expand prompt profile: inject instructions, merge bundles, set template.
-	// Must run after qi.MessageID and qi.ConversationID are both set.
-	if strings.TrimSpace(ri.PromptProfileId) != "" {
-		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {
-			return fmt.Errorf("resolveProfile: %w", err)
-		}
-	}
 	if ri.Async != nil && *ri.Async {
 		ro.Status = "running"
 		ro.ConversationID = runCtx.childConversationID
-		go func(parentCtx context.Context, childIn *agentsvc.QueryInput, childOut *agentsvc.QueryOutput, linked linkedRun) {
+		childIn := *qi
+		runReq := *ri
+		go func(parentCtx context.Context, childIn *agentsvc.QueryInput, childOut *agentsvc.QueryOutput, linked linkedRun, asyncReq *RunInput) {
+			if strings.TrimSpace(asyncReq.PromptProfileId) != "" {
+				if err := s.resolveProfile(parentCtx, asyncReq, childIn, linked.childConversationID); err != nil {
+					result := childRunResult{
+						status:         "failed",
+						conversationID: linked.childConversationID,
+						err:            fmt.Errorf("resolveProfile: %w", err),
+					}
+					s.finalizeRunStatus(parentCtx, linked, result.status)
+					s.surfaceAsyncCompletion(parentCtx, linked, strings.TrimSpace(asyncReq.AgentID), result)
+					return
+				}
+			}
 			result := s.executeChildRun(parentCtx, childIn, childOut, linked)
 			finalStatus := result.status
 			if strings.TrimSpace(finalStatus) == "" {
@@ -186,10 +193,17 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 				}
 			}
 			s.finalizeRunStatus(parentCtx, linked, finalStatus)
-			s.surfaceAsyncCompletion(parentCtx, linked, strings.TrimSpace(ri.AgentID), result)
-		}(context.WithoutCancel(ctx), qi, &agentsvc.QueryOutput{}, runCtx)
+			s.surfaceAsyncCompletion(parentCtx, linked, strings.TrimSpace(asyncReq.AgentID), result)
+		}(context.WithoutCancel(ctx), &childIn, &agentsvc.QueryOutput{}, runCtx, &runReq)
 		logx.Infof("conversation", "agents.run async accepted agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
 		return nil
+	}
+	// Expand prompt profile: inject instructions, merge bundles, set template.
+	// Must run after qi.MessageID and qi.ConversationID are both set.
+	if strings.TrimSpace(ri.PromptProfileId) != "" {
+		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {
+			return fmt.Errorf("resolveProfile: %w", err)
+		}
 	}
 	qo := &agentsvc.QueryOutput{}
 	result := s.executeChildRun(ctx, qi, qo, runCtx)
@@ -660,6 +674,12 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 
 func statusItemMessage(item StatusItem) (string, string) {
 	item = normalizeStatusItem(item)
+	if !item.Terminal {
+		if text := strings.TrimSpace(item.LastAssistantNarration); text != "" {
+			return text, "preamble"
+		}
+		return "", ""
+	}
 	if item.HasFinalResponse {
 		if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
 			return text, "response"
@@ -756,6 +776,9 @@ func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, st
 				if msg != nil && !msg.CreatedAt.IsZero() && msg.CreatedAt.After(lastActivityAt) {
 					lastActivityAt = msg.CreatedAt
 				}
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(ptrString(msg.Mode)), "router") {
 				continue
 			}
 			if !msg.CreatedAt.IsZero() {

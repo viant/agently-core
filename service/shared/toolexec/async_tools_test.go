@@ -187,16 +187,24 @@ func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
 	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
 	require.NotNil(t, last)
 	require.Equal(t, "completed", strings.TrimSpace(last.Status))
+	var sawCompletedStart bool
 	var sawStatusCarrier bool
 	for _, call := range conv.patchedToolCalls {
 		if call == nil {
 			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(call.OpID), "call-1") && strings.EqualFold(strings.TrimSpace(call.ToolName), "llm/agents/start") {
+			require.Equal(t, "completed", strings.TrimSpace(call.Status))
+			require.NotNil(t, call.ResponsePayloadID)
+			require.NotEmpty(t, strings.TrimSpace(derefString(call.ResponsePayloadID)))
+			sawCompletedStart = true
 		}
 		if strings.EqualFold(strings.TrimSpace(call.ToolName), "llm/agents/status") {
 			sawStatusCarrier = true
 			break
 		}
 	}
+	require.True(t, sawCompletedStart, "wait-mode start should complete the original start tool call before the parked status carrier takes over")
 	require.True(t, sawStatusCarrier, "wait-mode start should create a visible status carrier")
 }
 

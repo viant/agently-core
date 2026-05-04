@@ -504,6 +504,66 @@ describe('chatStore/reducer — merge rule', () => {
         expect(page.finalAssistantMessageId).toBeUndefined();
     });
 
+    it('does not surface intake/router model_completed JSON as page content without an explicit final response', () => {
+        const state = startedState();
+        applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_M',
+            pageId: 'pg_intake',
+            assistantMessageId: 'msg_intake',
+            modelCallId: 'mc_intake',
+            phase: 'intake',
+            mode: 'router',
+            iteration: 0,
+        } as SSEEvent));
+        applyEvent(state, sse({
+            type: 'model_completed',
+            turnId: 'tn_M',
+            pageId: 'pg_intake',
+            assistantMessageId: 'msg_intake',
+            modelCallId: 'mc_intake',
+            phase: 'intake',
+            mode: 'router',
+            content: '{"clarificationNeeded":true}',
+            status: 'completed',
+            iteration: 0,
+        } as SSEEvent));
+
+        const page = state.turns[0].pages.find((p) => p.pageId === 'pg_intake')!;
+        expect(page.content ?? '').toBe('');
+        expect(page.finalResponse).not.toBe(true);
+    });
+
+    it('keeps fallback model_completed content for non-intake pages when no progressive text exists', () => {
+        const state = startedState();
+        applyEvent(state, sse({
+            type: 'model_started',
+            turnId: 'tn_M',
+            pageId: 'pg_main',
+            assistantMessageId: 'msg_main',
+            modelCallId: 'mc_main',
+            phase: 'main',
+            mode: 'task',
+            iteration: 1,
+        } as SSEEvent));
+        applyEvent(state, sse({
+            type: 'model_completed',
+            turnId: 'tn_M',
+            pageId: 'pg_main',
+            assistantMessageId: 'msg_main',
+            modelCallId: 'mc_main',
+            phase: 'main',
+            mode: 'task',
+            content: 'Checking active targeting first.',
+            status: 'completed',
+            iteration: 1,
+        } as SSEEvent));
+
+        const page = state.turns[0].pages.find((p) => p.pageId === 'pg_main')!;
+        expect(page.content).toBe('Checking active targeting first.');
+        expect(page.finalResponse).not.toBe(true);
+    });
+
     it('applyTranscript is idempotent: same snapshot twice leaves state equal', () => {
         const state = startedState();
         const snapshot: CanonicalConversationState = {

@@ -206,6 +206,40 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 	assert.EqualValues(t, expected, items)
 }
 
+func TestClient_PatchMessage_PreservesModeAndNarration(t *testing.T) {
+	ctx := context.Background()
+	c := mem.New()
+
+	conv := convcli.NewConversation()
+	conv.SetId("c-mode")
+	require.NoError(t, c.PatchConversations(ctx, conv))
+
+	turn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn.SetId("t-mode")
+	turn.SetConversationID("c-mode")
+	require.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn)))
+
+	msg := &msgw.Message{Has: &msgw.MessageHas{}}
+	msg.SetId("m-mode")
+	msg.SetConversationID("c-mode")
+	msg.SetTurnID("t-mode")
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetMode("router")
+	msg.SetNarration("delegating")
+	msg.SetContent("delegating")
+	msg.SetInterim(1)
+	require.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(msg)))
+
+	got, err := c.GetConversation(ctx, "c-mode", convcli.WithIncludeTranscript(true))
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got.Transcript, 1)
+	require.Len(t, got.Transcript[0].Message, 1)
+	assert.Equal(t, "router", ptrVal(got.Transcript[0].Message[0].Mode))
+	assert.Equal(t, "delegating", ptrVal(got.Transcript[0].Message[0].Narration))
+}
+
 func TestClient_GetConversations_AppliesListFilters(t *testing.T) {
 	ctx := context.Background()
 	c := mem.New()
@@ -270,6 +304,13 @@ func TestClient_GetConversations_AppliesListFilters(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	assert.Equal(t, "root-1", items[0].Id)
+}
+
+func ptrVal(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func TestClient_DeleteConversation_DataDriven(t *testing.T) {

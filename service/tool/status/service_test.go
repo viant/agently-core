@@ -67,6 +67,9 @@ func (r *recordingConv) PatchMessage(_ context.Context, message *apiconv.Mutable
 			if message.Narration != nil {
 				existing.Narration = message.Narration
 			}
+			if message.Mode != nil {
+				existing.Mode = message.Mode
+			}
 			if message.Interim != nil {
 				existing.Interim = *message.Interim
 			}
@@ -85,6 +88,7 @@ func (r *recordingConv) PatchMessage(_ context.Context, message *apiconv.Mutable
 		Type:           msgType,
 		Content:        message.Content,
 		Narration:      message.Narration,
+		Mode:           message.Mode,
 	}
 	if message.Interim != nil {
 		created.Interim = *message.Interim
@@ -139,6 +143,7 @@ func TestStartNarration_ReusesExistingInterimAssistantMessage(t *testing.T) {
 	msgID := "assistant-existing"
 	content := "Old preamble"
 	role := "assistant"
+	mode := "narrator"
 	turnRef := turnID
 	conv := &recordingConv{
 		conversation: &apiconv.Conversation{
@@ -155,6 +160,7 @@ func TestStartNarration_ReusesExistingInterimAssistantMessage(t *testing.T) {
 							Type:           "text",
 							Interim:        1,
 							Content:        &content,
+							Mode:           &mode,
 						},
 					},
 				},
@@ -171,6 +177,49 @@ func TestStartNarration_ReusesExistingInterimAssistantMessage(t *testing.T) {
 	require.Equal(t, msgID, conv.patched[0].Id)
 	require.NotNil(t, conv.patched[0].Narration)
 	require.Equal(t, "Updated preamble", *conv.patched[0].Narration)
+	require.NotNil(t, conv.patched[0].Mode)
+	require.Equal(t, "narrator", *conv.patched[0].Mode)
+}
+
+func TestStartNarration_DoesNotReuseExistingTaskInterimMessage(t *testing.T) {
+	turnID := "turn-1"
+	msgID := "assistant-task"
+	content := "Main task preamble"
+	role := "assistant"
+	mode := "task"
+	turnRef := turnID
+	conv := &recordingConv{
+		conversation: &apiconv.Conversation{
+			Transcript: []*agconv.TranscriptView{
+				{
+					Id: turnID,
+					Message: []*agconv.MessageView{
+						{
+							Id:             msgID,
+							ConversationId: "conv-1",
+							TurnId:         &turnRef,
+							CreatedAt:      time.Now(),
+							Role:           role,
+							Type:           "text",
+							Interim:        1,
+							Content:        &content,
+							Mode:           &mode,
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := New(conv)
+	parent := runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: turnID}
+
+	gotID, err := svc.StartNarration(context.Background(), parent, "llm/agents:status", "", "", "", "Status update")
+	require.NoError(t, err)
+	require.NotEmpty(t, gotID)
+	require.NotEqual(t, msgID, gotID)
+	require.Len(t, conv.patched, 1)
+	require.NotNil(t, conv.patched[0].Mode)
+	require.Equal(t, "narrator", *conv.patched[0].Mode)
 }
 
 func TestUpdateNarration_RefreshesSameMessageID(t *testing.T) {
