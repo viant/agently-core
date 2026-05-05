@@ -14,7 +14,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/jsonutil"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	core2 "github.com/viant/agently-core/service/core"
@@ -28,7 +28,7 @@ func TestService_extendPlanFromContent_DD(t *testing.T) {
 	type testCase struct {
 		name     string
 		content  string
-		expected *plan.Elicitation
+		expected *execution.Elicitation
 	}
 
 	elicitationJSON := `{
@@ -47,7 +47,7 @@ func TestService_extendPlanFromContent_DD(t *testing.T) {
 }
 }`
 
-	expected := &plan.Elicitation{}
+	expected := &execution.Elicitation{}
 	_ = jsonutil.EnsureJSONResponse(ctx, elicitationJSON, expected)
 	if expected.IsEmpty() {
 		expected = nil
@@ -64,7 +64,7 @@ func TestService_extendPlanFromContent_DD(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := &core2.GenerateOutput{Content: tc.content}
-			aPlan := plan.New()
+			aPlan := execution.New()
 			err := s.extendPlanFromContent(ctx, out, aPlan)
 			assert.NoError(t, err)
 			assert.EqualValues(t, tc.expected, aPlan.Elicitation)
@@ -75,7 +75,7 @@ func TestService_extendPlanFromContent_DD(t *testing.T) {
 func TestService_extendPlanFromResponse_ElicitationOnlyIsNotEmpty(t *testing.T) {
 	ctx := context.Background()
 	service := &Service{}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	genOutput := &core2.GenerateOutput{
 		Content: `{
   "type": "elicitation",
@@ -110,7 +110,7 @@ func TestService_extendPlanFromResponse_ElicitationOnlyIsNotEmpty(t *testing.T) 
 func TestService_extendPlanFromContent_PrefersResponseContentForElicitation(t *testing.T) {
 	ctx := context.Background()
 	service := &Service{}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	genOutput := &core2.GenerateOutput{
 		Content: `{
  "type": "elicitation",
@@ -141,7 +141,7 @@ func TestService_extendPlanFromContent_PrefersResponseContentForElicitation(t *t
 
 func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 	service := &Service{}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	choice := &llm.Choice{
 		Message: llm.Message{
 			Role:      llm.RoleAssistant,
@@ -159,7 +159,7 @@ func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 func TestService_extendPlanFromResponse_RejectsUnresolvedMessageShowContinuation(t *testing.T) {
 	ctx := context.Background()
 	service := &Service{}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	genInput := &core2.GenerateInput{
 		Binding: &binding.Binding{
 			History: binding.History{
@@ -217,7 +217,7 @@ content: |
 
 func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreamingDeltas(t *testing.T) {
 	service := &Service{}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	choice1 := &llm.Choice{
 		Message: llm.Message{
 			Role: llm.RoleAssistant,
@@ -327,7 +327,7 @@ func TestService_handleTypedStreamEvent_TurnCompletedUsesFinalResponseContent(t 
  "message": "Please provide your favorite color so I can describe it in3 sentences."
 }`,
 	}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	nextStepIdx := 0
 	var wg sync.WaitGroup
 	var mux sync.Mutex
@@ -367,7 +367,7 @@ func TestService_handleTypedStreamEvent_TextDeltaPreservesWhitespaceOnlyChunks(t
 	ctx := context.Background()
 	service := &Service{}
 	genOutput := &core2.GenerateOutput{}
-	aPlan := plan.New()
+	aPlan := execution.New()
 	nextStepIdx := 0
 	var wg sync.WaitGroup
 	var mux sync.Mutex

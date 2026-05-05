@@ -7,7 +7,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/runtime/usage"
@@ -103,8 +103,8 @@ type QueryOutput struct {
 	ConversationID string                               `json:"conversationId,omitempty"`
 	Agent          *agentmdl.Agent                      `json:"agent"`                 // Agent used for the query
 	Content        string                               `json:"content"`               // Generated content from the agent
-	Elicitation    *plan.Elicitation                    `json:"elicitation,omitempty"` // structured missing input request
-	Plan           *plan.Plan                           `json:"plan,omitempty"`        // current execution plan (optional)
+	Elicitation    *execution.Elicitation               `json:"elicitation,omitempty"` // structured missing input request
+	Plan           *execution.Plan                      `json:"plan,omitempty"`        // current execution plan (optional)
 	Usage          *usage.Aggregator                    `json:"usage,omitempty"`
 	Model          string                               `json:"model,omitempty"`
 	MessageID      string                               `json:"messageId,omitempty"`

@@ -12,7 +12,7 @@ import (
 	debugtrace "github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
@@ -61,8 +61,8 @@ const (
 	compactCandidateLimit = 200
 )
 
-func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*plan.Plan, error) {
-	aPlan := plan.New()
+func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*execution.Plan, error) {
+	aPlan := execution.New()
 
 	var wg sync.WaitGroup
 	nextStepIdx := 0
@@ -192,7 +192,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	return aPlan, nil
 }
 
-func (s *Service) retryPendingContinuation(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
+func (s *Service) retryPendingContinuation(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput, aPlan *execution.Plan) (bool, error) {
 	if s == nil || s.llm == nil || genInput == nil || genOutput == nil || aPlan == nil {
 		return false, errPendingToolContinuation
 	}

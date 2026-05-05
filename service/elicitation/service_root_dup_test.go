@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/elicitation/router"
 )
@@ -127,7 +127,7 @@ func TestElicit_RootDuplicateDoesNotReuseSequence(t *testing.T) {
 	srv := New(fake, nil, r, func() Awaiter { return acceptNoPayloadAwaiter{} })
 
 	turn := &memory.TurnMeta{ConversationID: childID, TurnID: childTurnID}
-	_, _, _, err := srv.Elicit(context.Background(), turn, "assistant", &plan.Elicitation{})
+	_, _, _, err := srv.Elicit(context.Background(), turn, "assistant", &execution.Elicitation{})
 	assert.NoError(t, err)
 
 	found := false

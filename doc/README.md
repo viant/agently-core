@@ -25,6 +25,7 @@ If you're new, read in this order:
 |---|---|
 | [agent-orchestration.md](agent-orchestration.md) | ReAct loop, approval, recovery |
 | [planning-and-intake.md](planning-and-intake.md) | Pre-turn classification, plan schema |
+| [planner.md](planner.md) | Light planner fallback over static profiles |
 | [context-management.md](context-management.md) | Token budgets, pruning, overflow recovery |
 | [followup-chains.md](followup-chains.md) | Multi-turn chains inside a conversation |
 | [async.md](async.md) | Long-running operations (shell, child agents, external services) |

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicitation "github.com/viant/agently-core/service/elicitation"
 	elicaction "github.com/viant/agently-core/service/elicitation/action"
@@ -24,7 +24,7 @@ type agentToolApprovalElicitor struct {
 
 var _ toolapproval.Elicitor = (*agentToolApprovalElicitor)(nil)
 
-// ElicitToolApproval builds a plan.Elicitation for the tool approval request,
+// ElicitToolApproval builds a execution.Elicitation for the tool approval request,
 // records it via the elicitation service, and waits for the user's decision.
 // Returns the normalized action: "accept", "decline", or "cancel".
 func (e *agentToolApprovalElicitor) ElicitToolApproval(
@@ -79,7 +79,7 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 		message = fmt.Sprintf("Approve execution of %s?", view.Title)
 	}
 
-	req := &plan.Elicitation{
+	req := &execution.Elicitation{
 		ElicitRequestParams: mcpschema.ElicitRequestParams{
 			Message: message,
 			RequestedSchema: mcpschema.ElicitRequestParamsRequestedSchema{

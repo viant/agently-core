@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 )
 
 func TestEnrichApprovalPayload(t *testing.T) {
-	req := &plan.Elicitation{}
+	req := &execution.Elicitation{}
 	req.RequestedSchema.Properties = map[string]interface{}{
 		"_approvalMeta": map[string]interface{}{
 			"type": "string",

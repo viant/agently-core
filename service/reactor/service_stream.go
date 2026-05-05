@@ -14,7 +14,7 @@ import (
 	debugtrace "github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -122,28 +122,28 @@ func (s *Service) publishPlannedToolCallsEvent(ctx context.Context, responseID s
 	_ = pub.Publish(ctx, &modelcall.StreamEvent{
 		ConversationID: strings.TrimSpace(turn.ConversationID),
 		Event: &streaming.Event{
-			ID:                 assistantMessageID,
-			ConversationID:     strings.TrimSpace(turn.ConversationID),
-			StreamID:           strings.TrimSpace(turn.ConversationID),
-			MessageID:          assistantMessageID,
-			Type:               streaming.EventTypeToolCallsPlanned,
-			TurnID:             strings.TrimSpace(turn.TurnID),
-			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-			ResponseID:         strings.TrimSpace(responseID),
-			Status:             status,
-			Content:            content,
-			Narration:          preamble,
-			Iteration:          iteration,
-			PageIndex:          iteration,
-			PageCount:          iteration,
-			LatestPage:         true,
-			Model:              &streaming.EventModel{Model: modelName},
-			ToolCallsPlanned:   toolCalls,
+			ID:               assistantMessageID,
+			ConversationID:   strings.TrimSpace(turn.ConversationID),
+			StreamID:         strings.TrimSpace(turn.ConversationID),
+			MessageID:        assistantMessageID,
+			Type:             streaming.EventTypeToolCallsPlanned,
+			TurnID:           strings.TrimSpace(turn.TurnID),
+			ParentMessageID:  strings.TrimSpace(turn.ParentMessageID),
+			ResponseID:       strings.TrimSpace(responseID),
+			Status:           status,
+			Content:          content,
+			Narration:        preamble,
+			Iteration:        iteration,
+			PageIndex:        iteration,
+			PageCount:        iteration,
+			LatestPage:       true,
+			Model:            &streaming.EventModel{Model: modelName},
+			ToolCallsPlanned: toolCalls,
 		},
 	})
 }
 
-func (s *Service) streamPlanSteps(ctx context.Context, streamId string, aPlan *plan.Plan) error {
+func (s *Service) streamPlanSteps(ctx context.Context, streamId string, aPlan *execution.Plan) error {
 	handler, cleanup, err := stream.PrepareStreamHandler(ctx, streamId)
 	if err != nil {
 		return err
@@ -179,7 +179,7 @@ func (s *Service) canStream(ctx context.Context, genInput *core2.GenerateInput) 
 	return model.Implements(base.CanStream), nil
 }
 
-func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *plan.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) string {
+func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Registry, aPlan *execution.Plan, wg *sync.WaitGroup, nextStepIdx *int, genOutput *core2.GenerateOutput) string {
 	runCtx := ctx
 	var mux sync.Mutex
 	var stopped atomic.Bool
@@ -232,7 +232,7 @@ func (s *Service) handleTypedStreamEvent(
 	event *llm.StreamEvent,
 	mux *sync.Mutex,
 	genOutput *core2.GenerateOutput,
-	aPlan *plan.Plan,
+	aPlan *execution.Plan,
 	nextStepIdx *int,
 	wg *sync.WaitGroup,
 	reg tool.Registry,
@@ -254,7 +254,7 @@ func (s *Service) handleTypedStreamEvent(
 			prev.Args = event.Arguments
 			prev.Reason = strings.TrimSpace(genOutput.Content)
 		} else {
-			aPlan.Steps = append(aPlan.Steps, plan.Step{
+			aPlan.Steps = append(aPlan.Steps, execution.Step{
 				ID:         stepID,
 				Type:       "tool",
 				Name:       strings.TrimSpace(event.ToolName),
@@ -309,19 +309,19 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 	_ = pub.Publish(ctx, &modelcall.StreamEvent{
 		ConversationID: strings.TrimSpace(turn.ConversationID),
 		Event: &streaming.Event{
-			ID:                 assistantMessageID,
-			ConversationID:     strings.TrimSpace(turn.ConversationID),
-			StreamID:           strings.TrimSpace(turn.ConversationID),
-			Type:               streaming.EventTypeToolCallsPlanned,
-			TurnID:             strings.TrimSpace(turn.TurnID),
-			MessageID:          assistantMessageID,
-			ParentMessageID:    strings.TrimSpace(turn.ParentMessageID),
-			ResponseID:         strings.TrimSpace(event.ResponseID),
-			Status:             "tool_calls",
-			Iteration:          iteration,
-			PageIndex:          iteration,
-			PageCount:          iteration,
-			LatestPage:         true,
+			ID:              assistantMessageID,
+			ConversationID:  strings.TrimSpace(turn.ConversationID),
+			StreamID:        strings.TrimSpace(turn.ConversationID),
+			Type:            streaming.EventTypeToolCallsPlanned,
+			TurnID:          strings.TrimSpace(turn.TurnID),
+			MessageID:       assistantMessageID,
+			ParentMessageID: strings.TrimSpace(turn.ParentMessageID),
+			ResponseID:      strings.TrimSpace(event.ResponseID),
+			Status:          "tool_calls",
+			Iteration:       iteration,
+			PageIndex:       iteration,
+			PageCount:       iteration,
+			LatestPage:      true,
 			ToolCallsPlanned: []streaming.PlannedToolCall{{
 				ToolCallID: strings.TrimSpace(event.ToolCallID),
 				ToolName:   strings.TrimSpace(event.ToolName),
@@ -330,7 +330,7 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 	})
 }
 
-func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, nextStepIdx *int, wg *sync.WaitGroup, reg tool.Registry, assistantMsgID ...string) {
+func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan, nextStepIdx *int, wg *sync.WaitGroup, reg tool.Registry, assistantMsgID ...string) {
 	toolCtx := ctx
 	turnID := ""
 	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -372,7 +372,7 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *plan.Plan, next
 	}
 }
 
-func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Registry, step plan.Step, turnID string) llm.ToolCall {
+func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Registry, step execution.Step, turnID string) llm.ToolCall {
 	stepInfo := toolexec.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
 	if debugtrace.Enabled() {
 		debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{

@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/elicitation/router"
 )
@@ -77,8 +77,8 @@ func (f *fakeConv) GetConversation(ctx context.Context, id string, options ...ap
 
 type acceptNoPayloadAwaiter struct{}
 
-func (acceptNoPayloadAwaiter) AwaitElicitation(ctx context.Context, p *plan.Elicitation) (*plan.ElicitResult, error) {
-	return &plan.ElicitResult{Action: plan.ElicitResultActionAccept, Payload: nil}, nil
+func (acceptNoPayloadAwaiter) AwaitElicitation(ctx context.Context, p *execution.Elicitation) (*execution.ElicitResult, error) {
+	return &execution.ElicitResult{Action: execution.ElicitResultActionAccept, Payload: nil}, nil
 }
 
 func TestWait_AcceptWithoutPayloadDoesNotMarkDeclined(t *testing.T) {

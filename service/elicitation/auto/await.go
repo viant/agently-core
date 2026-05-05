@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/service/elicitation"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
@@ -52,7 +52,7 @@ func New(helper HelperFunc, cfg Config) *Awaiter {
 // Ensure interface compliance.
 var _ elicitation.Awaiter = (*Awaiter)(nil)
 
-func (a *Awaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitation) (*plan.ElicitResult, error) {
+func (a *Awaiter) AwaitElicitation(ctx context.Context, req *execution.Elicitation) (*execution.ElicitResult, error) {
 	if a == nil || a.helper == nil {
 		return nil, errors.New("auto-await: helper is nil")
 	}
@@ -96,15 +96,15 @@ func (a *Awaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitation) (
 				continue
 			}
 			if validPayload(payload, &req.RequestedSchema) {
-				return &plan.ElicitResult{Action: plan.ElicitResultActionAccept, Payload: payload}, nil
+				return &execution.ElicitResult{Action: execution.ElicitResultActionAccept, Payload: payload}, nil
 			}
 		}
 	}
-	return &plan.ElicitResult{Action: plan.ElicitResultActionDecline}, nil
+	return &execution.ElicitResult{Action: execution.ElicitResultActionDecline}, nil
 }
 
 // buildPrompt crafts the instruction for the helper agent.
-func buildPrompt(req *plan.Elicitation) string {
+func buildPrompt(req *execution.Elicitation) string {
 	schemaJSON, _ := json.Marshal(req.RequestedSchema)
 	var b strings.Builder
 	b.WriteString("You are assisting another AI. Answer ONLY with a single JSON object that satisfies the following JSON Schema.\n")

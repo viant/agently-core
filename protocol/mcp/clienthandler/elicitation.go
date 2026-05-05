@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
-	agentplan "github.com/viant/agently-core/protocol/agent/plan"
+	agentplan "github.com/viant/agently-core/protocol/agent/execution"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	"github.com/viant/jsonrpc"

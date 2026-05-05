@@ -2,14 +2,15 @@ package elicitation
 
 import (
 	"context"
-	"github.com/viant/agently-core/protocol/agent/plan"
+
+	"github.com/viant/agently-core/protocol/agent/execution"
 )
 
 // noopAwaiter implements Awaiter and never contributes a result.
 // It is used in non-interactive/server contexts where UI/router resolves elicitations.
 type noopAwaiter struct{}
 
-func (n *noopAwaiter) AwaitElicitation(ctx context.Context, req *plan.Elicitation) (*plan.ElicitResult, error) {
+func (n *noopAwaiter) AwaitElicitation(ctx context.Context, req *execution.Elicitation) (*execution.ElicitResult, error) {
 	return nil, nil
 }
 

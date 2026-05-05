@@ -10,14 +10,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/jsonutil"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	overflowtool "github.com/viant/agently-core/protocol/tool/overflow"
 	core2 "github.com/viant/agently-core/service/core"
 )
 
 var errPendingToolContinuation = errors.New("latest tool result still requires continuation")
 
-func hasRemovalTool(p *plan.Plan) bool {
+func hasRemovalTool(p *execution.Plan) bool {
 	if p == nil || len(p.Steps) == 0 {
 		return false
 	}
@@ -44,7 +44,7 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-func (s *Service) extendPlanFromResponse(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
+func (s *Service) extendPlanFromResponse(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput, aPlan *execution.Plan) (bool, error) {
 	if genOutput.Response == nil || len(genOutput.Response.Choices) == 0 {
 		return false, nil
 	}
@@ -63,12 +63,12 @@ func (s *Service) extendPlanFromResponse(ctx context.Context, genInput *core2.Ge
 	return !aPlan.IsEmpty(), nil
 }
 
-func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice, aPlan *plan.Plan) {
+func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice, aPlan *execution.Plan) {
 	if len(choice.Message.ToolCalls) == 0 {
 		return
 	}
 	reason := strings.TrimSpace(choice.Message.Content)
-	steps := make(plan.Steps, 0, len(choice.Message.ToolCalls))
+	steps := make(execution.Steps, 0, len(choice.Message.ToolCalls))
 	for idx, tc := range choice.Message.ToolCalls {
 		name := tc.Name
 		args := tc.Arguments
@@ -91,7 +91,7 @@ func (s *Service) extendPlanWithToolCalls(responseID string, choice *llm.Choice,
 			prev.Reason = reason
 			continue
 		}
-		steps = append(steps, plan.Step{
+		steps = append(steps, execution.Step{
 			ID:         stepID,
 			Type:       "tool",
 			Name:       name,
@@ -175,7 +175,7 @@ func hasPendingContinuation(genInput *core2.GenerateInput) bool {
 	return ok
 }
 
-func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) error {
+func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *execution.Plan) error {
 	content := strings.TrimSpace(genOutput.Content)
 	if genOutput != nil && genOutput.Response != nil {
 		for _, choice := range genOutput.Response.Choices {
@@ -194,7 +194,7 @@ func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.Ge
 		err = jsonutil.EnsureJSONResponse(ctx, content, aPlan)
 	}
 	if strings.Contains(content, `"elicitation"`) {
-		aPlan.Elicitation = &plan.Elicitation{}
+		aPlan.Elicitation = &execution.Elicitation{}
 		_ = jsonutil.EnsureJSONResponse(ctx, content, aPlan.Elicitation)
 		if aPlan.Elicitation.IsEmpty() {
 			aPlan.Elicitation = nil
