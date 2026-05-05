@@ -19,7 +19,7 @@ type ResponsesPayload struct {
 	N                  int             `json:"n,omitempty"`
 	Stream             bool            `json:"stream,omitempty"`
 	ToolChoice         interface{}     `json:"tool_choice,omitempty"`
-	ParallelToolCalls  bool            `json:"parallel_tool_calls,omitempty"`
+	ParallelToolCalls  *bool           `json:"parallel_tool_calls,omitempty"`
 	Reasoning          *llm.Reasoning  `json:"reasoning,omitempty"`
 	PreviousResponseID string          `json:"previous_response_id,omitempty"`
 	Store              *bool           `json:"store,omitempty"`

@@ -25,7 +25,7 @@ type Request struct {
 	Text *TextControls `json:"text,omitempty"`
 
 	ToolChoice        interface{} `json:"tool_choice,omitempty"`
-	ParallelToolCalls bool        `json:"parallel_tool_calls,omitempty"`
+	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
 
 	// PreviousResponseID allows continuing a prior Responses API call.
 	PreviousResponseID string `json:"previous_response_id,omitempty"`

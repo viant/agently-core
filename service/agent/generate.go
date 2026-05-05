@@ -28,9 +28,10 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	// When the agent doesn't explicitly set it (nil), default to true so
 	// models that support parallel tool calls use it by default.
 	if agent.ParallelToolCalls != nil {
-		i.Options.ParallelToolCalls = *agent.ParallelToolCalls
+		value := *agent.ParallelToolCalls
+		i.Options.ParallelToolCalls = llm.BoolPtr(value)
 	} else {
-		i.Options.ParallelToolCalls = true // default: enable parallel tool calls
+		i.Options.ParallelToolCalls = llm.BoolPtr(true) // default: enable parallel tool calls
 	}
 	// Pass attach mode as metadata so providers can honor ref vs inline.
 	if i.Options.Metadata == nil {
@@ -80,5 +81,6 @@ func applyParallelToolCallOverride(input *QueryInput, genInput *core.GenerateInp
 	if input == nil || genInput == nil || genInput.ModelSelection.Options == nil || input.ParallelToolCalls == nil {
 		return
 	}
-	genInput.ModelSelection.Options.ParallelToolCalls = *input.ParallelToolCalls
+	value := *input.ParallelToolCalls
+	genInput.ModelSelection.Options.ParallelToolCalls = llm.BoolPtr(value)
 }

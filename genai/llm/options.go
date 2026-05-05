@@ -76,9 +76,9 @@ type Options struct {
 
 	// ParallelToolCalls requests the provider to execute multiple tool calls
 	// in parallel within a single reasoning step, when supported by the model.
-	// This is honored by providers that implement base.CanExecToolsInParallel
-	// (e.g., OpenAI). Others will ignore it.
-	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty" yaml:"parallelToolCalls,omitempty"`
+	// Nil means "use provider default". Non-nil false must be preserved so
+	// providers that default to parallel execution can be told explicitly not to.
+	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty" yaml:"parallelToolCalls,omitempty"`
 }
 
 type Thinking struct {
@@ -93,4 +93,10 @@ type Reasoning struct {
 	// valid values are: "low" | "medium" | "high".
 	Effort  string `json:"effort,omitempty" yaml:"effort,omitempty"`
 	Summary string `json:"summary,omitempty" yaml:"summary,omitempty"`
+}
+
+func BoolPtr(v bool) *bool { return &v }
+
+func ParallelToolCallsEnabled(options *Options) bool {
+	return options != nil && options.ParallelToolCalls != nil && *options.ParallelToolCalls
 }

@@ -255,7 +255,7 @@ func (s *Service) updateFlags(input *GenerateInput, model llm.Model) {
 	input.Binding.Flags.CanUseTool = model.Implements(base.CanUseTools)
 	input.Binding.Flags.CanStream = model.Implements(base.CanStream)
 	input.Binding.Flags.IsMultimodal = model.Implements(base.IsMultimodal)
-	if input.Options != nil && input.Options.ParallelToolCalls && !model.Implements(base.CanExecToolsInParallel) {
-		input.Options.ParallelToolCalls = false
+	if llm.ParallelToolCallsEnabled(input.Options) && !model.Implements(base.CanExecToolsInParallel) {
+		input.Options.ParallelToolCalls = llm.BoolPtr(false)
 	}
 }

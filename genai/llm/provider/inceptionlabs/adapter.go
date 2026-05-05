@@ -66,8 +66,8 @@ func ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 
 		// Honor parallel tool calls option (agent-configurable, provider-supported)
-		if request.Options.ParallelToolCalls {
-			req.ParallelToolCalls = true
+		if request.Options.ParallelToolCalls != nil {
+			req.ParallelToolCalls = *request.Options.ParallelToolCalls
 		}
 
 		// Convert tool choice if provided
