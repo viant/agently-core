@@ -146,6 +146,7 @@ export interface IterationRenderRow {
     renderKey: string;
     turnId: string;
     lifecycle: ClientLifecycle;
+    turnStartedAt?: string;
     rounds: RoundRenderView[];
     elicitation?: ElicitationRenderView | null;
     linkedConversations: LinkedConversationRenderView[];
@@ -350,6 +351,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         renderKey: turn.renderKey,
         turnId: turn.turnId,
         lifecycle: turn.lifecycle,
+        turnStartedAt: turn.createdAt,
         rounds,
         elicitation: projectElicitation(turn.elicitation),
         linkedConversations: (turn.linkedConversations ?? []).map(projectLinkedConversation),

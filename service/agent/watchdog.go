@@ -170,6 +170,11 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 				if err := w.agent.conversation.PatchTurn(ctx, upd); err != nil {
 					return fmt.Errorf("terminalize stale active turn: %w", err)
 				}
+				// The normal finalizeTurn path triggers queue drain after a turn
+				// becomes terminal. This watchdog path bypasses finalizeTurn, so do
+				// the same queue-drain handoff explicitly for old queued recovery
+				// attempts in the conversation.
+				w.agent.triggerQueueDrain(conversationID)
 			}
 		}
 

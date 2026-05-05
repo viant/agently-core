@@ -76,6 +76,7 @@ describe('chatStore/projector — projectConversation', () => {
         expect(rows.map((r) => r.kind)).toEqual(['user', 'iteration']);
         const it = rows[1] as IterationRenderRow;
         expect(it.lifecycle).toBe('pending');
+        expect(it.turnStartedAt).toBe('2025-01-01T00:00:00Z');
         expect(it.header.label).toBe('Starting turn…');
         expect(it.header.count).toBe(0);
         expect(it.rounds.length).toBe(0);
