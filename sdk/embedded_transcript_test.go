@@ -625,6 +625,36 @@ func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *
 	require.Contains(t, string(page.ModelSteps[0].ResponsePayload), narration)
 }
 
+func TestBuildCanonicalState_NarratorPageInheritsCompletedTurnStatusWhenMessageStatusMissing(t *testing.T) {
+	narratorMode := "narrator"
+	narration := "The deal-filtered slice came back empty, so I'm widening the lookback."
+
+	turn := &agconv.TranscriptView{
+		Id:     "turn-1",
+		Status: "completed",
+		Message: []*agconv.MessageView{
+			{
+				Id:        "n1",
+				Role:      "assistant",
+				Interim:   1,
+				Narration: &narration,
+				Mode:      &narratorMode,
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+
+	page := state.Turns[0].Execution.Pages[0]
+	require.Equal(t, "completed", page.Status)
+	require.Len(t, page.ModelSteps, 1)
+	require.Equal(t, "completed", page.ModelSteps[0].Status)
+}
+
 func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2

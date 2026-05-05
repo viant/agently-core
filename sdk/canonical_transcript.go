@@ -285,7 +285,10 @@ func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *E
 	page.Narration = text
 	page.Content = text
 	page.NarrationMessageID = message.Id
-	page.Status = stepStatusFromString(strings.TrimSpace(stringValue(message.Status)), "running")
+	page.Status = stepStatusFromString(strings.TrimSpace(stringValue(message.Status)), "")
+	if page.Status == "" && ts != nil {
+		page.Status = stepStatusFromString(string(ts.Status), "")
+	}
 	if page.Status == "" {
 		page.Status = "running"
 	}
