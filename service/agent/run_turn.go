@@ -36,7 +36,7 @@ func (s *Service) startTurn(ctx context.Context, turn runtimerequestctx.TurnMeta
 	logx.Infof("conversation", "agent.startTurn convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	turnErr := s.conversation.PatchTurn(ctx, rec)
 	runErr := s.ensureRunRecord(ctx, turn, "running", strings.TrimSpace(scheduleID))
-	convErr := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running"))
+	convErr := s.patchConversationStatus(ctx, turn.ConversationID, "running")
 	if turnErr == nil && convErr == nil && runErr == nil {
 		return nil
 	}
@@ -191,15 +191,7 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if runPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch run failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), runPatchErr)
 	}
-	conversationPatchErr := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(turn.ConversationID, status))
-	if conversationPatchErr == nil && s.dataService != nil {
-		_, dsErr := s.dataService.PatchConversations(patchCtx, []*convw.Conversation{
-			convw.NewConversationStatus(turn.ConversationID, status),
-		})
-		if dsErr != nil {
-			logx.Warnf("conversation", "agent.finalizeTurn patch conversation data-service failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), dsErr)
-		}
-	}
+	conversationPatchErr := s.patchConversationStatus(patchCtx, turn.ConversationID, status)
 	if conversationPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
@@ -235,6 +227,29 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	logx.Infof("conversation", "agent.finalizeTurn convo=%q turn_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status))
 	runtimerequestctx.CleanupTurn(turn.TurnID)
 	s.triggerQueueDrain(turn.ConversationID)
+	return nil
+}
+
+func (s *Service) patchConversationStatus(ctx context.Context, conversationID, status string) error {
+	if s == nil || s.conversation == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	status = strings.TrimSpace(status)
+	if conversationID == "" || status == "" {
+		return nil
+	}
+	err := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(conversationID, status))
+	if err != nil {
+		return err
+	}
+	if s.dataService != nil {
+		if _, dsErr := s.dataService.PatchConversations(ctx, []*convw.Conversation{
+			convw.NewConversationStatus(conversationID, status),
+		}); dsErr != nil {
+			logx.Warnf("conversation", "agent.patchConversationStatus data-service failed convo=%q status=%q err=%v", conversationID, status, dsErr)
+		}
+	}
 	return nil
 }
 
