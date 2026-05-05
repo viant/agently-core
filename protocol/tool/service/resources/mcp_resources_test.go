@@ -35,7 +35,7 @@ func mcpTestMetadata() map[string]interface{} {
 			"roots": []interface{}{
 				map[string]interface{}{
 					"id":            "mediator",
-					"uri":           "mcp:github://github.vianttech.com/adelphic/mediator",
+					"uri":           "mcp:github://github.vianttech.com/sample/mediator",
 					"description":   "Mediator",
 					"vectorization": true,
 					"snapshot":      true,
@@ -86,7 +86,7 @@ func TestRoots_MCPShorthand_SelectByID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.Roots, 1)
 	assert.Equal(t, "mediator", out.Roots[0].ID)
-	assert.Equal(t, "mcp:github://github.vianttech.com/adelphic/mediator", out.Roots[0].URI)
+	assert.Equal(t, "mcp:github://github.vianttech.com/sample/mediator", out.Roots[0].URI)
 	assert.Equal(t, "system", out.Roots[0].Role)
 	assert.True(t, out.Roots[0].AllowedSemanticSearch)
 	assert.True(t, out.Roots[0].AllowedGrepSearch)

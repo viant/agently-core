@@ -8,10 +8,10 @@ func TestMatchSupportsAliasVariants(t *testing.T) {
 		name    string
 		want    bool
 	}{
-		{pattern: "steward-AdHierarchy", name: "steward/AdHierarchy", want: true},
-		{pattern: "steward:AdHierarchy", name: "steward/AdHierarchy", want: true},
-		{pattern: "steward/AdHierarchy", name: "steward:AdHierarchy", want: true},
-		{pattern: "steward-*", name: "steward/AdHierarchy", want: true},
+		{pattern: "analyst-ResourceTree", name: "analyst/ResourceTree", want: true},
+		{pattern: "analyst:ResourceTree", name: "analyst/ResourceTree", want: true},
+		{pattern: "analyst/ResourceTree", name: "analyst:ResourceTree", want: true},
+		{pattern: "analyst-*", name: "analyst/ResourceTree", want: true},
 	}
 
 	for _, testCase := range testCases {

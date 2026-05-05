@@ -66,7 +66,7 @@ func TestWithAuthTokenContext_RefreshesTokensForCurrentUser(t *testing.T) {
 	ctx = authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: "user-123"})
 	ctx = authctx.WithProvider(ctx, "oauth")
 
-	next := mgr.WithAuthTokenContext(ctx, "guardian")
+	next := mgr.WithAuthTokenContext(ctx, "helper")
 
 	if tp.calls != 1 {
 		t.Fatalf("EnsureTokens() calls = %d, want 1", tp.calls)

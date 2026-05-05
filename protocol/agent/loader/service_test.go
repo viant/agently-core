@@ -331,7 +331,7 @@ func TestService_Load_Intake_Orchestrator(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
 
-	got, err := service.Load(ctx, "intake_steward.yaml")
+	got, err := service.Load(ctx, "intake_analyst.yaml")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 

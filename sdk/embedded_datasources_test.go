@@ -32,9 +32,9 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 	// Build the full datasource stack.
 	dsStore := dssvc.NewMemoryStore()
 	ds := &dsproto.DataSource{
-		ID: "advertiser",
+		ID: "account",
 		Backend: &dsproto.Backend{
-			Kind: dsproto.BackendMCPTool, Service: "platform", Method: "advertiser_search",
+			Kind: dsproto.BackendMCPTool, Service: "platform", Method: "account_search",
 		},
 	}
 	ds.DataSource = types.DataSource{Selectors: &types.Selectors{Data: "results"}}
@@ -49,14 +49,14 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 		Target:   loproto.Target{Kind: "elicitation"},
 		Mode:     loproto.ModePartial,
 		Bindings: []loproto.Binding{{
-			Match: loproto.Match{FieldName: "advertiser_id", Type: "integer"},
+			Match: loproto.Match{FieldName: "account_id", Type: "integer"},
 			Lookup: loproto.Lookup{
-				DataSource:   "advertiser",
-				DialogId:     "advertiserPicker",
+				DataSource:   "account",
+				DialogId:     "accountPicker",
 				QueryInput:   "q",
 				ResolveInput: "id",
 				Outputs: []loproto.Parameter{
-					{Location: "id", Name: "advertiser_id"},
+					{Location: "id", Name: "account_id"},
 				},
 				Display: "${name}",
 			},
@@ -81,7 +81,7 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 
 	// 2) FetchDatasource returns projected rows.
 	fetchOut, err := bc.FetchDatasource(context.Background(), &api.FetchDatasourceInput{
-		ID: "advertiser", Inputs: map[string]interface{}{"q": "x"},
+		ID: "account", Inputs: map[string]interface{}{"q": "x"},
 	})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -98,18 +98,18 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 	_ = regOut
 
 	// 4) The refiner hook is installed — calling refiner.Refine on a schema
-	// with advertiser_id should gain x-ui-widget=lookup + x-ui-lookup.
+	// with account_id should gain x-ui-widget=lookup + x-ui-lookup.
 	props := map[string]interface{}{
-		"advertiser_id": map[string]interface{}{"type": "integer"},
+		"account_id": map[string]interface{}{"type": "integer"},
 	}
 	rs := &mcpschema.ElicitRequestParamsRequestedSchema{Properties: props}
 	refiner.Refine(rs)
-	after, _ := rs.Properties["advertiser_id"].(map[string]interface{})
+	after, _ := rs.Properties["account_id"].(map[string]interface{})
 	if after["x-ui-widget"] != "lookup" {
 		t.Fatalf("overlay hook did not attach x-ui-widget: %+v", after)
 	}
 	att, _ := after["x-ui-lookup"].(map[string]interface{})
-	if att["dataSource"] != "advertiser" {
+	if att["dataSource"] != "account" {
 		t.Fatalf("attachment missing dataSource: %+v", att)
 	}
 	if att["queryInput"] != "q" || att["resolveInput"] != "id" {
@@ -118,8 +118,8 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 
 	// 5) HTTP dispatch reaches the same backend (handler picks up interface).
 	body := `{"inputs":{"q":"x"}}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/advertiser/fetch", strings.NewReader(body))
-	req.SetPathValue("id", "advertiser")
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
+	req.SetPathValue("id", "account")
 	w := httptest.NewRecorder()
 	handleFetchDatasource(bc)(w, req)
 	if w.Code != http.StatusOK {
@@ -145,11 +145,11 @@ func TestBackendClient_SetDatasourceStack_NilRevertsToUnconfigured(t *testing.T)
 
 	// Refiner hook removed — a schema should NOT gain x-ui-widget=lookup.
 	props := map[string]interface{}{
-		"advertiser_id": map[string]interface{}{"type": "integer"},
+		"account_id": map[string]interface{}{"type": "integer"},
 	}
 	rs := &mcpschema.ElicitRequestParamsRequestedSchema{Properties: props}
 	refiner.Refine(rs)
-	if got := props["advertiser_id"].(map[string]interface{})["x-ui-widget"]; got == "lookup" {
+	if got := props["account_id"].(map[string]interface{})["x-ui-widget"]; got == "lookup" {
 		t.Fatalf("hook still installed after nil reset: %v", got)
 	}
 

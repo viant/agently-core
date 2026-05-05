@@ -75,7 +75,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnDisplayTaskWithExpandedPromptForLL
 		UserID:         "user-1",
 		Prompt:         &binding.Prompt{Text: "User Query:\n{{.Task.Prompt}}\n\nEND_OF_USER_PROMPT", Engine: "go"},
 		Binding: &binding.Binding{
-			Task: binding.Task{Prompt: "Recommend sitelists for audience 7180287"},
+			Task: binding.Task{Prompt: "Recommend resource lists for workspace 7180287"},
 			History: binding.History{
 				CurrentTurnID: "turn-1",
 				Current: &binding.Turn{
@@ -84,7 +84,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnDisplayTaskWithExpandedPromptForLL
 						{
 							Kind:    binding.MessageKindChatUser,
 							Role:    string(llm.RoleUser),
-							Content: "Recommend sitelists for audience 7180287",
+							Content: "Recommend resource lists for workspace 7180287",
 						},
 					},
 				},
@@ -96,8 +96,8 @@ func TestGenerateInputInit_ReplacesCurrentTurnDisplayTaskWithExpandedPromptForLL
 	require.NoError(t, err)
 	require.Len(t, in.Message, 1)
 	assert.Equal(t, llm.RoleUser, in.Message[0].Role)
-	assert.Equal(t, "User Query:\nRecommend sitelists for audience 7180287\n\nEND_OF_USER_PROMPT", in.Message[0].Content)
-	assert.Equal(t, "Recommend sitelists for audience 7180287", in.Binding.History.Current.Messages[0].Content)
+	assert.Equal(t, "User Query:\nRecommend resource lists for workspace 7180287\n\nEND_OF_USER_PROMPT", in.Message[0].Content)
+	assert.Equal(t, "Recommend resource lists for workspace 7180287", in.Binding.History.Current.Messages[0].Content)
 }
 
 func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInPast(t *testing.T) {
@@ -106,7 +106,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 		UserID:         "user-1",
 		Prompt:         &binding.Prompt{Text: "User Query:\n{{.Task.Prompt}}\n\nEND_OF_USER_PROMPT", Engine: "go"},
 		Binding: &binding.Binding{
-			Task: binding.Task{Prompt: "Site-list recommendation workflow for audience 7180287 and matched target site_list_id 117385."},
+			Task: binding.Task{Prompt: "resource-list recommendation workflow for workspace 7180287 and matched target resource_list_id 117385."},
 			History: binding.History{
 				CurrentTurnID: "turn-1",
 				Past: []*binding.Turn{
@@ -116,7 +116,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 							{
 								Kind:    binding.MessageKindChatUser,
 								Role:    string(llm.RoleUser),
-								Content: "Site-list recommendation workflow for audience 7180287 and matched target site_list_id 117385.",
+								Content: "resource-list recommendation workflow for workspace 7180287 and matched target resource_list_id 117385.",
 							},
 							{
 								Kind:    binding.MessageKindChatAssistant,
@@ -134,7 +134,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 	require.NoError(t, err)
 	require.Len(t, in.Message, 2)
 	assert.Equal(t, llm.RoleUser, in.Message[0].Role)
-	assert.Equal(t, "User Query:\nSite-list recommendation workflow for audience 7180287 and matched target site_list_id 117385.\n\nEND_OF_USER_PROMPT", in.Message[0].Content)
+	assert.Equal(t, "User Query:\nresource-list recommendation workflow for workspace 7180287 and matched target resource_list_id 117385.\n\nEND_OF_USER_PROMPT", in.Message[0].Content)
 	assert.Equal(t, llm.RoleAssistant, in.Message[1].Role)
 	assert.Equal(t, "I have the IDs already.", in.Message[1].Content)
 }

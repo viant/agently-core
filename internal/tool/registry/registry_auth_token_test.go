@@ -106,7 +106,7 @@ func TestExecute_UsesRefreshedAuthContextForMCPCall(t *testing.T) {
 
 	ctx := context.Background()
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-1")
-	out, err := reg.Execute(ctx, "guardian/ping", map[string]interface{}{"q": "x"})
+	out, err := reg.Execute(ctx, "helper/ping", map[string]interface{}{"q": "x"})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}

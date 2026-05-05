@@ -30,7 +30,7 @@ func TestHTTPClient_FetchDatasource_ForwardsCacheHints(t *testing.T) {
 	}
 
 	_, err = c.FetchDatasource(context.Background(), &api.FetchDatasourceInput{
-		ID:     "advertiser",
+		ID:     "account",
 		Inputs: map[string]interface{}{"q": "acm"},
 		Cache:  &api.DatasourceCacheHints{BypassCache: true, WriteThrough: true},
 	})
@@ -60,7 +60,7 @@ func TestHTTPClient_InvalidateDatasourceCache_SendsInputsHash(t *testing.T) {
 
 	c, _ := NewHTTP(srv.URL)
 	err := c.InvalidateDatasourceCache(context.Background(), &api.InvalidateDatasourceCacheInput{
-		ID: "advertiser", InputsHash: "abc123",
+		ID: "account", InputsHash: "abc123",
 	})
 	if err != nil {
 		t.Fatalf("invalidate: %v", err)
@@ -82,11 +82,11 @@ func TestHTTPClient_ListLookupRegistry_EncodesContext(t *testing.T) {
 
 	c, _ := NewHTTP(srv.URL)
 	if _, err := c.ListLookupRegistry(context.Background(), &api.ListLookupRegistryInput{
-		Context: "template:site_list_planner",
+		Context: "template:resource_list_review",
 	}); err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	if gotQuery != "template:site_list_planner" {
-		t.Fatalf("want context=template:site_list_planner, got %q", gotQuery)
+	if gotQuery != "template:resource_list_review" {
+		t.Fatalf("want context=template:resource_list_review, got %q", gotQuery)
 	}
 }

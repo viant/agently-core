@@ -23,12 +23,12 @@ func TestProfile_EffectiveMessages_Messages(t *testing.T) {
 func TestProfile_EffectiveMessages_Instructions(t *testing.T) {
 	p := &Profile{
 		ID:           "test",
-		Instructions: "You are a performance analyst.",
+		Instructions: "You are a systems analyst.",
 	}
 	msgs := p.EffectiveMessages()
 	assert.Len(t, msgs, 1)
 	assert.Equal(t, "system", msgs[0].Role)
-	assert.Equal(t, "You are a performance analyst.", msgs[0].Text)
+	assert.Equal(t, "You are a systems analyst.", msgs[0].Text)
 }
 
 func TestProfile_EffectiveMessages_MCPOnly(t *testing.T) {

@@ -7,11 +7,11 @@ func TestServerFromPattern(t *testing.T) {
 		pattern  string
 		expected string
 	}{
-		{pattern: "steward:AdHierarchy", expected: "steward"},
-		{pattern: "steward-AdHierarchy", expected: "steward"},
+		{pattern: "analyst:ResourceTree", expected: "analyst"},
+		{pattern: "analyst-ResourceTree", expected: "analyst"},
 		{pattern: "llm/agents:list", expected: "llm/agents"},
-		{pattern: "steward-*", expected: "steward"},
-		{pattern: "steward", expected: "steward"},
+		{pattern: "analyst-*", expected: "analyst"},
+		{pattern: "analyst", expected: "analyst"},
 	}
 
 	for _, testCase := range testCases {

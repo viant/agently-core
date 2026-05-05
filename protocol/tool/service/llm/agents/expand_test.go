@@ -70,17 +70,17 @@ func TestExpandMessages_EmptyModelReturnsOriginal(t *testing.T) {
 
 func TestExpandMessages_Success(t *testing.T) {
 	refined := []promptdef.Message{
-		{Role: "system", Text: "You are analyzing campaign 4821 underpacing."},
-		{Role: "user", Text: "Focus on week-over-week pacing for campaign 4821."},
+		{Role: "system", Text: "You are analyzing project 4821 for a latency regression."},
+		{Role: "user", Text: "Focus on week-over-week latency for project 4821."},
 	}
 	raw, _ := json.Marshal(refined)
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{response: string(raw)}})
 	original := []promptdef.Message{
-		{Role: "system", Text: "You are a performance analyst."},
-		{Role: "user", Text: "Analyze the campaign hierarchy."},
+		{Role: "system", Text: "You are a systems analyst."},
+		{Role: "user", Text: "Analyze the project hierarchy."},
 	}
 	cfg := &promptdef.Expansion{Mode: "llm", Model: "haiku", MaxTokens: 600}
-	result := s.expandMessages(context.Background(), original, "Why is campaign 4821 underpacing?", cfg)
+	result := s.expandMessages(context.Background(), original, "Why is project 4821 experiencing a latency regression?", cfg)
 	require.Len(t, result, 2)
 	assert.Equal(t, "system", result[0].Role)
 	assert.Contains(t, result[0].Text, "4821")

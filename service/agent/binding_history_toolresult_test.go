@@ -155,7 +155,7 @@ func TestBuildHistory_PreservesChildToolResultAlongsideUpdatePlan(t *testing.T) 
 					TurnId:         strPtr("turn-1"),
 					Role:           "user",
 					Type:           "text",
-					Content:        strPtr("Recommend sitelists for audience 7180287"),
+					Content:        strPtr("Recommend resource lists for workspace 7180287"),
 					CreatedAt:      now,
 					ToolMessage: []*agconv.ToolMessageView{
 						{
@@ -209,7 +209,7 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 					TurnId:         strPtr("turn-1"),
 					Role:           "user",
 					Type:           "text",
-					Content:        strPtr("Recommend sitelists for audience 7180287"),
+					Content:        strPtr("Recommend resource lists for workspace 7180287"),
 					CreatedAt:      now,
 				},
 				{
@@ -361,7 +361,7 @@ func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStat
 					ParentMessageId: strPtr("msg-progress"),
 					Role:            "tool",
 					Type:            "tool_op",
-					Content:         strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=steward-MetricsAdCube -->"}`),
+					Content:         strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=analyst-MetricsCube -->"}`),
 					CreatedAt:       now.Add(3 * time.Second),
 					ToolMessage: []*agconv.ToolMessageView{
 						{
@@ -370,7 +370,7 @@ func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStat
 							ToolCall: &agconv.ToolCallView{
 								OpId:            "op-status",
 								ToolName:        "llm/agents/status",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=steward-MetricsAdCube -->"}`)},
+								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=analyst-MetricsCube -->"}`)},
 							},
 						},
 					},
@@ -401,7 +401,7 @@ func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStat
 	if got := history.Past[0].Messages[2].ToolName; got != "llm/agents/status" {
 		t.Fatalf("expected llm/agents/status tool result, got %q", got)
 	}
-	if got := history.Past[0].Messages[2].Content; got != `{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=steward-MetricsAdCube -->"}` {
+	if got := history.Past[0].Messages[2].Content; got != `{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=analyst-MetricsCube -->"}` {
 		t.Fatalf("expected concrete final tool payload, got %q", got)
 	}
 }
@@ -518,7 +518,7 @@ func TestBuildHistory_SkipsInjectedDocumentToolResultWhenMessagesArePersisted(t 
 								OpId:     "op-prompt",
 								ToolName: "prompt-get",
 								ResponsePayload: &agconv.ModelCallStreamPayloadView{
-									InlineBody: strPtr(`{"id":"performance_analysis","injected":true,"messages":[{"role":"system","text":"You are a performance analyst."},{"role":"user","text":"Analyze the provided metrics."}]}`),
+									InlineBody: strPtr(`{"id":"performance_analysis","injected":true,"messages":[{"role":"system","text":"You are a systems analyst."},{"role":"user","text":"Analyze the provided metrics."}]}`),
 								},
 							},
 						},
@@ -530,7 +530,7 @@ func TestBuildHistory_SkipsInjectedDocumentToolResultWhenMessagesArePersisted(t 
 					TurnId:         strPtr(turnID),
 					Role:           "system",
 					Type:           "text",
-					Content:        strPtr("You are a performance analyst."),
+					Content:        strPtr("You are a systems analyst."),
 					CreatedAt:      now.Add(2 * time.Second),
 				},
 				{
@@ -614,7 +614,7 @@ func TestBuildHistory_PlacesCurrentTurnInCurrentNotPast(t *testing.T) {
 					TurnId:    strPtr(turnID),
 					Role:      "user",
 					Type:      "text",
-					Content:   strPtr("Recommend sitelists for audience 7180287"),
+					Content:   strPtr("Recommend resource lists for workspace 7180287"),
 					CreatedAt: now.Add(time.Second),
 				},
 				{

@@ -84,12 +84,12 @@ func TestStartNarration(t *testing.T) {
 		t.Fatalf("StartNarration(keydata) = %q", got)
 	}
 	got, err = StartNarration(runtimerequestctx.WithUserAsk(context.Background(), "Troubleshoot 2654884"), &asynccfg.Config{Narration: "keydata"}, &asynccfg.OperationRecord{
-		Message: "Checking whether the last-7-day delivery pattern confirms a setup or supply restriction rather than a pacing problem for ad order 2654884.",
+		Message: "Checking whether the last-7-day throughput pattern confirms a setup or dependency restriction rather than a latency problem for work item 2654884.",
 	})
 	if err != nil {
 		t.Fatalf("StartNarration(keydata direct message) error = %v", err)
 	}
-	if got != "Checking whether the last-7-day delivery pattern confirms a setup or supply restriction rather than a pacing problem for ad order 2654884." {
+	if got != "Checking whether the last-7-day throughput pattern confirms a setup or dependency restriction rather than a latency problem for work item 2654884." {
 		t.Fatalf("StartNarration(keydata direct message) = %q", got)
 	}
 }

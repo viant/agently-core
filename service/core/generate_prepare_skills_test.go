@@ -132,9 +132,9 @@ func TestWriteLLMRequestDebugPayload_WritesNarratorPayload(t *testing.T) {
 				"asyncNarrator":        true,
 				"asyncNarrationMode":   "llm",
 				"asyncNarratorOpID":    "op-1",
-				"asyncNarratorUserAsk": "Analyze order 2639076 performance",
-				"asyncNarratorIntent":  "pull pacing and delivery slices",
-				"asyncNarratorSummary": "orderId=2639076 | workdir=/tmp/ws",
+				"asyncNarratorUserAsk": "Analyze work item 2639076 performance",
+				"asyncNarratorIntent":  "pull latency and throughput slices",
+				"asyncNarratorSummary": "workItemId=2639076 | workdir=/tmp/ws",
 				"asyncNarratorTool":    "llm/agents:status",
 				"asyncNarratorStatus":  "running",
 			},
@@ -161,13 +161,13 @@ func TestWriteLLMRequestDebugPayload_WritesNarratorPayload(t *testing.T) {
 	if payload.DebugContext["asyncNarratorOpID"] != "op-1" {
 		t.Fatalf("expected asyncNarratorOpID op-1 in debugContext, got %#v", payload.DebugContext)
 	}
-	if payload.DebugContext["asyncNarratorUserAsk"] != "Analyze order 2639076 performance" {
+	if payload.DebugContext["asyncNarratorUserAsk"] != "Analyze work item 2639076 performance" {
 		t.Fatalf("expected asyncNarratorUserAsk in debugContext, got %#v", payload.DebugContext)
 	}
-	if payload.DebugContext["asyncNarratorIntent"] != "pull pacing and delivery slices" {
+	if payload.DebugContext["asyncNarratorIntent"] != "pull latency and throughput slices" {
 		t.Fatalf("expected asyncNarratorIntent in debugContext, got %#v", payload.DebugContext)
 	}
-	if payload.DebugContext["asyncNarratorSummary"] != "orderId=2639076 | workdir=/tmp/ws" {
+	if payload.DebugContext["asyncNarratorSummary"] != "workItemId=2639076 | workdir=/tmp/ws" {
 		t.Fatalf("expected asyncNarratorSummary in debugContext, got %#v", payload.DebugContext)
 	}
 	if payload.DebugContext["asyncNarratorTool"] != "llm/agents:status" {

@@ -32,17 +32,17 @@ view:
     containers: []
 `)
 
-	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "dialogs", "adOrderPicker.yaml"), `
-id: adOrderPicker
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "dialogs", "workItemPicker.yaml"), `
+id: workItemPicker
 title: Select Ad Order
-dataSourceRef: ad_order_lookup
+dataSourceRef: work_item_lookup
 content:
-  id: adOrderPickerContent
-  dataSourceRef: ad_order_lookup
+  id: workItemPickerContent
+  dataSourceRef: work_item_lookup
   containers: []
 `)
 
-	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "datasources", "ad_order_lookup.yaml"), `
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "datasources", "work_item_lookup.yaml"), `
 cardinality: collection
 parameters: []
 `)
@@ -81,13 +81,13 @@ parameters: []
 	for _, dialog := range payload.Data.Dialogs {
 		dialogs[dialog.Id] = true
 	}
-	if !dialogs["settings"] || !dialogs["adOrderPicker"] {
+	if !dialogs["settings"] || !dialogs["workItemPicker"] {
 		t.Fatalf("expected built-in and workspace dialogs, got %#v", payload.Data.Dialogs)
 	}
 	if _, ok := payload.Data.DataSource["meta"]; !ok {
 		t.Fatalf("expected built-in meta datasource")
 	}
-	if _, ok := payload.Data.DataSource["ad_order_lookup"]; !ok {
+	if _, ok := payload.Data.DataSource["work_item_lookup"]; !ok {
 		t.Fatalf("expected merged workspace datasource")
 	}
 }

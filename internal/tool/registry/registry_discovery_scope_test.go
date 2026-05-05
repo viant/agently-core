@@ -30,7 +30,7 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 	}
 	reg := &Registry{mgr: stub}
 
-	tools1, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-1"), "guardian")
+	tools1, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-1"), "helper")
 	if err != nil {
 		t.Fatalf("listServerTools(conv-1) error: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 		t.Fatalf("unexpected tools for conv-1: %+v", tools1)
 	}
 
-	tools2, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-2"), "guardian")
+	tools2, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-2"), "helper")
 	if err != nil {
 		t.Fatalf("listServerTools(conv-2) error: %v", err)
 	}
@@ -54,8 +54,8 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 		t.Fatalf("expected conversation scopes [conv-1 conv-2], got %+v", getCalls)
 	}
 	for _, call := range getCalls {
-		if call.server != "guardian" {
-			t.Fatalf("expected guardian server for every Get call, got %+v", getCalls)
+		if call.server != "helper" {
+			t.Fatalf("expected helper server for every Get call, got %+v", getCalls)
 		}
 		if call.convID == "" {
 			t.Fatalf("expected non-empty discovery scope, got %+v", getCalls)
@@ -69,7 +69,7 @@ func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing
 			if convID == "" {
 				return nil, errors.New("empty discovery scope")
 			}
-			if !strings.HasPrefix(convID, "mcp-discovery:guardian:") {
+			if !strings.HasPrefix(convID, "mcp-discovery:helper:") {
 				return nil, fmt.Errorf("unexpected synthetic scope %q", convID)
 			}
 			return &discoveryListClient{tools: []mcpschema.Tool{{Name: convID}}}, nil
@@ -77,11 +77,11 @@ func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing
 	}
 	reg := &Registry{mgr: stub}
 
-	first, err := reg.listServerTools(context.Background(), "guardian")
+	first, err := reg.listServerTools(context.Background(), "helper")
 	if err != nil {
 		t.Fatalf("first listServerTools() error: %v", err)
 	}
-	second, err := reg.listServerTools(context.Background(), "guardian")
+	second, err := reg.listServerTools(context.Background(), "helper")
 	if err != nil {
 		t.Fatalf("second listServerTools() error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 			if convID == "" {
 				return nil, errors.New("empty discovery scope")
 			}
-			if !strings.HasPrefix(convID, "mcp-discovery:guardian:") {
+			if !strings.HasPrefix(convID, "mcp-discovery:helper:") {
 				return nil, fmt.Errorf("unexpected synthetic scope %q", convID)
 			}
 			if syntheticScope == "" {
@@ -136,7 +136,7 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 	}
 	reg := &Registry{mgr: stub}
 
-	tools, err := reg.listServerTools(context.Background(), "guardian")
+	tools, err := reg.listServerTools(context.Background(), "helper")
 	if err != nil {
 		t.Fatalf("listServerTools() error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
-			return nil, errors.New(`Post "http://guardian-soak.viantinc.com:5000/mcp": dial tcp 10.55.132.138:5000: i/o timeout`)
+			return nil, errors.New(`Post "http://helper-soak.viantinc.com:5000/mcp": dial tcp 10.55.132.138:5000: i/o timeout`)
 		},
 	}
 	reg := &Registry{
@@ -177,7 +177,7 @@ func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 	}
 	ctx := memory.WithConversationID(context.Background(), "conv-shared")
 
-	_, err := reg.listServerTools(ctx, "guardian")
+	_, err := reg.listServerTools(ctx, "helper")
 	if err == nil {
 		t.Fatal("expected first discovery call to fail")
 	}
@@ -186,7 +186,7 @@ func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 		t.Fatalf("expected 1 manager Get call, got %d", len(firstCalls))
 	}
 
-	_, err = reg.listServerTools(ctx, "guardian")
+	_, err = reg.listServerTools(ctx, "helper")
 	if err == nil {
 		t.Fatal("expected second discovery call to fail from cooldown")
 	}

@@ -17,8 +17,8 @@ func TestSnapshotManifestDisabled(t *testing.T) {
 	t.Setenv("AGENTLY_WORKSPACE", workspaceDir)
 	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
 
-	snapURI := "mcp:github://github.vianttech.com/adelphic/mediator/_snapshot.zip"
-	rootURI := "mcp:github://github.vianttech.com/adelphic/mediator"
+	snapURI := "mcp:github://github.vianttech.com/sample/mediator/_snapshot.zip"
+	rootURI := "mcp:github://github.vianttech.com/sample/mediator"
 	svc := New(&mcpmgr.Manager{},
 		WithSnapshotResolver(func(string) (string, string, bool) {
 			return snapURI, rootURI, true
@@ -29,7 +29,7 @@ func TestSnapshotManifestDisabled(t *testing.T) {
 	require.NotEmpty(t, zipPath)
 	require.NoError(t, os.MkdirAll(filepath.Dir(zipPath), 0o755))
 	require.NoError(t, writeZip(zipPath, map[string]string{
-		"adelphic-mediator/file.txt": "hello",
+		"sample-mediator/file.txt": "hello",
 	}))
 	objects, err := svc.listSnapshot(context.Background(), rootURI, snapURI, rootURI)
 	require.NoError(t, err)
@@ -51,8 +51,8 @@ func TestSnapshotManifestEnabled(t *testing.T) {
 	t.Setenv("AGENTLY_WORKSPACE", workspaceDir)
 	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
 
-	snapURI := "mcp:github://github.vianttech.com/adelphic/mediator/_snapshot.zip"
-	rootURI := "mcp:github://github.vianttech.com/adelphic/mediator"
+	snapURI := "mcp:github://github.vianttech.com/sample/mediator/_snapshot.zip"
+	rootURI := "mcp:github://github.vianttech.com/sample/mediator"
 	svc := New(&mcpmgr.Manager{},
 		WithSnapshotResolver(func(string) (string, string, bool) {
 			return snapURI, rootURI, true
@@ -63,7 +63,7 @@ func TestSnapshotManifestEnabled(t *testing.T) {
 	require.NotEmpty(t, zipPath)
 	require.NoError(t, os.MkdirAll(filepath.Dir(zipPath), 0o755))
 	require.NoError(t, writeZip(zipPath, map[string]string{
-		"adelphic-mediator/file.txt": "hello",
+		"sample-mediator/file.txt": "hello",
 	}))
 	objects, err := svc.listSnapshot(context.Background(), rootURI, snapURI, rootURI)
 	require.NoError(t, err)

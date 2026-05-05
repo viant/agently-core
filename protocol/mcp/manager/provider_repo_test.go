@@ -16,7 +16,7 @@ func TestRepoProviderOptions_ExpandsTransportURLTemplates(t *testing.T) {
 	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
 		t.Fatalf("failed to create mcp dir: %v", err)
 	}
-	config := []byte(`name: steward
+	config := []byte(`name: analyst
 transport:
   type: streamable
   url: ${STEWARD_MCP_URL:-http://localhost:5002/mcp}
@@ -24,12 +24,12 @@ auth:
   backendForFrontend: true
   useIdToken: true
 `)
-	if err := os.WriteFile(filepath.Join(mcpDir, "steward.yaml"), config, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(mcpDir, "analyst.yaml"), config, 0o644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
 	provider := NewRepoProvider()
-	cfg, err := provider.Options(context.Background(), "steward")
+	cfg, err := provider.Options(context.Background(), "analyst")
 	if err != nil {
 		t.Fatalf("Options() error = %v", err)
 	}
@@ -46,17 +46,17 @@ func TestRepoProviderOptions_UsesTemplateDefaultWhenEnvUnset(t *testing.T) {
 	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
 		t.Fatalf("failed to create mcp dir: %v", err)
 	}
-	config := []byte(`name: steward
+	config := []byte(`name: analyst
 transport:
   type: streamable
   url: ${STEWARD_MCP_URL:-http://localhost:5002/mcp}
 `)
-	if err := os.WriteFile(filepath.Join(mcpDir, "steward.yaml"), config, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(mcpDir, "analyst.yaml"), config, 0o644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
 	provider := NewRepoProvider()
-	cfg, err := provider.Options(context.Background(), "steward")
+	cfg, err := provider.Options(context.Background(), "analyst")
 	if err != nil {
 		t.Fatalf("Options() error = %v", err)
 	}

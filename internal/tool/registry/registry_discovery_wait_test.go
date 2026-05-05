@@ -77,7 +77,7 @@ func TestWaitDiscoveryStage_ReturnsOnContextDeadlineEvenIfStageIgnoresContext(t 
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- reg.waitDiscoveryStage(ctx, "guardian", "wait_test_ctx_done", func(context.Context) error {
+		errCh <- reg.waitDiscoveryStage(ctx, "helper", "wait_test_ctx_done", func(context.Context) error {
 			<-block
 			return nil
 		})
@@ -104,7 +104,7 @@ func TestWaitDiscoveryStage_CancelsChildContextOnParentCancel(t *testing.T) {
 	started := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- reg.waitDiscoveryStage(parentCtx, "guardian", "wait_test_child_cancel", func(ctx context.Context) error {
+		errCh <- reg.waitDiscoveryStage(parentCtx, "helper", "wait_test_child_cancel", func(ctx context.Context) error {
 			close(started)
 			<-ctx.Done()
 			childDone <- ctx.Err()

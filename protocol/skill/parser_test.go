@@ -108,7 +108,7 @@ metadata:
   agently-preprocess: "true"
   agently-preprocess-timeout: "30"
   agently-model: openai_gpt-5.4
-allowed-tools: system/exec:execute platform:TargetingTree
+allowed-tools: system/exec:execute platform:ResourceTree
 ---
 
 body`
@@ -178,7 +178,7 @@ func TestParse_AcceptsRemainingMetadataAgentlyOverrides(t *testing.T) {
 name: specialist
 description: Specialized helper.
 metadata:
-  agently-agent-id: steward/specialist
+  agently-agent-id: analyst/specialist
   agently-effort: high
   agently-temperature: "0.3"
   agently-max-tokens: "12000"
@@ -193,7 +193,7 @@ body`
 	if len(diags) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", diags)
 	}
-	if got := s.Frontmatter.AgentIDValue(); got != "steward/specialist" {
+	if got := s.Frontmatter.AgentIDValue(); got != "analyst/specialist" {
 		t.Fatalf("agent id = %q", got)
 	}
 	if got := s.Frontmatter.EffortValue(); got != "high" {
@@ -217,7 +217,7 @@ description: Nested metadata demo.
 metadata:
   agently:
     context: detach
-    agent-id: steward/nested-demo
+    agent-id: analyst/nested-demo
     model: openai_gpt-5.4
     effort: high
     temperature: 0.2
@@ -238,7 +238,7 @@ body`
 	if got := s.Frontmatter.ContextMode(); got != "detach" {
 		t.Fatalf("context = %q", got)
 	}
-	if got := s.Frontmatter.AgentIDValue(); got != "steward/nested-demo" {
+	if got := s.Frontmatter.AgentIDValue(); got != "analyst/nested-demo" {
 		t.Fatalf("agent id = %q", got)
 	}
 	if got := s.Frontmatter.ModelValue(); got != "openai_gpt-5.4" {

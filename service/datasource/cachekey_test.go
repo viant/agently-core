@@ -17,11 +17,11 @@ import (
 func TestFetch_CacheKey_ArgsDotQPath_DifferentQueriesProduceDifferentEntries(t *testing.T) {
 	store := datasource.NewMemoryStore()
 	ds := &dsproto.DataSource{
-		ID: "advertiser",
+		ID: "account",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
 			Service: "platform",
-			Method:  "advertiser_search",
+			Method:  "account_search",
 			Pinned:  map[string]interface{}{"limit": 50},
 		},
 		Cache: &dsproto.CachePolicy{
@@ -40,7 +40,7 @@ func TestFetch_CacheKey_ArgsDotQPath_DifferentQueriesProduceDifferentEntries(t *
 	ctx := datasource.WithIdentity(context.Background(), "alice", "conv-1")
 
 	// Query 1.
-	r1, err := svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	r1, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch1: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestFetch_CacheKey_ArgsDotQPath_DifferentQueriesProduceDifferentEntries(t *
 	// Query 2 — different q. If the cache key is broken, this will
 	// collide with the first entry and return a cached hit with 'acm'
 	// rows.
-	r2, err := svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "glob"}, datasource.FetchOptions{})
+	r2, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "glob"}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch2: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestFetch_CacheKey_ArgsDotQPath_DifferentQueriesProduceDifferentEntries(t *
 	}
 
 	// Same q again — must now hit cache.
-	r3, _ := svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "glob"}, datasource.FetchOptions{})
+	r3, _ := svc.Fetch(ctx, "account", map[string]interface{}{"q": "glob"}, datasource.FetchOptions{})
 	if !r3.Cache.Hit {
 		t.Fatalf("repeat 'glob' should hit cache")
 	}

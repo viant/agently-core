@@ -25,7 +25,7 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
 		TurnID:          "turn-1",
-		Assistant:       "steward",
+		Assistant:       "analyst",
 		ConversationID:  "c1",
 		ParentMessageID: "user-1",
 	})
@@ -59,7 +59,7 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 	if ev.MessageID != "m1" {
 		t.Fatalf("unexpected message id: %s", ev.MessageID)
 	}
-	if ev.AgentIDUsed != "steward" {
+	if ev.AgentIDUsed != "analyst" {
 		t.Fatalf("unexpected agent id: %s", ev.AgentIDUsed)
 	}
 	if ev.UserMessageID != "user-1" {

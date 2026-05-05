@@ -22,7 +22,7 @@ func gzipString(t *testing.T, value string) string {
 }
 
 func TestMessage_ToolCallArguments_DecodesCompressedRequestPayload(t *testing.T) {
-	payload := gzipString(t, `{"name":"audience-forecast-review","args":"AudienceId=7268995"}`)
+	payload := gzipString(t, `{"name":"capacity-review","args":"WorkspaceId=7268995"}`)
 	msg := &Message{
 		ToolMessage: []*agconv.ToolMessageView{{
 			ToolCall: &agconv.ToolCallView{
@@ -35,10 +35,10 @@ func TestMessage_ToolCallArguments_DecodesCompressedRequestPayload(t *testing.T)
 	}
 
 	got := msg.ToolCallArguments()
-	if got["name"] != "audience-forecast-review" {
-		t.Fatalf("name = %#v, want audience-forecast-review", got["name"])
+	if got["name"] != "capacity-review" {
+		t.Fatalf("name = %#v, want capacity-review", got["name"])
 	}
-	if got["args"] != "AudienceId=7268995" {
-		t.Fatalf("args = %#v, want AudienceId=7268995", got["args"])
+	if got["args"] != "WorkspaceId=7268995" {
+		t.Fatalf("args = %#v, want WorkspaceId=7268995", got["args"])
 	}
 }

@@ -14,12 +14,12 @@ import (
 )
 
 func TestParseOutput_ValidJSON(t *testing.T) {
-	raw := `{"title":"Campaign 4821","intent":"diagnosis","context":{"campaignId":"4821"},"suggestedProfileId":"performance_analysis","confidence":0.91}`
+	raw := `{"title":"Project 4821","intent":"diagnosis","context":{"projectId":"4821"},"suggestedProfileId":"performance_analysis","confidence":0.91}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "Campaign 4821", tc.Title)
+	assert.Equal(t, "Project 4821", tc.Title)
 	assert.Equal(t, "diagnosis", tc.Intent)
-	assert.Equal(t, "4821", tc.Context["campaignId"])
+	assert.Equal(t, "4821", tc.Context["projectId"])
 	assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 	assert.InDelta(t, 0.91, tc.Confidence, 0.001)
 }
@@ -116,8 +116,8 @@ func TestBuildSystemPrompt_IncludesTemplatesWhenTemplateScopeEnabled(t *testing.
 	tmpDir := t.TempDir()
 	templateDir := filepath.Join(tmpDir, "templates")
 	require.NoError(t, os.MkdirAll(templateDir, 0o755))
-	templateBody := []byte("id: audience_forecast_dashboard\nname: audience_forecast_dashboard\ndescription: audience forecast dashboard\nappliesTo: [forecast, audience]\n")
-	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "audience_forecast_dashboard.yaml"), templateBody, 0o644))
+	templateBody := []byte("id: capacity_review_dashboard\nname: capacity_review_dashboard\ndescription: capacity review dashboard\nappliesTo: [capacity, review]\n")
+	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "capacity_review_dashboard.yaml"), templateBody, 0o644))
 
 	svc := &Service{
 		templateRepo: tplrepo.NewWithStore(fsstore.New(tmpDir)),
@@ -127,8 +127,8 @@ func TestBuildSystemPrompt_IncludesTemplatesWhenTemplateScopeEnabled(t *testing.
 	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Available output templates")
-	assert.Contains(t, prompt, "audience_forecast_dashboard")
-	assert.Contains(t, prompt, "audience forecast dashboard")
+	assert.Contains(t, prompt, "capacity_review_dashboard")
+	assert.Contains(t, prompt, "capacity review dashboard")
 }
 
 func TestBuildGenerateInput_UsesLowReasoningForJSONIntake(t *testing.T) {
@@ -175,7 +175,7 @@ func TestIntake_Defaults(t *testing.T) {
 
 func TestTemplateAppliesTo_DefaultsToGeneral(t *testing.T) {
 	assert.Equal(t, []string{"general"}, templateAppliesTo(&tpldef.Template{}))
-	assert.Equal(t, []string{"forecast"}, templateAppliesTo(&tpldef.Template{AppliesTo: []string{"forecast"}}))
+	assert.Equal(t, []string{"capacity"}, templateAppliesTo(&tpldef.Template{AppliesTo: []string{"capacity"}}))
 }
 
 func TestBuildOutputJSONSchema_RespectsScope(t *testing.T) {
@@ -203,20 +203,20 @@ func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{
 		Scope:  []string{"intent"},
-		Prompt: "Concrete ad-order troubleshoot requests are actionable without extra clarification.",
+		Prompt: "Concrete resource troubleshoot requests are actionable without extra clarification.",
 	}
 
 	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Workspace-specific intake guidance:")
-	assert.Contains(t, prompt, "Concrete ad-order troubleshoot requests are actionable without extra clarification.")
+	assert.Contains(t, prompt, "Concrete resource troubleshoot requests are actionable without extra clarification.")
 }
 
 func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
-	raw := `{"title":"Campaign 4821","intent":"diagnosis","entities":{"campaignId":"4821"}}`
+	raw := `{"title":"Project 4821","intent":"diagnosis","entities":{"projectId":"4821"}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "4821", tc.Context["campaignId"])
+	assert.Equal(t, "4821", tc.Context["projectId"])
 }
 
 // TestParseOutput_WorkspaceIntakeFields asserts that workspace-intake JSON
@@ -225,25 +225,25 @@ func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
 func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 	t.Run("workspace intake output", func(t *testing.T) {
 		raw := `{
-			"title":"Forecast order 2652067",
-			"intent":"forecast_review",
-			"selectedAgentId":"steward",
+			"title":"Capacity review 2652067",
+			"intent":"capacity_review",
+			"selectedAgentId":"analyst",
 			"mode":"route",
 			"source":"workspace",
-			"activateSkills":["audience-forecast-review"],
+			"activateSkills":["capacity-review"],
 			"confidence":0.94
 		}`
 		tc, err := parseOutput(raw)
 		require.NoError(t, err)
-		assert.Equal(t, "steward", tc.SelectedAgentID)
+		assert.Equal(t, "analyst", tc.SelectedAgentID)
 		assert.Equal(t, "route", tc.Mode)
 		assert.Equal(t, "workspace", tc.Source)
-		assert.Equal(t, []string{"audience-forecast-review"}, tc.ActivateSkills)
+		assert.Equal(t, []string{"capacity-review"}, tc.ActivateSkills)
 		assert.InDelta(t, 0.94, tc.Confidence, 0.001)
 	})
 
 	t.Run("legacy agent intake output preserves zero workspace fields", func(t *testing.T) {
-		raw := `{"title":"Campaign 4821","intent":"diagnosis","confidence":0.91}`
+		raw := `{"title":"Project 4821","intent":"diagnosis","confidence":0.91}`
 		tc, err := parseOutput(raw)
 		require.NoError(t, err)
 		assert.Equal(t, "", tc.SelectedAgentID, "legacy outputs must not invent SelectedAgentID")

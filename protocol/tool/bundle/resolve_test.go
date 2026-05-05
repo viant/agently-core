@@ -70,54 +70,54 @@ func TestResolveDefinitions(t *testing.T) {
 		{
 			name: "supports_raw_and_canonical_variants_for_include",
 			bundle: &Bundle{
-				ID: "steward",
+				ID: "analyst",
 				Match: []llm.Tool{
-					{Name: "steward:AdHierarchy"},
-					{Name: "steward-SaveRecommendation"},
+					{Name: "analyst:ResourceTree"},
+					{Name: "analyst-SaveDecision"},
 				},
 			},
 			matches: map[string][]*llm.ToolDefinition{
-				"steward:AdHierarchy":        {def("steward-AdHierarchy")},
-				"steward-AdHierarchy":        {def("steward-AdHierarchy")},
-				"steward-SaveRecommendation": {def("steward-SaveRecommendation")},
+				"analyst:ResourceTree": {def("analyst-ResourceTree")},
+				"analyst-ResourceTree": {def("analyst-ResourceTree")},
+				"analyst-SaveDecision": {def("analyst-SaveDecision")},
 			},
 			expected: []llm.ToolDefinition{
-				{Name: "steward-AdHierarchy"},
-				{Name: "steward-SaveRecommendation"},
+				{Name: "analyst-ResourceTree"},
+				{Name: "analyst-SaveDecision"},
 			},
 		},
 		{
 			name: "supports_canonical_bundle_names_against_raw_registry_names",
 			bundle: &Bundle{
-				ID: "steward",
+				ID: "analyst",
 				Match: []llm.Tool{
-					{Name: "steward-AdHierarchy"},
-					{Name: "steward-SaveRecommendation"},
+					{Name: "analyst-ResourceTree"},
+					{Name: "analyst-SaveDecision"},
 				},
 			},
 			matches: map[string][]*llm.ToolDefinition{
-				"steward:AdHierarchy":        {def("steward:AdHierarchy")},
-				"steward:SaveRecommendation": {def("steward:SaveRecommendation")},
+				"analyst:ResourceTree": {def("analyst:ResourceTree")},
+				"analyst:SaveDecision": {def("analyst:SaveDecision")},
 			},
 			expected: []llm.ToolDefinition{
-				{Name: "steward:AdHierarchy"},
-				{Name: "steward:SaveRecommendation"},
+				{Name: "analyst:ResourceTree"},
+				{Name: "analyst:SaveDecision"},
 			},
 		},
 		{
 			name: "supports_raw_and_canonical_variants_for_exclude",
 			bundle: &Bundle{
-				ID: "steward",
+				ID: "analyst",
 				Match: []llm.Tool{
-					{Name: "steward:*", Exclude: []string{"steward-SaveRecommendation"}},
+					{Name: "analyst:*", Exclude: []string{"analyst-SaveDecision"}},
 				},
 			},
 			matches: map[string][]*llm.ToolDefinition{
-				"steward:*":                  {def("steward-AdHierarchy"), def("steward-SaveRecommendation")},
-				"steward-SaveRecommendation": {def("steward-SaveRecommendation")},
+				"analyst:*":            {def("analyst-ResourceTree"), def("analyst-SaveDecision")},
+				"analyst-SaveDecision": {def("analyst-SaveDecision")},
 			},
 			expected: []llm.ToolDefinition{
-				{Name: "steward-AdHierarchy"},
+				{Name: "analyst-ResourceTree"},
 			},
 		},
 		{

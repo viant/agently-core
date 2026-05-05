@@ -21,10 +21,10 @@ func TestParseClassifierResult_UnifiedSchema(t *testing.T) {
 	}
 
 	t.Run("action=route returns AgentID", func(t *testing.T) {
-		got := parseClassifierResult(mkResp(`{"action":"route","agentId":"steward"}`), "agentId")
+		got := parseClassifierResult(mkResp(`{"action":"route","agentId":"analyst"}`), "agentId")
 		assert.NotNil(t, got)
 		assert.Equal(t, ClassifierActionRoute, got.Action)
-		assert.Equal(t, "steward", got.AgentID)
+		assert.Equal(t, "analyst", got.AgentID)
 		assert.Empty(t, got.Answer)
 		assert.Empty(t, got.Question)
 	})
@@ -77,10 +77,10 @@ func TestParseClassifierResult_UnifiedSchema(t *testing.T) {
 	})
 
 	t.Run("fenced JSON parses", func(t *testing.T) {
-		got := parseClassifierResult(mkResp("```json\n{\"action\":\"route\",\"agentId\":\"steward\"}\n```"), "agentId")
+		got := parseClassifierResult(mkResp("```json\n{\"action\":\"route\",\"agentId\":\"analyst\"}\n```"), "agentId")
 		assert.NotNil(t, got)
 		assert.Equal(t, ClassifierActionRoute, got.Action)
-		assert.Equal(t, "steward", got.AgentID)
+		assert.Equal(t, "analyst", got.AgentID)
 	})
 
 	t.Run("nil response returns nil", func(t *testing.T) {
@@ -107,10 +107,10 @@ func TestParseClassifierResult_UnifiedSchema(t *testing.T) {
 	})
 
 	t.Run("non-JSON content falls back to first token as agent id", func(t *testing.T) {
-		got := parseClassifierResult(mkResp("steward"), "agentId")
+		got := parseClassifierResult(mkResp("analyst"), "agentId")
 		assert.NotNil(t, got)
 		assert.Equal(t, ClassifierActionRoute, got.Action)
-		assert.Equal(t, "steward", got.AgentID)
+		assert.Equal(t, "analyst", got.AgentID)
 	})
 
 	t.Run("answer text with newlines preserved", func(t *testing.T) {
