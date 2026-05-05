@@ -13,6 +13,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	tpldef "github.com/viant/agently-core/protocol/template"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
@@ -176,6 +177,22 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 	if hasProfile && s.profileRepo != nil {
 		profiles, err := s.profileRepo.LoadAll(ctx)
 		if err == nil && len(profiles) > 0 {
+			if allow := runtimerequestctx.PromptProfileAllowListFromContext(ctx); len(allow) > 0 {
+				allowed := map[string]struct{}{}
+				for _, id := range allow {
+					allowed[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+				}
+				filtered := make([]*promptdef.Profile, 0, len(profiles))
+				for _, p := range profiles {
+					if p == nil {
+						continue
+					}
+					if _, ok := allowed[strings.ToLower(strings.TrimSpace(p.ID))]; ok {
+						filtered = append(filtered, p)
+					}
+				}
+				profiles = filtered
+			}
 			b.WriteString("\n\nAvailable prompt profiles (id → description → appliesTo tags):\n")
 			for _, p := range profiles {
 				if p == nil {

@@ -25,3 +25,9 @@ func TestRunMetaAndRequestModeContext(t *testing.T) {
 	require.Equal(t, 2, run.Iteration)
 	require.Equal(t, "plan", RequestModeFromContext(ctx))
 }
+
+func TestPromptProfileAllowListContext(t *testing.T) {
+	ctx := WithPromptProfileAllowList(context.Background(), []string{" performance_analysis ", "", "inventory_diagnosis"})
+	require.Equal(t, []string{"performance_analysis", "inventory_diagnosis"}, PromptProfileAllowListFromContext(ctx))
+	require.Nil(t, PromptProfileAllowListFromContext(context.Background()))
+}
