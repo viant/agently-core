@@ -164,6 +164,10 @@ func (s *Service) resolveModel(cfg *agentmdl.Intake) string {
 func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (string, error) {
 	var b strings.Builder
 	b.WriteString(intakeBasePrompt)
+	if extra := strings.TrimSpace(cfg.Prompt); extra != "" {
+		b.WriteString("\n\nWorkspace-specific intake guidance:\n")
+		b.WriteString(extra)
+	}
 
 	hasProfile := cfg.HasScope(agentmdl.IntakeScopeProfile)
 	hasTools := cfg.HasScope(agentmdl.IntakeScopeTools)
@@ -320,7 +324,12 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 const intakeBasePrompt = `You are a request classifier that extracts structured metadata from user messages.
 Your output drives downstream routing and tool selection — be precise and conservative.
 Do not invent context, dates, or constraints not present in the message.
-Do not output tool names or capability descriptions.`
+Do not output tool names or capability descriptions.
+
+Clarification rule:
+- If the message already names a concrete entity scope such as an ad order, campaign, advertiser, audience, repo, package, file path, or other directly actionable object, do not ask for clarification just because timeframe, KPI family, or symptom subtype was omitted.
+- For concrete troubleshoot / diagnose / investigate / analyze asks on a named entity, prefer routing directly so the owning agent can establish the baseline from the available tools.
+- Ask for clarification only when a missing detail truly blocks selecting any reasonable next step.`
 
 // parseOutput unmarshals the sidecar's JSON output into a TurnContext.
 func parseOutput(raw string) (*TurnContext, error) {

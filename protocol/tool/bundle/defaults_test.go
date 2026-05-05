@@ -33,3 +33,24 @@ func TestDeriveBundles_SystemPatchExcludesCommitRollback(t *testing.T) {
 		}, patchBundle.Match)
 	}
 }
+
+func TestDeriveBundles_ScratchpadUsesDefaultIcon(t *testing.T) {
+	bundles := DeriveBundles([]llm.ToolDefinition{
+		{Name: "scratchpad:memorize"},
+		{Name: "scratchpad:append"},
+		{Name: "scratchpad:list"},
+		{Name: "scratchpad:fetch"},
+	})
+
+	var scratchpadBundle *Bundle
+	for _, item := range bundles {
+		if item.ID == "scratchpad" {
+			scratchpadBundle = item
+			break
+		}
+	}
+	if assert.NotNil(t, scratchpadBundle) {
+		assert.Equal(t, "builtin:scratchpad", scratchpadBundle.IconRef)
+		assert.EqualValues(t, []llm.Tool{{Name: "scratchpad/*"}}, scratchpadBundle.Match)
+	}
+}

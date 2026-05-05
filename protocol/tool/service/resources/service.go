@@ -117,7 +117,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "roots", Description: "Discover configured resource roots with optional descriptions", Input: reflect.TypeOf(&RootsInput{}), Output: reflect.TypeOf(&RootsOutput{})},
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "read", Description: "Read a single resource under a root. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
+		{Name: "read", Description: "Read a single resource under a root and emit observation metadata required before patching existing files. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
 		{Name: "readImage", Description: "Read an image under a root and return a base64 payload suitable for attaching as a vision input. Defaults to resizing to fit 2048x768.", Input: reflect.TypeOf(&ReadImageInput{}), Output: reflect.TypeOf(&ReadImageOutput{})},
 		{Name: "match", Description: "Semantic match search over one or more roots; use `match.exclusions` to block specific  paths.", Input: reflect.TypeOf(&MatchInput{}), Output: reflect.TypeOf(&MatchOutput{})},
 		{Name: "matchDocuments", Description: "Rank semantic matches and return distinct URIs with score + root metadata for transcript promotion. Example: {\"rootIds\":[\"workspace://localhost/knowledge/bidder\"],\"query\":\"performance\"}. Output fields: documents[].uri, documents[].score, documents[].rootId.", Input: reflect.TypeOf(&MatchDocumentsInput{}), Output: reflect.TypeOf(&MatchDocumentsOutput{})},

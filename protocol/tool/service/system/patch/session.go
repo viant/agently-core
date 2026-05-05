@@ -55,6 +55,13 @@ type Session struct {
 	mu        sync.Mutex // guards committed flag and rollbacks slice
 }
 
+func (s *Session) HasCreatedChange(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry := s.byCurrent[strings.TrimSpace(path)]
+	return entry != nil && entry.alive && entry.kind == "create"
+}
+
 func NewSession() (*Session, error) {
 	fs := afs.New()
 	ctx := context.Background()

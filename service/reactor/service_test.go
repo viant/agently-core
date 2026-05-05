@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently-core/internal/jsonutil"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	core2 "github.com/viant/agently-core/service/core"
 )
@@ -99,7 +100,7 @@ func TestService_extendPlanFromResponse_ElicitationOnlyIsNotEmpty(t *testing.T) 
 		},
 	}
 
-	ok, err := service.extendPlanFromResponse(ctx, genOutput, aPlan)
+	ok, err := service.extendPlanFromResponse(ctx, nil, genOutput, aPlan)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NotNil(t, aPlan.Elicitation)
@@ -153,6 +154,65 @@ func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 
 	require.Len(t, aPlan.Steps, 1)
 	assert.EqualValues(t, "", aPlan.Steps[0].Reason)
+}
+
+func TestService_extendPlanFromResponse_RejectsUnresolvedMessageShowContinuation(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{}
+	aPlan := plan.New()
+	genInput := &core2.GenerateInput{
+		Binding: &binding.Binding{
+			History: binding.History{
+				Current: &binding.Turn{
+					Messages: []*binding.Message{
+						{
+							Kind:     binding.MessageKindToolResult,
+							Role:     string(llm.RoleAssistant),
+							ToolName: "message-show",
+							ToolOpID: "call-1",
+							ToolArgs: map[string]interface{}{
+								"messageId": "source-msg",
+								"byteRange": map[string]int{"from": 57600, "to": 65912},
+							},
+							Content: `overflow: true
+messageId: source-msg
+nextArgs:
+  messageId: source-msg
+  byteRange:
+    from: 57600
+    to: 65912
+nextRange:
+  bytes:
+    offset: 57600
+    length: 8312
+hasMore: true
+useToolToSeeMore: message-show
+content: |
+  partial body`,
+						},
+					},
+				},
+			},
+		},
+	}
+	genOutput := &core2.GenerateOutput{
+		Content: "Here is my answer without the required continuation.",
+		Response: &llm.GenerateResponse{
+			Choices: []llm.Choice{{
+				Index: 0,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Content: "Here is my answer without the required continuation.",
+				},
+				FinishReason: "stop",
+			}},
+		},
+	}
+
+	ok, err := service.extendPlanFromResponse(ctx, genInput, genOutput, aPlan)
+	require.ErrorIs(t, err, errPendingToolContinuation)
+	require.False(t, ok)
+	require.Empty(t, aPlan.Steps)
 }
 
 func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreamingDeltas(t *testing.T) {

@@ -42,6 +42,7 @@ import (
 	mcpproxy "github.com/viant/agently-core/protocol/mcp/proxy"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	orchplan "github.com/viant/agently-core/protocol/tool/service/orchestration/plan"
+	toolScratchpad "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	toolAsync "github.com/viant/agently-core/protocol/tool/service/system/async"
 	toolExec "github.com/viant/agently-core/protocol/tool/service/system/exec"
 	toolImage "github.com/viant/agently-core/protocol/tool/service/system/image"
@@ -2343,6 +2344,15 @@ func (r *Registry) addInternalMcp() {
 			r.internal[s.Name()] = cli
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", s.Name(), err)
+		}
+	}
+	// scratchpad
+	{
+		service := toolScratchpad.New()
+		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
+			r.internal[service.Name()] = cli
+		} else if err != nil {
+			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}
 	}
 

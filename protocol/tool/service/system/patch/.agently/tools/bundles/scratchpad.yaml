@@ -1,0 +1,9 @@
+id: scratchpad
+title: Scratchpad
+description: User-scoped working memory notes
+iconRef: builtin:scratchpad
+priority: 80
+match:
+  - name: "scratchpad:memorize"
+  - name: "scratchpad:list"
+  - name: "scratchpad:fetch"

@@ -23,12 +23,15 @@ Rules
 - When operating of file system 
   - Never guess workdir - always confirm with user
   - Never use workdir as '.'
+  - Update/Delete require the target file to have been read first with `resources:read` in the current turn.
+  - If an observed file changed after `resources:read`, read it again before patching.
+  - Add does not require `resources:read`.
   - Paths must resolve inside workdir.
   - Relative paths are resolved against workdir.
   - Absolute paths are accepted only when they already point inside workdir.
   - Paths that escape workdir by traversal or sibling-prefix tricks are rejected with a corrective error.
   - Parent directories for Add/Move targets are created as needed inside workdir.
-  - Update/Delete fail if the target does not exist.
+  - Update/Delete require a prior `resources:read` of the current file and fail if the target does not exist.
 - The tool validates structure and stops on the first structural error, returning a helpful message.
 
 
@@ -51,6 +54,6 @@ Proposed description (JSON-safe):
 [one or more file sections]\n  *** End Patch\n- Operations:\n  - *** Add File:  — creates a new file; each subsequent line must start with "+".\n  - *** Delete File:  — removes an existing file.\n  - *** Update
 File:  — patches an existing file in place.\n  - Optional rename after Update: *** Move to: \n- Hunks:\n  - Introduced by @@ [header]\n  - Hunk lines start with:\n    - " " context (unchanged)\n    - "+" inserted
 text\n    - "-" removed text\n  - For truncated hunks, you may end with "*** End of File".\n\nRules\n- Paths must resolve inside workdir.\n- Relative paths are resolved against workdir.\n- Absolute paths are accepted only when they already point inside workdir.\n- Paths that escape workdir by traversal or sibling-prefix tricks are rejected with a corrective error.\n- Parent directories
-for Add/Move targets are created as needed inside workdir.\n- Update/Delete fail if the target does not exist.\n- The tool validates structure and stops on the first structural error, returning a helpful message.
+for Add/Move targets are created as needed inside workdir.\n- Update/Delete require a prior resources:read of the current file and fail if the target does not exist.\n- Add does not require resources:read.\n- The tool validates structure and stops on the first structural error, returning a helpful message.
 \n\nOutput\n- Returns status and counts of lines added/removed for the applied patch; includes an error message on failure.\n\nExample\n*** Begin Patch\n*** Add File: hello.txt\n+Hello, world!\n*** Update File:
 src/app.py\n@@\n-print("Hi")\n+print("Hello, world!")\n*** Move to: src/main.py\n*** End Patch"

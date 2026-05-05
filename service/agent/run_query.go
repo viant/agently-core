@@ -29,6 +29,7 @@ import (
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
+	toolobservation "github.com/viant/agently-core/protocol/tool/service/observation"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -325,6 +326,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	s.tryMergePromptIntoContext(input)
 	workdir := ensureResolvedWorkdir(input)
 	ctx = toolexec.WithWorkdir(ctx, workdir)
+	ctx = toolobservation.WithState(ctx)
 	contextStarted := time.Now()
 	if err := s.updatedConversationContext(ctx, input.ConversationID, input); err != nil {
 		return err
@@ -629,6 +631,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if bErr != nil {
 			return bErr
 		}
+		appendRuntimeClockSystemDocument(binding, time.Now())
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
 		overrideName, overrideMode := skillActivationOverridePair(input)
 		activeNames := []string(nil)

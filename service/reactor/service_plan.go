@@ -3,6 +3,7 @@ package reactor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,8 +11,11 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/jsonutil"
 	"github.com/viant/agently-core/protocol/agent/plan"
+	overflowtool "github.com/viant/agently-core/protocol/tool/overflow"
 	core2 "github.com/viant/agently-core/service/core"
 )
+
+var errPendingToolContinuation = errors.New("latest tool result still requires continuation")
 
 func hasRemovalTool(p *plan.Plan) bool {
 	if p == nil || len(p.Steps) == 0 {
@@ -40,7 +44,7 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
+func (s *Service) extendPlanFromResponse(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
 	if genOutput.Response == nil || len(genOutput.Response.Choices) == 0 {
 		return false, nil
 	}
@@ -49,6 +53,9 @@ func (s *Service) extendPlanFromResponse(ctx context.Context, genOutput *core2.G
 		s.extendPlanWithToolCalls(genOutput.Response.ResponseID, choice, aPlan)
 	}
 	if len(aPlan.Steps) == 0 {
+		if hasPendingContinuation(genInput) {
+			return false, errPendingToolContinuation
+		}
 		if err := s.extendPlanFromContent(ctx, genOutput, aPlan); err != nil {
 			return false, err
 		}
@@ -156,6 +163,16 @@ func extractPriorToolResults(genInput *core2.GenerateInput) []llm.ToolCall {
 		out = append(out, call)
 	}
 	return out
+}
+
+func hasPendingContinuation(genInput *core2.GenerateInput) bool {
+	priorToolResults := extractPriorToolResults(genInput)
+	if len(priorToolResults) == 0 {
+		return false
+	}
+	last := priorToolResults[len(priorToolResults)-1]
+	_, ok := overflowtool.ExtractMessageShowNextArgs(strings.TrimSpace(last.Result))
+	return ok
 }
 
 func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *plan.Plan) error {

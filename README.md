@@ -219,6 +219,7 @@ Predefined resource kinds: `agents`, `models`, `embedders`, `mcp`, `workflows`,
 | `AGENTLY_WORKSPACE` | Workspace root path |
 | `AGENTLY_RUNTIME_ROOT` | Runtime root (defaults to workspace root) |
 | `AGENTLY_STATE_PATH` | Runtime state root |
+| `AGENTLY_SCRATCHPAD_URI` | User-scoped scratchpad URI template; defaults to `mem://localhost/scratchpad/${userID}` and must include `${userID}` or `${user}` |
 | `AGENTLY_WORKSPACE_NO_DEFAULTS` | Skip default bootstrapping |
 
 ## Persistence

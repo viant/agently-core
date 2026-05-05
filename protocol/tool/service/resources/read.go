@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently-core/internal/textutil"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	"github.com/viant/agently-core/protocol/tool/service/observation"
 	"github.com/viant/agently-core/protocol/tool/service/shared/imageio"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
@@ -66,6 +67,8 @@ type ReadOutput struct {
 	ModeApplied string `json:"modeApplied,omitempty"`
 	// Continuation carries paging/truncation hints when content was clipped.
 	Continuation *extension.Continuation `json:"continuation,omitempty"`
+	// Observation records the full resource hash used by patch tools to enforce read-before-modify.
+	Observation *observation.Metadata `json:"observation,omitempty"`
 }
 
 type ReadImageInput struct {
@@ -134,6 +137,8 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 					}
 					output.Size = len(body)
 					output.Returned = len(body)
+					meta := observation.RecordRead(ctx, target.fullURI, []byte(body), true)
+					output.Observation = &meta
 					return nil
 				}
 			}
@@ -151,6 +156,8 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	}
 	limitRequested := readLimitRequested(input)
 	populateReadOutput(output, target, selection.Text, len(data), selection.Returned, selection.Remaining, selection.StartLine, selection.EndLine, selection.ModeApplied, limitRequested, selection.Binary, selection.OffsetBytes)
+	meta := observation.RecordRead(ctx, target.fullURI, data, selection.Remaining == 0 && selection.Returned == len(data))
+	output.Observation = &meta
 	return nil
 }
 
