@@ -101,7 +101,7 @@ func TestApplyParallelToolCallOverride_UsesQueryOverride(t *testing.T) {
 	in := &core.GenerateInput{
 		ModelSelection: llm.ModelSelection{
 			Options: &llm.Options{
-				ParallelToolCalls: true,
+				ParallelToolCalls: llm.BoolPtr(true),
 			},
 		},
 	}
@@ -111,7 +111,7 @@ func TestApplyParallelToolCallOverride_UsesQueryOverride(t *testing.T) {
 
 	applyParallelToolCallOverride(input, in)
 
-	if got := in.Options.ParallelToolCalls; got {
+	if got := llm.ParallelToolCallsEnabled(in.Options); got {
 		t.Fatalf("expected query/profile override to disable parallel tool calls")
 	}
 }

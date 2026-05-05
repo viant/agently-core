@@ -245,8 +245,8 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 
 		// Honor parallel tool calls only when tools are present.
 		// OpenAI chat.completions rejects parallel_tool_calls without tools.
-		if request.Options.ParallelToolCalls && len(req.Tools) > 0 {
-			req.ParallelToolCalls = true
+		if request.Options.ParallelToolCalls != nil && len(req.Tools) > 0 {
+			req.ParallelToolCalls = request.Options.ParallelToolCalls
 		}
 
 		// Convert tool choice if provided and tools are present

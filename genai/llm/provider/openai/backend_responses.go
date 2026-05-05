@@ -13,7 +13,7 @@ type ChatGPTBackendResponsesPayload struct {
 	Input             []InputItem     `json:"input"`
 	Tools             []ResponsesTool `json:"tools,omitempty"`
 	ToolChoice        interface{}     `json:"tool_choice,omitempty"`
-	ParallelToolCalls bool            `json:"parallel_tool_calls,omitempty"`
+	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitempty"`
 	Reasoning         interface{}     `json:"reasoning,omitempty"`
 	Store             bool            `json:"store"`
 	Stream            bool            `json:"stream"`

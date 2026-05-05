@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	basecfg "github.com/viant/agently-core/genai/llm/provider/base"
 )
@@ -169,11 +170,11 @@ func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
 			Messages: []llm.Message{llm.NewUserMessage("summarize")},
 			Options: &llm.Options{
 				Model:             "gpt-5.2",
-				ParallelToolCalls: true,
+				ParallelToolCalls: llm.BoolPtr(true),
 			},
 		}
 		got := ToRequest(&in)
-		assert.False(t, got.ParallelToolCalls)
+		assert.Nil(t, got.ParallelToolCalls)
 		assert.Len(t, got.Tools, 0)
 	})
 
@@ -182,7 +183,7 @@ func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
 			Messages: []llm.Message{llm.NewUserMessage("run tool")},
 			Options: &llm.Options{
 				Model:             "gpt-5.2",
-				ParallelToolCalls: true,
+				ParallelToolCalls: llm.BoolPtr(true),
 				Tools: []llm.Tool{{
 					Definition: llm.ToolDefinition{
 						Name: "system_exec-execute",
@@ -194,7 +195,8 @@ func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
 			},
 		}
 		got := ToRequest(&in)
-		assert.True(t, got.ParallelToolCalls)
+		require.NotNil(t, got.ParallelToolCalls)
+		assert.True(t, *got.ParallelToolCalls)
 		assert.Len(t, got.Tools, 1)
 	})
 }
