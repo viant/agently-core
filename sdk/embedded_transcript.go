@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	hstate "github.com/viant/xdatly/handler/state"
 )
 
@@ -295,7 +295,7 @@ func (c *backendClient) resolveElicitationPayload(ctx context.Context, elicitati
 		}
 	}
 	if content != "" {
-		var elicitation plan.Elicitation
+		var elicitation execution.Elicitation
 		if err := json.Unmarshal([]byte(content), &elicitation); err == nil && !elicitation.IsEmpty() {
 			raw, err := json.Marshal(elicitation)
 			if err == nil {

@@ -3,11 +3,11 @@ package agent
 import (
 	"strings"
 
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 )
 
 // missingRequired returns a list of required keys absent or empty in ctx.
-func missingRequired(elicitation *plan.Elicitation, ctx map[string]any) []string {
+func missingRequired(elicitation *execution.Elicitation, ctx map[string]any) []string {
 	var out []string
 	if elicitation == nil {
 		return out

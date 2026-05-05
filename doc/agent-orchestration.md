@@ -16,7 +16,7 @@ persisting every observable event.
 | Responsibility | Where |
 |---|---|
 | Turn creation + lifecycle | [service/agent/run_query.go](../service/agent/run_query.go), [pkg/agently/turn/](../pkg/agently/turn/) |
-| Plan emission | [protocol/agent/plan/](../protocol/agent/plan/) + [service/reactor/service_plan.go](../service/reactor/service_plan.go) |
+| Plan emission | [protocol/agent/execution/](../protocol/agent/execution/) + [service/reactor/service_plan.go](../service/reactor/service_plan.go) |
 | Tool call dispatch | [service/shared/toolexec/](../service/shared/toolexec/) + [internal/tool/registry/](../internal/tool/registry/) |
 | Streaming model output | [runtime/streaming/](../runtime/streaming/) + `genai/llm/` providers |
 | Elicitation mid-turn | [service/elicitation/](../service/elicitation/) (see [elicitation-system.md](elicitation-system.md)) |
@@ -45,7 +45,7 @@ Query(ctx, input)
 
 - **New tool type**: register via [internal/tool/registry/](../internal/tool/registry/) — see [tool-system.md](tool-system.md).
 - **Pre-turn routing**: add/replace intake stages under [service/intake/](../service/intake/).
-- **Plan shape**: extend [protocol/agent/plan/](../protocol/agent/plan/) types; the reactor consumes whatever the model emits that matches the schema.
+- **Plan shape**: extend [protocol/agent/execution/](../protocol/agent/execution/) types; the reactor consumes whatever the model emits that matches the schema.
 - **Approval policy**: `tool.Policy` on the runtime controls allow/block lists and approval mode.
 - **Streaming observers**: subscribe via [runtime/streaming.Bus](../runtime/streaming/) — see [streaming-events.md](streaming-events.md).
 

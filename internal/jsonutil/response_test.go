@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	plan "github.com/viant/agently-core/protocol/agent/plan"
+	plan "github.com/viant/agently-core/protocol/agent/execution"
 )
 
 func TestEnsureJSONResponse(t *testing.T) {

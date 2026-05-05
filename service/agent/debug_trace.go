@@ -1,13 +1,14 @@
 package agent
 
 import (
-	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/internal/textutil"
+
+	"github.com/viant/agently-core/protocol/agent/execution"
 )
 
-func summarizePlanSteps(aPlan *plan.Plan) []map[string]any {
+func summarizePlanSteps(aPlan *execution.Plan) []map[string]any {
 	if aPlan == nil || len(aPlan.Steps) == 0 {
 		return nil
 	}

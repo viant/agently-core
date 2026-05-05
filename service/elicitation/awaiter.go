@@ -2,12 +2,13 @@ package elicitation
 
 import (
 	"context"
-	"github.com/viant/agently-core/protocol/agent/plan"
 	"sync"
+
+	"github.com/viant/agently-core/protocol/agent/execution"
 )
 
 type Awaiter interface {
-	AwaitElicitation(ctx context.Context, p *plan.Elicitation) (*plan.ElicitResult, error)
+	AwaitElicitation(ctx context.Context, p *execution.Elicitation) (*execution.ElicitResult, error)
 }
 
 type Awaiters struct {

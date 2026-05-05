@@ -6,15 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/viant/agently-core/internal/textutil"
 	"strings"
 	"time"
+
+	"github.com/viant/agently-core/internal/textutil"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	elact "github.com/viant/agently-core/service/elicitation/action"
@@ -54,7 +55,7 @@ func (s *Service) SetStreamPublisher(p streaming.Publisher) {
 	s.streamPub = p
 }
 
-func (s *Service) emitElicitationRequested(ctx context.Context, turn *runtimerequestctx.TurnMeta, elic *plan.Elicitation, messageID string) {
+func (s *Service) emitElicitationRequested(ctx context.Context, turn *runtimerequestctx.TurnMeta, elic *execution.Elicitation, messageID string) {
 	if s == nil || s.streamPub == nil || turn == nil || elic == nil {
 		return
 	}
@@ -147,7 +148,7 @@ func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedS
 }
 
 // Record persists an elicitation control message and returns its message id.
-func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, elic *plan.Elicitation) (*apiconv.MutableMessage, error) {
+func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, elic *execution.Elicitation) (*apiconv.MutableMessage, error) {
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
@@ -250,7 +251,7 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 	// Spawn local awaiter if configured. Retrieve original elicitation schema to prompt properly.
 	if s.awaiterFactory != nil {
 		go func() {
-			var req plan.Elicitation
+			var req execution.Elicitation
 			if msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID); err == nil && msg != nil {
 				if loaded, ok := s.loadRecordedElicitation(ctx, msg); ok {
 					req = loaded
@@ -319,7 +320,7 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 	}
 }
 
-func (s *Service) storeElicitationRequestPayload(ctx context.Context, elic *plan.Elicitation) (string, error) {
+func (s *Service) storeElicitationRequestPayload(ctx context.Context, elic *execution.Elicitation) (string, error) {
 	raw, err := json.Marshal(elic)
 	if err != nil {
 		return "", err
@@ -338,24 +339,24 @@ func (s *Service) storeElicitationRequestPayload(ctx context.Context, elic *plan
 	return pid, nil
 }
 
-func (s *Service) loadRecordedElicitation(ctx context.Context, msg *apiconv.Message) (plan.Elicitation, bool) {
+func (s *Service) loadRecordedElicitation(ctx context.Context, msg *apiconv.Message) (execution.Elicitation, bool) {
 	if msg == nil || msg.ElicitationPayloadId == nil || strings.TrimSpace(*msg.ElicitationPayloadId) == "" {
-		return plan.Elicitation{}, false
+		return execution.Elicitation{}, false
 	}
 	payload, err := s.client.GetPayload(ctx, strings.TrimSpace(*msg.ElicitationPayloadId))
 	if err != nil || payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
-		return plan.Elicitation{}, false
+		return execution.Elicitation{}, false
 	}
-	var req plan.Elicitation
+	var req execution.Elicitation
 	if err = json.Unmarshal(*payload.InlineBody, &req); err != nil {
-		return plan.Elicitation{}, false
+		return execution.Elicitation{}, false
 	}
 	return req, true
 }
 
 // Elicit records a new elicitation control message and waits for a resolution via router/UI.
 // Returns message id, normalized status (accepted/rejected/cancel) and optional payload.
-func (s *Service) Elicit(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, req *plan.Elicitation) (string, string, map[string]interface{}, error) {
+func (s *Service) Elicit(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, req *execution.Elicitation) (string, string, map[string]interface{}, error) {
 	if req == nil || turn == nil {
 		return "", "", nil, fmt.Errorf("invalid input")
 	}
@@ -492,7 +493,7 @@ func (s *Service) AddUserResponseMessage(ctx context.Context, turn *runtimereque
 	return err
 }
 
-func enrichApprovalPayload(payload map[string]interface{}, req *plan.Elicitation) map[string]interface{} {
+func enrichApprovalPayload(payload map[string]interface{}, req *execution.Elicitation) map[string]interface{} {
 	if len(payload) == 0 || req == nil {
 		return payload
 	}

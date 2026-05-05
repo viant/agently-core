@@ -10,7 +10,7 @@ import (
 
 	"github.com/viant/agently-core/app/store/conversation"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/protocol/agent/plan"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -136,7 +136,7 @@ func (c *backendClient) RecordOOBAuthElicitation(ctx context.Context, authURL st
 		return fmt.Errorf("no conversation in context for OOB auth")
 	}
 	turn := runtimerequestctx.TurnMeta{ConversationID: convID, TurnID: turnID}
-	elic := &plan.Elicitation{}
+	elic := &execution.Elicitation{}
 	elic.Message = "MCP server requires authentication. Please sign in to continue."
 	elic.Mode = "url"
 	elic.Url = authURL

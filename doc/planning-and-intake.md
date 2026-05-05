@@ -5,12 +5,18 @@ user's query and selects a **prompt profile + tool bundle**. This keeps the
 main orchestrator's system prompt small and lets the runtime inject the right
 scope per turn.
 
+For turns where static profile selection is weak, invalid, or explicitly
+creative, intake may select **planner mode** instead of a static profile. In
+the light design, planner mode still uses the same orchestrator agent; it adds
+runtime-owned planner system context first, then lets the normal reactor pass
+execute. See [planner.md](planner.md).
+
 ## Packages
 
 | Path | Role |
 |---|---|
 | [service/intake/](../service/intake/) | Pre-turn sidecar: confidence-scored profile selection |
-| [protocol/agent/plan/](../protocol/agent/plan/) | Plan schema the model emits (steps, tool refs, dependencies) |
+| [protocol/agent/execution/](../protocol/agent/execution/) | Plan schema the model emits (steps, tool refs, dependencies) |
 | [service/reactor/service_plan.go](../service/reactor/service_plan.go) | Plan consumption: step expansion, dispatch |
 | [protocol/tool/service/orchestration/plan/](../protocol/tool/service/orchestration/plan/) | Exposed `orchestration/plan:*` tools |
 
@@ -22,6 +28,8 @@ Runs before the reactor invokes the model:
 2. Emits a `TurnContext` with `SuggestedProfileId`, `Confidence`, `ToolBundles`.
 3. When confidence ≥ threshold, the reactor pre-populates `RunInput.PromptProfileId` + `ToolBundles` and the orchestrator skips `prompt:list`.
 4. Below threshold, the orchestrator runs `prompt:list`, reasons, and selects a profile itself.
+5. If static selection is weak or validation fails, intake/runtime may choose
+   planner mode instead of clarification.
 
 See [doc/prompts.md](prompts.md) for the profile + bundle format.
 
@@ -40,7 +48,7 @@ reactor topologically orders ready steps and fans out parallel-safe work.
 
 ## Extensibility
 
-- **New step kind**: extend `protocol/agent/plan` + teach the reactor to dispatch it.
+- **New step kind**: extend `protocol/agent/execution` + teach the reactor to dispatch it.
 - **Custom intake classifier**: implement `intake.Classifier` and wire into the builder.
 - **Per-profile guardrails**: add validators under `service/intake/` that reject profiles lacking required bundles.
 

@@ -1,4 +1,4 @@
-package plan
+package execution
 
 // This file defines a light-weight representation of an “elicitation” prompt
 // that is independent from the full MCP protocol types.  It is used by the

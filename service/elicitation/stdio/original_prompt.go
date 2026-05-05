@@ -8,11 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	plan "github.com/viant/agently-core/protocol/agent/plan"
-	"github.com/xeipuuv/gojsonschema"
 	"io"
 	"sort"
 	"strings"
+
+	plan "github.com/viant/agently-core/protocol/agent/execution"
+	"github.com/xeipuuv/gojsonschema"
 )
 
 func Prompt(ctx context.Context, w io.Writer, r io.Reader, p *plan.Elicitation) (*plan.ElicitResult, error) {
