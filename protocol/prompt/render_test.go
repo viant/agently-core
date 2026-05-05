@@ -16,25 +16,25 @@ func TestRender_LocalText(t *testing.T) {
 	p := &Profile{
 		ID: "perf",
 		Messages: []Message{
-			{Role: "system", Text: "You are a performance analyst."},
-			{Role: "user", Text: "Analyze campaign {{.campaignId}}."},
+			{Role: "system", Text: "You are a systems analyst."},
+			{Role: "user", Text: "Analyze project {{.projectId}}."},
 		},
 	}
 	msgs, err := p.Render(context.Background(), nil, &RenderOptions{
-		Binding: map[string]interface{}{"campaignId": "4821"},
+		Binding: map[string]interface{}{"projectId": "4821"},
 	})
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "system", msgs[0].Role)
-	assert.Equal(t, "You are a performance analyst.", msgs[0].Text)
+	assert.Equal(t, "You are a systems analyst.", msgs[0].Text)
 	assert.Equal(t, "user", msgs[1].Role)
-	assert.Equal(t, "Analyze campaign 4821.", msgs[1].Text)
+	assert.Equal(t, "Analyze project 4821.", msgs[1].Text)
 }
 
 func TestRender_LocalInstructions(t *testing.T) {
 	p := &Profile{
 		ID:           "perf",
-		Instructions: "Focus on pacing for account {{.accountId}}.",
+		Instructions: "Focus on latency for account {{.accountId}}.",
 	}
 	msgs, err := p.Render(context.Background(), nil, &RenderOptions{
 		Binding: map[string]interface{}{"accountId": "99"},
@@ -42,7 +42,7 @@ func TestRender_LocalInstructions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "system", msgs[0].Role)
-	assert.Equal(t, "Focus on pacing for account 99.", msgs[0].Text)
+	assert.Equal(t, "Focus on latency for account 99.", msgs[0].Text)
 }
 
 func TestRender_SkipsEmptyMessages(t *testing.T) {

@@ -70,7 +70,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 	turn.SetConversationID("conv-1")
 	turn.SetStatus("running")
 	turn.SetRunID("run-1")
-	turn.SetAgentIDUsed("steward-performance")
+	turn.SetAgentIDUsed("analyst-performance")
 	turn.SetStartedByMessageID("user-1")
 	turn.SetCreatedAt(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
@@ -87,7 +87,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.EqualValues(t, "turn-1", ev.Patch["turnId"])
 		require.EqualValues(t, "running", ev.Patch["status"])
 		require.EqualValues(t, "run-1", ev.Patch["runId"])
-		require.EqualValues(t, "steward-performance", ev.Patch["agentIdUsed"])
+		require.EqualValues(t, "analyst-performance", ev.Patch["agentIdUsed"])
 		require.EqualValues(t, "user-1", ev.Patch["userMessageId"])
 		require.EqualValues(t, "2026-01-02T03:04:05Z", ev.Patch["createdAt"])
 	case <-time.After(2 * time.Second):
@@ -102,7 +102,7 @@ func TestPublishTurnEvent_RunningTurnPublishesStartedControl(t *testing.T) {
 		require.Equal(t, "conv-1", ev.ConversationID)
 		require.Equal(t, "user-1", ev.MessageID)
 		require.Equal(t, "user-1", ev.UserMessageID)
-		require.Equal(t, "steward-performance", ev.AgentIDUsed)
+		require.Equal(t, "analyst-performance", ev.AgentIDUsed)
 		require.Equal(t, "running", ev.Status)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected typed turn_started event")
@@ -450,8 +450,8 @@ func TestTimelineDebugFields_ExposeIdentityAndTimingFields(t *testing.T) {
 		ConversationID:            "conv-1",
 		TurnID:                    "turn-1",
 		MessageID:                 "msg-1",
-		AgentIDUsed:               "steward",
-		AgentName:                 "Steward",
+		AgentIDUsed:               "analyst",
+		AgentName:                 "Analyst",
 		AssistantMessageID:        "msg-1",
 		ParentMessageID:           "parent-1",
 		UserMessageID:             "user-1",
@@ -483,7 +483,7 @@ func TestTimelineDebugFields_ExposeIdentityAndTimingFields(t *testing.T) {
 
 	require.EqualValues(t, "conv-1", fields["streamID"])
 	require.EqualValues(t, "msg-1", fields["messageID"])
-	require.EqualValues(t, "steward", fields["agentIDUsed"])
+	require.EqualValues(t, "analyst", fields["agentIDUsed"])
 	require.EqualValues(t, "user-1", fields["userMessageID"])
 	require.EqualValues(t, "msg-1", fields["modelCallID"])
 	require.EqualValues(t, "call-1", fields["toolCallID"])

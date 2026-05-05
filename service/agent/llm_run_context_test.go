@@ -35,7 +35,7 @@ func TestEnsureRunTrackedLLMContext_DoesNotRestateRunningStatusForExistingTurn(t
 	base := runtimerequestctx.WithTurnMeta(context.Background(), runtimerequestctx.TurnMeta{
 		ConversationID: "conv-1",
 		TurnID:         "turn-1",
-		Assistant:      "steward",
+		Assistant:      "analyst",
 	})
 
 	ctx := svc.ensureRunTrackedLLMContext(base, "conv-1", "intake_sidecar", "turn-1")

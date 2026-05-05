@@ -109,7 +109,7 @@ func TestPublishBootstrapToolEvent_SetsBootstrapIdentity(t *testing.T) {
 	})
 	input := &QueryInput{
 		ConversationID: "conv-bootstrap",
-		Agent:          &agproto.Agent{Identity: agproto.Identity{ID: "steward"}},
+		Agent:          &agproto.Agent{Identity: agproto.Identity{ID: "analyst"}},
 	}
 
 	service.publishBootstrapToolEvent(ctx, input, streaming.EventTypeToolCallStarted, "bootstrap:agents", "llm/agents:list", map[string]interface{}{"includeInternal": false}, "")

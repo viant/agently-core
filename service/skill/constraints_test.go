@@ -111,7 +111,7 @@ func TestBuildConstraints_AllowsWorkspaceToolAlongsidePreprocessExec(t *testing.
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
 			Name:         "targeting-tree",
-			AllowedTools: "system/exec:execute platform:TargetingTree",
+			AllowedTools: "system/exec:execute platform:ResourceTree",
 		},
 	}}
 	c := BuildConstraints(skills)
@@ -119,7 +119,7 @@ func TestBuildConstraints_AllowsWorkspaceToolAlongsidePreprocessExec(t *testing.
 		t.Fatalf("expected constraints")
 	}
 	ctx := WithConstraints(context.Background(), c)
-	if err := ValidateExecution(ctx, "platform:TargetingTree", map[string]interface{}{"Field": "IRIS_SEGMENTS"}); err != nil {
+	if err := ValidateExecution(ctx, "platform:ResourceTree", map[string]interface{}{"Field": "IRIS_SEGMENTS"}); err != nil {
 		t.Fatalf("ValidateExecution() unexpected platform tool error: %v", err)
 	}
 }
@@ -128,7 +128,7 @@ func TestExpandDefinitionsForConstraints_AddsAllowedSkillTools(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
 			Name:         "forecasting-cube",
-			AllowedTools: "steward:ForecastingCube",
+			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
 	c := BuildConstraints(skills)
@@ -137,11 +137,11 @@ func TestExpandDefinitionsForConstraints_AddsAllowedSkillTools(t *testing.T) {
 	}
 	reg := &constraintRegistry{defs: []llm.ToolDefinition{
 		{Name: "prompt:list"},
-		{Name: "steward:ForecastingCube"},
+		{Name: "analyst:MetricsCube"},
 	}}
 	defs := []*llm.ToolDefinition{{Name: "prompt:list"}}
 	expanded := ExpandDefinitionsForConstraints(defs, reg, c)
-	if len(expanded) != 2 || expanded[0].Name != "prompt:list" || expanded[1].Name != "steward:ForecastingCube" {
+	if len(expanded) != 2 || expanded[0].Name != "prompt:list" || expanded[1].Name != "analyst:MetricsCube" {
 		t.Fatalf("expanded defs = %#v", expanded)
 	}
 }
@@ -181,7 +181,7 @@ func TestExpandDefinitionsForConstraints_NormalizesAllowedToolPatternForRegistry
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
 			Name:         "forecasting-cube",
-			AllowedTools: "steward:ForecastingCube",
+			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
 	c := BuildConstraints(skills)
@@ -189,10 +189,10 @@ func TestExpandDefinitionsForConstraints_NormalizesAllowedToolPatternForRegistry
 		t.Fatalf("expected constraints")
 	}
 	reg := &exactCanonicalRegistry{defs: []llm.ToolDefinition{
-		{Name: "steward:ForecastingCube"},
+		{Name: "analyst:MetricsCube"},
 	}}
 	expanded := ExpandDefinitionsForConstraints(nil, reg, c)
-	if len(expanded) != 1 || expanded[0] == nil || expanded[0].Name != "steward:ForecastingCube" {
+	if len(expanded) != 1 || expanded[0] == nil || expanded[0].Name != "analyst:MetricsCube" {
 		t.Fatalf("expanded defs = %#v", expanded)
 	}
 }
@@ -201,7 +201,7 @@ func TestValidateExecution_RejectsToolOutsideAllowedPatterns(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
 			Name:         "forecasting-cube",
-			AllowedTools: "steward:ForecastingCube",
+			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
 	c := BuildConstraints(skills)
@@ -209,11 +209,11 @@ func TestValidateExecution_RejectsToolOutsideAllowedPatterns(t *testing.T) {
 		t.Fatalf("expected constraints")
 	}
 	ctx := WithConstraints(context.Background(), c)
-	if err := ValidateExecution(ctx, "steward:ForecastingCube", nil); err != nil {
-		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "steward:ForecastingCube", err)
+	if err := ValidateExecution(ctx, "analyst:MetricsCube", nil); err != nil {
+		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "analyst:MetricsCube", err)
 	}
-	if err := ValidateExecution(ctx, "steward:SaveRecommendation", nil); err == nil {
-		t.Fatalf("expected constrained steward tool rejection")
+	if err := ValidateExecution(ctx, "analyst:SaveDecision", nil); err == nil {
+		t.Fatalf("expected constrained analyst tool rejection")
 	}
 }
 
@@ -221,7 +221,7 @@ func TestValidateExecution_AllowsUnconstrainedServiceFamilies(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
 			Name:         "forecasting-cube",
-			AllowedTools: "steward:ForecastingCube",
+			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
 	c := BuildConstraints(skills)
@@ -229,13 +229,13 @@ func TestValidateExecution_AllowsUnconstrainedServiceFamilies(t *testing.T) {
 		t.Fatalf("expected constraints")
 	}
 	ctx := WithConstraints(context.Background(), c)
-	if err := ValidateExecution(ctx, "template:get", map[string]interface{}{"name": "audience_forecast_dashboard"}); err != nil {
+	if err := ValidateExecution(ctx, "template:get", map[string]interface{}{"name": "capacity_review_dashboard"}); err != nil {
 		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "template:get", err)
 	}
 	if err := ValidateExecution(ctx, "prompt:list", nil); err != nil {
 		t.Fatalf("ValidateExecution(%q) unexpected error: %v", "prompt:list", err)
 	}
-	if err := ValidateExecution(ctx, "steward:SaveRecommendation", nil); err == nil {
-		t.Fatalf("expected constrained steward tool rejection")
+	if err := ValidateExecution(ctx, "analyst:SaveDecision", nil); err == nil {
+		t.Fatalf("expected constrained analyst tool rejection")
 	}
 }

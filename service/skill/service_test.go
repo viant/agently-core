@@ -648,7 +648,7 @@ func TestService_activate_ForkFallsBackToParentUserTaskWhenArgsMissing(t *testin
 				Id:      "user-1",
 				Role:    "user",
 				Type:    "text",
-				Content: stringPtr("run forecast for audience 7268995"),
+				Content: stringPtr("run forecast for workspace 7268995"),
 			}},
 		}},
 	}
@@ -680,7 +680,7 @@ func TestService_activate_ForkFallsBackToParentUserTaskWhenArgsMissing(t *testin
 	if out.Mode != "fork" {
 		t.Fatalf("mode = %q", out.Mode)
 	}
-	if strings.TrimSpace(startObjective) != "run forecast for audience 7268995" {
+	if strings.TrimSpace(startObjective) != "run forecast for workspace 7268995" {
 		t.Fatalf("objective = %q", startObjective)
 	}
 }

@@ -32,7 +32,7 @@ func (s *stubExecutor) Execute(ctx context.Context, name string, args map[string
 	if s.fail {
 		return "", errors.New("stub: forced failure")
 	}
-	if name != "platform:advertiser_search" {
+	if name != "platform:account_search" {
 		return "", errors.New("stub: unexpected tool name " + name)
 	}
 	q, _ := args["q"].(string)
@@ -91,11 +91,11 @@ func toLower(s string) string {
 
 func newAdvertiserDS() *dsproto.DataSource {
 	ds := &dsproto.DataSource{
-		ID: "advertiser",
+		ID: "account",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
 			Service: "platform",
-			Method:  "advertiser_search",
+			Method:  "account_search",
 			Pinned:  map[string]interface{}{"limit": 50},
 		},
 		Cache: &dsproto.CachePolicy{
@@ -133,7 +133,7 @@ func bobCtx() context.Context {
 // T1 — Fetch miss: 1 MCP call, rows projected from selectors.data.
 func TestFetch_Miss_RunsBackendAndProjects(t *testing.T) {
 	svc, exec, _ := setup(t)
-	res, err := svc.Fetch(aliceCtx(), "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	res, err := svc.Fetch(aliceCtx(), "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -155,8 +155,8 @@ func TestFetch_Miss_RunsBackendAndProjects(t *testing.T) {
 func TestFetch_Hit_NoExtraMCPCall(t *testing.T) {
 	svc, exec, _ := setup(t)
 	ctx := aliceCtx()
-	svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
-	res, err := svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	res, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -171,8 +171,8 @@ func TestFetch_Hit_NoExtraMCPCall(t *testing.T) {
 // T3 — scope:user isolation: different users → separate cache entries.
 func TestFetch_ScopeUser_Isolation(t *testing.T) {
 	svc, exec, _ := setup(t)
-	svc.Fetch(aliceCtx(), "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
-	svc.Fetch(bobCtx(), "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	svc.Fetch(aliceCtx(), "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	svc.Fetch(bobCtx(), "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	if n := exec.calls.Load(); n != 2 {
 		t.Fatalf("want 2 MCP calls (one per user), got %d", n)
 	}
@@ -182,9 +182,9 @@ func TestFetch_ScopeUser_Isolation(t *testing.T) {
 func TestFetch_TTLExpiry(t *testing.T) {
 	svc, exec, _ := setup(t)
 	ctx := aliceCtx()
-	svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	time.Sleep(1100 * time.Millisecond)
-	res, err := svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	res, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -200,11 +200,11 @@ func TestFetch_TTLExpiry(t *testing.T) {
 func TestInvalidateCache(t *testing.T) {
 	svc, exec, _ := setup(t)
 	ctx := aliceCtx()
-	svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
-	if err := svc.InvalidateCache(ctx, "advertiser", ""); err != nil {
+	svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	if err := svc.InvalidateCache(ctx, "account", ""); err != nil {
 		t.Fatalf("invalidate: %v", err)
 	}
-	res, _ := svc.Fetch(ctx, "advertiser", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+	res, _ := svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
 	if res.Cache.Hit {
 		t.Fatalf("want miss after invalidation")
 	}
@@ -225,7 +225,7 @@ func TestFetch_PinnedArgsWin(t *testing.T) {
 		return `{"results":[],"total":0}`, nil
 	}}
 	svc := datasource.New(datasource.Options{Store: store, Executor: captured})
-	svc.Fetch(aliceCtx(), "advertiser", map[string]interface{}{"q": "x", "limit": 1}, datasource.FetchOptions{})
+	svc.Fetch(aliceCtx(), "account", map[string]interface{}{"q": "x", "limit": 1}, datasource.FetchOptions{})
 	if !isInt50(seenLimit) {
 		t.Fatalf("pinned limit=50 must override caller limit=1, got %#v", seenLimit)
 	}
@@ -369,7 +369,7 @@ func TestFetch_ContainsFilterSemanticsWrapWildcard(t *testing.T) {
 		Backend: &dsproto.Backend{
 			Kind: dsproto.BackendInline,
 			Rows: []map[string]interface{}{
-				{"id": 1, "name": "Adelphic Preview Anchor"},
+				{"id": 1, "name": "Preview Anchor"},
 			},
 		},
 		DataSource: types.DataSource{
@@ -377,14 +377,14 @@ func TestFetch_ContainsFilterSemanticsWrapWildcard(t *testing.T) {
 				{
 					Name: "quick",
 					Template: []types.TemplateItem{
-						{ID: "ad_order_name", Operator: "contains"},
+						{ID: "work_item_name", Operator: "contains"},
 					},
 				},
 			},
 		},
 	})
 	captured := &captureExecutor{fn: func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-		if got, _ := args["ad_order_name"].(string); got != "%adel%" {
+		if got, _ := args["work_item_name"].(string); got != "%prev%" {
 			t.Fatalf("want wildcarded contains value, got %q", got)
 		}
 		return `{"rows":[]}`, nil
@@ -393,22 +393,22 @@ func TestFetch_ContainsFilterSemanticsWrapWildcard(t *testing.T) {
 		ID: "orders_remote",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
-			Service: "steward",
-			Method:  "AdHierarchy",
+			Service: "analyst",
+			Method:  "ResourceTree",
 		},
 		DataSource: types.DataSource{
 			FilterSet: []types.Filter{
 				{
 					Name: "quick",
 					Template: []types.TemplateItem{
-						{ID: "ad_order_name", Operator: "contains"},
+						{ID: "work_item_name", Operator: "contains"},
 					},
 				},
 			},
 		},
 	})
 	svc := datasource.New(datasource.Options{Store: store, Executor: captured})
-	_, err := svc.Fetch(aliceCtx(), "orders_remote", map[string]interface{}{"ad_order_name": "adel"}, datasource.FetchOptions{})
+	_, err := svc.Fetch(aliceCtx(), "orders_remote", map[string]interface{}{"work_item_name": "prev"}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -426,8 +426,8 @@ func TestFetch_FilterSemantics_DoNotWrapEqualOperator(t *testing.T) {
 		ID: "orders_remote",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
-			Service: "steward",
-			Method:  "AdHierarchy",
+			Service: "analyst",
+			Method:  "ResourceTree",
 		},
 		DataSource: types.DataSource{
 			FilterSet: []types.Filter{
@@ -435,7 +435,7 @@ func TestFetch_FilterSemantics_DoNotWrapEqualOperator(t *testing.T) {
 					Name: "quick",
 					Template: []types.TemplateItem{
 						{ID: "order_id", Operator: "equal"},
-						{ID: "ad_order_name", Operator: "contains"},
+						{ID: "work_item_name", Operator: "contains"},
 					},
 				},
 			},
@@ -464,8 +464,8 @@ func TestFetch_FilterSemantics_CoerceTypedIntSliceFromString(t *testing.T) {
 		ID: "orders_remote",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
-			Service: "steward",
-			Method:  "AdHierarchy",
+			Service: "analyst",
+			Method:  "ResourceTree",
 		},
 		DataSource: types.DataSource{
 			FilterSet: []types.Filter{
@@ -492,36 +492,36 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool(t *testing.T) {
 		if !ok {
 			t.Fatalf("want nested dimensions map, got %#v", args["dimensions"])
 		}
-		if got, ok := dimensions["adOrderId"].(bool); !ok || !got {
-			t.Fatalf("want dimensions.adOrderId=true, got %#v", dimensions["adOrderId"])
+		if got, ok := dimensions["workItemId"].(bool); !ok || !got {
+			t.Fatalf("want dimensions.workItemId=true, got %#v", dimensions["workItemId"])
 		}
 		filters, ok := args["filters"].(map[string]interface{})
 		if !ok {
 			t.Fatalf("want nested filters map, got %#v", args["filters"])
 		}
-		gotIDs, ok := filters["adOrderId"].([]int)
+		gotIDs, ok := filters["workItemId"].([]int)
 		if !ok || len(gotIDs) != 1 || gotIDs[0] != 1769800 {
-			t.Fatalf("want filters.adOrderId=[]int{1769800}, got %#v", filters["adOrderId"])
+			t.Fatalf("want filters.workItemId=[]int{1769800}, got %#v", filters["workItemId"])
 		}
-		if gotName, _ := filters["adOrderName"].(string); gotName != "%adel%" {
-			t.Fatalf("want filters.adOrderName=%%adel%%, got %#v", filters["adOrderName"])
+		if gotName, _ := filters["workItemName"].(string); gotName != "%prev%" {
+			t.Fatalf("want filters.workItemName=%%prev%%, got %#v", filters["workItemName"])
 		}
 		orderBy, ok := args["orderBy"].([]interface{})
 		if !ok || len(orderBy) != 2 {
 			t.Fatalf("want orderBy slice, got %#v", args["orderBy"])
 		}
-		return `{"data":[{"adOrderId":1769800,"adOrderName":"Adelphic Preview Anchor"}],"meta":{"recordCount":1,"pageCount":1}}`, nil
+		return `{"data":[{"workItemId":1769800,"workItemName":"Preview Anchor"}],"meta":{"recordCount":1,"pageCount":1}}`, nil
 	}}
 	store.Put(&dsproto.DataSource{
 		ID: "orders_cube",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
-			Service: "steward",
-			Method:  "AdHierarchyCube",
+			Service: "analyst",
+			Method:  "ResourceTreeCube",
 			Pinned: map[string]interface{}{
-				"dimensions.adOrderId": true,
-				"measures.adOrderName": true,
-				"orderBy":              []interface{}{"adOrderCreated:desc", "adOrderId:desc"},
+				"dimensions.workItemId": true,
+				"measures.workItemName": true,
+				"orderBy":               []interface{}{"workItemCreated:desc", "workItemId:desc"},
 			},
 		},
 		DataSource: types.DataSource{
@@ -530,8 +530,8 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool(t *testing.T) {
 				{
 					Name: "quick",
 					Template: []types.TemplateItem{
-						{ID: "filters.adOrderId", Operator: "equal", Type: "int[]"},
-						{ID: "filters.adOrderName", Operator: "contains"},
+						{ID: "filters.workItemId", Operator: "equal", Type: "int[]"},
+						{ID: "filters.workItemName", Operator: "contains"},
 					},
 				},
 			},
@@ -539,8 +539,8 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool(t *testing.T) {
 	})
 	svc := datasource.New(datasource.Options{Store: store, Executor: captured})
 	_, err := svc.Fetch(aliceCtx(), "orders_cube", map[string]interface{}{
-		"filters.adOrderId":   "1769800",
-		"filters.adOrderName": "adel",
+		"filters.workItemId":   "1769800",
+		"filters.workItemName": "prev",
 	}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -554,24 +554,24 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool_DropsBlankTypedFilter(t *testing.T
 		if !ok {
 			t.Fatalf("want nested filters map, got %#v", args["filters"])
 		}
-		if _, exists := filters["adOrderId"]; exists {
-			t.Fatalf("did not expect blank filters.adOrderId to be forwarded, got %#v", filters["adOrderId"])
+		if _, exists := filters["workItemId"]; exists {
+			t.Fatalf("did not expect blank filters.workItemId to be forwarded, got %#v", filters["workItemId"])
 		}
-		if gotName, _ := filters["adOrderName"].(string); gotName != "%Betty%" {
-			t.Fatalf("want filters.adOrderName=%%Betty%%, got %#v", filters["adOrderName"])
+		if gotName, _ := filters["workItemName"].(string); gotName != "%Beta%" {
+			t.Fatalf("want filters.workItemName=%%Beta%%, got %#v", filters["workItemName"])
 		}
-		return `{"data":[{"adOrderId":2664777,"adOrderName":"Betty - Edmonton","campaignName":"Betty"}],"meta":{"recordCount":1,"pageCount":1}}`, nil
+		return `{"data":[{"workItemId":2664777,"workItemName":"Beta - Edmonton","projectName":"Beta"}],"meta":{"recordCount":1,"pageCount":1}}`, nil
 	}}
 	store.Put(&dsproto.DataSource{
 		ID: "orders_cube",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
-			Service: "steward",
-			Method:  "AdHierarchyCube",
+			Service: "analyst",
+			Method:  "ResourceTreeCube",
 			Pinned: map[string]interface{}{
-				"dimensions.adOrderId": true,
-				"measures.adOrderName": true,
-				"orderBy":              []interface{}{"adOrderId:desc"},
+				"dimensions.workItemId": true,
+				"measures.workItemName": true,
+				"orderBy":               []interface{}{"workItemId:desc"},
 			},
 		},
 		DataSource: types.DataSource{
@@ -580,8 +580,8 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool_DropsBlankTypedFilter(t *testing.T
 				{
 					Name: "quick",
 					Template: []types.TemplateItem{
-						{ID: "filters.adOrderId", Operator: "equal", Type: "int[]"},
-						{ID: "filters.adOrderName", Operator: "contains"},
+						{ID: "filters.workItemId", Operator: "equal", Type: "int[]"},
+						{ID: "filters.workItemName", Operator: "contains"},
 					},
 				},
 			},
@@ -589,8 +589,8 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool_DropsBlankTypedFilter(t *testing.T
 	})
 	svc := datasource.New(datasource.Options{Store: store, Executor: captured})
 	_, err := svc.Fetch(aliceCtx(), "orders_cube", map[string]interface{}{
-		"filters.adOrderId":   "",
-		"filters.adOrderName": "Betty",
+		"filters.workItemId":   "",
+		"filters.workItemName": "Beta",
 	}, datasource.FetchOptions{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)

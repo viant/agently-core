@@ -31,13 +31,13 @@ func TestRepository_LoadAll(t *testing.T) {
 	assert.Equal(t, "performance_analysis", p.ID)
 	assert.Equal(t, "Performance Analysis", p.Name)
 	assert.Contains(t, p.AppliesTo, "performance")
-	assert.Contains(t, p.AppliesTo, "pacing")
+	assert.Contains(t, p.AppliesTo, "health")
 	assert.Len(t, p.Messages, 2)
 	assert.Equal(t, "system", p.Messages[0].Role)
-	assert.Equal(t, "You are a performance analyst.\nFocus on KPI health, and concise evidence-backed observations.\n", p.Messages[0].Text)
-	assert.Equal(t, []string{"steward-performance-tools"}, p.ToolBundles)
+	assert.Equal(t, "You are a systems analyst.\nFocus on operational health and concise evidence-backed observations.\n", p.Messages[0].Text)
+	assert.Equal(t, []string{"analyst-performance-tools"}, p.ToolBundles)
 	assert.Equal(t, "analytics_dashboard", p.Template)
-	assert.Equal(t, []string{"analytics_dashboard", "site_list_planner"}, p.Templates)
+	assert.Equal(t, []string{"analytics_dashboard", "resource_list_review"}, p.Templates)
 }
 
 func TestRepository_Load(t *testing.T) {
@@ -54,7 +54,7 @@ func TestRepository_Load(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, p)
 	assert.Equal(t, "performance_analysis", p.ID)
-	assert.Equal(t, "Analyze the campaign hierarchy.\n", p.Messages[1].Text)
-	assert.Equal(t, []string{"analytics_dashboard", "site_list_planner"}, p.Templates)
+	assert.Equal(t, "Analyze the resource hierarchy.\n", p.Messages[1].Text)
+	assert.Equal(t, []string{"analytics_dashboard", "resource_list_review"}, p.Templates)
 	_ = workspace.KindPrompt // ensure constant is accessible
 }

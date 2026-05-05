@@ -33,7 +33,7 @@ func (f *fakeClient) ListTools(ctx context.Context, cursor *string, options ...m
 	case "empty":
 		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{}}, nil
 	case "qualified":
-		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "steward:AdHierarchy"}}}, nil
+		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "analyst:ResourceTree"}}}, nil
 	default:
 		return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{{Name: "ping"}}}, nil
 	}
@@ -130,14 +130,14 @@ func TestMatchDefinitionWithContext_SupportsFullyQualifiedMCPToolNames(t *testin
 		t.Fatalf("registry init failed: %v", err)
 	}
 	reg.internal = map[string]mcpclient.Interface{
-		"steward": &fakeClient{mode: "qualified"},
+		"analyst": &fakeClient{mode: "qualified"},
 	}
 
-	defs := reg.MatchDefinitionWithContext(context.Background(), "steward-AdHierarchy")
+	defs := reg.MatchDefinitionWithContext(context.Background(), "analyst-ResourceTree")
 	if len(defs) != 1 {
 		t.Fatalf("expected 1 matched tool, got %d", len(defs))
 	}
-	assert.Equal(t, "steward:AdHierarchy", defs[0].Name)
+	assert.Equal(t, "analyst:ResourceTree", defs[0].Name)
 }
 
 func TestMatchDefinitionWithContext_UsesCachedMCPDefinitionsWhenDiscoveryFails(t *testing.T) {
@@ -147,13 +147,13 @@ func TestMatchDefinitionWithContext_UsesCachedMCPDefinitionsWhenDiscoveryFails(t
 		t.Fatalf("registry init failed: %v", err)
 	}
 	reg.internal = map[string]mcpclient.Interface{
-		"steward": &fakeClient{mode: "down"},
+		"analyst": &fakeClient{mode: "down"},
 	}
-	reg.replaceServerTools("steward", []mcpschema.Tool{{Name: "AdTargetingProfile"}})
+	reg.replaceServerTools("analyst", []mcpschema.Tool{{Name: "TargetProfile"}})
 
-	defs := reg.MatchDefinitionWithContext(context.Background(), "steward-AdTargetingProfile")
+	defs := reg.MatchDefinitionWithContext(context.Background(), "analyst-TargetProfile")
 	if len(defs) != 1 {
 		t.Fatalf("expected 1 cached matched tool, got %d", len(defs))
 	}
-	assert.Equal(t, "steward/AdTargetingProfile", defs[0].Name)
+	assert.Equal(t, "analyst/TargetProfile", defs[0].Name)
 }

@@ -907,7 +907,7 @@ func TestService_Status_ByConversationID_HidesStaleChildToolFailureWhileRunning(
 	failedTool.SetRole("tool")
 	failedTool.SetType("tool_op")
 	failedTool.SetStatus("failed")
-	failedTool.SetToolName("steward/ChangeLogKPI")
+	failedTool.SetToolName("analyst/ChangeLogMetric")
 	failedTool.SetContent("parameter CampaignId is required")
 	require.NoError(t, conv.PatchMessage(ctx, failedTool))
 
@@ -955,7 +955,7 @@ func TestService_Status_ByConversationID_TreatsBlockedChildFailureAsTerminal(t *
 	failedTool.SetRole("tool")
 	failedTool.SetType("tool_op")
 	failedTool.SetStatus("failed")
-	failedTool.SetToolName("steward/GlobalSupplyPerformanceCube")
+	failedTool.SetToolName("analyst/GlobalPerformanceCube")
 	failedTool.SetContent("code: -32603, message: BFF auth callback failed: authentication timed out")
 	require.NoError(t, conv.PatchMessage(ctx, failedTool))
 
@@ -1566,7 +1566,7 @@ func TestService_Run_Internal_AsyncWaitingForUserDoesNotResurfaceHelperMessage(t
 			failedTool.SetRole("tool")
 			failedTool.SetType("tool_op")
 			failedTool.SetStatus("failed")
-			failedTool.SetToolName("steward/GlobalSupplyPerformanceCube")
+			failedTool.SetToolName("analyst/GlobalPerformanceCube")
 			failedTool.SetContent("code: -32603, message: authentication timed out")
 			require.NoError(t, conv.PatchMessage(ctx, failedTool))
 			return nil
@@ -1757,7 +1757,7 @@ func TestService_Run_ExternalDirectoryEntry_NeverFallsBackToLocal(t *testing.T) 
 		calledExternal := false
 		s := New(nil,
 			WithDirectoryProvider(func() []ListItem {
-				return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+				return []ListItem{{ID: "helper", Name: "Helper", Source: "external"}}
 			}),
 			WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
 				calledExternal = true
@@ -1769,7 +1769,7 @@ func TestService_Run_ExternalDirectoryEntry_NeverFallsBackToLocal(t *testing.T) 
 		}
 
 		var out RunOutput
-		err := s.run(ctx, &RunInput{AgentID: "guardian", Objective: "diagnose"}, &out)
+		err := s.run(ctx, &RunInput{AgentID: "helper", Objective: "diagnose"}, &out)
 		require.NoError(t, err)
 		assert.True(t, calledExternal)
 		assert.Equal(t, "remote-answer", out.Answer)
@@ -1778,14 +1778,14 @@ func TestService_Run_ExternalDirectoryEntry_NeverFallsBackToLocal(t *testing.T) 
 
 	t.Run("external directory entry fails explicitly when external route unavailable", func(t *testing.T) {
 		s := New(nil, WithDirectoryProvider(func() []ListItem {
-			return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+			return []ListItem{{ID: "helper", Name: "Helper", Source: "external"}}
 		}))
 		s.agent = &fakeAgentRuntime{
 			finder: &fakeFinder{agents: map[string]*agentmdl.Agent{}},
 		}
 
 		var out RunOutput
-		err := s.run(ctx, &RunInput{AgentID: "guardian", Objective: "diagnose"}, &out)
+		err := s.run(ctx, &RunInput{AgentID: "helper", Objective: "diagnose"}, &out)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "external agent route unavailable")
 	})
@@ -1795,7 +1795,7 @@ func TestService_Status_ExternalConversationIDFailsExplicitly(t *testing.T) {
 	ctx := context.Background()
 	s := New(nil,
 		WithDirectoryProvider(func() []ListItem {
-			return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+			return []ListItem{{ID: "helper", Name: "Helper", Source: "external"}}
 		}),
 		WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
 			return "remote-answer", "completed", "task-1", "ctx-1", false, nil, nil
@@ -1991,7 +1991,7 @@ func TestStartRunStatus_EmitsLinkedConversationAttachedForToolMessageID(t *testi
 
 	ctx = memory.WithToolMessageID(ctx, "tool-msg-123")
 	parent := memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"}
-	statusMsgID := svc.startRunStatus(ctx, parent, "child-conv", "guardian", "external", "llm/agents:run")
+	statusMsgID := svc.startRunStatus(ctx, parent, "child-conv", "helper", "external", "llm/agents:run")
 	require.NotEmpty(t, statusMsgID)
 
 	var linkedEvent *streaming.Event
@@ -2010,7 +2010,7 @@ func TestStartRunStatus_EmitsLinkedConversationAttachedForToolMessageID(t *testi
 	require.NotNil(t, linkedEvent)
 	assert.Equal(t, "tool-msg-123", linkedEvent.ToolCallID)
 	assert.Equal(t, "child-conv", linkedEvent.LinkedConversationID)
-	assert.Equal(t, "guardian", linkedEvent.LinkedConversationAgentID)
+	assert.Equal(t, "helper", linkedEvent.LinkedConversationAgentID)
 }
 
 // TestService_Run_Internal_InheritsParentModel verifies that the child agent
@@ -2199,7 +2199,7 @@ func TestService_Start_PreservesExternalRunnerOutput(t *testing.T) {
 	ctx := context.Background()
 	s := New(nil,
 		WithDirectoryProvider(func() []ListItem {
-			return []ListItem{{ID: "guardian", Name: "Guardian", Source: "external"}}
+			return []ListItem{{ID: "helper", Name: "Helper", Source: "external"}}
 		}),
 		WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {
 			return "remote-answer", "completed", "task-1", "ctx-1", true, []string{"warn-1"}, nil
@@ -2210,7 +2210,7 @@ func TestService_Start_PreservesExternalRunnerOutput(t *testing.T) {
 	}
 
 	var out StartOutput
-	err := s.start(ctx, &StartInput{AgentID: "guardian", Objective: "diagnose"}, &out)
+	err := s.start(ctx, &StartInput{AgentID: "helper", Objective: "diagnose"}, &out)
 	require.NoError(t, err)
 	assert.Equal(t, "completed", out.Status)
 	assert.Equal(t, "remote-answer", out.AssistantResponse)

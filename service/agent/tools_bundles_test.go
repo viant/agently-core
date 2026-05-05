@@ -184,25 +184,25 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			expectNames: []string{"system/os:getEnv"},
 		},
 		{
-			name: "steward_bundle_matches_colon_registry_names",
+			name: "analyst_bundle_matches_colon_registry_names",
 			query: &QueryInput{
-				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"steward-agent"}}},
+				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"analyst-agent"}}},
 			},
 			bundles: []*toolbundle.Bundle{
 				{
-					ID: "steward-agent",
+					ID: "analyst-agent",
 					Match: []llm.Tool{
-						{Name: "steward-AdHierarchy"},
-						{Name: "steward-SaveRecommendation"},
+						{Name: "analyst-ResourceTree"},
+						{Name: "analyst-SaveDecision"},
 					},
 				},
 			},
 			defs: []llm.ToolDefinition{
-				{Name: "steward:AdHierarchy"},
-				{Name: "steward:SaveRecommendation"},
+				{Name: "analyst:ResourceTree"},
+				{Name: "analyst:SaveDecision"},
 				{Name: "llm/agents:run"},
 			},
-			expectNames: []string{"steward:AdHierarchy", "steward:SaveRecommendation"},
+			expectNames: []string{"analyst:ResourceTree", "analyst:SaveDecision"},
 		},
 		{
 			name: "service_style_bundle_id_falls_back_to_direct_definition_match",

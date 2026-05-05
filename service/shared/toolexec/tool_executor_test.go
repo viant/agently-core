@@ -769,7 +769,7 @@ func TestExecuteToolStep_TimeoutMsOverridesDefaultWrapperTimeout(t *testing.T) {
 	conv := &stubConv{}
 	step := StepInfo{
 		ID:         "call-timeout-override",
-		Name:       "steward/ForecastingCube",
+		Name:       "analyst/MetricsCube",
 		Args:       map[string]interface{}{"timeoutMs": 200, "filters": map[string]interface{}{"includeDealsPmp": []interface{}{147961}}, "measures": map[string]interface{}{"avails": true}},
 		ResponseID: "resp-timeout-override",
 	}

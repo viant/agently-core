@@ -37,7 +37,7 @@ func (s *dsStubBackend) ListLookupRegistry(ctx context.Context, in *api.ListLook
 	s.registryCalls++
 	return &api.ListLookupRegistryOutput{
 		Entries: []api.LookupRegistryEntry{
-			{Name: "advertiser", DataSource: "advertiser", Trigger: "/", Required: true},
+			{Name: "account", DataSource: "account", Trigger: "/", Required: true},
 		},
 	}, nil
 }
@@ -64,8 +64,8 @@ func (upstreamDeniedBackend) FetchDatasource(_ context.Context, _ *api.FetchData
 }
 
 func TestHandleFetchDatasource_Returns501WhenStackNotConfigured(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/advertiser/fetch", strings.NewReader("{}"))
-	req.SetPathValue("id", "advertiser")
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader("{}"))
+	req.SetPathValue("id", "account")
 	w := httptest.NewRecorder()
 
 	h := handleFetchDatasource(unconfiguredBackend{})
@@ -97,8 +97,8 @@ func TestStatusForDatasourceErr_ParsesRequestFailedWrappedAuthStatus(t *testing.
 
 func TestHandleFetchDatasource_DispatchesToBackend(t *testing.T) {
 	body := `{"inputs":{"q":"acm"}}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/advertiser/fetch", strings.NewReader(body))
-	req.SetPathValue("id", "advertiser")
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
+	req.SetPathValue("id", "account")
 	w := httptest.NewRecorder()
 
 	stub := &dsStubBackend{}
@@ -113,14 +113,14 @@ func TestHandleFetchDatasource_DispatchesToBackend(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(out.Rows) != 1 || out.Rows[0]["name"] != "stub:advertiser" {
+	if len(out.Rows) != 1 || out.Rows[0]["name"] != "stub:account" {
 		t.Fatalf("projection mismatch: %+v", out.Rows)
 	}
 }
 
 func TestHandleInvalidateDatasourceCache_Dispatches(t *testing.T) {
-	req := httptest.NewRequest(http.MethodDelete, "/v1/api/datasources/advertiser/cache?inputsHash=abc", nil)
-	req.SetPathValue("id", "advertiser")
+	req := httptest.NewRequest(http.MethodDelete, "/v1/api/datasources/account/cache?inputsHash=abc", nil)
+	req.SetPathValue("id", "account")
 	w := httptest.NewRecorder()
 	stub := &dsStubBackend{}
 	handleInvalidateDatasourceCache(stub)(w, req)
@@ -156,7 +156,7 @@ func TestHandleListLookupRegistry_ReturnsEntries(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(out.Entries) != 1 || out.Entries[0].Name != "advertiser" {
+	if len(out.Entries) != 1 || out.Entries[0].Name != "account" {
 		t.Fatalf("entries mismatch: %+v", out.Entries)
 	}
 }

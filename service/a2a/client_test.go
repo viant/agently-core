@@ -52,7 +52,7 @@ func TestClientSendMessageStream_ParsesStatusAndArtifactEvents(t *testing.T) {
 		}, Artifact{
 			ID:        "art-1",
 			CreatedAt: time.Now().UTC(),
-			Parts:     []Part{{Type: "text", Text: "guardian result"}},
+			Parts:     []Part{{Type: "text", Text: "helper result"}},
 		}, true, true))
 		writeEvent(NewStatusEvent(&Task{
 			ID:        taskID,
@@ -90,7 +90,7 @@ func TestClientSendMessageStream_ParsesStatusAndArtifactEvents(t *testing.T) {
 	if len(task.Artifacts) != 1 {
 		t.Fatalf("len(task.Artifacts) = %d, want 1", len(task.Artifacts))
 	}
-	if got := task.Artifacts[0].Parts[0].Text; got != "guardian result" {
-		t.Fatalf("artifact text = %q, want %q", got, "guardian result")
+	if got := task.Artifacts[0].Parts[0].Text; got != "helper result" {
+		t.Fatalf("artifact text = %q, want %q", got, "helper result")
 	}
 }

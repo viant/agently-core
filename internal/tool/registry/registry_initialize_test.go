@@ -52,7 +52,7 @@ func TestRegistry_Initialize_DoesNotBlockOnConfiguredRemoteServers(t *testing.T)
 	}{
 		{
 			name:       "remote discovery names do not block internal warmup",
-			extraMCP:   "steward,operation,forecasting",
+			extraMCP:   "analyst,operation,forecasting",
 			expectTool: "system/exec:status",
 		},
 	}

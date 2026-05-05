@@ -131,7 +131,7 @@ func TestApplyToolCallSupersession_CurrentTurnExactDuplicateShapeKeepsLast2(t *t
 	reg := &stubCacheableRegistry{defs: map[string]*llm.ToolDefinition{
 		"platform:tree": {Name: "platform:tree", Cacheable: true},
 	}}
-	args := strPtr(`{"Body":{"advertiserIds":[],"channelV2s":[],"channels":[],"treeLookupParam":[0],"treeModelParam":{"channels":[],"channelsV2":[],"forecasting":true}},"Field":"TargetingTree","Operation":"Get"}`)
+	args := strPtr(`{"Body":{"accountIds":[],"groupV2s":[],"groups":[],"treeLookupParam":[0],"treeModelParam":{"groups":[],"channelsV2":[],"planning":true}},"Field":"ResourceTree","Operation":"Get"}`)
 	msgs := []normalizedMsg{
 		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 1")},
 		{turnIdx: 0, msg: makeTCMsg("platform:tree", args, "unsupported operation 2")},

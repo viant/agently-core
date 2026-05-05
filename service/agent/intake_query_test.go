@@ -20,8 +20,8 @@ func TestJaccardWordSimilarity(t *testing.T) {
 		// if tokenization is tweaked later.
 		min, max float64
 	}{
-		{"identical", "analyze deal 146901 pacing", "analyze deal 146901 pacing", 0.99, 1.0},
-		{"disjoint", "analyze deal 146901 pacing", "explain feeders for campaign 42", 0.0, 0.15},
+		{"identical", "analyze deal 146901 latency", "analyze deal 146901 latency", 0.99, 1.0},
+		{"disjoint", "analyze deal 146901 latency", "explain feeders for project 42", 0.0, 0.15},
 		{"mostly overlapping", "analyze deal 146901", "analyze deal 146901 impact", 0.6, 0.9},
 		{"empty", "", "anything", 0.0, 0.0},
 	}
@@ -308,12 +308,12 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 
 		override := &intakesvc.TurnContext{
 			Title:              "caller-supplied",
-			Intent:             "forecast_review",
-			SelectedAgentID:    "steward",
+			Intent:             "capacity_review",
+			SelectedAgentID:    "analyst",
 			Mode:               intakesvc.ModeRoute,
 			Source:             intakesvc.SourceCallerProvided,
-			TemplateId:         "audience_forecast_dashboard",
-			SuggestedProfileId: "steward-forecast",
+			TemplateId:         "capacity_review_dashboard",
+			SuggestedProfileId: "analyst-forecast",
 			Confidence:         0.94,
 			AppendToolBundles:  []string{"forecasting-cube"},
 		}
@@ -325,14 +325,14 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 					Scope:   []string{agentmdl.IntakeScopeTemplate, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTools},
 				},
 			},
-			Query:   "forecast order 2652067",
+			Query:   "review task 2652067",
 			Context: map[string]interface{}{intakesvc.ContextKey: override},
 		}
 
 		// Should not panic and should apply the override.
 		s.maybeRunIntakeSidecar(context.Background(), input)
 
-		require.Equal(t, "audience_forecast_dashboard", input.TemplateId,
+		require.Equal(t, "capacity_review_dashboard", input.TemplateId,
 			"caller-provided template must land on input.TemplateId")
 		require.Contains(t, input.ToolBundles, "forecasting-cube",
 			"caller-provided AppendToolBundles must merge into input.ToolBundles")

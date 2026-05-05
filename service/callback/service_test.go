@@ -106,22 +106,22 @@ func TestDispatch_SpoPayloadRendering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if stub.lastName != "steward-SaveRecommendation" {
-		t.Fatalf("expected tool steward-SaveRecommendation, got %q", stub.lastName)
+	if stub.lastName != "analyst-SaveDecision" {
+		t.Fatalf("expected tool analyst-SaveDecision, got %q", stub.lastName)
 	}
 	body, ok := stub.lastArgs["Body"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("args.Body is not a map: %T %v", stub.lastArgs["Body"], stub.lastArgs["Body"])
 	}
-	if got, want := body["agency_id"], float64(5337); got != want {
-		t.Errorf("Body.agency_id = %v; want %v", got, want)
+	if got, want := body["account_id"], float64(5337); got != want {
+		t.Errorf("Body.account_id = %v; want %v", got, want)
 	}
 	if got, want := body["conversation_id"], "conv-xyz"; got != want {
 		t.Errorf("Body.conversation_id = %v; want %v", got, want)
 	}
 	today := time.Now().UTC().Format("2006-01-02")
-	if id, _ := body["id"].(string); !strings.HasPrefix(id, "rec-5337-spo-"+today) {
-		t.Errorf("Body.id unexpected shape: %q (expected prefix rec-5337-spo-%s)", id, today)
+	if id, _ := body["id"].(string); !strings.HasPrefix(id, "rec-5337-decision-"+today) {
+		t.Errorf("Body.id unexpected shape: %q (expected prefix rec-5337-decision-%s)", id, today)
 	}
 	// supporting_metrics is the json-encoded selectedRows array — same shape back.
 	sm, smOk := body["supporting_metrics"].([]interface{})

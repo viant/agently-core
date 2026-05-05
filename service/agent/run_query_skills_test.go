@@ -37,7 +37,7 @@ func TestMergeReplayMessages_PreservesSyntheticSkillActivation(t *testing.T) {
 	toolResult := &bindpkg.Message{
 		ID:       "",
 		ToolOpID: "call-1",
-		ToolName: "steward:ForecastingCube",
+		ToolName: "analyst:MetricsCube",
 	}
 	merged := mergeReplayMessages([]*bindpkg.Message{activation}, []*bindpkg.Message{toolResult})
 	if len(merged) != 2 {

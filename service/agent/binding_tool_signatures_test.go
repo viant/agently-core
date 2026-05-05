@@ -191,7 +191,7 @@ func TestBuildToolSignatures_ExposesMessageShowOnlyWhenOverflowDetected(t *testi
 		},
 	}
 	svc.ensureInternalToolsIfNeeded(context.Background(), &QueryInput{
-		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward", Name: "Steward"}},
+		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "analyst", Name: "Analyst"}},
 	}, withOverflow)
 	var overflowNames []string
 	for _, sig := range withOverflow.Tools.Signatures {
@@ -207,7 +207,7 @@ func TestBuildToolSignatures_ExposesMessageShowOnlyWhenOverflowDetected(t *testi
 		Model: "openai_gpt-5.4",
 	}
 	svc.ensureInternalToolsIfNeeded(context.Background(), &QueryInput{
-		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward", Name: "Steward"}},
+		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "analyst", Name: "Analyst"}},
 	}, withoutOverflow)
 	var normalNames []string
 	for _, sig := range withoutOverflow.Tools.Signatures {
@@ -226,7 +226,7 @@ func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 	reg := &fakeRegistry{
 		defs: []llm.ToolDefinition{
 			{Name: "prompt:list"},
-			{Name: "steward:ForecastingCube"},
+			{Name: "analyst:MetricsCube"},
 		},
 	}
 	baseDefs := []*llm.ToolDefinition{
@@ -235,7 +235,7 @@ func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 	activeSkills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
 			Name:         "forecasting-cube",
-			AllowedTools: "steward:ForecastingCube",
+			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
 
@@ -248,7 +248,7 @@ func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 		}
 		got = append(got, def.Name)
 	}
-	assert.EqualValues(t, []string{"prompt:list", "steward:ForecastingCube"}, got)
+	assert.EqualValues(t, []string{"prompt:list", "analyst:MetricsCube"}, got)
 }
 
 func TestAllowContinuationPreview_UsesModelContinuationCapability(t *testing.T) {
@@ -291,7 +291,7 @@ func TestEnsureInternalToolsIfNeeded_SkipsMessageShowWhenContinuationDisabled(t 
 		},
 	}
 	svc.ensureInternalToolsIfNeeded(context.Background(), &QueryInput{
-		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward", Name: "Steward"}},
+		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "analyst", Name: "Analyst"}},
 	}, withOverflow)
 	assert.Empty(t, withOverflow.Tools.Signatures)
 }

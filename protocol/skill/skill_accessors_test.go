@@ -22,7 +22,7 @@ func TestFrontmatter_Accessors_ReadCanonicalAgentlyMetadata(t *testing.T) {
 	f := Frontmatter{
 		Agently: &AgentlyMetadata{
 			Context:              "fork",
-			AgentID:              "steward/specialist",
+			AgentID:              "analyst/specialist",
 			Model:                "claude-opus",
 			Effort:               "high",
 			Temperature:          &temp,
@@ -35,7 +35,7 @@ func TestFrontmatter_Accessors_ReadCanonicalAgentlyMetadata(t *testing.T) {
 	}
 
 	assert.Equal(t, "fork", f.ContextMode())
-	assert.Equal(t, "steward/specialist", f.AgentIDValue())
+	assert.Equal(t, "analyst/specialist", f.AgentIDValue())
 	assert.Equal(t, "claude-opus", f.ModelValue())
 	assert.Equal(t, "high", f.EffortValue())
 	if got := f.TemperatureValue(); assert.NotNil(t, got) {

@@ -102,7 +102,7 @@ func TestToResponsesPayload_PreservesToolHistoryWithoutPreviousResponseID(t *tes
 					Type: "function",
 					Function: llm.FunctionCall{
 						Name:      "platform-tree",
-						Arguments: `{"Field":"TargetingTree","Operation":"Get"}`,
+						Arguments: `{"Field":"ResourceTree","Operation":"Get"}`,
 					},
 				}},
 			},
@@ -151,7 +151,7 @@ func TestToChatGPTBackendResponsesPayload_PreservesToolHistoryWithoutProviderCon
 					Type: "function",
 					Function: llm.FunctionCall{
 						Name:      "platform-tree",
-						Arguments: `{"Field":"TargetingTree","Operation":"Get"}`,
+						Arguments: `{"Field":"ResourceTree","Operation":"Get"}`,
 					},
 				}},
 			},

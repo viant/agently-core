@@ -24,7 +24,7 @@ func TestBackendWSCreateRequest_DoesNotCarryProviderContinuationFields(t *testin
 		Instructions: "Use the transcript as provided.",
 		Input: []InputItem{
 			{Type: "message", Role: "user", Content: []ResponsesContentItem{{Type: "input_text", Text: "hello"}}},
-			{Type: "function_call", CallID: "call_1", Name: "platform-tree", Arguments: `{"Field":"TargetingTree","Operation":"Get"}`},
+			{Type: "function_call", CallID: "call_1", Name: "platform-tree", Arguments: `{"Field":"ResourceTree","Operation":"Get"}`},
 			{Type: "function_call_output", CallID: "call_1", Output: `{"status":"error","message":"unsupported operation"}`},
 		},
 		Store:  false,

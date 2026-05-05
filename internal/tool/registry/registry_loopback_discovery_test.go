@@ -53,15 +53,15 @@ func TestRegistryLoopbackDiscoveryFailureUsesServerScopedCooldown(t *testing.T) 
 		discoveryFailTTL:   30 * time.Second,
 	}
 
-	r.noteDiscoveryFailure("steward", "mcp-discovery:steward:1", errors.New(`failed to send request: Post "http://localhost:5002/mcp": dial tcp 127.0.0.1:5002: connect: connection refused`))
+	r.noteDiscoveryFailure("analyst", "mcp-discovery:analyst:1", errors.New(`failed to send request: Post "http://localhost:5002/mcp": dial tcp 127.0.0.1:5002: connect: connection refused`))
 
-	if _, ok := r.discoveryFailUntil["steward"]; !ok {
+	if _, ok := r.discoveryFailUntil["analyst"]; !ok {
 		t.Fatalf("expected loopback discovery cooldown to use server-scoped key")
 	}
-	if _, ok := r.discoveryFailUntil["steward|mcp-discovery:steward:1"]; ok {
+	if _, ok := r.discoveryFailUntil["analyst|mcp-discovery:analyst:1"]; ok {
 		t.Fatalf("did not expect scope-specific cooldown key for loopback transport")
 	}
-	if until := r.discoveryFailUntil["steward"]; time.Until(until) < 4*time.Minute {
+	if until := r.discoveryFailUntil["analyst"]; time.Until(until) < 4*time.Minute {
 		t.Fatalf("expected extended cooldown for loopback transport, got %s", time.Until(until))
 	}
 }
@@ -80,15 +80,15 @@ func TestRegistryRefreshServerTools_IgnoresLoopbackCooldown(t *testing.T) {
 		discoveryFailTTL:   30 * time.Second,
 	}
 
-	r.noteDiscoveryFailure("steward", "mcp-discovery:steward:1", errors.New(`failed to send request: Post "http://localhost:5002/mcp": dial tcp 127.0.0.1:5002: connect: connection refused`))
+	r.noteDiscoveryFailure("analyst", "mcp-discovery:analyst:1", errors.New(`failed to send request: Post "http://localhost:5002/mcp": dial tcp 127.0.0.1:5002: connect: connection refused`))
 
-	if err := r.refreshServerTools(context.Background(), "steward"); err != nil {
+	if err := r.refreshServerTools(context.Background(), "analyst"); err != nil {
 		t.Fatalf("refreshServerTools() error = %v", err)
 	}
-	if _, ok := r.cache["steward/alpha"]; !ok {
+	if _, ok := r.cache["analyst/alpha"]; !ok {
 		t.Fatalf("expected refreshed loopback tool to be cached")
 	}
-	if _, ok := r.discoveryFailUntil["steward"]; ok {
+	if _, ok := r.discoveryFailUntil["analyst"]; ok {
 		t.Fatalf("expected loopback cooldown to clear after successful refresh")
 	}
 }

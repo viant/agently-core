@@ -12,11 +12,11 @@ import (
 // come from an MCP-generated tool input or an LLM-authored elicitation.
 func schema5() map[string]interface{} {
 	return map[string]interface{}{
-		"advertiser_id": map[string]interface{}{"type": "integer"},
-		"campaign_id":   map[string]interface{}{"type": "integer"},
-		"feature_key":   map[string]interface{}{"type": "string"},
-		"start_date":    map[string]interface{}{"type": "string", "format": "date"},
-		"note":          map[string]interface{}{"type": "string"},
+		"account_id":  map[string]interface{}{"type": "integer"},
+		"project_id":  map[string]interface{}{"type": "integer"},
+		"feature_key": map[string]interface{}{"type": "string"},
+		"start_date":  map[string]interface{}{"type": "string", "format": "date"},
+		"note":        map[string]interface{}{"type": "string"},
 	}
 }
 
@@ -67,15 +67,15 @@ func extractAttachedDataSources(schemaProps map[string]interface{}) map[string]s
 
 // T18 — Partial mode: library overlays attach to matching fields only.
 func TestApply_PartialLibraryOverlays(t *testing.T) {
-	ovA := ov("fields.advertiser_id", loproto.ModePartial, 10, fieldBinding("advertiser", "advertiser_id", "integer"))
-	ovC := ov("fields.campaign_id", loproto.ModePartial, 10, fieldBinding("campaign", "campaign_id", "integer"))
-	ovF := ov("fields.feature_key", loproto.ModePartial, 10, fieldBinding("targeting_feature", "feature_key", ""))
+	ovA := ov("fields.account_id", loproto.ModePartial, 10, fieldBinding("account", "account_id", "integer"))
+	ovC := ov("fields.project_id", loproto.ModePartial, 10, fieldBinding("project", "project_id", "integer"))
+	ovF := ov("fields.feature_key", loproto.ModePartial, 10, fieldBinding("system_feature", "feature_key", ""))
 	got := apply(t, []*loproto.Overlay{ovA, ovC, ovF})
 
 	want := map[string]string{
-		"advertiser_id": "advertiser",
-		"campaign_id":   "campaign",
-		"feature_key":   "targeting_feature",
+		"account_id":  "account",
+		"project_id":  "project",
+		"feature_key": "system_feature",
 	}
 	mustEqual(t, got, want)
 }
@@ -83,8 +83,8 @@ func TestApply_PartialLibraryOverlays(t *testing.T) {
 // T19 — Strict mode: one unmatched binding discards the whole overlay.
 func TestApply_StrictDiscardsWhenAnyBindingUnmatched(t *testing.T) {
 	strictOV := ov("template.strict", loproto.ModeStrict, 100,
-		fieldBinding("advertiser-premium", "advertiser_id", "integer"),
-		fieldBinding("campaign-premium", "campaign_id", "integer"),
+		fieldBinding("account-premium", "account_id", "integer"),
+		fieldBinding("project-premium", "project_id", "integer"),
 		fieldBinding("never", "missing_field", ""),
 	)
 	got := apply(t, []*loproto.Overlay{strictOV})
@@ -97,20 +97,20 @@ func TestApply_StrictDiscardsWhenAnyBindingUnmatched(t *testing.T) {
 // untouched fields still pick up the library overlay.
 func TestApply_PriorityCompositionAcrossOverlays(t *testing.T) {
 	library := []*loproto.Overlay{
-		ov("fields.advertiser_id", loproto.ModePartial, 10, fieldBinding("advertiser", "advertiser_id", "integer")),
-		ov("fields.campaign_id", loproto.ModePartial, 10, fieldBinding("campaign", "campaign_id", "integer")),
-		ov("fields.feature_key", loproto.ModePartial, 10, fieldBinding("targeting_feature", "feature_key", "")),
+		ov("fields.account_id", loproto.ModePartial, 10, fieldBinding("account", "account_id", "integer")),
+		ov("fields.project_id", loproto.ModePartial, 10, fieldBinding("project", "project_id", "integer")),
+		ov("fields.feature_key", loproto.ModePartial, 10, fieldBinding("system_feature", "feature_key", "")),
 	}
 	// Strict override matching two fields (no unmatched bindings).
 	override := ov("template.ok", loproto.ModeStrict, 100,
-		fieldBinding("advertiser-premium", "advertiser_id", "integer"),
-		fieldBinding("campaign-premium", "campaign_id", "integer"),
+		fieldBinding("account-premium", "account_id", "integer"),
+		fieldBinding("project-premium", "project_id", "integer"),
 	)
 	got := apply(t, append(library, override))
 	want := map[string]string{
-		"advertiser_id": "advertiser-premium", // priority 100 > 10
-		"campaign_id":   "campaign-premium",   // priority 100 > 10
-		"feature_key":   "targeting_feature",  // no override → library wins
+		"account_id":  "account-premium", // priority 100 > 10
+		"project_id":  "project-premium", // priority 100 > 10
+		"feature_key": "system_feature",  // no override → library wins
 	}
 	mustEqual(t, got, want)
 }
@@ -130,9 +130,9 @@ func TestApply_ThresholdSatisfied(t *testing.T) {
 	}
 	got := apply(t, []*loproto.Overlay{threshold})
 	want := map[string]string{
-		"advertiser_id": "generic_id_picker",
-		"campaign_id":   "generic_id_picker",
-		"feature_key":   "generic_key_picker",
+		"account_id":  "generic_id_picker",
+		"project_id":  "generic_id_picker",
+		"feature_key": "generic_key_picker",
 	}
 	mustEqual(t, got, want)
 }
@@ -154,7 +154,7 @@ func TestApply_ThresholdDiscardsWhenBelow(t *testing.T) {
 	}})
 	svc := overlay.New(store)
 	props := map[string]interface{}{
-		"advertiser_id": map[string]interface{}{"type": "integer"},
+		"account_id": map[string]interface{}{"type": "integer"},
 	}
 	svc.Apply("template", "any", props)
 	got := extractAttachedDataSources(props)
@@ -167,7 +167,7 @@ func TestApply_ThresholdDiscardsWhenBelow(t *testing.T) {
 func TestApply_PerOverlayModeIsolation(t *testing.T) {
 	store := overlay.NewMemoryStore()
 	store.Replace([]*loproto.Overlay{
-		ov("fields.advertiser_id", loproto.ModePartial, 10, fieldBinding("advertiser", "advertiser_id", "integer")),
+		ov("fields.account_id", loproto.ModePartial, 10, fieldBinding("account", "account_id", "integer")),
 		{
 			ID: "pattern.ids_like", Priority: 5,
 			Target: loproto.Target{Kind: "template", ID: "any"},
@@ -182,19 +182,19 @@ func TestApply_PerOverlayModeIsolation(t *testing.T) {
 	})
 	svc := overlay.New(store)
 	props := map[string]interface{}{
-		"advertiser_id": map[string]interface{}{"type": "integer"},
+		"account_id": map[string]interface{}{"type": "integer"},
 	}
 	svc.Apply("template", "any", props)
 	got := extractAttachedDataSources(props)
 	// Partial kept its hit; threshold discarded entirely.
-	want := map[string]string{"advertiser_id": "advertiser"}
+	want := map[string]string{"account_id": "account"}
 	mustEqual(t, got, want)
 }
 
 // T24 — Multi individual-field overlays compose (1-of-N × M).
 func TestApply_MultiSingleFieldOverlaysCompose(t *testing.T) {
 	names := []string{
-		"advertiser_id", "campaign_id", "feature_key",
+		"account_id", "project_id", "feature_key",
 		"foo", "bar", "baz", "qux", "quux", "corge", "grault",
 	}
 	lib := make([]*loproto.Overlay, 0, len(names))
@@ -207,9 +207,9 @@ func TestApply_MultiSingleFieldOverlaysCompose(t *testing.T) {
 	}
 	got := apply(t, lib)
 	want := map[string]string{
-		"advertiser_id": "ds_advertiser_id",
-		"campaign_id":   "ds_campaign_id",
-		"feature_key":   "ds_feature_key",
+		"account_id":  "ds_account_id",
+		"project_id":  "ds_project_id",
+		"feature_key": "ds_feature_key",
 	}
 	mustEqual(t, got, want)
 }
@@ -219,20 +219,20 @@ func TestRegistry_NamedTokensCompose(t *testing.T) {
 	store := overlay.NewMemoryStore()
 	store.Replace([]*loproto.Overlay{
 		{
-			ID:       "named.advertiser",
+			ID:       "named.account",
 			Priority: 10,
 			Target:   loproto.Target{Kind: "template", ID: "any"},
 			Bindings: []loproto.Binding{
 				{
 					Named: &loproto.NamedToken{
-						Name:         "advertiser",
+						Name:         "account",
 						Required:     true,
 						QueryInput:   "q",
 						ResolveInput: "id",
 						Store:        "${id}",
 						ModelForm:    "${id}",
 					},
-					Lookup: loproto.Lookup{DataSource: "advertiser", Display: "${adOrderName}"},
+					Lookup: loproto.Lookup{DataSource: "account", Display: "${workItemName}"},
 				},
 			},
 		},
@@ -254,20 +254,20 @@ func TestRegistry_NamedTokensCompose(t *testing.T) {
 		t.Fatalf("want 2 registry entries, got %d", len(entries))
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	if entries[0].Name != "advertiser" || entries[0].DataSource != "advertiser" {
+	if entries[0].Name != "account" || entries[0].DataSource != "account" {
 		t.Fatalf("entry 0 mismatch: %+v", entries[0])
 	}
 	if entries[1].Name != "window" || entries[1].DataSource != "time_windows" {
 		t.Fatalf("entry 1 mismatch: %+v", entries[1])
 	}
 	if !entries[0].Required || entries[0].Token == nil || entries[0].Token.ModelForm != "${id}" {
-		t.Fatalf("advertiser entry missing token/required: %+v", entries[0])
+		t.Fatalf("account entry missing token/required: %+v", entries[0])
 	}
 	if entries[0].Token.QueryInput != "q" || entries[0].Token.ResolveInput != "id" {
-		t.Fatalf("advertiser entry missing query/resolve inputs: %+v", entries[0].Token)
+		t.Fatalf("account entry missing query/resolve inputs: %+v", entries[0].Token)
 	}
-	if entries[0].Token.Display != "${adOrderName}" {
-		t.Fatalf("advertiser entry missing inherited display: %+v", entries[0].Token)
+	if entries[0].Token.Display != "${workItemName}" {
+		t.Fatalf("account entry missing inherited display: %+v", entries[0].Token)
 	}
 	// Default trigger.
 	if entries[0].Trigger != "/" {
