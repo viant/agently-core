@@ -832,6 +832,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			genInput.AgentID = strings.TrimSpace(input.Agent.ID)
 		}
 		EnsureGenerateOptions(ctx, genInput, input.Agent)
+		applyParallelToolCallOverride(input, genInput)
 		if input.ReasoningEffort != nil {
 			if v := strings.TrimSpace(*input.ReasoningEffort); v != "" {
 				if genInput.ModelSelection.Options.Reasoning == nil {

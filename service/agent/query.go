@@ -82,6 +82,9 @@ type QueryInput struct {
 	// For direct agent turns this is typically populated by intake/routing,
 	// not by llm/agents child-run wiring.
 	PromptProfileId string `json:"promptProfileId,omitempty"`
+	// ParallelToolCalls optionally overrides the agent-level parallel tool
+	// execution preference for this specific turn.
+	ParallelToolCalls *bool `json:"parallelToolCalls,omitempty"`
 
 	// ScheduleId links this query to the schedule that triggered it.
 	// When set, the created conversation will have schedule_id populated.

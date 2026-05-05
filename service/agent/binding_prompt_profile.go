@@ -54,6 +54,10 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 	if len(profile.ToolBundles) > 0 {
 		input.ToolBundles = append(input.ToolBundles, profile.ToolBundles...)
 	}
+	if profile.ParallelToolCalls != nil && input.ParallelToolCalls == nil {
+		value := *profile.ParallelToolCalls
+		input.ParallelToolCalls = &value
+	}
 	return nil
 }
 

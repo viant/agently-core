@@ -96,3 +96,22 @@ func TestEnsureGenerateOptions_PreservesExplicitMode(t *testing.T) {
 		t.Fatalf("expected explicit mode to win, got %q", got)
 	}
 }
+
+func TestApplyParallelToolCallOverride_UsesQueryOverride(t *testing.T) {
+	in := &core.GenerateInput{
+		ModelSelection: llm.ModelSelection{
+			Options: &llm.Options{
+				ParallelToolCalls: true,
+			},
+		},
+	}
+	input := &QueryInput{
+		ParallelToolCalls: func() *bool { v := false; return &v }(),
+	}
+
+	applyParallelToolCallOverride(input, in)
+
+	if got := in.Options.ParallelToolCalls; got {
+		t.Fatalf("expected query/profile override to disable parallel tool calls")
+	}
+}

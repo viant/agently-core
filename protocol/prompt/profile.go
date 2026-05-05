@@ -12,12 +12,15 @@ type Profile struct {
 	MCP          *MCPSource `yaml:"mcp,omitempty"            json:"mcp,omitempty"`
 	// ToolBundles lists the tool-bundle ids that are activated for the worker
 	// when this profile is applied.  Runtime enforcement, not access control.
-	ToolBundles    []string   `yaml:"toolBundles,omitempty"    json:"toolBundles,omitempty"`
-	PreferredTools []string   `yaml:"preferredTools,omitempty" json:"preferredTools,omitempty"`
-	Template       string     `yaml:"template,omitempty"       json:"template,omitempty"`
-	Templates      []string   `yaml:"templates,omitempty"      json:"templates,omitempty"`
-	Resources      []string   `yaml:"resources,omitempty"      json:"resources,omitempty"`
-	Expansion      *Expansion `yaml:"expansion,omitempty"      json:"expansion,omitempty"`
+	ToolBundles    []string `yaml:"toolBundles,omitempty"    json:"toolBundles,omitempty"`
+	PreferredTools []string `yaml:"preferredTools,omitempty" json:"preferredTools,omitempty"`
+	Template       string   `yaml:"template,omitempty"       json:"template,omitempty"`
+	Templates      []string `yaml:"templates,omitempty"      json:"templates,omitempty"`
+	Resources      []string `yaml:"resources,omitempty"      json:"resources,omitempty"`
+	// ParallelToolCalls optionally overrides the selected agent's default
+	// parallel tool execution preference for turns using this profile.
+	ParallelToolCalls *bool      `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
+	Expansion         *Expansion `yaml:"expansion,omitempty"      json:"expansion,omitempty"`
 }
 
 // Message is a single role+content instruction, aligned with MCP PromptMessage.

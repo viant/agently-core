@@ -61,6 +61,10 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 	merged = append(merged, profile.ToolBundles...)
 	merged = append(merged, ri.ToolBundles...)
 	qi.ToolBundles = merged
+	if profile.ParallelToolCalls != nil && qi.ParallelToolCalls == nil {
+		value := *profile.ParallelToolCalls
+		qi.ParallelToolCalls = &value
+	}
 
 	// 3. Resolve effective template (RunInput > profile default).
 	//    Store on QueryInput.TemplateId so the agent pipeline can inject the
