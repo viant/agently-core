@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
@@ -60,9 +59,6 @@ func (s *Service) extendPlanFromResponse(ctx context.Context, genInput *core2.Ge
 		if err := s.extendPlanFromContent(ctx, genOutput, aPlan); err != nil {
 			return false, err
 		}
-	}
-	if err := validatePendingContinuationPlan(genInput, aPlan); err != nil {
-		return false, err
 	}
 	return !aPlan.IsEmpty(), nil
 }
@@ -177,53 +173,6 @@ func hasPendingContinuation(genInput *core2.GenerateInput) bool {
 	last := priorToolResults[len(priorToolResults)-1]
 	_, ok := overflowtool.ExtractMessageShowNextArgs(strings.TrimSpace(last.Result))
 	return ok
-}
-
-func expectedContinuationArgs(genInput *core2.GenerateInput) (map[string]interface{}, bool) {
-	priorToolResults := extractPriorToolResults(genInput)
-	if len(priorToolResults) == 0 {
-		return nil, false
-	}
-	last := priorToolResults[len(priorToolResults)-1]
-	return overflowtool.ExtractMessageShowNextArgs(strings.TrimSpace(last.Result))
-}
-
-func validatePendingContinuationPlan(genInput *core2.GenerateInput, aPlan *execution.Plan) error {
-	expected, ok := expectedContinuationArgs(genInput)
-	if !ok {
-		return nil
-	}
-	if aPlan == nil || len(aPlan.Steps) != 1 {
-		return errPendingToolContinuation
-	}
-	step := aPlan.Steps[0]
-	name := strings.ToLower(strings.TrimSpace(step.Name))
-	if name != "message-show" && name != "message/show" && name != "message:show" {
-		return errPendingToolContinuation
-	}
-	if !normalizedArgsEqual(expected, step.Args) {
-		return errPendingToolContinuation
-	}
-	return nil
-}
-
-func normalizedArgsEqual(expected, actual map[string]interface{}) bool {
-	return reflect.DeepEqual(normalizeArgs(expected), normalizeArgs(actual))
-}
-
-func normalizeArgs(src map[string]interface{}) map[string]interface{} {
-	if len(src) == 0 {
-		return nil
-	}
-	data, err := json.Marshal(src)
-	if err != nil {
-		return src
-	}
-	var out map[string]interface{}
-	if err = json.Unmarshal(data, &out); err != nil {
-		return src
-	}
-	return out
 }
 
 func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *execution.Plan) error {
