@@ -15,7 +15,7 @@ func TestShouldSkipStaleRun(t *testing.T) {
 	}{
 		{name: "nil", run: nil, want: true},
 		{name: "scheduled", run: &agrunstale.StaleRunsView{ConversationKind: "scheduled"}, want: true},
-		{name: "resumed child", run: &agrunstale.StaleRunsView{ConversationKind: "interactive", ResumedFromRunId: strptr("old-run")}, want: true},
+		{name: "resumed child", run: &agrunstale.StaleRunsView{ConversationKind: "interactive", ResumedFromRunId: strptr("old-run")}, want: false},
 		{name: "interactive root", run: &agrunstale.StaleRunsView{ConversationKind: "interactive"}, want: false},
 	}
 	for _, tc := range cases {

@@ -13,6 +13,7 @@ import (
 	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/shared"
@@ -25,6 +26,9 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 	conversationID := strings.TrimSpace(input.ConversationID)
 	turnID := strings.TrimSpace(input.MessageID)
 	if conversationID == "" || turnID == "" {
+		return false, nil
+	}
+	if mode, ok := runtimerecovery.ModeFromContext(ctx); ok && strings.EqualFold(strings.TrimSpace(mode), runtimerecovery.ModeResume) {
 		return false, nil
 	}
 	active, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{

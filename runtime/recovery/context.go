@@ -10,6 +10,7 @@ type modeKey struct{}
 const (
 	ModeCompact      = "compact"
 	ModePruneCompact = "pruneCompact"
+	ModeResume       = "resume"
 )
 
 func WithMode(ctx context.Context, mode string) context.Context {

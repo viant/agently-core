@@ -28,7 +28,7 @@ var StaleRunsFS embed.FS
 
 type StaleRunsInput struct {
 	HeartbeatBefore time.Time          `parameter:",kind=query,in=heartbeatBefore" predicate:"expr,group=0,(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)"`
-	WorkerHost      string             `parameter:",kind=query,in=workerHost" predicate:"equal,group=0,t,worker_host"`
+	WorkerHost      string             `parameter:",kind=query,in=workerHost" predicate:"expr,group=0,(t.worker_host IS NULL OR t.worker_host = ?)"`
 	Has             *StaleRunsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
