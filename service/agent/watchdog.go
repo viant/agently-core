@@ -11,10 +11,15 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
+	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
+	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
+	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
 	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
+	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
 
@@ -26,6 +31,7 @@ type Watchdog struct {
 	tokenProvider token.Provider
 	interval      time.Duration
 	workerHost    string
+	recoverySem   chan struct{}
 }
 
 // WatchdogOption configures a Watchdog.
@@ -45,10 +51,11 @@ func WithWatchdogTokenProvider(p token.Provider) WatchdogOption {
 func NewWatchdog(data data.Service, agent *Service, opts ...WatchdogOption) *Watchdog {
 	hostname, _ := os.Hostname()
 	w := &Watchdog{
-		data:       data,
-		agent:      agent,
-		interval:   60 * time.Second,
-		workerHost: hostname,
+		data:        data,
+		agent:       agent,
+		interval:    60 * time.Second,
+		workerHost:  hostname,
+		recoverySem: make(chan struct{}, 2),
 	}
 	for _, o := range opts {
 		o(w)
@@ -88,21 +95,53 @@ func (w *Watchdog) sweep(ctx context.Context) {
 			log.Printf("[watchdog] handle stale run %s: %v", run.Id, err)
 		}
 	}
+	w.reconcileRunningConversations(ctx)
 }
 
 func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
 	if shouldSkipStaleRun(run) {
 		return nil
 	}
+	// Legacy backlog shape: a prior recovery created a queued turn whose id
+	// matches the run id, but never linked run.turn_id. Repair that linkage and
+	// explicitly drain the queued turn instead of spawning another resumed run.
+	if run.ConversationId != nil && strings.TrimSpace(*run.ConversationId) != "" && strings.TrimSpace(valueOrEmpty(run.TurnId)) == "" {
+		queuedTurn, err := w.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+			ID:  run.Id,
+			Has: &agturnbyid.TurnLookupInputHas{ID: true},
+		})
+		if err != nil {
+			return fmt.Errorf("lookup queued recovery turn: %w", err)
+		}
+		if queuedTurn != nil && strings.EqualFold(strings.TrimSpace(queuedTurn.Status), "queued") {
+			upd := &agrunwrite.MutableRunView{}
+			upd.SetId(run.Id)
+			upd.SetTurnID(run.Id)
+			now := time.Now()
+			if w.agent != nil {
+				w.agent.populateInteractiveRunRuntime(upd, now)
+			} else if strings.TrimSpace(w.workerHost) != "" {
+				upd.SetWorkerHost(strings.TrimSpace(w.workerHost))
+				upd.SetLastHeartbeatAt(now)
+			}
+			if _, patchErr := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{upd}); patchErr != nil {
+				return fmt.Errorf("repair queued recovery run linkage: %w", patchErr)
+			}
+			if w.agent != nil {
+				w.agent.triggerQueueDrain(strings.TrimSpace(*run.ConversationId))
+			}
+			return nil
+		}
+	}
 	// Try to resume if we have auth context and a conversation to continue.
 	if run.ConversationId != nil && strings.TrimSpace(*run.ConversationId) != "" {
 		conversationID := strings.TrimSpace(*run.ConversationId)
 		resumeCtx := ctx
+		var sd *token.SecurityData
 
 		// Restore auth from SecurityContext if available.
 		if run.SecurityContext != nil && *run.SecurityContext != "" {
 			var err error
-			var sd *token.SecurityData
 			resumeCtx, sd, err = token.RestoreSecurityContext(resumeCtx, *run.SecurityContext)
 			if err != nil {
 				log.Printf("[watchdog] restore security context for run %s: %v", run.Id, err)
@@ -112,6 +151,10 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 				key := token.Key{Subject: sd.Subject, Provider: sd.Provider}
 				_, _ = w.tokenProvider.EnsureTokens(resumeCtx, key)
 			}
+		}
+		resumeUserID := resolveResumeUserID(run, sd)
+		if resumeUserID != "" && strings.TrimSpace(iauth.EffectiveUserID(resumeCtx)) == "" {
+			resumeCtx = iauth.WithUserInfo(resumeCtx, &iauth.UserInfo{Subject: resumeUserID})
 		}
 
 		// Create new run as a resume of the stale one.
@@ -178,11 +221,6 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			}
 		}
 
-		// Re-invoke query with restored context synchronously. Recovery is already
-		// running inside a watchdog sweep; spawning one goroutine per stale run
-		// creates a DB-thrashing recovery stampede on SQLite and leaves fresh
-		// resumed runs stuck in `running` when queueing fails under lock
-		// contention.
 		agentID := ""
 		if run.AgentId != nil {
 			agentID = *run.AgentId
@@ -192,20 +230,39 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			AgentID:        agentID,
 			ConversationID: conversationID,
 			MessageID:      newRunID,
+			UserId:         resumeUserID,
 			Query:          "", // continue existing conversation
 		}
-		out := &QueryOutput{}
-		if err := w.agent.Query(resumeCtx, input, out); err != nil {
-			log.Printf("[watchdog] resume run %s (was %s): %v", newRunID, run.Id, err)
-			failResume := &agrunwrite.MutableRunView{}
-			failResume.SetId(newRunID)
-			failResume.SetStatus("failed")
-			failResume.SetErrorMessage(fmt.Sprintf("resume failed: %v", err))
-			failResume.SetCompletedAt(time.Now())
-			if _, patchErr := w.data.PatchRuns(context.Background(), []*agrunwrite.MutableRunView{failResume}); patchErr != nil {
-				log.Printf("[watchdog] mark resumed run failed %s: %v", newRunID, patchErr)
-			}
+		// Resume query asynchronously with bounded concurrency so the watchdog can
+		// continue sweeping newer stale runs without reopening the old
+		// unbounded-goroutine DB storm.
+		sem := w.recoverySem
+		if sem == nil {
+			sem = make(chan struct{}, 2)
+			w.recoverySem = sem
 		}
+		sem <- struct{}{}
+		go func(resumeCtx context.Context, oldRunID, newRunID string, input *QueryInput) {
+			defer func() { <-sem }()
+			out := &QueryOutput{}
+			if err := w.agent.Query(resumeCtx, input, out); err != nil {
+				log.Printf("[watchdog] resume run %s (was %s): %v", newRunID, oldRunID, err)
+				failResume := &agrunwrite.MutableRunView{}
+				failResume.SetId(newRunID)
+				failResume.SetStatus("failed")
+				failResume.SetErrorMessage(fmt.Sprintf("resume failed: %v", err))
+				failResume.SetCompletedAt(time.Now())
+				if _, patchErr := w.data.PatchRuns(context.Background(), []*agrunwrite.MutableRunView{failResume}); patchErr != nil {
+					log.Printf("[watchdog] mark resumed run failed %s: %v", newRunID, patchErr)
+				}
+				if w.agent != nil && strings.TrimSpace(input.ConversationID) != "" {
+					if convErr := w.agent.patchConversationStatus(context.Background(), strings.TrimSpace(input.ConversationID), "failed"); convErr != nil {
+						log.Printf("[watchdog] mark resumed conversation failed %s: %v", input.ConversationID, convErr)
+					}
+					w.agent.triggerQueueDrain(strings.TrimSpace(input.ConversationID))
+				}
+			}
+		}(resumeCtx, run.Id, newRunID, input)
 		return nil
 	}
 
@@ -217,6 +274,95 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	failRun.SetCompletedAt(time.Now())
 	_, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failRun})
 	return err
+}
+
+func resolveResumeUserID(run *agrunstale.StaleRunsView, sd *token.SecurityData) string {
+	if sd != nil {
+		if subject := strings.TrimSpace(sd.Subject); subject != "" {
+			return subject
+		}
+	}
+	if run == nil || run.EffectiveUserId == nil {
+		return ""
+	}
+	return strings.TrimSpace(*run.EffectiveUserId)
+}
+
+func (w *Watchdog) reconcileRunningConversations(ctx context.Context) {
+	if w == nil || w.data == nil || w.agent == nil || w.agent.conversation == nil {
+		return
+	}
+	page, err := w.data.ListConversations(ctx, &agconvlist.ConversationRowsInput{
+		StatusFilter: "running",
+		Has:          &agconvlist.ConversationRowsInputHas{StatusFilter: true},
+	}, &data.PageInput{Limit: 200, Direction: data.DirectionLatest})
+	if err != nil {
+		log.Printf("[watchdog] list running conversations: %v", err)
+		return
+	}
+	for _, row := range page.Rows {
+		if row == nil || strings.TrimSpace(row.Id) == "" {
+			continue
+		}
+		if err := w.reconcileConversationStatus(ctx, strings.TrimSpace(row.Id)); err != nil {
+			log.Printf("[watchdog] reconcile conversation %s: %v", row.Id, err)
+		}
+	}
+}
+
+func (w *Watchdog) reconcileConversationStatus(ctx context.Context, conversationID string) error {
+	if w == nil || w.data == nil || w.agent == nil || w.agent.conversation == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	activeRun, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+		ConversationId: conversationID,
+		Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
+	})
+	if err != nil {
+		return fmt.Errorf("load active run: %w", err)
+	}
+	if activeRun != nil && strings.TrimSpace(activeRun.Id) != "" {
+		return nil
+	}
+	activeTurn, err := w.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+		ConversationID: conversationID,
+		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+	})
+	if err != nil {
+		return fmt.Errorf("load active turn: %w", err)
+	}
+	if activeTurn != nil && strings.TrimSpace(activeTurn.Id) != "" {
+		return nil
+	}
+	queuedCount, err := w.data.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+		ConversationID: conversationID,
+		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+	})
+	if err != nil {
+		return fmt.Errorf("count queued turns: %w", err)
+	}
+	if queuedCount > 0 {
+		return nil
+	}
+	conv, err := w.agent.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil {
+		return fmt.Errorf("load conversation transcript: %w", err)
+	}
+	if conv == nil || conv.Status == nil {
+		return nil
+	}
+	status := strings.TrimSpace(*conv.Status)
+	if status == "" || strings.EqualFold(status, "running") {
+		return nil
+	}
+	if err := w.agent.patchConversationStatus(ctx, conversationID, status); err != nil {
+		return fmt.Errorf("patch conversation status %q: %w", status, err)
+	}
+	return nil
 }
 
 func shouldSkipStaleRun(run *agrunstale.StaleRunsView) bool {
