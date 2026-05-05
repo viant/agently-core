@@ -1,6 +1,7 @@
 package intake
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	tpldef "github.com/viant/agently-core/protocol/template"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
@@ -210,6 +213,25 @@ func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Workspace-specific intake guidance:")
 	assert.Contains(t, prompt, "Concrete resource troubleshoot requests are actionable without extra clarification.")
+}
+
+func TestBuildSystemPrompt_FiltersProfilesByAllowList(t *testing.T) {
+	tmpDir := t.TempDir()
+	promptDir := filepath.Join(tmpDir, "prompts")
+	require.NoError(t, os.MkdirAll(promptDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "diagnostic_baseline.yaml"), []byte("id: diagnostic_baseline\ndescription: child only\nappliesTo: [diagnostic_baseline]\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "performance_analysis.yaml"), []byte("id: performance_analysis\ndescription: visible\nappliesTo: [performance]\n"), 0o644))
+
+	svc := &Service{
+		profileRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+	}
+	cfg := &agentmdl.Intake{Scope: []string{"profile"}}
+	ctx := runtimerequestctx.WithPromptProfileAllowList(context.Background(), []string{"performance_analysis"})
+
+	prompt, err := svc.buildSystemPrompt(ctx, cfg)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, "performance_analysis")
+	assert.NotContains(t, prompt, "diagnostic_baseline")
 }
 
 func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {

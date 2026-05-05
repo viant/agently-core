@@ -2,6 +2,7 @@ package reactor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -196,7 +197,13 @@ func (s *Service) retryPendingContinuation(ctx context.Context, genInput *core2.
 	if s == nil || s.llm == nil || genInput == nil || genOutput == nil || aPlan == nil {
 		return false, errPendingToolContinuation
 	}
-	reminder := llm.NewSystemMessage("The latest tool result is still incomplete and exposes explicit continuation. Do not produce a final answer yet. Either continue with the required follow-up tool call from the latest tool result, or keep the turn in progress until that continuation is resolved.")
+	reminderText := "The latest tool result is still incomplete and exposes explicit continuation. Do not produce a final answer yet. Issue exactly one message-show follow-up using the explicit nextArgs from the latest tool result. Do not issue multiple message-show calls in the same turn, and do not use any other tool until that continuation is resolved."
+	if nextArgs, ok := expectedContinuationArgs(genInput); ok && len(nextArgs) > 0 {
+		if payload, err := json.Marshal(nextArgs); err == nil {
+			reminderText += " Required nextArgs: " + string(payload)
+		}
+	}
+	reminder := llm.NewSystemMessage(reminderText)
 	original := genInput.Message
 	genInput.Message = append([]llm.Message{reminder}, original...)
 	defer func() {

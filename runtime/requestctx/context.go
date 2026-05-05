@@ -206,6 +206,10 @@ type messageAddEventKeyT string
 
 var messageAddEventKey = messageAddEventKeyT("messageAddEvent")
 
+type promptProfileAllowListKeyT string
+
+var promptProfileAllowListKey = promptProfileAllowListKeyT("promptProfileAllowList")
+
 func WithRequestMode(ctx context.Context, mode string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -261,6 +265,44 @@ func UserAskFromContext(ctx context.Context) string {
 		return strings.TrimSpace(ask)
 	}
 	return ""
+}
+
+func WithPromptProfileAllowList(ctx context.Context, ids []string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(ids) == 0 {
+		return ctx
+	}
+	cloned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		cloned = append(cloned, id)
+	}
+	if len(cloned) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, promptProfileAllowListKey, cloned)
+}
+
+func PromptProfileAllowListFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	value := ctx.Value(promptProfileAllowListKey)
+	if value == nil {
+		return nil
+	}
+	list, ok := value.([]string)
+	if !ok || len(list) == 0 {
+		return nil
+	}
+	cloned := make([]string, len(list))
+	copy(cloned, list)
+	return cloned
 }
 
 func WithMessageAddEvent(ctx context.Context) context.Context {

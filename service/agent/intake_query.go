@@ -88,6 +88,9 @@ func (s *Service) intakeTrackedContext(ctx context.Context, input *QueryInput) c
 	}
 	runCtx := s.ensureRunTrackedLLMContext(ctx, strings.TrimSpace(input.ConversationID), "intake_sidecar", preferredTurnID)
 	runCtx = runtimerequestctx.WithRequestMode(runCtx, "router")
+	if input.Agent != nil && len(input.Agent.Prompts.Bundles) > 0 {
+		runCtx = runtimerequestctx.WithPromptProfileAllowList(runCtx, input.Agent.Prompts.Bundles)
+	}
 	return runCtx
 }
 
