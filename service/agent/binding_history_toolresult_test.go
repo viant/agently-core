@@ -647,6 +647,74 @@ func TestBuildHistory_PlacesCurrentTurnInCurrentNotPast(t *testing.T) {
 	}
 }
 
+func TestBuildHistory_CurrentTurnSkipsAssistantMessageAddedByMessageAddReplay(t *testing.T) {
+	now := time.Now().UTC()
+	turnID := "turn-current"
+	noteID := "msg-note"
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{
+			Id: turnID,
+			Message: []*agconv.MessageView{
+				{
+					Id:        "msg-user",
+					TurnId:    strPtr(turnID),
+					Role:      "user",
+					Type:      "text",
+					Content:   strPtr("Troubleshoot 2649235 order for delivery issues"),
+					CreatedAt: now,
+				},
+				{
+					Id:        "msg-progress",
+					TurnId:    strPtr(turnID),
+					Role:      "assistant",
+					Type:      "text",
+					Content:   strPtr("I’m pulling the baseline first."),
+					CreatedAt: now.Add(time.Second),
+				},
+				{
+					Id:              "tool-msg-add",
+					TurnId:          strPtr(turnID),
+					ParentMessageId: strPtr("msg-progress"),
+					Role:            "tool",
+					Type:            "tool_op",
+					Content:         strPtr(`{"conversationId":"conv-1","messageId":"` + noteID + `","parentMessageId":"msg-user","sequence":5,"turnId":"` + turnID + `"}`),
+					CreatedAt:       now.Add(2 * time.Second),
+					MessageToolCall: &agconv.MessageToolCallView{
+						OpId:     "call-message-add",
+						ToolName: "message-add",
+					},
+				},
+				{
+					Id:              noteID,
+					TurnId:          strPtr(turnID),
+					ParentMessageId: strPtr("msg-user"),
+					Role:            "assistant",
+					Type:            "text",
+					Content:         strPtr("Baseline dashboard note"),
+					CreatedAt:       now.Add(3 * time.Second),
+				},
+			},
+		},
+	}
+
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: turnID})
+	history, err := (&Service{}).buildHistory(ctx, transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+	if history.Current == nil {
+		t.Fatalf("expected current turn history")
+	}
+	if len(history.Current.Messages) != 3 {
+		t.Fatalf("expected user + assistant progress + message-add tool result, got %#v", history.Current.Messages)
+	}
+	for _, msg := range history.Current.Messages {
+		if msg != nil && msg.ID == noteID {
+			t.Fatalf("message-add-created assistant note should not be replayed into the same active turn: %#v", history.Current.Messages)
+		}
+	}
+}
+
 func ptrBytes(value []byte) *[]byte {
 	return &value
 }

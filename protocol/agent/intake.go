@@ -14,6 +14,11 @@ type Intake struct {
 	// Enabled turns the intake sidecar on for this agent. Default: false.
 	Enabled bool `yaml:"enabled" json:"enabled"`
 
+	// Prompt appends workspace-specific guidance to the shared intake classifier
+	// prompt. Use this to tune routing/clarification behavior for a workspace
+	// without forking the generic classifier instructions.
+	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+
 	// Scope lists which TurnContext fields the sidecar is allowed to populate.
 	// Class A fields (safe for any agent): title, context, intent, clarification.
 	// Class B fields (orchestrators only, opt-in): profile, tools, template.

@@ -198,6 +198,20 @@ func TestBuildOutputJSONSchema_RespectsScope(t *testing.T) {
 	assert.Contains(t, required, "context")
 	assert.Contains(t, required, "templateId")
 }
+
+func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{
+		Scope:  []string{"intent"},
+		Prompt: "Concrete ad-order troubleshoot requests are actionable without extra clarification.",
+	}
+
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, "Workspace-specific intake guidance:")
+	assert.Contains(t, prompt, "Concrete ad-order troubleshoot requests are actionable without extra clarification.")
+}
+
 func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
 	raw := `{"title":"Campaign 4821","intent":"diagnosis","entities":{"campaignId":"4821"}}`
 	tc, err := parseOutput(raw)

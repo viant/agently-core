@@ -40,13 +40,13 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{
 			Name:        "apply",
-			Description: "Stage a patch in the active patch session for host review. Requires workdir. Supports unified diff or simplified patch. Patch paths must resolve inside workdir.",
+			Description: "Stage a patch in the active patch session for host review. Requires workdir. Supports unified diff or simplified patch. Patch paths must resolve inside workdir. Update/Delete require a prior resources:read of the current file; Add does not.",
 			Input:       reflect.TypeOf(&ApplyInput{}),
 			Output:      reflect.TypeOf(&ApplyOutput{}),
 		},
 		{
 			Name:        "replace",
-			Description: "Stage an exact string replacement in the active patch session for host review. Requires workdir. Path must resolve inside workdir. The old text must match exactly; ambiguous replacements fail unless replaceAll is true.",
+			Description: "Stage an exact string replacement in the active patch session for host review. Requires workdir and a prior resources:read of the current file. Path must resolve inside workdir. The old text must match exactly; ambiguous replacements fail unless replaceAll is true.",
 			Input:       reflect.TypeOf(&ReplaceInput{}),
 			Output:      reflect.TypeOf(&ReplaceOutput{}),
 		},
@@ -129,6 +129,9 @@ func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *App
 	if err != nil {
 		return err
 	}
+	if err := validatePatchObservations(ctx, sess, input.Patch, input.Workdir); err != nil {
+		return err
+	}
 
 	if err := sess.ApplyPatch(ctx, input.Patch, input.Workdir); err != nil {
 		// Do not auto-rollback; leave the session active so the caller
@@ -174,6 +177,9 @@ func (s *Service) replaceText(ctx context.Context, input *ReplaceInput, output *
 	}
 	sess, err := s.sessionForContext(ctx)
 	if err != nil {
+		return err
+	}
+	if err := validateObservedPaths(ctx, sess, []string{path}); err != nil {
 		return err
 	}
 	replacements, stats, err := sess.Replace(ctx, path, input.Old, input.New, input.ReplaceAll, input.ExpectedOccurrences)

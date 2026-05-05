@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -481,6 +482,10 @@ func (s *Service) collectNormalizedMessages(
 			continue
 		}
 		messages := turn.GetMessages()
+		messageAddCreatedIDs := map[string]struct{}{}
+		if currentTurnID != "" && strings.TrimSpace(turn.Id) == currentTurnID {
+			messageAddCreatedIDs = collectMessageAddCreatedMessageIDs(messages)
+		}
 		concreteToolMessageIDs := map[string]struct{}{}
 		for _, candidate := range messages {
 			if candidate == nil {
@@ -503,6 +508,9 @@ func (s *Service) collectNormalizedMessages(
 			baseMsg := cloneMessageWithoutToolMessages(m)
 			if baseMsg == nil {
 				baseMsg = m
+			}
+			if _, ok := messageAddCreatedIDs[strings.TrimSpace(baseMsg.Id)]; ok && strings.EqualFold(strings.TrimSpace(baseMsg.Role), "assistant") {
+				continue
 			}
 			if _, ok := hiddenMessages[strings.TrimSpace(baseMsg.Id)]; ok {
 				continue
@@ -721,6 +729,27 @@ func appendCurrentMessages(h *binding.History, msgs ...*binding.Message) {
 		}
 		h.Current.Messages = append(h.Current.Messages, m)
 	}
+}
+
+func collectMessageAddCreatedMessageIDs(messages []*apiconv.Message) map[string]struct{} {
+	result := map[string]struct{}{}
+	for _, msg := range messages {
+		if msg == nil || !isConcreteToolResultMessage(msg) {
+			continue
+		}
+		tc := messageToolCall(msg)
+		if tc == nil || !strings.EqualFold(strings.TrimSpace(mcpname.Canonical(tc.ToolName)), "message-add") {
+			continue
+		}
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(msg.GetContent())), &payload); err != nil {
+			continue
+		}
+		if messageID, _ := payload["messageId"].(string); strings.TrimSpace(messageID) != "" {
+			result[strings.TrimSpace(messageID)] = struct{}{}
+		}
+	}
+	return result
 }
 
 func messageToolCall(msg *apiconv.Message) *apiconv.ToolCallView {

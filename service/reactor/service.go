@@ -41,7 +41,7 @@ type Service struct {
 	// lastNarration deduplicates patchStreamingToolPreamble calls: only patches
 	// when the preamble text has actually changed. Keyed by message ID.
 	lastPreambleMu sync.Mutex
-	lastNarration   map[string]string
+	lastNarration  map[string]string
 }
 
 // ctxKeyLimitRecoveryAttempted guards one-shot presentation of the context-limit guidance within a single Run invocation.
@@ -52,6 +52,7 @@ const ctxKeyLimitRecoveryAttempted ctxKeyPresentedType = 1
 // ctxKeyContinuationMode marks runs that are invoked as part of a
 // continuation/recovery flow (for example, context-limit handling).
 const ctxKeyContinuationMode ctxKeyPresentedType = 2
+const ctxKeyPendingContinuationRetried ctxKeyPresentedType = 3
 
 const (
 	pruneMinRemove        = 20
@@ -127,7 +128,13 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	}
 
 	if aPlan.IsEmpty() {
-		ok, err := s.extendPlanFromResponse(ctx, genOutput, aPlan)
+		ok, err := s.extendPlanFromResponse(ctx, genInput, genOutput, aPlan)
+		if err != nil {
+			if errors.Is(err, errPendingToolContinuation) && ctx.Value(ctxKeyPendingContinuationRetried) == nil {
+				ctx = context.WithValue(ctx, ctxKeyPendingContinuationRetried, true)
+				ok, err = s.retryPendingContinuation(ctx, genInput, genOutput, aPlan)
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to extend plan from response: %w", err)
 		}
@@ -176,13 +183,31 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			return nil, fmt.Errorf("retry after removal failed: %w", err)
 		}
 		// Extend/stream any additional steps if present
-		if ok, _ := s.extendPlanFromResponse(ctx, genOutput, aPlan); ok {
+		if ok, _ := s.extendPlanFromResponse(ctx, genInput, genOutput, aPlan); ok {
 			if err2 := s.streamPlanSteps(ctx, streamId, aPlan); err2 != nil {
 				return nil, fmt.Errorf("failed to stream plan steps (retry): %w", err2)
 			}
 		}
 	}
 	return aPlan, nil
+}
+
+func (s *Service) retryPendingContinuation(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput, aPlan *plan.Plan) (bool, error) {
+	if s == nil || s.llm == nil || genInput == nil || genOutput == nil || aPlan == nil {
+		return false, errPendingToolContinuation
+	}
+	reminder := llm.NewSystemMessage("The latest tool result is still incomplete and exposes explicit continuation. Do not produce a final answer yet. Either continue with the required follow-up tool call from the latest tool result, or keep the turn in progress until that continuation is resolved.")
+	original := genInput.Message
+	genInput.Message = append([]llm.Message{reminder}, original...)
+	defer func() {
+		genInput.Message = original
+	}()
+	genOutput.Content = ""
+	genOutput.Response = nil
+	if err := s.llm.Generate(ctx, genInput, genOutput); err != nil {
+		return false, err
+	}
+	return s.extendPlanFromResponse(ctx, genInput, genOutput, aPlan)
 }
 
 func New(service *core2.Service, registry tool.Registry, convClient apiconv.Client, finder agentmdl.Finder, builder func(ctx context.Context, conv *apiconv.Conversation, instruction string) (*core2.GenerateInput, error)) *Service {

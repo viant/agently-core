@@ -231,6 +231,21 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			},
 			expectNames: []string{"system/patch:apply", "system/patch:replace", "system/patch:snapshot"},
 		},
+		{
+			name: "default_scratchpad_bundle_exposes_memory_tools",
+			query: &QueryInput{
+				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"scratchpad"}}},
+			},
+			bundles: nil,
+			defs: []llm.ToolDefinition{
+				{Name: "scratchpad:memorize"},
+				{Name: "scratchpad:append"},
+				{Name: "scratchpad:list"},
+				{Name: "scratchpad:fetch"},
+				{Name: "system/patch:apply"},
+			},
+			expectNames: []string{"scratchpad:append", "scratchpad:fetch", "scratchpad:list", "scratchpad:memorize"},
+		},
 	}
 
 	for _, tc := range testCases {

@@ -23,6 +23,8 @@ func DefaultIconRef(service string) string {
 		return "builtin:system-os"
 	case "system/image":
 		return "builtin:system-image"
+	case "scratchpad":
+		return "builtin:scratchpad"
 	case "llm/agents":
 		return "builtin:agents"
 	case "orchestration":

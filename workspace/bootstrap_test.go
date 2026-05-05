@@ -54,6 +54,13 @@ func TestEnsureDefaultAt_SeedsDefaultAssets(t *testing.T) {
 	require.NotContains(t, string(data), "system/patch:commit")
 	require.NotContains(t, string(data), "system/patch:rollback")
 
+	data, err = os.ReadFile(filepath.Join(root, "tools", "bundles", "scratchpad.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "scratchpad:memorize")
+	require.Contains(t, string(data), "scratchpad:append")
+	require.Contains(t, string(data), "scratchpad:list")
+	require.Contains(t, string(data), "scratchpad:fetch")
+
 	info, err := os.Stat(filepath.Join(root, "bin", "playwright-cli"))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
