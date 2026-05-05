@@ -75,3 +75,10 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 	}
 
 }
+
+func applyParallelToolCallOverride(input *QueryInput, genInput *core.GenerateInput) {
+	if input == nil || genInput == nil || genInput.ModelSelection.Options == nil || input.ParallelToolCalls == nil {
+		return
+	}
+	genInput.ModelSelection.Options.ParallelToolCalls = *input.ParallelToolCalls
+}
