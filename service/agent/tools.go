@@ -17,6 +17,12 @@ import (
 
 // Small utilities for tool name resolution and filtering.
 
+type resolvedToolSurface struct {
+	Definitions  []llm.ToolDefinition
+	ApprovalByID map[string]*llm.ApprovalConfig
+	AsyncByID    map[string]*llm.Tool
+}
+
 // resolveTools resolves tools using the following precedence:
 //   - If input.ToolsAllowed is provided and non-empty, resolve exactly those tools by name
 //     and do not gate by agent patterns (explicit allow-list).
@@ -67,22 +73,13 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		return nil, err
 	}
 
-	var defs []llm.ToolDefinition
-	if len(control.Bundles) > 0 {
-		var err error
-		defs, err = s.resolveBundleDefinitions(ctx, control.Bundles)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if len(control.Tools) == 0 && len(defs) == 0 {
+	if len(control.Tools) == 0 && len(control.Bundles) == 0 {
 		return nil, nil
 	}
-	defs, err = s.appendToolSelections(ctx, defs, control.Tools)
+	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
 	if err != nil {
 		return nil, err
 	}
-	defs = dedupeDefinitions(defs)
 	out := defsToTools(defs)
 	out = s.appendRegistryWarnings(ctx, out)
 	return out, nil
@@ -146,9 +143,52 @@ func defsToTools(in []llm.ToolDefinition) []llm.Tool {
 	return out
 }
 
+func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
+	key := toolSelectionCacheKey(control)
+	if key != "" {
+		if cached, ok := s.toolSurfaceCache.Load(key); ok {
+			if entry, ok := cached.(*resolvedToolSurface); ok && entry != nil {
+				s.applyResolvedToolSurfaceMetadata(ctx, entry)
+				return cloneToolDefinitions(entry.Definitions), nil
+			}
+		}
+	}
+
+	entry := &resolvedToolSurface{}
+	if len(control.Bundles) > 0 {
+		res, err := s.resolveBundleResult(ctx, control.Bundles)
+		if err != nil {
+			return nil, err
+		}
+		entry.Definitions = append(entry.Definitions, res.Definitions...)
+		entry.ApprovalByID = res.ApprovalByID
+		entry.AsyncByID = res.AsyncByID
+	}
+	var err error
+	entry.Definitions, err = s.appendToolSelections(ctx, entry.Definitions, control.Tools)
+	if err != nil {
+		return nil, err
+	}
+	entry.Definitions = dedupeDefinitions(entry.Definitions)
+	if key != "" {
+		s.toolSurfaceCache.Store(key, entry)
+	}
+	s.applyResolvedToolSurfaceMetadata(ctx, entry)
+	return cloneToolDefinitions(entry.Definitions), nil
+}
+
 func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []string) ([]llm.ToolDefinition, error) {
+	res, err := s.resolveBundleResult(ctx, bundleIDs)
+	if err != nil {
+		return nil, err
+	}
+	s.applyResolvedToolSurfaceMetadata(ctx, res)
+	return res.Definitions, nil
+}
+
+func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (*resolvedToolSurface, error) {
 	if s == nil || s.registry == nil {
-		return nil, nil
+		return &resolvedToolSurface{}, nil
 	}
 	bundles, err := s.loadBundles(ctx)
 	if err != nil {
@@ -159,7 +199,10 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 		derived = indexBundlesByID(toolbundle.DeriveBundles(s.registry.Definitions()))
 		bundles = derived
 	}
-	var defs []llm.ToolDefinition
+	entry := &resolvedToolSurface{
+		ApprovalByID: map[string]*llm.ApprovalConfig{},
+		AsyncByID:    map[string]*llm.Tool{},
+	}
 	for _, id := range bundleIDs {
 		key := strings.ToLower(strings.TrimSpace(id))
 		b := bundles[key]
@@ -172,26 +215,23 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 			b = derived[key]
 		}
 		if b == nil {
-			defs = append(defs, s.resolveDirectBundleDefinitions(ctx, id)...)
+			entry.Definitions = append(entry.Definitions, s.resolveDirectBundleDefinitions(ctx, id)...)
 			appendWarning(ctx, fmt.Sprintf("unknown tool bundle: %s", id))
 			continue
 		}
 		res := toolbundle.ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
 			return s.matchDefinitions(ctx, pattern)
 		})
-		for _, d := range res.Definitions {
-			key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
-			cfg := res.ApprovalByID[key]
-			if cfg != nil && (cfg.IsQueue() || cfg.IsPrompt()) {
-				toolapprovalqueue.MarkTool(ctx, d.Name, cfg)
-			}
-			if asyncRule := res.AsyncByID[key]; asyncRule != nil && asyncRule.Async != nil {
-				toolasyncconfig.MarkTool(ctx, d.Name, asyncRule.Async)
-			}
+		for name, cfg := range res.ApprovalByID {
+			entry.ApprovalByID[name] = cfg
 		}
-		defs = append(defs, res.Definitions...)
+		for name, asyncRule := range res.AsyncByID {
+			entry.AsyncByID[name] = asyncRule
+		}
+		entry.Definitions = append(entry.Definitions, res.Definitions...)
 	}
-	return dedupeDefinitions(defs), nil
+	entry.Definitions = dedupeDefinitions(entry.Definitions)
+	return entry, nil
 }
 
 func (s *Service) resolveDirectBundleDefinitions(ctx context.Context, bundleID string) []llm.ToolDefinition {
@@ -272,6 +312,38 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 		d.Name = mcpname.Canonical(d.Name)
 		out = append(out, d)
 	}
+	return out
+}
+
+func (s *Service) applyResolvedToolSurfaceMetadata(ctx context.Context, entry *resolvedToolSurface) {
+	if entry == nil {
+		return
+	}
+	for _, d := range entry.Definitions {
+		key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
+		cfg := entry.ApprovalByID[key]
+		if cfg != nil && (cfg.IsQueue() || cfg.IsPrompt()) {
+			toolapprovalqueue.MarkTool(ctx, d.Name, cfg)
+		}
+		if asyncRule := entry.AsyncByID[key]; asyncRule != nil && asyncRule.Async != nil {
+			toolasyncconfig.MarkTool(ctx, d.Name, asyncRule.Async)
+		}
+	}
+}
+
+func toolSelectionCacheKey(control agenttool.Selection) string {
+	if len(control.Bundles) == 0 && len(control.Tools) == 0 {
+		return ""
+	}
+	return strings.Join(control.Bundles, "\x1f") + "\x1e" + strings.Join(control.Tools, "\x1f")
+}
+
+func cloneToolDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolDefinition, len(in))
+	copy(out, in)
 	return out
 }
 

@@ -78,9 +78,10 @@ type Service struct {
 	// events such as turn_queued. Wired via SetElicitationStreamPublisher.
 	streamPub streaming.Publisher
 
-	asyncManager   *asynccfg.Manager
-	asyncPollers   sync.Map
-	bootstrapCache sync.Map
+	asyncManager     *asynccfg.Manager
+	asyncPollers     sync.Map
+	bootstrapCache   sync.Map
+	toolSurfaceCache sync.Map
 
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 

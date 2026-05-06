@@ -103,6 +103,16 @@ func (r *fakeRegistry) SetDebugLogger(io.Writer)                 {}
 func (r *fakeRegistry) Initialize(context.Context)               {}
 func (r *fakeRegistry) ToolTimeout(string) (time.Duration, bool) { return 0, false }
 
+type countingRegistry struct {
+	fakeRegistry
+	matchCalls int
+}
+
+func (r *countingRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
+	r.matchCalls++
+	return r.fakeRegistry.MatchDefinition(pattern)
+}
+
 func TestResolveTools_WithBundles(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -286,6 +296,42 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			assert.EqualValues(t, tc.expectNames, got)
 		})
 	}
+}
+
+func TestResolveTools_CachesStructuredBundleResolution(t *testing.T) {
+	registry := &countingRegistry{
+		fakeRegistry: fakeRegistry{
+			defs: []llm.ToolDefinition{
+				{Name: "system/exec:execute"},
+				{Name: "system/os:getEnv"},
+			},
+		},
+	}
+	svc := &Service{
+		registry: registry,
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID: "system",
+				Match: []llm.Tool{
+					{Name: "system/*"},
+				},
+			}}, nil
+		},
+	}
+	query := &QueryInput{
+		Agent: &agentmdl.Agent{
+			Tool: agentmdl.Tool{Bundles: []string{"system"}},
+		},
+	}
+
+	_, err := svc.resolveTools(context.Background(), query)
+	require.NoError(t, err)
+	firstCalls := registry.matchCalls
+	require.Greater(t, firstCalls, 0)
+
+	_, err = svc.resolveTools(context.Background(), query)
+	require.NoError(t, err)
+	assert.Equal(t, firstCalls, registry.matchCalls)
 }
 
 func TestResolveBundleDefinitions_WithPromptApprovalBundle(t *testing.T) {
