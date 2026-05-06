@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
@@ -16,25 +17,41 @@ import (
 )
 
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
+	start := time.Now()
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	turnID := ""
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(turn.TurnID)
+	}
+	modelName := strings.TrimSpace(input.Model)
+	logx.Infof("conversation", "core.prepareGenerateRequest start convo=%q turn=%q model=%q", conversationID, turnID, modelName)
 	input.MatchModelIfNeeded(s.modelMatcher)
 	if input.Binding == nil {
 		input.Binding = &binding.Binding{}
 	}
+	modelLookupStart := time.Now()
 	model, err := s.llmFinder.Find(ctx, input.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find model: %w", err)
 	}
+	modelLookupElapsed := time.Since(modelLookupStart)
 	normalizeModelNativeCapabilities(input.Options, model, input.Model)
 	s.updateFlags(input, model)
+	initStart := time.Now()
 	if err := input.Init(ctx); err != nil {
 		return nil, nil, fmt.Errorf("failed to init generate input: %w", err)
 	}
+	initElapsed := time.Since(initStart)
+	validateStart := time.Now()
 	if err := input.Validate(ctx); err != nil {
 		return nil, nil, err
 	}
+	validateElapsed := time.Since(validateStart)
+	attachmentPolicyStart := time.Now()
 	if err := s.enforceAttachmentPolicy(ctx, input, model); err != nil {
 		return nil, nil, err
 	}
+	attachmentPolicyElapsed := time.Since(attachmentPolicyStart)
 
 	request := &llm.GenerateRequest{
 		Messages:     input.Message,
@@ -113,6 +130,22 @@ func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInp
 		})
 	}
 	WriteLLMRequestDebugPayload(ctx, strings.TrimSpace(input.Model), request, nil, "")
+	toolCount := 0
+	if request.Options != nil {
+		toolCount = len(request.Options.Tools)
+	}
+	logx.Infof("conversation", "core.prepareGenerateRequest ok convo=%q turn=%q model=%q total=%s model_lookup=%s init=%s validate=%s attachment_policy=%s messages=%d tools=%d",
+		conversationID,
+		turnID,
+		strings.TrimSpace(input.Model),
+		time.Since(start),
+		modelLookupElapsed,
+		initElapsed,
+		validateElapsed,
+		attachmentPolicyElapsed,
+		len(request.Messages),
+		toolCount,
+	)
 	return request, model, nil
 }
 
