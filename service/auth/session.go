@@ -13,14 +13,17 @@ import (
 // Session represents an authenticated user session.
 //
 // Identity model:
-//   - Subject  = jwt.sub  — stable unique user identity (used as user_id everywhere)
+//   - UserID   = canonical agently users.id when available
+//   - Subject  = raw oauth/jwt subject
 //   - Username = jwt.preferred_username or jwt.name — display name only
 //   - Email    = jwt.email — display / contact only
 //
-// Subject is the only field used for conversation ownership, token storage
-// keys, and run attribution. Username and Email are never used as identifiers.
+// UserID is the preferred stable identity for session-owned auth, persistence,
+// foreign-key joins, and token ownership. Subject is preserved as the raw IdP
+// identity for provider lookups and diagnostics.
 type Session struct {
 	ID       string         `json:"id"`
+	UserID   string         `json:"userId,omitempty"`
 	Username string         `json:"username"`
 	Email    string         `json:"email,omitempty"`
 	Subject  string         `json:"subject,omitempty"`
@@ -34,11 +37,14 @@ type Session struct {
 }
 
 // EffectiveUserID returns jwt.sub as the stable user identity.
-// Falls back to Email then Username only for sessions without a Subject
-// (e.g. local/anonymous mode).
+// Falls back to Subject, then Email, then Username for sessions without a
+// canonical stored user id (e.g. local/anonymous mode).
 func (s *Session) EffectiveUserID() string {
 	if s == nil {
 		return ""
+	}
+	if v := strings.TrimSpace(s.UserID); v != "" {
+		return v
 	}
 	if v := strings.TrimSpace(s.Subject); v != "" {
 		return v
@@ -57,6 +63,7 @@ func (s *Session) IsExpired() bool {
 // SessionRecord is the persistent form of a session for external stores.
 type SessionRecord struct {
 	ID           string    `json:"id"`
+	UserID       string    `json:"userId,omitempty"`
 	Username     string    `json:"username"`
 	Email        string    `json:"email,omitempty"`
 	Subject      string    `json:"subject,omitempty"`
@@ -169,6 +176,7 @@ func (m *Manager) Delete(ctx context.Context, id string) {
 func recordToSession(r *SessionRecord) *Session {
 	s := &Session{
 		ID:        r.ID,
+		UserID:    r.UserID,
 		Username:  r.Username,
 		Email:     r.Email,
 		Subject:   r.Subject,
@@ -191,6 +199,7 @@ func recordToSession(r *SessionRecord) *Session {
 func sessionToRecord(s *Session) *SessionRecord {
 	r := &SessionRecord{
 		ID:        s.ID,
+		UserID:    s.UserID,
 		Username:  s.Username,
 		Email:     s.Email,
 		Subject:   s.Subject,

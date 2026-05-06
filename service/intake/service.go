@@ -286,6 +286,7 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 				"intent":     map[string]interface{}{"type": "string"},
 				"confidence": map[string]interface{}{"type": "number"},
 			},
+			"required":             []string{"title", "intent", "confidence"},
 			"additionalProperties": false,
 		}
 	}
@@ -300,26 +301,32 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 					"additionalProperties": map[string]interface{}{"type": "string"},
 				},
 			},
+			"required":             []string{"values"},
 			"additionalProperties": false,
 		}
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) || cfg.HasScope(agentmdl.IntakeScopeTools) || cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 		promptingProps := map[string]interface{}{}
+		promptingRequired := make([]string, 0, 3)
 		if cfg.HasScope(agentmdl.IntakeScopeProfile) {
 			promptingProps["suggestedProfileId"] = map[string]interface{}{"type": "string"}
+			promptingRequired = append(promptingRequired, "suggestedProfileId")
 		}
 		if cfg.HasScope(agentmdl.IntakeScopeTools) {
 			promptingProps["appendToolBundles"] = map[string]interface{}{
 				"type":  "array",
 				"items": map[string]interface{}{"type": "string"},
 			}
+			promptingRequired = append(promptingRequired, "appendToolBundles")
 		}
 		if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 			promptingProps["templateId"] = map[string]interface{}{"type": "string"}
+			promptingRequired = append(promptingRequired, "templateId")
 		}
 		properties["prompting"] = map[string]interface{}{
 			"type":                 "object",
 			"properties":           promptingProps,
+			"required":             promptingRequired,
 			"additionalProperties": false,
 		}
 	}

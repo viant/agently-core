@@ -36,7 +36,7 @@ func (r *Runtime) ensureSessionOAuthTokens(ctx context.Context, sess *Session) b
 	return r.tryLoadFreshTokenFromStore(ctx, sess) != nil
 }
 
-func (r *Runtime) resolveRuntimeOAuthTokenOwner(_ context.Context, sess *Session) (string, string) {
+func (r *Runtime) resolveRuntimeOAuthTokenOwner(ctx context.Context, sess *Session) (string, string) {
 	if r == nil || r.ext == nil || sess == nil {
 		return "", ""
 	}
@@ -44,7 +44,7 @@ func (r *Runtime) resolveRuntimeOAuthTokenOwner(_ context.Context, sess *Session
 	if provider == "" {
 		return "", ""
 	}
-	lookupID := resolveOAuthTokenOwnerID(context.Background(), r.ext.users, provider, sess)
+	lookupID := resolveOAuthTokenOwnerID(ctx, r.ext.users, provider, sess)
 	if lookupID == "" {
 		return "", ""
 	}
