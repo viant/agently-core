@@ -81,7 +81,7 @@ func TestApplyTurnContext_CopiesTemplateIdToInput(t *testing.T) {
 		Scope:   []string{agentmdl.IntakeScopeTemplate},
 	}
 	input := &QueryInput{}
-	tc := &intakesvc.TurnContext{TemplateId: "report_v2"}
+	tc := &intakesvc.TurnContext{Prompting: intakesvc.PromptingContext{TemplateID: "report_v2"}}
 	applyTurnContext(input, tc, cfg)
 
 	require.Equal(t, "report_v2", input.TemplateId, "intake suggestion must land on input.TemplateId")
@@ -97,31 +97,11 @@ func TestApplyTurnContext_TemplateIdDoesNotOverrideCaller(t *testing.T) {
 		Scope:   []string{agentmdl.IntakeScopeTemplate},
 	}
 	input := &QueryInput{TemplateId: "caller_choice"}
-	tc := &intakesvc.TurnContext{TemplateId: "sidecar_suggestion"}
+	tc := &intakesvc.TurnContext{Prompting: intakesvc.PromptingContext{TemplateID: "sidecar_suggestion"}}
 	applyTurnContext(input, tc, cfg)
 
 	require.Equal(t, "caller_choice", input.TemplateId, "caller-chosen template must win")
 	require.Equal(t, "sidecar_suggestion", input.Context["intake.templateId"], "context still records the sidecar's suggestion for observability")
-}
-
-// TestApplyTurnContext_ClarificationSurfaced verifies the gap fix: the
-// sidecar's ClarificationNeeded / ClarificationQuestion used to be parsed
-// and then silently dropped. They now land on input.Context under explicit
-// keys so templates and downstream handlers can act on them.
-func TestApplyTurnContext_ClarificationSurfaced(t *testing.T) {
-	cfg := &agentmdl.Intake{
-		Enabled: true,
-		Scope:   []string{agentmdl.IntakeScopeClarification},
-	}
-	input := &QueryInput{}
-	tc := &intakesvc.TurnContext{
-		ClarificationNeeded:   true,
-		ClarificationQuestion: "Which order are you referring to?",
-	}
-	applyTurnContext(input, tc, cfg)
-
-	require.Equal(t, true, input.Context["intake.clarificationNeeded"])
-	require.Equal(t, "Which order are you referring to?", input.Context["intake.clarificationQuestion"])
 }
 
 // TestApplyTurnContext_ProfileSuggestionGated verifies that profile
@@ -136,13 +116,19 @@ func TestApplyTurnContext_ProfileSuggestionGated(t *testing.T) {
 
 	// Low confidence — suggestion is suppressed.
 	low := &QueryInput{}
-	applyTurnContext(low, &intakesvc.TurnContext{SuggestedProfileId: "deal_impact", Confidence: 0.5}, cfg)
+	applyTurnContext(low, &intakesvc.TurnContext{
+		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "deal_impact"},
+		Classification: intakesvc.ClassificationContext{Confidence: 0.5},
+	}, cfg)
 	_, hasLow := low.Context["intake.suggestedProfileId"]
 	require.False(t, hasLow, "below-threshold suggestions must not land in context")
 
 	// High confidence — suggestion + confidence surface in context.
 	high := &QueryInput{}
-	applyTurnContext(high, &intakesvc.TurnContext{SuggestedProfileId: "deal_impact", Confidence: 0.9}, cfg)
+	applyTurnContext(high, &intakesvc.TurnContext{
+		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "deal_impact"},
+		Classification: intakesvc.ClassificationContext{Confidence: 0.9},
+	}, cfg)
 	require.Equal(t, "deal_impact", high.Context["intake.suggestedProfileId"])
 	require.InDelta(t, 0.9, high.Context["intake.suggestedProfileConfidence"], 0.001)
 	require.Equal(t, "deal_impact", high.PromptProfileId)
@@ -165,16 +151,18 @@ func TestNormalizeIntakeTurnContext_SuppressesTemplateIdsInSuggestedProfile(t *t
 		},
 	}
 	tc := &intakesvc.TurnContext{
-		SuggestedProfileId: "spo_path_planner",
-		TemplateId:         "spo_path_planner",
-		Confidence:         0.91,
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "spo_path_planner",
+			TemplateID:         "spo_path_planner",
+		},
+		Classification: intakesvc.ClassificationContext{Confidence: 0.91},
 	}
 
 	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
 
-	require.Empty(t, tc.SuggestedProfileId, "template ids must not survive as prompt-profile suggestions")
-	require.Zero(t, tc.Confidence, "invalid profile suggestions should not retain routing confidence")
-	require.Equal(t, "spo_path_planner", tc.TemplateId, "template choice remains valid")
+	require.Empty(t, tc.Prompting.SuggestedProfileID, "template ids must not survive as prompt-profile suggestions")
+	require.Zero(t, tc.Classification.Confidence, "invalid profile suggestions should not retain routing confidence")
+	require.Equal(t, "spo_path_planner", tc.Prompting.TemplateID, "template choice remains valid")
 }
 
 func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
@@ -184,7 +172,10 @@ func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
 		ConfidenceThreshold: 0.8,
 	}
 	input := &QueryInput{PromptProfileId: "caller_choice"}
-	tc := &intakesvc.TurnContext{SuggestedProfileId: "repo_analysis", Confidence: 0.95}
+	tc := &intakesvc.TurnContext{
+		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "repo_analysis"},
+		Classification: intakesvc.ClassificationContext{Confidence: 0.95},
+	}
 	applyTurnContext(input, tc, cfg)
 
 	require.Equal(t, "caller_choice", input.PromptProfileId)
@@ -199,28 +190,36 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 	input := &QueryInput{
 		Context: map[string]interface{}{
 			intakesvc.ContextKey: &intakesvc.TurnContext{
-				Mode:            intakesvc.ModePlanner,
-				PlannerAgentID:  "steward_planner",
-				SelectedAgentID: "coder",
-				Source:          intakesvc.SourceWorkspace,
+				Routing: intakesvc.RoutingContext{
+					Mode:            intakesvc.ModePlanner,
+					SelectedAgentID: "coder",
+					Source:          intakesvc.SourceWorkspace,
+				},
+				Planner: intakesvc.PlannerContext{
+					AgentID: "steward_planner",
+				},
 			},
 		},
 	}
 	tc := &intakesvc.TurnContext{
-		Title:              "repo diagnosis",
-		SuggestedProfileId: "repo_analysis",
-		Confidence:         0.95,
+		Classification: intakesvc.ClassificationContext{
+			Title:      "repo diagnosis",
+			Confidence: 0.95,
+		},
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "repo_analysis",
+		},
 	}
 	applyTurnContext(input, tc, cfg)
 
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, intakesvc.ModePlanner, stored.Mode)
-	require.Equal(t, "coder", stored.SelectedAgentID)
-	require.Equal(t, intakesvc.SourceWorkspace, stored.Source)
-	require.Equal(t, "steward_planner", stored.PlannerAgentID)
-	require.Equal(t, "repo diagnosis", stored.Title)
-	require.Equal(t, "repo_analysis", stored.SuggestedProfileId)
+	require.Equal(t, intakesvc.ModePlanner, stored.Routing.Mode)
+	require.Equal(t, "coder", stored.Routing.SelectedAgentID)
+	require.Equal(t, intakesvc.SourceWorkspace, stored.Routing.Source)
+	require.Equal(t, "steward_planner", stored.Planner.AgentID)
+	require.Equal(t, "repo diagnosis", stored.Classification.Title)
+	require.Equal(t, "repo_analysis", stored.Prompting.SuggestedProfileID)
 }
 
 func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {
@@ -416,8 +415,8 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 		s := &Service{} // nil intakeSvc means non-caller-provided falls through to "intakeSvc == nil" return
 
 		other := &intakesvc.TurnContext{
-			Title:  "from-elsewhere",
-			Source: intakesvc.SourceReused, // not "caller-provided"
+			Classification: intakesvc.ClassificationContext{Title: "from-elsewhere"},
+			Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceReused}, // not "caller-provided"
 		}
 		input := &QueryInput{
 			Agent: &agentmdl.Agent{
@@ -458,17 +457,19 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 	t.Run("populates ContextKey with copy", func(t *testing.T) {
 		original := &intakesvc.TurnContext{
-			SelectedAgentID: "forecaster",
-			Mode:            intakesvc.ModeRoute,
-			Title:           "do the thing",
-			Source:          "", // not yet annotated
+			Routing: intakesvc.RoutingContext{
+				SelectedAgentID: "forecaster",
+				Mode:            intakesvc.ModeRoute,
+				Source:          "", // not yet annotated
+			},
+			Classification: intakesvc.ClassificationContext{Title: "do the thing"},
 		}
 		ctxMap, stored := intakesvc.StoreCallerProvided(nil, original)
 		require.NotNil(t, ctxMap)
 		require.NotNil(t, stored)
-		require.Equal(t, intakesvc.SourceCallerProvided, stored.Source,
+		require.Equal(t, intakesvc.SourceCallerProvided, stored.Routing.Source,
 			"stored copy must be annotated as caller-provided")
-		require.Equal(t, "", original.Source,
+		require.Equal(t, "", original.Routing.Source,
 			"original caller struct must not be mutated")
 		require.Same(t, stored, ctxMap[intakesvc.ContextKey],
 			"stored value must be findable under ContextKey")
@@ -483,12 +484,15 @@ func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 
 	t.Run("FromContext round-trips", func(t *testing.T) {
 		ctxMap := map[string]any{}
-		original := &intakesvc.TurnContext{Title: "t", Source: ""}
+		original := &intakesvc.TurnContext{
+			Classification: intakesvc.ClassificationContext{Title: "t"},
+			Routing:        intakesvc.RoutingContext{Source: ""},
+		}
 		ctxMap, _ = intakesvc.StoreCallerProvided(ctxMap, original)
 		got := intakesvc.FromContext(ctxMap)
 		require.NotNil(t, got)
-		require.Equal(t, "t", got.Title)
-		require.Equal(t, intakesvc.SourceCallerProvided, got.Source)
+		require.Equal(t, "t", got.Classification.Title)
+		require.Equal(t, intakesvc.SourceCallerProvided, got.Routing.Source)
 	})
 
 	t.Run("FromContext nil safety", func(t *testing.T) {

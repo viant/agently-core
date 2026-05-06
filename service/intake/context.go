@@ -1,68 +1,41 @@
 package intake
 
-// TurnContext is the structured output of the intake sidecar.
-// Class A fields are always safe; Class B fields are only populated when
-// the agent's intake scope includes the corresponding scope constant.
-type TurnContext struct {
-	// Class A — metadata, always safe.
-
-	// Title is a short, human-readable label for the current task (≤ 80 chars).
-	Title string `json:"title,omitempty"`
-	// Intent classifies the user's goal (e.g. "diagnosis", "comparison", "summary").
-	Intent string `json:"intent,omitempty"`
-	// Context holds lightweight orchestration context extracted from the request
-	// (e.g. scope ids, timeframe hints, issue labels). It is not an
-	// authoritative domain-object record.
-	Context map[string]string `json:"context,omitempty"`
-	// ClarificationNeeded is true when the request is too ambiguous to act on.
-	ClarificationNeeded bool `json:"clarificationNeeded,omitempty"`
-	// ClarificationQuestion is the question to ask the user when ClarificationNeeded.
-	ClarificationQuestion string `json:"clarificationQuestion,omitempty"`
-
-	// Class B — delegation hints, only populated when in scope.
-
-	// SuggestedProfileId is the id of the most relevant prompt profile.
-	SuggestedProfileId string `json:"suggestedProfileId,omitempty"`
-	// AppendToolBundles lists additional tool bundle ids detected from the task.
-	AppendToolBundles []string `json:"appendToolBundles,omitempty"`
-	// TemplateId is the suggested output template for this turn.
-	TemplateId string `json:"templateId,omitempty"`
-	// Confidence is the sidecar's self-reported confidence (0–1) in its profile
-	// and routing suggestions.
+type ClassificationContext struct {
+	Title      string  `json:"title,omitempty"`
+	Intent     string  `json:"intent,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
+}
 
-	// Workspace-intake fields (additive). Populated by workspace-level intake
-	// (when implemented) or by callers via RunInput.WorkspaceIntake. Agent intake
-	// MUST NOT write SelectedAgentID or Mode (the runtime drops those if it
-	// detects a violation) — agent intake is field-refinement only.
+type ScopeContext struct {
+	Values map[string]string `json:"values,omitempty"`
+}
 
-	// SelectedAgentID is the agent chosen for this turn. Written by workspace
-	// intake or by a caller-provided override; never by agent intake.
+type PromptingContext struct {
+	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
+	TemplateID         string   `json:"templateId,omitempty"`
+}
+
+type RoutingContext struct {
 	SelectedAgentID string `json:"selectedAgentId,omitempty"`
+	Mode            string `json:"mode,omitempty"`
+	Source          string `json:"source,omitempty"`
+}
 
-	// Mode classifies the turn outcome of workspace intake:
-	//   "route"   — normal turn; route to SelectedAgentID and run.
-	//   "clarify" — ambiguous; resolve chosen agent and pass clarification hint.
-	// Empty when workspace intake has not run (legacy agent-only intake).
-	Mode string `json:"mode,omitempty"`
+type PlannerContext struct {
+	Trigger string `json:"trigger,omitempty"`
+	AgentID string `json:"agentId,omitempty"`
+}
 
-	// PlannerTrigger records why workspace intake selected planner mode.
-	// Written only by workspace intake / router. Empty on non-planner turns.
-	PlannerTrigger string `json:"plannerTrigger,omitempty"`
-
-	// PlannerAgentID optionally selects a dedicated planner agent identity for
-	// the planning pass. Written only by workspace intake / runtime-owned
-	// routing state; never by agent intake refinement.
-	PlannerAgentID string `json:"plannerAgentId,omitempty"`
-
-	// Source records who produced this TurnContext for telemetry / debugging:
-	//   "workspace"        — workspace intake LLM call
-	//   "agent"            — agent intake refinement
-	//   "reused"           — cross-turn reuse of a prior TurnContext
-	//   "caller-provided"  — supplied via RunInput.WorkspaceIntake
-	//   "fallback"         — produced by the deterministic fallback chain
-	// Empty for legacy agent-only intake outputs.
-	Source string `json:"source,omitempty"`
+// TurnContext is the structured output of intake. It is grouped by feature
+// area so routing, scope extraction, prompting hints, and planner state do not
+// bleed together as unrelated top-level keys.
+type TurnContext struct {
+	Classification ClassificationContext `json:"classification,omitempty"`
+	Scope          ScopeContext          `json:"scope,omitempty"`
+	Prompting      PromptingContext      `json:"prompting,omitempty"`
+	Routing        RoutingContext        `json:"routing,omitempty"`
+	Planner        PlannerContext        `json:"planner,omitempty"`
 }
 
 // ContextKey is the key used to store TurnContext in QueryInput.Context.
@@ -85,38 +58,6 @@ const (
 	ModePlanner = "planner"
 )
 
-// SanitizeAgentRefinement enforces the invariant that agent intake never writes
-// SelectedAgentID or Mode. Call this on the agent-intake output before
-// merging it into the running TurnContext. Returns the list of fields the
-// agent intake attempted to write but had stripped, so the runtime can emit
-// a diagnostic.
-//
-// This is the code-enforced version of the doc rule "agent decides how, not
-// who" (intake-impt.md §3).
-func SanitizeAgentRefinement(tc *TurnContext) []string {
-	if tc == nil {
-		return nil
-	}
-	var stripped []string
-	if tc.SelectedAgentID != "" {
-		stripped = append(stripped, "selectedAgentId")
-		tc.SelectedAgentID = ""
-	}
-	if tc.Mode != "" {
-		stripped = append(stripped, "mode")
-		tc.Mode = ""
-	}
-	if tc.PlannerTrigger != "" {
-		stripped = append(stripped, "plannerTrigger")
-		tc.PlannerTrigger = ""
-	}
-	if tc.PlannerAgentID != "" {
-		stripped = append(stripped, "plannerAgentId")
-		tc.PlannerAgentID = ""
-	}
-	return stripped
-}
-
 // StoreCallerProvided records a caller-supplied TurnContext into the QueryInput
 // context map under the well-known ContextKey. The stored value is a copy
 // (so later mutation of the caller's struct does not race with the runtime),
@@ -135,7 +76,7 @@ func StoreCallerProvided(ctxMap map[string]any, override *TurnContext) (map[stri
 		ctxMap = make(map[string]any)
 	}
 	tc := *override
-	tc.Source = SourceCallerProvided
+	tc.Routing.Source = SourceCallerProvided
 	ctxMap[ContextKey] = &tc
 	return ctxMap, &tc
 }

@@ -102,6 +102,9 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	if err != nil {
 		return nil, fmt.Errorf("intake: parse output: %w", err)
 	}
+	if strings.TrimSpace(tc.Source) == "" {
+		tc.Source = SourceAgent
+	}
 	filterByScope(tc, cfg)
 	return tc, nil
 }
@@ -248,37 +251,26 @@ func templateAppliesTo(tpl *tpldef.Template) []string {
 func buildOutputSchema(cfg *agentmdl.Intake) string {
 	var b strings.Builder
 	b.WriteString("\n\nRespond with a single JSON object. Include only the fields listed below:")
-	b.WriteString("\n- title (string, ≤80 chars): concise label for the user's task")
 	if cfg.HasScope(agentmdl.IntakeScopeIntent) {
-		b.WriteString("\n- intent (string): one-word classification of goal, e.g. diagnosis, comparison, summary, configuration")
+		b.WriteString("\n- classification (object): grouped task labeling with `title`, `intent`, and optional `confidence`")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeContext) {
-		b.WriteString("\n- context (object): lightweight orchestration context extracted from the request")
-	}
-	if cfg.HasScope(agentmdl.IntakeScopeClarification) {
-		b.WriteString("\n- clarificationNeeded (boolean): true if request is too ambiguous to act on")
-		b.WriteString("\n- clarificationQuestion (string): question to ask when clarificationNeeded is true")
+		b.WriteString("\n- scope (object): grouped orchestration scope with `values` containing lightweight extracted identifiers and hints")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
-		b.WriteString("\n- suggestedProfileId (string): id of the most relevant prompt profile from the list above, or omit")
-		b.WriteString("\n- confidence (number 0–1): your confidence in the suggestedProfileId")
+		b.WriteString("\n- prompting (object): grouped execution hints with `suggestedProfileId`, `appendToolBundles`, and `templateId`")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeTools) {
-		b.WriteString("\n- appendToolBundles (array of strings): additional bundle ids needed for this task")
-	}
-	if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
-		b.WriteString("\n- templateId (string): output template id if user phrasing implies a specific format, or omit")
+		b.WriteString("\n- prompting.appendToolBundles may be used when additional bundle ids are needed for this task")
 	}
 	b.WriteString("\n\nReturn ONLY the JSON object. No prose, no markdown fences.")
 	return b.String()
 }
 
 func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
-	properties := map[string]interface{}{
-		"title": map[string]interface{}{"type": "string"},
-	}
+	properties := map[string]interface{}{}
 	if cfg == nil {
-		required := []string{"title"}
+		required := []string{}
 		return map[string]interface{}{
 			"type":                 "object",
 			"properties":           properties,
@@ -287,32 +279,49 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 		}
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeIntent) {
-		properties["intent"] = map[string]interface{}{"type": "string"}
+		properties["classification"] = map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"title":      map[string]interface{}{"type": "string"},
+				"intent":     map[string]interface{}{"type": "string"},
+				"confidence": map[string]interface{}{"type": "number"},
+			},
+			"additionalProperties": false,
+		}
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeContext) {
-		properties["context"] = map[string]interface{}{
+		properties["scope"] = map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"values": map[string]interface{}{
+					"type":                 "object",
+					"properties":           map[string]interface{}{},
+					"required":             []string{},
+					"additionalProperties": map[string]interface{}{"type": "string"},
+				},
+			},
+			"additionalProperties": false,
+		}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeProfile) || cfg.HasScope(agentmdl.IntakeScopeTools) || cfg.HasScope(agentmdl.IntakeScopeTemplate) {
+		promptingProps := map[string]interface{}{}
+		if cfg.HasScope(agentmdl.IntakeScopeProfile) {
+			promptingProps["suggestedProfileId"] = map[string]interface{}{"type": "string"}
+		}
+		if cfg.HasScope(agentmdl.IntakeScopeTools) {
+			promptingProps["appendToolBundles"] = map[string]interface{}{
+				"type":  "array",
+				"items": map[string]interface{}{"type": "string"},
+			}
+		}
+		if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
+			promptingProps["templateId"] = map[string]interface{}{"type": "string"}
+		}
+		properties["prompting"] = map[string]interface{}{
 			"type":                 "object",
-			"properties":           map[string]interface{}{},
-			"required":             []string{},
-			"additionalProperties": map[string]interface{}{"type": "string"},
+			"properties":           promptingProps,
+			"additionalProperties": false,
 		}
-	}
-	if cfg.HasScope(agentmdl.IntakeScopeClarification) {
-		properties["clarificationNeeded"] = map[string]interface{}{"type": "boolean"}
-		properties["clarificationQuestion"] = map[string]interface{}{"type": "string"}
-	}
-	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
-		properties["suggestedProfileId"] = map[string]interface{}{"type": "string"}
-		properties["confidence"] = map[string]interface{}{"type": "number"}
-	}
-	if cfg.HasScope(agentmdl.IntakeScopeTools) {
-		properties["appendToolBundles"] = map[string]interface{}{
-			"type":  "array",
-			"items": map[string]interface{}{"type": "string"},
-		}
-	}
-	if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
-		properties["templateId"] = map[string]interface{}{"type": "string"}
 	}
 	required := make([]string, 0, len(properties))
 	for key := range properties {
@@ -373,10 +382,6 @@ func filterByScope(tc *TurnContext, cfg *agentmdl.Intake) {
 	if !cfg.HasScope(agentmdl.IntakeScopeContext) {
 		tc.Context = nil
 	}
-	if !cfg.HasScope(agentmdl.IntakeScopeClarification) {
-		tc.ClarificationNeeded = false
-		tc.ClarificationQuestion = ""
-	}
 	if !cfg.HasScope(agentmdl.IntakeScopeProfile) {
 		tc.SuggestedProfileId = ""
 		tc.Confidence = 0
@@ -407,16 +412,19 @@ func stripFence(s string) string {
 var _ = promptdef.Profile{}
 
 type turnContextWire struct {
-	Title                 string            `json:"title,omitempty"`
-	Intent                string            `json:"intent,omitempty"`
-	Context               map[string]string `json:"context,omitempty"`
-	Entities              map[string]string `json:"entities,omitempty"`
-	ClarificationNeeded   bool              `json:"clarificationNeeded,omitempty"`
-	ClarificationQuestion string            `json:"clarificationQuestion,omitempty"`
-	SuggestedProfileId    string            `json:"suggestedProfileId,omitempty"`
-	AppendToolBundles     []string          `json:"appendToolBundles,omitempty"`
-	TemplateId            string            `json:"templateId,omitempty"`
-	Confidence            float64           `json:"confidence,omitempty"`
+	Classification     *turnContextClassificationWire `json:"classification,omitempty"`
+	Scope              *turnContextScopeWire          `json:"scope,omitempty"`
+	Prompting          *turnContextPromptingWire      `json:"prompting,omitempty"`
+	Routing            *turnContextRoutingWire        `json:"routing,omitempty"`
+	Planner            *turnContextPlannerWire        `json:"planner,omitempty"`
+	Title              string                         `json:"title,omitempty"`
+	Intent             string                         `json:"intent,omitempty"`
+	Context            map[string]string              `json:"context,omitempty"`
+	Entities           map[string]string              `json:"entities,omitempty"`
+	SuggestedProfileId string                         `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles  []string                       `json:"appendToolBundles,omitempty"`
+	TemplateId         string                         `json:"templateId,omitempty"`
+	Confidence         float64                        `json:"confidence,omitempty"`
 	// Workspace-intake fields (additive). Legacy agent-intake outputs do not
 	// emit these keys; their absence leaves zero-values, which is the correct
 	// fallback semantics.
@@ -426,26 +434,102 @@ type turnContextWire struct {
 	Source          string `json:"source,omitempty"`
 }
 
+type turnContextClassificationWire struct {
+	Title      string  `json:"title,omitempty"`
+	Intent     string  `json:"intent,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+}
+
+type turnContextScopeWire struct {
+	Values map[string]string `json:"values,omitempty"`
+}
+
+type turnContextPromptingWire struct {
+	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
+	TemplateID         string   `json:"templateId,omitempty"`
+}
+
+type turnContextRoutingWire struct {
+	SelectedAgentID string `json:"selectedAgentId,omitempty"`
+	Mode            string `json:"mode,omitempty"`
+	Source          string `json:"source,omitempty"`
+}
+
+type turnContextPlannerWire struct {
+	Trigger string `json:"trigger,omitempty"`
+	AgentID string `json:"agentId,omitempty"`
+}
+
 func unmarshalTurnContext(data []byte, tc *TurnContext) error {
 	var wire turnContextWire
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	tc.Title = wire.Title
-	tc.Intent = wire.Intent
-	tc.Context = wire.Context
-	if len(tc.Context) == 0 && len(wire.Entities) > 0 {
-		tc.Context = wire.Entities
+	if wire.Classification != nil {
+		tc.Classification.Title = wire.Classification.Title
+		tc.Classification.Intent = wire.Classification.Intent
+		tc.Classification.Confidence = wire.Classification.Confidence
 	}
-	tc.ClarificationNeeded = wire.ClarificationNeeded
-	tc.ClarificationQuestion = wire.ClarificationQuestion
-	tc.SuggestedProfileId = wire.SuggestedProfileId
-	tc.AppendToolBundles = wire.AppendToolBundles
-	tc.TemplateId = wire.TemplateId
-	tc.Confidence = wire.Confidence
-	tc.SelectedAgentID = wire.SelectedAgentID
-	tc.Mode = wire.Mode
-	tc.PlannerTrigger = wire.PlannerTrigger
-	tc.Source = wire.Source
+	if tc.Classification.Title == "" {
+		tc.Classification.Title = wire.Title
+	}
+	if tc.Classification.Intent == "" {
+		tc.Classification.Intent = wire.Intent
+	}
+	if tc.Classification.Confidence == 0 {
+		tc.Classification.Confidence = wire.Confidence
+	}
+
+	if wire.Scope != nil && len(wire.Scope.Values) > 0 {
+		tc.Scope.Values = wire.Scope.Values
+	}
+	if len(tc.Scope.Values) == 0 {
+		tc.Scope.Values = wire.Context
+	}
+	if len(tc.Scope.Values) == 0 && len(wire.Entities) > 0 {
+		tc.Scope.Values = wire.Entities
+	}
+
+	if wire.Prompting != nil {
+		tc.Prompting.SuggestedProfileID = wire.Prompting.SuggestedProfileID
+		tc.Prompting.AppendToolBundles = wire.Prompting.AppendToolBundles
+		tc.Prompting.TemplateID = wire.Prompting.TemplateID
+	}
+	if tc.Prompting.SuggestedProfileID == "" {
+		tc.Prompting.SuggestedProfileID = wire.SuggestedProfileId
+	}
+	if len(tc.Prompting.AppendToolBundles) == 0 {
+		tc.Prompting.AppendToolBundles = wire.AppendToolBundles
+	}
+	if tc.Prompting.TemplateID == "" {
+		tc.Prompting.TemplateID = wire.TemplateId
+	}
+
+	if wire.Routing != nil {
+		tc.Routing.SelectedAgentID = wire.Routing.SelectedAgentID
+		tc.Routing.Mode = wire.Routing.Mode
+		tc.Routing.Source = wire.Routing.Source
+	}
+	if tc.Routing.SelectedAgentID == "" {
+		tc.Routing.SelectedAgentID = wire.SelectedAgentID
+	}
+	if tc.Routing.Mode == "" {
+		tc.Routing.Mode = wire.Mode
+	}
+	if tc.Routing.Source == "" {
+		tc.Routing.Source = wire.Source
+	}
+
+	if wire.Planner != nil {
+		tc.Planner.Trigger = wire.Planner.Trigger
+		tc.Planner.AgentID = wire.Planner.AgentID
+	}
+	if tc.Planner.Trigger == "" {
+		tc.Planner.Trigger = wire.PlannerTrigger
+	}
+	if tc.Planner.AgentID == "" {
+		tc.Planner.AgentID = wire.PlannerAgentID
+	}
 	return nil
 }

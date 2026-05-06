@@ -504,8 +504,7 @@ Runs before `orchestrator` does any routing. Produces `TurnContext`:
   "appendToolBundles": ["workspace-forecast-tools"],
   "templateId": "compact_report",
   "confidence": 0.91,
-  "clarificationNeeded": false,
-  "clarificationQuestion": ""
+  "mode": "route"
 }
 ```
 
@@ -523,7 +522,7 @@ The extraction cost is paid once; the benefit (title, entities, routing hints) i
 ```
 confidence >= threshold  →  auto-delegate with suggestedProfileId      (Option 3 path)
 confidence < threshold   →  orchestrator calls prompt:list, reasons          (Option 4 path)
-clarificationNeeded      →  elicitation first, then re-run intake
+clarify/action ask       →  elicitation first, then re-run intake
 ```
 
 One `confidenceThreshold` in config separates them. Evaluation data informs where to set it.
@@ -620,9 +619,9 @@ user message
 [intake sidecar — if enabled and scope matches]
     → TurnContext { title, intent, entities,
                     suggestedProfileId, appendToolBundles, templateId,
-                    confidence, clarificationNeeded }
+                    confidence }
     ↓
-clarificationNeeded? → elicitation → re-run intake
+clarify? → elicitation → re-run intake
     ↓
 confidence >= threshold AND profile in scope?
     yes → auto-delegate:
@@ -1269,8 +1268,6 @@ type TurnContext struct {
     AppendToolBundles   []string          `json:"appendToolBundles,omitempty"`
     TemplateId          string            `json:"templateId,omitempty"`
     Confidence          float64           `json:"confidence"`
-    ClarificationNeeded bool              `json:"clarificationNeeded"`
-    ClarificationQuestion string          `json:"clarificationQuestion,omitempty"`
 }
 ```
 
