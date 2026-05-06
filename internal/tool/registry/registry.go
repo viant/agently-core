@@ -556,14 +556,19 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 		seen[key] = struct{}{}
 	}
 	r.mu.RUnlock()
+	if len(result) > 0 {
+		if isExplicitPattern(pattern) {
+			return result
+		}
+		if svc := serverFromPattern(pattern); svc != "" {
+			return result
+		}
+	}
 	// When an explicit tool id already matches a virtual definition,
 	// or a cached MCP definition, do not probe MCP discovery for that
 	// service. This avoids spurious warnings for internal tools such as
 	// llm/agents:list where no MCP config file is expected, and preserves
 	// already-known remote tool definitions when a server is temporarily down.
-	if len(result) > 0 && isExplicitPattern(pattern) {
-		return result
-	}
 	// Discover matching server tools when pattern specifies an MCP service prefix.
 	if svc := serverFromPattern(pattern); svc != "" {
 		injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
@@ -1176,40 +1181,24 @@ func (r *Registry) Initialize(ctx context.Context) {
 		r.warnf("list servers failed: %v", err)
 		return
 	}
+	var wg sync.WaitGroup
 	for _, s := range servers {
-		r.mu.RLock()
-		_, isInternal := r.internal[s]
-		r.mu.RUnlock()
-		if !isInternal {
+		server := s
+		if !r.shouldWarmServer(ctx, server) {
 			continue
 		}
-		injectTimeoutMs := r.shouldInjectTimeoutMs(s)
-		tools, err := r.listServerTools(ctx, s)
-		if err != nil {
-			r.warnf("list tools failed for %s: %v", s, err)
-			continue
-		}
-		for _, t := range tools {
-			full := s + "/" + t.Name
-			r.mu.RLock()
-			_, ok := r.cache[full]
-			r.mu.RUnlock()
-			if ok {
-				continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tools, err := r.listServerTools(ctx, server)
+			if err != nil {
+				r.warnf("list tools failed for %s: %v", server, err)
+				return
 			}
-			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
-				def.Name = full
-				r.mu.Lock()
-				methods := r.internalCacheable[s]
-				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-				r.applyCacheableOverrideWithMethods(def, s, methods)
-				if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
-					r.cache[full] = entry
-				}
-				r.mu.Unlock()
-			}
-		}
+			r.replaceServerTools(server, tools)
+		}()
 	}
+	wg.Wait()
 	// Start background refresh monitors to auto-register tools when servers come online
 	r.startAutoRefresh(ctx)
 
@@ -1224,15 +1213,26 @@ func (r *Registry) startAutoRefresh(ctx context.Context) {
 		return
 	}
 	for _, s := range servers {
-		r.mu.RLock()
-		_, isInternal := r.internal[s]
-		r.mu.RUnlock()
-		if !isInternal {
+		srv := s
+		if !r.shouldWarmServer(ctx, srv) {
 			continue
 		}
-		srv := s
 		go r.monitorServer(ctx, srv)
 	}
+}
+
+func (r *Registry) shouldWarmServer(ctx context.Context, server string) bool {
+	r.mu.RLock()
+	_, isInternal := r.internal[server]
+	r.mu.RUnlock()
+	if isInternal {
+		return true
+	}
+	if r.mgr == nil {
+		return false
+	}
+	_, err := r.mgr.Options(ctx, server)
+	return err == nil
 }
 
 func (r *Registry) monitorServer(ctx context.Context, server string) {

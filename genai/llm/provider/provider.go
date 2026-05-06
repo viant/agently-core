@@ -4,6 +4,9 @@ const (
 	// ProviderOpenAI identifies OpenAI API
 	ProviderOpenAI = "openai"
 
+	// ProviderAnthropic identifies the direct Anthropic Claude API.
+	ProviderAnthropic = "anthropic"
+
 	// ProviderOllama identifies local Ollama API
 	ProviderOllama = "ollama"
 

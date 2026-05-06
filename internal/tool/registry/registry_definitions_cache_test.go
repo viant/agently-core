@@ -157,3 +157,26 @@ func TestMatchDefinitionWithContext_UsesCachedMCPDefinitionsWhenDiscoveryFails(t
 	}
 	assert.Equal(t, "analyst/TargetProfile", defs[0].Name)
 }
+
+func TestMatchDefinitionWithContext_ServicePatternUsesCachedDefinitionsWithoutDiscovery(t *testing.T) {
+	mgr, _ := manager.New(nil)
+	reg, err := NewWithManager(mgr)
+	if err != nil {
+		t.Fatalf("registry init failed: %v", err)
+	}
+	reg.internal = map[string]mcpclient.Interface{
+		"analyst": &fakeClient{mode: "down"},
+	}
+	reg.replaceServerTools("analyst", []mcpschema.Tool{
+		{Name: "TargetProfile"},
+		{Name: "ResourceTree"},
+	})
+
+	defs := reg.MatchDefinitionWithContext(context.Background(), "analyst/*")
+	if len(defs) != 2 {
+		t.Fatalf("expected 2 cached matched tools, got %d", len(defs))
+	}
+	names := []string{defs[0].Name, defs[1].Name}
+	sort.Strings(names)
+	assert.Equal(t, []string{"analyst/ResourceTree", "analyst/TargetProfile"}, names)
+}
