@@ -266,23 +266,25 @@ func TestShouldContinueAfterAsyncChange(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		planEmpty        bool
-		hasActiveWaitOps bool
-		changedOpsCount  int
-		want             bool
+		name                 string
+		planEmpty            bool
+		hasActiveWaitOps     bool
+		changedOpsCount      int
+		terminalContentReady bool
+		want                 bool
 	}{
 		{name: "no changed ops", planEmpty: false, hasActiveWaitOps: true, changedOpsCount: 0, want: false},
 		{name: "non terminal plan reruns on changed ops", planEmpty: false, hasActiveWaitOps: false, changedOpsCount: 1, want: true},
 		{name: "active wait reruns on changed ops", planEmpty: true, hasActiveWaitOps: true, changedOpsCount: 1, want: true},
-		{name: "terminal child completion still reruns once", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, want: true},
+		{name: "terminal child completion still reruns once when no final content yet", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, terminalContentReady: false, want: true},
+		{name: "terminal content answer does not rerun on residual completed change", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, terminalContentReady: true, want: false},
 	}
 
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := shouldContinueAfterAsyncChange(tc.planEmpty, tc.hasActiveWaitOps, tc.changedOpsCount)
+			got := shouldContinueAfterAsyncChange(tc.planEmpty, tc.hasActiveWaitOps, tc.changedOpsCount, tc.terminalContentReady)
 			assert.Equal(t, tc.want, got)
 		})
 	}
