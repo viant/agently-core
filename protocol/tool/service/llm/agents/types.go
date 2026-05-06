@@ -116,8 +116,8 @@ type RunInput struct {
 	// intake LLM call entirely and uses this value as the turn's TurnContext
 	// (annotated as Source="caller-provided"). Validation rules are identical
 	// to workspace intake's own output — SelectedAgentID must be in the
-	// authorized agent set, ActivateSkills must be visible to the chosen
-	// agent, AppendToolBundles must be on the workspace allowlist. When any
+	// authorized agent set, and AppendToolBundles must be on the workspace
+	// allowlist. When any
 	// validation fails, the override is dropped (with a diagnostic) and
 	// workspace intake runs normally.
 	//
