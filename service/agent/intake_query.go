@@ -54,7 +54,18 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if !cfg.Enabled {
 		return
 	}
+	logx.Infof("conversation", "intake.consider convo=%q agent=%q promptProfileId=%q triggerOnTopicShift=%v",
+		strings.TrimSpace(input.ConversationID),
+		strings.TrimSpace(input.Agent.ID),
+		strings.TrimSpace(input.PromptProfileId),
+		cfg.TriggerOnTopicShift,
+	)
 	if !s.shouldRunIntake(ctx, input, cfg) {
+		logx.Infof("conversation", "intake.skipped.gate convo=%q agent=%q promptProfileId=%q",
+			strings.TrimSpace(input.ConversationID),
+			strings.TrimSpace(input.Agent.ID),
+			strings.TrimSpace(input.PromptProfileId),
+		)
 		return
 	}
 	userMessage := strings.TrimSpace(input.Query)
@@ -66,6 +77,7 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if tc == nil {
 		return
 	}
+	s.normalizeIntakeTurnContext(ctx, input, tc, cfg)
 	logx.Infof("conversation", "intake.done convo=%q agent=%q title=%q intent=%q confidence=%.2f profile=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
@@ -76,6 +88,49 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	)
 	applyTurnContext(input, tc, cfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Title)
+}
+
+func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmdl.Intake) {
+	if s == nil || input == nil || tc == nil || cfg == nil {
+		return
+	}
+	if !cfg.HasScope(agentmdl.IntakeScopeProfile) {
+		return
+	}
+	suggested := strings.TrimSpace(tc.SuggestedProfileId)
+	if suggested == "" {
+		return
+	}
+	if s.isAllowedIntakePromptProfile(ctx, input, suggested) {
+		return
+	}
+	logx.Infof("conversation", "intake.invalid_profile_suppressed convo=%q agent=%q suggested=%q",
+		strings.TrimSpace(input.ConversationID),
+		strings.TrimSpace(input.Agent.ID),
+		suggested,
+	)
+	tc.SuggestedProfileId = ""
+	tc.Confidence = 0
+}
+
+func (s *Service) isAllowedIntakePromptProfile(ctx context.Context, input *QueryInput, profileID string) bool {
+	profileID = strings.TrimSpace(strings.ToLower(profileID))
+	if profileID == "" || input == nil || input.Agent == nil {
+		return false
+	}
+	if bundles := input.Agent.Prompts.Bundles; len(bundles) > 0 {
+		for _, candidate := range bundles {
+			if strings.TrimSpace(strings.ToLower(candidate)) == profileID {
+				return true
+			}
+		}
+		return false
+	}
+	if s.promptRepo == nil {
+		return false
+	}
+	_, err := s.promptRepo.Load(ctx, profileID)
+	return err == nil
 }
 
 func (s *Service) intakeTrackedContext(ctx context.Context, input *QueryInput) context.Context {
@@ -109,6 +164,13 @@ func (s *Service) intakeTrackedContext(ctx context.Context, input *QueryInput) c
 // for an embedding model. Threshold defaults to 0.65.
 func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *agentmdl.Intake) bool {
 	if cfg == nil || !cfg.Enabled {
+		return false
+	}
+	if input != nil && strings.TrimSpace(input.PromptProfileId) != "" {
+		// Explicit prompt-profile selection is already a resolved routing
+		// contract for this turn (commonly delegated child runs). Re-running
+		// agent intake would duplicate classification work and can produce
+		// conflicting or empty sidecar output without adding new information.
 		return false
 	}
 	if !cfg.TriggerOnTopicShift {
@@ -254,6 +316,14 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 	}
 	if input.Context == nil {
 		input.Context = make(map[string]interface{})
+	}
+
+	if existing, ok := input.Context[intakesvc.ContextKey].(*intakesvc.TurnContext); ok && existing != nil && existing.Source == intakesvc.SourceWorkspace {
+		tc.Mode = existing.Mode
+		tc.PlannerTrigger = existing.PlannerTrigger
+		tc.PlannerAgentID = existing.PlannerAgentID
+		tc.SelectedAgentID = existing.SelectedAgentID
+		tc.Source = existing.Source
 	}
 
 	// Always store the full context under the well-known key.

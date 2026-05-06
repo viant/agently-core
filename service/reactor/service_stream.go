@@ -197,8 +197,12 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 				genOutput.MessageID = mid
 			}
 		}
+		eventCtx := callbackCtx
+		if strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(eventCtx)) == "" && strings.TrimSpace(genOutput.MessageID) != "" {
+			eventCtx = context.WithValue(eventCtx, runtimerequestctx.ModelMessageIDKey, strings.TrimSpace(genOutput.MessageID))
+		}
 		if event.Kind != "" {
-			return s.handleTypedStreamEvent(runCtx, event, &mux, genOutput, aPlan, nextStepIdx, wg, reg)
+			return s.handleTypedStreamEvent(eventCtx, event, &mux, genOutput, aPlan, nextStepIdx, wg, reg)
 		}
 		if event.Response == nil || len(event.Response.Choices) == 0 {
 			return nil
@@ -218,10 +222,10 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		if content := choice.Message.Content; content != "" {
 			genOutput.Content = mergeStreamContent(genOutput.Content, content)
 		}
-		s.publishPlannedToolCallsEvent(runCtx, event.Response.ResponseID, &choice)
-		s.patchStreamingToolPreamble(runCtx, choice)
+		s.publishPlannedToolCallsEvent(eventCtx, event.Response.ResponseID, &choice)
+		s.patchStreamingToolPreamble(eventCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
-		s.launchPendingSteps(runCtx, aPlan, nextStepIdx, wg, reg, genOutput.MessageID)
+		s.launchPendingSteps(eventCtx, aPlan, nextStepIdx, wg, reg, genOutput.MessageID)
 		return nil
 	})
 	return id
@@ -347,6 +351,13 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan,
 		existing := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 		logx.Debugf("reactor", "launchPendingSteps no assistantMsgID param; ctx has ModelMessageID=%q", existing)
 	}
+	runStep := func(step execution.Step) {
+		modelcall.WaitFinish(toolCtx, 0)
+		call := s.executePendingToolStep(toolCtx, reg, step, turnID)
+		if turnID != "" {
+			s.rememberTurnToolResult(turnID, call)
+		}
+	}
 	for *nextStepIdx < len(aPlan.Steps) {
 		st := aPlan.Steps[*nextStepIdx]
 		*nextStepIdx++
@@ -355,19 +366,17 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan,
 		}
 		step := st
 		if isActivationBarrierTool(step.Name) {
-			call := s.executePendingToolStep(toolCtx, reg, step, turnID)
-			if turnID != "" {
-				s.rememberTurnToolResult(turnID, call)
-			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runStep(step)
+			}()
 			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			call := s.executePendingToolStep(toolCtx, reg, step, turnID)
-			if turnID != "" {
-				s.rememberTurnToolResult(turnID, call)
-			}
+			runStep(step)
 		}()
 	}
 }

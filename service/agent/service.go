@@ -32,6 +32,7 @@ import (
 	skillsvc "github.com/viant/agently-core/service/skill"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
+	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
 
@@ -87,8 +88,10 @@ type Service struct {
 	intakeSvc *intakesvc.Service
 	skillSvc  *skillsvc.Service
 
-	promptRepo   *promptrepo.Repository
-	templateRepo *tplrepo.Repository
+	promptRepo         *promptrepo.Repository
+	templateRepo       *tplrepo.Repository
+	toolBundleRepo     *bundlerepo.Repository
+	templateBundleRepo *tplbundlerepo.Repository
 
 	runWorkerHost           string
 	runLeaseOwner           string
@@ -208,12 +211,21 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	if srv.toolBundles == nil {
 		repo := bundlerepo.New(afs.New())
 		srv.toolBundles = func(ctx context.Context) ([]*toolbundle.Bundle, error) { return repo.LoadAll(ctx) }
+		if srv.toolBundleRepo == nil {
+			srv.toolBundleRepo = repo
+		}
+	}
+	if srv.toolBundleRepo == nil {
+		srv.toolBundleRepo = bundlerepo.New(afs.New())
 	}
 	if srv.promptRepo == nil {
 		srv.promptRepo = promptrepo.New(afs.New())
 	}
 	if srv.templateRepo == nil {
 		srv.templateRepo = tplrepo.New(afs.New())
+	}
+	if srv.templateBundleRepo == nil {
+		srv.templateBundleRepo = tplbundlerepo.New(afs.New())
 	}
 	// Instantiate default conversation API only when caller did not inject one.
 	// Preserving injected clients is required for in-memory/e2e runtimes.
@@ -238,10 +250,17 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			if conv == nil || srv.agentFinder == nil {
 				return nil, fmt.Errorf("missing conversation or agent finder")
 			}
-			agentID, _, _, err := srv.resolveAgentIDForConversation(ctx, conv, "", strings.TrimSpace(instruction), "")
+			dec, err := srv.resolveTurnRouting(ctx, conv, "", strings.TrimSpace(instruction), "")
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve agent: %w", err)
 			}
+			if dec == nil {
+				return nil, fmt.Errorf("failed to resolve agent: nil decision")
+			}
+			if dec.Preset != nil {
+				return nil, fmt.Errorf("failed to resolve agent: preset action %q is not supported in orchestrator builder", strings.TrimSpace(dec.Preset.Action))
+			}
+			agentID := strings.TrimSpace(dec.AgentID)
 			ag, err := srv.loadResolvedAgent(ctx, agentID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to find agent: %w", err)
@@ -252,6 +271,12 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 				Query:          strings.TrimSpace(instruction),
 				DisplayQuery:   strings.TrimSpace(instruction),
 				RequestTime:    time.Now(),
+			}
+			qi.AutoSelected = dec.AutoSelected
+			qi.RoutingReason = strings.TrimSpace(dec.RoutingReason)
+			applyWorkspaceTurnContext(qi, dec, ag)
+			if pErr := srv.maybeRunPlannerPass(ctx, qi); pErr != nil {
+				return nil, pErr
 			}
 			if isCapabilityAgentID(agentID) {
 				autoTools := false

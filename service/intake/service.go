@@ -119,7 +119,7 @@ func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userI
 				OutputSchema:     buildOutputJSONSchema(cfg),
 				ToolChoice:       llm.NewNoneToolChoice(),
 				Mode:             "router",
-				Reasoning:        &llm.Reasoning{Effort: "low"},
+				Reasoning:        &llm.Reasoning{Effort: "minimal"},
 			},
 		},
 		Message: []llm.Message{
@@ -165,6 +165,8 @@ func (s *Service) resolveModel(cfg *agentmdl.Intake) string {
 func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (string, error) {
 	var b strings.Builder
 	b.WriteString(intakeBasePrompt)
+	b.WriteString("\nCurrent local date: ")
+	b.WriteString(time.Now().Format("2006-01-02"))
 	if extra := strings.TrimSpace(cfg.Prompt); extra != "" {
 		b.WriteString("\n\nWorkspace-specific intake guidance:\n")
 		b.WriteString(extra)
@@ -178,20 +180,7 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 		profiles, err := s.profileRepo.LoadAll(ctx)
 		if err == nil && len(profiles) > 0 {
 			if allow := runtimerequestctx.PromptProfileAllowListFromContext(ctx); len(allow) > 0 {
-				allowed := map[string]struct{}{}
-				for _, id := range allow {
-					allowed[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
-				}
-				filtered := make([]*promptdef.Profile, 0, len(profiles))
-				for _, p := range profiles {
-					if p == nil {
-						continue
-					}
-					if _, ok := allowed[strings.ToLower(strings.TrimSpace(p.ID))]; ok {
-						filtered = append(filtered, p)
-					}
-				}
-				profiles = filtered
+				profiles = promptrepo.FilterAllowedProfiles(profiles, allow)
 			}
 			b.WriteString("\n\nAvailable prompt profiles (id → description → appliesTo tags):\n")
 			for _, p := range profiles {
@@ -343,6 +332,13 @@ Your output drives downstream routing and tool selection — be precise and cons
 Do not invent context, dates, or constraints not present in the message.
 Do not output tool names or capability descriptions.
 
+Date rule:
+- If the user gives a concrete month/day date without a year (for example
+  "3/17", "03/17", "March 17", or "Mar 17") and the message/thread does not
+  indicate another year, assume the current year.
+- Preserve the resolved date in exact YYYY-MM-DD form inside extracted
+  context when you emit a date.
+
 Clarification rule:
 - If the message already names a concrete entity scope such as an ad order, campaign, advertiser, audience, repo, package, file path, or other directly actionable object, do not ask for clarification just because timeframe, KPI family, or symptom subtype was omitted.
 - For concrete troubleshoot / diagnose / investigate / analyze asks on a named entity, prefer routing directly so the owning agent can establish the baseline from the available tools.
@@ -426,6 +422,7 @@ type turnContextWire struct {
 	// fallback semantics.
 	SelectedAgentID string   `json:"selectedAgentId,omitempty"`
 	Mode            string   `json:"mode,omitempty"`
+	PlannerTrigger  string   `json:"plannerTrigger,omitempty"`
 	Source          string   `json:"source,omitempty"`
 	ActivateSkills  []string `json:"activateSkills,omitempty"`
 }
@@ -449,6 +446,7 @@ func unmarshalTurnContext(data []byte, tc *TurnContext) error {
 	tc.Confidence = wire.Confidence
 	tc.SelectedAgentID = wire.SelectedAgentID
 	tc.Mode = wire.Mode
+	tc.PlannerTrigger = wire.PlannerTrigger
 	tc.Source = wire.Source
 	tc.ActivateSkills = wire.ActivateSkills
 	return nil

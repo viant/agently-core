@@ -307,6 +307,28 @@ func TestRecorderObserver_PropagatesUsageToParentChainWithoutCycling(t *testing.
 	assert.Equal(t, 7, *gotB.UsageOutputTokens)
 }
 
+func TestRecorderObserver_OnCallStart_ReusesExistingFinishBarrier(t *testing.T) {
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-barrier")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-barrier", "")))
+
+	ctx := WithRecorderObserver(base, client)
+	ctx, originalBarrier := WithFinishBarrier(ctx)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	gotBarrier, ok := ctx2.Value(finishKey).(chan struct{})
+	require.True(t, ok, "expected finish barrier on returned context")
+	require.Equal(t, fmt.Sprintf("%p", originalBarrier), fmt.Sprintf("%p", gotBarrier), "OnCallStart must reuse the stream barrier rather than shadow it")
+}
+
 func TestRecorderObserver_ParentUsagePropagationPublishesToParentStream(t *testing.T) {
 	mem := convmem.New()
 	bus := streaming.NewMemoryBus(4)

@@ -7,9 +7,10 @@ scope per turn.
 
 For turns where static profile selection is weak, invalid, or explicitly
 creative, intake may select **planner mode** instead of a static profile. In
-the light design, planner mode still uses the same orchestrator agent; it adds
-runtime-owned planner system context first, then lets the normal reactor pass
-execute. See [planner.md](planner.md).
+the current design, planner mode may resolve to a **dedicated planner agent**
+configured at workspace intake level (`intake.plannerAgentId`). That planner
+agent compiles runtime-owned planner system context first, then the selected
+main execution agent runs normally. See [planner.md](planner.md).
 
 ## Packages
 

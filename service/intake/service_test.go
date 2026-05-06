@@ -134,7 +134,7 @@ func TestBuildSystemPrompt_IncludesTemplatesWhenTemplateScopeEnabled(t *testing.
 	assert.Contains(t, prompt, "capacity review dashboard")
 }
 
-func TestBuildGenerateInput_UsesLowReasoningForJSONIntake(t *testing.T) {
+func TestBuildGenerateInput_UsesMinimalReasoningForJSONIntake(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "template"}}
 
@@ -142,7 +142,7 @@ func TestBuildGenerateInput_UsesLowReasoningForJSONIntake(t *testing.T) {
 	require.NotNil(t, in)
 	require.NotNil(t, in.ModelSelection.Options)
 	require.NotNil(t, in.ModelSelection.Options.Reasoning)
-	assert.Equal(t, "low", in.ModelSelection.Options.Reasoning.Effort)
+	assert.Equal(t, "minimal", in.ModelSelection.Options.Reasoning.Effort)
 	assert.True(t, in.ModelSelection.Options.JSONMode)
 	assert.Equal(t, "application/json", in.ModelSelection.Options.ResponseMIMEType)
 	require.NotNil(t, in.ModelSelection.Options.OutputSchema)
@@ -166,7 +166,7 @@ func TestIntake_Defaults(t *testing.T) {
 	var cfg agentmdl.Intake
 	assert.InDelta(t, 0.85, cfg.EffectiveConfidenceThreshold(), 0.001)
 	assert.Equal(t, 15, cfg.EffectiveTimeoutSec())
-	assert.Equal(t, 400, cfg.EffectiveMaxTokens())
+	assert.Equal(t, 800, cfg.EffectiveMaxTokens())
 
 	cfg.ConfidenceThreshold = 0.7
 	cfg.TimeoutSec = 10
@@ -213,6 +213,18 @@ func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Workspace-specific intake guidance:")
 	assert.Contains(t, prompt, "Concrete resource troubleshoot requests are actionable without extra clarification.")
+}
+
+func TestBuildSystemPrompt_IncludesMonthDayDateRule(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{Scope: []string{"intent", "context"}}
+
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, "If the user gives a concrete month/day date without a year")
+	assert.Contains(t, prompt, "assume the current year")
+	assert.Contains(t, prompt, "YYYY-MM-DD")
+	assert.Contains(t, prompt, "Current local date:")
 }
 
 func TestBuildSystemPrompt_FiltersProfilesByAllowList(t *testing.T) {

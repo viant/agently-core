@@ -30,6 +30,54 @@ type ListOutput struct {
 	NextAction string     `json:"nextAction,omitempty"`
 }
 
+type TopologyInput struct {
+	AgentIDs []string `json:"agentIds,omitempty"`
+}
+
+type DelegationInfo struct {
+	Enabled           bool `json:"enabled,omitempty"`
+	MaxSameAgentDepth int  `json:"maxSameAgentDepth,omitempty"`
+}
+
+type TopologyItem struct {
+	ID               string         `json:"id"`
+	Name             string         `json:"name,omitempty"`
+	Description      string         `json:"description,omitempty"`
+	Internal         bool           `json:"internal,omitempty"`
+	Skills           []string       `json:"skills,omitempty"`
+	ToolBundles      []string       `json:"toolBundles,omitempty"`
+	ToolNames        []string       `json:"toolNames,omitempty"`
+	TemplateBundles  []string       `json:"templateBundles,omitempty"`
+	PromptProfiles   []string       `json:"promptProfiles,omitempty"`
+	PlannerEnabled   bool           `json:"plannerEnabled,omitempty"`
+	PlannerAgentID   string         `json:"plannerAgentId,omitempty"`
+	Responsibilities []string       `json:"responsibilities,omitempty"`
+	InScope          []string       `json:"inScope,omitempty"`
+	OutOfScope       []string       `json:"outOfScope,omitempty"`
+	Delegation       DelegationInfo `json:"delegation,omitempty"`
+}
+
+type TopologyOutput struct {
+	Items []TopologyItem `json:"items,omitempty"`
+}
+
+type ToolDetailsInput struct {
+	Names []string `json:"names,omitempty"`
+}
+
+type ToolDetailsItem struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty"`
+	Required     []string               `json:"required,omitempty"`
+	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
+	Cacheable    bool                   `json:"cacheable,omitempty"`
+}
+
+type ToolDetailsOutput struct {
+	Items []ToolDetailsItem `json:"items,omitempty"`
+}
+
 // RunInput defines the request payload for agents:run.
 // Note: Conversation/turn/user identifiers are derived from context; they are
 // intentionally not part of the input contract.

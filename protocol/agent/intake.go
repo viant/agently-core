@@ -37,12 +37,42 @@ type Intake struct {
 	// (Un)Marshal methods on llm.ModelPreferences.
 	ModelPreferences *llm.ModelPreferences `yaml:"modelPreferences,omitempty" json:"modelPreferences,omitempty"`
 
-	// MaxTokens caps the sidecar output. Default: 400.
+	// MaxTokens caps the sidecar output. Default: 800.
 	MaxTokens int `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
 
 	// ConfidenceThreshold is the minimum confidence score (0–1) required to
 	// auto-populate PromptProfileId in the turn context. Default: 0.85.
 	ConfidenceThreshold float64 `yaml:"confidenceThreshold,omitempty" json:"confidenceThreshold,omitempty"`
+
+	// PlannerEnabled allows the workspace router / planner path to activate
+	// planner mode for turns targeting this agent. Default: false.
+	PlannerEnabled bool `yaml:"plannerEnabled,omitempty" json:"plannerEnabled,omitempty"`
+
+	// PlannerAgentID optionally selects a dedicated planner agent to run the
+	// planning pass for turns targeting this execution agent. When empty, the
+	// runtime falls back to the selected execution agent's own prompts/model for
+	// planning, preserving current behavior.
+	PlannerAgentID string `yaml:"plannerAgentId,omitempty" json:"plannerAgentId,omitempty"`
+
+	// PlannerFallbackThreshold reserves a router-side threshold knob for future
+	// planner-specific confidence use. Default: 0.70.
+	PlannerFallbackThreshold float64 `yaml:"plannerFallbackThreshold,omitempty" json:"plannerFallbackThreshold,omitempty"`
+
+	// PlannerOnValidatorFailure enables the post-routing validator failure
+	// planner path. Wired in planner phase 2.
+	PlannerOnValidatorFailure bool `yaml:"plannerOnValidatorFailure,omitempty" json:"plannerOnValidatorFailure,omitempty"`
+
+	// PlannerOnCreativeRequest allows the router prompt to select planner mode
+	// for explicit creative/exploratory asks. Default: false.
+	PlannerOnCreativeRequest bool `yaml:"plannerOnCreativeRequest,omitempty" json:"plannerOnCreativeRequest,omitempty"`
+
+	// PlannerSecondFailurePolicy controls the planner retry terminal path.
+	// Supported values: "clarify" | "block". Default: "clarify".
+	PlannerSecondFailurePolicy string `yaml:"plannerSecondFailurePolicy,omitempty" json:"plannerSecondFailurePolicy,omitempty"`
+
+	// PlannerTriggerPhrases reserves explicit phrase hooks for future router
+	// prompt expansion. Not wired in phase 1.
+	PlannerTriggerPhrases []string `yaml:"plannerTriggerPhrases,omitempty" json:"plannerTriggerPhrases,omitempty"`
 
 	// TriggerOnTopicShift re-runs the sidecar when the topic diverges from the
 	// established conversation topic. Default: false.
@@ -102,6 +132,14 @@ func (in *Intake) EffectiveConfidenceThreshold() float64 {
 	return in.ConfidenceThreshold
 }
 
+// EffectivePlannerFallbackThreshold returns the configured threshold or 0.70.
+func (in *Intake) EffectivePlannerFallbackThreshold() float64 {
+	if in == nil || in.PlannerFallbackThreshold <= 0 {
+		return 0.70
+	}
+	return in.PlannerFallbackThreshold
+}
+
 // EffectiveTimeoutSec returns the configured timeout or 15.
 func (in *Intake) EffectiveTimeoutSec() int {
 	if in == nil || in.TimeoutSec <= 0 {
@@ -110,10 +148,10 @@ func (in *Intake) EffectiveTimeoutSec() int {
 	return in.TimeoutSec
 }
 
-// EffectiveMaxTokens returns the configured max tokens or 400.
+// EffectiveMaxTokens returns the configured max tokens or 800.
 func (in *Intake) EffectiveMaxTokens() int {
 	if in == nil || in.MaxTokens <= 0 {
-		return 400
+		return 800
 	}
 	return in.MaxTokens
 }

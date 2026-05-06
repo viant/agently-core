@@ -359,6 +359,13 @@ func (c *backendClient) StreamEvents(ctx context.Context, input *StreamEventsInp
 			return e != nil && e.StreamID == convID
 		}
 	}
+	type bufferAwareSubscriber interface {
+		SubscribeOpts(ctx context.Context, opts ...streaming.SubscribeOption) (streaming.Subscription, error)
+	}
+	const streamEventsBuffer = 2048
+	if bus, ok := c.streaming.(bufferAwareSubscriber); ok {
+		return bus.SubscribeOpts(ctx, streaming.WithFilter(filter), streaming.WithBuffer(streamEventsBuffer))
+	}
 	return c.streaming.Subscribe(ctx, filter)
 }
 

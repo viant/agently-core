@@ -53,11 +53,11 @@ func (s *Service) extendPlanFromResponse(ctx context.Context, genInput *core2.Ge
 		s.extendPlanWithToolCalls(genOutput.Response.ResponseID, choice, aPlan)
 	}
 	if len(aPlan.Steps) == 0 {
-		if hasPendingContinuation(genInput) {
-			return false, errPendingToolContinuation
-		}
 		if err := s.extendPlanFromContent(ctx, genOutput, aPlan); err != nil {
 			return false, err
+		}
+		if aPlan.IsEmpty() && responseText(genOutput) == "" && synthesizePendingContinuationStep(genInput, aPlan) {
+			return true, nil
 		}
 	}
 	return !aPlan.IsEmpty(), nil
@@ -175,20 +175,42 @@ func hasPendingContinuation(genInput *core2.GenerateInput) bool {
 	return ok
 }
 
-func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *execution.Plan) error {
-	content := strings.TrimSpace(genOutput.Content)
-	if genOutput != nil && genOutput.Response != nil {
-		for _, choice := range genOutput.Response.Choices {
-			text := strings.TrimSpace(choice.Message.Content)
-			if text == "" {
-				text = strings.TrimSpace(llm.MessageText(choice.Message))
-			}
-			if text != "" {
-				content = text
-				break
-			}
-		}
+func synthesizePendingContinuationStep(genInput *core2.GenerateInput, aPlan *execution.Plan) bool {
+	if genInput == nil || aPlan == nil {
+		return false
 	}
+	priorToolResults := extractPriorToolResults(genInput)
+	if len(priorToolResults) == 0 {
+		return false
+	}
+	last := priorToolResults[len(priorToolResults)-1]
+	nextArgs, ok := overflowtool.ExtractMessageShowNextArgs(strings.TrimSpace(last.Result))
+	if !ok || len(nextArgs) == 0 {
+		return false
+	}
+	stepID := strings.TrimSpace(last.ID)
+	if stepID == "" {
+		stepID = uuid.NewString()
+	}
+	stepID += ":continuation"
+	if prev := aPlan.Steps.Find(stepID); prev != nil {
+		prev.Name = "message-show"
+		prev.Args = nextArgs
+		prev.Reason = "Continue reading the latest tool result before answering."
+		return true
+	}
+	aPlan.Steps = append(aPlan.Steps, execution.Step{
+		ID:     stepID,
+		Type:   "tool",
+		Name:   "message-show",
+		Args:   nextArgs,
+		Reason: "Continue reading the latest tool result before answering.",
+	})
+	return true
+}
+
+func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.GenerateOutput, aPlan *execution.Plan) error {
+	content := responseText(genOutput)
 	var err error
 	if strings.Contains(content, `"tool"`) {
 		err = jsonutil.EnsureJSONResponse(ctx, content, aPlan)
@@ -216,6 +238,24 @@ func (s *Service) extendPlanFromContent(ctx context.Context, genOutput *core2.Ge
 		}
 	}
 	return err
+}
+
+func responseText(genOutput *core2.GenerateOutput) string {
+	if genOutput == nil {
+		return ""
+	}
+	if genOutput.Response != nil {
+		for _, choice := range genOutput.Response.Choices {
+			text := strings.TrimSpace(choice.Message.Content)
+			if text == "" {
+				text = strings.TrimSpace(llm.MessageText(choice.Message))
+			}
+			if text != "" {
+				return text
+			}
+		}
+	}
+	return strings.TrimSpace(genOutput.Content)
 }
 
 func (s *Service) synthesizeFinalResponse(genOutput *core2.GenerateOutput) {

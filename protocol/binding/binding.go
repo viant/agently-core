@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	pdf "github.com/ledongthuc/pdf"
 	"github.com/viant/agently-core/genai/llm"
@@ -257,11 +258,33 @@ func (b *Binding) Data() map[string]interface{} {
 
 	// Flatten selected keys from Context into top-level for convenience
 	for k, v := range b.Context {
+		if !isSafePromptTopLevelKey(k) {
+			continue
+		}
 		if _, exists := context[k]; !exists {
 			context[k] = v
 		}
 	}
 	return context
+}
+
+func isSafePromptTopLevelKey(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 {
+			if !(unicode.IsLetter(r) || r == '_') {
+				return false
+			}
+			continue
+		}
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // ContextJSON returns a stable JSON rendering of binding context for prompts.

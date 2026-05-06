@@ -82,6 +82,7 @@ import type {
     CanonicalLifecycleEntryState,
     CanonicalLinkedConversationState,
     CanonicalModelStepState,
+    CanonicalPlannerState,
     CanonicalToolStepState,
     CanonicalTurnMessageState,
     CanonicalTurnState,
@@ -97,6 +98,7 @@ import type {
     ClientLifecycleEntryKind,
     ClientLinkedConversation,
     ClientModelStep,
+    ClientPlannerState,
     ClientStandaloneMessage,
     ClientToolCall,
     ClientTurnState,
@@ -431,6 +433,11 @@ export function applyEvent(
             return onElicitation(state, event);
         case 'linked_conversation_attached':
             return onLinkedConversationAttached(state, event);
+        case 'planner.selected':
+        case 'planner.output':
+        case 'planner.validated':
+        case 'planner.failed':
+            return onPlannerEvent(state, event);
         case 'control':
             // `control:message_patch` / `control:message_add` retired
             // (raw DB column diffs on the wire were the transcript/SSE
@@ -1037,6 +1044,61 @@ function onLinkedConversationAttached(state: ClientConversationState, event: SSE
     return state;
 }
 
+function ensurePlannerState(turn: ClientTurnState): ClientPlannerState {
+    if (turn.planner) return turn.planner;
+    const planner: ClientPlannerState = { renderKey: allocateRenderKey() };
+    turn.planner = planner;
+    return planner;
+}
+
+function mergePlannerState(
+    planner: ClientPlannerState,
+    source: WriteSource,
+    snapshot: {
+        status?: string;
+        trigger?: string;
+        staticProfile?: string;
+        strategyFamily?: string;
+        attempt?: number;
+        secondPolicy?: string;
+        outputPayloadId?: string;
+        validated?: boolean | null;
+    },
+): void {
+    if (snapshot.status !== undefined) writeField(planner, 'status', snapshot.status, source);
+    if (snapshot.trigger !== undefined) writeField(planner, 'trigger', snapshot.trigger, source);
+    if (snapshot.staticProfile !== undefined) writeField(planner, 'staticProfile', snapshot.staticProfile, source);
+    if (snapshot.strategyFamily !== undefined) writeField(planner, 'strategyFamily', snapshot.strategyFamily, source);
+    if (typeof snapshot.attempt === 'number') writeField(planner, 'attempt', snapshot.attempt, source);
+    if (snapshot.secondPolicy !== undefined) writeField(planner, 'secondPolicy', snapshot.secondPolicy, source);
+    if (snapshot.outputPayloadId !== undefined) writeField(planner, 'outputPayloadId', snapshot.outputPayloadId, source);
+    if (typeof snapshot.validated === 'boolean') writeField(planner, 'validated', snapshot.validated, source);
+}
+
+function onPlannerEvent(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+    const turn = resolveEventTurn(state, event);
+    if (!turn) return state;
+
+    const planner = ensurePlannerState(turn);
+    const status =
+        event.type === 'planner.selected' ? 'selected' :
+        event.type === 'planner.output' ? 'output' :
+        event.type === 'planner.validated' ? 'validated' :
+        'failed';
+
+    mergePlannerState(planner, 'event', {
+        status,
+        trigger: event.plannerTrigger,
+        staticProfile: event.plannerStaticProfile,
+        strategyFamily: event.plannerStrategyFamily,
+        attempt: event.plannerAttempt,
+        secondPolicy: event.plannerSecondPolicy,
+        outputPayloadId: event.plannerOutputPayloadId,
+        validated: event.plannerValidated,
+    });
+    return state;
+}
+
 function assistantEventTargetsPage(turn: ClientTurnState, event: SSEEvent): boolean {
     const messageId = String((event.messageId ?? event.id ?? '')).trim();
     if (messageId) {
@@ -1270,6 +1332,7 @@ function mergeTranscriptTurn(
     // Assistant aggregates.
     if (snapshotTurn.assistant?.narration) mergeTranscriptAssistantNarration(turn, snapshotTurn.assistant.narration);
     if (snapshotTurn.assistant?.final) mergeTranscriptAssistantFinal(turn, snapshotTurn.assistant.final);
+    if (snapshotTurn.planner) mergeTranscriptPlanner(turn, snapshotTurn.planner);
 
     // Elicitation.
     if (snapshotTurn.elicitation) mergeTranscriptElicitation(turn, snapshotTurn.elicitation);
@@ -1526,6 +1589,23 @@ function mergeTranscriptAssistantFinal(
     if (snapshot.messageId) writeField(f, 'messageId', snapshot.messageId, 'transcript');
     if (snapshot.content !== undefined) writeField(f, 'content', snapshot.content, 'transcript');
     if (snapshot.createdAt) writeField(f, 'createdAt', snapshot.createdAt, 'transcript');
+}
+
+function mergeTranscriptPlanner(
+    turn: ClientTurnState,
+    snapshot: CanonicalPlannerState,
+): void {
+    const planner = ensurePlannerState(turn);
+    mergePlannerState(planner, 'transcript', {
+        status: snapshot.status,
+        trigger: snapshot.trigger,
+        staticProfile: snapshot.staticProfile,
+        strategyFamily: snapshot.strategyFamily,
+        attempt: snapshot.attempt,
+        secondPolicy: snapshot.secondPolicy,
+        outputPayloadId: snapshot.outputPayloadId,
+        validated: snapshot.validated ?? undefined,
+    });
 }
 
 function mergeTranscriptElicitation(

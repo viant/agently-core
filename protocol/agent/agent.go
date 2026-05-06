@@ -314,6 +314,17 @@ type Template struct {
 // When empty all profiles are accessible.
 type PromptAccess struct {
 	Bundles []string `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+	// InjectSelectedProfile controls whether QueryInput.PromptProfileId should be
+	// expanded into system documents and profile-side defaults on this agent's
+	// own turn. Nil defaults to true for backward compatibility.
+	InjectSelectedProfile *bool `yaml:"injectSelectedProfile,omitempty" json:"injectSelectedProfile,omitempty"`
+}
+
+func (p PromptAccess) AllowsSelectedProfileInjection() bool {
+	if p.InjectSelectedProfile == nil {
+		return true
+	}
+	return *p.InjectSelectedProfile
 }
 
 // Capabilities declares optional generic agent capabilities/requirements.

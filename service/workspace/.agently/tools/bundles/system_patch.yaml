@@ -1,0 +1,9 @@
+id: system/patch
+title: System Patch
+description: Stage patch changes for host review
+iconRef: builtin:system-patch
+priority: 90
+match:
+  - name: "system/patch:apply"
+  - name: "system/patch:replace"
+  - name: "system/patch:snapshot"

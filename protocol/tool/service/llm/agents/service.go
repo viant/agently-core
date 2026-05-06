@@ -16,6 +16,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
+	toolreg "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -63,6 +64,7 @@ type Service struct {
 	// modelFinder is optional. When set, the expansion sidecar (Phase 10) can
 	// call a lightweight LLM to synthesize task-specific profile instructions.
 	modelFinder llm.Finder
+	registry    toolreg.Registry
 }
 
 // New creates a Service bound to the internal agent runtime.
@@ -104,6 +106,10 @@ func WithMCPManager(mgr promptdef.MCPManager) Option {
 // a lightweight LLM that refines generic profile messages into task-specific ones.
 func WithModelFinder(f llm.Finder) Option {
 	return func(s *Service) { s.modelFinder = f }
+}
+
+func WithToolRegistry(reg toolreg.Registry) Option {
+	return func(s *Service) { s.registry = reg }
 }
 
 // WithConversationClient injects the conversation client and initializes linking/status helpers.
@@ -226,6 +232,20 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&MeOutput{}),
 		},
 		{
+			Name:        "topology",
+			Description: "Return compact topology metadata for internal agents including skill visibility, tool bundles, prompt/template visibility, planner settings, and delegation limits",
+			Internal:    true,
+			Input:       reflect.TypeOf(&TopologyInput{}),
+			Output:      reflect.TypeOf(&TopologyOutput{}),
+		},
+		{
+			Name:        "tool_details",
+			Description: "Return exact internal tool metadata and schemas from the runtime registry. When input.names is empty, returns all visible tool definitions.",
+			Internal:    true,
+			Input:       reflect.TypeOf(&ToolDetailsInput{}),
+			Output:      reflect.TypeOf(&ToolDetailsOutput{}),
+		},
+		{
 			Name:        "status",
 			Description: "Return linked child conversation statuses and latest assistant output for a child or parent conversation",
 			Input:       reflect.TypeOf(&StatusInput{}),
@@ -265,6 +285,10 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.list, nil
 	case "me":
 		return s.me, nil
+	case "topology":
+		return s.topology, nil
+	case "tool_details":
+		return s.toolDetails, nil
 	case "status":
 		return s.statusMethod, nil
 	case "cancel":
@@ -324,6 +348,154 @@ func (s *Service) me(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) topology(ctx context.Context, in, out interface{}) error {
+	if !plannerControlAllowed(ctx) {
+		return svc.NewMethodNotFoundError("llm/agents:topology is only available during planner-mode runs")
+	}
+	_ = ctx
+	ti, ok := in.(*TopologyInput)
+	if !ok && in != nil {
+		return svc.NewInvalidInputError(in)
+	}
+	to, ok := out.(*TopologyOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	items := s.topologyItems()
+	if len(items) == 0 {
+		to.Items = nil
+		return nil
+	}
+	if ti == nil || len(ti.AgentIDs) == 0 {
+		to.Items = items
+		return nil
+	}
+	allow := map[string]struct{}{}
+	for _, raw := range ti.AgentIDs {
+		if v := strings.TrimSpace(raw); v != "" {
+			allow[strings.ToLower(v)] = struct{}{}
+		}
+	}
+	filtered := make([]TopologyItem, 0, len(items))
+	for _, item := range items {
+		if _, ok := allow[strings.ToLower(strings.TrimSpace(item.ID))]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	to.Items = filtered
+	return nil
+}
+
+func (s *Service) toolDetails(ctx context.Context, in, out interface{}) error {
+	if !plannerControlAllowed(ctx) {
+		return svc.NewMethodNotFoundError("llm/agents:tool_details is only available during planner-mode runs")
+	}
+	tdi, ok := in.(*ToolDetailsInput)
+	if !ok && in != nil {
+		return svc.NewInvalidInputError(in)
+	}
+	tdo, ok := out.(*ToolDetailsOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	if s == nil || s.registry == nil {
+		tdo.Items = nil
+		return nil
+	}
+	if tdi != nil && len(tdi.Names) > 0 {
+		items := make([]ToolDetailsItem, 0, len(tdi.Names))
+		for _, raw := range tdi.Names {
+			name := strings.TrimSpace(raw)
+			if name == "" {
+				continue
+			}
+			if def, ok := s.registry.GetDefinition(name); ok && def != nil {
+				items = append(items, toolDetailsItem(*def))
+			}
+		}
+		tdo.Items = items
+		return nil
+	}
+	defs := s.registry.Definitions()
+	items := make([]ToolDetailsItem, 0, len(defs))
+	for _, def := range defs {
+		if strings.TrimSpace(def.Name) == "" {
+			continue
+		}
+		items = append(items, toolDetailsItem(def))
+	}
+	tdo.Items = items
+	return nil
+}
+
+func toolDetailsItem(def llm.ToolDefinition) ToolDetailsItem {
+	return ToolDetailsItem{
+		Name:         strings.TrimSpace(def.Name),
+		Description:  strings.TrimSpace(def.Description),
+		Parameters:   def.Parameters,
+		Required:     append([]string(nil), def.Required...),
+		OutputSchema: def.OutputSchema,
+		Cacheable:    def.Cacheable,
+	}
+}
+
+func (s *Service) topologyItems() []TopologyItem {
+	if s == nil || s.agent == nil || s.agent.Finder() == nil {
+		return nil
+	}
+	catalog, ok := s.agent.Finder().(interface{ All() []*agentmdl.Agent })
+	if !ok {
+		return nil
+	}
+	agents := catalog.All()
+	if len(agents) == 0 {
+		return nil
+	}
+	items := make([]TopologyItem, 0, len(agents))
+	for _, ag := range agents {
+		if ag == nil {
+			continue
+		}
+		item := TopologyItem{
+			ID:              strings.TrimSpace(ag.ID),
+			Name:            strings.TrimSpace(ag.Name),
+			Description:     strings.TrimSpace(ag.Description),
+			Internal:        ag.Internal,
+			Skills:          append([]string(nil), ag.Skills...),
+			ToolBundles:     append([]string(nil), ag.Tool.Bundles...),
+			TemplateBundles: append([]string(nil), ag.Template.Bundles...),
+			PromptProfiles:  append([]string(nil), ag.Prompts.Bundles...),
+			PlannerEnabled:  ag.Intake.PlannerEnabled,
+			PlannerAgentID:  strings.TrimSpace(ag.Intake.PlannerAgentID),
+		}
+		for _, toolItem := range ag.Tool.Items {
+			if toolItem == nil {
+				continue
+			}
+			if name := strings.TrimSpace(toolItem.Name); name != "" {
+				item.ToolNames = append(item.ToolNames, name)
+			}
+		}
+		if ag.Profile != nil {
+			item.Responsibilities = append([]string(nil), ag.Profile.Responsibilities...)
+			item.InScope = append([]string(nil), ag.Profile.InScope...)
+			item.OutOfScope = append([]string(nil), ag.Profile.OutOfScope...)
+		}
+		if ag.Delegation != nil {
+			item.Delegation = DelegationInfo{
+				Enabled:           ag.Delegation.Enabled,
+				MaxSameAgentDepth: ag.Delegation.MaxDepth,
+			}
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func plannerControlAllowed(ctx context.Context) bool {
+	return strings.EqualFold(strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)), "plan")
 }
 
 func (s *Service) query(ctx context.Context, in, out interface{}) error {

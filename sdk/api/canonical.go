@@ -26,6 +26,7 @@ type TurnState struct {
 	Messages            []*TurnMessageState        `json:"messages,omitempty"`
 	Execution           *ExecutionState            `json:"execution,omitempty"`
 	Assistant           *AssistantState            `json:"assistant,omitempty"`
+	Planner             *PlannerState              `json:"planner,omitempty"`
 	Elicitation         *ElicitationState          `json:"elicitation,omitempty"`
 	LinkedConversations []*LinkedConversationState `json:"linkedConversations,omitempty"`
 	CreatedAt           time.Time                  `json:"createdAt,omitempty"`
@@ -70,6 +71,17 @@ type AssistantMessageState struct {
 	MessageID string    `json:"messageId"`
 	Content   string    `json:"content,omitempty"`
 	CreatedAt time.Time `json:"createdAt,omitempty"`
+}
+
+type PlannerState struct {
+	Status          string `json:"status,omitempty"`
+	Trigger         string `json:"trigger,omitempty"`
+	StaticProfile   string `json:"staticProfile,omitempty"`
+	StrategyFamily  string `json:"strategyFamily,omitempty"`
+	Attempt         int    `json:"attempt,omitempty"`
+	SecondPolicy    string `json:"secondPolicy,omitempty"`
+	OutputPayloadID string `json:"outputPayloadId,omitempty"`
+	Validated       *bool  `json:"validated,omitempty"`
 }
 
 type ExecutionState struct {

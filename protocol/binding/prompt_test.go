@@ -228,6 +228,24 @@ func TestPrompt_Generate_ContextJSON(t *testing.T) {
 	assert.NotContains(t, goGot, "map[")
 }
 
+func TestPrompt_Generate_SkipsInvalidTopLevelContextKeys(t *testing.T) {
+	ctx := context.Background()
+	p := Prompt{
+		Engine: "vm",
+		Text:   `Task: ${Task.Prompt}`,
+	}
+	got, err := p.Generate(ctx, &Binding{
+		Task: Task{Prompt: "hello"},
+		Context: map[string]interface{}{
+			"intake.turnContext": map[string]interface{}{"mode": "planner"},
+			"planner.context":    map[string]interface{}{"attempt": 1},
+			"safe_key":           "ok",
+		},
+	})
+	assert.NoError(t, err)
+	assert.EqualValues(t, "Task: hello", got)
+}
+
 func TestPrompt_Generate_GoTemplateLowerHelper(t *testing.T) {
 	ctx := context.Background()
 	p := Prompt{

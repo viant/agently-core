@@ -127,6 +127,13 @@ func (i *QueryInput) Actor() string {
 	return actor
 }
 
+func (i *QueryInput) GetContext() map[string]any {
+	if i == nil {
+		return nil
+	}
+	return i.Context
+}
+
 func (i *QueryInput) ShallAutoSummarize() bool {
 	if i.Agent == nil || !i.Agent.HasAutoSummarizeDefinition() {
 		return false

@@ -102,6 +102,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 				ToolCallID:     firstToolCallID(msg.ToolMessage),
 			})
 		}
+		applyPlannerTranscriptMessage(ts, msg)
 		for _, tm := range msg.ToolMessage {
 			if tm == nil || tm.LinkedConversationId == nil || strings.TrimSpace(*tm.LinkedConversationId) == "" {
 				continue

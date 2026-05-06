@@ -13,6 +13,9 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 	if s == nil || input == nil || b == nil || s.promptRepo == nil {
 		return nil
 	}
+	if input.Agent != nil && !input.Agent.Prompts.AllowsSelectedProfileInjection() {
+		return nil
+	}
 	profileID := strings.TrimSpace(input.PromptProfileId)
 	if profileID == "" {
 		return nil

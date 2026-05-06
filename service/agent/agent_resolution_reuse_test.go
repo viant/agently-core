@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -115,6 +116,13 @@ func TestTryReuseFromPriorTurn(t *testing.T) {
 		assert.Nil(t, got, "capability turns must reclassify fresh; never reuse agent_selector")
 	})
 
+	t.Run("never reuses helper-sidecar agents", func(t *testing.T) {
+		conv := makeReuseConv("c1", "intake_sidecar", "review weekly advertiser health")
+		s := &Service{conversation: &reuseConvStub{conv: conv}}
+		got := s.tryReuseFromPriorTurn(context.Background(), conv, "review weekly advertiser health", authorized)
+		assert.Nil(t, got, "helper-sidecar turns must never become continuity agents")
+	})
+
 	t.Run("does not reuse unauthorized agent", func(t *testing.T) {
 		conv := makeReuseConv("c1", "decommissioned-agent", "review task 2652067 resource coverage")
 		s := &Service{conversation: &reuseConvStub{conv: conv}}
@@ -168,6 +176,19 @@ func TestResolveTurnRouting_RegressionParity(t *testing.T) {
 			assert.Equal(t, "analyst", dec.AgentID)
 			assert.Equal(t, "continuity", dec.RoutingReason)
 			assert.False(t, dec.AutoSelected)
+		}
+	})
+
+	t.Run("non-auto skips helper continuity and falls back to default", func(t *testing.T) {
+		conv := makeReuseConv("c1", "intake_sidecar", "prior message")
+		s := &Service{
+			conversation: &reuseConvStub{conv: conv},
+			defaults:     &config.Defaults{Agent: "analyst"},
+		}
+		dec, err := s.resolveTurnRouting(context.Background(), conv, "", "", "")
+		if assert.NoError(t, err) && assert.NotNil(t, dec) {
+			assert.Equal(t, "analyst", dec.AgentID)
+			assert.Equal(t, "default", dec.RoutingReason)
 		}
 	})
 

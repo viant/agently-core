@@ -20,6 +20,8 @@ type authExtension struct {
 	users      UserService
 }
 
+const authPersistTimeout = 15 * time.Second
+
 func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenStore TokenStore, users UserService) *authExtension {
 	if cfg == nil || sessions == nil {
 		return nil
@@ -79,6 +81,8 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 	if a == nil {
 		return
 	}
+	persistCtx, cancel := durableAuthPersistContext(ctx)
+	defer cancel()
 	storeUser := strings.TrimSpace(firstNonEmpty(subject, username))
 	if provider == "" {
 		provider = a.oauthProviderName()
@@ -91,7 +95,7 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 			strings.TrimSpace(email),
 			strings.TrimSpace(provider),
 		)
-		userID, err := a.users.UpsertWithProvider(ctx, strings.TrimSpace(username), strings.TrimSpace(username), strings.TrimSpace(email), strings.TrimSpace(provider), strings.TrimSpace(subject))
+		userID, err := a.users.UpsertWithProvider(persistCtx, strings.TrimSpace(username), strings.TrimSpace(username), strings.TrimSpace(email), strings.TrimSpace(provider), strings.TrimSpace(subject))
 		if err != nil {
 			log.Printf("[auth-oauth] source=%s ensure user failed subject=%q username=%q provider=%q err=%v",
 				source,
@@ -132,7 +136,7 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 		)
 		return
 	}
-	if err := a.tokenStore.Put(ctx, &OAuthToken{
+	if err := a.tokenStore.Put(persistCtx, &OAuthToken{
 		Username:     storeUser,
 		Provider:     provider,
 		AccessToken:  strings.TrimSpace(accessToken),
@@ -153,6 +157,13 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 		storeUser,
 		strings.TrimSpace(provider),
 	)
+}
+
+func durableAuthPersistContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.WithTimeout(context.Background(), authPersistTimeout)
+	}
+	return context.WithTimeout(context.Background(), authPersistTimeout)
 }
 
 func (a *authExtension) currentSession(r *http.Request) *Session {

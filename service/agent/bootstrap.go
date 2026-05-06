@@ -238,11 +238,27 @@ func (s *Service) publishBootstrapToolEvent(ctx context.Context, input *QueryInp
 		Phase:          "bootstrap",
 		Mode:           "systemContext",
 		AgentIDUsed:    agentID,
+		Status:         bootstrapToolEventStatus(eventType),
 		Error:          strings.TrimSpace(errText),
 		CreatedAt:      time.Now(),
 	}
 	event.NormalizeIdentity(conversationID, turnID)
 	if err := s.streamPub.Publish(ctx, event); err != nil {
 		logx.Warnf("conversation", "bootstrap tool event publish error convo=%q turn=%q tool=%q err=%v", conversationID, turnID, toolName, err)
+	}
+}
+
+func bootstrapToolEventStatus(eventType streaming.EventType) string {
+	switch eventType {
+	case streaming.EventTypeToolCallStarted, streaming.EventTypeToolCallWaiting:
+		return "running"
+	case streaming.EventTypeToolCallCompleted:
+		return "completed"
+	case streaming.EventTypeToolCallFailed:
+		return "failed"
+	case streaming.EventTypeToolCallCanceled:
+		return "canceled"
+	default:
+		return ""
 	}
 }

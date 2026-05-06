@@ -61,6 +61,16 @@ func TestShouldRunIntake_TopicShift_FirstTurn(t *testing.T) {
 	require.True(t, got, "first turn (no previous) must run so we get baseline metadata")
 }
 
+func TestShouldRunIntake_ExplicitPromptProfileSkipsSidecar(t *testing.T) {
+	s := &Service{}
+	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: false}
+	got := s.shouldRunIntake(context.Background(), &QueryInput{
+		Query:           "delegated objective",
+		PromptProfileId: "diagnostic_baseline",
+	}, cfg)
+	require.False(t, got, "explicit prompt profile should bypass agent-intake classification")
+}
+
 // TestApplyTurnContext_CopiesTemplateIdToInput closes the gap where the
 // sidecar suggested a template but `applySelectedTemplate` read input.TemplateId
 // and never saw the suggestion because it was only stored under
@@ -138,6 +148,35 @@ func TestApplyTurnContext_ProfileSuggestionGated(t *testing.T) {
 	require.Equal(t, "deal_impact", high.PromptProfileId)
 }
 
+func TestNormalizeIntakeTurnContext_SuppressesTemplateIdsInSuggestedProfile(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{
+		Enabled:             true,
+		Scope:               []string{agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
+		ConfidenceThreshold: 0.8,
+	}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "steward"},
+			Prompts: agentmdl.PromptAccess{
+				Bundles: []string{"inventory_diagnosis", "performance_analysis"},
+			},
+		},
+	}
+	tc := &intakesvc.TurnContext{
+		SuggestedProfileId: "spo_path_planner",
+		TemplateId:         "spo_path_planner",
+		Confidence:         0.91,
+	}
+
+	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
+
+	require.Empty(t, tc.SuggestedProfileId, "template ids must not survive as prompt-profile suggestions")
+	require.Zero(t, tc.Confidence, "invalid profile suggestions should not retain routing confidence")
+	require.Equal(t, "spo_path_planner", tc.TemplateId, "template choice remains valid")
+}
+
 func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:             true,
@@ -150,6 +189,38 @@ func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
 
 	require.Equal(t, "caller_choice", input.PromptProfileId)
 	require.Equal(t, "repo_analysis", input.Context["intake.suggestedProfileId"])
+}
+
+func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled: true,
+		Scope:   []string{agentmdl.IntakeScopeTitle, agentmdl.IntakeScopeProfile},
+	}
+	input := &QueryInput{
+		Context: map[string]interface{}{
+			intakesvc.ContextKey: &intakesvc.TurnContext{
+				Mode:            intakesvc.ModePlanner,
+				PlannerAgentID:  "steward_planner",
+				SelectedAgentID: "coder",
+				Source:          intakesvc.SourceWorkspace,
+			},
+		},
+	}
+	tc := &intakesvc.TurnContext{
+		Title:              "repo diagnosis",
+		SuggestedProfileId: "repo_analysis",
+		Confidence:         0.95,
+	}
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, intakesvc.ModePlanner, stored.Mode)
+	require.Equal(t, "coder", stored.SelectedAgentID)
+	require.Equal(t, intakesvc.SourceWorkspace, stored.Source)
+	require.Equal(t, "steward_planner", stored.PlannerAgentID)
+	require.Equal(t, "repo diagnosis", stored.Title)
+	require.Equal(t, "repo_analysis", stored.SuggestedProfileId)
 }
 
 func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {
@@ -315,7 +386,7 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 			TemplateId:         "capacity_review_dashboard",
 			SuggestedProfileId: "analyst-forecast",
 			Confidence:         0.94,
-			AppendToolBundles:  []string{"forecasting-cube"},
+			AppendToolBundles:  []string{"forecast"},
 		}
 
 		input := &QueryInput{
@@ -334,7 +405,7 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 
 		require.Equal(t, "capacity_review_dashboard", input.TemplateId,
 			"caller-provided template must land on input.TemplateId")
-		require.Contains(t, input.ToolBundles, "forecasting-cube",
+		require.Contains(t, input.ToolBundles, "forecast",
 			"caller-provided AppendToolBundles must merge into input.ToolBundles")
 	})
 

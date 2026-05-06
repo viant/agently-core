@@ -172,6 +172,7 @@ export {
     statusToLifecycle as chatStoreStatusToLifecycle,
 } from './chatStore';
 export type {
+    ClientPlannerState,
     ClientConversationState,
     ClientExecutionPage,
     ClientLifecycle,

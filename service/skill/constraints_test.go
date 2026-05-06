@@ -127,7 +127,7 @@ func TestBuildConstraints_AllowsWorkspaceToolAlongsidePreprocessExec(t *testing.
 func TestExpandDefinitionsForConstraints_AddsAllowedSkillTools(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
-			Name:         "forecasting-cube",
+			Name:         "forecast",
 			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
@@ -180,7 +180,7 @@ func TestExpandDefinitionsForConstraints_ReplacesConstrainedServiceFamily(t *tes
 func TestExpandDefinitionsForConstraints_NormalizesAllowedToolPatternForRegistryLookup(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
-			Name:         "forecasting-cube",
+			Name:         "forecast",
 			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
@@ -200,7 +200,7 @@ func TestExpandDefinitionsForConstraints_NormalizesAllowedToolPatternForRegistry
 func TestValidateExecution_RejectsToolOutsideAllowedPatterns(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
-			Name:         "forecasting-cube",
+			Name:         "forecast",
 			AllowedTools: "analyst:MetricsCube",
 		},
 	}}
@@ -220,7 +220,7 @@ func TestValidateExecution_RejectsToolOutsideAllowedPatterns(t *testing.T) {
 func TestValidateExecution_AllowsUnconstrainedServiceFamilies(t *testing.T) {
 	skills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
-			Name:         "forecasting-cube",
+			Name:         "forecast",
 			AllowedTools: "analyst:MetricsCube",
 		},
 	}}

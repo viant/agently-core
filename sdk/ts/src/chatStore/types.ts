@@ -245,6 +245,17 @@ export interface ClientExecutionPage extends EntityIdentity {
     completedAt?: string;
 }
 
+export interface ClientPlannerState extends EntityIdentity {
+    status?: string;
+    trigger?: string;
+    staticProfile?: string;
+    strategyFamily?: string;
+    attempt?: number;
+    secondPolicy?: string;
+    outputPayloadId?: string;
+    validated?: boolean;
+}
+
 // ─── Turn ──────────────────────────────────────────────────────────────────────
 
 export interface ClientTurnState extends EntityIdentity {
@@ -262,6 +273,8 @@ export interface ClientTurnState extends EntityIdentity {
     assistantFinal?: ClientAssistantFinal | null;
     /** Optional turn-level assistant aggregate (narration). */
     assistantNarration?: ClientAssistantNarration | null;
+    /** Optional planner lifecycle aggregate for this turn. */
+    planner?: ClientPlannerState | null;
     /** Pending turn-level elicitation (ui-improvement.md §6.3 renderable). */
     elicitation?: ClientElicitation | null;
     /** Linked conversations attached to this turn. */
@@ -342,6 +355,7 @@ export interface CanonicalTurnState {
     messages?: CanonicalTurnMessageState[];
     execution?: CanonicalExecutionState | null;
     assistant?: CanonicalAssistantState | null;
+    planner?: CanonicalPlannerState | null;
     elicitation?: CanonicalElicitationState | null;
     linkedConversations?: CanonicalLinkedConversationState[];
     createdAt?: string;
@@ -378,6 +392,17 @@ export interface CanonicalAssistantMessageState {
     messageId: string;
     content?: string;
     createdAt?: string;
+}
+
+export interface CanonicalPlannerState {
+    status?: string;
+    trigger?: string;
+    staticProfile?: string;
+    strategyFamily?: string;
+    attempt?: number;
+    secondPolicy?: string;
+    outputPayloadId?: string;
+    validated?: boolean | null;
 }
 
 export interface CanonicalExecutionState {

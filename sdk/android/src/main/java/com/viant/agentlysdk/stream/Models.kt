@@ -1,5 +1,6 @@
 package com.viant.agentlysdk.stream
 
+import com.viant.agentlysdk.PlannerState
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -72,7 +73,14 @@ data class SSEEvent(
     val feedId: String? = null,
     val feedTitle: String? = null,
     val feedItemCount: Int? = null,
-    val feedData: JsonElement? = null
+    val feedData: JsonElement? = null,
+    val plannerTrigger: String? = null,
+    val plannerStaticProfile: String? = null,
+    val plannerStrategyFamily: String? = null,
+    val plannerAttempt: Int? = null,
+    val plannerSecondPolicy: String? = null,
+    val plannerOutputPayloadId: String? = null,
+    val plannerValidated: Boolean? = null
 )
 
 data class ActiveFeed(
@@ -172,7 +180,8 @@ data class ConversationStreamSnapshot(
     val feeds: List<ActiveFeed>,
     val pendingElicitation: PendingElicitation?,
     val bufferedMessages: List<BufferedMessage>,
-    val liveExecutionGroupsById: LiveExecutionGroupsById
+    val liveExecutionGroupsById: LiveExecutionGroupsById,
+    val plannerByTurnId: Map<String, PlannerState> = emptyMap()
 )
 
 data class MessageUpdate(

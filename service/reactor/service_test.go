@@ -2,9 +2,11 @@ package reactor
 
 import (
 	"context"
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +20,7 @@ import (
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	core2 "github.com/viant/agently-core/service/core"
+	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
 // dd test for extendPlanFromContent: parses elicitation JSON embedded in content.
@@ -156,7 +159,7 @@ func TestService_extendPlanWithToolCalls_SynthesizesReason(t *testing.T) {
 	assert.EqualValues(t, "", aPlan.Steps[0].Reason)
 }
 
-func TestService_extendPlanFromResponse_RejectsUnresolvedMessageShowContinuation(t *testing.T) {
+func TestService_extendPlanFromResponse_SynthesizesPendingMessageShowContinuation(t *testing.T) {
 	ctx := context.Background()
 	service := &Service{}
 	aPlan := execution.New()
@@ -196,13 +199,13 @@ content: |
 		},
 	}
 	genOutput := &core2.GenerateOutput{
-		Content: "Here is my answer without the required continuation.",
+		Content: "",
 		Response: &llm.GenerateResponse{
 			Choices: []llm.Choice{{
 				Index: 0,
 				Message: llm.Message{
 					Role:    llm.RoleAssistant,
-					Content: "Here is my answer without the required continuation.",
+					Content: "",
 				},
 				FinishReason: "stop",
 			}},
@@ -210,10 +213,211 @@ content: |
 	}
 
 	ok, err := service.extendPlanFromResponse(ctx, genInput, genOutput, aPlan)
-	require.ErrorIs(t, err, errPendingToolContinuation)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, aPlan.Steps, 1)
+	assert.Equal(t, "message-show", aPlan.Steps[0].Name)
+	byteRange, okRange := aPlan.Steps[0].Args["byteRange"].(map[string]interface{})
+	require.True(t, okRange)
+	assert.Equal(t, 57600, byteRange["from"])
+	assert.Equal(t, 65912, byteRange["to"])
+}
+
+func TestService_extendPlanFromResponse_DoesNotSynthesizePendingContinuationWhenAnswerExists(t *testing.T) {
+	ctx := context.Background()
+	service := &Service{}
+	aPlan := execution.New()
+	genInput := &core2.GenerateInput{
+		Binding: &binding.Binding{
+			History: binding.History{
+				Current: &binding.Turn{
+					Messages: []*binding.Message{
+						{
+							Kind:     binding.MessageKindToolResult,
+							Role:     string(llm.RoleAssistant),
+							ToolName: "message-show",
+							ToolOpID: "call-1",
+							ToolArgs: map[string]interface{}{
+								"messageId": "source-msg",
+								"byteRange": map[string]int{"from": 57600, "to": 65912},
+							},
+							Content: `overflow: true
+messageId: source-msg
+nextArgs:
+  messageId: source-msg
+  byteRange:
+    from: 57600
+    to: 65912
+nextRange:
+  bytes:
+    offset: 57600
+    length: 8312
+hasMore: true
+useToolToSeeMore: message-show
+content: |
+  partial body`,
+						},
+					},
+				},
+			},
+		},
+	}
+	genOutput := &core2.GenerateOutput{
+		Content: "Final structured blocker packet.",
+		Response: &llm.GenerateResponse{
+			Choices: []llm.Choice{{
+				Index: 0,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Content: "Final structured blocker packet.",
+				},
+				FinishReason: "stop",
+			}},
+		},
+	}
+
+	ok, err := service.extendPlanFromResponse(ctx, genInput, genOutput, aPlan)
+	require.NoError(t, err)
 	require.False(t, ok)
 	require.Empty(t, aPlan.Steps)
 }
+
+func TestService_launchPendingSteps_WaitsForModelCallFinish(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "conv-barrier", TurnID: "turn-barrier", ParentMessageID: "user-barrier"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	ctx = context.WithValue(ctx, memory.ModelMessageIDKey, "assistant-barrier")
+	ctx, release := modelcallctx.WithFinishBarrier(ctx)
+
+	reg := &reactorScriptedRegistry{script: []reactorScriptedResult{{result: `{"ok":true}`}}}
+	conv := &reactorStubConv{}
+	svc := &Service{
+		convClient:      conv,
+		turnToolResults: map[string][]llm.ToolCall{},
+	}
+	plan := execution.New()
+	plan.Steps = append(plan.Steps, execution.Step{
+		ID:         "call-barrier",
+		Type:       "tool",
+		Name:       "resources-list",
+		Args:       map[string]interface{}{"path": "/"},
+		ResponseID: "resp-barrier",
+	})
+	next := 0
+	var wg sync.WaitGroup
+
+	svc.launchPendingSteps(ctx, plan, &next, &wg, reg, "assistant-barrier")
+
+	time.Sleep(50 * time.Millisecond)
+	reg.mu.Lock()
+	callsBeforeFinish := reg.calls
+	reg.mu.Unlock()
+	if callsBeforeFinish != 0 {
+		t.Fatalf("expected no tool execution before model-call finish, got %d", callsBeforeFinish)
+	}
+
+	close(release)
+	wg.Wait()
+
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if reg.calls != 1 {
+		t.Fatalf("expected one tool execution after model-call finish, got %d", reg.calls)
+	}
+}
+
+type reactorScriptedResult struct {
+	result string
+	err    error
+	delay  time.Duration
+}
+
+type reactorScriptedRegistry struct {
+	mu     sync.Mutex
+	script []reactorScriptedResult
+	calls  int
+}
+
+func (r *reactorScriptedRegistry) Definitions() []llm.ToolDefinition            { return nil }
+func (r *reactorScriptedRegistry) MatchDefinition(string) []*llm.ToolDefinition { return nil }
+func (r *reactorScriptedRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) {
+	return nil, false
+}
+func (r *reactorScriptedRegistry) MustHaveTools([]string) ([]llm.Tool, error) { return nil, nil }
+func (r *reactorScriptedRegistry) SetDebugLogger(io.Writer)                   {}
+func (r *reactorScriptedRegistry) Initialize(context.Context)                 {}
+
+func (r *reactorScriptedRegistry) Execute(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
+	r.mu.Lock()
+	index := r.calls
+	r.calls++
+	var entry reactorScriptedResult
+	if len(r.script) > 0 {
+		if index >= len(r.script) {
+			index = len(r.script) - 1
+		}
+		entry = r.script[index]
+	}
+	r.mu.Unlock()
+	if entry.delay > 0 {
+		time.Sleep(entry.delay)
+	}
+	return entry.result, entry.err
+}
+
+type reactorStubConv struct {
+	patchedMessages  []*apiconv.MutableMessage
+	patchedPayloads  []*apiconv.MutablePayload
+	patchedToolCalls []*apiconv.MutableToolCall
+	patchedConvs     []*apiconv.MutableConversation
+}
+
+func (s *reactorStubConv) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
+	return nil, nil
+}
+
+func (s *reactorStubConv) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
+	return nil, nil
+}
+
+func (s *reactorStubConv) PatchConversations(_ context.Context, conv *apiconv.MutableConversation) error {
+	s.patchedConvs = append(s.patchedConvs, conv)
+	return nil
+}
+
+func (s *reactorStubConv) GetPayload(context.Context, string) (*apiconv.Payload, error) {
+	return nil, nil
+}
+
+func (s *reactorStubConv) PatchPayload(_ context.Context, payload *apiconv.MutablePayload) error {
+	s.patchedPayloads = append(s.patchedPayloads, payload)
+	return nil
+}
+
+func (s *reactorStubConv) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
+	s.patchedMessages = append(s.patchedMessages, message)
+	return nil
+}
+
+func (s *reactorStubConv) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
+	return nil, nil
+}
+
+func (s *reactorStubConv) GetMessageByElicitation(context.Context, string, string) (*apiconv.Message, error) {
+	return nil, nil
+}
+
+func (s *reactorStubConv) PatchModelCall(context.Context, *apiconv.MutableModelCall) error {
+	return nil
+}
+
+func (s *reactorStubConv) PatchToolCall(_ context.Context, call *apiconv.MutableToolCall) error {
+	s.patchedToolCalls = append(s.patchedToolCalls, call)
+	return nil
+}
+
+func (s *reactorStubConv) PatchTurn(context.Context, *apiconv.MutableTurn) error { return nil }
+func (s *reactorStubConv) DeleteConversation(context.Context, string) error      { return nil }
+func (s *reactorStubConv) DeleteMessage(context.Context, string, string) error   { return nil }
 
 func TestService_extendPlanWithToolCalls_UsesDeterministicFallbackIDForStreamingDeltas(t *testing.T) {
 	service := &Service{}

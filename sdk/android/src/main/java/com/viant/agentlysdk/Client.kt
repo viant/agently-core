@@ -608,7 +608,7 @@ private data class SchedulePatchInput(
 )
 
 @kotlinx.serialization.Serializable
-private data class EmptyResponse(
+internal data class EmptyResponse(
     val status: String? = null
 )
 

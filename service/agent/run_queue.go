@@ -136,6 +136,7 @@ func (s *Service) registerTurnCancel(ctx context.Context, turn runtimerequestctx
 			upd.SetStatus("canceled")
 			if err := s.conversation.PatchTurn(context.Background(), upd); err == nil {
 				s.patchStarterMessageTerminalStatus(context.Background(), turn, "canceled")
+				s.cancelLinkedChildConversations(context.Background(), turn)
 			}
 		}
 		logx.Warnf("conversation", "agent.turn cancel convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
@@ -269,6 +270,20 @@ func (s *Service) patchQueuedStarterMessageStatus(ctx context.Context, conversat
 		msg.SetTurnID(strings.TrimSpace(turnID))
 	}
 	msg.SetStatus(shared.NormalizeMessageStatus(status))
+	if existing, err := s.conversation.GetMessage(ctx, strings.TrimSpace(starterID)); err == nil && existing != nil {
+		if role := strings.TrimSpace(existing.Role); role != "" {
+			msg.SetRole(role)
+		}
+		if typ := strings.TrimSpace(existing.Type); typ != "" {
+			msg.SetType(typ)
+		}
+		if convID := strings.TrimSpace(existing.ConversationId); convID != "" {
+			msg.SetConversationID(convID)
+		}
+		if existingTurnID := strings.TrimSpace(pointerString(existing.TurnId)); existingTurnID != "" {
+			msg.SetTurnID(existingTurnID)
+		}
+	}
 	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
 		logx.Warnf("conversation", "agent.queueDrain patch starter message failed convo=%q turn_id=%q starter_id=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(turnID), strings.TrimSpace(starterID), strings.TrimSpace(status), err)
 	}
@@ -281,7 +296,70 @@ func (s *Service) patchStarterMessageTerminalStatus(ctx context.Context, turn ru
 	}
 	starterID := strings.TrimSpace(turn.ParentMessageID)
 	if starterID == "" {
+		starterID = s.resolveTurnStarterMessageID(ctx, turn)
+	}
+	if starterID == "" {
 		starterID = strings.TrimSpace(turn.TurnID)
 	}
 	s.patchQueuedStarterMessageStatus(ctx, turn.ConversationID, turn.TurnID, starterID, normalized)
+}
+
+func (s *Service) resolveTurnStarterMessageID(ctx context.Context, turn runtimerequestctx.TurnMeta) string {
+	if s == nil || s.conversation == nil {
+		return ""
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if conversationID == "" || turnID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return ""
+	}
+	for _, transcriptTurn := range conv.GetTranscript() {
+		if strings.TrimSpace(transcriptTurn.Id) != turnID {
+			continue
+		}
+		for _, msg := range transcriptTurn.Message {
+			if msg == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
+				return strings.TrimSpace(msg.Id)
+			}
+		}
+	}
+	return ""
+}
+
+func (s *Service) cancelLinkedChildConversations(ctx context.Context, turn runtimerequestctx.TurnMeta) {
+	if s == nil || s.conversation == nil {
+		return
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if conversationID == "" || turnID == "" {
+		return
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return
+	}
+	visited := map[string]struct{}{conversationID: {}}
+	for _, transcriptTurn := range conv.GetTranscript() {
+		if strings.TrimSpace(transcriptTurn.Id) != turnID {
+			continue
+		}
+		for _, msg := range transcriptTurn.Message {
+			if msg == nil {
+				continue
+			}
+			childID := strings.TrimSpace(pointerString(msg.LinkedConversationId))
+			if childID == "" {
+				continue
+			}
+			_ = s.terminateConversationTree(ctx, childID, visited)
+		}
+	}
 }

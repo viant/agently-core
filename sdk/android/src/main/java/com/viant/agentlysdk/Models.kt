@@ -896,6 +896,7 @@ data class TurnState(
     val user: UserMessageState? = null,
     val execution: ExecutionState? = null,
     val assistant: AssistantState? = null,
+    val planner: PlannerState? = null,
     val elicitation: ElicitationState? = null,
     val linkedConversations: List<LinkedConversationState> = emptyList(),
     val createdAt: String? = null,
@@ -919,6 +920,18 @@ data class AssistantState(
 data class AssistantMessageState(
     val messageId: String,
     val content: String? = null
+)
+
+@Serializable
+data class PlannerState(
+    val status: String? = null,
+    val trigger: String? = null,
+    val staticProfile: String? = null,
+    val strategyFamily: String? = null,
+    val attempt: Int? = null,
+    val secondPolicy: String? = null,
+    val outputPayloadId: String? = null,
+    val validated: Boolean? = null
 )
 
 @Serializable

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	cancelstore "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
 	memconv "github.com/viant/agently-core/internal/service/conversation/memory"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
@@ -162,6 +163,81 @@ func TestService_RegisterTurnCancel_UpdatesStarterMessageStatus(t *testing.T) {
 	require.NotNil(t, gotMsg)
 	require.NotNil(t, gotMsg.Status)
 	require.Equal(t, "cancel", *gotMsg.Status)
+}
+
+func TestService_RegisterTurnCancel_UpdatesCurrentTurnUserMessageWhenParentMessageMissing(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	svc := &Service{conversation: client}
+	seedTurnState(t, ctx, client, "c-top", "t-top", "m-top", "pending")
+
+	turn := memory.TurnMeta{
+		ConversationID: "c-top",
+		TurnID:         "t-top",
+	}
+	_, cancel := svc.registerTurnCancel(ctx, turn)
+	cancel()
+
+	gotMsg, err := client.GetMessage(ctx, "m-top")
+	require.NoError(t, err)
+	require.NotNil(t, gotMsg)
+	require.NotNil(t, gotMsg.Status)
+	require.Equal(t, "cancel", *gotMsg.Status)
+}
+
+func TestService_RegisterTurnCancel_CancelsLinkedChildConversations(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	reg := cancelstore.NewMemory()
+	svc := &Service{conversation: client, cancelReg: reg}
+	seedTurnState(t, ctx, client, "parent-conv", "parent-turn", "starter-msg", "pending")
+
+	childConv := apiconv.NewConversation()
+	childConv.SetId("child-conv")
+	childConv.SetStatus("running")
+	require.NoError(t, client.PatchConversations(ctx, childConv))
+
+	childTurn := apiconv.NewTurn()
+	childTurn.SetId("child-turn")
+	childTurn.SetConversationID("child-conv")
+	childTurn.SetStatus("running")
+	require.NoError(t, client.PatchTurn(ctx, childTurn))
+
+	linked := apiconv.NewMessage()
+	linked.SetId("assistant-msg")
+	linked.SetConversationID("parent-conv")
+	linked.SetTurnID("parent-turn")
+	linked.SetRole("assistant")
+	linked.SetType("text")
+	linked.SetContent("child is running")
+	linked.SetLinkedConversationID("child-conv")
+	require.NoError(t, client.PatchMessage(ctx, linked))
+
+	parentConv, err := client.GetConversation(ctx, "parent-conv")
+	require.NoError(t, err)
+	require.NotNil(t, parentConv)
+	require.Len(t, parentConv.Transcript, 1)
+	require.Len(t, parentConv.Transcript[0].Message, 2)
+	require.Equal(t, "child-conv", pointerString(parentConv.Transcript[0].Message[1].LinkedConversationId))
+
+	turn := memory.TurnMeta{
+		ConversationID:  "parent-conv",
+		TurnID:          "parent-turn",
+		ParentMessageID: "starter-msg",
+	}
+	_, childDone := svc.registerTurnCancel(ctx, memory.TurnMeta{
+		ConversationID: "child-conv",
+		TurnID:         "child-turn",
+	})
+	defer childDone()
+	_, done := svc.registerTurnCancel(ctx, turn)
+	defer done()
+	require.True(t, reg.CancelConversation("parent-conv"))
+
+	gotChild, err := client.GetConversation(ctx, "child-conv")
+	require.NoError(t, err)
+	require.NotNil(t, gotChild)
+	require.Equal(t, "canceled", pointerString(gotChild.Status))
 }
 
 func TestService_TurnAwaitingUserAction(t *testing.T) {

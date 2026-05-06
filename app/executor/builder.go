@@ -382,6 +382,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		llmagents.WithPromptRepo(promptRepo),
 		llmagents.WithMCPManager(out.MCPManager),
 		llmagents.WithModelFinder(b.modelFinder),
+		llmagents.WithToolRegistry(out.Registry),
 	)); err != nil {
 		return nil, err
 	}
