@@ -24,13 +24,41 @@ type ChatGPTOAuthOptions struct {
 	UseAccessTokenFallback bool `yaml:"useAccessTokenFallback,omitempty" json:"useAccessTokenFallback,omitempty"`
 }
 
+// AnthropicOAuthOptions configures Anthropic OAuth credential acquisition for
+// Claude.ai subscriber-style Bearer auth and optional API key minting.
+type AnthropicOAuthOptions struct {
+	// OAuth client configuration (client id / secret), stored as a scy resource.
+	ClientURL string `yaml:"clientURL,omitempty" json:"clientURL,omitempty"`
+
+	// Token state persistence location, stored as a scy resource.
+	TokensURL string `yaml:"tokensURL,omitempty" json:"tokensURL,omitempty"`
+
+	// Optional OAuth issuer base (defaults to https://platform.claude.com).
+	Issuer string `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+
+	// Optional token endpoint override. Defaults to <issuer>/v1/oauth/token.
+	TokenURL string `yaml:"tokenURL,omitempty" json:"tokenURL,omitempty"`
+
+	// Optional API key mint endpoint override. Defaults to
+	// https://api.anthropic.com/api/oauth/claude_cli/create_api_key.
+	APIKeyURL string `yaml:"apiKeyURL,omitempty" json:"apiKeyURL,omitempty"`
+
+	// Optional refresh scope override. Defaults to "user:profile user:inference".
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+
+	// When true, the provider prefers a minted API key from OAuth refresh state
+	// over direct Bearer auth. This mirrors the ChatGPT/OpenAI API-key path;
+	// leave false to use the Claude.ai subscriber endpoint with Bearer auth.
+	UseAPIKeyExchange bool `yaml:"useAPIKeyExchange,omitempty" json:"useAPIKeyExchange,omitempty"`
+}
+
 type Options struct {
 	Model             string                 `yaml:"model,omitempty" json:"model,omitempty"`
 	Provider          string                 `yaml:"provider,omitempty" json:"provider,omitempty"`
 	APIKeyURL         string                 `yaml:"apiKeyURL,omitempty" json:"APIKeyURL,omitempty"`
 	EnvKey            string                 `yaml:"envKey,omitempty" json:"envKey,omitempty"` // environment variable key to use for API key
 	CredentialsURL    string                 `yaml:"credentialsURL,omitempty" json:"credentialsURL,omitempty"`
-	URL               string                 `yaml:"Paths,omitempty" json:"Paths,omitempty"`
+	URL               string                 `yaml:"url,omitempty" json:"url,omitempty"`
 	ProjectID         string                 `yaml:"projectID,omitempty" json:"projectID,omitempty"`
 	Temperature       *float64               `yaml:"temperature,omitempty" json:"temperature,omitempty"`
 	MaxTokens         int                    `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
@@ -67,4 +95,7 @@ type Options struct {
 
 	// ChatGPTOAuth configures ChatGPT OAuth based credential acquisition.
 	ChatGPTOAuth *ChatGPTOAuthOptions `yaml:"chatgptOAuth,omitempty" json:"chatgptOAuth,omitempty"`
+
+	// AnthropicOAuth configures Anthropic OAuth based credential acquisition.
+	AnthropicOAuth *AnthropicOAuthOptions `yaml:"anthropicOAuth,omitempty" json:"anthropicOAuth,omitempty"`
 }

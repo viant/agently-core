@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/genai/llm/provider/anthropic"
 	bedrockclaude "github.com/viant/agently-core/genai/llm/provider/bedrock/claude"
 	"github.com/viant/agently-core/genai/llm/provider/grok"
 	"github.com/viant/agently-core/genai/llm/provider/inceptionlabs"
@@ -15,6 +16,7 @@ import (
 	"github.com/viant/agently-core/genai/llm/provider/openai"
 	vertexaiclaude "github.com/viant/agently-core/genai/llm/provider/vertexai/claude"
 	"github.com/viant/agently-core/genai/llm/provider/vertexai/gemini"
+	anthropicoauth "github.com/viant/agently-core/internal/genai/provider/anthropic/oauth"
 	"github.com/viant/agently-core/internal/genai/provider/openai/chatgptauth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/scy/cred/secret"
@@ -30,6 +32,41 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		return nil, fmt.Errorf("provider was empty")
 	}
 	switch options.Provider {
+	case ProviderAnthropic:
+		apiKey, err := f.apiKey(ctx, options.APIKeyURL)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(apiKey) == "" {
+			apiKey = strings.TrimSpace(os.Getenv(defaultEnvKey(options.EnvKey, "ANTHROPIC_API_KEY")))
+		}
+		opts := []anthropic.ClientOption{anthropic.WithUsageListener(options.UsageListener)}
+		if strings.TrimSpace(options.URL) != "" {
+			opts = append(opts, anthropic.WithBaseURL(strings.TrimSpace(options.URL)))
+		}
+		if options.MaxTokens > 0 {
+			opts = append(opts, anthropic.WithMaxTokens(options.MaxTokens))
+		}
+		if options.Temperature != nil {
+			opts = append(opts, anthropic.WithTemperature(*options.Temperature))
+		}
+		if options.AnthropicOAuth != nil {
+			manager, err := f.anthropicOAuthManager(options.AnthropicOAuth)
+			if err != nil {
+				return nil, err
+			}
+			if options.AnthropicOAuth.UseAPIKeyExchange {
+				opts = append(opts, anthropic.WithAPIKeyProvider(func(ctx context.Context) (string, error) {
+					return manager.APIKey(ctx)
+				}))
+				apiKey = ""
+			} else {
+				opts = append(opts, anthropic.WithAuthTokenProvider(func(ctx context.Context) (string, error) {
+					return manager.AccessToken(ctx)
+				}))
+			}
+		}
+		return anthropic.NewClient(apiKey, options.Model, opts...), nil
 	case ProviderOpenAI:
 		loggingEnabled := logx.Enabled()
 		if options.OpenAILogging != nil {
@@ -256,6 +293,33 @@ func (o *Factory) apiKey(ctx context.Context, APIKeyURL string) (string, error) 
 		return "", err
 	}
 	return key.Secret, nil
+}
+
+func (o *Factory) anthropicOAuthManager(options *AnthropicOAuthOptions) (*anthropicoauth.Manager, error) {
+	if options == nil {
+		return nil, fmt.Errorf("anthropicOAuth options were nil")
+	}
+	if options.ClientURL == "" {
+		return nil, fmt.Errorf("anthropicOAuth.clientURL was empty")
+	}
+	if options.TokensURL == "" {
+		return nil, fmt.Errorf("anthropicOAuth.tokensURL was empty")
+	}
+	clientLoader := anthropicoauth.NewScyOAuthClientLoader(options.ClientURL)
+	tokenStore := anthropicoauth.NewScyTokenStateStore(options.TokensURL)
+	return anthropicoauth.NewManager(
+		&anthropicoauth.Options{
+			ClientURL: options.ClientURL,
+			TokensURL: options.TokensURL,
+			Issuer:    options.Issuer,
+			TokenURL:  options.TokenURL,
+			APIKeyURL: options.APIKeyURL,
+			Scope:     options.Scope,
+		},
+		clientLoader,
+		tokenStore,
+		nil,
+	)
 }
 
 func defaultEnvKey(value string, fallback string) string {

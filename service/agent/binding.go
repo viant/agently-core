@@ -190,29 +190,41 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	}
 	logx.Infof("conversation", "agent.BuildBinding buildSystemDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(sysDocsStart).String(), len(b.SystemDocuments.Items))
 	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
+	templateStageStart := time.Now()
 	if err := s.applySelectedTemplate(ctx, input, b); err != nil {
-		logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate error convo=%q elapsed=%s err=%v", convoID, time.Since(templateStageStart).String(), err)
 		return nil, err
 	}
+	logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate ok convo=%q elapsed=%s", convoID, time.Since(templateStageStart).String())
+	profileStageStart := time.Now()
 	if err := s.applySelectedPromptProfile(ctx, input, b); err != nil {
-		logx.Infof("conversation", "agent.BuildBinding applySelectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding applySelectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(profileStageStart).String(), err)
 		return nil, err
 	}
+	logx.Infof("conversation", "agent.BuildBinding applySelectedPromptProfile ok convo=%q elapsed=%s", convoID, time.Since(profileStageStart).String())
+	playbooksStageStart := time.Now()
 	if err := s.appendToolPlaybooks(ctx, b.Tools.Signatures, &b.SystemDocuments); err != nil {
-		logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(playbooksStageStart).String(), err)
 		return nil, err
 	}
+	logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks ok convo=%q elapsed=%s", convoID, time.Since(playbooksStageStart).String())
+	bootstrapDocsStageStart := time.Now()
 	if err := s.appendBootstrapSystemDocuments(ctx, input, b); err != nil {
-		logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(sysDocsStart).String(), err)
+		logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(bootstrapDocsStageStart).String(), err)
 		return nil, err
 	}
+	logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments ok convo=%q elapsed=%s", convoID, time.Since(bootstrapDocsStageStart).String())
+	agentDirectoryStageStart := time.Now()
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
+	logx.Infof("conversation", "agent.BuildBinding appendAgentDirectoryDoc ok convo=%q elapsed=%s", convoID, time.Since(agentDirectoryStageStart).String())
 	b.Tools.Signatures = filterDelegationDiscoveryTools(b.Tools.Signatures, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
+	visibleSkillsStageStart := time.Now()
 	if s.skillSvc != nil {
 		b.Skills, b.SkillsPrompt = s.skillSvc.Visible(input.Agent)
 	}
+	logx.Infof("conversation", "agent.BuildBinding visibleSkills ok convo=%q elapsed=%s skills=%d", convoID, time.Since(visibleSkillsStageStart).String(), len(b.Skills))
 
 	if name, body, ok := runtimeActivatedSkill(input); ok && !runtimeActivatedSkillEmbedded(input) {
 		uri := "internal://active-skill/" + strings.TrimSpace(name)
