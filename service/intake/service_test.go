@@ -109,8 +109,8 @@ func TestFilterByScope_NilSafe(t *testing.T) {
 func TestBuildOutputSchema_ClassAOnly(t *testing.T) {
 	cfg := &agentmdl.Intake{Scope: []string{"title", "context", "intent"}}
 	schema := buildOutputSchema(cfg)
-	assert.Contains(t, schema, "title")
-	assert.Contains(t, schema, "context")
+	assert.Contains(t, schema, "classification")
+	assert.Contains(t, schema, "scope")
 	assert.NotContains(t, schema, "suggestedProfileId")
 	assert.NotContains(t, schema, "appendToolBundles")
 }
@@ -155,12 +155,12 @@ func TestBuildGenerateInput_UsesMinimalReasoningForJSONIntake(t *testing.T) {
 	assert.Equal(t, "application/json", in.ModelSelection.Options.ResponseMIMEType)
 	require.NotNil(t, in.ModelSelection.Options.OutputSchema)
 	props, _ := in.ModelSelection.Options.OutputSchema["properties"].(map[string]interface{})
-	_, hasIntent := props["intent"]
-	_, hasContext := props["context"]
-	_, hasTemplate := props["templateId"]
-	assert.True(t, hasIntent)
-	assert.True(t, hasContext)
-	assert.True(t, hasTemplate)
+	_, hasClassification := props["classification"]
+	_, hasScope := props["scope"]
+	_, hasPrompting := props["prompting"]
+	assert.True(t, hasClassification)
+	assert.True(t, hasScope)
+	assert.True(t, hasPrompting)
 }
 
 func TestIntake_HasScope(t *testing.T) {
@@ -194,20 +194,19 @@ func TestBuildOutputJSONSchema_RespectsScope(t *testing.T) {
 	schema := buildOutputJSONSchema(cfg)
 	props, _ := schema["properties"].(map[string]interface{})
 	require.NotNil(t, props)
-	_, hasIntent := props["intent"]
-	_, hasContext := props["context"]
-	_, hasTemplate := props["templateId"]
+	_, hasClassification := props["classification"]
+	_, hasScope := props["scope"]
+	_, hasPrompting := props["prompting"]
 	_, hasBundles := props["appendToolBundles"]
 	required, _ := schema["required"].([]string)
-	assert.True(t, hasIntent)
-	assert.True(t, hasContext)
-	assert.True(t, hasTemplate)
+	assert.True(t, hasClassification)
+	assert.True(t, hasScope)
+	assert.True(t, hasPrompting)
 	assert.False(t, hasBundles)
 	assert.Equal(t, false, schema["additionalProperties"])
-	assert.Contains(t, required, "title")
-	assert.Contains(t, required, "intent")
-	assert.Contains(t, required, "context")
-	assert.Contains(t, required, "templateId")
+	assert.Contains(t, required, "classification")
+	assert.Contains(t, required, "scope")
+	assert.Contains(t, required, "prompting")
 }
 
 func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
