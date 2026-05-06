@@ -401,11 +401,15 @@ func (s *Service) resolveTurnRouting(ctx context.Context, conv *apiconv.Conversa
 					if result.Action == ClassifierActionPlanner {
 						decision.RoutingReason = "llm_router_planner"
 						decision.WorkspaceTurnContext = &intakesvc.TurnContext{
-							SelectedAgentID: id,
-							Mode:            intakesvc.ModePlanner,
-							PlannerTrigger:  strings.TrimSpace(result.PlannerTrigger),
-							PlannerAgentID:  plannerAgentID,
-							Source:          intakesvc.SourceWorkspace,
+							Routing: intakesvc.RoutingContext{
+								SelectedAgentID: id,
+								Mode:            intakesvc.ModePlanner,
+								Source:          intakesvc.SourceWorkspace,
+							},
+							Planner: intakesvc.PlannerContext{
+								Trigger: strings.TrimSpace(result.PlannerTrigger),
+								AgentID: plannerAgentID,
+							},
 						}
 					}
 					return decision, nil

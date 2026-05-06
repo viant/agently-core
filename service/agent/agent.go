@@ -61,8 +61,8 @@ func applyWorkspaceTurnContext(qi *QueryInput, dec *routingDecision, agent *agen
 		qi.Context = make(map[string]any)
 	}
 	copy := *dec.WorkspaceTurnContext
-	if copy.Mode == intakesvc.ModePlanner && agent != nil && strings.TrimSpace(copy.PlannerAgentID) == "" {
-		copy.PlannerAgentID = strings.TrimSpace(agent.Intake.PlannerAgentID)
+	if copy.Routing.Mode == intakesvc.ModePlanner && agent != nil && strings.TrimSpace(copy.Planner.AgentID) == "" {
+		copy.Planner.AgentID = strings.TrimSpace(agent.Intake.PlannerAgentID)
 	}
 	qi.Context[intakesvc.ContextKey] = &copy
 }
