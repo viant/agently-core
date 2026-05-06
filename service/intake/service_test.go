@@ -20,25 +20,25 @@ func TestParseOutput_ValidJSON(t *testing.T) {
 	raw := `{"title":"Project 4821","intent":"diagnosis","context":{"projectId":"4821"},"suggestedProfileId":"performance_analysis","confidence":0.91}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "Project 4821", tc.Title)
-	assert.Equal(t, "diagnosis", tc.Intent)
-	assert.Equal(t, "4821", tc.Context["projectId"])
-	assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
-	assert.InDelta(t, 0.91, tc.Confidence, 0.001)
+	assert.Equal(t, "Project 4821", tc.Classification.Title)
+	assert.Equal(t, "diagnosis", tc.Classification.Intent)
+	assert.Equal(t, "4821", tc.Scope.Values["projectId"])
+	assert.Equal(t, "performance_analysis", tc.Prompting.SuggestedProfileID)
+	assert.InDelta(t, 0.91, tc.Classification.Confidence, 0.001)
 }
 
 func TestParseOutput_FencedJSON(t *testing.T) {
 	raw := "```json\n{\"title\":\"test\"}\n```"
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "test", tc.Title)
+	assert.Equal(t, "test", tc.Classification.Title)
 }
 
 func TestParseOutput_ProsePrefix(t *testing.T) {
 	raw := "Here is the result:\n{\"title\":\"test\",\"intent\":\"summary\"}"
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "test", tc.Title)
+	assert.Equal(t, "test", tc.Classification.Title)
 }
 
 func TestParseOutput_Invalid(t *testing.T) {
@@ -52,23 +52,29 @@ func TestFilterByScope_ClassAOnly(t *testing.T) {
 		Scope:   []string{"title", "context", "intent"},
 	}
 	tc := &TurnContext{
-		Title:              "T",
-		Intent:             "diagnosis",
-		Context:            map[string]string{"k": "v"},
-		SuggestedProfileId: "perf",
-		Confidence:         0.9,
-		AppendToolBundles:  []string{"bundle-a"},
-		TemplateId:         "dashboard",
+		Classification: ClassificationContext{
+			Title:      "T",
+			Intent:     "diagnosis",
+			Confidence: 0.9,
+		},
+		Scope: ScopeContext{
+			Values: map[string]string{"k": "v"},
+		},
+		Prompting: PromptingContext{
+			SuggestedProfileID: "perf",
+			AppendToolBundles:  []string{"bundle-a"},
+			TemplateID:         "dashboard",
+		},
 	}
 	filterByScope(tc, cfg)
-	assert.Equal(t, "T", tc.Title)
-	assert.Equal(t, "diagnosis", tc.Intent)
-	assert.Equal(t, "v", tc.Context["k"])
+	assert.Equal(t, "T", tc.Classification.Title)
+	assert.Equal(t, "diagnosis", tc.Classification.Intent)
+	assert.Equal(t, "v", tc.Scope.Values["k"])
 	// Class B zeroed
-	assert.Empty(t, tc.SuggestedProfileId)
-	assert.Zero(t, tc.Confidence)
-	assert.Nil(t, tc.AppendToolBundles)
-	assert.Empty(t, tc.TemplateId)
+	assert.Empty(t, tc.Prompting.SuggestedProfileID)
+	assert.Zero(t, tc.Classification.Confidence)
+	assert.Nil(t, tc.Prompting.AppendToolBundles)
+	assert.Empty(t, tc.Prompting.TemplateID)
 }
 
 func TestFilterByScope_ClassBIncluded(t *testing.T) {
@@ -77,19 +83,21 @@ func TestFilterByScope_ClassBIncluded(t *testing.T) {
 		Scope:   []string{"title", "profile", "tools", "template"},
 	}
 	tc := &TurnContext{
-		Title:              "T",
-		SuggestedProfileId: "perf",
-		Confidence:         0.9,
-		AppendToolBundles:  []string{"bundle-a"},
-		TemplateId:         "dashboard",
+		Classification: ClassificationContext{
+			Title:      "T",
+			Confidence: 0.9,
+		},
+		Prompting: PromptingContext{
+			SuggestedProfileID: "perf",
+			AppendToolBundles:  []string{"bundle-a"},
+			TemplateID:         "dashboard",
+		},
 	}
 	filterByScope(tc, cfg)
-	assert.Equal(t, "perf", tc.SuggestedProfileId)
-	assert.InDelta(t, 0.9, tc.Confidence, 0.001)
-	assert.Equal(t, []string{"bundle-a"}, tc.AppendToolBundles)
-	assert.Equal(t, "dashboard", tc.TemplateId)
-	// clarification not in scope
-	assert.False(t, tc.ClarificationNeeded)
+	assert.Equal(t, "perf", tc.Prompting.SuggestedProfileID)
+	assert.InDelta(t, 0.9, tc.Classification.Confidence, 0.001)
+	assert.Equal(t, []string{"bundle-a"}, tc.Prompting.AppendToolBundles)
+	assert.Equal(t, "dashboard", tc.Prompting.TemplateID)
 }
 
 func TestFilterByScope_NilSafe(t *testing.T) {
@@ -250,7 +258,7 @@ func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
 	raw := `{"title":"Project 4821","intent":"diagnosis","entities":{"projectId":"4821"}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "4821", tc.Context["projectId"])
+	assert.Equal(t, "4821", tc.Scope.Values["projectId"])
 }
 
 // TestParseOutput_WorkspaceIntakeFields asserts that workspace-intake JSON
@@ -259,85 +267,38 @@ func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
 func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 	t.Run("workspace intake output", func(t *testing.T) {
 		raw := `{
-			"title":"Capacity review 2652067",
-			"intent":"capacity_review",
-			"selectedAgentId":"analyst",
-			"mode":"route",
-			"source":"workspace",
-			"confidence":0.94
+			"classification":{"title":"Capacity review 2652067","intent":"capacity_review","confidence":0.94},
+			"routing":{"selectedAgentId":"analyst","mode":"route","source":"workspace"}
 		}`
 		tc, err := parseOutput(raw)
 		require.NoError(t, err)
-		assert.Equal(t, "analyst", tc.SelectedAgentID)
-		assert.Equal(t, "route", tc.Mode)
-		assert.Equal(t, "workspace", tc.Source)
-		assert.InDelta(t, 0.94, tc.Confidence, 0.001)
+		assert.Equal(t, "Capacity review 2652067", tc.Classification.Title)
+		assert.Equal(t, "capacity_review", tc.Classification.Intent)
+		assert.Equal(t, "analyst", tc.Routing.SelectedAgentID)
+		assert.Equal(t, "route", tc.Routing.Mode)
+		assert.Equal(t, "workspace", tc.Routing.Source)
+		assert.InDelta(t, 0.94, tc.Classification.Confidence, 0.001)
 	})
 
 	t.Run("legacy agent intake output preserves zero workspace fields", func(t *testing.T) {
 		raw := `{"title":"Project 4821","intent":"diagnosis","confidence":0.91}`
 		tc, err := parseOutput(raw)
 		require.NoError(t, err)
-		assert.Equal(t, "", tc.SelectedAgentID, "legacy outputs must not invent SelectedAgentID")
-		assert.Equal(t, "", tc.Mode, "legacy outputs must not invent Mode")
-		assert.Equal(t, "", tc.Source, "legacy outputs must not invent Source")
+		assert.Equal(t, "Project 4821", tc.Classification.Title)
+		assert.Equal(t, "diagnosis", tc.Classification.Intent)
+		assert.Equal(t, "", tc.Routing.SelectedAgentID, "legacy outputs must not invent SelectedAgentID")
+		assert.Equal(t, "", tc.Routing.Mode, "legacy outputs must not invent Mode")
+		assert.Equal(t, "", tc.Routing.Source, "legacy outputs must not invent Source")
 	})
 
 	t.Run("clarify mode", func(t *testing.T) {
-		raw := `{"mode":"clarify","clarificationNeeded":true,"clarificationQuestion":"Which order?","source":"workspace"}`
+		raw := `{"mode":"clarify","source":"workspace"}`
 		tc, err := parseOutput(raw)
 		require.NoError(t, err)
-		assert.Equal(t, "clarify", tc.Mode)
-		assert.True(t, tc.ClarificationNeeded)
-		assert.Equal(t, "Which order?", tc.ClarificationQuestion)
-		assert.Equal(t, "", tc.SelectedAgentID, "clarify mode does not pin an agent")
-	})
-}
-
-// TestSanitizeAgentRefinement enforces the rule that agent intake never writes
-// SelectedAgentID or Mode. Both must be stripped; both must be reported.
-func TestSanitizeAgentRefinement(t *testing.T) {
-	t.Run("nil safe", func(t *testing.T) {
-		assert.Nil(t, SanitizeAgentRefinement(nil))
+		assert.Equal(t, "clarify", tc.Routing.Mode)
+		assert.Equal(t, "", tc.Routing.SelectedAgentID, "clarify mode does not pin an agent")
 	})
 
-	t.Run("clean refinement passes through unchanged", func(t *testing.T) {
-		tc := &TurnContext{
-			Title:              "x",
-			Intent:             "y",
-			SuggestedProfileId: "p",
-			TemplateId:         "t",
-		}
-		stripped := SanitizeAgentRefinement(tc)
-		assert.Empty(t, stripped)
-		assert.Equal(t, "x", tc.Title)
-		assert.Equal(t, "y", tc.Intent)
-		assert.Equal(t, "p", tc.SuggestedProfileId)
-		assert.Equal(t, "t", tc.TemplateId)
-	})
-
-	t.Run("strips SelectedAgentID and reports", func(t *testing.T) {
-		tc := &TurnContext{SelectedAgentID: "rogue"}
-		stripped := SanitizeAgentRefinement(tc)
-		assert.Equal(t, []string{"selectedAgentId"}, stripped)
-		assert.Equal(t, "", tc.SelectedAgentID)
-	})
-
-	t.Run("strips Mode and reports", func(t *testing.T) {
-		tc := &TurnContext{Mode: "route"}
-		stripped := SanitizeAgentRefinement(tc)
-		assert.Equal(t, []string{"mode"}, stripped)
-		assert.Equal(t, "", tc.Mode)
-	})
-
-	t.Run("strips both at once", func(t *testing.T) {
-		tc := &TurnContext{SelectedAgentID: "rogue", Mode: "route", Title: "kept"}
-		stripped := SanitizeAgentRefinement(tc)
-		assert.Equal(t, []string{"selectedAgentId", "mode"}, stripped)
-		assert.Equal(t, "", tc.SelectedAgentID)
-		assert.Equal(t, "", tc.Mode)
-		assert.Equal(t, "kept", tc.Title, "non-restricted fields untouched")
-	})
 }
 
 // TestResolveModel exercises the resolution order: explicit cfg.Model wins,

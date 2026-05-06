@@ -524,7 +524,7 @@ describe('chatStore/reducer — merge rule', () => {
             modelCallId: 'mc_intake',
             phase: 'intake',
             mode: 'router',
-            content: '{"clarificationNeeded":true}',
+            content: '{"mode":"clarify"}',
             status: 'completed',
             iteration: 0,
         } as SSEEvent));

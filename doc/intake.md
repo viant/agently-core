@@ -159,7 +159,7 @@ When an agent needs additional refinement beyond what workspace intake
 produces, declare an `intake:` block on the agent. The agent intake sidecar
 runs after agent resolution and overrides specific fields on the
 `TurnContext`. It **never** changes the selected agent — that contract is
-enforced in code by `intake.SanitizeAgentRefinement()`.
+enforced by keeping those fields out of agent-intake output handling.
 
 ```yaml
 # agent.yaml
@@ -211,12 +211,12 @@ There is no parallel "agent hints" struct.
 | `Source` (`workspace` / `agent` / `reused` / `caller-provided` / `fallback`) | sets to `workspace` | sets to `agent` | sets to `caller-provided` |
 | `Title`, `Intent`, `Context` | optional | optional | optional |
 | `SuggestedProfileId`, `TemplateId`, `ActivateSkills`, `AppendToolBundles` | optional | optional | optional |
-| `ClarificationNeeded`, `ClarificationQuestion` | optional | optional | optional |
+| no separate clarification field | ask directly | ask directly | ask directly |
 | `Confidence` | sets | optional | sets |
 
 The "agent never writes who/mode" rule is enforced at runtime — if agent
 intake's output sets `SelectedAgentID` or `Mode`, the runtime drops those
-fields and emits a diagnostic via `intake.SanitizeAgentRefinement()`.
+fields from the agent-intake path.
 
 ---
 

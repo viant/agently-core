@@ -262,7 +262,7 @@ func TestBuildCanonicalState_ReconstructsPlannerFailureStateFromTranscript(t *te
 
 func TestBuildCanonicalState_HidesIntakeRouterJSONUntilFinalResponse(t *testing.T) {
 	iteration := 0
-	routerJSON := `{"clarificationNeeded":true,"clarificationQuestion":"Which metric?"}`
+	routerJSON := `{"mode":"clarify"}`
 	mode := "router"
 	phase := "intake"
 	status := "completed"

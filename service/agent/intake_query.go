@@ -37,14 +37,14 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	// with Source = SourceCallerProvided. When present, skip the LLM call but
 	// still run the merge logic so AppendToolBundles, profile/template
 	// suggestions, etc. take effect uniformly across all skip paths.
-	if existing := intakesvc.FromContext(input.Context); existing != nil && existing.Source == intakesvc.SourceCallerProvided {
+	if existing := intakesvc.FromContext(input.Context); existing != nil && existing.Routing.Source == intakesvc.SourceCallerProvided {
 		logx.Infof("conversation", "intake.skipped.caller-provided convo=%q agent=%q selectedAgent=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),
-			strings.TrimSpace(existing.SelectedAgentID),
+			strings.TrimSpace(existing.Routing.SelectedAgentID),
 		)
 		applyTurnContext(input, existing, cfg)
-		s.maybeSetConversationTitle(ctx, input.ConversationID, existing.Title)
+		s.maybeSetConversationTitle(ctx, input.ConversationID, existing.Classification.Title)
 		return
 	}
 
@@ -81,13 +81,13 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	logx.Infof("conversation", "intake.done convo=%q agent=%q title=%q intent=%q confidence=%.2f profile=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
-		strings.TrimSpace(tc.Title),
-		strings.TrimSpace(tc.Intent),
-		tc.Confidence,
-		strings.TrimSpace(tc.SuggestedProfileId),
+		strings.TrimSpace(tc.Classification.Title),
+		strings.TrimSpace(tc.Classification.Intent),
+		tc.Classification.Confidence,
+		strings.TrimSpace(tc.Prompting.SuggestedProfileID),
 	)
 	applyTurnContext(input, tc, cfg)
-	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Title)
+	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
 }
 
 func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmdl.Intake) {
@@ -97,7 +97,7 @@ func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryIn
 	if !cfg.HasScope(agentmdl.IntakeScopeProfile) {
 		return
 	}
-	suggested := strings.TrimSpace(tc.SuggestedProfileId)
+	suggested := strings.TrimSpace(tc.Prompting.SuggestedProfileID)
 	if suggested == "" {
 		return
 	}
@@ -109,8 +109,8 @@ func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryIn
 		strings.TrimSpace(input.Agent.ID),
 		suggested,
 	)
-	tc.SuggestedProfileId = ""
-	tc.Confidence = 0
+	tc.Prompting.SuggestedProfileID = ""
+	tc.Classification.Confidence = 0
 }
 
 func (s *Service) isAllowedIntakePromptProfile(ctx context.Context, input *QueryInput, profileID string) bool {
@@ -318,48 +318,36 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 		input.Context = make(map[string]interface{})
 	}
 
-	if existing, ok := input.Context[intakesvc.ContextKey].(*intakesvc.TurnContext); ok && existing != nil && existing.Source == intakesvc.SourceWorkspace {
-		tc.Mode = existing.Mode
-		tc.PlannerTrigger = existing.PlannerTrigger
-		tc.PlannerAgentID = existing.PlannerAgentID
-		tc.SelectedAgentID = existing.SelectedAgentID
-		tc.Source = existing.Source
+	if existing, ok := input.Context[intakesvc.ContextKey].(*intakesvc.TurnContext); ok && existing != nil && existing.Routing.Source == intakesvc.SourceWorkspace {
+		tc.Routing.Mode = existing.Routing.Mode
+		tc.Planner.Trigger = existing.Planner.Trigger
+		tc.Planner.AgentID = existing.Planner.AgentID
+		tc.Routing.SelectedAgentID = existing.Routing.SelectedAgentID
+		tc.Routing.Source = existing.Routing.Source
 	}
 
 	// Always store the full context under the well-known key.
 	input.Context[intakesvc.ContextKey] = tc
 
 	// Surface title for conversation labelling.
-	if t := strings.TrimSpace(tc.Title); t != "" {
+	if t := strings.TrimSpace(tc.Classification.Title); t != "" {
 		input.Context["intake.title"] = t
 	}
 
 	// Merge intake context into QueryInput.Context so templates and routing can
 	// access normalized scope hints without treating them as authoritative data.
-	if len(tc.Context) > 0 {
-		for k, v := range tc.Context {
+	if len(tc.Scope.Values) > 0 {
+		for k, v := range tc.Scope.Values {
 			input.Context["intake.context."+k] = v
 		}
-		input.Context["intake.context"] = tc.Context
+		input.Context["intake.context"] = tc.Scope.Values
 		// Backward-compatible alias for existing templates/workspaces.
-		input.Context["intake.entities"] = tc.Context
-	}
-
-	// Class A: surface clarification signal so templates and downstream
-	// handlers can see when the request is too ambiguous to act on. Stored
-	// under explicit context keys rather than left inside the TurnContext
-	// struct, because templates that only poke `input.Context` would
-	// otherwise miss it.
-	if cfg.HasScope(agentmdl.IntakeScopeClarification) && tc.ClarificationNeeded {
-		input.Context["intake.clarificationNeeded"] = true
-		if q := strings.TrimSpace(tc.ClarificationQuestion); q != "" {
-			input.Context["intake.clarificationQuestion"] = q
-		}
+		input.Context["intake.entities"] = tc.Scope.Values
 	}
 
 	// Class B: append tool bundles suggested by the sidecar.
-	if cfg.HasScope(agentmdl.IntakeScopeTools) && len(tc.AppendToolBundles) > 0 {
-		input.ToolBundles = append(input.ToolBundles, tc.AppendToolBundles...)
+	if cfg.HasScope(agentmdl.IntakeScopeTools) && len(tc.Prompting.AppendToolBundles) > 0 {
+		input.ToolBundles = append(input.ToolBundles, tc.Prompting.AppendToolBundles...)
 	}
 
 	// Class B: apply template suggestion. The context entry remains for
@@ -367,7 +355,7 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 	// applySelectedTemplate actually reads — when the caller has not
 	// already chosen a template. Never overwrite an explicit caller choice.
 	if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
-		if id := strings.TrimSpace(tc.TemplateId); id != "" {
+		if id := strings.TrimSpace(tc.Prompting.TemplateID); id != "" {
 			input.Context["intake.templateId"] = id
 			if strings.TrimSpace(input.TemplateId) == "" {
 				input.TemplateId = id
@@ -379,11 +367,11 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 	// Profile selection is explicit turn state. We record it for observability
 	// and populate QueryInput.PromptProfileId when the caller did not already
 	// choose one.
-	if cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.SuggestedProfileId) != "" {
-		if tc.Confidence >= cfg.EffectiveConfidenceThreshold() {
-			suggested := strings.TrimSpace(tc.SuggestedProfileId)
+	if cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.Prompting.SuggestedProfileID) != "" {
+		if tc.Classification.Confidence >= cfg.EffectiveConfidenceThreshold() {
+			suggested := strings.TrimSpace(tc.Prompting.SuggestedProfileID)
 			input.Context["intake.suggestedProfileId"] = suggested
-			input.Context["intake.suggestedProfileConfidence"] = tc.Confidence
+			input.Context["intake.suggestedProfileConfidence"] = tc.Classification.Confidence
 			if strings.TrimSpace(input.PromptProfileId) == "" {
 				input.PromptProfileId = suggested
 			}
