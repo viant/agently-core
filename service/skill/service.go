@@ -23,12 +23,13 @@ import (
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	agruntime "github.com/viant/agently-core/runtime"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	skillrepo "github.com/viant/agently-core/workspace/repository/skill"
 )
 
-const Name = "llm/skills"
+const Name = skillproto.ServiceName
 
 type activationModeOverrideKey struct{}
 
@@ -682,12 +683,14 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 		"agent":         targetAgent,
 		"objective":     s.delegatedSkillObjective(ctx, item.Frontmatter.Name, args),
 		"executionMode": mode,
-		"context": map[string]interface{}{
-			"skillActivationName":     strings.TrimSpace(item.Frontmatter.Name),
-			"skillActivationMode":     mode,
-			"skillActivationArgs":     strings.TrimSpace(args),
-			"skillActivationBody":     strings.TrimSpace(loadedBody),
-			"skillActivationEmbedded": true,
+		"runtime": &agruntime.Context{
+			SkillActivation: &skillproto.ActivationContext{
+				Name:     strings.TrimSpace(item.Frontmatter.Name),
+				Mode:     mode,
+				Args:     strings.TrimSpace(args),
+				Body:     strings.TrimSpace(loadedBody),
+				Embedded: true,
+			},
 		},
 	}
 	nestedCall, _ := s.startNestedToolCall(ctx, "llm/agents:start", startPayload)
@@ -1392,12 +1395,7 @@ func ActiveSkillsFromHistory(history *binding.History) []string {
 			if msg == nil || msg.Kind != binding.MessageKindToolResult {
 				continue
 			}
-			if !strings.EqualFold(strings.TrimSpace(msg.ToolName), "llm/skills:activate") &&
-				!strings.EqualFold(strings.TrimSpace(msg.ToolName), "llm/skills/activate") &&
-				!strings.EqualFold(strings.TrimSpace(msg.ToolName), "llm/skills-activate") &&
-				!strings.EqualFold(strings.TrimSpace(msg.ToolName), "llm_skills-activate") &&
-				!strings.EqualFold(strings.TrimSpace(msg.ToolName), "llm_skills/activate") &&
-				!strings.EqualFold(strings.TrimSpace(msg.ToolName), "llm_skills:activate") {
+			if !strings.EqualFold(strings.TrimSpace(mcpname.Canonical(msg.ToolName)), skillproto.ActivateToolNameCanonical) {
 				if strings.EqualFold(strings.TrimSpace(msg.ToolName), "resources:read") ||
 					strings.EqualFold(strings.TrimSpace(msg.ToolName), "resources/read") ||
 					strings.EqualFold(strings.TrimSpace(msg.ToolName), "resources-read") {

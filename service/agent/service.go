@@ -274,7 +274,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 			}
 			qi.AutoSelected = dec.AutoSelected
 			qi.RoutingReason = strings.TrimSpace(dec.RoutingReason)
-			applyWorkspaceTurnContext(qi, dec, ag)
+			applyWorkspaceIntakeContext(qi, dec, ag)
 			if pErr := srv.maybeRunPlannerPass(ctx, qi); pErr != nil {
 				return nil, pErr
 			}

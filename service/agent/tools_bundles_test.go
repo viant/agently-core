@@ -20,6 +20,8 @@ import (
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
 type fakeRegistry struct {
@@ -45,6 +47,17 @@ func matchPattern(pattern, name string) bool {
 	if strings.TrimSpace(pattern) == "" {
 		return false
 	}
+	raw := strings.TrimSpace(pattern)
+	switch {
+	case strings.HasSuffix(raw, "/*"):
+		root := strings.TrimSuffix(raw, "/*")
+		service := mcpname.Name(mcpname.Canonical(name)).Service()
+		return service == root || strings.HasPrefix(service, root+"/")
+	case strings.HasSuffix(raw, ":*"):
+		root := strings.TrimSuffix(raw, ":*")
+		service := mcpname.Name(mcpname.Canonical(name)).Service()
+		return service == root
+	}
 	pcanon := canon(pattern)
 	ncanon := canon(name)
 	if pcanon == "*" {
@@ -58,7 +71,6 @@ func matchPattern(pattern, name string) bool {
 		return strings.HasPrefix(ncanon, prefix)
 	}
 	// service-only pattern
-	raw := strings.TrimSpace(pattern)
 	if raw != "" && !strings.Contains(raw, ":") && !strings.Contains(raw, "*") {
 		return strings.HasPrefix(ncanon, pcanon)
 	}
@@ -70,7 +82,7 @@ func canon(s string) string {
 	if s == "" {
 		return ""
 	}
-	return strings.ReplaceAll(mcpname.Canonical(s), "-", "_")
+	return mcpname.Canonical(s)
 }
 
 func (r *fakeRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
@@ -126,7 +138,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/exec:execute"},
 				{Name: "system/os:getEnv"},
 			},
-			expectNames: []string{"resources:list", "resources:read", "system/exec:execute", "system/os:getEnv"},
+			expectNames: []string{canon("resources:list"), canon("resources:read"), canon("system/exec:execute"), canon("system/os:getEnv")},
 		},
 		{
 			name: "agent_bundle_selection_used_when_no_runtime_override",
@@ -146,7 +158,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/exec:execute"},
 				{Name: "system/os:getEnv"},
 			},
-			expectNames: []string{"system/exec:execute", "system/os:getEnv"},
+			expectNames: []string{canon("system/exec:execute"), canon("system/os:getEnv")},
 		},
 		{
 			name: "empty_tools_allowed_does_not_disable_bundle_resolution",
@@ -166,7 +178,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/exec:execute"},
 				{Name: "system/os:getEnv"},
 			},
-			expectNames: []string{"system/exec:execute", "system/os:getEnv"},
+			expectNames: []string{canon("system/exec:execute"), canon("system/os:getEnv")},
 		},
 		{
 			name: "explicit_tools_allowed_override_agent_bundles",
@@ -186,7 +198,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/exec:execute"},
 				{Name: "system/os:getEnv"},
 			},
-			expectNames: []string{"system/os:getEnv"},
+			expectNames: []string{canon("system/os:getEnv")},
 		},
 		{
 			name: "analyst_bundle_matches_colon_registry_names",
@@ -207,7 +219,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "analyst:SaveDecision"},
 				{Name: "llm/agents:run"},
 			},
-			expectNames: []string{"analyst:ResourceTree", "analyst:SaveDecision"},
+			expectNames: []string{canon("analyst:ResourceTree"), canon("analyst:SaveDecision")},
 		},
 		{
 			name: "service_style_bundle_id_falls_back_to_direct_definition_match",
@@ -219,7 +231,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/exec:execute"},
 				{Name: "system/os:getEnv"},
 			},
-			expectNames: []string{"system/exec:execute"},
+			expectNames: []string{canon("system/exec:execute")},
 		},
 		{
 			name: "default_system_patch_bundle_excludes_commit_and_rollback",
@@ -234,7 +246,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "system/patch:commit"},
 				{Name: "system/patch:rollback"},
 			},
-			expectNames: []string{"system/patch:apply", "system/patch:replace", "system/patch:snapshot"},
+			expectNames: []string{canon("system/patch:apply"), canon("system/patch:replace"), canon("system/patch:snapshot")},
 		},
 		{
 			name: "default_scratchpad_bundle_exposes_memory_tools",
@@ -249,7 +261,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "scratchpad:fetch"},
 				{Name: "system/patch:apply"},
 			},
-			expectNames: []string{"scratchpad:append", "scratchpad:fetch", "scratchpad:list", "scratchpad:memorize"},
+			expectNames: []string{canon("scratchpad:append"), canon("scratchpad:fetch"), canon("scratchpad:list"), canon("scratchpad:memorize")},
 		},
 	}
 
@@ -306,19 +318,38 @@ func TestResolveBundleDefinitions_WithPromptApprovalBundle(t *testing.T) {
 	}
 }
 
-func TestSelectedBundleIDs_MergesAgentAndRuntimeBundles(t *testing.T) {
-	actual := selectedBundleIDs(&QueryInput{
-		ToolBundles: []string{"analyst-performance-tools", "analyst-baseline"},
+func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T) {
+	tmpDir := t.TempDir()
+	promptDir := filepath.Join(tmpDir, "prompts")
+	require.NoError(t, os.MkdirAll(promptDir, 0o755))
+	profileBody := []byte("id: repo_analysis\nname: Repository Analysis\ndescription: repo analysis profile\ntoolBundles:\n  - profile-tools\nmessages:\n  - role: system\n    text: Delegate repository analysis first.\n")
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "repo_analysis.yaml"), profileBody, 0o644))
+
+	svc := &Service{
+		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+	}
+	actual, err := svc.resolveToolControl(context.Background(), &QueryInput{
+		PromptProfileId: "repo_analysis",
+		ToolBundles:     []string{"analyst-performance-tools", "analyst-baseline"},
 		Agent: &agentmdl.Agent{
+			Skills: []string{"forecast"},
 			Tool: agentmdl.Tool{
 				Bundles: []string{"orchestrator"},
+				Items: []*llm.Tool{
+					{Name: "system/os:getEnv"},
+				},
 			},
 		},
 	})
 
+	require.NoError(t, err)
 	assert.EqualValues(t,
-		[]string{"orchestrator", "analyst-performance-tools", "analyst-baseline"},
-		actual,
+		[]string{"orchestrator", "profile-tools", "analyst-performance-tools", "analyst-baseline"},
+		actual.Bundles,
+	)
+	assert.EqualValues(t,
+		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:activate")},
+		actual.Tools,
 	)
 }
 
@@ -370,7 +401,7 @@ body
 		got = append(got, tool.Definition.Name)
 	}
 	sort.Strings(got)
-	assert.EqualValues(t, []string{"llm/skills:activate", "llm/skills:list", "prompt:list"}, got)
+	assert.EqualValues(t, []string{canon("llm/skills:activate"), canon("llm/skills:list"), canon("prompt:list")}, got)
 }
 
 func TestResolveTools_DoesNotExposeSkillControlToolsWhenNoVisibleSkills(t *testing.T) {
@@ -401,5 +432,5 @@ func TestResolveTools_DoesNotExposeSkillControlToolsWhenNoVisibleSkills(t *testi
 	for _, tool := range actual {
 		got = append(got, tool.Definition.Name)
 	}
-	assert.EqualValues(t, []string{"prompt:list"}, got)
+	assert.EqualValues(t, []string{canon("prompt:list")}, got)
 }

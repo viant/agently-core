@@ -21,6 +21,7 @@ import (
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -613,8 +614,7 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 }
 
 func isSkillActivateTool(name string) bool {
-	name = strings.TrimSpace(name)
-	return name == "llm/skills:activate" || name == "llm/skills/activate" || name == "llm/skills-activate"
+	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(name)), skillproto.ActivateToolNameCanonical)
 }
 
 // promptToolApproval creates an inline elicitation for prompt-mode approval and

@@ -17,6 +17,7 @@ import (
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	agruntime "github.com/viant/agently-core/runtime"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
 
@@ -193,6 +194,7 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 		// Also terminalize the stale active turn before resuming. If the old turn
 		// remains `running`, agent.Query will treat it as an active turn and queue
 		// the recovery behind it instead of taking over the stale work.
+		var resumeSkillContext *agruntime.Context
 		if w.agent != nil && w.agent.conversation != nil && w.data != nil {
 			active, err := w.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
 				ConversationID: conversationID,
@@ -202,6 +204,7 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 				return fmt.Errorf("load active turn for stale run: %w", err)
 			}
 			if active != nil && strings.TrimSpace(active.Id) != "" {
+				resumeSkillContext = loadInlineSkillContextForTurn(ctx, w.agent.conversation, conversationID, strings.TrimSpace(active.Id))
 				upd := apiconv.NewTurn()
 				upd.SetId(strings.TrimSpace(active.Id))
 				upd.SetStatus("failed")
@@ -228,6 +231,9 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			MessageID:      newRunID,
 			UserId:         resumeUserID,
 			Query:          "", // continue existing conversation
+		}
+		if resumeSkillContext != nil {
+			input.Runtime = resumeSkillContext
 		}
 		// Resume query asynchronously with bounded concurrency so the watchdog can
 		// continue sweeping newer stale runs without reopening the old

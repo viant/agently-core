@@ -56,10 +56,10 @@ const (
 	// connection count — an unbounded pool (Go's default) produces
 	// prepare-storms under bursty load, surfacing as "context canceled"
 	// errors when the client ctx expires before the driver can compile
-	// a statement. 4 is a conservative sweet spot: enough reader
-	// parallelism in WAL mode, low enough to avoid lock churn.
-	defaultSQLiteMaxOpenConns = 4
-	defaultSQLiteMaxIdleConns = 4
+	// a statement. 8 gives more headroom for concurrent read-heavy auth /
+	// transcript / approval polling paths while still keeping SQLite bounded.
+	defaultSQLiteMaxOpenConns = 8
+	defaultSQLiteMaxIdleConns = 8
 )
 
 // applySQLitePoolDefaults configures the datly Connector with a

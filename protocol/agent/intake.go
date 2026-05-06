@@ -19,7 +19,7 @@ type Intake struct {
 	// without forking the generic classifier instructions.
 	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 
-	// Scope lists which TurnContext fields the sidecar is allowed to populate.
+	// Scope lists which intake Context fields the sidecar is allowed to populate.
 	// Class A fields (safe for any agent): title, context, intent, clarification.
 	// Class B fields (orchestrators only, opt-in): profile, tools, template.
 	// When empty, defaults to Class A only.

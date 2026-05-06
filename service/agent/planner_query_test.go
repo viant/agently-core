@@ -125,7 +125,7 @@ func TestQuery_PlannerSuccessRunsTwoModelPassesAndCarriesPlannerDocs(t *testing.
 			Template:       agentmdl.Template{Bundles: []string{"analytics-templates"}},
 		},
 		Context: map[string]any{
-			intakesvc.ContextKey: &intakesvc.TurnContext{
+			intakesvc.ContextKey: &intakesvc.Context{
 				Routing: intakesvc.RoutingContext{
 					Mode:            intakesvc.ModePlanner,
 					SelectedAgentID: "coder",
@@ -210,7 +210,7 @@ func TestQuery_PlannerClarifyShortCircuitsBeforeExecutionPass(t *testing.T) {
 			Intake:         agentmdl.Intake{PlannerSecondFailurePolicy: "clarify"},
 		},
 		Context: map[string]any{
-			intakesvc.ContextKey: &intakesvc.TurnContext{
+			intakesvc.ContextKey: &intakesvc.Context{
 				Routing: intakesvc.RoutingContext{
 					Mode:            intakesvc.ModePlanner,
 					SelectedAgentID: "coder",

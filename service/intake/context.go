@@ -27,10 +27,10 @@ type PlannerContext struct {
 	AgentID string `json:"agentId,omitempty"`
 }
 
-// TurnContext is the structured output of intake. It is grouped by feature
+// Context is the structured output of intake. It is grouped by feature
 // area so routing, scope extraction, prompting hints, and planner state do not
 // bleed together as unrelated top-level keys.
-type TurnContext struct {
+type Context struct {
 	Classification ClassificationContext `json:"classification,omitempty"`
 	Scope          ScopeContext          `json:"scope,omitempty"`
 	Prompting      PromptingContext      `json:"prompting,omitempty"`
@@ -38,10 +38,10 @@ type TurnContext struct {
 	Planner        PlannerContext        `json:"planner,omitempty"`
 }
 
-// ContextKey is the key used to store TurnContext in QueryInput.Context.
+// ContextKey is the key used to store Context in QueryInput.Context.
 const ContextKey = "intake.turnContext"
 
-// Source values for TurnContext.Source. Centralized so the runtime, intake
+// Source values for Context.Source. Centralized so the runtime, intake
 // services, and observability subscribers all reference the same constants.
 const (
 	SourceWorkspace      = "workspace"
@@ -51,24 +51,24 @@ const (
 	SourceFallback       = "fallback"
 )
 
-// Mode values for TurnContext.Mode. Workspace intake's classification result.
+// Mode values for Context.Mode. Workspace intake's classification result.
 const (
 	ModeRoute   = "route"
 	ModeClarify = "clarify"
 	ModePlanner = "planner"
 )
 
-// StoreCallerProvided records a caller-supplied TurnContext into the QueryInput
+// StoreCallerProvided records a caller-supplied Context into the QueryInput
 // context map under the well-known ContextKey. The stored value is a copy
 // (so later mutation of the caller's struct does not race with the runtime),
 // annotated with Source = SourceCallerProvided. The runtime's intake skip
-// rule then sees a non-nil TurnContext under the key and bypasses the
+// rule then sees a non-nil Context under the key and bypasses the
 // intake-sidecar LLM call (see service/agent/intake_query.go).
 //
 // ctxMap is the QueryInput.Context map (lazy-initialized when nil). Returns
 // the resulting (possibly newly-allocated) map and a pointer to the stored
 // copy.
-func StoreCallerProvided(ctxMap map[string]any, override *TurnContext) (map[string]any, *TurnContext) {
+func StoreCallerProvided(ctxMap map[string]any, override *Context) (map[string]any, *Context) {
 	if override == nil {
 		return ctxMap, nil
 	}
@@ -81,9 +81,9 @@ func StoreCallerProvided(ctxMap map[string]any, override *TurnContext) (map[stri
 	return ctxMap, &tc
 }
 
-// FromContext retrieves a TurnContext previously stored under ContextKey.
+// FromContext retrieves a Context previously stored under ContextKey.
 // Returns nil when missing or the stored value has the wrong type.
-func FromContext(ctxMap map[string]any) *TurnContext {
+func FromContext(ctxMap map[string]any) *Context {
 	if len(ctxMap) == 0 {
 		return nil
 	}
@@ -92,9 +92,9 @@ func FromContext(ctxMap map[string]any) *TurnContext {
 		return nil
 	}
 	switch tc := v.(type) {
-	case *TurnContext:
+	case *Context:
 		return tc
-	case TurnContext:
+	case Context:
 		out := tc
 		return &out
 	}

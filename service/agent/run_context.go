@@ -73,12 +73,13 @@ func ensureResolvedWorkdir(input *QueryInput) string {
 	if input == nil {
 		return ""
 	}
-	if input.Context == nil {
-		input.Context = map[string]interface{}{}
+	if existing := runtimeResolvedWorkdir(input); existing != "" {
+		setVisibleResolvedWorkdir(input, existing)
+		return existing
 	}
 	if existing := normalizeWorkdirValue(input.Context["workdir"]); existing != "" {
-		input.Context["workdir"] = existing
-		input.Context["resolvedWorkdir"] = existing
+		setVisibleResolvedWorkdir(input, existing)
+		setRuntimeResolvedWorkdir(input, existing)
 		return existing
 	}
 	candidates := []string{}
@@ -88,14 +89,14 @@ func ensureResolvedWorkdir(input *QueryInput) string {
 	candidates = append(candidates, extractPathCandidates(input.Query)...)
 	for _, candidate := range candidates {
 		if resolved := resolveExistingWorkdir(candidate); resolved != "" {
-			input.Context["workdir"] = resolved
-			input.Context["resolvedWorkdir"] = resolved
+			setVisibleResolvedWorkdir(input, resolved)
+			setRuntimeResolvedWorkdir(input, resolved)
 			return resolved
 		}
 	}
 	if root := resolveExistingWorkdir(workspace.Root()); root != "" {
-		input.Context["workdir"] = root
-		input.Context["resolvedWorkdir"] = root
+		setVisibleResolvedWorkdir(input, root)
+		setRuntimeResolvedWorkdir(input, root)
 		return root
 	}
 	return ""
@@ -179,22 +180,32 @@ func (s *Service) ensureEnvironment(ctx context.Context, input *QueryInput) erro
 }
 
 func (s *Service) bindAuthFromInputContext(ctx context.Context, input *QueryInput) context.Context {
-	if input == nil || input.Context == nil {
+	if input == nil {
+		return ctx
+	}
+	if token := runtimeBearerToken(input); token != "" {
+		return authctx.WithBearer(ctx, token)
+	}
+	if input.Context == nil {
 		return ctx
 	}
 	if v, ok := input.Context["authorization"].(string); ok && strings.TrimSpace(v) != "" {
 		if tok := extractBearer(v); tok != "" {
-			ctx = authctx.WithBearer(ctx, tok)
+			setRuntimeBearerToken(input, tok)
+			return authctx.WithBearer(ctx, tok)
 		}
 	}
 	if v, ok := input.Context["authToken"].(string); ok && strings.TrimSpace(v) != "" {
-		ctx = authctx.WithBearer(ctx, v)
+		setRuntimeBearerToken(input, v)
+		return authctx.WithBearer(ctx, v)
 	}
 	if v, ok := input.Context["token"].(string); ok && strings.TrimSpace(v) != "" {
-		ctx = authctx.WithBearer(ctx, v)
+		setRuntimeBearerToken(input, v)
+		return authctx.WithBearer(ctx, v)
 	}
 	if v, ok := input.Context["bearer"].(string); ok && strings.TrimSpace(v) != "" {
-		ctx = authctx.WithBearer(ctx, v)
+		setRuntimeBearerToken(input, v)
+		return authctx.WithBearer(ctx, v)
 	}
 	return ctx
 }

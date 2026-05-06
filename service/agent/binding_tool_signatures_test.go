@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	skillproto "github.com/viant/agently-core/protocol/skill"
@@ -70,7 +71,7 @@ func TestService_BuildToolSignatures_WithBundles(t *testing.T) {
 				{Name: "system/os:getEnv"},
 				{Name: "resources:read"},
 			},
-			expectNames: []string{"system_exec-execute", "system_os-getEnv"},
+			expectNames: []string{mcpname.Canonical("system/exec:execute"), mcpname.Canonical("system/os:getEnv")},
 		},
 		{
 			name: "no_tool_config_returns_empty",

@@ -15,6 +15,7 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/agent/prompts"
+	agenttool "github.com/viant/agently-core/service/agent/tool"
 	"github.com/viant/agently-core/service/core"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
@@ -72,7 +73,7 @@ func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) er
 	return s.persistPlannerGuidance(ctx, &turn, input, out, pctx, payloadID)
 }
 
-func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *intakesvc.TurnContext) (*planner.Output, *planner.PlannerContext, error) {
+func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *intakesvc.Context) (*planner.Output, *planner.PlannerContext, error) {
 	if s == nil || s.llm == nil {
 		return nil, nil, fmt.Errorf("planner pass: llm service not configured")
 	}
@@ -294,7 +295,7 @@ func (s *Service) appendPlannerControlDoc(ctx context.Context, b *binding.Bindin
 	return nil
 }
 
-func (s *Service) resolvePlannerExecutionInput(ctx context.Context, input *QueryInput, tc *intakesvc.TurnContext) (*agentmdl.Agent, *QueryInput, error) {
+func (s *Service) resolvePlannerExecutionInput(ctx context.Context, input *QueryInput, tc *intakesvc.Context) (*agentmdl.Agent, *QueryInput, error) {
 	if input == nil || input.Agent == nil {
 		return nil, nil, fmt.Errorf("planner pass: execution agent is required")
 	}
@@ -607,7 +608,7 @@ func (s *Service) applyPlannerOutput(input *QueryInput, out *planner.Output, pct
 		return
 	}
 	if len(out.ToolBundles) > 0 {
-		input.ToolBundles = normalizeStringList(append(input.ToolBundles, out.ToolBundles...))
+		input.ToolBundles = agenttool.NormalizeBundleNames(append(input.ToolBundles, out.ToolBundles...))
 	}
 	if id := strings.TrimSpace(out.TemplateID); id != "" && strings.TrimSpace(input.TemplateId) == "" {
 		input.TemplateId = id

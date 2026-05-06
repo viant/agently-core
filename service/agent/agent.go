@@ -53,14 +53,14 @@ func presetAssistantFromContext(ctx map[string]any) (text, kind string) {
 	return text, kind
 }
 
-func applyWorkspaceTurnContext(qi *QueryInput, dec *routingDecision, agent *agentmdl.Agent) {
-	if qi == nil || dec == nil || dec.WorkspaceTurnContext == nil {
+func applyWorkspaceIntakeContext(qi *QueryInput, dec *routingDecision, agent *agentmdl.Agent) {
+	if qi == nil || dec == nil || dec.WorkspaceIntakeContext == nil {
 		return
 	}
 	if qi.Context == nil {
 		qi.Context = make(map[string]any)
 	}
-	copy := *dec.WorkspaceTurnContext
+	copy := *dec.WorkspaceIntakeContext
 	if copy.Routing.Mode == intakesvc.ModePlanner && agent != nil && strings.TrimSpace(copy.Planner.AgentID) == "" {
 		copy.Planner.AgentID = strings.TrimSpace(agent.Intake.PlannerAgentID)
 	}
@@ -120,7 +120,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				return fmt.Errorf("failed to load agent: %w", err)
 			}
 			qi.Agent = a
-			applyWorkspaceTurnContext(qi, decision, a)
+			applyWorkspaceIntakeContext(qi, decision, a)
 			if isCapabilityAgentID(agentID) {
 				autoTools := false
 				qi.AutoSelectTools = &autoTools

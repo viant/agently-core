@@ -9,6 +9,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/binding"
+	agruntime "github.com/viant/agently-core/runtime"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/runtime/usage"
 )
@@ -50,6 +51,7 @@ type QueryInput struct {
 	// not explicitly provide tools or bundles.
 	AutoSelectTools *bool                  `json:"autoSelectTools,omitempty"`
 	Context         map[string]interface{} `json:"context,omitempty"`
+	Runtime         *agruntime.Context     `json:"runtime,omitempty"`
 	// ModelPreferences optionally overrides or hints model selection
 	// preferences for this turn. When nil, the agent's configured
 	// ModelSelection.Preferences are used.

@@ -25,7 +25,6 @@ import (
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	bindpkg "github.com/viant/agently-core/protocol/binding"
-	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
@@ -468,43 +467,6 @@ func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, chang
 	return !terminalContentReady
 }
 
-func skillActivationModeOverride(input *QueryInput, skillName string) string {
-	if input == nil || input.Context == nil {
-		return ""
-	}
-	overrideName, _ := input.Context["skillActivationName"].(string)
-	if !strings.EqualFold(strings.TrimSpace(overrideName), strings.TrimSpace(skillName)) {
-		return ""
-	}
-	overrideMode, _ := input.Context["skillActivationMode"].(string)
-	return strings.TrimSpace(overrideMode)
-}
-
-func skillActivationOverridePair(input *QueryInput) (string, string) {
-	if input == nil || input.Context == nil {
-		return "", ""
-	}
-	name, _ := input.Context["skillActivationName"].(string)
-	mode, _ := input.Context["skillActivationMode"].(string)
-	return strings.TrimSpace(name), strings.TrimSpace(mode)
-}
-
-func preactivatedSkillPayload(input *QueryInput) (string, string, string, bool) {
-	if input == nil || input.Context == nil {
-		return "", "", "", false
-	}
-	name, _ := input.Context["skillActivationName"].(string)
-	body, _ := input.Context["skillActivationBody"].(string)
-	args, _ := input.Context["skillActivationArgs"].(string)
-	name = strings.TrimSpace(name)
-	body = strings.TrimSpace(body)
-	args = strings.TrimSpace(args)
-	if name == "" || body == "" {
-		return "", "", "", false
-	}
-	return name, args, body, true
-}
-
 func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 	if len(input.ToolsAllowed) > 0 {
 		return &tool.Policy{Mode: tool.ModeAuto, AllowList: input.ToolsAllowed}
@@ -644,26 +606,24 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			queryOutput.lastTaskCheckpoint = checkpoint
 		}
 		logx.Infof("conversation", "agent.runPlan iter start convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
-		binding, bErr := s.BuildBinding(ctx, input)
+		iterCtx := withLoopHistoryMessages(ctx, iterHistoryMsgs)
+		bindingStart := time.Now()
+		binding, bErr := s.BuildBinding(iterCtx, input)
 		if bErr != nil {
 			return bErr
 		}
+		logx.Infof("conversation", "agent.runPlan iter binding ready convo=%q turn_id=%q iter=%d binding_elapsed=%s total_elapsed=%s",
+			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(bindingStart), time.Since(iterStart))
 		appendRuntimeClockSystemDocument(binding, time.Now())
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
-		overrideName, overrideMode := skillActivationOverridePair(input)
+		activeState := activeInlineSkillState{}
 		activeNames := []string(nil)
 		if s.skillSvc != nil {
-			activeNames = resolveActiveSkillNames(&binding.History, input, s.skillSvc, input.Agent, overrideName, overrideMode)
-			activeNames = mergeActiveSkillNames(activeNames, activeInlineSkillNames)
+			activeState = resolveActiveInlineSkillState(&binding.History, input, s.skillSvc, input.Agent)
+			activeNames = mergeActiveSkillNames(activeState.Names, activeInlineSkillNames)
 		}
 		if s.skillSvc != nil && input.Agent != nil {
 			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
-		}
-		if s.skillSvc != nil {
-			if len(activeNames) > 0 {
-				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
-				binding.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(binding.Tools.Signatures, s.registry, activeSkills)
-			}
 		}
 		keys := []string{}
 		for k := range binding.Context {
@@ -679,11 +639,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		} else {
 			if input.ModelOverride != "" {
 				modelSelection.Model = input.ModelOverride
-				if input.Context != nil {
-					if v, ok := input.Context["modelSource"].(string); ok && strings.TrimSpace(v) != "" {
-						modelSource = strings.TrimSpace(v)
-					}
-				}
+				modelSource = runtimeModelSource(input)
 				if modelSource == "" {
 					modelSource = "query.modelOverride"
 				}
@@ -729,6 +685,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			modelSelection.Options.Metadata = map[string]interface{}{}
 		}
 		if modelSource != "" {
+			setRuntimeModelSource(input, modelSource)
 			modelSelection.Options.Metadata["modelSource"] = modelSource
 		}
 		if s.defaults != nil {
@@ -743,13 +700,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		// activeSkill is hoisted out of the `if s.skillSvc != nil` block
 		// so downstream resolvers (e.g. the async narrator system-prompt
 		// ladder) can inspect it without re-running skill discovery.
-		var activeSkill *skillproto.Skill
+		activeSkill := activeState.Primary
 		if s.skillSvc != nil {
 			if len(activeNames) > 0 {
-				activeSkills := s.skillSvc.VisibleSkillsByName(input.Agent, activeNames)
-				if len(activeSkills) > 0 {
-					activeSkill = activeSkills[0]
-				}
 				if input.ModelOverride == "" && activeSkill != nil && strings.TrimSpace(activeSkill.Frontmatter.ModelValue()) != "" {
 					if _, err := s.llm.ModelFinder().Find(ctx, strings.TrimSpace(activeSkill.Frontmatter.ModelValue())); err == nil {
 						modelSelection.Model = strings.TrimSpace(activeSkill.Frontmatter.ModelValue())
@@ -858,6 +811,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				genInput.ModelSelection.Options.Reasoning.Effort = v
 			}
 		}
+		logx.Infof("conversation", "agent.runPlan iter pre-orchestrator ready convo=%q turn_id=%q iter=%d total_elapsed=%s model=%q",
+			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart), strings.TrimSpace(genInput.ModelSelection.Model))
 		// Narrator system-prompt resolution ladder (lowest precedence
 		// to highest):
 		//

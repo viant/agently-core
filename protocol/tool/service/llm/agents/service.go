@@ -18,6 +18,7 @@ import (
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	toolreg "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	agruntime "github.com/viant/agently-core/runtime"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -766,21 +767,22 @@ func setDelegationDepth(ctx map[string]interface{}, agentID string, depth int) m
 	return ctx
 }
 
-func inheritDelegatedContext(ctx context.Context, child map[string]interface{}) map[string]interface{} {
-	if child == nil {
-		child = map[string]interface{}{}
+func inheritDelegatedRuntime(ctx context.Context, rt *agruntime.Context) *agruntime.Context {
+	if rt == nil {
+		rt = &agruntime.Context{}
 	}
-	if _, ok := child["workdir"]; !ok {
-		if workdir, ok := toolexec.WorkdirFromContext(ctx); ok && strings.TrimSpace(workdir) != "" {
-			child["workdir"] = strings.TrimSpace(workdir)
-		}
+	if strings.TrimSpace(rt.ResolvedWorkdir) != "" || strings.TrimSpace(rt.Workdir) != "" {
+		return rt
 	}
-	if _, ok := child["resolvedWorkdir"]; !ok {
-		if workdir, ok := child["workdir"].(string); ok && strings.TrimSpace(workdir) != "" {
-			child["resolvedWorkdir"] = strings.TrimSpace(workdir)
-		}
+	if workdir, ok := toolexec.WorkdirFromContext(ctx); ok && strings.TrimSpace(workdir) != "" {
+		rt.Workdir = strings.TrimSpace(workdir)
+		rt.ResolvedWorkdir = strings.TrimSpace(workdir)
 	}
-	return child
+	return rt
+}
+
+func projectRuntimeIntoDelegatedContext(rt *agruntime.Context, child map[string]interface{}) map[string]interface{} {
+	return agruntime.ProjectVisibleContext(child, rt, false)
 }
 
 func asInt(v interface{}) int {

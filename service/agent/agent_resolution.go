@@ -276,11 +276,11 @@ func (s *Service) tryReuseFromPriorTurn(ctx context.Context, conv *apiconv.Conve
 // assistant message without a second LLM call. Preset is nil for normal
 // route turns.
 type routingDecision struct {
-	AgentID              string
-	AutoSelected         bool
-	RoutingReason        string
-	Preset               *ClassifierResult // non-nil only for action=answer or action=clarify
-	WorkspaceTurnContext *intakesvc.TurnContext
+	AgentID                string
+	AutoSelected           bool
+	RoutingReason          string
+	Preset                 *ClassifierResult // non-nil only for action=answer or action=clarify
+	WorkspaceIntakeContext *intakesvc.Context
 }
 
 func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, requestedAgent string, query string, preferredTurnID string) (string, bool, string, error) {
@@ -400,7 +400,7 @@ func (s *Service) resolveTurnRouting(ctx context.Context, conv *apiconv.Conversa
 					}
 					if result.Action == ClassifierActionPlanner {
 						decision.RoutingReason = "llm_router_planner"
-						decision.WorkspaceTurnContext = &intakesvc.TurnContext{
+						decision.WorkspaceIntakeContext = &intakesvc.Context{
 							Routing: intakesvc.RoutingContext{
 								SelectedAgentID: id,
 								Mode:            intakesvc.ModePlanner,
