@@ -1241,6 +1241,13 @@ func (s *Service) currentAgent(ctx context.Context) (*agentmdl.Agent, error) {
 	if s.agentFinder == nil || s.conv == nil {
 		return nil, fmt.Errorf("skills service not configured")
 	}
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		if assistantID := strings.TrimSpace(turn.Assistant); assistantID != "" {
+			if agent, err := s.agentFinder.Find(ctx, assistantID); err == nil && agent != nil {
+				return agent, nil
+			}
+		}
+	}
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	if convID == "" {
 		return nil, fmt.Errorf("missing conversation context")

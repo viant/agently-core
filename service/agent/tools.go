@@ -180,18 +180,7 @@ func (s *Service) shouldExposeSkillControlTools(qi *QueryInput) bool {
 		return false
 	}
 	visible, _ := s.skillSvc.Visible(qi.Agent)
-	if len(visible) == 0 {
-		return false
-	}
-	query := strings.TrimSpace(qi.Query)
-	if strings.HasPrefix(query, "$$") {
-		return false
-	}
-	name, _, ok := parseExplicitSkillInvocation(query)
-	if !ok {
-		return true
-	}
-	return len(s.skillSvc.VisibleSkillsByName(qi.Agent, []string{name})) > 0
+	return len(visible) > 0
 }
 
 func (s *Service) appendSkillControlDefinitions(defs []llm.ToolDefinition, qi *QueryInput) []llm.ToolDefinition {

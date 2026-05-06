@@ -63,10 +63,6 @@ type TurnContext struct {
 	//   "fallback"         — produced by the deterministic fallback chain
 	// Empty for legacy agent-only intake outputs.
 	Source string `json:"source,omitempty"`
-
-	// ActivateSkills lists skill names workspace intake suggests activating for
-	// this turn. Validated against the chosen agent's visible skills before use.
-	ActivateSkills []string `json:"activateSkills,omitempty"`
 }
 
 // ContextKey is the key used to store TurnContext in QueryInput.Context.

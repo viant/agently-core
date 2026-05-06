@@ -244,6 +244,40 @@ func TestService_EmitsPreprocessStatsOnSkillCompleted(t *testing.T) {
 	}
 }
 
+func TestService_ActivateForConversation_FallsBackToTurnAssistantWhenConversationAgentMissing(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "skills", "forecast")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: forecast\ndescription: Forecast skill.\ncontext: inline\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}, Skills: []string{"forecast"}}
+	conv := &apiconv.Conversation{Id: "conv-skill"}
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-skill")
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
+		ConversationID: "conv-skill",
+		TurnID:         "turn-skill",
+		Assistant:      "steward",
+	})
+
+	body, err := svc.ActivateForConversation(ctx, "conv-skill", "forecast", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `Loaded skill "forecast"`) {
+		t.Fatalf("activate body = %q", body)
+	}
+}
+
 func TestActiveSkillsFromHistory_RecognizesUnderscoreToolName(t *testing.T) {
 	history := &binding.History{
 		Current: &binding.Turn{

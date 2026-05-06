@@ -254,7 +254,7 @@ func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
 }
 
 // TestParseOutput_WorkspaceIntakeFields asserts that workspace-intake JSON
-// output (selectedAgentId, mode, source, activateSkills) parses correctly.
+// output (selectedAgentId, mode, source) parses correctly.
 // Legacy agent-intake outputs without these fields keep working unchanged.
 func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 	t.Run("workspace intake output", func(t *testing.T) {
@@ -264,7 +264,6 @@ func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 			"selectedAgentId":"analyst",
 			"mode":"route",
 			"source":"workspace",
-			"activateSkills":["capacity-review"],
 			"confidence":0.94
 		}`
 		tc, err := parseOutput(raw)
@@ -272,7 +271,6 @@ func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 		assert.Equal(t, "analyst", tc.SelectedAgentID)
 		assert.Equal(t, "route", tc.Mode)
 		assert.Equal(t, "workspace", tc.Source)
-		assert.Equal(t, []string{"capacity-review"}, tc.ActivateSkills)
 		assert.InDelta(t, 0.94, tc.Confidence, 0.001)
 	})
 
@@ -283,7 +281,6 @@ func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 		assert.Equal(t, "", tc.SelectedAgentID, "legacy outputs must not invent SelectedAgentID")
 		assert.Equal(t, "", tc.Mode, "legacy outputs must not invent Mode")
 		assert.Equal(t, "", tc.Source, "legacy outputs must not invent Source")
-		assert.Nil(t, tc.ActivateSkills, "legacy outputs must not invent ActivateSkills")
 	})
 
 	t.Run("clarify mode", func(t *testing.T) {

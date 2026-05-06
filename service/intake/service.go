@@ -420,11 +420,10 @@ type turnContextWire struct {
 	// Workspace-intake fields (additive). Legacy agent-intake outputs do not
 	// emit these keys; their absence leaves zero-values, which is the correct
 	// fallback semantics.
-	SelectedAgentID string   `json:"selectedAgentId,omitempty"`
-	Mode            string   `json:"mode,omitempty"`
-	PlannerTrigger  string   `json:"plannerTrigger,omitempty"`
-	Source          string   `json:"source,omitempty"`
-	ActivateSkills  []string `json:"activateSkills,omitempty"`
+	SelectedAgentID string `json:"selectedAgentId,omitempty"`
+	Mode            string `json:"mode,omitempty"`
+	PlannerTrigger  string `json:"plannerTrigger,omitempty"`
+	Source          string `json:"source,omitempty"`
 }
 
 func unmarshalTurnContext(data []byte, tc *TurnContext) error {
@@ -448,6 +447,5 @@ func unmarshalTurnContext(data []byte, tc *TurnContext) error {
 	tc.Mode = wire.Mode
 	tc.PlannerTrigger = wire.PlannerTrigger
 	tc.Source = wire.Source
-	tc.ActivateSkills = wire.ActivateSkills
 	return nil
 }
