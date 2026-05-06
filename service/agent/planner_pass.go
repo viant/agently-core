@@ -36,7 +36,7 @@ func (e *plannerHandledError) Error() string {
 
 func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) error {
 	tc := intakesvc.FromContext(input.Context)
-	if tc == nil || tc.Mode != intakesvc.ModePlanner {
+	if tc == nil || tc.Routing.Mode != intakesvc.ModePlanner {
 		return nil
 	}
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
@@ -47,7 +47,7 @@ func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) er
 		Type:                 streaming.EventTypePlannerSelected,
 		ConversationID:       turn.ConversationID,
 		TurnID:               turn.TurnID,
-		PlannerTrigger:       strings.TrimSpace(tc.PlannerTrigger),
+		PlannerTrigger:       strings.TrimSpace(tc.Planner.Trigger),
 		PlannerStaticProfile: strings.TrimSpace(input.PromptProfileId),
 		CreatedAt:            time.Now(),
 	})
@@ -79,7 +79,7 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 	if input == nil || input.Agent == nil {
 		return nil, nil, fmt.Errorf("planner pass: agent input is required")
 	}
-	if tc == nil || strings.TrimSpace(tc.Mode) != intakesvc.ModePlanner {
+	if tc == nil || strings.TrimSpace(tc.Routing.Mode) != intakesvc.ModePlanner {
 		return nil, nil, fmt.Errorf("planner pass: planner mode turn context is required")
 	}
 
@@ -180,7 +180,7 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 				PlannerStrategyFamily: parsed.StrategyFamily,
 				CreatedAt:             time.Now(),
 			})
-			return parsed, planner.NewContext(planner.Trigger(strings.TrimSpace(tc.PlannerTrigger)), attempt, parsed), nil
+			return parsed, planner.NewContext(planner.Trigger(strings.TrimSpace(tc.Planner.Trigger)), attempt, parsed), nil
 		}
 		s.writePlannerPassTrace(input, attempt, false, parsed, errs)
 		validated := false
@@ -299,7 +299,7 @@ func (s *Service) resolvePlannerExecutionInput(ctx context.Context, input *Query
 		return nil, nil, fmt.Errorf("planner pass: execution agent is required")
 	}
 	plannerAgent := input.Agent
-	plannerAgentID := strings.TrimSpace(tc.PlannerAgentID)
+	plannerAgentID := strings.TrimSpace(tc.Planner.AgentID)
 	if plannerAgentID == "" {
 		plannerAgentID = strings.TrimSpace(input.Agent.Intake.PlannerAgentID)
 	}
@@ -518,7 +518,7 @@ func plannerTriggerFromInput(input *QueryInput) string {
 		return ""
 	}
 	if tc := intakesvc.FromContext(input.Context); tc != nil {
-		return strings.TrimSpace(tc.PlannerTrigger)
+		return strings.TrimSpace(tc.Planner.Trigger)
 	}
 	return ""
 }
