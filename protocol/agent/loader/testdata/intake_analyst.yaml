@@ -1,0 +1,28 @@
+id: steward
+name: Steward
+modelRef: gpt-4o
+intake:
+  enabled: true
+  scope:
+    - title
+    - context
+    - intent
+    - clarification
+    - profile
+    - tools
+    - template
+  model: haiku
+  maxTokens: 400
+  confidenceThreshold: 0.85
+  plannerEnabled: true
+  plannerAgentId: steward_planner
+  plannerFallbackThreshold: 0.7
+  plannerOnValidatorFailure: true
+  plannerOnCreativeRequest: true
+  plannerSecondFailurePolicy: clarify
+  plannerTriggerPhrases:
+    - creative
+    - exploratory
+  triggerOnTopicShift: true
+  topicShiftThreshold: 0.65
+  timeoutSec: 15

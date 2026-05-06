@@ -128,6 +128,37 @@ func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {
 	}
 }
 
+func TestBuildContinuationRequest_DedupesRepeatedToolReplayPairs(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
+	}
+	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.Message{ID: "assistant-1", Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "message-show"}}},
+		llm.Message{ID: "tool-1", Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"content":"ok"}`},
+		llm.Message{ID: "assistant-1", Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "message-show"}}},
+		llm.Message{ID: "tool-1", Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"content":"ok"}`},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	if assert.NotNil(t, cont, "duplicate replay pairs should still produce continuation") {
+		assert.Equal(t, "resp-123", cont.PreviousResponseID)
+		if assert.Len(t, cont.Messages, 2) {
+			assert.Equal(t, llm.RoleAssistant, cont.Messages[0].Role)
+			if assert.Len(t, cont.Messages[0].ToolCalls, 1) {
+				assert.Equal(t, "call-1", cont.Messages[0].ToolCalls[0].ID)
+			}
+			assert.Equal(t, llm.RoleTool, cont.Messages[1].Role)
+			assert.Equal(t, "call-1", cont.Messages[1].ToolCallId)
+		}
+	}
+}
+
 // TestBuildContinuationRequest_SkipsWhenToolResultDropped reproduces the
 // "No tool output found for function call" bug. The LLM response (anchor)
 // produced two tool calls, but one tool result's payload was lost so only

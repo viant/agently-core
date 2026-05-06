@@ -46,6 +46,15 @@ type TurnContext struct {
 	// Empty when workspace intake has not run (legacy agent-only intake).
 	Mode string `json:"mode,omitempty"`
 
+	// PlannerTrigger records why workspace intake selected planner mode.
+	// Written only by workspace intake / router. Empty on non-planner turns.
+	PlannerTrigger string `json:"plannerTrigger,omitempty"`
+
+	// PlannerAgentID optionally selects a dedicated planner agent identity for
+	// the planning pass. Written only by workspace intake / runtime-owned
+	// routing state; never by agent intake refinement.
+	PlannerAgentID string `json:"plannerAgentId,omitempty"`
+
 	// Source records who produced this TurnContext for telemetry / debugging:
 	//   "workspace"        — workspace intake LLM call
 	//   "agent"            — agent intake refinement
@@ -77,6 +86,7 @@ const (
 const (
 	ModeRoute   = "route"
 	ModeClarify = "clarify"
+	ModePlanner = "planner"
 )
 
 // SanitizeAgentRefinement enforces the invariant that agent intake never writes
@@ -99,6 +109,14 @@ func SanitizeAgentRefinement(tc *TurnContext) []string {
 	if tc.Mode != "" {
 		stripped = append(stripped, "mode")
 		tc.Mode = ""
+	}
+	if tc.PlannerTrigger != "" {
+		stripped = append(stripped, "plannerTrigger")
+		tc.PlannerTrigger = ""
+	}
+	if tc.PlannerAgentID != "" {
+		stripped = append(stripped, "plannerAgentId")
+		tc.PlannerAgentID = ""
 	}
 	return stripped
 }

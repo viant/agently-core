@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -211,6 +212,49 @@ func TestReduce_FeedLifecycle(t *testing.T) {
 		t.Fatalf("expected no feeds after inactive, got %#v", state.Feeds)
 	}
 }
+
+func TestReduce_PlannerLifecycle(t *testing.T) {
+	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	state := Reduce(nil, &streaming.Event{
+		Type:                 streaming.EventTypePlannerSelected,
+		ConversationID:       "conv-1",
+		TurnID:               "turn-1",
+		PlannerTrigger:       "creative_phrase",
+		PlannerStaticProfile: "repo_analysis",
+		CreatedAt:            now,
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:                  streaming.EventTypePlannerValidated,
+		ConversationID:        "conv-1",
+		TurnID:                "turn-1",
+		PlannerAttempt:        1,
+		PlannerValidated:      boolPtr(true),
+		PlannerStrategyFamily: "troubleshoot",
+		CreatedAt:             now.Add(time.Second),
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:                   streaming.EventTypePlannerOutput,
+		ConversationID:         "conv-1",
+		TurnID:                 "turn-1",
+		PlannerStrategyFamily:  "troubleshoot",
+		PlannerAttempt:         1,
+		PlannerOutputPayloadID: "planner-output:conv-1:turn-1",
+		CreatedAt:              now.Add(2 * time.Second),
+	})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Planner)
+	require.Equal(t, "output", state.Turns[0].Planner.Status)
+	require.Equal(t, "creative_phrase", state.Turns[0].Planner.Trigger)
+	require.Equal(t, "repo_analysis", state.Turns[0].Planner.StaticProfile)
+	require.Equal(t, "troubleshoot", state.Turns[0].Planner.StrategyFamily)
+	require.Equal(t, 1, state.Turns[0].Planner.Attempt)
+	require.Equal(t, "planner-output:conv-1:turn-1", state.Turns[0].Planner.OutputPayloadID)
+	require.NotNil(t, state.Turns[0].Planner.Validated)
+	require.True(t, *state.Turns[0].Planner.Validated)
+}
+
+func boolPtr(v bool) *bool { return &v }
 
 func TestReduce_TextDeltaMarksModelStepStreaming(t *testing.T) {
 	now := time.Date(2026, 4, 3, 16, 0, 0, 0, time.UTC)

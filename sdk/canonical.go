@@ -5,6 +5,7 @@ import api "github.com/viant/agently-core/sdk/api"
 type ActiveFeedState = api.ActiveFeedState
 type ConversationState = api.ConversationState
 type TurnState = api.TurnState
+type PlannerState = api.PlannerState
 type TurnStatus = api.TurnStatus
 type UserMessageState = api.UserMessageState
 type TurnMessageState = api.TurnMessageState

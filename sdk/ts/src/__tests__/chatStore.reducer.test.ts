@@ -1048,3 +1048,76 @@ describe('chatStore/reducer — SSE + transcript de-dup for turn.messages', () =
         });
     });
 });
+
+describe('chatStore/reducer — planner state', () => {
+    it('applies live planner lifecycle events onto the owning turn', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_plan',
+            createdAt: '2026-05-05T00:00:00Z',
+        }));
+
+        state = applyEvent(state, sse({
+            type: 'planner.selected',
+            turnId: 'tn_plan',
+            plannerTrigger: 'creative_phrase',
+            plannerStaticProfile: 'repo_analysis',
+        }));
+        state = applyEvent(state, sse({
+            type: 'planner.output',
+            turnId: 'tn_plan',
+            plannerStrategyFamily: 'troubleshoot',
+            plannerAttempt: 1,
+            plannerOutputPayloadId: 'planner-output:conv_1:tn_plan',
+        }));
+        state = applyEvent(state, sse({
+            type: 'planner.validated',
+            turnId: 'tn_plan',
+            plannerAttempt: 1,
+            plannerValidated: true,
+        }));
+
+        expect(state.turns[0].planner).toMatchObject({
+            status: 'validated',
+            trigger: 'creative_phrase',
+            staticProfile: 'repo_analysis',
+            strategyFamily: 'troubleshoot',
+            attempt: 1,
+            outputPayloadId: 'planner-output:conv_1:tn_plan',
+            validated: true,
+        });
+        expect(getFieldProvenance(state.turns[0].planner!, 'validated')).toBe('event');
+    });
+
+    it('hydrates planner state from canonical transcript without reshaping it', () => {
+        const state = fresh();
+
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_plan_tx',
+                status: 'completed',
+                planner: {
+                    status: 'failed',
+                    trigger: 'low_confidence',
+                    strategyFamily: 'troubleshoot',
+                    attempt: 2,
+                    secondPolicy: 'clarify',
+                    outputPayloadId: 'planner-output:conv_1:tn_plan_tx',
+                    validated: false,
+                },
+            }],
+        });
+
+        expect(state.turns[0].planner).toMatchObject({
+            status: 'failed',
+            trigger: 'low_confidence',
+            strategyFamily: 'troubleshoot',
+            attempt: 2,
+            secondPolicy: 'clarify',
+            outputPayloadId: 'planner-output:conv_1:tn_plan_tx',
+            validated: false,
+        });
+        expect(getFieldProvenance(state.turns[0].planner!, 'status')).toBe('transcript');
+    });
+});

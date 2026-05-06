@@ -621,11 +621,6 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	} else {
 		logx.Infof("conversation", "PatchMessage start id=\"\" convo=\"\" turn=\"\" role=\"\" type=\"\" status=\"\" (nil input)")
 	}
-	if merged, err := s.mergeMessagePatchWithExisting(ctx, message); err != nil {
-		return err
-	} else if merged != nil {
-		message = merged
-	}
 	mm := (*msgwrite.Message)(message)
 	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
 	out := &msgwrite.Output{}
@@ -664,41 +659,6 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 	s.publishMessagePatchEvent(ctx, message)
 	logx.Infof("conversation", "PatchMessage ok id=%q convo=%q", message.Id, message.ConversationID)
 	return nil
-}
-
-func (s *Service) mergeMessagePatchWithExisting(ctx context.Context, patch *convcli.MutableMessage) (*convcli.MutableMessage, error) {
-	if s == nil || patch == nil || patch.Has == nil || !patch.Has.Id {
-		return patch, nil
-	}
-	existing, err := s.GetMessage(ctx, strings.TrimSpace(patch.Id))
-	if err != nil || existing == nil {
-		return patch, err
-	}
-	if !patch.Has.ConversationID && strings.TrimSpace(existing.ConversationId) != "" {
-		patch.SetConversationID(existing.ConversationId)
-	}
-	if !patch.Has.TurnID && existing.TurnId != nil && strings.TrimSpace(*existing.TurnId) != "" {
-		patch.SetTurnID(strings.TrimSpace(*existing.TurnId))
-	}
-	if !patch.Has.ParentMessageID && existing.ParentMessageId != nil && strings.TrimSpace(*existing.ParentMessageId) != "" {
-		patch.SetParentMessageID(strings.TrimSpace(*existing.ParentMessageId))
-	}
-	if !patch.Has.Role && strings.TrimSpace(existing.Role) != "" {
-		patch.SetRole(existing.Role)
-	}
-	if !patch.Has.Type && strings.TrimSpace(existing.Type) != "" {
-		patch.SetType(existing.Type)
-	}
-	if !patch.Has.Mode && existing.Mode != nil && strings.TrimSpace(*existing.Mode) != "" {
-		patch.SetMode(strings.TrimSpace(*existing.Mode))
-	}
-	if !patch.Has.Iteration && existing.Iteration != nil && *existing.Iteration > 0 {
-		patch.SetIteration(*existing.Iteration)
-	}
-	if !patch.Has.Phase && existing.Phase != nil && strings.TrimSpace(*existing.Phase) != "" {
-		patch.SetPhase(strings.TrimSpace(*existing.Phase))
-	}
-	return patch, nil
 }
 
 // publishMessagePatchEvent forwards a message write to the streaming

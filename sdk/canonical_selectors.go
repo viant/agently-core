@@ -17,8 +17,9 @@ func SelectRenderTurns(state *ConversationState) []*TurnState {
 		if turn == nil {
 			continue
 		}
-		// Include turns that have at least a user message, execution, assistant content, or elicitation
-		if turn.User != nil || turn.Execution != nil || turn.Assistant != nil || turn.Elicitation != nil || turn.Status == TurnStatusRunning {
+		// Include turns that have at least a user message, execution, assistant
+		// content, planner state, or elicitation.
+		if turn.User != nil || turn.Execution != nil || turn.Assistant != nil || turn.Planner != nil || turn.Elicitation != nil || turn.Status == TurnStatusRunning {
 			out = append(out, turn)
 		}
 	}

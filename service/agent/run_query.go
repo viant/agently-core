@@ -80,7 +80,7 @@ func (g *convGuardMap) release(convID string) {
 // Returns nil when the conversation client is not bound (tests), so callers
 // always see the preset content on output.Content even when persistence is
 // unavailable.
-func (s *Service) publishPresetAssistantMessage(ctx context.Context, input *QueryInput, text, kind string) error {
+func (s *Service) publishAssistantMessageWithStatus(ctx context.Context, input *QueryInput, text, status string) error {
 	if s == nil || s.conversation == nil || input == nil {
 		return nil
 	}
@@ -100,13 +100,18 @@ func (s *Service) publishPresetAssistantMessage(ctx context.Context, input *Quer
 	msg.SetRole("assistant")
 	msg.SetType("text")
 	msg.SetContent(text)
-	// `kind` rides as a status hint so consumers can distinguish a
-	// capability answer from a clarification when they care, without
-	// changing the message-role contract.
-	if k := strings.TrimSpace(kind); k != "" {
-		msg.SetStatus("intake." + k)
+	if s := strings.TrimSpace(status); s != "" {
+		msg.SetStatus(s)
 	}
 	return s.conversation.PatchMessage(ctx, msg)
+}
+
+func (s *Service) publishPresetAssistantMessage(ctx context.Context, input *QueryInput, text, kind string) error {
+	status := ""
+	if k := strings.TrimSpace(kind); k != "" {
+		status = "intake." + k
+	}
+	return s.publishAssistantMessageWithStatus(ctx, input, text, status)
 }
 
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) (retErr error) {
@@ -319,6 +324,28 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// still informs bundle/routing decisions.
 	s.maybeRunIntakeSidecar(ctx, input)
 
+	if input.SkipInitialUserMessage {
+		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	} else {
+		if err := s.persistInitialUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
+			return err
+		}
+		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
+	}
+	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
+
+	if pErr := s.maybeRunPlannerPass(ctx, input); pErr != nil {
+		var handled *plannerHandledError
+		if errors.As(pErr, &handled) {
+			output.MessageID = input.MessageID
+			output.Content = handled.content
+			turnStatus = "succeeded"
+			turnRunErr = nil
+			return nil
+		}
+		return pErr
+	}
+
 	toolRouterStarted := time.Now()
 	s.maybeAutoSelectToolBundles(ctx, input)
 	logx.Infof("conversation", "agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
@@ -333,16 +360,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	logx.Infof("conversation", "agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
 	logx.Infof("conversation", "agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
-
-	if input.SkipInitialUserMessage {
-		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-	} else {
-		if err := s.persistInitialUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
-			return err
-		}
-		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
-	}
-	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err
@@ -442,13 +459,7 @@ func resolveUserAsk(input *QueryInput, displayQuery string) string {
 }
 
 func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, changedOpsCount int) bool {
-	if changedOpsCount <= 0 {
-		return false
-	}
-	if hasActiveWaitOps {
-		return true
-	}
-	return !planEmpty
+	return changedOpsCount > 0
 }
 
 func skillActivationModeOverride(input *QueryInput, skillName string) string {
@@ -1089,17 +1100,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				}
 				logx.Infof("conversation", "runPlan-final patching msgID=%q interim=0 convo=%q turn=%q contentLen=%d",
 					msgID, turn.ConversationID, turn.TurnID, len(genOutput.Content))
-				if msgID != "" {
-					msg := apiconv.NewMessage()
-					msg.SetId(msgID)
-					msg.SetConversationID(turn.ConversationID)
-					msg.SetContent(strings.TrimSpace(s.rewriteGeneratedFileLinks(ctx, turn.ConversationID, turn.TurnID, msgID, genOutput.Content)))
-					msg.SetInterim(0)
-					if err := s.conversation.PatchMessage(ctx, msg); err != nil {
-						logx.Errorf("conversation", "runPlan-final patching msg=%q err=%v", msgID, err)
-					} else {
-						s.archiveOlderInterimAssistantMessages(ctx, turn.ConversationID, turn.TurnID, msgID)
-					}
+				if err := s.persistFinalAssistantMessage(ctx, &turn, msgID, genOutput.Content); err != nil {
+					logx.Errorf("conversation", "runPlan-final patching msg=%q err=%v", msgID, err)
 				}
 			}
 			pending, pErr := s.hasNewTurnTaskSince(ctx, turn, checkpoint)

@@ -226,6 +226,15 @@ func payloadContains(data []byte, needle string) bool {
 	return strings.Contains(string(data), needle)
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func newTestAgent(skillName string) *agentmdl.Agent {
 	return &agentmdl.Agent{
 		Identity: agentmdl.Identity{ID: "coder", Name: "Coder"},
@@ -1588,6 +1597,156 @@ func TestRuntimeQuery_DetachSkillActivation_RoutesLLMRequestThroughChildConversa
 	}
 	if payloadContains(parentData, "activeSkillNames") {
 		t.Fatalf("expected parent detach llm-request to avoid inline active skill state: %s", string(parentData))
+	}
+}
+
+func TestRuntimeQuery_SkillActivationModes_TransientWorkspace(t *testing.T) {
+	tests := []struct {
+		name               string
+		mode               string
+		childSkillText     string
+		inlineFinal        string
+		childFinal         string
+		parentFollowup     string
+		expectedFinal      string
+		expectChildPayload bool
+		expectParentInline bool
+		conversationID     string
+		query              string
+	}{
+		{
+			name:               "inline",
+			mode:               "inline",
+			childSkillText:     "Use the inline instructions.",
+			inlineFinal:        "inline final answer",
+			expectedFinal:      "inline final answer",
+			expectChildPayload: false,
+			expectParentInline: true,
+			conversationID:     "conv-skill-inline-modes",
+			query:              "/demo use it",
+		},
+		{
+			name:               "fork",
+			mode:               "fork",
+			childSkillText:     "Use the forked instructions.",
+			childFinal:         "child fork answer",
+			parentFollowup:     "parent fork answer",
+			expectedFinal:      "parent fork answer",
+			expectChildPayload: true,
+			expectParentInline: false,
+			conversationID:     "conv-skill-fork-modes",
+			query:              "run fork skill",
+		},
+		{
+			name:               "detach",
+			mode:               "detach",
+			childSkillText:     "Use the detached instructions.",
+			childFinal:         "child detach answer",
+			parentFollowup:     "parent detach answer",
+			expectedFinal:      "parent detach answer",
+			expectChildPayload: true,
+			expectParentInline: false,
+			conversationID:     "conv-skill-detach-modes",
+			query:              "run detach skill",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeSkillWithFrontmatter(t, root, "demo", map[string]string{
+				"description": strings.Title(tc.mode) + " skill.",
+				"context":     tc.mode,
+			}, "# Demo Skill\n"+tc.childSkillText)
+			payloadDir := t.TempDir()
+			t.Setenv("AGENTLY_WORKSPACE", root)
+			workspace.SetRoot(root)
+			t.Setenv("AGENTLY_DEBUG_TRACE_FILE", filepath.Join(t.TempDir(), "trace.jsonl"))
+			t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
+
+			agent := newTestAgent("demo")
+			var rt *executor.Runtime
+			var err error
+			if tc.mode == "inline" {
+				model := &skillSequenceModel{outcomes: []llm.GenerateResponse{
+					{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, Content: tc.inlineFinal}}}},
+				}}
+				rt, err = executor.NewBuilder().
+					WithAgentFinder(&skillTestAgentFinder{agent: agent}).
+					WithModelFinder(&skillTestModelFinder{model: model}).
+					Build(context.Background())
+			} else {
+				model := &skillContextModel{
+					firstResponse: llm.GenerateResponse{
+						Choices: []llm.Choice{{
+							Message: llm.Message{
+								Role: llm.RoleAssistant,
+								ToolCalls: []llm.ToolCall{
+									{ID: "call-skill", Name: "llm/skills:activate", Arguments: map[string]interface{}{"name": "demo", "args": "use it"}},
+								},
+							},
+						}},
+					},
+					childContent:   tc.childFinal,
+					parentFollowup: tc.parentFollowup,
+				}
+				rt, err = executor.NewBuilder().
+					WithAgentFinder(&skillTestAgentFinder{agent: agent}).
+					WithModelFinder(&skillTestModelFinder{model: model}).
+					Build(context.Background())
+			}
+			if err != nil {
+				t.Fatalf("Build() error: %v", err)
+			}
+
+			out := &agentsvc.QueryOutput{}
+			if err := rt.Agent.Query(context.Background(), &agentsvc.QueryInput{
+				ConversationID: tc.conversationID,
+				AgentID:        "coder",
+				UserId:         "tester",
+				Query:          tc.query,
+				DisplayQuery:   tc.query,
+				Agent:          agent,
+			}, out); err != nil {
+				t.Fatalf("Query() error: %v", err)
+			}
+			if out.Content != tc.expectedFinal {
+				t.Fatalf("content = %q, want %q", out.Content, tc.expectedFinal)
+			}
+
+			minPayloads := 1
+			if tc.expectChildPayload {
+				minPayloads = 2
+			}
+			files := waitForPayloadFiles(t, payloadDir, minPayloads)
+			foundChild := false
+			for _, path := range files {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read payload %s: %v", path, err)
+				}
+				if payloadContains(data, "# Demo Skill") && payloadContains(data, tc.childSkillText) {
+					if tc.expectChildPayload {
+						if payloadContains(data, "llm_skills-list") || payloadContains(data, "llm/skills:list") || payloadContains(data, "llm_skills-activate") || payloadContains(data, "llm/skills:activate") {
+							t.Fatalf("expected child llm-request to avoid recursive skill tools: %s", string(data))
+						}
+					}
+					foundChild = true
+				}
+			}
+			if !foundChild {
+				t.Fatalf("expected llm-request payload to contain loaded %s skill body", tc.mode)
+			}
+
+			parentData, err := os.ReadFile(filepath.Join(payloadDir, "llm-request-"+tc.conversationID+".json"))
+			if err != nil {
+				t.Fatalf("read parent llm-request payload: %v", err)
+			}
+			hasInlineState := payloadContains(parentData, "activeSkillNames")
+			if hasInlineState != tc.expectParentInline {
+				t.Fatalf("parent inline state = %v, want %v in %s", hasInlineState, tc.expectParentInline, string(parentData))
+			}
+		})
 	}
 }
 

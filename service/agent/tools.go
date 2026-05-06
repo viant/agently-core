@@ -109,6 +109,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 				}
 			}
 		}
+		defs = s.appendSkillControlDefinitions(defs, qi)
 		defs = dedupeDefinitions(defs)
 		tools := make([]llm.Tool, 0, len(defs))
 		for i := range defs {
@@ -134,6 +135,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		}
 	}
 	// Append any registry warnings raised during matching.
+	out = defsToTools(s.appendSkillControlDefinitions(toolsToDefs(out), qi))
 	out = s.appendRegistryWarnings(ctx, out)
 	return out, nil
 }
@@ -169,6 +171,61 @@ func normalizeStringList(in []string) []string {
 		}
 		seen[key] = struct{}{}
 		out = append(out, id)
+	}
+	return out
+}
+
+func (s *Service) shouldExposeSkillControlTools(qi *QueryInput) bool {
+	if s == nil || s.skillSvc == nil || qi == nil || qi.Agent == nil {
+		return false
+	}
+	visible, _ := s.skillSvc.Visible(qi.Agent)
+	if len(visible) == 0 {
+		return false
+	}
+	query := strings.TrimSpace(qi.Query)
+	if strings.HasPrefix(query, "$$") {
+		return false
+	}
+	name, _, ok := parseExplicitSkillInvocation(query)
+	if !ok {
+		return true
+	}
+	return len(s.skillSvc.VisibleSkillsByName(qi.Agent, []string{name})) > 0
+}
+
+func (s *Service) appendSkillControlDefinitions(defs []llm.ToolDefinition, qi *QueryInput) []llm.ToolDefinition {
+	if !s.shouldExposeSkillControlTools(qi) {
+		return defs
+	}
+	for _, name := range []string{"llm/skills:list", "llm/skills:activate"} {
+		def, ok := s.registry.GetDefinition(name)
+		if !ok || def == nil {
+			continue
+		}
+		defs = append(defs, *def)
+	}
+	return defs
+}
+
+func toolsToDefs(in []llm.Tool) []llm.ToolDefinition {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolDefinition, 0, len(in))
+	for _, tool := range in {
+		out = append(out, tool.Definition)
+	}
+	return out
+}
+
+func defsToTools(in []llm.ToolDefinition) []llm.Tool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]llm.Tool, 0, len(in))
+	for i := range in {
+		out = append(out, llm.Tool{Type: "function", Definition: in[i]})
 	}
 	return out
 }
@@ -244,7 +301,17 @@ func (s *Service) resolveDirectBundleDefinitions(ctx context.Context, bundleID s
 
 func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundle, error) {
 	if s.toolBundles == nil {
-		return nil, nil
+		if s.toolBundleRepo == nil {
+			return nil, nil
+		}
+		list, err := s.toolBundleRepo.LoadAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(list) == 0 {
+			return nil, nil
+		}
+		return indexBundlesByID(list), nil
 	}
 	list, err := s.toolBundles(ctx)
 	if err != nil {

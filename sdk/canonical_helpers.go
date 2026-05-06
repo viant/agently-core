@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -449,6 +450,127 @@ func setElicitationState(turn *TurnState, elicitation *ElicitationState) {
 		return
 	}
 	turn.Elicitation = elicitation
+}
+
+func ensurePlannerState(turn *TurnState) *PlannerState {
+	if turn == nil {
+		return nil
+	}
+	if turn.Planner == nil {
+		turn.Planner = &PlannerState{}
+	}
+	return turn.Planner
+}
+
+func applyPlannerEvent(turn *TurnState, event *streaming.Event) {
+	if turn == nil || event == nil {
+		return
+	}
+	planner := ensurePlannerState(turn)
+	if planner == nil {
+		return
+	}
+	switch event.Type {
+	case streaming.EventTypePlannerSelected:
+		planner.Status = "selected"
+	case streaming.EventTypePlannerOutput:
+		planner.Status = "output"
+	case streaming.EventTypePlannerValidated:
+		planner.Status = "validated"
+	case streaming.EventTypePlannerFailed:
+		planner.Status = "failed"
+	}
+	if value := strings.TrimSpace(event.PlannerTrigger); value != "" {
+		planner.Trigger = value
+	}
+	if value := strings.TrimSpace(event.PlannerStaticProfile); value != "" {
+		planner.StaticProfile = value
+	}
+	if value := strings.TrimSpace(event.PlannerStrategyFamily); value != "" {
+		planner.StrategyFamily = value
+	}
+	if event.PlannerAttempt > 0 {
+		planner.Attempt = event.PlannerAttempt
+	}
+	if value := strings.TrimSpace(event.PlannerSecondPolicy); value != "" {
+		planner.SecondPolicy = value
+	}
+	if value := strings.TrimSpace(event.PlannerOutputPayloadID); value != "" {
+		planner.OutputPayloadID = value
+	}
+	if event.PlannerValidated != nil {
+		validated := *event.PlannerValidated
+		planner.Validated = &validated
+	}
+}
+
+func applyPlannerTranscriptMessage(turn *TurnState, message *agconv.MessageView) {
+	if turn == nil || message == nil || message.Content == nil {
+		return
+	}
+	summary := strings.TrimSpace(stringValue(message.ContextSummary))
+	if !strings.HasPrefix(summary, "planner://") {
+		return
+	}
+	planner := ensurePlannerState(turn)
+	if planner == nil {
+		return
+	}
+	if strings.TrimSpace(planner.Status) == "" {
+		planner.Status = "applied"
+	}
+	content := strings.TrimSpace(*message.Content)
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Status: "):
+			planner.Status = strings.TrimSpace(strings.TrimPrefix(line, "Status: "))
+		case strings.HasPrefix(line, "Trigger: "):
+			planner.Trigger = strings.TrimSpace(strings.TrimPrefix(line, "Trigger: "))
+		case strings.HasPrefix(line, "StaticProfile: "):
+			planner.StaticProfile = strings.TrimSpace(strings.TrimPrefix(line, "StaticProfile: "))
+		case strings.HasPrefix(line, "StrategyFamily: "):
+			planner.StrategyFamily = strings.TrimSpace(strings.TrimPrefix(line, "StrategyFamily: "))
+		case strings.HasPrefix(line, "Attempt: "):
+			if value, ok := parsePlannerAttempt(strings.TrimSpace(strings.TrimPrefix(line, "Attempt: "))); ok {
+				planner.Attempt = value
+			}
+		case strings.HasPrefix(line, "SecondPolicy: "):
+			planner.SecondPolicy = strings.TrimSpace(strings.TrimPrefix(line, "SecondPolicy: "))
+		case strings.HasPrefix(line, "OutputPayloadID: "):
+			planner.OutputPayloadID = strings.TrimSpace(strings.TrimPrefix(line, "OutputPayloadID: "))
+		case strings.HasPrefix(line, "Validated: "):
+			if value, ok := parsePlannerBool(strings.TrimSpace(strings.TrimPrefix(line, "Validated: "))); ok {
+				planner.Validated = &value
+			}
+		}
+	}
+}
+
+func parsePlannerAttempt(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	var result int
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		result = result*10 + int(r-'0')
+	}
+	return result, true
+}
+
+func parsePlannerBool(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func applyElicitationRequested(turn *TurnState, event *streaming.Event) {

@@ -19,6 +19,7 @@ import (
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	mcpadapter "github.com/viant/agently-core/protocol/tool/adapter/mcp"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // serviceHandler adapts a genai Service to an MCP server handler implementing tools/list and tools/call.
@@ -106,9 +107,29 @@ func (h *serviceHandler) Unsubscribe(_ context.Context, _ *jsonrpc.TypedRequest[
 	return nil, jsonrpc.NewMethodNotFound("unsubscribe not implemented", nil)
 }
 
-func (h *serviceHandler) ListTools(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListToolsRequest]) (*mcpschema.ListToolsResult, *jsonrpc.Error) {
-	// Single page listing of all methods
-	return &mcpschema.ListToolsResult{Tools: h.tools}, nil
+func (h *serviceHandler) ListTools(ctx context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListToolsRequest]) (*mcpschema.ListToolsResult, *jsonrpc.Error) {
+	return h.listTools(ctx), nil
+}
+
+func (h *serviceHandler) listTools(ctx context.Context) *mcpschema.ListToolsResult {
+	if len(h.tools) == 0 {
+		return &mcpschema.ListToolsResult{Tools: nil}
+	}
+	planMode := strings.EqualFold(strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)), "plan")
+	filtered := make([]mcpschema.Tool, 0, len(h.tools))
+	for _, tool := range h.tools {
+		name := strings.TrimSpace(tool.Name)
+		method := name
+		if i := strings.LastIndexAny(name, ":/"); i != -1 && i+1 < len(name) {
+			method = name[i+1:]
+		}
+		sig, ok := h.methods[method]
+		if ok && sig.Internal && !planMode {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	return &mcpschema.ListToolsResult{Tools: filtered}
 }
 
 func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest[*mcpschema.CallToolRequest]) (*mcpschema.CallToolResult, *jsonrpc.Error) {

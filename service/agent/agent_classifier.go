@@ -20,13 +20,14 @@ import (
 
 type agentSelection struct {
 	// Unified action envelope — workspace intake schema. Action is one of
-	// "route" | "answer" | "clarify". For action=route, the agent id rides
-	// alongside under one of the AgentID/AgentId/ID/Agent fields. For
+	// "route" | "planner" | "answer" | "clarify". For action=route/planner,
+	// the agent id rides alongside under one of the AgentID/AgentId/ID/Agent fields. For
 	// action=answer the Text field carries the capability answer; for
 	// action=clarify the Question field carries the disambiguation question.
-	Action   string `json:"action,omitempty"`
-	Text     string `json:"text,omitempty"`
-	Question string `json:"question,omitempty"`
+	Action         string `json:"action,omitempty"`
+	Text           string `json:"text,omitempty"`
+	Question       string `json:"question,omitempty"`
+	PlannerTrigger string `json:"plannerTrigger,omitempty"`
 	// Agent-id fields (used when action=route, or when the LLM emits the
 	// legacy {agentId: X} schema without an action key). Multiple key names
 	// are accepted for backward compatibility.
@@ -36,11 +37,12 @@ type agentSelection struct {
 	Agent   string `json:"agent"`
 }
 
-// ClassifierAction enumerates the three terminal outcomes of a workspace
+// ClassifierAction enumerates the terminal outcomes of a workspace
 // intake LLM call. Exactly one of {AgentID, Answer, Question} is populated
 // per result.
 const (
 	ClassifierActionRoute   = "route"
+	ClassifierActionPlanner = "planner"
 	ClassifierActionAnswer  = "answer"
 	ClassifierActionClarify = "clarify"
 )
@@ -51,6 +53,7 @@ const (
 // Exactly one of AgentID / Answer / Question is non-empty per Action:
 //
 //	Action=ClassifierActionRoute   → AgentID  is set
+//	Action=ClassifierActionPlanner → AgentID  is set
 //	Action=ClassifierActionAnswer  → Answer   is set (capability response)
 //	Action=ClassifierActionClarify → Question is set (one disambiguation question)
 //
@@ -58,10 +61,11 @@ const (
 // usable output; callers fall through to the deterministic continuity /
 // default chain.
 type ClassifierResult struct {
-	Action   string
-	AgentID  string
-	Answer   string
-	Question string
+	Action         string
+	AgentID        string
+	Answer         string
+	Question       string
+	PlannerTrigger string
 }
 
 func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query, preferredTurnID string, candidates []*agentmdl.Agent) (*ClassifierResult, error) {
@@ -127,6 +131,9 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 			if a.Profile.Rank != 0 {
 				label = fmt.Sprintf("%s [rank=%d]", label, a.Profile.Rank)
 			}
+		}
+		if a.Intake.PlannerEnabled {
+			label = fmt.Sprintf("%s [planner=true]", label)
 		}
 		if desc != "" {
 			candidateLines = append(candidateLines, fmt.Sprintf("- %s: %s", label, desc))
@@ -223,7 +230,7 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 		return parsed, nil
 	}
 
-	// Action=route (or legacy schema with bare agentId): canonicalize the id
+	// Action=route / planner (or legacy schema with bare agentId): canonicalize the id
 	// against the authorized candidate set. Drop unauthorized selections.
 	selected := strings.TrimSpace(parsed.AgentID)
 	if selected == "" {
@@ -250,7 +257,27 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 		s.publishIntakeWorkspaceFailed(ctx, convID, "agent_unauthorized", "", modelName, "")
 		return nil, nil
 	}
-	result := &ClassifierResult{Action: ClassifierActionRoute, AgentID: canonicalID}
+	if parsed.Action == ClassifierActionPlanner {
+		var selectedAgent *agentmdl.Agent
+		for _, candidate := range candidates {
+			if candidate == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(candidate.ID), canonicalID) {
+				selectedAgent = candidate
+				break
+			}
+		}
+		if selectedAgent == nil || !selectedAgent.Intake.PlannerEnabled {
+			s.publishIntakeWorkspaceFailed(ctx, convID, "planner_not_supported", canonicalID, modelName, "")
+			return nil, nil
+		}
+	}
+	action := parsed.Action
+	if strings.TrimSpace(action) == "" {
+		action = ClassifierActionRoute
+	}
+	result := &ClassifierResult{Action: action, AgentID: canonicalID, PlannerTrigger: strings.TrimSpace(parsed.PlannerTrigger)}
 	s.publishIntakeWorkspaceCompleted(ctx, convID, result, modelName, durationMs)
 	return result, nil
 }
@@ -272,6 +299,8 @@ func (s *Service) publishIntakeWorkspaceCompleted(ctx context.Context, conversat
 	}
 	switch result.Action {
 	case ClassifierActionRoute:
+		patch["selectedAgentId"] = strings.TrimSpace(result.AgentID)
+	case ClassifierActionPlanner:
 		patch["selectedAgentId"] = strings.TrimSpace(result.AgentID)
 	case ClassifierActionAnswer:
 		patch["answerLen"] = len(result.Answer)
@@ -352,6 +381,7 @@ func responseForContent(resp *llm.GenerateResponse, content string) *llm.Generat
 // response. Recognizes both the new schema:
 //
 //	{"action":"route","agentId":"X"}
+//	{"action":"planner","agentId":"X","plannerTrigger":"creative_phrase|low_confidence"}
 //	{"action":"answer","text":"..."}
 //	{"action":"clarify","question":"..."}
 //
@@ -389,11 +419,15 @@ func parseClassifierResult(resp *llm.GenerateResponse, outputKey string) *Classi
 				return &ClassifierResult{Action: ClassifierActionClarify, Question: q}
 			}
 			return nil
-		case ClassifierActionRoute, "":
+		case ClassifierActionRoute, ClassifierActionPlanner, "":
 			// Empty action = legacy {"agentId":"X"} schema. Route action
-			// with explicit "route" string also lands here.
+			// with explicit "route" / "planner" string also lands here.
 			if id := pickAgentIDField(sel, outputKey); id != "" {
-				return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id}
+				action := strings.ToLower(strings.TrimSpace(sel.Action))
+				if action == "" {
+					action = ClassifierActionRoute
+				}
+				return &ClassifierResult{Action: action, AgentID: id, PlannerTrigger: strings.TrimSpace(sel.PlannerTrigger)}
 			}
 			return nil
 		}
@@ -402,7 +436,7 @@ func parseClassifierResult(resp *llm.GenerateResponse, outputKey string) *Classi
 		// through to the non-JSON token fallback because the input parsed
 		// as JSON; treating its raw bytes as an agent id would be nonsense.
 		if id := pickAgentIDField(sel, outputKey); id != "" {
-			return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id}
+			return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id, PlannerTrigger: strings.TrimSpace(sel.PlannerTrigger)}
 		}
 		return nil
 	}

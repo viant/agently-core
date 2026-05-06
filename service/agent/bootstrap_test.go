@@ -123,8 +123,18 @@ func TestPublishBootstrapToolEvent_SetsBootstrapIdentity(t *testing.T) {
 		assert.Equal(t, "bootstrap", event.ExecutionRole)
 		assert.Equal(t, "bootstrap", event.Phase)
 		assert.Equal(t, "systemContext", event.Mode)
+		assert.Equal(t, "running", event.Status)
 		assert.Equal(t, "llm/agents:list", event.ToolName)
 		assert.Equal(t, "bootstrap:agents", event.ToolCallID)
 		assert.False(t, event.CreatedAt.Equal(time.Time{}))
 	}
+}
+
+func TestBootstrapToolEventStatus(t *testing.T) {
+	assert.Equal(t, "running", bootstrapToolEventStatus(streaming.EventTypeToolCallStarted))
+	assert.Equal(t, "running", bootstrapToolEventStatus(streaming.EventTypeToolCallWaiting))
+	assert.Equal(t, "completed", bootstrapToolEventStatus(streaming.EventTypeToolCallCompleted))
+	assert.Equal(t, "failed", bootstrapToolEventStatus(streaming.EventTypeToolCallFailed))
+	assert.Equal(t, "canceled", bootstrapToolEventStatus(streaming.EventTypeToolCallCanceled))
+	assert.Equal(t, "", bootstrapToolEventStatus(streaming.EventType("other")))
 }

@@ -169,6 +169,97 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 	require.Len(t, second.ToolSteps, 0)
 }
 
+func TestBuildCanonicalState_ReconstructsPlannerStateFromTranscript(t *testing.T) {
+	content := "Status: validated\nTrigger: creative_phrase\nAttempt: 1\nStaticProfile: repo_analysis\nValidated: true\nOutputPayloadID: planner-output:conv-1:turn-1\nStrategyFamily: troubleshoot\nBaseProfiles: repo_analysis"
+	policyContent := "Validated: true"
+	mode := "exec"
+	summary := "planner://strategy"
+	policySummary := "planner://policy"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:             "planner-strategy:turn-1",
+				ConversationId: "conv-1",
+				Role:           "system",
+				Type:           "text",
+				Mode:           &mode,
+				Content:        &content,
+				ContextSummary: &summary,
+			},
+			{
+				Id:             "planner-policy:turn-1",
+				ConversationId: "conv-1",
+				Role:           "system",
+				Type:           "text",
+				Mode:           &mode,
+				Content:        &policyContent,
+				ContextSummary: &policySummary,
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Planner)
+	require.Equal(t, "validated", state.Turns[0].Planner.Status)
+	require.Equal(t, "creative_phrase", state.Turns[0].Planner.Trigger)
+	require.Equal(t, "repo_analysis", state.Turns[0].Planner.StaticProfile)
+	require.Equal(t, "troubleshoot", state.Turns[0].Planner.StrategyFamily)
+	require.Equal(t, 1, state.Turns[0].Planner.Attempt)
+	require.Equal(t, "planner-output:conv-1:turn-1", state.Turns[0].Planner.OutputPayloadID)
+	require.NotNil(t, state.Turns[0].Planner.Validated)
+	require.True(t, *state.Turns[0].Planner.Validated)
+}
+
+func TestBuildCanonicalState_ReconstructsPlannerFailureStateFromTranscript(t *testing.T) {
+	strategyContent := "Status: failed\nTrigger: low_confidence\nAttempt: 2\nStaticProfile: repo_analysis\nValidated: false"
+	policyContent := "SecondPolicy: clarify\nValidated: false"
+	mode := "exec"
+	strategySummary := "planner://strategy"
+	policySummary := "planner://policy"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-2",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		Message: []*agconv.MessageView{
+			{
+				Id:             "planner-strategy:turn-2",
+				ConversationId: "conv-1",
+				Role:           "system",
+				Type:           "text",
+				Mode:           &mode,
+				Content:        &strategyContent,
+				ContextSummary: &strategySummary,
+			},
+			{
+				Id:             "planner-policy:turn-2",
+				ConversationId: "conv-1",
+				Role:           "system",
+				Type:           "text",
+				Mode:           &mode,
+				Content:        &policyContent,
+				ContextSummary: &policySummary,
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Planner)
+	require.Equal(t, "failed", state.Turns[0].Planner.Status)
+	require.Equal(t, "low_confidence", state.Turns[0].Planner.Trigger)
+	require.Equal(t, "repo_analysis", state.Turns[0].Planner.StaticProfile)
+	require.Equal(t, 2, state.Turns[0].Planner.Attempt)
+	require.Equal(t, "clarify", state.Turns[0].Planner.SecondPolicy)
+	require.NotNil(t, state.Turns[0].Planner.Validated)
+	require.False(t, *state.Turns[0].Planner.Validated)
+}
+
 func TestBuildCanonicalState_HidesIntakeRouterJSONUntilFinalResponse(t *testing.T) {
 	iteration := 0
 	routerJSON := `{"clarificationNeeded":true,"clarificationQuestion":"Which metric?"}`

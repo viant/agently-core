@@ -9,7 +9,7 @@ rest of the runtime) cannot tell internal apart from external.
 
 | Service | Path | Purpose |
 |---|---|---|
-| `llm/agents` | [protocol/tool/service/llm/agents/](../protocol/tool/service/llm/agents/) | Start/status/cancel a child agent (the A2A bridge) |
+| `llm/agents` | [protocol/tool/service/llm/agents/](../protocol/tool/service/llm/agents/) | Agent control-plane tools: `list`, planner-only `topology` / `tool_details`, plus child-agent start/status/cancel/run/query |
 | `llm/skills` | [protocol/tool/service/skill/](../protocol/tool/service/skill/) | List / activate workspace skills ([doc/skills.md](skills.md)) |
 | `prompt` | [protocol/tool/service/prompt/](../protocol/tool/service/prompt/) | `prompt:list` / `prompt:get` for profiles ([doc/prompts.md](prompts.md)) |
 | `template` | [protocol/tool/service/template/](../protocol/tool/service/template/) | `template:list` / `template:get` for output templates ([doc/templates.md](templates.md)) |

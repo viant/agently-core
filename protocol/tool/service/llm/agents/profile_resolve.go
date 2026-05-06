@@ -26,10 +26,17 @@ var _ = toolexec.SystemDocumentMode
 //     share the same turn ID
 //   - childConvID is the already-created child conversation ID
 func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string) error {
-	if s.promptRepo == nil || strings.TrimSpace(ri.PromptProfileId) == "" {
+	profileID := strings.TrimSpace(ri.PromptProfileId)
+	if qi != nil && profileID != "" && strings.TrimSpace(qi.PromptProfileId) == "" {
+		// Child turns with an explicit prompt profile are already routed. Mirror
+		// that contract onto QueryInput before any later intake/routing checks so
+		// the child path does not re-run classification.
+		qi.PromptProfileId = profileID
+	}
+	if s.promptRepo == nil || profileID == "" {
 		return nil
 	}
-	profile, err := s.promptRepo.Load(ctx, strings.TrimSpace(ri.PromptProfileId))
+	profile, err := s.promptRepo.Load(ctx, profileID)
 	if err != nil {
 		return fmt.Errorf("promptProfileId %q: %w", ri.PromptProfileId, err)
 	}

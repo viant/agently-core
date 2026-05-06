@@ -234,7 +234,7 @@ func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 	}
 	activeSkills := []*skillproto.Skill{{
 		Frontmatter: skillproto.Frontmatter{
-			Name:         "forecasting-cube",
+			Name:         "forecast",
 			AllowedTools: "analyst:MetricsCube",
 		},
 	}}

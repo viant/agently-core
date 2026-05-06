@@ -299,7 +299,9 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 		if v, ok := request.Options.Metadata["modelArtifactGeneration"].(bool); ok && v {
 			req.EnableCodeInterpreter = true
-			req.ToolChoice = map[string]interface{}{"type": "code_interpreter"}
+			if len(req.Tools) == 0 && req.ToolChoice == nil {
+				req.ToolChoice = map[string]interface{}{"type": "code_interpreter"}
+			}
 		}
 		if v, ok := request.Options.Metadata["forceImageGeneration"].(bool); ok && v {
 			req.ToolChoice = nil

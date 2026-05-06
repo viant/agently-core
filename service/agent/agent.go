@@ -3,9 +3,10 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	"strings"
 
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -13,6 +14,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	promptmdl "github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/service/agent/prompts"
+	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 // PresetAssistantTextKey / PresetAssistantKindKey are the reserved
@@ -51,11 +53,27 @@ func presetAssistantFromContext(ctx map[string]any) (text, kind string) {
 	return text, kind
 }
 
+func applyWorkspaceTurnContext(qi *QueryInput, dec *routingDecision, agent *agentmdl.Agent) {
+	if qi == nil || dec == nil || dec.WorkspaceTurnContext == nil {
+		return
+	}
+	if qi.Context == nil {
+		qi.Context = make(map[string]any)
+	}
+	copy := *dec.WorkspaceTurnContext
+	if copy.Mode == intakesvc.ModePlanner && agent != nil && strings.TrimSpace(copy.PlannerAgentID) == "" {
+		copy.PlannerAgentID = strings.TrimSpace(agent.Intake.PlannerAgentID)
+	}
+	qi.Context[intakesvc.ContextKey] = &copy
+}
+
 // ensureAgent populates qi.Agent (using finder when needed) and echoes it on
 // qo.Agent for caller convenience.
 func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 	if qi.Agent == nil {
 		agentID := strings.TrimSpace(qi.AgentID)
+		var decision *routingDecision
+		var err error
 		if agentID == "" || isAutoAgentRef(agentID) {
 			var conv *apiconv.Conversation
 			if s != nil && s.conversation != nil && strings.TrimSpace(qi.ConversationID) != "" {
@@ -65,36 +83,36 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				}
 				conv = loaded
 			}
-			dec, err := s.resolveTurnRouting(ctx, conv, agentID, qi.Query, qi.MessageID)
+			decision, err = s.resolveTurnRouting(ctx, conv, agentID, qi.Query, qi.MessageID)
 			if err != nil {
 				return fmt.Errorf("failed to resolve agent: %w", err)
 			}
-			if dec == nil {
+			if decision == nil {
 				return fmt.Errorf("failed to resolve agent: nil decision")
 			}
-			agentID = strings.TrimSpace(dec.AgentID)
+			agentID = strings.TrimSpace(decision.AgentID)
 			qi.AgentID = agentID
-			qi.AutoSelected = dec.AutoSelected
-			qi.RoutingReason = strings.TrimSpace(dec.RoutingReason)
+			qi.AutoSelected = decision.AutoSelected
+			qi.RoutingReason = strings.TrimSpace(decision.RoutingReason)
 			// Stash classifier-produced preset (action=answer / action=clarify)
 			// so the downstream publish-and-short-circuit can emit the text as
 			// the assistant message without invoking a second LLM call. The
 			// reserved keys are consumed by the message publisher in the
 			// generate path; absent these keys, the agent runs normally.
-			if dec.Preset != nil {
+			if decision.Preset != nil {
 				if qi.Context == nil {
 					qi.Context = make(map[string]any)
 				}
-				switch dec.Preset.Action {
+				switch decision.Preset.Action {
 				case ClassifierActionAnswer:
-					qi.Context[PresetAssistantTextKey] = dec.Preset.Answer
+					qi.Context[PresetAssistantTextKey] = decision.Preset.Answer
 					qi.Context[PresetAssistantKindKey] = ClassifierActionAnswer
 				case ClassifierActionClarify:
-					qi.Context[PresetAssistantTextKey] = dec.Preset.Question
+					qi.Context[PresetAssistantTextKey] = decision.Preset.Question
 					qi.Context[PresetAssistantKindKey] = ClassifierActionClarify
 				}
 			}
-			logx.Infof("conversation", "agent.ensureAgent resolved convo=%q selected=%q auto=%v reason=%q query_head=%q preset=%v", strings.TrimSpace(qi.ConversationID), agentID, dec.AutoSelected, qi.RoutingReason, textutil.Head(qi.Query, 256), dec.Preset != nil)
+			logx.Infof("conversation", "agent.ensureAgent resolved convo=%q selected=%q auto=%v reason=%q query_head=%q preset=%v", strings.TrimSpace(qi.ConversationID), agentID, decision.AutoSelected, qi.RoutingReason, textutil.Head(qi.Query, 256), decision.Preset != nil)
 		}
 		if agentID != "" {
 			a, err := s.loadResolvedAgent(ctx, agentID)
@@ -102,6 +120,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 				return fmt.Errorf("failed to load agent: %w", err)
 			}
 			qi.Agent = a
+			applyWorkspaceTurnContext(qi, decision, a)
 			if isCapabilityAgentID(agentID) {
 				autoTools := false
 				qi.AutoSelectTools = &autoTools

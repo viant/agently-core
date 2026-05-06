@@ -116,6 +116,12 @@ const (
 	EventTypeIntakeWorkspaceCompleted EventType = "intake.workspace.completed"
 	EventTypeIntakeWorkspaceFailed    EventType = "intake.workspace.failed"
 
+	// Planner lifecycle.
+	EventTypePlannerSelected  EventType = "planner.selected"
+	EventTypePlannerOutput    EventType = "planner.output"
+	EventTypePlannerValidated EventType = "planner.validated"
+	EventTypePlannerFailed    EventType = "planner.failed"
+
 	// Tool feed lifecycle.
 	EventTypeToolFeedActive   EventType = "tool_feed_active"
 	EventTypeToolFeedInactive EventType = "tool_feed_inactive"
@@ -233,6 +239,14 @@ type Event struct {
 	FeedTitle     string      `json:"feedTitle,omitempty"`
 	FeedItemCount int         `json:"feedItemCount,omitempty"`
 	FeedData      interface{} `json:"feedData,omitempty"`
+	// Planner fields.
+	PlannerTrigger         string `json:"plannerTrigger,omitempty"`
+	PlannerStaticProfile   string `json:"plannerStaticProfile,omitempty"`
+	PlannerStrategyFamily  string `json:"plannerStrategyFamily,omitempty"`
+	PlannerAttempt         int    `json:"plannerAttempt,omitempty"`
+	PlannerValidated       *bool  `json:"plannerValidated,omitempty"`
+	PlannerSecondPolicy    string `json:"plannerSecondPolicy,omitempty"`
+	PlannerOutputPayloadID string `json:"plannerOutputPayloadId,omitempty"`
 	// Conversation usage summary fields.
 	UsageInputTokens     int `json:"usageInputTokens,omitempty"`
 	UsageOutputTokens    int `json:"usageOutputTokens,omitempty"`

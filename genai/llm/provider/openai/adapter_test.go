@@ -218,6 +218,33 @@ func TestToRequest_ModelArtifactGenerationEnablesCodeInterpreter(t *testing.T) {
 	assert.EqualValues(t, map[string]interface{}{"type": "code_interpreter"}, got.ToolChoice)
 }
 
+func TestToRequest_ModelArtifactGenerationDoesNotOverrideFunctionTools(t *testing.T) {
+	in := llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("forecast this audience")},
+		Options: &llm.Options{
+			Model: "gpt-5.2",
+			Tools: []llm.Tool{{
+				Definition: llm.ToolDefinition{
+					Name: "steward-ForecastingCube",
+					Parameters: map[string]interface{}{
+						"type": "object",
+					},
+				},
+			}},
+			Metadata: map[string]interface{}{
+				"modelArtifactGeneration": true,
+			},
+		},
+	}
+
+	got := ToRequest(&in)
+	assert.Equal(t, "gpt-5.2", got.Model)
+	assert.True(t, got.EnableCodeInterpreter)
+	assert.Equal(t, "auto", got.ToolChoice)
+	require.Len(t, got.Tools, 1)
+	assert.Equal(t, "steward-ForecastingCube", got.Tools[0].Function.Name)
+}
+
 func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
 	in := llm.GenerateRequest{
 		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},

@@ -29,7 +29,7 @@ func TestGenerateInput_Init_AppendsSkillsPromptSystemMessage(t *testing.T) {
 func TestGenerateInput_Init_SkipsSkillsPromptWhenSkillAlreadyActive(t *testing.T) {
 	in := &GenerateInput{
 		Binding: &binding.Binding{
-			SkillsPrompt: "<skills_instructions>\n## Skills\n- forecasting-cube: Daily forecasting.\n</skills_instructions>",
+			SkillsPrompt: "<skills_instructions>\n## Skills\n- forecast: Daily forecasting.\n</skills_instructions>",
 			Task:         binding.Task{Prompt: "forecast now"},
 			History: binding.History{
 				Current: &binding.Turn{
@@ -37,7 +37,7 @@ func TestGenerateInput_Init_SkipsSkillsPromptWhenSkillAlreadyActive(t *testing.T
 						{
 							Kind:     binding.MessageKindToolResult,
 							ToolName: "llm/skills:activate",
-							ToolArgs: map[string]interface{}{"name": "forecasting-cube"},
+							ToolArgs: map[string]interface{}{"name": "forecast"},
 							Content:  "Loaded skill",
 						},
 					},

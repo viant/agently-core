@@ -30,8 +30,8 @@ func TestParseExplicitSkillInvocation(t *testing.T) {
 
 func TestMergeReplayMessages_PreservesSyntheticSkillActivation(t *testing.T) {
 	activation := &bindpkg.Message{
-		ID:       "skill-activate-forecasting-cube",
-		ToolOpID: "skill-activate-forecasting-cube",
+		ID:       "skill-activate-forecast",
+		ToolOpID: "skill-activate-forecast",
 		ToolName: "llm/skills:activate",
 	}
 	toolResult := &bindpkg.Message{

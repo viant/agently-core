@@ -13,13 +13,10 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
 	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
 
@@ -95,7 +92,6 @@ func (w *Watchdog) sweep(ctx context.Context) {
 			log.Printf("[watchdog] handle stale run %s: %v", run.Id, err)
 		}
 	}
-	w.reconcileRunningConversations(ctx)
 }
 
 func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
@@ -286,83 +282,6 @@ func resolveResumeUserID(run *agrunstale.StaleRunsView, sd *token.SecurityData) 
 		return ""
 	}
 	return strings.TrimSpace(*run.EffectiveUserId)
-}
-
-func (w *Watchdog) reconcileRunningConversations(ctx context.Context) {
-	if w == nil || w.data == nil || w.agent == nil || w.agent.conversation == nil {
-		return
-	}
-	page, err := w.data.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		StatusFilter: "running",
-		Has:          &agconvlist.ConversationRowsInputHas{StatusFilter: true},
-	}, &data.PageInput{Limit: 200, Direction: data.DirectionLatest})
-	if err != nil {
-		log.Printf("[watchdog] list running conversations: %v", err)
-		return
-	}
-	for _, row := range page.Rows {
-		if row == nil || strings.TrimSpace(row.Id) == "" {
-			continue
-		}
-		if err := w.reconcileConversationStatus(ctx, strings.TrimSpace(row.Id)); err != nil {
-			log.Printf("[watchdog] reconcile conversation %s: %v", row.Id, err)
-		}
-	}
-}
-
-func (w *Watchdog) reconcileConversationStatus(ctx context.Context, conversationID string) error {
-	if w == nil || w.data == nil || w.agent == nil || w.agent.conversation == nil {
-		return nil
-	}
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
-		return nil
-	}
-	activeRun, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
-		ConversationId: conversationID,
-		Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
-	})
-	if err != nil {
-		return fmt.Errorf("load active run: %w", err)
-	}
-	if activeRun != nil && strings.TrimSpace(activeRun.Id) != "" {
-		return nil
-	}
-	activeTurn, err := w.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
-		ConversationID: conversationID,
-		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
-	})
-	if err != nil {
-		return fmt.Errorf("load active turn: %w", err)
-	}
-	if activeTurn != nil && strings.TrimSpace(activeTurn.Id) != "" {
-		return nil
-	}
-	queuedCount, err := w.data.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
-		ConversationID: conversationID,
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
-	})
-	if err != nil {
-		return fmt.Errorf("count queued turns: %w", err)
-	}
-	if queuedCount > 0 {
-		return nil
-	}
-	conv, err := w.agent.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
-	if err != nil {
-		return fmt.Errorf("load conversation transcript: %w", err)
-	}
-	if conv == nil || conv.Status == nil {
-		return nil
-	}
-	status := strings.TrimSpace(*conv.Status)
-	if status == "" || strings.EqualFold(status, "running") {
-		return nil
-	}
-	if err := w.agent.patchConversationStatus(ctx, conversationID, status); err != nil {
-		return fmt.Errorf("patch conversation status %q: %w", status, err)
-	}
-	return nil
 }
 
 func shouldSkipStaleRun(run *agrunstale.StaleRunsView) bool {

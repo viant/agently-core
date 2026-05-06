@@ -275,7 +275,7 @@ func TestShouldContinueAfterAsyncChange(t *testing.T) {
 		{name: "no changed ops", planEmpty: false, hasActiveWaitOps: true, changedOpsCount: 0, want: false},
 		{name: "non terminal plan reruns on changed ops", planEmpty: false, hasActiveWaitOps: false, changedOpsCount: 1, want: true},
 		{name: "active wait reruns on changed ops", planEmpty: true, hasActiveWaitOps: true, changedOpsCount: 1, want: true},
-		{name: "terminal no-wait answer is preserved", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, want: false},
+		{name: "terminal child completion still reruns once", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, want: true},
 	}
 
 	for _, tc := range tests {

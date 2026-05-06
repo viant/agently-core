@@ -63,6 +63,8 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	toolResultCount := 0
 	expectedToolCallIDs := make([]string, 0)
 	toolResultIDs := make([]string, 0)
+	seenSelectedToolCalls := map[string]struct{}{}
+	seenSelectedToolResults := map[string]struct{}{}
 
 	// Debug: log all traces and their anchor mappings
 	traceDetails := make([]map[string]string, 0)
@@ -95,26 +97,45 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			if len(filtered) == 0 {
 				continue
 			}
-			assistantToolCallCount += len(filtered)
+			unique := make([]llm.ToolCall, 0, len(filtered))
 			for _, call := range filtered {
-				if id := strings.TrimSpace(call.ID); id != "" {
-					expectedToolCallIDs = append(expectedToolCallIDs, id)
+				id := strings.TrimSpace(call.ID)
+				if id == "" {
+					continue
 				}
+				if _, ok := seenSelectedToolCalls[id]; ok {
+					continue
+				}
+				seenSelectedToolCalls[id] = struct{}{}
+				unique = append(unique, call)
+				expectedToolCallIDs = append(expectedToolCallIDs, id)
 			}
+			if len(unique) == 0 {
+				continue
+			}
+			assistantToolCallCount += len(unique)
 			copyMsg := m
-			copyMsg.ToolCalls = filtered
+			copyMsg.ToolCalls = unique
 			selected.Append(copyMsg)
 			continue
 		}
 
 		if m.ToolCallId != "" {
+			toolCallID := strings.TrimSpace(m.ToolCallId)
+			if toolCallID == "" {
+				continue
+			}
+			if _, ok := seenSelectedToolResults[toolCallID]; ok {
+				continue
+			}
 			key := binding.KindToolCall.Key(m.ToolCallId)
 			trace, ok := history.Traces[key]
 			if !ok || trace.ID != anchorID {
 				continue
 			}
+			seenSelectedToolResults[toolCallID] = struct{}{}
 			toolResultCount++
-			toolResultIDs = append(toolResultIDs, strings.TrimSpace(m.ToolCallId))
+			toolResultIDs = append(toolResultIDs, toolCallID)
 			selected.Append(m)
 			continue
 		}

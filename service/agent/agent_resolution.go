@@ -8,6 +8,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 type agentCatalog interface {
@@ -17,6 +18,14 @@ type agentCatalog interface {
 func isAutoAgentRef(agentRef string) bool {
 	switch strings.ToLower(strings.TrimSpace(agentRef)) {
 	case "", "agent_id", "auto":
+		return true
+	}
+	return false
+}
+
+func isInternalHelperAgentID(agentID string) bool {
+	switch strings.ToLower(strings.TrimSpace(agentID)) {
+	case "agent_selector", "agent-selector", "intake_sidecar", "tool_router", "planner_pass":
 		return true
 	}
 	return false
@@ -32,7 +41,7 @@ func lastTurnAgentIDUsed(conv *apiconv.Conversation) string {
 			continue
 		}
 		id := strings.TrimSpace(*t.AgentIdUsed)
-		if id == "" || isAutoAgentRef(id) {
+		if id == "" || isAutoAgentRef(id) || isInternalHelperAgentID(id) {
 			continue
 		}
 		return id
@@ -267,10 +276,11 @@ func (s *Service) tryReuseFromPriorTurn(ctx context.Context, conv *apiconv.Conve
 // assistant message without a second LLM call. Preset is nil for normal
 // route turns.
 type routingDecision struct {
-	AgentID       string
-	AutoSelected  bool
-	RoutingReason string
-	Preset        *ClassifierResult // non-nil only for action=answer or action=clarify
+	AgentID              string
+	AutoSelected         bool
+	RoutingReason        string
+	Preset               *ClassifierResult // non-nil only for action=answer or action=clarify
+	WorkspaceTurnContext *intakesvc.TurnContext
 }
 
 func (s *Service) resolveAgentIDForConversation(ctx context.Context, conv *apiconv.Conversation, requestedAgent string, query string, preferredTurnID string) (string, bool, string, error) {
@@ -373,13 +383,32 @@ func (s *Service) resolveTurnRouting(ctx context.Context, conv *apiconv.Conversa
 			return nil, err
 		} else if result != nil {
 			switch result.Action {
-			case ClassifierActionRoute:
+			case ClassifierActionRoute, ClassifierActionPlanner:
 				if id := strings.TrimSpace(result.AgentID); id != "" {
-					return &routingDecision{
+					plannerAgentID := ""
+					for _, candidate := range candidates {
+						if candidate == nil || !strings.EqualFold(strings.TrimSpace(candidate.ID), id) {
+							continue
+						}
+						plannerAgentID = strings.TrimSpace(candidate.Intake.PlannerAgentID)
+						break
+					}
+					decision := &routingDecision{
 						AgentID:       id,
 						AutoSelected:  true,
 						RoutingReason: "llm_router",
-					}, nil
+					}
+					if result.Action == ClassifierActionPlanner {
+						decision.RoutingReason = "llm_router_planner"
+						decision.WorkspaceTurnContext = &intakesvc.TurnContext{
+							SelectedAgentID: id,
+							Mode:            intakesvc.ModePlanner,
+							PlannerTrigger:  strings.TrimSpace(result.PlannerTrigger),
+							PlannerAgentID:  plannerAgentID,
+							Source:          intakesvc.SourceWorkspace,
+						}
+					}
+					return decision, nil
 				}
 			case ClassifierActionAnswer, ClassifierActionClarify:
 				// Route to agent_selector for the response *agent identity*

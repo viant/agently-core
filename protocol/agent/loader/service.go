@@ -507,6 +507,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					case yaml.SequenceNode:
 						agent.Prompts.Bundles = append(agent.Prompts.Bundles, asStrings(v)...)
 					}
+				case "injectselectedprofile", "injectselected", "inject":
+					if v.Kind == yaml.ScalarNode {
+						value := toBool(v.Value)
+						agent.Prompts.InjectSelectedProfile = &value
+					}
 				}
 				return nil
 			}); err != nil {
@@ -542,6 +547,34 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 							agent.Intake.ConfidenceThreshold = f
 						}
 					}
+				case "plannerenabled":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.PlannerEnabled = toBool(v.Value)
+					}
+				case "planneragentid":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.PlannerAgentID = strings.TrimSpace(v.Value)
+					}
+				case "plannerfallbackthreshold":
+					if v.Kind == yaml.ScalarNode {
+						if f, err := parseFloat64(v.Value); err == nil {
+							agent.Intake.PlannerFallbackThreshold = f
+						}
+					}
+				case "planneronvalidatorfailure":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.PlannerOnValidatorFailure = toBool(v.Value)
+					}
+				case "planneroncreativerequest":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.PlannerOnCreativeRequest = toBool(v.Value)
+					}
+				case "plannersecondfailurepolicy":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.PlannerSecondFailurePolicy = strings.TrimSpace(v.Value)
+					}
+				case "plannertriggerphrases":
+					agent.Intake.PlannerTriggerPhrases = asStrings(v)
 				case "triggerontopicshift":
 					if v.Kind == yaml.ScalarNode {
 						agent.Intake.TriggerOnTopicShift = toBool(v.Value)

@@ -9,7 +9,7 @@ import (
 func TestRuntimeActivatedSkill(t *testing.T) {
 	input := &QueryInput{
 		Context: map[string]interface{}{
-			"skillActivationName": "forecasting-cube",
+			"skillActivationName": "forecast",
 			"skillActivationBody": "Loaded skill body",
 		},
 	}
@@ -17,7 +17,7 @@ func TestRuntimeActivatedSkill(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected active skill context")
 	}
-	if name != "forecasting-cube" {
+	if name != "forecast" {
 		t.Fatalf("name = %q", name)
 	}
 	if body != "Loaded skill body" {
@@ -28,12 +28,12 @@ func TestRuntimeActivatedSkill(t *testing.T) {
 func TestResolveActiveSkillNames_FallsBackToContext(t *testing.T) {
 	input := &QueryInput{
 		Context: map[string]interface{}{
-			"skillActivationName": "forecasting-cube",
+			"skillActivationName": "forecast",
 			"skillActivationBody": "Loaded skill body",
 		},
 	}
 	names := resolveActiveSkillNames(&binding.History{}, input, nil, nil, "", "")
-	if len(names) != 1 || names[0] != "forecasting-cube" {
+	if len(names) != 1 || names[0] != "forecast" {
 		t.Fatalf("names = %#v", names)
 	}
 }

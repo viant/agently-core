@@ -29,6 +29,15 @@ func TestParseClassifierResult_UnifiedSchema(t *testing.T) {
 		assert.Empty(t, got.Question)
 	})
 
+	t.Run("action=planner returns AgentID", func(t *testing.T) {
+		got := parseClassifierResult(mkResp(`{"action":"planner","agentId":"analyst"}`), "agentId")
+		assert.NotNil(t, got)
+		assert.Equal(t, ClassifierActionPlanner, got.Action)
+		assert.Equal(t, "analyst", got.AgentID)
+		assert.Empty(t, got.Answer)
+		assert.Empty(t, got.Question)
+	})
+
 	t.Run("action=answer returns Answer", func(t *testing.T) {
 		got := parseClassifierResult(mkResp(`{"action":"answer","text":"## Summary\nWorkspace can do X, Y, Z."}`), "agentId")
 		assert.NotNil(t, got)

@@ -78,8 +78,12 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 			info.Payload = redacted
 		}
 	}
-	// Attach finish barrier so downstream can wait for persistence before emitting final message.
-	ctx, _ = WithFinishBarrier(ctx)
+	// Reuse the stream-level finish barrier when one already exists. Creating a
+	// second barrier here breaks ordering because downstream waiters can end up
+	// blocked on a different channel than the one OnCallEnd signals.
+	if ctx.Value(finishKey) == nil {
+		ctx, _ = WithFinishBarrier(ctx)
+	}
 	msgID := uuid.NewString()
 	ctx = context.WithValue(ctx, runtimerequestctx.ModelMessageIDKey, msgID)
 	o.mu.Lock()

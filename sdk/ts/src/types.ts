@@ -366,6 +366,11 @@ export type SSEEventType =
     // Tool feed lifecycle
     | 'tool_feed_active'
     | 'tool_feed_inactive'
+    // Planner lifecycle
+    | 'planner.selected'
+    | 'planner.output'
+    | 'planner.validated'
+    | 'planner.failed'
     // Control (patch-based)
     | 'control';
 
@@ -442,6 +447,14 @@ export interface SSEEvent {
     feedTitle?: string;
     feedItemCount?: number;
     feedData?: JSONValue;
+    // Planner fields
+    plannerTrigger?: string;
+    plannerStaticProfile?: string;
+    plannerStrategyFamily?: string;
+    plannerAttempt?: number;
+    plannerSecondPolicy?: string;
+    plannerOutputPayloadId?: string;
+    plannerValidated?: boolean;
 }
 
 export type ExecutionEvent = SSEEvent;

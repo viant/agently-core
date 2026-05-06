@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	"strings"
@@ -443,6 +444,43 @@ func (s *Service) markAssistantMessageInterim(ctx context.Context, turn *runtime
 	msg.SetInterim(1)
 	_ = s.conversation.PatchMessage(ctx, msg)
 	s.archiveOlderInterimAssistantMessages(ctx, turn.ConversationID, turn.TurnID, msgID)
+}
+
+func (s *Service) persistFinalAssistantMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, messageID, content string) error {
+	if s == nil || s.conversation == nil || turn == nil {
+		return nil
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	messageID = strings.TrimSpace(messageID)
+	rewritten := strings.TrimSpace(s.rewriteGeneratedFileLinks(ctx, turn.ConversationID, turn.TurnID, messageID, content))
+	if messageID == "" {
+		messageID = uuid.NewString()
+		msg := apiconv.NewMessage()
+		msg.SetId(messageID)
+		msg.SetConversationID(turn.ConversationID)
+		msg.SetTurnID(turn.TurnID)
+		msg.SetRole("assistant")
+		msg.SetType("text")
+		msg.SetContent(rewritten)
+		msg.SetInterim(0)
+		if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+			return err
+		}
+		return nil
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(messageID)
+	msg.SetConversationID(turn.ConversationID)
+	msg.SetContent(rewritten)
+	msg.SetInterim(0)
+	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+		return err
+	}
+	s.archiveOlderInterimAssistantMessages(ctx, turn.ConversationID, turn.TurnID, messageID)
+	return nil
 }
 
 func (s *Service) archiveOlderInterimAssistantMessages(ctx context.Context, conversationID, turnID, keepMessageID string) {

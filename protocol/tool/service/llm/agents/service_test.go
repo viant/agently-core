@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,130 @@ func expectedListOutput(items []ListItem) *ListOutput {
 		RunUsage:   "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need delegated output returned synchronously. Use llm/agents:query for the full agent query contract.",
 		NextAction: "",
 	}
+}
+
+type fakeToolRegistry struct {
+	defs map[string]llm.ToolDefinition
+}
+
+func (f *fakeToolRegistry) Definitions() []llm.ToolDefinition {
+	if f == nil || len(f.defs) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolDefinition, 0, len(f.defs))
+	for _, def := range f.defs {
+		out = append(out, def)
+	}
+	return out
+}
+
+func (f *fakeToolRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
+	if f == nil {
+		return nil
+	}
+	def, ok := f.defs[pattern]
+	if !ok {
+		return nil
+	}
+	return []*llm.ToolDefinition{&def}
+}
+
+func (f *fakeToolRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	if f == nil {
+		return nil, false
+	}
+	def, ok := f.defs[name]
+	if !ok {
+		return nil, false
+	}
+	copy := def
+	return &copy, true
+}
+
+func (*fakeToolRegistry) MustHaveTools([]string) ([]llm.Tool, error) { return nil, nil }
+func (*fakeToolRegistry) Execute(context.Context, string, map[string]interface{}) (string, error) {
+	return "", nil
+}
+func (*fakeToolRegistry) SetDebugLogger(io.Writer)   {}
+func (*fakeToolRegistry) Initialize(context.Context) {}
+
+func TestService_Topology_ExposesCompactPlannerMetadata(t *testing.T) {
+	ctx := memory.WithRequestMode(context.Background(), "plan")
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"steward": {
+				Identity:    agentmdl.Identity{ID: "steward", Name: "Steward"},
+				Description: "Primary execution agent",
+				Skills:      []string{"forecast/*", "inventory_diagnosis"},
+				Tool:        agentmdl.Tool{Bundles: []string{"steward-tools"}},
+				Template:    agentmdl.Template{Bundles: []string{"steward-templates"}},
+				Prompts:     agentmdl.PromptAccess{Bundles: []string{"selector_impact", "inventory_diagnosis"}},
+				Intake:      agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "steward_planner"},
+				Delegation:  &agentmdl.Delegation{Enabled: true, MaxDepth: 3},
+				Profile: &agentmdl.Profile{
+					Responsibilities: []string{"diagnosis", "forecast review"},
+					InScope:          []string{"inventory", "forecast"},
+					OutOfScope:       []string{"billing"},
+				},
+			},
+		}},
+	}
+	s := New(nil)
+	s.agent = fake
+
+	var out TopologyOutput
+	require.NoError(t, s.topology(ctx, &TopologyInput{}, &out))
+	require.Len(t, out.Items, 1)
+	require.Equal(t, "steward", out.Items[0].ID)
+	require.Equal(t, "steward_planner", out.Items[0].PlannerAgentID)
+	require.True(t, out.Items[0].PlannerEnabled)
+	require.Equal(t, []string{"steward-tools"}, out.Items[0].ToolBundles)
+	require.Equal(t, []string{"steward-templates"}, out.Items[0].TemplateBundles)
+	require.Equal(t, []string{"selector_impact", "inventory_diagnosis"}, out.Items[0].PromptProfiles)
+	require.True(t, out.Items[0].Delegation.Enabled)
+	require.Equal(t, 3, out.Items[0].Delegation.MaxSameAgentDepth)
+}
+
+func TestService_ToolDetails_UsesRegistryDefinitions(t *testing.T) {
+	ctx := memory.WithRequestMode(context.Background(), "plan")
+	s := New(nil, WithToolRegistry(&fakeToolRegistry{defs: map[string]llm.ToolDefinition{
+		"llm/agents:run": {
+			Name:        "llm/agents:run",
+			Description: "Run an agent",
+			Parameters:  map[string]interface{}{"type": "object"},
+			Required:    []string{"agentId", "objective"},
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+			},
+			Cacheable: true,
+		},
+	}}))
+
+	var out ToolDetailsOutput
+	require.NoError(t, s.toolDetails(ctx, &ToolDetailsInput{Names: []string{"llm/agents:run"}}, &out))
+	require.Len(t, out.Items, 1)
+	require.Equal(t, "llm/agents:run", out.Items[0].Name)
+	require.Equal(t, "Run an agent", out.Items[0].Description)
+	require.Equal(t, []string{"agentId", "objective"}, out.Items[0].Required)
+	require.True(t, out.Items[0].Cacheable)
+}
+
+func TestService_Topology_IsPlannerOnly(t *testing.T) {
+	s := New(nil)
+	var out TopologyOutput
+	err := s.topology(context.Background(), &TopologyInput{}, &out)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "planner-mode")
+}
+
+func TestService_ToolDetails_IsPlannerOnly(t *testing.T) {
+	s := New(nil, WithToolRegistry(&fakeToolRegistry{defs: map[string]llm.ToolDefinition{
+		"llm/agents:run": {Name: "llm/agents:run"},
+	}}))
+	var out ToolDetailsOutput
+	err := s.toolDetails(context.Background(), &ToolDetailsInput{Names: []string{"llm/agents:run"}}, &out)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "planner-mode")
 }
 
 func TestService_DoesNotExposeAutoAsyncConfigForRun(t *testing.T) {
@@ -1706,6 +1831,19 @@ func (f *fakeFinder) Find(_ context.Context, id string) (*agentmdl.Agent, error)
 	return f.agents[id], nil
 }
 
+func (f *fakeFinder) All() []*agentmdl.Agent {
+	if f == nil || len(f.agents) == 0 {
+		return nil
+	}
+	out := make([]*agentmdl.Agent, 0, len(f.agents))
+	for _, item := range f.agents {
+		if item != nil {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 func TestService_Run_PrefersInternalWhenResolvable(t *testing.T) {
 	ctx := context.Background()
 	calledExternal := false
@@ -2218,4 +2356,43 @@ func TestService_Start_PreservesExternalRunnerOutput(t *testing.T) {
 	assert.Equal(t, "ctx-1", out.ContextID)
 	assert.True(t, out.StreamSupported)
 	assert.Equal(t, []string{"warn-1"}, out.Warnings)
+}
+
+func TestService_Start_AsyncChildReceivesPromptProfileID(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
+		}},
+	}
+	s := &Service{agent: fake, conv: conv, status: statussvc.New(conv), linker: linksvc.New(conv)}
+
+	var out StartOutput
+	err := s.start(runCtx, &StartInput{
+		AgentID:         "worker",
+		Objective:       "work",
+		PromptProfileId: "diagnostic_baseline",
+	}, &out)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return fake.lastInput != nil
+	}, 2*time.Second, 20*time.Millisecond)
+	require.Equal(t, "diagnostic_baseline", fake.lastInput.PromptProfileId)
 }

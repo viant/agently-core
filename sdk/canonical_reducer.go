@@ -84,6 +84,10 @@ func Reduce(state *ConversationState, event *streaming.Event) *ConversationState
 	case streaming.EventTypeLinkedConversationAttached:
 		return reduceLinkedConversation(state, event)
 
+	// Planner
+	case streaming.EventTypePlannerSelected, streaming.EventTypePlannerOutput, streaming.EventTypePlannerValidated, streaming.EventTypePlannerFailed:
+		return reducePlannerEvent(state, event)
+
 	// Tool feed lifecycle
 	case streaming.EventTypeToolFeedActive:
 		return reduceFeedActive(state, event)
@@ -444,6 +448,15 @@ func reduceLinkedConversation(state *ConversationState, event *streaming.Event) 
 		CreatedAt:            event.CreatedAt,
 	})
 	applyLinkedConversationToToolSteps(turn, event)
+	return state
+}
+
+func reducePlannerEvent(state *ConversationState, event *streaming.Event) *ConversationState {
+	turn := findOrCreateTurnWithTime(state, event)
+	if turn == nil {
+		return state
+	}
+	applyPlannerEvent(turn, event)
 	return state
 }
 

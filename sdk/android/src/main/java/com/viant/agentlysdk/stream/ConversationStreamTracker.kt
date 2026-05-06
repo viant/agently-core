@@ -3,6 +3,7 @@ package com.viant.agentlysdk.stream
 import com.viant.agentlysdk.ActiveFeedState
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.Message
+import com.viant.agentlysdk.PlannerState
 import com.viant.agentlysdk.TurnState
 import kotlinx.serialization.json.JsonObject
 
@@ -75,11 +76,90 @@ class ElicitationTracker {
     }
 }
 
+class PlannerTracker {
+    private val plannersByTurnId = linkedMapOf<String, PlannerState>()
+
+    val planners: Map<String, PlannerState>
+        get() = plannersByTurnId.toMap()
+
+    fun clear() {
+        plannersByTurnId.clear()
+    }
+
+    fun applyEvent(event: SSEEvent) {
+        val turnId = resolveEventTurnId(event).trim()
+        if (turnId.isEmpty()) {
+            return
+        }
+        val existing = plannersByTurnId[turnId] ?: PlannerState()
+        plannersByTurnId[turnId] = mergePlannerState(
+            existing,
+            PlannerState(
+                status = plannerStatusForEventType(event.type),
+                trigger = event.plannerTrigger,
+                staticProfile = event.plannerStaticProfile,
+                strategyFamily = event.plannerStrategyFamily,
+                attempt = event.plannerAttempt,
+                secondPolicy = event.plannerSecondPolicy,
+                outputPayloadId = event.plannerOutputPayloadId,
+                validated = event.plannerValidated
+            )
+        )
+    }
+
+    fun reconcileTranscript(turns: List<TurnState>, activeTurnId: String?) {
+        val next = linkedMapOf<String, PlannerState>()
+        for ((turnId, state) in plannersByTurnId) {
+            if (turnId.isNotBlank() && turnId == activeTurnId) {
+                next[turnId] = state
+            }
+        }
+        turns.forEach { turn ->
+            val turnId = firstString(turn.turnId).trim()
+            val planner = turn.planner ?: return@forEach
+            if (turnId.isEmpty()) {
+                return@forEach
+            }
+            if (turnId == activeTurnId && next.containsKey(turnId)) {
+                return@forEach
+            }
+            next[turnId] = planner
+        }
+        plannersByTurnId.clear()
+        plannersByTurnId.putAll(next)
+    }
+
+    private fun plannerStatusForEventType(type: String?): String? {
+        return when (firstString(type).trim().lowercase()) {
+            "planner.selected" -> "selected"
+            "planner.output" -> "output"
+            "planner.validated" -> "validated"
+            "planner.failed" -> "failed"
+            else -> null
+        }
+    }
+
+    private fun mergePlannerState(current: PlannerState, incoming: PlannerState): PlannerState {
+        val validated = if (incoming.validated != null) incoming.validated else current.validated
+        return PlannerState(
+            status = firstString(incoming.status, current.status).ifBlank { null },
+            trigger = firstString(incoming.trigger, current.trigger).ifBlank { null },
+            staticProfile = firstString(incoming.staticProfile, current.staticProfile).ifBlank { null },
+            strategyFamily = firstString(incoming.strategyFamily, current.strategyFamily).ifBlank { null },
+            attempt = incoming.attempt ?: current.attempt,
+            secondPolicy = firstString(incoming.secondPolicy, current.secondPolicy).ifBlank { null },
+            outputPayloadId = firstString(incoming.outputPayloadId, current.outputPayloadId).ifBlank { null },
+            validated = validated
+        )
+    }
+}
+
 class ConversationStreamTracker(conversationId: String = "") {
     private val messages = MessageBuffer()
     private var executionGroupsById: MutableMap<String, LiveExecutionGroup> = linkedMapOf()
     private val feeds = FeedTracker()
     private val elicitation = ElicitationTracker()
+    private val planner = PlannerTracker()
     private var currentConversationId: String = conversationId.trim()
 
     val state: ConversationStreamSnapshot
@@ -92,7 +172,8 @@ class ConversationStreamTracker(conversationId: String = "") {
             feeds = feeds.feeds,
             pendingElicitation = elicitation.pending,
             bufferedMessages = messages.byId.values.toList(),
-            liveExecutionGroupsById = executionGroupsById.toMap()
+            liveExecutionGroupsById = executionGroupsById.toMap(),
+            plannerByTurnId = planner.planners
         )
     }
 
@@ -102,6 +183,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         executionGroupsById = linkedMapOf()
         feeds.clear()
         elicitation.clear()
+        planner.clear()
         currentConversationId = ""
     }
 
@@ -113,11 +195,13 @@ class ConversationStreamTracker(conversationId: String = "") {
         executionGroupsById = applyExecutionStreamEventToGroups(executionGroupsById, event).toMutableMap()
         feeds.applyEvent(event)
         elicitation.applyEvent(event)
+        planner.applyEvent(event)
         return applyMessageEvent(messages, event)
     }
 
     fun reconcileTranscript(turns: List<TurnState>) {
         reconcileFromTranscript(messages, turns)
+        planner.reconcileTranscript(turns, messages.activeTurnId)
     }
 
     fun reconcile(serverMessages: List<Message>): List<BufferedMessage> {

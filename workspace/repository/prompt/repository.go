@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/viant/afs"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
@@ -47,4 +48,29 @@ func (r *Repository) LoadAll(ctx context.Context) ([]*promptdef.Profile, error) 
 		out = append(out, profile)
 	}
 	return out, nil
+}
+
+func FilterAllowedProfiles(profiles []*promptdef.Profile, allow []string) []*promptdef.Profile {
+	if len(profiles) == 0 {
+		return nil
+	}
+	if len(allow) == 0 {
+		return profiles
+	}
+	allowed := map[string]struct{}{}
+	for _, id := range allow {
+		if trimmed := strings.ToLower(strings.TrimSpace(id)); trimmed != "" {
+			allowed[trimmed] = struct{}{}
+		}
+	}
+	filtered := make([]*promptdef.Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		if _, ok := allowed[strings.ToLower(strings.TrimSpace(profile.ID))]; ok {
+			filtered = append(filtered, profile)
+		}
+	}
+	return filtered
 }
