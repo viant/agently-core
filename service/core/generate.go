@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/binding"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -79,6 +80,12 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
+	start := time.Now()
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	turnID := ""
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(turn.TurnID)
+	}
 	if input != nil && input.Options != nil {
 		ctx = runtimerequestctx.WithRequestMode(ctx, input.Options.Mode)
 		if input.Options.Metadata != nil {
@@ -112,10 +119,17 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 			Err:         strings.TrimSpace(retErr.Error()),
 		})
 	}()
+	prepareStart := time.Now()
 	request, model, err := s.prepareGenerateRequest(ctx, input)
 	if err != nil {
 		return err
 	}
+	toolCount := 0
+	if request.Options != nil {
+		toolCount = len(request.Options.Tools)
+	}
+	logx.Infof("conversation", "core.Generate request ready convo=%q turn=%q elapsed=%s messages=%d tools=%d model=%q",
+		conversationID, turnID, time.Since(prepareStart), len(request.Messages), toolCount, strings.TrimSpace(input.Model))
 	if IsAnchorContinuationEnabled(model) {
 		if lr, handled, cerr := s.tryGenerateContinuationByAnchor(ctx, model, request); handled || cerr != nil {
 			if cerr != nil {
@@ -159,6 +173,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	var response *llm.GenerateResponse
+	modelGenerateStart := time.Now()
+	logx.Infof("conversation", "core.Generate model.Generate start convo=%q turn=%q total_elapsed=%s model=%q",
+		conversationID, turnID, time.Since(start), strings.TrimSpace(input.Model))
 	for attempt := 0; attempt < 3; attempt++ {
 		response, err = model.Generate(ctx, request)
 		if err == nil {
@@ -192,6 +209,8 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 			return fmt.Errorf("failed to generate content: %w", err)
 		}
 	}
+	logx.Infof("conversation", "core.Generate model.Generate done convo=%q turn=%q elapsed=%s total_elapsed=%s model=%q choices=%d",
+		conversationID, turnID, time.Since(modelGenerateStart), time.Since(start), strings.TrimSpace(input.Model), len(response.Choices))
 	output.Response = response
 	var builder strings.Builder
 	for _, choice := range response.Choices {
