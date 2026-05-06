@@ -458,8 +458,14 @@ func resolveUserAsk(input *QueryInput, displayQuery string) string {
 	return strings.TrimSpace(displayQuery)
 }
 
-func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, changedOpsCount int) bool {
-	return changedOpsCount > 0
+func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, changedOpsCount int, terminalContentReady bool) bool {
+	if changedOpsCount <= 0 {
+		return false
+	}
+	if !planEmpty || hasActiveWaitOps {
+		return true
+	}
+	return !terminalContentReady
 }
 
 func skillActivationModeOverride(input *QueryInput, skillName string) string {
@@ -1006,7 +1012,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if s.asyncManager != nil {
 			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 			hasActiveWaitOps := s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
-			if shouldContinueAfterAsyncChange(aPlan.IsEmpty(), hasActiveWaitOps, len(changedOps)) {
+			terminalContentReady := aPlan.IsEmpty() && !hasActiveWaitOps && strings.TrimSpace(genOutput.Content) != ""
+			if shouldContinueAfterAsyncChange(aPlan.IsEmpty(), hasActiveWaitOps, len(changedOps), terminalContentReady) {
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
 				if !hasActiveWaitOps {
 					logx.Infof("conversation", "agent.runPlan async-rerun-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
