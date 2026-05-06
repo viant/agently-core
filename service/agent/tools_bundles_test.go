@@ -4,17 +4,22 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	execconfig "github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	skillsvc "github.com/viant/agently-core/service/skill"
 )
 
 type fakeRegistry struct {
@@ -315,4 +320,86 @@ func TestSelectedBundleIDs_MergesAgentAndRuntimeBundles(t *testing.T) {
 		[]string{"orchestrator", "analyst-performance-tools", "analyst-baseline"},
 		actual,
 	)
+}
+
+func TestResolveTools_SkillControlToolsAreNotBundleDriven(t *testing.T) {
+	tmpDir := t.TempDir()
+	skillRoot := filepath.Join(tmpDir, "skills", "forecast")
+	require.NoError(t, os.MkdirAll(skillRoot, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(`---
+name: forecast
+description: Forecast skill.
+allowed-tools: analyst:MetricsCube
+---
+
+body
+`), 0o644))
+
+	skillSvc := skillsvc.New(&execconfig.Defaults{
+		Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(tmpDir, "skills")}},
+	}, nil, nil)
+	require.NoError(t, skillSvc.Load(context.Background()))
+
+	reg := &fakeRegistry{defs: []llm.ToolDefinition{
+		{Name: "llm/skills:list"},
+		{Name: "llm/skills:activate"},
+		{Name: "prompt:list"},
+	}}
+	svc := &Service{
+		registry: reg,
+		skillSvc: skillSvc,
+		toolBundles: func(ctx context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID: "orchestrator",
+				Match: []llm.Tool{
+					{Name: "prompt:*"},
+				},
+			}}, nil
+		},
+	}
+	ctx, _ := withWarnings(context.Background())
+	actual, err := svc.resolveTools(ctx, &QueryInput{
+		Agent: &agentmdl.Agent{
+			Skills: []string{"forecast"},
+			Tool:   agentmdl.Tool{Bundles: []string{"orchestrator"}},
+		},
+	})
+	require.NoError(t, err)
+	var got []string
+	for _, tool := range actual {
+		got = append(got, tool.Definition.Name)
+	}
+	sort.Strings(got)
+	assert.EqualValues(t, []string{"llm/skills:activate", "llm/skills:list", "prompt:list"}, got)
+}
+
+func TestResolveTools_DoesNotExposeSkillControlToolsWhenNoVisibleSkills(t *testing.T) {
+	reg := &fakeRegistry{defs: []llm.ToolDefinition{
+		{Name: "llm/skills:list"},
+		{Name: "llm/skills:activate"},
+		{Name: "prompt:list"},
+	}}
+	svc := &Service{
+		registry: reg,
+		toolBundles: func(ctx context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID: "orchestrator",
+				Match: []llm.Tool{
+					{Name: "prompt:*"},
+				},
+			}}, nil
+		},
+	}
+	ctx, _ := withWarnings(context.Background())
+	actual, err := svc.resolveTools(ctx, &QueryInput{
+		Agent: &agentmdl.Agent{
+			Tool: agentmdl.Tool{Bundles: []string{"orchestrator"}},
+		},
+	})
+	require.NoError(t, err)
+	var got []string
+	for _, tool := range actual {
+		got = append(got, tool.Definition.Name)
+	}
+	assert.EqualValues(t, []string{"prompt:list"}, got)
 }
