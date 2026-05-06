@@ -377,15 +377,21 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 		s := &Service{}
 
 		override := &intakesvc.TurnContext{
-			Title:              "caller-supplied",
-			Intent:             "capacity_review",
-			SelectedAgentID:    "analyst",
-			Mode:               intakesvc.ModeRoute,
-			Source:             intakesvc.SourceCallerProvided,
-			TemplateId:         "capacity_review_dashboard",
-			SuggestedProfileId: "analyst-forecast",
-			Confidence:         0.94,
-			AppendToolBundles:  []string{"forecast"},
+			Classification: intakesvc.ClassificationContext{
+				Title:      "caller-supplied",
+				Intent:     "capacity_review",
+				Confidence: 0.94,
+			},
+			Routing: intakesvc.RoutingContext{
+				SelectedAgentID: "analyst",
+				Mode:            intakesvc.ModeRoute,
+				Source:          intakesvc.SourceCallerProvided,
+			},
+			Prompting: intakesvc.PromptingContext{
+				TemplateID:         "capacity_review_dashboard",
+				SuggestedProfileID: "analyst-forecast",
+				AppendToolBundles:  []string{"forecast"},
+			},
 		}
 
 		input := &QueryInput{

@@ -102,8 +102,8 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	if err != nil {
 		return nil, fmt.Errorf("intake: parse output: %w", err)
 	}
-	if strings.TrimSpace(tc.Source) == "" {
-		tc.Source = SourceAgent
+	if strings.TrimSpace(tc.Routing.Source) == "" {
+		tc.Routing.Source = SourceAgent
 	}
 	filterByScope(tc, cfg)
 	return tc, nil
@@ -377,20 +377,20 @@ func filterByScope(tc *TurnContext, cfg *agentmdl.Intake) {
 		return
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeIntent) {
-		tc.Intent = ""
+		tc.Classification.Intent = ""
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeContext) {
-		tc.Context = nil
+		tc.Scope.Values = nil
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeProfile) {
-		tc.SuggestedProfileId = ""
-		tc.Confidence = 0
+		tc.Prompting.SuggestedProfileID = ""
+		tc.Classification.Confidence = 0
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeTools) {
-		tc.AppendToolBundles = nil
+		tc.Prompting.AppendToolBundles = nil
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeTemplate) {
-		tc.TemplateId = ""
+		tc.Prompting.TemplateID = ""
 	}
 }
 
@@ -431,6 +431,7 @@ type turnContextWire struct {
 	SelectedAgentID string `json:"selectedAgentId,omitempty"`
 	Mode            string `json:"mode,omitempty"`
 	PlannerTrigger  string `json:"plannerTrigger,omitempty"`
+	PlannerAgentID  string `json:"plannerAgentId,omitempty"`
 	Source          string `json:"source,omitempty"`
 }
 

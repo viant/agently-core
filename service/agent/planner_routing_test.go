@@ -67,11 +67,11 @@ func TestResolveTurnRouting_PlannerCarriesWorkspaceTurnContext(t *testing.T) {
 	require.Equal(t, "coder", dec.AgentID)
 	require.Equal(t, "llm_router_planner", dec.RoutingReason)
 	require.NotNil(t, dec.WorkspaceTurnContext)
-	require.Equal(t, intakesvc.ModePlanner, dec.WorkspaceTurnContext.Mode)
-	require.Equal(t, "creative_phrase", dec.WorkspaceTurnContext.PlannerTrigger)
-	require.Equal(t, "steward_planner", dec.WorkspaceTurnContext.PlannerAgentID)
-	require.Equal(t, intakesvc.SourceWorkspace, dec.WorkspaceTurnContext.Source)
-	require.Equal(t, "coder", dec.WorkspaceTurnContext.SelectedAgentID)
+	require.Equal(t, intakesvc.ModePlanner, dec.WorkspaceTurnContext.Routing.Mode)
+	require.Equal(t, "creative_phrase", dec.WorkspaceTurnContext.Planner.Trigger)
+	require.Equal(t, "steward_planner", dec.WorkspaceTurnContext.Planner.AgentID)
+	require.Equal(t, intakesvc.SourceWorkspace, dec.WorkspaceTurnContext.Routing.Source)
+	require.Equal(t, "coder", dec.WorkspaceTurnContext.Routing.SelectedAgentID)
 }
 
 func TestEnsureAgent_PersistsWorkspacePlannerTurnContext(t *testing.T) {
@@ -105,11 +105,11 @@ func TestEnsureAgent_PersistsWorkspacePlannerTurnContext(t *testing.T) {
 	require.NoError(t, svc.ensureAgent(context.Background(), input))
 	tc := intakesvc.FromContext(input.Context)
 	require.NotNil(t, tc)
-	require.Equal(t, intakesvc.ModePlanner, tc.Mode)
-	require.Equal(t, "creative_phrase", tc.PlannerTrigger)
-	require.Equal(t, "steward_planner", tc.PlannerAgentID)
-	require.Equal(t, intakesvc.SourceWorkspace, tc.Source)
-	require.Equal(t, "coder", tc.SelectedAgentID)
+	require.Equal(t, intakesvc.ModePlanner, tc.Routing.Mode)
+	require.Equal(t, "creative_phrase", tc.Planner.Trigger)
+	require.Equal(t, "steward_planner", tc.Planner.AgentID)
+	require.Equal(t, intakesvc.SourceWorkspace, tc.Routing.Source)
+	require.Equal(t, "coder", tc.Routing.SelectedAgentID)
 }
 
 func TestEnsureAgent_PlannerDisabledRejectsUnsupportedPlannerAction(t *testing.T) {

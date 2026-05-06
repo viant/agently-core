@@ -210,10 +210,14 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-planner")
 
 	tc := &intakesvc.TurnContext{
-		Mode:            intakesvc.ModePlanner,
-		PlannerTrigger:  "creative_phrase",
-		SelectedAgentID: "coder",
-		Source:          intakesvc.SourceWorkspace,
+		Routing: intakesvc.RoutingContext{
+			Mode:            intakesvc.ModePlanner,
+			SelectedAgentID: "coder",
+			Source:          intakesvc.SourceWorkspace,
+		},
+		Planner: intakesvc.PlannerContext{
+			Trigger: "creative_phrase",
+		},
 	}
 	out, pctx, err := svc.runPlannerPass(ctx, input, tc)
 	require.NoError(t, err)
@@ -383,11 +387,15 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-planner-agent")
 
 	tc := &intakesvc.TurnContext{
-		Mode:            intakesvc.ModePlanner,
-		PlannerTrigger:  "creative_phrase",
-		PlannerAgentID:  "steward_planner",
-		SelectedAgentID: "coder",
-		Source:          intakesvc.SourceWorkspace,
+		Routing: intakesvc.RoutingContext{
+			Mode:            intakesvc.ModePlanner,
+			SelectedAgentID: "coder",
+			Source:          intakesvc.SourceWorkspace,
+		},
+		Planner: intakesvc.PlannerContext{
+			Trigger: "creative_phrase",
+			AgentID: "steward_planner",
+		},
 	}
 	_, _, err := svc.runPlannerPass(ctx, input, tc)
 	require.NoError(t, err)
@@ -459,8 +467,14 @@ func TestPlannerPass_RetriesWithValidationFeedback(t *testing.T) {
 	})
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-retry")
 
-	tc := &intakesvc.TurnContext{Mode: intakesvc.ModePlanner, SelectedAgentID: "coder", Source: intakesvc.SourceWorkspace}
-	tc.PlannerTrigger = "low_confidence"
+	tc := &intakesvc.TurnContext{
+		Routing: intakesvc.RoutingContext{
+			Mode:            intakesvc.ModePlanner,
+			SelectedAgentID: "coder",
+			Source:          intakesvc.SourceWorkspace,
+		},
+		Planner: intakesvc.PlannerContext{Trigger: "low_confidence"},
+	}
 	out, _, err := svc.runPlannerPass(ctx, input, tc)
 	require.NoError(t, err)
 	require.Equal(t, "troubleshoot", out.StrategyFamily)
@@ -527,8 +541,14 @@ func TestPlannerPass_ClarifyFailurePublishesAssistantMessage(t *testing.T) {
 	})
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-fail")
 
-	tc := &intakesvc.TurnContext{Mode: intakesvc.ModePlanner, SelectedAgentID: "coder", Source: intakesvc.SourceWorkspace}
-	tc.PlannerTrigger = "low_confidence"
+	tc := &intakesvc.TurnContext{
+		Routing: intakesvc.RoutingContext{
+			Mode:            intakesvc.ModePlanner,
+			SelectedAgentID: "coder",
+			Source:          intakesvc.SourceWorkspace,
+		},
+		Planner: intakesvc.PlannerContext{Trigger: "low_confidence"},
+	}
 	_, _, err := svc.runPlannerPass(ctx, input, tc)
 	var handled *plannerHandledError
 	require.ErrorAs(t, err, &handled)
@@ -620,10 +640,14 @@ func TestMaybeRunPlannerPass_EmitsEventsAndPayload(t *testing.T) {
 		},
 		Context: map[string]any{
 			intakesvc.ContextKey: &intakesvc.TurnContext{
-				Mode:            intakesvc.ModePlanner,
-				PlannerTrigger:  "creative_phrase",
-				SelectedAgentID: "coder",
-				Source:          intakesvc.SourceWorkspace,
+				Routing: intakesvc.RoutingContext{
+					Mode:            intakesvc.ModePlanner,
+					SelectedAgentID: "coder",
+					Source:          intakesvc.SourceWorkspace,
+				},
+				Planner: intakesvc.PlannerContext{
+					Trigger: "creative_phrase",
+				},
 			},
 		},
 	}

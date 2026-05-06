@@ -126,10 +126,14 @@ func TestQuery_PlannerSuccessRunsTwoModelPassesAndCarriesPlannerDocs(t *testing.
 		},
 		Context: map[string]any{
 			intakesvc.ContextKey: &intakesvc.TurnContext{
-				Mode:            intakesvc.ModePlanner,
-				PlannerTrigger:  "creative_phrase",
-				SelectedAgentID: "coder",
-				Source:          intakesvc.SourceWorkspace,
+				Routing: intakesvc.RoutingContext{
+					Mode:            intakesvc.ModePlanner,
+					SelectedAgentID: "coder",
+					Source:          intakesvc.SourceWorkspace,
+				},
+				Planner: intakesvc.PlannerContext{
+					Trigger: "creative_phrase",
+				},
 			},
 		},
 	}
@@ -207,10 +211,14 @@ func TestQuery_PlannerClarifyShortCircuitsBeforeExecutionPass(t *testing.T) {
 		},
 		Context: map[string]any{
 			intakesvc.ContextKey: &intakesvc.TurnContext{
-				Mode:            intakesvc.ModePlanner,
-				PlannerTrigger:  "low_confidence",
-				SelectedAgentID: "coder",
-				Source:          intakesvc.SourceWorkspace,
+				Routing: intakesvc.RoutingContext{
+					Mode:            intakesvc.ModePlanner,
+					SelectedAgentID: "coder",
+					Source:          intakesvc.SourceWorkspace,
+				},
+				Planner: intakesvc.PlannerContext{
+					Trigger: "low_confidence",
+				},
 			},
 		},
 	}
