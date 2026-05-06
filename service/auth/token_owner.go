@@ -12,6 +12,9 @@ func resolveOAuthTokenOwnerID(ctx context.Context, users UserService, provider s
 	if sess == nil {
 		return ""
 	}
+	if userID := strings.TrimSpace(sess.UserID); userID != "" {
+		return userID
+	}
 	subject := strings.TrimSpace(sess.Subject)
 	provider = strings.TrimSpace(provider)
 	if users != nil && subject != "" && provider != "" {
