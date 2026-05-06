@@ -51,7 +51,7 @@ func TestFilterByScope_ClassAOnly(t *testing.T) {
 		Enabled: true,
 		Scope:   []string{"title", "context", "intent"},
 	}
-	tc := &TurnContext{
+	tc := &Context{
 		Classification: ClassificationContext{
 			Title:      "T",
 			Intent:     "diagnosis",
@@ -82,7 +82,7 @@ func TestFilterByScope_ClassBIncluded(t *testing.T) {
 		Enabled: true,
 		Scope:   []string{"title", "profile", "tools", "template"},
 	}
-	tc := &TurnContext{
+	tc := &Context{
 		Classification: ClassificationContext{
 			Title:      "T",
 			Confidence: 0.9,
@@ -103,7 +103,7 @@ func TestFilterByScope_ClassBIncluded(t *testing.T) {
 func TestFilterByScope_NilSafe(t *testing.T) {
 	// Neither nil cfg nor nil tc should panic.
 	filterByScope(nil, &agentmdl.Intake{})
-	filterByScope(&TurnContext{}, nil)
+	filterByScope(&Context{}, nil)
 }
 
 func TestBuildOutputSchema_ClassAOnly(t *testing.T) {

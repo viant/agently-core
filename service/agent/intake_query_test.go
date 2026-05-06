@@ -81,7 +81,7 @@ func TestApplyTurnContext_CopiesTemplateIdToInput(t *testing.T) {
 		Scope:   []string{agentmdl.IntakeScopeTemplate},
 	}
 	input := &QueryInput{}
-	tc := &intakesvc.TurnContext{Prompting: intakesvc.PromptingContext{TemplateID: "report_v2"}}
+	tc := &intakesvc.Context{Prompting: intakesvc.PromptingContext{TemplateID: "report_v2"}}
 	applyTurnContext(input, tc, cfg)
 
 	require.Equal(t, "report_v2", input.TemplateId, "intake suggestion must land on input.TemplateId")
@@ -97,7 +97,7 @@ func TestApplyTurnContext_TemplateIdDoesNotOverrideCaller(t *testing.T) {
 		Scope:   []string{agentmdl.IntakeScopeTemplate},
 	}
 	input := &QueryInput{TemplateId: "caller_choice"}
-	tc := &intakesvc.TurnContext{Prompting: intakesvc.PromptingContext{TemplateID: "sidecar_suggestion"}}
+	tc := &intakesvc.Context{Prompting: intakesvc.PromptingContext{TemplateID: "sidecar_suggestion"}}
 	applyTurnContext(input, tc, cfg)
 
 	require.Equal(t, "caller_choice", input.TemplateId, "caller-chosen template must win")
@@ -116,7 +116,7 @@ func TestApplyTurnContext_ProfileSuggestionGated(t *testing.T) {
 
 	// Low confidence — suggestion is suppressed.
 	low := &QueryInput{}
-	applyTurnContext(low, &intakesvc.TurnContext{
+	applyTurnContext(low, &intakesvc.Context{
 		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "deal_impact"},
 		Classification: intakesvc.ClassificationContext{Confidence: 0.5},
 	}, cfg)
@@ -125,7 +125,7 @@ func TestApplyTurnContext_ProfileSuggestionGated(t *testing.T) {
 
 	// High confidence — suggestion + confidence surface in context.
 	high := &QueryInput{}
-	applyTurnContext(high, &intakesvc.TurnContext{
+	applyTurnContext(high, &intakesvc.Context{
 		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "deal_impact"},
 		Classification: intakesvc.ClassificationContext{Confidence: 0.9},
 	}, cfg)
@@ -150,7 +150,7 @@ func TestNormalizeIntakeTurnContext_SuppressesTemplateIdsInSuggestedProfile(t *t
 			},
 		},
 	}
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Prompting: intakesvc.PromptingContext{
 			SuggestedProfileID: "spo_path_planner",
 			TemplateID:         "spo_path_planner",
@@ -172,7 +172,7 @@ func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
 		ConfidenceThreshold: 0.8,
 	}
 	input := &QueryInput{PromptProfileId: "caller_choice"}
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "repo_analysis"},
 		Classification: intakesvc.ClassificationContext{Confidence: 0.95},
 	}
@@ -189,7 +189,7 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 	}
 	input := &QueryInput{
 		Context: map[string]interface{}{
-			intakesvc.ContextKey: &intakesvc.TurnContext{
+			intakesvc.ContextKey: &intakesvc.Context{
 				Routing: intakesvc.RoutingContext{
 					Mode:            intakesvc.ModePlanner,
 					SelectedAgentID: "coder",
@@ -201,7 +201,7 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 			},
 		},
 	}
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Classification: intakesvc.ClassificationContext{
 			Title:      "repo diagnosis",
 			Confidence: 0.95,
@@ -365,7 +365,7 @@ func TestPublishPresetAssistantMessage(t *testing.T) {
 }
 
 // TestMaybeRunIntakeSidecar_CallerProvidedOverride verifies skip rule §2.c:
-// when input.Context already holds a TurnContext with
+// when input.Context already holds an intake Context with
 // Source=SourceCallerProvided, the sidecar must skip its LLM call entirely
 // (no panic on nil intakeSvc) and still apply the merge logic so that
 // suggested template / profile / bundles take effect.
@@ -376,7 +376,7 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 		// is broken we panic on nil.intakeSvc.Run.
 		s := &Service{}
 
-		override := &intakesvc.TurnContext{
+		override := &intakesvc.Context{
 			Classification: intakesvc.ClassificationContext{
 				Title:      "caller-supplied",
 				Intent:     "capacity_review",
@@ -415,12 +415,12 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 	})
 
 	t.Run("non-caller-provided source does not trigger skip path", func(t *testing.T) {
-		// A TurnContext with a different Source (e.g. agent-side cached
+		// An intake Context with a different Source (e.g. agent-side cached
 		// reuse) must NOT trip the caller-provided early return — that path
 		// is reserved for explicit caller overrides only.
 		s := &Service{} // nil intakeSvc means non-caller-provided falls through to "intakeSvc == nil" return
 
-		other := &intakesvc.TurnContext{
+		other := &intakesvc.Context{
 			Classification: intakesvc.ClassificationContext{Title: "from-elsewhere"},
 			Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceReused}, // not "caller-provided"
 		}
@@ -462,7 +462,7 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 // run_support.go relies on.
 func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 	t.Run("populates ContextKey with copy", func(t *testing.T) {
-		original := &intakesvc.TurnContext{
+		original := &intakesvc.Context{
 			Routing: intakesvc.RoutingContext{
 				SelectedAgentID: "forecaster",
 				Mode:            intakesvc.ModeRoute,
@@ -490,7 +490,7 @@ func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 
 	t.Run("FromContext round-trips", func(t *testing.T) {
 		ctxMap := map[string]any{}
-		original := &intakesvc.TurnContext{
+		original := &intakesvc.Context{
 			Classification: intakesvc.ClassificationContext{Title: "t"},
 			Routing:        intakesvc.RoutingContext{Source: ""},
 		}

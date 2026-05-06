@@ -3,6 +3,7 @@ package agents
 import (
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	agruntime "github.com/viant/agently-core/runtime"
 	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
@@ -86,6 +87,7 @@ type RunInput struct {
 	Agent         *agentmdl.Agent        `json:"agent,omitempty" internal:"true"`
 	Objective     string                 `json:"objective"`
 	Context       map[string]interface{} `json:"context,omitempty"`
+	Runtime       *agruntime.Context     `json:"runtime,omitempty"`
 	ExecutionMode string                 `json:"executionMode,omitempty"`
 	Async         *bool                  `json:"async,omitempty" internal:"true"`
 	// ConversationID optionally overrides the conversation identifier when
@@ -113,7 +115,7 @@ type RunInput struct {
 
 	// WorkspaceIntake optionally pre-provides the workspace-intake result for
 	// this run. When present and validated, the runtime SKIPS the workspace-
-	// intake LLM call entirely and uses this value as the turn's TurnContext
+	// intake LLM call entirely and uses this value as the turn's intake Context
 	// (annotated as Source="caller-provided"). Validation rules are identical
 	// to workspace intake's own output — SelectedAgentID must be in the
 	// authorized agent set, and AppendToolBundles must be on the workspace
@@ -124,7 +126,7 @@ type RunInput struct {
 	// Use cases: programmatic clients with their own classifier, UI that
 	// pre-populates routing fields, cached prior turns, or cross-conversation
 	// seeds. See intake-impt.md §9 skip-rule (c).
-	WorkspaceIntake *intakesvc.TurnContext `json:"workspaceIntake,omitempty"`
+	WorkspaceIntake *intakesvc.Context `json:"workspaceIntake,omitempty"`
 }
 
 // StartInput launches an agent asynchronously and returns a conversation handle.

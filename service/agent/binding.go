@@ -18,6 +18,7 @@ import (
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
 )
 
@@ -103,6 +104,13 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	}
 
 	b.Task = s.buildTaskBinding(input)
+	if profile, err := s.selectedPromptProfile(ctx, input); err != nil {
+		logx.Infof("conversation", "agent.BuildBinding selectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), err)
+		return nil, err
+	} else if profile != nil {
+		ApplyPromptProfileExecutionDefaults(input, profile)
+		ctx = withSelectedPromptProfile(ctx, profile)
+	}
 
 	toolsStart := time.Now()
 	logx.Infof("conversation", "agent.BuildBinding buildToolSignatures start convo=%q", convoID)
@@ -112,6 +120,10 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
+	if err := s.applyActiveSkillToolSurface(ctx, input, b); err != nil {
+		logx.Infof("conversation", "agent.BuildBinding applyActiveSkillToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
+		return nil, err
+	}
 
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := resolveToolCallExposure(input)
@@ -247,6 +259,18 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		})
 	}
 	return b, nil
+}
+
+func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryInput, b *binding.Binding) error {
+	if s == nil || s.skillSvc == nil || input == nil || input.Agent == nil || b == nil {
+		return nil
+	}
+	state := resolveActiveInlineSkillState(&b.History, input, s.skillSvc, input.Agent)
+	if len(state.Skills) == 0 {
+		return nil
+	}
+	b.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(b.Tools.Signatures, s.registry, state.Skills)
+	return nil
 }
 
 func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, b *binding.Binding) error {
@@ -446,8 +470,15 @@ func (s *Service) applyWorkdirContext(input *QueryInput, b *binding.Binding) {
 			b.Context["AgentDefaultWorkdir"] = value
 		}
 	}
+	if value := runtimeResolvedWorkdir(input); value != "" {
+		b.Context["workdir"] = value
+		b.Context["resolvedWorkdir"] = value
+		b.Context["ResolvedWorkdir"] = value
+		return
+	}
 	if value := normalizeWorkdirValue(b.Context["workdir"]); value != "" {
 		b.Context["workdir"] = value
+		b.Context["resolvedWorkdir"] = value
 		b.Context["ResolvedWorkdir"] = value
 		return
 	}

@@ -209,7 +209,7 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 	})
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-planner")
 
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Routing: intakesvc.RoutingContext{
 			Mode:            intakesvc.ModePlanner,
 			SelectedAgentID: "coder",
@@ -386,7 +386,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 	})
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-planner-agent")
 
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Routing: intakesvc.RoutingContext{
 			Mode:            intakesvc.ModePlanner,
 			SelectedAgentID: "coder",
@@ -467,7 +467,7 @@ func TestPlannerPass_RetriesWithValidationFeedback(t *testing.T) {
 	})
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-retry")
 
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Routing: intakesvc.RoutingContext{
 			Mode:            intakesvc.ModePlanner,
 			SelectedAgentID: "coder",
@@ -541,7 +541,7 @@ func TestPlannerPass_ClarifyFailurePublishesAssistantMessage(t *testing.T) {
 	})
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-fail")
 
-	tc := &intakesvc.TurnContext{
+	tc := &intakesvc.Context{
 		Routing: intakesvc.RoutingContext{
 			Mode:            intakesvc.ModePlanner,
 			SelectedAgentID: "coder",
@@ -639,7 +639,7 @@ func TestMaybeRunPlannerPass_EmitsEventsAndPayload(t *testing.T) {
 			Template:       agentmdl.Template{Bundles: []string{"analytics-templates"}},
 		},
 		Context: map[string]any{
-			intakesvc.ContextKey: &intakesvc.TurnContext{
+			intakesvc.ContextKey: &intakesvc.Context{
 				Routing: intakesvc.RoutingContext{
 					Mode:            intakesvc.ModePlanner,
 					SelectedAgentID: "coder",

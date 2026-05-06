@@ -9,7 +9,7 @@ persisting every observable event.
 
 - [service/agent/run_query.go](../service/agent/run_query.go) — `Service.Query` is the top-level entry; it wraps an `agentsvc.QueryInput` into a conversation turn.
 - [service/reactor/](../service/reactor/) — the ReAct loop: plan → act → observe → iterate. Owns model invocation, tool dispatch, approval gating, async operation start, and response synthesis.
-- [service/intake/](../service/intake/) — pre-reactor sidecar that classifies the user query, selects a prompt profile, and seeds `TurnContext` before the main loop runs.
+- [service/intake/](../service/intake/) — pre-reactor sidecar that classifies the user query, selects a prompt profile, and seeds intake `Context` before the main loop runs.
 
 ## Core moving parts
 
@@ -27,7 +27,7 @@ persisting every observable event.
 
 ```
 Query(ctx, input)
-  └─ intake sidecar: classify, pick profile, seed TurnContext
+  └─ intake sidecar: classify, pick profile, seed intake Context
   └─ reactor loop:
         ├─ build prompt (see prompt-binding.md)
         ├─ invoke LLM (streaming)

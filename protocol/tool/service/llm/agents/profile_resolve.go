@@ -62,16 +62,11 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 		return err
 	}
 
-	// 2. Merge tool bundles: profile floor + RunInput additions.
-	//    Profile is the structural floor; RunInput may extend but never removes.
-	merged := make([]string, 0, len(profile.ToolBundles)+len(ri.ToolBundles))
-	merged = append(merged, profile.ToolBundles...)
-	merged = append(merged, ri.ToolBundles...)
-	qi.ToolBundles = merged
-	if profile.ParallelToolCalls != nil && qi.ParallelToolCalls == nil {
-		value := *profile.ParallelToolCalls
-		qi.ParallelToolCalls = &value
-	}
+	// 2. Apply profile execution defaults before the child turn starts so tool
+	// surface and parallel-tool settings are resolved the same way as direct
+	// top-level turns.
+	qi.ToolBundles = append(append([]string(nil), profile.ToolBundles...), ri.ToolBundles...)
+	agentsvc.ApplyPromptProfileExecutionDefaults(qi, profile)
 
 	// 3. Resolve effective template (RunInput > profile default).
 	//    Store on QueryInput.TemplateId so the agent pipeline can inject the

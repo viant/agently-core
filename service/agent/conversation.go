@@ -10,6 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	agruntime "github.com/viant/agently-core/runtime"
 )
 
 // ConversationMetadata is a typed representation of conversation metadata.
@@ -131,12 +132,8 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	if input.ModelOverride == "" {
 		if defaultModel != nil && strings.TrimSpace(*defaultModel) != "" {
 			input.ModelOverride = *defaultModel
-			if input.Context == nil {
-				input.Context = map[string]interface{}{}
-			}
-			if _, ok := input.Context["modelSource"]; !ok {
-				input.Context["modelSource"] = "conversation.defaultModel"
-			}
+			setRuntimeModelSource(input, "conversation.defaultModel")
+			input.Context = agruntime.ProjectVisibleContext(ensureVisibleContext(input), input.Runtime, true)
 		}
 	}
 

@@ -12,35 +12,10 @@ import (
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
+	agenttool "github.com/viant/agently-core/service/agent/tool"
 )
 
 // Small utilities for tool name resolution and filtering.
-
-type toolSelection struct {
-	name string
-}
-
-// toolSelections extracts tool selection names from the agent item configuration.
-func toolSelections(qi *QueryInput) []toolSelection {
-	var out []toolSelection
-	if qi == nil || qi.Agent == nil {
-		return out
-	}
-	for _, aTool := range qi.Agent.Tool.Items {
-		if aTool == nil {
-			continue
-		}
-		name := aTool.Name
-		if name == "" {
-			name = aTool.Definition.Name
-		}
-		if name == "" {
-			continue
-		}
-		out = append(out, toolSelection{name: name})
-	}
-	return out
-}
 
 // resolveTools resolves tools using the following precedence:
 //   - If input.ToolsAllowed is provided and non-empty, resolve exactly those tools by name
@@ -62,7 +37,9 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 				continue
 			}
 			if def, ok := s.registry.GetDefinition(name); ok && def != nil {
-				out = append(out, llm.Tool{Type: "function", Definition: *def})
+				canonical := *def
+				canonical.Name = mcpname.Canonical(canonical.Name)
+				out = append(out, llm.Tool{Type: "function", Definition: canonical})
 				continue
 			}
 			// Allowed tool not found: add a warning to query output via context.
@@ -85,116 +62,66 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		return out, nil
 	}
 
-	// Bundle selection: runtime override, then agent config.
-	bundleIDs := selectedBundleIDs(qi)
+	control, err := s.resolveToolControl(ctx, qi)
+	if err != nil {
+		return nil, err
+	}
 
-	if len(bundleIDs) > 0 {
-		defs, err := s.resolveBundleDefinitions(ctx, bundleIDs)
+	var defs []llm.ToolDefinition
+	if len(control.Bundles) > 0 {
+		var err error
+		defs, err = s.resolveBundleDefinitions(ctx, control.Bundles)
 		if err != nil {
 			return nil, err
 		}
-		// Allow agent tool items to further extend bundle selection when present.
-		extra := toolSelections(qi)
-		if len(extra) > 0 {
-			for _, sel := range extra {
-				matched := s.matchDefinitions(ctx, sel.name)
-				if strictDiscoveryMode(ctx) && len(matched) == 0 {
-					return nil, strictToolDiscoveryError(ctx, sel.name)
-				}
-				for _, def := range matched {
-					if def == nil {
-						continue
-					}
-					defs = append(defs, *def)
-				}
-			}
-		}
-		defs = s.appendSkillControlDefinitions(defs, qi)
-		defs = dedupeDefinitions(defs)
-		tools := make([]llm.Tool, 0, len(defs))
-		for i := range defs {
-			tools = append(tools, llm.Tool{Type: "function", Definition: defs[i]})
-		}
-		tools = s.appendRegistryWarnings(ctx, tools)
-		return tools, nil
 	}
-
-	// Fall back to agent items when no bundles are configured.
-	selections := toolSelections(qi)
-	if len(selections) == 0 {
+	if len(control.Tools) == 0 && len(defs) == 0 {
 		return nil, nil
 	}
-	var out []llm.Tool
-	for _, sel := range selections {
-		matched := s.matchDefinitions(ctx, sel.name)
-		if strictDiscoveryMode(ctx) && len(matched) == 0 {
-			return nil, strictToolDiscoveryError(ctx, sel.name)
-		}
-		for _, def := range matched {
-			out = append(out, llm.Tool{Type: "function", Definition: *def})
-		}
+	defs, err = s.appendToolSelections(ctx, defs, control.Tools)
+	if err != nil {
+		return nil, err
 	}
-	// Append any registry warnings raised during matching.
-	out = defsToTools(s.appendSkillControlDefinitions(toolsToDefs(out), qi))
+	defs = dedupeDefinitions(defs)
+	out := defsToTools(defs)
 	out = s.appendRegistryWarnings(ctx, out)
 	return out, nil
 }
 
-func selectedBundleIDs(qi *QueryInput) []string {
+func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agenttool.Selection, error) {
 	if qi == nil {
-		return nil
+		return agenttool.Selection{}, nil
 	}
-	merged := make([]string, 0, len(qi.ToolBundles)+4)
-	if qi.Agent != nil && len(qi.Agent.Tool.Bundles) > 0 {
-		merged = append(merged, qi.Agent.Tool.Bundles...)
+	selections := agenttool.Selections{
+		Agent:   agenttool.FromAgent(qi.Agent),
+		Runtime: agenttool.Selection{Bundles: append([]string(nil), qi.ToolBundles...)},
 	}
-	if len(qi.ToolBundles) > 0 {
-		merged = append(merged, qi.ToolBundles...)
+	profileDef, err := s.selectedPromptProfile(ctx, qi)
+	if err != nil {
+		return agenttool.Selection{}, err
 	}
-	return normalizeStringList(merged)
+	selections.Profile = agenttool.FromPromptProfile(profileDef)
+	effective := agenttool.BuildEffective(selections)
+	return effective.Final, nil
 }
 
-func normalizeStringList(in []string) []string {
-	if len(in) == 0 {
-		return nil
+func (s *Service) appendToolSelections(ctx context.Context, defs []llm.ToolDefinition, names []string) ([]llm.ToolDefinition, error) {
+	if len(names) == 0 {
+		return defs, nil
 	}
-	seen := map[string]struct{}{}
-	var out []string
-	for _, raw := range in {
-		id := strings.TrimSpace(raw)
-		if id == "" {
-			continue
+	for _, name := range names {
+		matched := s.matchDefinitions(ctx, name)
+		if strictDiscoveryMode(ctx) && len(matched) == 0 {
+			return nil, strictToolDiscoveryError(ctx, name)
 		}
-		key := strings.ToLower(id)
-		if _, ok := seen[key]; ok {
-			continue
+		for _, def := range matched {
+			if def == nil {
+				continue
+			}
+			defs = append(defs, *def)
 		}
-		seen[key] = struct{}{}
-		out = append(out, id)
 	}
-	return out
-}
-
-func (s *Service) shouldExposeSkillControlTools(qi *QueryInput) bool {
-	if s == nil || s.skillSvc == nil || qi == nil || qi.Agent == nil {
-		return false
-	}
-	visible, _ := s.skillSvc.Visible(qi.Agent)
-	return len(visible) > 0
-}
-
-func (s *Service) appendSkillControlDefinitions(defs []llm.ToolDefinition, qi *QueryInput) []llm.ToolDefinition {
-	if !s.shouldExposeSkillControlTools(qi) {
-		return defs
-	}
-	for _, name := range []string{"llm/skills:list", "llm/skills:activate"} {
-		def, ok := s.registry.GetDefinition(name)
-		if !ok || def == nil {
-			continue
-		}
-		defs = append(defs, *def)
-	}
-	return defs
+	return defs, nil
 }
 
 func toolsToDefs(in []llm.Tool) []llm.ToolDefinition {
@@ -342,6 +269,7 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 			continue
 		}
 		seen[key] = struct{}{}
+		d.Name = mcpname.Canonical(d.Name)
 		out = append(out, d)
 	}
 	return out

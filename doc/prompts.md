@@ -273,7 +273,7 @@ Bundle IDs are small, the runtime enforces access directly, and tool catalogs st
 
 ```
 1. profile.toolBundles         — structural floor, always included
-2. TurnContext.appendToolBundles — intake sidecar additions, task-driven
+2. intake.Context.Prompting.AppendToolBundles — intake sidecar additions, task-driven
 3. RunInput.toolBundles         — orchestrator explicit override
 ```
 
@@ -284,7 +284,7 @@ The profile floor is always safe.
 
 ```
 1. profile.template        — scenario default
-2. TurnContext.templateId  — intake sidecar suggestion, driven by user phrasing
+2. intake.Context.Prompting.TemplateID — intake sidecar suggestion, driven by user phrasing
 3. RunInput.templateId     — orchestrator explicit override (highest priority)
 ```
 
@@ -302,12 +302,12 @@ Two lightweight LLM calls — one at turn intake, one at delegation — handle w
 
 | Sidecar | When | Input | Output |
 |---|---|---|---|
-| **Intake** | turn received, before routing | user message + history | `TurnContext` |
+| **Intake** | turn received, before routing | user message + history | intake `Context` |
 | **Expansion** | at delegation, before worker | profile messages + objective | task-specific `[]PromptMessage` |
 
 ### Intake Sidecar
 
-Runs before `orchestrator` does any routing. Produces `TurnContext`:
+Runs before `orchestrator` does any routing. Produces intake `Context`:
 
 ```json
 {
@@ -327,7 +327,7 @@ Runs before `orchestrator` does any routing. Produces `TurnContext`:
 }
 ```
 
-`TurnContext` is stored in `Binding.Context` and flows through the entire downstream pipeline.
+The intake `Context` is stored in `Binding.Context` and flows through the downstream pipeline as routing/prompting metadata. It is distinct from turn runtime execution state such as active inline skill activation.
 The extraction cost is paid once; the benefit (title, entities, routing hints) is multiplied across all downstream steps.
 
 **Profile classification.** The runtime provides the intake sidecar with `appliesTo` tag vocabulary from the profile registry. The sidecar classifies user intent against these tags and returns `suggestedProfileId` by registry lookup — it never needs to know profile instruction content.
@@ -392,7 +392,7 @@ If `profile` is not in scope, `suggestedProfileId` is absent, the auto-route pat
 |---|---|
 | First turn of new conversation | yes |
 | Topic shift detected | yes |
-| Continuation of clear ongoing task | no — reuse prior `TurnContext` |
+| Continuation of clear ongoing task | no — reuse prior intake `Context` |
 | Simple follow-up ("yes", "show more") | no |
 
 **Must not:** access tools or data, make routing decisions (suggests only), rewrite user message, produce prose output (JSON envelope only), output Class B fields when not in scope.
@@ -406,7 +406,7 @@ Static rendering produces the profile's generic messages verbatim. The expansion
 ```
 profile messages (generic, rendered)
     ↓
-expansion sidecar  ←  user objective + TurnContext.entities
+expansion sidecar  ←  user objective + intake.Context entities
     ↓
 task-specific []PromptMessage
     ↓
@@ -436,7 +436,7 @@ The sidecar receives the profile's rendered messages + the user task. It returns
 user message
     ↓
 [intake sidecar — if enabled and scope matches]
-    → TurnContext { title, intent, entities,
+    → intake.Context { title, intent, entities,
                     suggestedProfileId, appendToolBundles, templateId,
                     confidence }
     ↓
@@ -447,31 +447,31 @@ confidence >= threshold AND profile in scope?
             llm/agents:run {
               agentId:         data-analyst,
               objective:       user message,
-              promptProfileId: TurnContext.suggestedProfileId,
-              toolBundles:     TurnContext.appendToolBundles,
-              templateId:      TurnContext.templateId
+              promptProfileId: intake.Context.Prompting.SuggestedProfileID,
+              toolBundles:     intake.Context.Prompting.AppendToolBundles,
+              templateId:      intake.Context.Prompting.TemplateID
             }
     no  → orchestrator calls prompt:list, reasons, selects profile,
           may extend toolBundles if needed
     ↓
 [runtime: profile lookup + resolution]
     effective bundles  = profile.toolBundles
-                       + TurnContext.appendToolBundles
+                       + intake.Context.Prompting.AppendToolBundles
                        + RunInput.toolBundles
     effective template = RunInput.templateId
-                      || TurnContext.templateId
+                      || intake.Context.Prompting.TemplateID
                       || profile.template
     QueryInput.ToolBundles = effective bundles
     QueryInput.TemplateId  = effective template
     ↓
 [expansion sidecar — if profile.expansion.mode = llm]
-    input:  profile messages + TurnContext.entities + user objective
+    input:  profile messages + intake.Context entities + user objective
     output: task-specific []PromptMessage
     ↓
 worker LLM starts turn:
     - task-specific instructions injected (role-preserving)
     - tool set = profile floor + sidecar appends + orchestrator overrides
-    - Binding.Context enriched with TurnContext.entities
+    - Binding.Context enriched with intake.Context entities
     - output template pre-selected
     - conversation title already set
 ```

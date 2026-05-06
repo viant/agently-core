@@ -32,7 +32,7 @@ question, or asks for clarification. See §3.
 | Workspace-intake routing entry point | `service/agent/agent_resolution.go` `resolveTurnRouting` |
 | Agent-intake sidecar | `service/agent/intake_query.go` `maybeRunIntakeSidecar` |
 | Agent-intake service | `service/intake/service.go` |
-| Result type (shared) | `service/intake/context.go` `TurnContext` |
+| Result type (shared) | `service/intake/context.go` `Context` |
 | Workspace-intake result envelope | `service/agent/agent_classifier.go` `ClassifierResult` |
 
 ---
@@ -138,7 +138,7 @@ is needed.
 ## 5. Caller-provided overrides
 
 Programmatic clients, UIs, and tests can bypass the workspace-intake LLM
-call entirely by passing a `*TurnContext` on `RunInput.WorkspaceIntake`.
+call entirely by passing a `*Context` on `RunInput.WorkspaceIntake`.
 The runtime validates it and uses it as the turn's intake result with
 `Source = "caller-provided"`. See `service/intake/StoreCallerProvided` and
 the skip rule in `service/agent/intake_query.go:maybeRunIntakeSidecar`.
@@ -146,9 +146,9 @@ the skip rule in `service/agent/intake_query.go:maybeRunIntakeSidecar`.
 Examples:
 
 - A UI form where the user picked the agent and provided a title — pass a
-  `TurnContext{SelectedAgentID: "steward", Title: "Forecast", Mode: "route"}`.
+  `Context{SelectedAgentID: "steward", Title: "Forecast", Mode: "route"}`.
 - A test that needs deterministic routing — pass a fixed override.
-- A cached prior turn — pass last turn's `TurnContext` to keep stickiness
+- A cached prior turn — pass last turn's `Context` to keep stickiness
   without trusting topic-shift heuristics.
 
 ---
@@ -158,7 +158,7 @@ Examples:
 When an agent needs additional refinement beyond what workspace intake
 produces, declare an `intake:` block on the agent. The agent intake sidecar
 runs after agent resolution and overrides specific fields on the
-`TurnContext`. It **never** changes the selected agent — that contract is
+`Context`. It **never** changes the selected agent — that contract is
 enforced by keeping those fields out of agent-intake output handling.
 
 ```yaml
@@ -198,10 +198,10 @@ Both normalize to `Hints []string` internally.
 
 ---
 
-## 7. The TurnContext shape
+## 7. The Intake Context shape
 
 Both layers (workspace + agent) and caller-provided overrides produce and
-consume the **same** `TurnContext` type at `service/intake/context.go`.
+consume the **same** `Context` type at `service/intake/context.go`.
 There is no parallel "agent hints" struct.
 
 | Field | Workspace intake | Agent intake | Caller override |

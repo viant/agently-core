@@ -20,7 +20,7 @@ import (
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
 
-// Service runs the intake sidecar LLM call and returns a TurnContext.
+// Service runs the intake sidecar LLM call and returns an intake Context.
 type Service struct {
 	llm          *core.Service
 	profileRepo  *promptrepo.Repository
@@ -54,7 +54,7 @@ func WithBundleRepo(r *toolbundlerepo.Repository) func(*Service) {
 // Run executes the intake sidecar for the given user message and agent config.
 // Returns nil when the sidecar is not enabled or a non-fatal error occurs
 // (callers always proceed with the turn regardless).
-func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) *TurnContext {
+func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) *Context {
 	if s == nil || s.llm == nil || cfg == nil || !cfg.Enabled || strings.TrimSpace(userMessage) == "" {
 		return nil
 	}
@@ -66,7 +66,7 @@ func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	return tc
 }
 
-func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) (*TurnContext, error) {
+func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) (*Context, error) {
 	modelName := s.resolveModel(cfg)
 	if modelName == "" {
 		return nil, fmt.Errorf("intake: no model configured (set cfg.Model or cfg.ModelPreferences with a matcher available)")
@@ -360,15 +360,15 @@ Clarification rule:
 - For concrete troubleshoot / diagnose / investigate / analyze asks on a named entity, prefer routing directly so the owning agent can establish the baseline from the available tools.
 - Ask for clarification only when a missing detail truly blocks selecting any reasonable next step.`
 
-// parseOutput unmarshals the sidecar's JSON output into a TurnContext.
-func parseOutput(raw string) (*TurnContext, error) {
+// parseOutput unmarshals the sidecar's JSON output into an intake Context.
+func parseOutput(raw string) (*Context, error) {
 	raw = stripFence(raw)
-	var tc TurnContext
-	if err := unmarshalTurnContext([]byte(raw), &tc); err != nil {
+	var tc Context
+	if err := unmarshalContext([]byte(raw), &tc); err != nil {
 		// Lenient: look for first '{' and last '}'
 		if start := strings.Index(raw, "{"); start >= 0 {
 			if end := strings.LastIndex(raw, "}"); end > start {
-				if err2 := unmarshalTurnContext([]byte(raw[start:end+1]), &tc); err2 == nil {
+				if err2 := unmarshalContext([]byte(raw[start:end+1]), &tc); err2 == nil {
 					return &tc, nil
 				}
 			}
@@ -379,7 +379,7 @@ func parseOutput(raw string) (*TurnContext, error) {
 }
 
 // filterByScope zeroes out Class B fields that are not in scope.
-func filterByScope(tc *TurnContext, cfg *agentmdl.Intake) {
+func filterByScope(tc *Context, cfg *agentmdl.Intake) {
 	if tc == nil || cfg == nil {
 		return
 	}
@@ -418,20 +418,20 @@ func stripFence(s string) string {
 // ensure promptdef import is used (for future MCP-sourced profile metadata)
 var _ = promptdef.Profile{}
 
-type turnContextWire struct {
-	Classification     *turnContextClassificationWire `json:"classification,omitempty"`
-	Scope              *turnContextScopeWire          `json:"scope,omitempty"`
-	Prompting          *turnContextPromptingWire      `json:"prompting,omitempty"`
-	Routing            *turnContextRoutingWire        `json:"routing,omitempty"`
-	Planner            *turnContextPlannerWire        `json:"planner,omitempty"`
-	Title              string                         `json:"title,omitempty"`
-	Intent             string                         `json:"intent,omitempty"`
-	Context            map[string]string              `json:"context,omitempty"`
-	Entities           map[string]string              `json:"entities,omitempty"`
-	SuggestedProfileId string                         `json:"suggestedProfileId,omitempty"`
-	AppendToolBundles  []string                       `json:"appendToolBundles,omitempty"`
-	TemplateId         string                         `json:"templateId,omitempty"`
-	Confidence         float64                        `json:"confidence,omitempty"`
+type contextWire struct {
+	Classification     *contextClassificationWire `json:"classification,omitempty"`
+	Scope              *contextScopeWire          `json:"scope,omitempty"`
+	Prompting          *contextPromptingWire      `json:"prompting,omitempty"`
+	Routing            *contextRoutingWire        `json:"routing,omitempty"`
+	Planner            *contextPlannerWire        `json:"planner,omitempty"`
+	Title              string                     `json:"title,omitempty"`
+	Intent             string                     `json:"intent,omitempty"`
+	Context            map[string]string          `json:"context,omitempty"`
+	Entities           map[string]string          `json:"entities,omitempty"`
+	SuggestedProfileId string                     `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles  []string                   `json:"appendToolBundles,omitempty"`
+	TemplateId         string                     `json:"templateId,omitempty"`
+	Confidence         float64                    `json:"confidence,omitempty"`
 	// Workspace-intake fields (additive). Legacy agent-intake outputs do not
 	// emit these keys; their absence leaves zero-values, which is the correct
 	// fallback semantics.
@@ -442,35 +442,35 @@ type turnContextWire struct {
 	Source          string `json:"source,omitempty"`
 }
 
-type turnContextClassificationWire struct {
+type contextClassificationWire struct {
 	Title      string  `json:"title,omitempty"`
 	Intent     string  `json:"intent,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 }
 
-type turnContextScopeWire struct {
+type contextScopeWire struct {
 	Values map[string]string `json:"values,omitempty"`
 }
 
-type turnContextPromptingWire struct {
+type contextPromptingWire struct {
 	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
 	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
 	TemplateID         string   `json:"templateId,omitempty"`
 }
 
-type turnContextRoutingWire struct {
+type contextRoutingWire struct {
 	SelectedAgentID string `json:"selectedAgentId,omitempty"`
 	Mode            string `json:"mode,omitempty"`
 	Source          string `json:"source,omitempty"`
 }
 
-type turnContextPlannerWire struct {
+type contextPlannerWire struct {
 	Trigger string `json:"trigger,omitempty"`
 	AgentID string `json:"agentId,omitempty"`
 }
 
-func unmarshalTurnContext(data []byte, tc *TurnContext) error {
-	var wire turnContextWire
+func unmarshalContext(data []byte, tc *Context) error {
+	var wire contextWire
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}

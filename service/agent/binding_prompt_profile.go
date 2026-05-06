@@ -13,20 +13,14 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 	if s == nil || input == nil || b == nil || s.promptRepo == nil {
 		return nil
 	}
-	if input.Agent != nil && !input.Agent.Prompts.AllowsSelectedProfileInjection() {
+	profile, err := s.selectedPromptProfile(ctx, input)
+	if err != nil {
+		return err
+	}
+	if profile == nil {
 		return nil
 	}
 	profileID := strings.TrimSpace(input.PromptProfileId)
-	if profileID == "" {
-		return nil
-	}
-	profile, err := s.promptRepo.Load(ctx, profileID)
-	if err != nil {
-		return fmt.Errorf("load prompt profile %q: %w", profileID, err)
-	}
-	if profile == nil {
-		return fmt.Errorf("prompt profile %q not found", profileID)
-	}
 	msgs, err := profile.Render(ctx, s.mcpMgr, nil)
 	if err != nil {
 		return fmt.Errorf("render prompt profile %q: %w", profileID, err)
@@ -53,13 +47,6 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 				"profile": profileID,
 			},
 		})
-	}
-	if len(profile.ToolBundles) > 0 {
-		input.ToolBundles = append(input.ToolBundles, profile.ToolBundles...)
-	}
-	if profile.ParallelToolCalls != nil && input.ParallelToolCalls == nil {
-		value := *profile.ParallelToolCalls
-		input.ParallelToolCalls = &value
 	}
 	return nil
 }

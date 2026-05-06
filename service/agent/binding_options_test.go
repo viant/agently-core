@@ -280,6 +280,66 @@ func TestService_BuildBinding_SelectedPromptProfileCanBeDisabledPerAgent(t *test
 	}
 }
 
+func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSurface(t *testing.T) {
+	store := convmem.New()
+	ctx := context.Background()
+
+	conversation := apiconv.NewConversation()
+	conversation.SetId("conv-profile-direct-tools")
+	require.NoError(t, store.PatchConversations(ctx, conversation))
+	message := apiconv.NewMessage()
+	message.SetId("msg-profile-direct-tools")
+	message.SetConversationID("conv-profile-direct-tools")
+	message.SetTurnID("turn-profile-direct-tools")
+	message.SetRole("user")
+	message.SetType("text")
+	message.SetContent("troubleshoot")
+	require.NoError(t, store.PatchMessage(ctx, message))
+
+	tmpDir := t.TempDir()
+	promptDir := filepath.Join(tmpDir, "prompts")
+	require.NoError(t, os.MkdirAll(promptDir, 0o755))
+	profileBody := []byte("id: repo_analysis\nname: Repository Analysis\ndescription: repo analysis profile\ntoolBundles:\n  - analyst-performance-tools\nmessages:\n  - role: system\n    text: Delegate repository analysis first.\n")
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "repo_analysis.yaml"), profileBody, 0o644))
+
+	service := &Service{
+		conversation: store,
+		registry: &fakeRegistry{defs: []llm.ToolDefinition{
+			{Name: "system/os:getEnv"},
+			{Name: "steward/MetricsAdCube"},
+		}},
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{
+				{ID: "system/os", Match: []llm.Tool{{Name: "system/os/*"}}},
+				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "steward/MetricsAdCube"}}},
+			}, nil
+		},
+		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+	}
+
+	binding, err := service.BuildBinding(ctx, &QueryInput{
+		ConversationID:  "conv-profile-direct-tools",
+		PromptProfileId: "repo_analysis",
+		Agent: &agentmdl.Agent{
+			Identity:       agentmdl.Identity{ID: "steward"},
+			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.2"},
+			Tool:           agentmdl.Tool{Bundles: []string{"system/os"}},
+		},
+		Query: "troubleshoot",
+	})
+	require.NoError(t, err)
+
+	var names []string
+	for _, sig := range binding.Tools.Signatures {
+		if sig == nil {
+			continue
+		}
+		names = append(names, sig.Name)
+	}
+	require.Contains(t, names, "steward-MetricsAdCube")
+	require.Contains(t, names, "system_os-getEnv")
+}
+
 func TestService_BuildBinding_ExposesMessageShowWhenCurrentTurnToolResultOverflows(t *testing.T) {
 	now := time.Now().UTC()
 	turnID := "turn-overflow"

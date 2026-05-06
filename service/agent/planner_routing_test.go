@@ -37,7 +37,7 @@ func (m plannerRoutingModel) Generate(context.Context, *llm.GenerateRequest) (*l
 
 func (plannerRoutingModel) Implements(string) bool { return false }
 
-func TestResolveTurnRouting_PlannerCarriesWorkspaceTurnContext(t *testing.T) {
+func TestResolveTurnRouting_PlannerCarriesWorkspaceIntakeContext(t *testing.T) {
 	svc := &Service{
 		llm: core.New(&plannerRoutingFinder{
 			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"creative_phrase"}`},
@@ -66,15 +66,15 @@ func TestResolveTurnRouting_PlannerCarriesWorkspaceTurnContext(t *testing.T) {
 	require.NotNil(t, dec)
 	require.Equal(t, "coder", dec.AgentID)
 	require.Equal(t, "llm_router_planner", dec.RoutingReason)
-	require.NotNil(t, dec.WorkspaceTurnContext)
-	require.Equal(t, intakesvc.ModePlanner, dec.WorkspaceTurnContext.Routing.Mode)
-	require.Equal(t, "creative_phrase", dec.WorkspaceTurnContext.Planner.Trigger)
-	require.Equal(t, "steward_planner", dec.WorkspaceTurnContext.Planner.AgentID)
-	require.Equal(t, intakesvc.SourceWorkspace, dec.WorkspaceTurnContext.Routing.Source)
-	require.Equal(t, "coder", dec.WorkspaceTurnContext.Routing.SelectedAgentID)
+	require.NotNil(t, dec.WorkspaceIntakeContext)
+	require.Equal(t, intakesvc.ModePlanner, dec.WorkspaceIntakeContext.Routing.Mode)
+	require.Equal(t, "creative_phrase", dec.WorkspaceIntakeContext.Planner.Trigger)
+	require.Equal(t, "steward_planner", dec.WorkspaceIntakeContext.Planner.AgentID)
+	require.Equal(t, intakesvc.SourceWorkspace, dec.WorkspaceIntakeContext.Routing.Source)
+	require.Equal(t, "coder", dec.WorkspaceIntakeContext.Routing.SelectedAgentID)
 }
 
-func TestEnsureAgent_PersistsWorkspacePlannerTurnContext(t *testing.T) {
+func TestEnsureAgent_PersistsWorkspacePlannerIntakeContext(t *testing.T) {
 	svc := &Service{
 		llm: core.New(&plannerRoutingFinder{
 			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"creative_phrase"}`},

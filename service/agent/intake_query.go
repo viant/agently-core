@@ -17,11 +17,11 @@ import (
 //   - the intake service is not wired
 //   - the agent's Intake.Enabled is false
 //   - this is not the first turn and TriggerOnTopicShift is false
-//   - the caller already provided a TurnContext via RunInput.WorkspaceIntake
+//   - the caller already provided an intake Context via RunInput.WorkspaceIntake
 //     (skip rule §2.c — caller's value short-circuits the LLM call but the
 //     merge logic still runs through applyTurnContext)
 //
-// On success the TurnContext is stored in input.Context so the agent can read
+// On success the intake Context is stored in input.Context so the agent can read
 // title, intent, context, and (when in Class B scope) profile suggestions.
 // AppendToolBundles are merged into input.ToolBundles.
 // A high-confidence SuggestedProfileId is stored as a hint under a well-known
@@ -90,7 +90,7 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
 }
 
-func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmdl.Intake) {
+func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) {
 	if s == nil || input == nil || tc == nil || cfg == nil {
 		return
 	}
@@ -308,9 +308,9 @@ func (s *Service) maybeSetConversationTitle(ctx context.Context, convID, title s
 	}
 }
 
-// applyTurnContext writes TurnContext fields back into QueryInput so the
+// applyTurnContext writes intake Context fields back into QueryInput so the
 // downstream pipeline can use them.
-func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmdl.Intake) {
+func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) {
 	if input == nil || tc == nil {
 		return
 	}
@@ -318,7 +318,7 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.TurnContext, cfg *agentmd
 		input.Context = make(map[string]interface{})
 	}
 
-	if existing, ok := input.Context[intakesvc.ContextKey].(*intakesvc.TurnContext); ok && existing != nil && existing.Routing.Source == intakesvc.SourceWorkspace {
+	if existing, ok := input.Context[intakesvc.ContextKey].(*intakesvc.Context); ok && existing != nil && existing.Routing.Source == intakesvc.SourceWorkspace {
 		tc.Routing.Mode = existing.Routing.Mode
 		tc.Planner.Trigger = existing.Planner.Trigger
 		tc.Planner.AgentID = existing.Planner.AgentID

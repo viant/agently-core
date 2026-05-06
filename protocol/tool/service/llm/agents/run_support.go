@@ -118,9 +118,11 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	if err != nil {
 		return err
 	}
-	childContext := inheritDelegatedContext(ctx, ri.Context)
+	ri.Runtime = inheritDelegatedRuntime(ctx, ri.Runtime)
+	childContext := ri.Context
+	childContext = projectRuntimeIntoDelegatedContext(ri.Runtime, childContext)
 	agentID := effectiveRunAgentID(ri)
-	qi := &agentsvc.QueryInput{AgentID: agentID, Agent: ri.Agent, Query: normalizedDelegatedObjective(ri), Context: childContext}
+	qi := &agentsvc.QueryInput{AgentID: agentID, Agent: ri.Agent, Query: normalizedDelegatedObjective(ri), Context: childContext, Runtime: ri.Runtime}
 	if qi.Agent == nil && s.agent != nil && s.agent.Finder() != nil && agentID != "" {
 		if ag, err := s.agent.Finder().Find(ctx, agentID); err == nil && ag != nil {
 			qi.Agent = ag
@@ -249,11 +251,9 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 			TurnID:         uuid.NewString(),
 		})
 	}
-	if qi != nil && qi.Context != nil {
-		if name, _ := qi.Context["skillActivationName"].(string); strings.TrimSpace(name) != "" {
-			if mode, _ := qi.Context["skillActivationMode"].(string); strings.TrimSpace(mode) != "" {
-				childCtx = skillsvc.WithActivationModeOverride(childCtx, name, mode)
-			}
+	if qi != nil && qi.Runtime != nil && qi.Runtime.SkillActivation != nil {
+		if activation := qi.Runtime.SkillActivation; strings.TrimSpace(activation.Mode) != "" {
+			childCtx = skillsvc.WithActivationModeOverride(childCtx, activation.Name, activation.Mode)
 		}
 	}
 	childTimeout := s.ChildTimeout

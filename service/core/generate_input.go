@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/binding"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
 type GenerateInput struct {
@@ -175,8 +177,7 @@ func hasActiveSkillHistory(b *binding.Binding) bool {
 			if msg == nil {
 				continue
 			}
-			toolName := strings.TrimSpace(strings.ToLower(msg.ToolName))
-			if toolName == "llm/skills:activate" || toolName == "llm_skills-activate" {
+			if strings.EqualFold(strings.TrimSpace(mcpname.Canonical(msg.ToolName)), skillproto.ActivateToolNameCanonical) {
 				return true
 			}
 		}
