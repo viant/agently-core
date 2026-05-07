@@ -12,6 +12,8 @@ import (
 	scyauth "github.com/viant/scy/auth"
 )
 
+const authRefreshRequestTimeout = 5 * time.Second
+
 func (r *Runtime) protect(next http.Handler) http.Handler {
 	if r == nil || r.cfg == nil || !r.cfg.Enabled {
 		return next
@@ -109,8 +111,17 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 						}
 						return runtimeAuthUserFromSession(sess, nil)
 					}
-					refreshCtx := context.Background()
-					if refreshed := r.tryRefreshToken(refreshCtx, sess); refreshed != nil {
+					refreshCtx := req.Context()
+					var refreshCancel context.CancelFunc
+					if _, hasDeadline := refreshCtx.Deadline(); hasDeadline {
+						refreshCtx, refreshCancel = context.WithCancel(refreshCtx)
+					} else {
+						refreshCtx, refreshCancel = context.WithTimeout(refreshCtx, authRefreshRequestTimeout)
+					}
+					if refreshed := func() *scyauth.Token {
+						defer refreshCancel()
+						return r.tryRefreshToken(refreshCtx, sess)
+					}(); refreshed != nil {
 						sess.Tokens = refreshed
 						r.clearRefreshRetryAt(sess)
 					} else {

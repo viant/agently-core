@@ -616,8 +616,9 @@ data class ApprovalCallbackPayload(
 
 @Serializable
 data class ApprovalCallbackResult(
-    val editedFields: JsonElement? = null,
-    val action: String? = null
+    val allow: Boolean? = null,
+    val message: String? = null,
+    val payload: Map<String, JsonElement> = emptyMap()
 )
 
 @Serializable
@@ -642,7 +643,8 @@ data class DecideToolApprovalInput(
 
 @Serializable
 data class DecideToolApprovalOutput(
-    val status: String? = null
+    val status: String? = null,
+    val message: String? = null
 )
 
 @Serializable
@@ -894,6 +896,8 @@ data class TurnState(
     val turnId: String,
     val status: String? = null,
     val user: UserMessageState? = null,
+    val users: List<UserMessageState> = emptyList(),
+    val messages: List<TurnMessageState> = emptyList(),
     val execution: ExecutionState? = null,
     val assistant: AssistantState? = null,
     val planner: PlannerState? = null,
@@ -911,15 +915,29 @@ data class UserMessageState(
 )
 
 @Serializable
+data class TurnMessageState(
+    val messageId: String,
+    val role: String,
+    val content: String? = null,
+    val createdAt: String? = null,
+    val sequence: Int? = null,
+    val interim: Int? = null,
+    val mode: String? = null,
+    val status: String? = null
+)
+
+@Serializable
 data class AssistantState(
     val narration: AssistantMessageState? = null,
-    val final: AssistantMessageState? = null
+    val final: AssistantMessageState? = null,
+    val messages: List<AssistantMessageState> = emptyList()
 )
 
 @Serializable
 data class AssistantMessageState(
     val messageId: String,
-    val content: String? = null
+    val content: String? = null,
+    val createdAt: String? = null
 )
 
 @Serializable
@@ -948,6 +966,9 @@ data class ExecutionPageState(
     val parentMessageId: String? = null,
     val turnId: String? = null,
     val iteration: Int? = null,
+    val sequence: Int? = null,
+    val executionRole: String? = null,
+    val phase: String? = null,
     val mode: String? = null,
     val status: String? = null,
     val modelSteps: List<ModelStepState> = emptyList(),
@@ -963,6 +984,8 @@ data class ExecutionPageState(
 data class ModelStepState(
     val modelCallId: String,
     val assistantMessageId: String? = null,
+    val executionRole: String? = null,
+    val phase: String? = null,
     val provider: String? = null,
     val model: String? = null,
     val status: String? = null,
@@ -984,7 +1007,11 @@ data class ModelStepState(
 data class ToolStepState(
     val toolCallId: String,
     val toolMessageId: String? = null,
+    val parentMessageId: String? = null,
     val toolName: String,
+    val content: String? = null,
+    val executionRole: String? = null,
+    val operationId: String? = null,
     val status: String? = null,
     val requestPayloadId: String? = null,
     val responsePayloadId: String? = null,
@@ -994,7 +1021,17 @@ data class ToolStepState(
     val linkedConversationAgentId: String? = null,
     val linkedConversationTitle: String? = null,
     val startedAt: String? = null,
-    val completedAt: String? = null
+    val completedAt: String? = null,
+    val asyncOperation: AsyncOperationState? = null
+)
+
+@Serializable
+data class AsyncOperationState(
+    val operationId: String,
+    val status: String? = null,
+    val message: String? = null,
+    val error: String? = null,
+    val response: JsonElement? = null
 )
 
 @Serializable

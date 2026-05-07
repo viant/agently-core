@@ -81,7 +81,7 @@ public final class AgentlyClient: Sendable {
     }
 
     public func listConversations(_ input: ListConversationsInput = ListConversationsInput()) async throws -> ConversationPage {
-        try await get("/v1/conversations", query: queryItems(from: input), as: ConversationPage.self)
+        try await get("/v1/conversations", query: conversationListQueryItems(from: input), as: ConversationPage.self)
     }
 
     public func getLiveState(conversationID: String) async throws -> ConversationStateResponse {
@@ -114,15 +114,25 @@ public final class AgentlyClient: Sendable {
     }
 
     public func listPendingToolApprovals(_ input: ListPendingToolApprovalsInput = ListPendingToolApprovalsInput()) async throws -> [PendingToolApproval] {
-        let data = try await rawDataRequest(path: "/v1/tool-approvals/pending", method: "GET", query: queryItems(from: input))
-        if let rows = try? decoder.decode([PendingToolApproval].self, from: data) {
-            return rows
-        }
-        return try decoder.decode(PendingToolApprovalRows.self, from: data).rows
+        (try await listPendingToolApprovalsPage(input)).rows
     }
 
-    public func decideToolApproval(_ input: DecideToolApprovalInput) async throws {
-        let _: EmptyResponse = try await post("/v1/tool-approvals/\(input.id)/decision", body: input, as: EmptyResponse.self)
+    public func listPendingToolApprovalsPage(_ input: ListPendingToolApprovalsInput = ListPendingToolApprovalsInput()) async throws -> PendingToolApprovalPage {
+        let data = try await rawDataRequest(path: "/v1/tool-approvals/pending", method: "GET", query: try approvalQueryItems(from: input))
+        if let rows = try? decoder.decode([PendingToolApproval].self, from: data) {
+            return PendingToolApprovalPage(rows: rows)
+        }
+        if let page = try? decoder.decode(PendingToolApprovalPage.self, from: data) {
+            return page
+        }
+        if let wrapped = try? decoder.decode(PendingToolApprovalRows.self, from: data) {
+            return PendingToolApprovalPage(rows: wrapped.rows)
+        }
+        return try decoder.decode(ToolApprovalsEnvelope.self, from: data).page
+    }
+
+    public func decideToolApproval(_ input: DecideToolApprovalInput) async throws -> DecideToolApprovalOutput {
+        try await post("/v1/tool-approvals/\(input.id)/decision", body: input, as: DecideToolApprovalOutput.self)
     }
 
     public func cancelTurn(id: String) async throws {
@@ -286,6 +296,58 @@ public final class AgentlyClient: Sendable {
         }
     }
 
+    private func approvalQueryItems(from value: ListPendingToolApprovalsInput) throws -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let userID = value.userID?.trimmingCharacters(in: .whitespacesAndNewlines), !userID.isEmpty {
+            items.append(URLQueryItem(name: "userId", value: userID))
+        }
+        if let conversationID = value.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines), !conversationID.isEmpty {
+            items.append(URLQueryItem(name: "conversationId", value: conversationID))
+        }
+        if let status = value.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            items.append(URLQueryItem(name: "status", value: status))
+        }
+        if let limit = value.limit {
+            items.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let offset = value.offset {
+            items.append(URLQueryItem(name: "offset", value: String(offset)))
+        }
+        return items
+    }
+
+    private func conversationListQueryItems(from value: ListConversationsInput) -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let agentID = value.agentID?.trimmingCharacters(in: .whitespacesAndNewlines), !agentID.isEmpty {
+            items.append(URLQueryItem(name: "agentId", value: agentID))
+        }
+        if let parentID = value.parentID?.trimmingCharacters(in: .whitespacesAndNewlines), !parentID.isEmpty {
+            items.append(URLQueryItem(name: "parentId", value: parentID))
+        }
+        if let parentTurnID = value.parentTurnID?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTurnID.isEmpty {
+            items.append(URLQueryItem(name: "parentTurnId", value: parentTurnID))
+        }
+        if let excludeScheduled = value.excludeScheduled {
+            items.append(URLQueryItem(name: "excludeScheduled", value: excludeScheduled ? "true" : "false"))
+        }
+        if let query = value.query?.trimmingCharacters(in: .whitespacesAndNewlines), !query.isEmpty {
+            items.append(URLQueryItem(name: "q", value: query))
+        }
+        if let status = value.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            items.append(URLQueryItem(name: "status", value: status))
+        }
+        if let limit = value.page?.limit {
+            items.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let cursor = value.page?.cursor?.trimmingCharacters(in: .whitespacesAndNewlines), !cursor.isEmpty {
+            items.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        if let direction = value.page?.direction?.trimmingCharacters(in: .whitespacesAndNewlines), !direction.isEmpty {
+            items.append(URLQueryItem(name: "direction", value: direction))
+        }
+        return items
+    }
+
     private func makeMultipartBody(input: UploadFileInput, boundary: String) -> Data {
         var data = Data()
         func append(_ string: String) {
@@ -314,5 +376,13 @@ public final class AgentlyClient: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         return filename?.isEmpty == false ? filename : nil
+    }
+}
+
+private struct ToolApprovalsEnvelope: Codable {
+    let data: [PendingToolApproval]
+
+    var page: PendingToolApprovalPage {
+        PendingToolApprovalPage(rows: data)
     }
 }

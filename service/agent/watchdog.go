@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
+	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
 	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
@@ -28,8 +29,10 @@ type Watchdog struct {
 	agent         *Service
 	tokenProvider token.Provider
 	interval      time.Duration
+	handleTimeout time.Duration
 	workerHost    string
 	recoverySem   chan struct{}
+	handleFn      func(context.Context, *agrunstale.StaleRunsView) error
 }
 
 // WatchdogOption configures a Watchdog.
@@ -45,15 +48,22 @@ func WithWatchdogTokenProvider(p token.Provider) WatchdogOption {
 	return func(w *Watchdog) { w.tokenProvider = p }
 }
 
+// WithWatchdogHandleTimeout bounds recovery work per stale run so one blocked
+// recovery cannot stall the entire watchdog sweep.
+func WithWatchdogHandleTimeout(d time.Duration) WatchdogOption {
+	return func(w *Watchdog) { w.handleTimeout = d }
+}
+
 // NewWatchdog creates a watchdog for stale run detection and resume.
 func NewWatchdog(data data.Service, agent *Service, opts ...WatchdogOption) *Watchdog {
 	hostname, _ := os.Hostname()
 	w := &Watchdog{
-		data:        data,
-		agent:       agent,
-		interval:    60 * time.Second,
-		workerHost:  hostname,
-		recoverySem: make(chan struct{}, 2),
+		data:          data,
+		agent:         agent,
+		interval:      60 * time.Second,
+		handleTimeout: 15 * time.Second,
+		workerHost:    hostname,
+		recoverySem:   make(chan struct{}, 2),
 	}
 	for _, o := range opts {
 		o(w)
@@ -88,11 +98,28 @@ func (w *Watchdog) sweep(ctx context.Context) {
 		log.Printf("[watchdog] list stale runs: %v", err)
 		return
 	}
+	w.sweepRuns(ctx, runs)
+}
+
+func (w *Watchdog) sweepRuns(ctx context.Context, runs []*agrunstale.StaleRunsView) {
 	for _, run := range runs {
-		if err := w.handleStaleRun(ctx, run); err != nil {
+		if err := w.handleRun(ctx, run); err != nil {
 			log.Printf("[watchdog] handle stale run %s: %v", run.Id, err)
 		}
 	}
+}
+
+func (w *Watchdog) handleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
+	runCtx := context.WithoutCancel(ctx)
+	cancel := func() {}
+	if w.handleTimeout > 0 {
+		runCtx, cancel = context.WithTimeout(runCtx, w.handleTimeout)
+	}
+	defer cancel()
+	if w.handleFn != nil {
+		return w.handleFn(runCtx, run)
+	}
+	return w.handleStaleRun(runCtx, run)
 }
 
 func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
@@ -133,6 +160,23 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	// Try to resume if we have auth context and a conversation to continue.
 	if run.ConversationId != nil && strings.TrimSpace(*run.ConversationId) != "" {
 		conversationID := strings.TrimSpace(*run.ConversationId)
+		if activeRun, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+			ConversationId: conversationID,
+			Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
+		}); err != nil {
+			return fmt.Errorf("load active run for stale conversation: %w", err)
+		} else if activeRunSupersedesStale(run.Id, activeRun) {
+			now := time.Now()
+			oldRun := &agrunwrite.MutableRunView{}
+			oldRun.SetId(run.Id)
+			oldRun.SetStatus("failed")
+			oldRun.SetErrorMessage(fmt.Sprintf("worker died, superseded by active run %s", strings.TrimSpace(activeRun.Id)))
+			oldRun.SetCompletedAt(now)
+			if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{oldRun}); err != nil {
+				return fmt.Errorf("mark stale run superseded: %w", err)
+			}
+			return nil
+		}
 		resumeCtx := ctx
 		var sd *token.SecurityData
 
@@ -244,6 +288,7 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			w.recoverySem = sem
 		}
 		sem <- struct{}{}
+		resumeAsyncCtx := detachResumeContext(resumeCtx)
 		go func(resumeCtx context.Context, oldRunID, newRunID string, input *QueryInput) {
 			defer func() { <-sem }()
 			out := &QueryOutput{}
@@ -264,7 +309,7 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 					w.agent.triggerQueueDrain(strings.TrimSpace(input.ConversationID))
 				}
 			}
-		}(resumeCtx, run.Id, newRunID, input)
+		}(resumeAsyncCtx, run.Id, newRunID, input)
 		return nil
 	}
 
@@ -276,6 +321,10 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	failRun.SetCompletedAt(time.Now())
 	_, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failRun})
 	return err
+}
+
+func detachResumeContext(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
 }
 
 func resolveResumeUserID(run *agrunstale.StaleRunsView, sd *token.SecurityData) string {
@@ -297,5 +346,19 @@ func shouldSkipStaleRun(run *agrunstale.StaleRunsView) bool {
 	if strings.EqualFold(strings.TrimSpace(run.ConversationKind), "scheduled") {
 		return true
 	}
+	if run.ResumedFromRunId != nil && strings.TrimSpace(*run.ResumedFromRunId) != "" {
+		return true
+	}
 	return false
+}
+
+func activeRunSupersedesStale(staleRunID string, activeRun *agrunactive.ActiveRunsView) bool {
+	if activeRun == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(activeRun.Id)
+	if activeID == "" {
+		return false
+	}
+	return activeID != strings.TrimSpace(staleRunID)
 }

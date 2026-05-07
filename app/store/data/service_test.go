@@ -2606,6 +2606,7 @@ func seedForActiveAndStaleRuns(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO run (id, turn_id, schedule_id, conversation_id, status, worker_id, worker_host, created_at, last_heartbeat_at, iteration, conversation_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-2", "t-run-main", "sch-1", "c-main", "queued", "worker-2", "host-b", "2026-01-01 09:11:00", nil, 1, "interactive"}},
 		{SQL: `INSERT INTO run (id, turn_id, conversation_id, status, worker_id, worker_host, created_at, last_heartbeat_at, iteration, conversation_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-4", "t-other-run", "c-other", "running", "worker-3", "host-a", "2026-01-01 09:13:00", "2026-01-01 09:50:00", 1, "interactive"}},
 		{SQL: `INSERT INTO run (id, turn_id, conversation_id, status, worker_id, worker_host, created_at, last_heartbeat_at, iteration, conversation_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-5", "t-anchor", "c-main", "running", "worker-4", "host-b", "2026-01-01 09:08:00", nil, 1, "interactive"}},
+		{SQL: `INSERT INTO run (id, turn_id, conversation_id, status, worker_id, worker_host, created_at, last_heartbeat_at, iteration, conversation_kind, resumed_from_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-6", "t-anchor", "c-main", "running", "worker-5", "host-a", "2026-01-01 09:07:00", "2026-01-01 09:09:00", 1, "interactive", "run-legacy"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }

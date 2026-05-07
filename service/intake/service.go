@@ -81,7 +81,7 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	in := s.buildGenerateInput(modelName, systemPrompt, userMessage, userID, cfg)
+	in := s.buildGenerateInputWithContext(ctx, modelName, systemPrompt, userMessage, userID, cfg)
 	if strings.TrimSpace(in.UserID) == "" {
 		in.UserID = "system"
 	}
@@ -110,6 +110,10 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 }
 
 func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userID string, cfg *agentmdl.Intake) *core.GenerateInput {
+	return s.buildGenerateInputWithContext(context.Background(), modelName, systemPrompt, userMessage, userID, cfg)
+}
+
+func (s *Service) buildGenerateInputWithContext(ctx context.Context, modelName, systemPrompt, userMessage, userID string, cfg *agentmdl.Intake) *core.GenerateInput {
 	return &core.GenerateInput{
 		UserID: userID,
 		ModelSelection: llm.ModelSelection{
@@ -119,7 +123,7 @@ func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userI
 				MaxTokens:        cfg.EffectiveMaxTokens(),
 				JSONMode:         true,
 				ResponseMIMEType: "application/json",
-				OutputSchema:     buildOutputJSONSchema(cfg),
+				OutputSchema:     s.buildOutputJSONSchema(ctx, cfg),
 				ToolChoice:       llm.NewNoneToolChoice(),
 				Mode:             "router",
 				Reasoning:        &llm.Reasoning{Effort: "minimal"},
@@ -130,6 +134,119 @@ func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userI
 			llm.NewUserMessage(userMessage),
 		},
 	}
+}
+
+func (s *Service) buildOutputJSONSchema(ctx context.Context, cfg *agentmdl.Intake) map[string]interface{} {
+	schema := buildOutputJSONSchema(cfg)
+	if s == nil || cfg == nil {
+		return schema
+	}
+	props, _ := schema["properties"].(map[string]interface{})
+	prompting, _ := props["prompting"].(map[string]interface{})
+	promptingProps, _ := prompting["properties"].(map[string]interface{})
+
+	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
+		if prop, ok := promptingProps["suggestedProfileId"].(map[string]interface{}); ok {
+			if enums := s.allowedPromptProfileIDs(ctx); len(enums) > 0 {
+				prop["enum"] = append([]string{""}, enums...)
+			}
+		}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeTools) {
+		if prop, ok := promptingProps["appendToolBundles"].(map[string]interface{}); ok {
+			if items, ok := prop["items"].(map[string]interface{}); ok {
+				if enums := s.allowedBundleIDs(ctx); len(enums) > 0 {
+					items["enum"] = enums
+				}
+			}
+		}
+	}
+	if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
+		if prop, ok := promptingProps["templateId"].(map[string]interface{}); ok {
+			if enums := s.allowedTemplateIDs(ctx); len(enums) > 0 {
+				prop["enum"] = append([]string{""}, enums...)
+			}
+		}
+	}
+	return schema
+}
+
+func (s *Service) allowedPromptProfileIDs(ctx context.Context) []string {
+	if s == nil || s.profileRepo == nil {
+		return nil
+	}
+	profiles, err := s.profileRepo.LoadAll(ctx)
+	if err != nil || len(profiles) == 0 {
+		return nil
+	}
+	if allow := runtimerequestctx.PromptProfileAllowListFromContext(ctx); len(allow) > 0 {
+		profiles = promptrepo.FilterAllowedProfiles(profiles, allow)
+	}
+	ids := make([]string, 0, len(profiles))
+	seen := map[string]bool{}
+	for _, p := range profiles {
+		if p == nil {
+			continue
+		}
+		id := strings.TrimSpace(p.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (s *Service) allowedBundleIDs(ctx context.Context) []string {
+	if s == nil || s.bundleRepo == nil {
+		return nil
+	}
+	bundles, err := s.bundleRepo.LoadAll(ctx)
+	if err != nil || len(bundles) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(bundles))
+	seen := map[string]bool{}
+	for _, b := range bundles {
+		if b == nil {
+			continue
+		}
+		id := strings.TrimSpace(b.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (s *Service) allowedTemplateIDs(ctx context.Context) []string {
+	if s == nil || s.templateRepo == nil {
+		return nil
+	}
+	templates, err := s.templateRepo.LoadAll(ctx)
+	if err != nil || len(templates) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(templates))
+	seen := map[string]bool{}
+	for _, tpl := range templates {
+		if tpl == nil {
+			continue
+		}
+		id := strings.TrimSpace(tpl.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // resolveModel selects a concrete model id for the intake call.
@@ -347,6 +464,11 @@ const intakeBasePrompt = `You are a request classifier that extracts structured 
 Your output drives downstream routing and tool selection — be precise and conservative.
 Do not invent context, dates, or constraints not present in the message.
 Do not output tool names or capability descriptions.
+When you emit string fields such as intent, suggestedProfileId, or templateId:
+- return the exact bare string value only
+- do not append explanations, comments, punctuation notes, or side remarks
+- do not concatenate two values into one field
+- never emit inline comments like /* ... */ inside JSON string values
 
 Date rule:
 - If the user gives a concrete month/day date without a year (for example

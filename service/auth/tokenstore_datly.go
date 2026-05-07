@@ -14,7 +14,6 @@ import (
 	"github.com/viant/scy/kms"
 	"github.com/viant/scy/kms/blowfish"
 
-	oauthread "github.com/viant/agently-core/pkg/agently/user/oauth"
 	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
 )
 
@@ -92,37 +91,67 @@ func (s *TokenStoreDAO) Get(ctx context.Context, username, provider string) (*OA
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
-	out := &oauthread.TokenOutput{}
-	in := oauthread.TokenInput{}
-	in.Has = &oauthread.TokenInputHas{Id: true}
-	in.Id = username
-	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("GET", oauthread.TokenPathURI)), datly.WithInput(&in), datly.WithOutput(out)); err != nil {
-		return nil, err
-	}
-	if len(out.Data) == 0 || out.Data[0] == nil {
-		return nil, nil
-	}
-	var row *oauthread.TokenView
-	if strings.TrimSpace(provider) != "" {
-		for _, r := range out.Data {
-			if r != nil && strings.TrimSpace(r.Provider) == strings.TrimSpace(provider) {
-				row = r
-				break
-			}
-		}
-	}
-	if row == nil {
-		row = out.Data[0]
-	}
-	if row == nil || strings.TrimSpace(row.EncToken) == "" {
-		return nil, nil
-	}
-	tok, err := s.decrypt(ctx, row.EncToken)
+	db, err := s.db()
 	if err != nil {
 		return nil, err
 	}
-	tok.Username = username
-	tok.Provider = provider
+	rows, err := db.QueryContext(ctx,
+		`SELECT user_id, provider, enc_token
+FROM user_oauth_token
+WHERE user_id = ?
+ORDER BY provider`,
+		strings.TrimSpace(username),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var (
+		encToken      string
+		selectedUser  string
+		selectedProv  string
+		fallbackEnc   string
+		fallbackUser  string
+		fallbackProv  string
+		requestedProv = strings.TrimSpace(provider)
+	)
+	for rows.Next() {
+		var userID, rowProvider, rowEnc string
+		if err := rows.Scan(&userID, &rowProvider, &rowEnc); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(rowEnc) == "" {
+			continue
+		}
+		if fallbackEnc == "" {
+			fallbackEnc = rowEnc
+			fallbackUser = strings.TrimSpace(userID)
+			fallbackProv = strings.TrimSpace(rowProvider)
+		}
+		if requestedProv != "" && strings.TrimSpace(rowProvider) == requestedProv {
+			encToken = rowEnc
+			selectedUser = strings.TrimSpace(userID)
+			selectedProv = strings.TrimSpace(rowProvider)
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if encToken == "" {
+		encToken = fallbackEnc
+		selectedUser = fallbackUser
+		selectedProv = fallbackProv
+	}
+	if strings.TrimSpace(encToken) == "" {
+		return nil, nil
+	}
+	tok, err := s.decrypt(ctx, encToken)
+	if err != nil {
+		return nil, err
+	}
+	tok.Username = strings.TrimSpace(firstNonEmpty(selectedUser, username))
+	tok.Provider = strings.TrimSpace(firstNonEmpty(selectedProv, provider))
 	return tok, nil
 }
 
@@ -149,12 +178,16 @@ func (s *TokenStoreDAO) Delete(ctx context.Context, username, provider string) e
 	if s == nil || s.dao == nil {
 		return nil
 	}
-	in := &oauthwrite.Input{Token: &oauthwrite.Token{}}
-	in.Token.SetUserID(username)
-	in.Token.SetProvider(provider)
-	in.Token.SetEncToken("")
-	out := &oauthwrite.Output{}
-	_, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", oauthwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out))
+	db, err := s.db()
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx,
+		`UPDATE user_oauth_token
+SET enc_token = ''
+WHERE user_id = ? AND provider = ?`,
+		strings.TrimSpace(username), strings.TrimSpace(provider),
+	)
 	return err
 }
 

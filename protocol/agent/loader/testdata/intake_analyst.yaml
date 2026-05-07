@@ -3,6 +3,10 @@ name: Steward
 modelRef: gpt-4o
 intake:
   enabled: true
+  prompt: |
+    For prompts like "show the most 3 impactful deal ids in the last 2 days":
+    - set suggestedProfileId = supply_kpi
+    - set templateId = analytics_dashboard
   scope:
     - title
     - context
