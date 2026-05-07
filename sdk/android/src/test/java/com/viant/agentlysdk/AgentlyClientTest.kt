@@ -10,6 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -197,6 +198,128 @@ class AgentlyClientTest {
         assertTrue(path.contains("status=pending"))
         assertTrue(path.contains("limit=5"))
         assertTrue(path.contains("offset=5"))
+    }
+
+    @Test
+    fun `conversationStateResponse decodes canonical execution fields`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val payload = """
+            {
+              "schemaVersion": "2026-05-06",
+              "eventCursor": "cursor-7",
+              "usage": {
+                "totalInputTokens": 120,
+                "totalOutputTokens": 45
+              },
+              "conversation": {
+                "conversationId": "conv-1",
+                "turns": [
+                  {
+                    "turnId": "turn-1",
+                    "status": "running",
+                    "users": [
+                      { "messageId": "user-1", "content": "hello" }
+                    ],
+                    "messages": [
+                      { "messageId": "msg-1", "role": "user", "content": "hello", "sequence": 1, "status": "completed" }
+                    ],
+                    "assistant": {
+                      "narration": { "messageId": "narr-1", "content": "thinking", "createdAt": "2026-05-06T10:00:00Z" },
+                      "final": { "messageId": "final-1", "content": "done", "createdAt": "2026-05-06T10:00:02Z" },
+                      "messages": [
+                        { "messageId": "narr-1", "content": "thinking", "createdAt": "2026-05-06T10:00:00Z" },
+                        { "messageId": "final-1", "content": "done", "createdAt": "2026-05-06T10:00:02Z" }
+                      ]
+                    },
+                    "execution": {
+                      "pages": [
+                        {
+                          "pageId": "page-1",
+                          "assistantMessageId": "final-1",
+                          "parentMessageId": "user-1",
+                          "turnId": "turn-1",
+                          "iteration": 1,
+                          "sequence": 2,
+                          "executionRole": "main",
+                          "phase": "intake",
+                          "status": "running",
+                          "finalResponse": false,
+                          "modelSteps": [
+                            {
+                              "modelCallId": "mc-1",
+                              "assistantMessageId": "final-1",
+                              "executionRole": "main",
+                              "phase": "intake",
+                              "provider": "openai",
+                              "model": "gpt-5.4"
+                            }
+                          ],
+                          "toolSteps": [
+                            {
+                              "toolCallId": "tc-1",
+                              "toolMessageId": "tm-1",
+                              "parentMessageId": "user-1",
+                              "toolName": "system/exec:start",
+                              "content": "running",
+                              "executionRole": "sidecar",
+                              "operationId": "op-1",
+                              "status": "waiting",
+                              "asyncOperation": {
+                                "operationId": "op-1",
+                                "status": "running",
+                                "message": "still running"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+        """.trimIndent()
+
+        val decoded = json.decodeFromString(ConversationStateResponse.serializer(), payload)
+
+        assertEquals("2026-05-06", decoded.schemaVersion)
+        assertEquals("cursor-7", decoded.eventCursor)
+        assertEquals(120, decoded.usage?.totalInputTokens)
+        val turn = decoded.conversation?.turns?.first()
+        assertEquals("turn-1", turn?.turnId)
+        assertEquals("user-1", turn?.users?.first()?.messageId)
+        assertEquals("msg-1", turn?.messages?.first()?.messageId)
+        assertEquals("final-1", turn?.assistant?.messages?.last()?.messageId)
+        val page = turn?.execution?.pages?.first()
+        assertEquals(2, page?.sequence)
+        assertEquals("main", page?.executionRole)
+        assertEquals("intake", page?.phase)
+        assertEquals("main", page?.modelSteps?.first()?.executionRole)
+        val toolStep = page?.toolSteps?.first()
+        assertEquals("user-1", toolStep?.parentMessageId)
+        assertEquals("sidecar", toolStep?.executionRole)
+        assertEquals("op-1", toolStep?.operationId)
+        assertEquals("running", toolStep?.asyncOperation?.status)
+    }
+
+    @Test
+    fun `approval callback result decodes canonical callback contract`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val payload = """
+            {
+              "allow": true,
+              "message": "approved",
+              "payload": {
+                "action": "approve"
+              }
+            }
+        """.trimIndent()
+
+        val decoded = json.decodeFromString(ApprovalCallbackResult.serializer(), payload)
+
+        assertEquals(true, decoded.allow)
+        assertEquals("approved", decoded.message)
+        assertEquals("approve", decoded.payload["action"]?.jsonPrimitive?.content)
     }
 
     @Test

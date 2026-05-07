@@ -2,8 +2,12 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -206,6 +210,98 @@ func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *
 	}
 	if got.TransientRefreshRetryAt.IsZero() {
 		t.Fatalf("expected transient refresh retry timestamp to remain set")
+	}
+}
+
+func TestRuntimeProtect_ExpiredSessionRefreshHonorsRequestContext(t *testing.T) {
+	var hits atomic.Int32
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+			http.Error(w, "slow token endpoint", http.StatusGatewayTimeout)
+		}
+	}))
+	defer tokenSrv.Close()
+
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "oauth.json")
+	payload := map[string]any{
+		"authURL":      tokenSrv.URL + "/auth",
+		"tokenURL":     tokenSrv.URL + "/token",
+		"clientID":     "test-client",
+		"clientSecret": "test-secret",
+		"redirectURL":  "http://localhost/callback",
+		"scopes":       []string{"openid"},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			OAuth:      &OAuth{Mode: "bff"},
+		},
+		sessions: NewManager(0, nil),
+	}
+	rt.ext = &authExtension{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			OAuth: &OAuth{
+				Name: "oauth",
+				Mode: "bff",
+				Client: &OAuthClient{
+					ConfigURL: cfgPath,
+				},
+			},
+		},
+		sessions: rt.sessions,
+	}
+
+	tokens := &scyauth.Token{}
+	tokens.Token.AccessToken = "expired-access"
+	tokens.Token.RefreshToken = "refresh-token"
+	tokens.Token.Expiry = time.Now().Add(-1 * time.Minute)
+	tokens.IDToken = "expired-id"
+
+	rt.sessions.Put(nil, &Session{
+		ID:       "sess-refresh-timeout",
+		Username: "awitas",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+		Tokens:   tokens,
+	})
+
+	handler := rt.protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-refresh-timeout"})
+	rec := httptest.NewRecorder()
+
+	started := time.Now()
+	handler.ServeHTTP(rec, req)
+	elapsed := time.Since(started)
+
+	if got := hits.Load(); got == 0 {
+		t.Fatalf("expected token refresh request to be attempted")
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("auth handler took %v, want it to honor request context timeout", elapsed)
 	}
 }
 

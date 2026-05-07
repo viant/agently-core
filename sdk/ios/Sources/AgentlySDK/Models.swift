@@ -300,19 +300,41 @@ public struct PageInput: Codable, Sendable {
 
 public struct Conversation: Codable, Sendable, Identifiable {
     public let id: String
+    public let lastTurnID: String?
     public let agentID: String?
     public let title: String?
     public let summary: String?
     public let stage: String?
+    public let visibility: String?
+    public let shareable: Int?
+    public let conversationParentID: String?
+    public let conversationParentTurnID: String?
+    public let createdAt: String?
     public let lastActivity: String?
+    public let createdByUserID: String?
+    public let promptTokens: Int?
+    public let completionTokens: Int?
+    public let totalTokens: Int?
+    public let cost: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
+        case lastTurnID = "LastTurnId"
         case agentID = "AgentId"
         case title = "Title"
         case summary = "Summary"
         case stage = "Stage"
+        case visibility = "Visibility"
+        case shareable = "Shareable"
+        case conversationParentID = "ConversationParentId"
+        case conversationParentTurnID = "ConversationParentTurnId"
+        case createdAt = "CreatedAt"
         case lastActivity = "LastActivity"
+        case createdByUserID = "CreatedByUserId"
+        case promptTokens = "UsageInputTokens"
+        case completionTokens = "UsageOutputTokens"
+        case totalTokens = "UsageEmbeddingTokens"
+        case cost
     }
 }
 
@@ -332,19 +354,36 @@ public struct ConversationPage: Codable, Sendable {
 
 public struct ListConversationsInput: Codable, Sendable {
     public let agentID: String?
+    public let parentID: String?
+    public let parentTurnID: String?
+    public let excludeScheduled: Bool?
     public let query: String?
     public let status: String?
     public let page: PageInput?
 
     enum CodingKeys: String, CodingKey {
         case agentID = "agentId"
+        case parentID = "parentId"
+        case parentTurnID = "parentTurnId"
+        case excludeScheduled
         case query = "q"
         case status
         case page
     }
 
-    public init(agentID: String? = nil, query: String? = nil, status: String? = nil, page: PageInput? = nil) {
+    public init(
+        agentID: String? = nil,
+        parentID: String? = nil,
+        parentTurnID: String? = nil,
+        excludeScheduled: Bool? = nil,
+        query: String? = nil,
+        status: String? = nil,
+        page: PageInput? = nil
+    ) {
         self.agentID = agentID
+        self.parentID = parentID
+        self.parentTurnID = parentTurnID
+        self.excludeScheduled = excludeScheduled
         self.query = query
         self.status = status
         self.page = page
@@ -355,17 +394,29 @@ public struct CreateConversationInput: Codable, Sendable {
     public let agentID: String?
     public let title: String?
     public let metadata: [String: JSONValue]
+    public let parentConversationID: String?
+    public let parentTurnID: String?
 
     enum CodingKeys: String, CodingKey {
         case agentID = "agentId"
         case title
         case metadata
+        case parentConversationID = "parentConversationId"
+        case parentTurnID = "parentTurnId"
     }
 
-    public init(agentID: String? = nil, title: String? = nil, metadata: [String: JSONValue] = [:]) {
+    public init(
+        agentID: String? = nil,
+        title: String? = nil,
+        metadata: [String: JSONValue] = [:],
+        parentConversationID: String? = nil,
+        parentTurnID: String? = nil
+    ) {
         self.agentID = agentID
         self.title = title
         self.metadata = metadata
+        self.parentConversationID = parentConversationID
+        self.parentTurnID = parentTurnID
     }
 }
 
@@ -549,29 +600,47 @@ public struct QueryOutput: Codable, Sendable {
 }
 
 public struct ConversationStateResponse: Decodable, Sendable {
+    public let schemaVersion: String?
     public let conversation: ConversationState?
     public let feeds: [ActiveFeedState]
+    public let usage: UsageSummary?
+    public let eventCursor: String?
 
     enum CodingKeys: String, CodingKey {
+        case schemaVersion
         case conversation
         case feeds
+        case usage
+        case eventCursor
     }
 
-    public init(conversation: ConversationState? = nil, feeds: [ActiveFeedState] = []) {
+    public init(
+        schemaVersion: String? = nil,
+        conversation: ConversationState? = nil,
+        feeds: [ActiveFeedState] = [],
+        usage: UsageSummary? = nil,
+        eventCursor: String? = nil
+    ) {
+        self.schemaVersion = schemaVersion
         self.conversation = conversation
         self.feeds = feeds
+        self.usage = usage
+        self.eventCursor = eventCursor
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion)
         self.conversation = try container.decodeIfPresent(ConversationState.self, forKey: .conversation)
         self.feeds = try container.decodeIfPresent([ActiveFeedState].self, forKey: .feeds) ?? []
+        self.usage = try container.decodeIfPresent(UsageSummary.self, forKey: .usage)
+        self.eventCursor = try container.decodeIfPresent(String.self, forKey: .eventCursor)
     }
 }
 
 public struct ConversationState: Decodable, Sendable {
     public let conversationID: String
-    public let turns: [ConversationTurn]
+    public let turns: [TurnState]
     public let feeds: [ActiveFeedState]
 
     enum CodingKeys: String, CodingKey {
@@ -582,7 +651,7 @@ public struct ConversationState: Decodable, Sendable {
 
     public init(
         conversationID: String,
-        turns: [ConversationTurn] = [],
+        turns: [TurnState] = [],
         feeds: [ActiveFeedState] = []
     ) {
         self.conversationID = conversationID
@@ -593,51 +662,92 @@ public struct ConversationState: Decodable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.conversationID = try container.decode(String.self, forKey: .conversationID)
-        self.turns = try container.decodeIfPresent([ConversationTurn].self, forKey: .turns) ?? []
+        self.turns = try container.decodeIfPresent([TurnState].self, forKey: .turns) ?? []
         self.feeds = try container.decodeIfPresent([ActiveFeedState].self, forKey: .feeds) ?? []
     }
 }
 
-public struct ConversationTurn: Decodable, Sendable, Identifiable {
-    public let id: String
+public struct TurnState: Codable, Sendable, Identifiable {
+    public var id: String { turnID }
+    public let turnID: String
+    public let status: String?
+    public let user: UserMessageState?
+    public let users: [UserMessageState]
+    public let messages: [TurnMessageState]
+    public let execution: ExecutionState?
+    public let assistant: AssistantState?
+    public let planner: PlannerState?
+    public let elicitation: ElicitationState?
+    public let linkedConversations: [LinkedConversationState]
     public let createdAt: String?
-    public let user: ConversationMessagePart?
-    public let assistant: AssistantTurnPart?
+    public let queueSeq: Int?
+    public let startedByMessageID: String?
 
     enum CodingKeys: String, CodingKey {
-        case id
         case turnID = "turnId"
-        case createdAt
+        case status
         case user
+        case users
+        case messages
+        case execution
         case assistant
+        case planner
+        case elicitation
+        case linkedConversations
+        case createdAt
+        case queueSeq
+        case startedByMessageID = "startedByMessageId"
     }
 
     public init(
-        id: String,
+        turnID: String,
+        status: String? = nil,
+        user: UserMessageState? = nil,
+        users: [UserMessageState] = [],
+        messages: [TurnMessageState] = [],
+        execution: ExecutionState? = nil,
+        assistant: AssistantState? = nil,
+        planner: PlannerState? = nil,
+        elicitation: ElicitationState? = nil,
+        linkedConversations: [LinkedConversationState] = [],
         createdAt: String? = nil,
-        user: ConversationMessagePart? = nil,
-        assistant: AssistantTurnPart? = nil
+        queueSeq: Int? = nil,
+        startedByMessageID: String? = nil
     ) {
-        self.id = id
-        self.createdAt = createdAt
+        self.turnID = turnID
+        self.status = status
         self.user = user
+        self.users = users
+        self.messages = messages
+        self.execution = execution
         self.assistant = assistant
+        self.planner = planner
+        self.elicitation = elicitation
+        self.linkedConversations = linkedConversations
+        self.createdAt = createdAt
+        self.queueSeq = queueSeq
+        self.startedByMessageID = startedByMessageID
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id =
-            try container.decodeIfPresent(String.self, forKey: .id) ??
-            container.decodeIfPresent(String.self, forKey: .turnID) ??
-            container.decodeIfPresent(ConversationMessagePart.self, forKey: .user)?.messageID ??
-            UUID().uuidString
+        self.turnID = try container.decode(String.self, forKey: .turnID)
+        self.status = try container.decodeIfPresent(String.self, forKey: .status)
+        self.user = try container.decodeIfPresent(UserMessageState.self, forKey: .user)
+        self.users = try container.decodeIfPresent([UserMessageState].self, forKey: .users) ?? []
+        self.messages = try container.decodeIfPresent([TurnMessageState].self, forKey: .messages) ?? []
+        self.execution = try container.decodeIfPresent(ExecutionState.self, forKey: .execution)
+        self.assistant = try container.decodeIfPresent(AssistantState.self, forKey: .assistant)
+        self.planner = try container.decodeIfPresent(PlannerState.self, forKey: .planner)
+        self.elicitation = try container.decodeIfPresent(ElicitationState.self, forKey: .elicitation)
+        self.linkedConversations = try container.decodeIfPresent([LinkedConversationState].self, forKey: .linkedConversations) ?? []
         self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
-        self.user = try container.decodeIfPresent(ConversationMessagePart.self, forKey: .user)
-        self.assistant = try container.decodeIfPresent(AssistantTurnPart.self, forKey: .assistant)
+        self.queueSeq = try container.decodeIfPresent(Int.self, forKey: .queueSeq)
+        self.startedByMessageID = try container.decodeIfPresent(String.self, forKey: .startedByMessageID)
     }
 }
 
-public struct ConversationMessagePart: Codable, Sendable {
+public struct UserMessageState: Codable, Sendable {
     public let messageID: String
     public let content: String?
 
@@ -647,10 +757,339 @@ public struct ConversationMessagePart: Codable, Sendable {
     }
 }
 
-public struct AssistantTurnPart: Codable, Sendable {
-    public let narration: ConversationMessagePart?
-    public let final: ConversationMessagePart?
+public struct TurnMessageState: Codable, Sendable {
+    public let messageID: String
+    public let role: String
+    public let content: String?
+    public let createdAt: String?
+    public let sequence: Int?
+    public let interim: Int?
+    public let mode: String?
+    public let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messageID = "messageId"
+        case role
+        case content
+        case createdAt
+        case sequence
+        case interim
+        case mode
+        case status
+    }
 }
+
+public struct AssistantState: Codable, Sendable {
+    public let narration: AssistantMessageState?
+    public let final: AssistantMessageState?
+    public let messages: [AssistantMessageState]
+
+    enum CodingKeys: String, CodingKey {
+        case narration
+        case final
+        case messages
+    }
+
+    public init(
+        narration: AssistantMessageState? = nil,
+        final: AssistantMessageState? = nil,
+        messages: [AssistantMessageState] = []
+    ) {
+        self.narration = narration
+        self.final = final
+        self.messages = messages
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.narration = try container.decodeIfPresent(AssistantMessageState.self, forKey: .narration)
+        self.final = try container.decodeIfPresent(AssistantMessageState.self, forKey: .final)
+        self.messages = try container.decodeIfPresent([AssistantMessageState].self, forKey: .messages) ?? []
+    }
+}
+
+public struct AssistantMessageState: Codable, Sendable {
+    public let messageID: String
+    public let content: String?
+    public let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messageID = "messageId"
+        case content
+        case createdAt
+    }
+}
+
+public struct PlannerState: Codable, Sendable {
+    public let status: String?
+    public let trigger: String?
+    public let staticProfile: String?
+    public let strategyFamily: String?
+    public let attempt: Int?
+    public let secondPolicy: String?
+    public let outputPayloadID: String?
+    public let validated: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case trigger
+        case staticProfile
+        case strategyFamily
+        case attempt
+        case secondPolicy
+        case outputPayloadID = "outputPayloadId"
+        case validated
+    }
+}
+
+public struct ExecutionState: Codable, Sendable {
+    public let pages: [ExecutionPageState]
+    public let activePageIndex: Int?
+    public let totalElapsedMs: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case pages
+        case activePageIndex
+        case totalElapsedMs
+    }
+
+    public init(
+        pages: [ExecutionPageState] = [],
+        activePageIndex: Int? = nil,
+        totalElapsedMs: Int64? = nil
+    ) {
+        self.pages = pages
+        self.activePageIndex = activePageIndex
+        self.totalElapsedMs = totalElapsedMs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.pages = try container.decodeIfPresent([ExecutionPageState].self, forKey: .pages) ?? []
+        self.activePageIndex = try container.decodeIfPresent(Int.self, forKey: .activePageIndex)
+        self.totalElapsedMs = try container.decodeIfPresent(Int64.self, forKey: .totalElapsedMs)
+    }
+}
+
+public struct ExecutionPageState: Codable, Sendable, Identifiable {
+    public var id: String { pageID }
+    public let pageID: String
+    public let assistantMessageID: String?
+    public let parentMessageID: String?
+    public let turnID: String?
+    public let iteration: Int?
+    public let sequence: Int?
+    public let executionRole: String?
+    public let phase: String?
+    public let mode: String?
+    public let status: String?
+    public let modelSteps: [ModelStepState]
+    public let toolSteps: [ToolStepState]
+    public let narrationMessageID: String?
+    public let finalAssistantMessageID: String?
+    public let narration: String?
+    public let content: String?
+    public let finalResponse: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case pageID = "pageId"
+        case assistantMessageID = "assistantMessageId"
+        case parentMessageID = "parentMessageId"
+        case turnID = "turnId"
+        case iteration
+        case sequence
+        case executionRole
+        case phase
+        case mode
+        case status
+        case modelSteps
+        case toolSteps
+        case narrationMessageID = "narrationMessageId"
+        case finalAssistantMessageID = "finalAssistantMessageId"
+        case narration
+        case content
+        case finalResponse
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.pageID = try container.decode(String.self, forKey: .pageID)
+        self.assistantMessageID = try container.decodeIfPresent(String.self, forKey: .assistantMessageID)
+        self.parentMessageID = try container.decodeIfPresent(String.self, forKey: .parentMessageID)
+        self.turnID = try container.decodeIfPresent(String.self, forKey: .turnID)
+        self.iteration = try container.decodeIfPresent(Int.self, forKey: .iteration)
+        self.sequence = try container.decodeIfPresent(Int.self, forKey: .sequence)
+        self.executionRole = try container.decodeIfPresent(String.self, forKey: .executionRole)
+        self.phase = try container.decodeIfPresent(String.self, forKey: .phase)
+        self.mode = try container.decodeIfPresent(String.self, forKey: .mode)
+        self.status = try container.decodeIfPresent(String.self, forKey: .status)
+        self.modelSteps = try container.decodeIfPresent([ModelStepState].self, forKey: .modelSteps) ?? []
+        self.toolSteps = try container.decodeIfPresent([ToolStepState].self, forKey: .toolSteps) ?? []
+        self.narrationMessageID = try container.decodeIfPresent(String.self, forKey: .narrationMessageID)
+        self.finalAssistantMessageID = try container.decodeIfPresent(String.self, forKey: .finalAssistantMessageID)
+        self.narration = try container.decodeIfPresent(String.self, forKey: .narration)
+        self.content = try container.decodeIfPresent(String.self, forKey: .content)
+        self.finalResponse = try container.decodeIfPresent(Bool.self, forKey: .finalResponse) ?? false
+    }
+}
+
+public struct ModelStepState: Codable, Sendable, Identifiable {
+    public var id: String { modelCallID }
+    public let modelCallID: String
+    public let assistantMessageID: String?
+    public let executionRole: String?
+    public let phase: String?
+    public let provider: String?
+    public let model: String?
+    public let status: String?
+    public let requestPayloadID: String?
+    public let responsePayloadID: String?
+    public let providerRequestPayloadID: String?
+    public let providerResponsePayloadID: String?
+    public let streamPayloadID: String?
+    public let requestPayload: JSONValue?
+    public let responsePayload: JSONValue?
+    public let providerRequestPayload: JSONValue?
+    public let providerResponsePayload: JSONValue?
+    public let streamPayload: JSONValue?
+    public let startedAt: String?
+    public let completedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case modelCallID = "modelCallId"
+        case assistantMessageID = "assistantMessageId"
+        case executionRole
+        case phase
+        case provider
+        case model
+        case status
+        case requestPayloadID = "requestPayloadId"
+        case responsePayloadID = "responsePayloadId"
+        case providerRequestPayloadID = "providerRequestPayloadId"
+        case providerResponsePayloadID = "providerResponsePayloadId"
+        case streamPayloadID = "streamPayloadId"
+        case requestPayload
+        case responsePayload
+        case providerRequestPayload
+        case providerResponsePayload
+        case streamPayload
+        case startedAt
+        case completedAt
+    }
+}
+
+public struct ToolStepState: Codable, Sendable, Identifiable {
+    public var id: String { toolCallID }
+    public let toolCallID: String
+    public let toolMessageID: String?
+    public let parentMessageID: String?
+    public let toolName: String
+    public let content: String?
+    public let executionRole: String?
+    public let operationID: String?
+    public let status: String?
+    public let requestPayloadID: String?
+    public let responsePayloadID: String?
+    public let requestPayload: JSONValue?
+    public let responsePayload: JSONValue?
+    public let linkedConversationID: String?
+    public let linkedConversationAgentID: String?
+    public let linkedConversationTitle: String?
+    public let startedAt: String?
+    public let completedAt: String?
+    public let asyncOperation: AsyncOperationState?
+
+    enum CodingKeys: String, CodingKey {
+        case toolCallID = "toolCallId"
+        case toolMessageID = "toolMessageId"
+        case parentMessageID = "parentMessageId"
+        case toolName
+        case content
+        case executionRole
+        case operationID = "operationId"
+        case status
+        case requestPayloadID = "requestPayloadId"
+        case responsePayloadID = "responsePayloadId"
+        case requestPayload
+        case responsePayload
+        case linkedConversationID = "linkedConversationId"
+        case linkedConversationAgentID = "linkedConversationAgentId"
+        case linkedConversationTitle = "linkedConversationTitle"
+        case startedAt
+        case completedAt
+        case asyncOperation
+    }
+}
+
+public struct AsyncOperationState: Codable, Sendable {
+    public let operationID: String
+    public let status: String?
+    public let message: String?
+    public let error: String?
+    public let response: JSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case operationID = "operationId"
+        case status
+        case message
+        case error
+        case response
+    }
+}
+
+public struct ElicitationState: Codable, Sendable {
+    public let elicitationID: String
+    public let status: String?
+    public let message: String?
+    public let requestedSchema: JSONValue?
+    public let callbackURL: String?
+    public let responsePayload: JSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case elicitationID = "elicitationId"
+        case status
+        case message
+        case requestedSchema
+        case callbackURL = "callbackUrl"
+        case responsePayload
+    }
+}
+
+public struct LinkedConversationState: Codable, Sendable, Identifiable {
+    public var id: String { conversationID }
+    public let conversationID: String
+    public let parentConversationID: String?
+    public let parentTurnID: String?
+    public let toolCallID: String?
+    public let agentID: String?
+    public let title: String?
+    public let status: String?
+    public let response: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case parentConversationID = "parentConversationId"
+        case parentTurnID = "parentTurnId"
+        case toolCallID = "toolCallId"
+        case agentID = "agentId"
+        case title
+        case status
+        case response
+        case createdAt
+        case updatedAt
+    }
+}
+
+public struct UsageSummary: Codable, Sendable {
+    public let totalInputTokens: Int?
+    public let totalOutputTokens: Int?
+}
+
+public typealias ConversationTurn = TurnState
+public typealias ConversationMessagePart = AssistantMessageState
+public typealias AssistantTurnPart = AssistantState
 
 public struct ActiveFeedState: Codable, Sendable, Identifiable {
     public var id: String { feedID ?? UUID().uuidString }
@@ -811,41 +1250,65 @@ public struct ResolveElicitationInput: Codable, Sendable {
 
 public struct PendingToolApproval: Codable, Sendable, Identifiable {
     public let id: String
+    public let userID: String?
     public let conversationID: String?
+    public let turnID: String?
     public let messageID: String?
     public let toolName: String
     public let title: String?
     public let arguments: JSONValue?
     public let metadata: JSONValue?
     public let status: String
+    public let decision: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+    public let errorMessage: String?
 
     enum CodingKeys: String, CodingKey {
         case id
+        case userID = "userId"
         case conversationID = "conversationId"
+        case turnID = "turnId"
         case messageID = "messageId"
         case toolName
         case title
         case arguments
         case metadata
         case status
+        case decision
+        case createdAt
+        case updatedAt
+        case errorMessage
     }
 }
 
 public struct ListPendingToolApprovalsInput: Codable, Sendable {
+    public let userID: String?
     public let conversationID: String?
     public let status: String?
     public let limit: Int?
+    public let offset: Int?
 
     enum CodingKeys: String, CodingKey {
+        case userID = "userId"
         case conversationID = "conversationId"
         case status
         case limit
+        case offset
     }
 
-    public init(conversationID: String? = nil, status: String? = nil, limit: Int? = nil) {
+    public init(
+        userID: String? = nil,
+        conversationID: String? = nil,
+        status: String? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil
+    ) {
+        self.userID = userID
         self.conversationID = conversationID
         self.status = status
         self.limit = limit
+        self.offset = offset
     }
 }
 
@@ -857,15 +1320,77 @@ public struct PendingToolApprovalRows: Codable, Sendable {
     }
 }
 
+public struct PendingToolApprovalPage: Codable, Sendable {
+    public let rows: [PendingToolApproval]
+    public let total: Int
+    public let offset: Int
+    public let limit: Int
+    public let hasMore: Bool
+
+    public init(
+        rows: [PendingToolApproval] = [],
+        total: Int = 0,
+        offset: Int = 0,
+        limit: Int = 0,
+        hasMore: Bool = false
+    ) {
+        self.rows = rows
+        self.total = total
+        self.offset = offset
+        self.limit = limit
+        self.hasMore = hasMore
+    }
+}
+
 public struct DecideToolApprovalInput: Codable, Sendable {
     public let id: String
     public let action: String
+    public let userID: String?
+    public let reason: String?
+    public let note: String?
     public let editedFields: [String: JSONValue]
+    public let callbackState: [String: JSONValue]
+    public let payload: [String: JSONValue]
 
-    public init(id: String, action: String, editedFields: [String: JSONValue] = [:]) {
+    enum CodingKeys: String, CodingKey {
+        case id
+        case action
+        case userID = "userId"
+        case reason
+        case note
+        case editedFields
+        case callbackState
+        case payload
+    }
+
+    public init(
+        id: String,
+        action: String,
+        userID: String? = nil,
+        reason: String? = nil,
+        note: String? = nil,
+        editedFields: [String: JSONValue] = [:],
+        callbackState: [String: JSONValue] = [:],
+        payload: [String: JSONValue] = [:]
+    ) {
         self.id = id
         self.action = action
+        self.userID = userID
+        self.reason = reason
+        self.note = note
         self.editedFields = editedFields
+        self.callbackState = callbackState
+        self.payload = payload
+    }
+}
+
+public struct DecideToolApprovalOutput: Codable, Sendable {
+    public let status: String?
+    public let message: String?
+
+    public init(status: String? = nil, message: String? = nil) {
+        self.status = status
+        self.message = message
     }
 }
 
@@ -917,14 +1442,20 @@ public struct ApprovalForgeView: Codable, Sendable {
 }
 
 public struct ApprovalCallback: Codable, Sendable {
+    public let elementID: String?
     public let event: String?
     public let handler: String?
-    public let args: [String: JSONValue]?
+    
+    enum CodingKeys: String, CodingKey {
+        case elementID = "elementId"
+        case event
+        case handler
+    }
 
-    public init(event: String? = nil, handler: String? = nil, args: [String: JSONValue]? = nil) {
+    public init(elementID: String? = nil, event: String? = nil, handler: String? = nil) {
+        self.elementID = elementID
         self.event = event
         self.handler = handler
-        self.args = args
     }
 }
 
@@ -949,18 +1480,46 @@ public struct ApprovalEditor: Codable, Sendable {
 
 public struct ApprovalOption: Codable, Sendable {
     public let id: String
-    public let label: String?
+    public let label: String
     public let description: String?
     public let item: JSONValue?
-    public let selected: Bool?
+    public let selected: Bool
 
-    public init(id: String, label: String? = nil, description: String? = nil,
-                item: JSONValue? = nil, selected: Bool? = nil) {
+    public init(id: String, label: String, description: String? = nil,
+                item: JSONValue? = nil, selected: Bool = false) {
         self.id = id
         self.label = label
         self.description = description
         self.item = item
         self.selected = selected
+    }
+}
+
+public struct ApprovalCallbackPayload: Codable, Sendable {
+    public let approval: ApprovalMeta?
+    public let editedFields: [String: JSONValue]
+    public let originalArgs: [String: JSONValue]
+
+    public init(
+        approval: ApprovalMeta? = nil,
+        editedFields: [String: JSONValue] = [:],
+        originalArgs: [String: JSONValue] = [:]
+    ) {
+        self.approval = approval
+        self.editedFields = editedFields
+        self.originalArgs = originalArgs
+    }
+}
+
+public struct ApprovalCallbackResult: Codable, Sendable {
+    public let allow: Bool?
+    public let message: String?
+    public let payload: [String: JSONValue]
+
+    public init(allow: Bool? = nil, message: String? = nil, payload: [String: JSONValue] = [:]) {
+        self.allow = allow
+        self.message = message
+        self.payload = payload
     }
 }
 
@@ -1033,7 +1592,13 @@ public struct UploadFileInput: Sendable {
 }
 
 public struct UploadFileOutput: Codable, Sendable {
+    public let id: String?
     public let uri: String
+
+    public init(id: String? = nil, uri: String) {
+        self.id = id
+        self.uri = uri
+    }
 }
 
 public struct DownloadFileOutput: Sendable {

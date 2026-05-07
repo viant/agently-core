@@ -360,6 +360,7 @@ func TestService_Load_Intake_Orchestrator(t *testing.T) {
 
 	cfg := got.Intake
 	assert.True(t, cfg.Enabled)
+	assert.Contains(t, cfg.Prompt, "show the most 3 impactful deal ids in the last 2 days")
 	assert.Equal(t, "haiku", cfg.Model)
 	assert.Equal(t, 400, cfg.MaxTokens)
 	assert.InDelta(t, 0.85, cfg.ConfidenceThreshold, 0.001)

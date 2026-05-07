@@ -138,6 +138,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	logx.Infof("conversation", "agent.Query stage ensureEnvironment convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(envStarted))
+	if err := s.repairResumedAsyncStatusRows(ctx, input); err != nil {
+		logx.Warnf("conversation", "agent.Query resume async-status repair convo=%q err=%v", strings.TrimSpace(input.ConversationID), err)
+	}
 	if input == nil || input.Agent == nil {
 		return fmt.Errorf("invalid input: agent is required")
 	}

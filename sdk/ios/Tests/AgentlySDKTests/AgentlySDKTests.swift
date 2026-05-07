@@ -62,6 +62,107 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertTrue(decoded.conversation?.feeds.isEmpty ?? false)
     }
 
+    func testConversationStateDecodesCanonicalExecutionFields() throws {
+        let json = """
+        {
+          "schemaVersion": "2026-05-06",
+          "eventCursor": "cursor-7",
+          "usage": {
+            "totalInputTokens": 120,
+            "totalOutputTokens": 45
+          },
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "status": "running",
+                "users": [
+                  { "messageId": "user-1", "content": "hello" }
+                ],
+                "messages": [
+                  { "messageId": "msg-1", "role": "user", "content": "hello", "sequence": 1, "status": "completed" }
+                ],
+                "assistant": {
+                  "narration": { "messageId": "narr-1", "content": "thinking", "createdAt": "2026-05-06T10:00:00Z" },
+                  "final": { "messageId": "final-1", "content": "done", "createdAt": "2026-05-06T10:00:02Z" },
+                  "messages": [
+                    { "messageId": "narr-1", "content": "thinking", "createdAt": "2026-05-06T10:00:00Z" },
+                    { "messageId": "final-1", "content": "done", "createdAt": "2026-05-06T10:00:02Z" }
+                  ]
+                },
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "assistantMessageId": "final-1",
+                      "parentMessageId": "user-1",
+                      "turnId": "turn-1",
+                      "iteration": 1,
+                      "sequence": 2,
+                      "executionRole": "main",
+                      "phase": "intake",
+                      "status": "running",
+                      "finalResponse": false,
+                      "modelSteps": [
+                        {
+                          "modelCallId": "mc-1",
+                          "assistantMessageId": "final-1",
+                          "executionRole": "main",
+                          "phase": "intake",
+                          "provider": "openai",
+                          "model": "gpt-5.4"
+                        }
+                      ],
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tc-1",
+                          "toolMessageId": "tm-1",
+                          "parentMessageId": "user-1",
+                          "toolName": "system/exec:start",
+                          "content": "running",
+                          "executionRole": "sidecar",
+                          "operationId": "op-1",
+                          "status": "waiting",
+                          "asyncOperation": {
+                            "operationId": "op-1",
+                            "status": "running",
+                            "message": "still running"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let decoded = try JSONDecoder.agently().decode(ConversationStateResponse.self, from: data)
+
+        XCTAssertEqual(decoded.schemaVersion, "2026-05-06")
+        XCTAssertEqual(decoded.eventCursor, "cursor-7")
+        XCTAssertEqual(decoded.usage?.totalInputTokens, 120)
+        let turn = try XCTUnwrap(decoded.conversation?.turns.first)
+        XCTAssertEqual(turn.turnID, "turn-1")
+        XCTAssertEqual(turn.users.first?.messageID, "user-1")
+        XCTAssertEqual(turn.messages.first?.messageID, "msg-1")
+        XCTAssertEqual(turn.assistant?.messages.last?.messageID, "final-1")
+        let page = try XCTUnwrap(turn.execution?.pages.first)
+        XCTAssertEqual(page.sequence, 2)
+        XCTAssertEqual(page.executionRole, "main")
+        XCTAssertEqual(page.phase, "intake")
+        XCTAssertEqual(page.modelSteps.first?.executionRole, "main")
+        let toolStep = try XCTUnwrap(page.toolSteps.first)
+        XCTAssertEqual(toolStep.parentMessageID, "user-1")
+        XCTAssertEqual(toolStep.executionRole, "sidecar")
+        XCTAssertEqual(toolStep.operationID, "op-1")
+        XCTAssertEqual(toolStep.asyncOperation?.status, "running")
+    }
+
     func testListFilesOutputDecodesCapitalizedFilesKey() throws {
         let json = """
         {
@@ -123,6 +224,186 @@ final class AgentlySDKTests: XCTestCase {
 
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
+    }
+
+    func testListConversationsBuildsExpectedQueryParameters() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "list conversations request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/v1/conversations")
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let items = components.queryItems ?? []
+            func value(for name: String) -> String? {
+                items.first(where: { $0.name == name })?.value
+            }
+            XCTAssertEqual(value(for: "agentId"), "coder")
+            XCTAssertEqual(value(for: "parentId"), "parent-1")
+            XCTAssertEqual(value(for: "parentTurnId"), "turn-2")
+            XCTAssertEqual(value(for: "excludeScheduled"), "true")
+            XCTAssertEqual(value(for: "q"), "android qa")
+            XCTAssertEqual(value(for: "status"), "active")
+            XCTAssertEqual(value(for: "limit"), "25")
+            XCTAssertEqual(value(for: "cursor"), "cursor-1")
+            XCTAssertEqual(value(for: "direction"), "next")
+            expectation.fulfill()
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let data = #"{"Rows":[],"HasMore":false}"#.data(using: .utf8)!
+            return (response, data)
+        }
+
+        _ = try await client.listConversations(
+            ListConversationsInput(
+                agentID: "coder",
+                parentID: "parent-1",
+                parentTurnID: "turn-2",
+                excludeScheduled: true,
+                query: "android qa",
+                status: "active",
+                page: PageInput(limit: 25, cursor: "cursor-1", direction: "next")
+            )
+        )
+
+        await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testCreateConversationDecodesParentFields() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let input = CreateConversationInput(
+            agentID: "coder",
+            title: "iOS QA",
+            parentConversationID: "parent-1",
+            parentTurnID: "turn-9"
+        )
+
+        let encoded = try JSONEncoder.agently().encode(input)
+        let encodedObject = try JSONDecoder.agently().decode([String: JSONValue].self, from: encoded)
+        XCTAssertEqual(encodedObject["parentConversationId"], .string("parent-1"))
+        XCTAssertEqual(encodedObject["parentTurnId"], .string("turn-9"))
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = """
+            {
+              "Id": "conv-1",
+              "AgentId": "coder",
+              "Title": "iOS QA",
+              "ConversationParentId": "parent-1",
+              "ConversationParentTurnId": "turn-9",
+              "Shareable": 1
+            }
+            """.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let result = try await client.createConversation(input)
+
+        XCTAssertEqual(result.id, "conv-1")
+        XCTAssertEqual(result.conversationParentID, "parent-1")
+        XCTAssertEqual(result.conversationParentTurnID, "turn-9")
+        XCTAssertEqual(result.shareable, 1)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testListPendingToolApprovalsPageDecodesRowsAndPagination() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "pending approvals request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let items = components.queryItems ?? []
+            func value(for name: String) -> String? {
+                items.first(where: { $0.name == name })?.value
+            }
+            XCTAssertEqual(value(for: "conversationId"), "conv-3")
+            XCTAssertEqual(value(for: "status"), "pending")
+            XCTAssertEqual(value(for: "limit"), "5")
+            XCTAssertEqual(value(for: "offset"), "5")
+            expectation.fulfill()
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let data = """
+            {
+              "rows": [
+                {
+                  "id": "approval-3",
+                  "userId": "user-1",
+                  "conversationId": "conv-3",
+                  "turnId": "turn-1",
+                  "toolName": "system.exec",
+                  "status": "pending",
+                  "createdAt": "2026-05-06T10:00:00Z"
+                }
+              ],
+              "total": 11,
+              "offset": 5,
+              "limit": 5,
+              "hasMore": true
+            }
+            """.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let result = try await client.listPendingToolApprovalsPage(
+            ListPendingToolApprovalsInput(
+                conversationID: "conv-3",
+                status: "pending",
+                limit: 5,
+                offset: 5
+            )
+        )
+
+        XCTAssertEqual(result.rows.count, 1)
+        XCTAssertEqual(result.rows.first?.id, "approval-3")
+        XCTAssertEqual(result.rows.first?.userID, "user-1")
+        XCTAssertEqual(result.total, 11)
+        XCTAssertEqual(result.offset, 5)
+        XCTAssertEqual(result.limit, 5)
+        XCTAssertTrue(result.hasMore)
+        await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testApprovalCallbackResultDecodesCanonicalCallbackContract() throws {
+        let json = """
+        {
+          "allow": true,
+          "message": "approved",
+          "payload": {
+            "action": "approve"
+          }
+        }
+        """
+
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let decoded = try JSONDecoder.agently().decode(ApprovalCallbackResult.self, from: data)
+
+        XCTAssertEqual(decoded.allow, true)
+        XCTAssertEqual(decoded.message, "approved")
+        XCTAssertEqual(decoded.payload["action"], .string("approve"))
     }
 
     func testSessionDebugOptionsAppendDebugHeaders() async throws {

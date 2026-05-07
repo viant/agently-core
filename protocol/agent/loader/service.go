@@ -600,6 +600,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					}
 				case "scope":
 					agent.Intake.Scope = asStrings(v)
+				case "prompt":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.Prompt = strings.TrimSpace(v.Value)
+					}
 				case "model":
 					if v.Kind == yaml.ScalarNode {
 						agent.Intake.Model = strings.TrimSpace(v.Value)

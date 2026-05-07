@@ -163,6 +163,42 @@ func TestBuildGenerateInput_UsesMinimalReasoningForJSONIntake(t *testing.T) {
 	assert.True(t, hasPrompting)
 }
 
+func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *testing.T) {
+	tmpDir := t.TempDir()
+	promptDir := filepath.Join(tmpDir, "prompts")
+	templateDir := filepath.Join(tmpDir, "templates")
+	require.NoError(t, os.MkdirAll(promptDir, 0o755))
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "performance_analysis.yaml"), []byte("id: performance_analysis\ndescription: performance\nappliesTo: [performance]\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "recommendation_review_dashboard.yaml"), []byte("id: recommendation_review_dashboard\nname: recommendation_review_dashboard\ndescription: recommendation template\nappliesTo: [recommendation]\n"), 0o644))
+
+	svc := &Service{
+		profileRepo:  promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		templateRepo: tplrepo.NewWithStore(fsstore.New(tmpDir)),
+	}
+	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "profile", "template"}}
+
+	in := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_mini", "system", "user", "", cfg)
+	require.NotNil(t, in)
+	require.NotNil(t, in.ModelSelection.Options)
+	require.NotNil(t, in.ModelSelection.Options.OutputSchema)
+
+	props, _ := in.ModelSelection.Options.OutputSchema["properties"].(map[string]interface{})
+	require.NotNil(t, props)
+	prompting, _ := props["prompting"].(map[string]interface{})
+	require.NotNil(t, prompting)
+	promptingProps, _ := prompting["properties"].(map[string]interface{})
+	require.NotNil(t, promptingProps)
+
+	profileProp, _ := promptingProps["suggestedProfileId"].(map[string]interface{})
+	require.NotNil(t, profileProp)
+	assert.Equal(t, []string{"", "performance_analysis"}, profileProp["enum"])
+
+	templateProp, _ := promptingProps["templateId"].(map[string]interface{})
+	require.NotNil(t, templateProp)
+	assert.Equal(t, []string{"", "recommendation_review_dashboard"}, templateProp["enum"])
+}
+
 func TestIntake_HasScope(t *testing.T) {
 	cfg := &agentmdl.Intake{Scope: []string{"title", "Profile"}}
 	assert.True(t, cfg.HasScope("title"))

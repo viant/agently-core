@@ -2,14 +2,13 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"time"
 
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
 
-	sessionread "github.com/viant/agently-core/pkg/agently/user/session"
-	sessiondelete "github.com/viant/agently-core/pkg/agently/user/session/delete"
 	sessionwrite "github.com/viant/agently-core/pkg/agently/user/session/write"
 )
 
@@ -28,28 +27,32 @@ func (s *SessionStoreDAO) Get(ctx context.Context, id string) (*SessionRecord, e
 	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
 		return nil, nil
 	}
-	out := &sessionread.SessionOutput{}
-	in := sessionread.SessionInput{Id: id, Has: &sessionread.SessionInputHas{Id: true}}
-	if _, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath("GET", sessionread.SessionPathURI)),
-		datly.WithInput(&in),
-		datly.WithOutput(out),
-	); err != nil {
+	conn, err := s.dao.Resource().Connector("agently")
+	if err != nil {
 		return nil, err
 	}
-	if len(out.Data) == 0 || out.Data[0] == nil {
-		return nil, nil
+	db, err := conn.DB()
+	if err != nil {
+		return nil, err
 	}
-	row := out.Data[0]
-	return &SessionRecord{
-		ID:        row.Id,
-		UserID:    row.UserId,
-		Subject:   row.UserId,
-		Username:  row.UserId,
-		Provider:  row.Provider,
-		CreatedAt: row.CreatedAt,
-		ExpiresAt: row.ExpiresAt,
-	}, nil
+	const query = `SELECT id, user_id, provider, created_at, updated_at, expires_at
+FROM session
+WHERE id = ?
+LIMIT 1`
+	row := db.QueryRowContext(ctx, query, strings.TrimSpace(id))
+	var (
+		rec       SessionRecord
+		updatedAt sql.NullTime
+	)
+	if err := row.Scan(&rec.ID, &rec.UserID, &rec.Provider, &rec.CreatedAt, &updatedAt, &rec.ExpiresAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	rec.Subject = rec.UserID
+	rec.Username = rec.UserID
+	return &rec, nil
 }
 
 // Upsert inserts or updates a session record.
@@ -89,12 +92,14 @@ func (s *SessionStoreDAO) Delete(ctx context.Context, id string) error {
 	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
 		return nil
 	}
-	in := &sessiondelete.Input{Ids: []string{id}}
-	out := &sessiondelete.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath("DELETE", sessiondelete.PathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	)
+	conn, err := s.dao.Resource().Connector("agently")
+	if err != nil {
+		return err
+	}
+	db, err := conn.DB()
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `DELETE FROM session WHERE id = ?`, strings.TrimSpace(id))
 	return err
 }
