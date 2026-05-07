@@ -30,9 +30,9 @@ func (lazyClientLoader) Load(context.Context) (*OAuthClientConfig, error) {
 	return &OAuthClientConfig{ClientID: "client"}, nil
 }
 
-func TestManagerAccessToken_LazyBrowserAuth(t *testing.T) {
+func TestManagerAccessToken_SubscriptionAuth(t *testing.T) {
 	store := &lazyStore{}
-	mgr, err := NewManager(&Options{LazyBrowserAuth: true}, lazyClientLoader{}, store, nil)
+	mgr, err := NewManager(&Options{SubscriptionAuth: true}, lazyClientLoader{}, store, nil)
 	require.NoError(t, err)
 
 	prev := runLazyBrowserAuth

@@ -23,9 +23,10 @@ type ChatGPTOAuthOptions struct {
 	// Useful for ChatGPT-backend style flows.
 	UseAccessTokenFallback bool `yaml:"useAccessTokenFallback,omitempty" json:"useAccessTokenFallback,omitempty"`
 
-	// When true, and no token state exists yet, start an interactive browser
-	// OAuth flow on first use and persist the resulting tokens into TokensURL.
-	LazyBrowserAuth bool `yaml:"lazyBrowserAuth,omitempty" json:"lazyBrowserAuth,omitempty"`
+	// When true, use subscription-style OAuth on first use. If no token state
+	// exists yet, start an interactive browser OAuth flow and persist the
+	// resulting tokens into TokensURL.
+	SubscriptionAuth bool `yaml:"subscriptionAuth,omitempty" json:"subscriptionAuth,omitempty"`
 }
 
 // AnthropicOAuthOptions configures Anthropic OAuth credential acquisition for
@@ -59,9 +60,10 @@ type AnthropicOAuthOptions struct {
 	// leave false to use the Claude.ai subscriber endpoint with Bearer auth.
 	UseAPIKeyExchange bool `yaml:"useAPIKeyExchange,omitempty" json:"useAPIKeyExchange,omitempty"`
 
-	// When true, and no token state exists yet, start an interactive browser
-	// OAuth flow on first use and persist the resulting tokens into TokensURL.
-	LazyBrowserAuth bool `yaml:"lazyBrowserAuth,omitempty" json:"lazyBrowserAuth,omitempty"`
+	// When true, use subscription-style OAuth on first use. If no token state
+	// exists yet, start an interactive browser OAuth flow and persist the
+	// resulting tokens into TokensURL.
+	SubscriptionAuth bool `yaml:"subscriptionAuth,omitempty" json:"subscriptionAuth,omitempty"`
 }
 
 type Options struct {

@@ -7,5 +7,5 @@ type Options struct {
 	Issuer             string
 	AllowedWorkspaceID string
 	Originator         string
-	LazyBrowserAuth    bool
+	SubscriptionAuth   bool
 }

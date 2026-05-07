@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,7 @@ type Manager struct {
 	issuerExplicit     bool
 	allowedWorkspaceID string
 	originator         string
-	lazyBrowserAuth    bool
+	subscriptionAuth   bool
 
 	httpClient *http.Client
 	client     OAuthClientLoader
@@ -63,7 +64,7 @@ func NewManager(options *Options, client OAuthClientLoader, store TokenStateStor
 		issuerExplicit:     issuerExplicit,
 		allowedWorkspaceID: strings.TrimSpace(options.AllowedWorkspaceID),
 		originator:         originator,
-		lazyBrowserAuth:    options.LazyBrowserAuth,
+		subscriptionAuth:   options.SubscriptionAuth,
 		httpClient:         httpClient,
 		client:             client,
 		store:              store,
@@ -186,7 +187,7 @@ func (m *Manager) APIKey(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if state == nil {
-		if m.lazyBrowserAuth {
+		if m.subscriptionAuth {
 			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
 				return "", authErr
 			}
@@ -254,7 +255,7 @@ func (m *Manager) AccessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if state == nil {
-		if m.lazyBrowserAuth {
+		if m.subscriptionAuth {
 			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
 				return "", authErr
 			}
@@ -305,7 +306,7 @@ func (m *Manager) AccountID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if state == nil {
-		if m.lazyBrowserAuth {
+		if m.subscriptionAuth {
 			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
 				return "", authErr
 			}
@@ -671,11 +672,11 @@ func escapeQueryValue(value string) string {
 }
 
 func (m *Manager) shouldLazyAuthorize(err error) bool {
-	if !m.lazyBrowserAuth || err == nil {
+	if !m.subscriptionAuth || err == nil {
 		return false
 	}
 	_, ok := err.(*TokenStateNotFoundError)
-	return ok
+	return ok && m.hasOAuthClientConfig(context.Background())
 }
 
 func (m *Manager) authorizeInteractively(ctx context.Context) (*TokenState, error) {
@@ -695,4 +696,19 @@ func (m *Manager) authorizeInteractively(ctx context.Context) (*TokenState, erro
 		return nil, err
 	}
 	return state, nil
+}
+
+func (m *Manager) hasOAuthClientConfig(ctx context.Context) bool {
+	if m == nil || m.client == nil {
+		return false
+	}
+	_, err := m.client.Load(ctx)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return !(strings.Contains(msg, "no such file or directory") || strings.Contains(msg, "not found"))
 }
