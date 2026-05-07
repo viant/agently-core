@@ -22,6 +22,7 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/core"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	planner "github.com/viant/agently-core/service/planner"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
@@ -182,6 +183,7 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 		conversation:       convClient,
 		defaults:           &config.Defaults{},
 		registry:           &plannerControlRegistry{},
+		plannerContracts:   testPlannerContractResolver(),
 		promptRepo:         promptrepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
@@ -216,23 +218,24 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 			Source:          intakesvc.SourceWorkspace,
 		},
 		Planner: intakesvc.PlannerContext{
-			Trigger: "creative_phrase",
+			Trigger: "exploratory_strategy",
 		},
 	}
-	out, pctx, err := svc.runPlannerPass(ctx, input, tc)
+	contract := testPlannerContractResolver()
+	out, pctx, err := svc.runPlannerPass(ctx, input, tc, mustResolveTestPlannerContract(t, contract, input.Agent))
 	require.NoError(t, err)
-	require.NotNil(t, out)
+	require.NotEmpty(t, out)
 	require.NotNil(t, pctx)
-	require.Equal(t, "troubleshoot", out.StrategyFamily)
-	require.Equal(t, []string{"analyst-tools"}, out.ToolBundles)
-	require.Equal(t, "dashboard", out.TemplateID)
+	require.Equal(t, "troubleshoot", planner.OutputString(out, "strategyFamily"))
+	require.Equal(t, []string{"analyst-tools"}, planner.OutputStringSlice(out, "toolBundles"))
+	require.Equal(t, "dashboard", planner.OutputString(out, "templateId"))
 
 	require.NotEmpty(t, model.requests)
 	require.Empty(t, model.requests[0].Options.Tools)
 	require.Equal(t, "none", strings.ToLower(strings.TrimSpace(model.requests[0].Options.ToolChoice.Type)))
 	require.NotEmpty(t, model.requests[0].Messages)
 	require.Contains(t, model.requests[0].Messages[0].Content, "planner mode")
-	require.Contains(t, model.requests[0].Messages[0].Content, "Available scenario priors:")
+	require.Contains(t, model.requests[0].Messages[0].Content, "Available profile knowledge:")
 	require.Contains(t, model.requests[0].Messages[0].Content, "repo_analysis")
 	joinedPlannerRequest := collectRequestText(model.requests[0])
 	require.Contains(t, joinedPlannerRequest, "Planner Control Tool Result")
@@ -240,7 +243,8 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 	require.Contains(t, joinedPlannerRequest, "llm/agents:tool_details")
 	require.True(t, model.requests[0].Options.JSONMode)
 
-	svc.applyPlannerOutput(input, out, pctx)
+	resolved := mustResolveTestPlannerContract(t, contract, input.Agent)
+	svc.applyPlannerOutput(input, resolved, out, pctx)
 	require.Equal(t, []string{"analyst-tools"}, input.ToolBundles)
 	require.Equal(t, "dashboard", input.TemplateId)
 	require.NotNil(t, input.ParallelToolCalls)
@@ -254,7 +258,7 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 		TurnID:         "turn-planner",
 		Assistant:      "coder",
 	}
-	require.NoError(t, svc.persistPlannerGuidance(ctx, &runTurn, input, out, pctx, payloadID))
+	require.NoError(t, svc.persistPlannerGuidance(ctx, &runTurn, input, resolved, out, pctx, payloadID))
 
 	bindingState, err := svc.BuildBinding(ctx, input)
 	require.NoError(t, err)
@@ -345,6 +349,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 		conversation:       convClient,
 		defaults:           &config.Defaults{},
 		registry:           &plannerControlRegistry{},
+		plannerContracts:   testPlannerContractResolver(),
 		promptRepo:         promptrepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
@@ -393,11 +398,11 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 			Source:          intakesvc.SourceWorkspace,
 		},
 		Planner: intakesvc.PlannerContext{
-			Trigger: "creative_phrase",
+			Trigger: "exploratory_strategy",
 			AgentID: "steward_planner",
 		},
 	}
-	_, _, err := svc.runPlannerPass(ctx, input, tc)
+	_, _, err := svc.runPlannerPass(ctx, input, tc, mustResolveTestPlannerContract(t, testPlannerContractResolver(), input.Agent))
 	require.NoError(t, err)
 	require.NotEmpty(t, model.requests)
 	require.Equal(t, "planner-model", finder.last)
@@ -441,11 +446,12 @@ func TestPlannerPass_RetriesWithValidationFeedback(t *testing.T) {
 	}
 	llmSvc := core.New(&plannerPassFinder{model: model}, nil, convClient)
 	svc := &Service{
-		llm:          llmSvc,
-		conversation: convClient,
-		defaults:     &config.Defaults{},
-		registry:     &plannerControlRegistry{},
-		promptRepo:   promptrepo.NewWithStore(store),
+		llm:              llmSvc,
+		conversation:     convClient,
+		defaults:         &config.Defaults{},
+		registry:         &plannerControlRegistry{},
+		plannerContracts: testPlannerContractResolver(),
+		promptRepo:       promptrepo.NewWithStore(store),
 	}
 
 	input := &QueryInput{
@@ -475,9 +481,9 @@ func TestPlannerPass_RetriesWithValidationFeedback(t *testing.T) {
 		},
 		Planner: intakesvc.PlannerContext{Trigger: "low_confidence"},
 	}
-	out, _, err := svc.runPlannerPass(ctx, input, tc)
+	out, _, err := svc.runPlannerPass(ctx, input, tc, mustResolveTestPlannerContract(t, testPlannerContractResolver(), input.Agent))
 	require.NoError(t, err)
-	require.Equal(t, "troubleshoot", out.StrategyFamily)
+	require.Equal(t, "troubleshoot", planner.OutputString(out, "strategyFamily"))
 	require.Len(t, model.requests, 2)
 	require.Contains(t, model.requests[1].Messages[0].Content, "unknown profile")
 }
@@ -514,11 +520,12 @@ func TestPlannerPass_ClarifyFailurePublishesAssistantMessage(t *testing.T) {
 	}
 	llmSvc := core.New(&plannerPassFinder{model: model}, nil, convClient)
 	svc := &Service{
-		llm:          llmSvc,
-		conversation: convClient,
-		defaults:     &config.Defaults{},
-		registry:     &plannerControlRegistry{},
-		promptRepo:   promptrepo.NewWithStore(store),
+		llm:              llmSvc,
+		conversation:     convClient,
+		defaults:         &config.Defaults{},
+		registry:         &plannerControlRegistry{},
+		plannerContracts: testPlannerContractResolver(),
+		promptRepo:       promptrepo.NewWithStore(store),
 	}
 
 	input := &QueryInput{
@@ -549,7 +556,7 @@ func TestPlannerPass_ClarifyFailurePublishesAssistantMessage(t *testing.T) {
 		},
 		Planner: intakesvc.PlannerContext{Trigger: "low_confidence"},
 	}
-	_, _, err := svc.runPlannerPass(ctx, input, tc)
+	_, _, err := svc.runPlannerPass(ctx, input, tc, mustResolveTestPlannerContract(t, testPlannerContractResolver(), input.Agent))
 	var handled *plannerHandledError
 	require.ErrorAs(t, err, &handled)
 	require.Equal(t, "planner.clarify", handled.status)
@@ -619,6 +626,7 @@ func TestMaybeRunPlannerPass_EmitsEventsAndPayload(t *testing.T) {
 		conversation:       convClient,
 		defaults:           &config.Defaults{},
 		registry:           &plannerControlRegistry{},
+		plannerContracts:   testPlannerContractResolver(),
 		promptRepo:         promptrepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
@@ -646,7 +654,7 @@ func TestMaybeRunPlannerPass_EmitsEventsAndPayload(t *testing.T) {
 					Source:          intakesvc.SourceWorkspace,
 				},
 				Planner: intakesvc.PlannerContext{
-					Trigger: "creative_phrase",
+					Trigger: "exploratory_strategy",
 				},
 			},
 		},
@@ -662,7 +670,7 @@ func TestMaybeRunPlannerPass_EmitsEventsAndPayload(t *testing.T) {
 
 	events := collectPlannerEvents(t, sub, 3)
 	require.Equal(t, streaming.EventTypePlannerSelected, events[0].Type)
-	require.Equal(t, "creative_phrase", events[0].PlannerTrigger)
+	require.Equal(t, "exploratory_strategy", events[0].PlannerTrigger)
 	require.Equal(t, streaming.EventTypePlannerValidated, events[1].Type)
 	require.NotNil(t, events[1].PlannerValidated)
 	require.True(t, *events[1].PlannerValidated)

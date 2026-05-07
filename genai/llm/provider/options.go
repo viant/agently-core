@@ -22,6 +22,10 @@ type ChatGPTOAuthOptions struct {
 	// When true, if API-key minting fails, provider may use OAuth access_token as Bearer.
 	// Useful for ChatGPT-backend style flows.
 	UseAccessTokenFallback bool `yaml:"useAccessTokenFallback,omitempty" json:"useAccessTokenFallback,omitempty"`
+
+	// When true, and no token state exists yet, start an interactive browser
+	// OAuth flow on first use and persist the resulting tokens into TokensURL.
+	LazyBrowserAuth bool `yaml:"lazyBrowserAuth,omitempty" json:"lazyBrowserAuth,omitempty"`
 }
 
 // AnthropicOAuthOptions configures Anthropic OAuth credential acquisition for
@@ -35,6 +39,10 @@ type AnthropicOAuthOptions struct {
 
 	// Optional OAuth issuer base (defaults to https://platform.claude.com).
 	Issuer string `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+
+	// Optional authorize endpoint override. Defaults to
+	// https://claude.com/cai/oauth/authorize for subscriber-style login.
+	AuthorizeURL string `yaml:"authorizeURL,omitempty" json:"authorizeURL,omitempty"`
 
 	// Optional token endpoint override. Defaults to <issuer>/v1/oauth/token.
 	TokenURL string `yaml:"tokenURL,omitempty" json:"tokenURL,omitempty"`
@@ -50,6 +58,10 @@ type AnthropicOAuthOptions struct {
 	// over direct Bearer auth. This mirrors the ChatGPT/OpenAI API-key path;
 	// leave false to use the Claude.ai subscriber endpoint with Bearer auth.
 	UseAPIKeyExchange bool `yaml:"useAPIKeyExchange,omitempty" json:"useAPIKeyExchange,omitempty"`
+
+	// When true, and no token state exists yet, start an interactive browser
+	// OAuth flow on first use and persist the resulting tokens into TokensURL.
+	LazyBrowserAuth bool `yaml:"lazyBrowserAuth,omitempty" json:"lazyBrowserAuth,omitempty"`
 }
 
 type Options struct {

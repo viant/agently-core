@@ -104,6 +104,14 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 			candidate := path.Join(URL, nameOrLocation)
 			if ok, _ = s.metaService.Exists(ctx, candidate+ext); ok {
 				URL = candidate + ext
+			} else if alt, ok, err := s.resolveSlugVariant(ctx, nameOrLocation); err != nil {
+				return nil, err
+			} else if ok {
+				URL = alt
+			} else if resolved, ok, err := s.resolveByDeclaredIdentity(ctx, nameOrLocation); err != nil {
+				return nil, err
+			} else if ok {
+				URL = resolved
 			}
 		}
 	}
@@ -185,8 +193,69 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		return nil, fmt.Errorf("invalid agent configuration from %s: %w", URL, err)
 	}
 
-	s.agents.Set(anAgent.Name, anAgent)
+	if name := strings.TrimSpace(anAgent.Name); name != "" {
+		s.agents.Set(name, anAgent)
+	}
+	if id := strings.TrimSpace(anAgent.ID); id != "" {
+		s.agents.Set(id, anAgent)
+	}
 	return anAgent, nil
+}
+
+func (s *Service) resolveSlugVariant(ctx context.Context, nameOrLocation string) (string, bool, error) {
+	if s == nil || s.metaService == nil {
+		return "", false, nil
+	}
+	slug := strings.ReplaceAll(strings.TrimSpace(nameOrLocation), "_", "-")
+	if slug == "" || slug == strings.TrimSpace(nameOrLocation) {
+		return "", false, nil
+	}
+	flat := path.Join(workspace.KindAgent, slug+defaultExtension)
+	if ok, err := s.metaService.Exists(ctx, flat); err != nil {
+		return "", false, fmt.Errorf("failed to check slug-variant agent %q: %w", flat, err)
+	} else if ok {
+		return flat, true, nil
+	}
+	nested := path.Join(workspace.KindAgent, slug, slug+defaultExtension)
+	if ok, err := s.metaService.Exists(ctx, nested); err != nil {
+		return "", false, fmt.Errorf("failed to check slug-variant agent %q: %w", nested, err)
+	} else if ok {
+		return nested, true, nil
+	}
+	return "", false, nil
+}
+
+func (s *Service) resolveByDeclaredIdentity(ctx context.Context, identifier string) (string, bool, error) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" || s == nil || s.metaService == nil {
+		return "", false, nil
+	}
+	candidates, err := s.metaService.List(ctx, workspace.KindAgent)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to list agents for identity resolution: %w", err)
+	}
+	for _, candidate := range candidates {
+		loadTargets := []string{candidate}
+		if filepath.Ext(candidate) == "" {
+			base := path.Base(candidate)
+			loadTargets = append(loadTargets, path.Join(candidate, base+defaultExtension))
+		}
+		for _, target := range loadTargets {
+			var node yaml.Node
+			if err := s.metaService.Load(ctx, target, &node); err != nil {
+				continue
+			}
+			probe := &agentmdl.Agent{}
+			if err := s.parseAgent((*yml.Node)(&node), probe); err != nil {
+				continue
+			}
+			normalizeAgent(probe)
+			if strings.EqualFold(strings.TrimSpace(probe.ID), identifier) || strings.EqualFold(strings.TrimSpace(probe.Name), identifier) {
+				return target, true, nil
+			}
+		}
+	}
+	return "", false, nil
 }
 
 // (drive/UNC detection is handled by afs/url.IsRelative and ToFileURL)

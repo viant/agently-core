@@ -19,9 +19,11 @@ func (s *plannerQueryInputStub) GetContext() map[string]any {
 
 func TestFromQueryInput(t *testing.T) {
 	pc := &PlannerContext{
-		Trigger:        TriggerCreativePhrase,
-		Attempt:        1,
-		StrategyFamily: "troubleshoot",
+		Trigger: TriggerExploratoryStrategy,
+		Attempt: 1,
+		Data: map[string]any{
+			"strategyFamily": "troubleshoot",
+		},
 	}
 
 	require.Nil(t, FromQueryInput(nil))

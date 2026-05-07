@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -299,22 +300,25 @@ func (o *Factory) anthropicOAuthManager(options *AnthropicOAuthOptions) (*anthro
 	if options == nil {
 		return nil, fmt.Errorf("anthropicOAuth options were nil")
 	}
-	if options.ClientURL == "" {
+	clientURL := resolveDefaultOAuthClientURL(ProviderAnthropic, options.ClientURL)
+	if clientURL == "" {
 		return nil, fmt.Errorf("anthropicOAuth.clientURL was empty")
 	}
 	if options.TokensURL == "" {
 		return nil, fmt.Errorf("anthropicOAuth.tokensURL was empty")
 	}
-	clientLoader := anthropicoauth.NewScyOAuthClientLoader(options.ClientURL)
+	clientLoader := anthropicoauth.NewScyOAuthClientLoader(clientURL)
 	tokenStore := anthropicoauth.NewScyTokenStateStore(options.TokensURL)
 	return anthropicoauth.NewManager(
 		&anthropicoauth.Options{
-			ClientURL: options.ClientURL,
-			TokensURL: options.TokensURL,
-			Issuer:    options.Issuer,
-			TokenURL:  options.TokenURL,
-			APIKeyURL: options.APIKeyURL,
-			Scope:     options.Scope,
+			ClientURL:       clientURL,
+			TokensURL:       options.TokensURL,
+			Issuer:          options.Issuer,
+			AuthorizeURL:    options.AuthorizeURL,
+			TokenURL:        options.TokenURL,
+			APIKeyURL:       options.APIKeyURL,
+			Scope:           options.Scope,
+			LazyBrowserAuth: options.LazyBrowserAuth,
 		},
 		clientLoader,
 		tokenStore,
@@ -334,20 +338,22 @@ func (o *Factory) chatgptOAuthManager(options *ChatGPTOAuthOptions) (*chatgptaut
 	if options == nil {
 		return nil, fmt.Errorf("chatgptOAuth options were nil")
 	}
-	if options.ClientURL == "" {
+	clientURL := resolveDefaultOAuthClientURL(ProviderOpenAI, options.ClientURL)
+	if clientURL == "" {
 		return nil, fmt.Errorf("chatgptOAuth.clientURL was empty")
 	}
 	if options.TokensURL == "" {
 		return nil, fmt.Errorf("chatgptOAuth.tokensURL was empty")
 	}
-	clientLoader := chatgptauth.NewScyOAuthClientLoader(options.ClientURL)
+	clientLoader := chatgptauth.NewScyOAuthClientLoader(clientURL)
 	tokenStore := chatgptauth.NewScyTokenStateStore(options.TokensURL)
 	return chatgptauth.NewManager(
 		&chatgptauth.Options{
-			ClientURL:          options.ClientURL,
+			ClientURL:          clientURL,
 			TokensURL:          options.TokensURL,
 			Issuer:             options.Issuer,
 			AllowedWorkspaceID: options.AllowedWorkspaceID,
+			LazyBrowserAuth:    options.LazyBrowserAuth,
 		},
 		clientLoader,
 		tokenStore,
@@ -357,4 +363,42 @@ func (o *Factory) chatgptOAuthManager(options *ChatGPTOAuthOptions) (*chatgptaut
 
 func New() *Factory {
 	return &Factory{secrets: secret.New()}
+}
+
+func resolveDefaultOAuthClientURL(providerName string, explicit string) string {
+	if value := strings.TrimSpace(explicit); value != "" {
+		return value
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(homeDir) == "" {
+		return ""
+	}
+	candidates := defaultOAuthClientCandidates(providerName, homeDir)
+	if len(candidates) == 0 {
+		return ""
+	}
+	for _, candidate := range candidates {
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
+func defaultOAuthClientCandidates(providerName string, homeDir string) []string {
+	secretDir := filepath.Join(homeDir, ".secret")
+	switch strings.TrimSpace(providerName) {
+	case ProviderOpenAI:
+		return []string{
+			filepath.Join(secretDir, "openai-oauth.json"),
+			filepath.Join(secretDir, "gpt.json"),
+		}
+	case ProviderAnthropic:
+		return []string{
+			filepath.Join(secretDir, "anthropic-oauth.json"),
+			filepath.Join(secretDir, "anthropic.json"),
+		}
+	default:
+		return nil
+	}
 }

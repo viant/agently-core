@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	browserauth "github.com/viant/agently-core/internal/genai/provider/oauth/browserauth"
 	"github.com/viant/scy/auth/flow"
 )
 
@@ -27,6 +28,7 @@ type Manager struct {
 	issuerExplicit     bool
 	allowedWorkspaceID string
 	originator         string
+	lazyBrowserAuth    bool
 
 	httpClient *http.Client
 	client     OAuthClientLoader
@@ -34,6 +36,8 @@ type Manager struct {
 
 	mu sync.Mutex
 }
+
+var runLazyBrowserAuth = browserauth.Run
 
 func NewManager(options *Options, client OAuthClientLoader, store TokenStateStore, httpClient *http.Client) (*Manager, error) {
 	if options == nil {
@@ -59,6 +63,7 @@ func NewManager(options *Options, client OAuthClientLoader, store TokenStateStor
 		issuerExplicit:     issuerExplicit,
 		allowedWorkspaceID: strings.TrimSpace(options.AllowedWorkspaceID),
 		originator:         originator,
+		lazyBrowserAuth:    options.LazyBrowserAuth,
 		httpClient:         httpClient,
 		client:             client,
 		store:              store,
@@ -115,7 +120,10 @@ func (m *Manager) BuildAuthorizeURL(ctx context.Context, redirectURI string, sta
 func (m *Manager) ExchangeAuthorizationCode(ctx context.Context, redirectURI string, codeVerifier string, code string) (*TokenState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.exchangeAuthorizationCode(ctx, redirectURI, codeVerifier, code)
+}
 
+func (m *Manager) exchangeAuthorizationCode(ctx context.Context, redirectURI string, codeVerifier string, code string) (*TokenState, error) {
 	oauthClient, err := m.client.Load(ctx)
 	if err != nil {
 		return nil, err
@@ -167,7 +175,26 @@ func (m *Manager) APIKey(ctx context.Context) (string, error) {
 	issuer := m.issuerForClient(oauthClient)
 	state, err := m.store.Load(ctx)
 	if err != nil {
+		if m.shouldLazyAuthorize(err) {
+			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
+				return "", authErr
+			}
+			state, err = m.store.Load(ctx)
+		}
+	}
+	if err != nil {
 		return "", err
+	}
+	if state == nil {
+		if m.lazyBrowserAuth {
+			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
+				return "", authErr
+			}
+			state, err = m.store.Load(ctx)
+			if err != nil {
+				return "", err
+			}
+		}
 	}
 	if state == nil {
 		return "", fmt.Errorf("token state was empty")
@@ -216,7 +243,26 @@ func (m *Manager) AccessToken(ctx context.Context) (string, error) {
 	issuer := m.issuerForClient(oauthClient)
 	state, err := m.store.Load(ctx)
 	if err != nil {
+		if m.shouldLazyAuthorize(err) {
+			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
+				return "", authErr
+			}
+			state, err = m.store.Load(ctx)
+		}
+	}
+	if err != nil {
 		return "", err
+	}
+	if state == nil {
+		if m.lazyBrowserAuth {
+			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
+				return "", authErr
+			}
+			state, err = m.store.Load(ctx)
+			if err != nil {
+				return "", err
+			}
+		}
 	}
 	if state == nil {
 		return "", fmt.Errorf("token state was empty")
@@ -248,7 +294,26 @@ func (m *Manager) AccountID(ctx context.Context) (string, error) {
 	issuer := m.issuerForClient(oauthClient)
 	state, err := m.store.Load(ctx)
 	if err != nil {
+		if m.shouldLazyAuthorize(err) {
+			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
+				return "", authErr
+			}
+			state, err = m.store.Load(ctx)
+		}
+	}
+	if err != nil {
 		return "", err
+	}
+	if state == nil {
+		if m.lazyBrowserAuth {
+			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
+				return "", authErr
+			}
+			state, err = m.store.Load(ctx)
+			if err != nil {
+				return "", err
+			}
+		}
 	}
 	if state == nil {
 		return "", fmt.Errorf("token state was empty")
@@ -603,4 +668,31 @@ func escapeQueryValue(value string) string {
 	escaped := url.QueryEscape(value)
 	// Match Rust `urlencoding::encode` behavior for spaces in query values.
 	return strings.ReplaceAll(escaped, "+", "%20")
+}
+
+func (m *Manager) shouldLazyAuthorize(err error) bool {
+	if !m.lazyBrowserAuth || err == nil {
+		return false
+	}
+	_, ok := err.(*TokenStateNotFoundError)
+	return ok
+}
+
+func (m *Manager) authorizeInteractively(ctx context.Context) (*TokenState, error) {
+	var state *TokenState
+	err := runLazyBrowserAuth(
+		ctx,
+		func(ctx context.Context, redirectURI, authState, codeVerifier string) (string, error) {
+			return m.BuildAuthorizeURL(ctx, redirectURI, authState, codeVerifier)
+		},
+		func(ctx context.Context, redirectURI, codeVerifier, code string) error {
+			var err error
+			state, err = m.exchangeAuthorizationCode(ctx, redirectURI, codeVerifier, code)
+			return err
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
 }

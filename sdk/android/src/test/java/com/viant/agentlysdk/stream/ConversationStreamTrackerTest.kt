@@ -111,7 +111,7 @@ class ConversationStreamTrackerTest {
                 type = "planner.selected",
                 conversationId = "conv-1",
                 turnId = "turn-1",
-                plannerTrigger = "creative_phrase",
+                plannerTrigger = "exploratory_strategy",
                 plannerStaticProfile = "repo_analysis"
             )
         )
@@ -138,7 +138,7 @@ class ConversationStreamTrackerTest {
         val planner = tracker.snapshot().plannerByTurnId["turn-1"]
         assertNotNull(planner)
         assertEquals("validated", planner.status)
-        assertEquals("creative_phrase", planner.trigger)
+        assertEquals("exploratory_strategy", planner.trigger)
         assertEquals("repo_analysis", planner.staticProfile)
         assertEquals("troubleshoot", planner.strategyFamily)
         assertEquals(1, planner.attempt)
@@ -195,7 +195,7 @@ class ConversationStreamTrackerTest {
                 type = "planner.failed",
                 conversationId = "conv-1",
                 turnId = "turn-live",
-                plannerTrigger = "creative_phrase",
+                plannerTrigger = "exploratory_strategy",
                 plannerAttempt = 2,
                 plannerSecondPolicy = "block"
             )
@@ -218,7 +218,7 @@ class ConversationStreamTrackerTest {
         val planner = tracker.snapshot().plannerByTurnId["turn-live"]
         assertNotNull(planner)
         assertEquals("failed", planner.status)
-        assertEquals("creative_phrase", planner.trigger)
+        assertEquals("exploratory_strategy", planner.trigger)
         assertEquals(2, planner.attempt)
         assertEquals("block", planner.secondPolicy)
     }

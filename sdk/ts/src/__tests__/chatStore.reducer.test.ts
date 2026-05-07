@@ -1060,7 +1060,7 @@ describe('chatStore/reducer — planner state', () => {
         state = applyEvent(state, sse({
             type: 'planner.selected',
             turnId: 'tn_plan',
-            plannerTrigger: 'creative_phrase',
+            plannerTrigger: 'exploratory_strategy',
             plannerStaticProfile: 'repo_analysis',
         }));
         state = applyEvent(state, sse({
@@ -1079,7 +1079,7 @@ describe('chatStore/reducer — planner state', () => {
 
         expect(state.turns[0].planner).toMatchObject({
             status: 'validated',
-            trigger: 'creative_phrase',
+            trigger: 'exploratory_strategy',
             staticProfile: 'repo_analysis',
             strategyFamily: 'troubleshoot',
             attempt: 1,

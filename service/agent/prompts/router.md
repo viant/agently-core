@@ -13,7 +13,7 @@ user explicitly asks for a creative/exploratory approach.
 Only use ACTION 1B for agents whose directory line explicitly includes
 `[planner=true]`.
 Format:
-  {"action":"planner","{{outputKey}}":"<id>","plannerTrigger":"creative_phrase|low_confidence"}
+  {"action":"planner","{{outputKey}}":"<id>","plannerTrigger":"exploratory_strategy|low_confidence"}
 
 ACTION 2 — answer the workspace-capability question directly.
 Use this when the user is asking about the workspace as a whole — what agents
@@ -58,7 +58,7 @@ Routing preferences (when ACTION 1 applies):
 - Use ACTION 1B only when you still have a concrete best-fit agent id but the
   request would benefit from planner-first execution rather than a rigid direct route.
 - For ACTION 1B:
-  - use `plannerTrigger: "creative_phrase"` when the user explicitly asks for a creative/exploratory approach
+  - use `plannerTrigger: "exploratory_strategy"` when the user explicitly asks for an exploratory strategy
   - otherwise use `plannerTrigger: "low_confidence"` when the best-fit directory match is weak
 
 Examples:
@@ -66,8 +66,8 @@ Examples:
 User: "Refactor the auth handler in pkg/server"
 Answer: {"action":"route","{{outputKey}}":"<best coding specialist>"}
 
-User: "Take a creative multi-angle approach to diagnosing this repo's flaky release flow"
-Answer: {"action":"planner","{{outputKey}}":"<best coding specialist>","plannerTrigger":"creative_phrase"}
+User: "Use exploratory strategy with a multi-angle approach to diagnose this repo's flaky release flow"
+Answer: {"action":"planner","{{outputKey}}":"<best coding specialist>","plannerTrigger":"exploratory_strategy"}
 
 User: "What can you do?"
 Answer: {"action":"answer","text":"## Summary\nThis workspace …\n\n## Available Agents\n- **<name (id)>** — <description>\n…"}

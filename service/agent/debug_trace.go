@@ -60,3 +60,22 @@ func (p *PlannerPassTrace) AsMap() map[string]any {
 		"validatorErrors": append([]planner.ValidationError(nil), p.ValidatorErrors...),
 	}
 }
+
+func plannerContextTrace(pc *planner.PlannerContext) map[string]any {
+	if pc == nil {
+		return nil
+	}
+	data := planner.Output(pc.Data)
+	return map[string]any{
+		"trigger":         strings.TrimSpace(string(pc.Trigger)),
+		"attempt":         pc.Attempt,
+		"strategyFamily":  planner.OutputString(data, "strategyFamily"),
+		"baseProfiles":    planner.OutputStringSlice(data, "baseProfiles"),
+		"toolBundles":     planner.OutputStringSlice(data, "toolBundles"),
+		"templateId":      planner.OutputString(data, "templateId"),
+		"executionOrder":  planner.OutputStringSlice(data, "executionOrder"),
+		"guards":          planner.OutputStringSlice(data, "finalizationGuards"),
+		"evidenceCount":   len(planner.OutputStringSlice(data, "requiredEvidence")),
+		"narrationPolicy": planner.OutputMap(data, "narrationPolicy"),
+	}
+}

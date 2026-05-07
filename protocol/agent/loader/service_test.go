@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -202,6 +204,27 @@ func TestService_Load_ToolBundles(t *testing.T) {
 			assert.EqualValues(t, testCase.expectedExpo, got.ToolCallExposure)
 		})
 	}
+}
+
+func TestService_Load_ResolvesDeclaredAgentIDAcrossHyphenatedDirectory(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agents", "steward-planner")
+	require.NoError(t, os.MkdirAll(agentDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "steward-planner.yaml"), []byte(`
+id: steward_planner
+name: Steward Planner
+modelRef: openai_gpt-5_4
+prompt:
+  text: "{{ .Task.Query }}"
+`), 0o644))
+
+	service := New(WithMetaService(meta.New(afs.New(), root)))
+	got, err := service.Load(ctx, "steward_planner")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "steward_planner", got.ID)
+	assert.Equal(t, "Steward Planner", got.Name)
 }
 
 func TestService_Load_BootstrapToolCalls(t *testing.T) {

@@ -381,7 +381,7 @@ func responseForContent(resp *llm.GenerateResponse, content string) *llm.Generat
 // response. Recognizes both the new schema:
 //
 //	{"action":"route","agentId":"X"}
-//	{"action":"planner","agentId":"X","plannerTrigger":"creative_phrase|low_confidence"}
+//	{"action":"planner","agentId":"X","plannerTrigger":"exploratory_strategy|low_confidence"}
 //	{"action":"answer","text":"..."}
 //	{"action":"clarify","question":"..."}
 //

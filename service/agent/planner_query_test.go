@@ -105,6 +105,7 @@ func TestQuery_PlannerSuccessRunsTwoModelPassesAndCarriesPlannerDocs(t *testing.
 		orchestrator:       reactor.New(llmSvc, nil, convClient, nil, nil),
 		defaults:           &config.Defaults{},
 		registry:           &plannerControlRegistry{},
+		plannerContracts:   testPlannerContractResolver(),
 		promptRepo:         promptRepo,
 		toolBundleRepo:     toolRepo,
 		templateRepo:       templateRepo,
@@ -132,7 +133,7 @@ func TestQuery_PlannerSuccessRunsTwoModelPassesAndCarriesPlannerDocs(t *testing.
 					Source:          intakesvc.SourceWorkspace,
 				},
 				Planner: intakesvc.PlannerContext{
-					Trigger: "creative_phrase",
+					Trigger: "exploratory_strategy",
 				},
 			},
 		},
@@ -149,13 +150,13 @@ func TestQuery_PlannerSuccessRunsTwoModelPassesAndCarriesPlannerDocs(t *testing.
 	}
 	firstJoined := strings.Join(firstMessages, "\n")
 	require.Contains(t, firstJoined, "planner mode")
-	require.Contains(t, firstJoined, "Available scenario priors:")
+	require.Contains(t, firstJoined, "Available profile knowledge:")
 	require.Contains(t, firstJoined, "repo_analysis")
 	require.Contains(t, firstJoined, "llm/agents:topology")
 	require.Contains(t, firstJoined, "llm/agents:tool_details")
 	pc := planner.FromQueryInput(input)
 	require.NotNil(t, pc)
-	require.Equal(t, planner.Trigger("creative_phrase"), pc.Trigger)
+	require.Equal(t, planner.Trigger("exploratory_strategy"), pc.Trigger)
 
 	var secondMessages []string
 	for _, msg := range model.requests[1].Messages {
@@ -188,12 +189,13 @@ func TestQuery_PlannerClarifyShortCircuitsBeforeExecutionPass(t *testing.T) {
 	}
 	llmSvc := core.New(&sequenceFinder{model: model}, nil, convClient)
 	svc := &Service{
-		llm:          llmSvc,
-		conversation: convClient,
-		orchestrator: reactor.New(llmSvc, nil, convClient, nil, nil),
-		defaults:     &config.Defaults{},
-		registry:     &plannerControlRegistry{},
-		promptRepo:   promptRepo,
+		llm:              llmSvc,
+		conversation:     convClient,
+		orchestrator:     reactor.New(llmSvc, nil, convClient, nil, nil),
+		defaults:         &config.Defaults{},
+		registry:         &plannerControlRegistry{},
+		plannerContracts: testPlannerContractResolver(),
+		promptRepo:       promptRepo,
 	}
 
 	input := &QueryInput{

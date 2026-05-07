@@ -86,50 +86,50 @@ templates:
 	require.NoError(t, err)
 
 	t.Run("valid output", func(t *testing.T) {
-		out := &Output{
-			BaseProfiles:     []string{"repo_analysis"},
-			ToolBundles:      []string{"analyst-tools"},
-			TemplateID:       "dashboard",
-			RequiredEvidence: []string{"baseline", "confirmation"},
-			ExecutionOrder:   []string{"baseline", "confirmation"},
+		out := Output{
+			"baseProfiles":     []string{"repo_analysis"},
+			"toolBundles":      []string{"analyst-tools"},
+			"templateId":       "dashboard",
+			"requiredEvidence": []string{"baseline", "confirmation"},
+			"executionOrder":   []string{"baseline", "confirmation"},
 		}
 		require.Empty(t, Validate(out, vctx))
 	})
 
 	t.Run("unknown profile", func(t *testing.T) {
-		errs := Validate(&Output{BaseProfiles: []string{"missing"}}, vctx)
+		errs := Validate(Output{"baseProfiles": []string{"missing"}}, vctx)
 		require.Len(t, errs, 1)
 		require.Equal(t, "unknown_profile", errs[0].Code)
 	})
 
 	t.Run("profile not allowed", func(t *testing.T) {
-		errs := Validate(&Output{BaseProfiles: []string{"performance_analysis"}}, vctx)
+		errs := Validate(Output{"baseProfiles": []string{"performance_analysis"}}, vctx)
 		require.Len(t, errs, 1)
 		require.Equal(t, "profile_not_allowed", errs[0].Code)
 	})
 
 	t.Run("unknown tool bundle", func(t *testing.T) {
-		errs := Validate(&Output{ToolBundles: []string{"missing-tools"}}, vctx)
+		errs := Validate(Output{"toolBundles": []string{"missing-tools"}}, vctx)
 		require.Len(t, errs, 1)
 		require.Equal(t, "unknown_bundle", errs[0].Code)
 	})
 
 	t.Run("unknown template", func(t *testing.T) {
-		errs := Validate(&Output{TemplateID: "missing"}, vctx)
+		errs := Validate(Output{"templateId": "missing"}, vctx)
 		require.Len(t, errs, 1)
 		require.Equal(t, "unknown_template", errs[0].Code)
 	})
 
 	t.Run("template not allowed", func(t *testing.T) {
-		errs := Validate(&Output{TemplateID: "summary"}, vctx)
+		errs := Validate(Output{"templateId": "summary"}, vctx)
 		require.Len(t, errs, 1)
 		require.Equal(t, "template_not_allowed", errs[0].Code)
 	})
 
 	t.Run("execution order undeclared", func(t *testing.T) {
-		errs := Validate(&Output{
-			RequiredEvidence: []string{"baseline"},
-			ExecutionOrder:   []string{"baseline", "confirmation"},
+		errs := Validate(Output{
+			"requiredEvidence": []string{"baseline"},
+			"executionOrder":   []string{"baseline", "confirmation"},
 		}, vctx)
 		require.Len(t, errs, 1)
 		require.Equal(t, "execution_order_undeclared", errs[0].Code)

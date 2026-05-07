@@ -40,7 +40,7 @@ func (plannerRoutingModel) Implements(string) bool { return false }
 func TestResolveTurnRouting_PlannerCarriesWorkspaceIntakeContext(t *testing.T) {
 	svc := &Service{
 		llm: core.New(&plannerRoutingFinder{
-			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"creative_phrase"}`},
+			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"exploratory_strategy"}`},
 		}, nil, nil),
 		agentFinder: &allAgentFinder{
 			items: []*agentmdl.Agent{
@@ -61,14 +61,14 @@ func TestResolveTurnRouting_PlannerCarriesWorkspaceIntakeContext(t *testing.T) {
 		},
 	}
 
-	dec, err := svc.resolveTurnRouting(context.Background(), nil, "auto", "take a creative multi-angle approach", "")
+	dec, err := svc.resolveTurnRouting(context.Background(), nil, "auto", "use exploratory strategy with a multi-angle approach", "")
 	require.NoError(t, err)
 	require.NotNil(t, dec)
 	require.Equal(t, "coder", dec.AgentID)
 	require.Equal(t, "llm_router_planner", dec.RoutingReason)
 	require.NotNil(t, dec.WorkspaceIntakeContext)
 	require.Equal(t, intakesvc.ModePlanner, dec.WorkspaceIntakeContext.Routing.Mode)
-	require.Equal(t, "creative_phrase", dec.WorkspaceIntakeContext.Planner.Trigger)
+	require.Equal(t, "exploratory_strategy", dec.WorkspaceIntakeContext.Planner.Trigger)
 	require.Equal(t, "steward_planner", dec.WorkspaceIntakeContext.Planner.AgentID)
 	require.Equal(t, intakesvc.SourceWorkspace, dec.WorkspaceIntakeContext.Routing.Source)
 	require.Equal(t, "coder", dec.WorkspaceIntakeContext.Routing.SelectedAgentID)
@@ -77,7 +77,7 @@ func TestResolveTurnRouting_PlannerCarriesWorkspaceIntakeContext(t *testing.T) {
 func TestEnsureAgent_PersistsWorkspacePlannerIntakeContext(t *testing.T) {
 	svc := &Service{
 		llm: core.New(&plannerRoutingFinder{
-			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"creative_phrase"}`},
+			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"exploratory_strategy"}`},
 		}, nil, nil),
 		agentFinder: &allAgentFinder{
 			items: []*agentmdl.Agent{
@@ -106,7 +106,7 @@ func TestEnsureAgent_PersistsWorkspacePlannerIntakeContext(t *testing.T) {
 	tc := intakesvc.FromContext(input.Context)
 	require.NotNil(t, tc)
 	require.Equal(t, intakesvc.ModePlanner, tc.Routing.Mode)
-	require.Equal(t, "creative_phrase", tc.Planner.Trigger)
+	require.Equal(t, "exploratory_strategy", tc.Planner.Trigger)
 	require.Equal(t, "steward_planner", tc.Planner.AgentID)
 	require.Equal(t, intakesvc.SourceWorkspace, tc.Routing.Source)
 	require.Equal(t, "coder", tc.Routing.SelectedAgentID)
@@ -115,7 +115,7 @@ func TestEnsureAgent_PersistsWorkspacePlannerIntakeContext(t *testing.T) {
 func TestEnsureAgent_PlannerDisabledRejectsUnsupportedPlannerAction(t *testing.T) {
 	svc := &Service{
 		llm: core.New(&plannerRoutingFinder{
-			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"creative_phrase"}`},
+			model: plannerRoutingModel{content: `{"action":"planner","agentId":"coder","plannerTrigger":"exploratory_strategy"}`},
 		}, nil, nil),
 		agentFinder: &allAgentFinder{
 			items: []*agentmdl.Agent{
@@ -138,7 +138,7 @@ func TestEnsureAgent_PlannerDisabledRejectsUnsupportedPlannerAction(t *testing.T
 
 	input := &QueryInput{
 		AgentID: "auto",
-		Query:   "take a creative multi-angle approach",
+		Query:   "use exploratory strategy with a multi-angle approach",
 	}
 	err := svc.ensureAgent(context.Background(), input)
 	require.Error(t, err)
