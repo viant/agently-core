@@ -5,24 +5,15 @@ const ContextKey = "planner.context"
 type Trigger string
 
 const (
-	TriggerLowConfidence    Trigger = "low_confidence"
-	TriggerCreativePhrase   Trigger = "creative_phrase"
-	TriggerValidatorFailure Trigger = "validator_failure"
+	TriggerLowConfidence       Trigger = "low_confidence"
+	TriggerExploratoryStrategy Trigger = "exploratory_strategy"
+	TriggerValidatorFailure    Trigger = "validator_failure"
 )
 
 type PlannerContext struct {
-	Trigger             Trigger        `json:"trigger"`
-	Attempt             int            `json:"attempt"`
-	StrategyFamily      string         `json:"strategyFamily,omitempty"`
-	BaseProfiles        []string       `json:"baseProfiles,omitempty"`
-	ToolBundles         []string       `json:"toolBundles,omitempty"`
-	TemplateID          string         `json:"templateId,omitempty"`
-	ExecutionOrder      []string       `json:"executionOrder,omitempty"`
-	RequiredEvidence    []string       `json:"requiredEvidence,omitempty"`
-	Guards              []string       `json:"finalizationGuards,omitempty"`
-	NarrationPolicy     map[string]any `json:"narrationPolicy,omitempty"`
-	WorkspaceExtensions map[string]any `json:"workspaceExtensions,omitempty"`
-	ParallelToolCalls   *bool          `json:"parallelToolCalls,omitempty"`
+	Trigger Trigger        `json:"trigger"`
+	Attempt int            `json:"attempt"`
+	Data    map[string]any `json:"data,omitempty"`
 }
 
 type queryInputWithContext interface {

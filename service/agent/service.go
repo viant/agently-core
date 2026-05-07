@@ -28,6 +28,7 @@ import (
 	elicitation "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	planner "github.com/viant/agently-core/service/planner"
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
@@ -93,6 +94,7 @@ type Service struct {
 	templateRepo       *tplrepo.Repository
 	toolBundleRepo     *bundlerepo.Repository
 	templateBundleRepo *tplbundlerepo.Repository
+	plannerContracts   planner.Resolver
 
 	runWorkerHost           string
 	runLeaseOwner           string
@@ -178,6 +180,10 @@ func WithSkillService(svc *skillsvc.Service) Option {
 	return func(s *Service) { s.skillSvc = svc }
 }
 
+func WithPlannerContractResolver(resolver planner.Resolver) Option {
+	return func(s *Service) { s.plannerContracts = resolver }
+}
+
 // New creates a new agent service instance with the given tool registry.
 func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Service, registry tool.Registry,
 	defaults *config.Defaults,
@@ -227,6 +233,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	}
 	if srv.templateBundleRepo == nil {
 		srv.templateBundleRepo = tplbundlerepo.New(afs.New())
+	}
+	if srv.plannerContracts == nil {
+		srv.plannerContracts = planner.NewFileResolver(afs.New())
 	}
 	// Instantiate default conversation API only when caller did not inject one.
 	// Preserving injected clients is required for in-memory/e2e runtimes.

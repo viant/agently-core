@@ -219,7 +219,7 @@ func TestReduce_PlannerLifecycle(t *testing.T) {
 		Type:                 streaming.EventTypePlannerSelected,
 		ConversationID:       "conv-1",
 		TurnID:               "turn-1",
-		PlannerTrigger:       "creative_phrase",
+		PlannerTrigger:       "exploratory_strategy",
 		PlannerStaticProfile: "repo_analysis",
 		CreatedAt:            now,
 	})
@@ -245,7 +245,7 @@ func TestReduce_PlannerLifecycle(t *testing.T) {
 	require.Len(t, state.Turns, 1)
 	require.NotNil(t, state.Turns[0].Planner)
 	require.Equal(t, "output", state.Turns[0].Planner.Status)
-	require.Equal(t, "creative_phrase", state.Turns[0].Planner.Trigger)
+	require.Equal(t, "exploratory_strategy", state.Turns[0].Planner.Trigger)
 	require.Equal(t, "repo_analysis", state.Turns[0].Planner.StaticProfile)
 	require.Equal(t, "troubleshoot", state.Turns[0].Planner.StrategyFamily)
 	require.Equal(t, 1, state.Turns[0].Planner.Attempt)

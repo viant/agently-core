@@ -35,20 +35,93 @@ type ValidationContext struct {
 	Agent              *agentmdl.Agent
 }
 
-func Validate(out *Output, vctx ValidationContext) []ValidationError {
-	if out == nil {
+type ValidationRule struct {
+	Kind   string `json:"kind,omitempty"`
+	Field  string `json:"field,omitempty"`
+	Within string `json:"within,omitempty"`
+}
+
+const (
+	ValidationKindProfilesAllowed  = "profiles_allowed"
+	ValidationKindToolBundlesExist = "tool_bundles_exist"
+	ValidationKindTemplateAllowed  = "template_allowed"
+	ValidationKindSubset           = "subset"
+)
+
+func DefaultValidationRules() []ValidationRule {
+	return []ValidationRule{
+		{Kind: ValidationKindProfilesAllowed, Field: "baseProfiles"},
+		{Kind: ValidationKindToolBundlesExist, Field: "toolBundles"},
+		{Kind: ValidationKindTemplateAllowed, Field: "templateId"},
+		{Kind: ValidationKindSubset, Field: "executionOrder", Within: "requiredEvidence"},
+	}
+}
+
+func Validate(out Output, vctx ValidationContext) []ValidationError {
+	return ValidateWithRules(context.Background(), out, DefaultValidationRules(), vctx)
+}
+
+func FormatValidationErrors(errs []ValidationError) string {
+	if len(errs) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if strings.TrimSpace(e.Message) != "" {
+			lines = append(lines, "- "+strings.TrimSpace(e.Message))
+			continue
+		}
+		parts := []string{}
+		if code := strings.TrimSpace(e.Code); code != "" {
+			parts = append(parts, code)
+		}
+		if field := strings.TrimSpace(e.Field); field != "" {
+			parts = append(parts, field)
+		}
+		if value := strings.TrimSpace(e.Value); value != "" {
+			parts = append(parts, value)
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		lines = append(lines, "- "+strings.Join(parts, " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func ValidateWithRules(ctx context.Context, out Output, rules []ValidationRule, vctx ValidationContext) []ValidationError {
+	if len(out) == 0 {
+		return nil
+	}
+	if len(rules) == 0 {
 		return nil
 	}
 	var result []ValidationError
-	result = append(result, validateProfiles(context.Background(), out, vctx)...)
-	result = append(result, validateToolBundles(context.Background(), out, vctx)...)
-	result = append(result, validateTemplate(context.Background(), out, vctx)...)
-	result = append(result, validateExecutionOrder(out)...)
+	for _, rule := range rules {
+		switch strings.ToLower(strings.TrimSpace(rule.Kind)) {
+		case ValidationKindProfilesAllowed:
+			result = append(result, validateProfiles(ctx, out, vctx)...)
+		case ValidationKindToolBundlesExist:
+			result = append(result, validateToolBundles(ctx, out, vctx)...)
+		case ValidationKindTemplateAllowed:
+			result = append(result, validateTemplate(ctx, out, vctx)...)
+		case ValidationKindSubset:
+			result = append(result, validateSubset(out, strings.TrimSpace(rule.Field), strings.TrimSpace(rule.Within))...)
+		default:
+			result = append(result, ValidationError{
+				Code:    "validation_rule_invalid",
+				Field:   strings.TrimSpace(rule.Field),
+				Value:   strings.TrimSpace(rule.Kind),
+				Message: fmt.Sprintf("unknown planner validation rule %q", strings.TrimSpace(rule.Kind)),
+			})
+		}
+	}
 	return result
 }
 
-func validateProfiles(ctx context.Context, out *Output, vctx ValidationContext) []ValidationError {
-	if len(out.BaseProfiles) == 0 {
+func validateProfiles(ctx context.Context, out Output, vctx ValidationContext) []ValidationError {
+	values := OutputStringSlice(out, "baseProfiles")
+	if len(values) == 0 {
 		return nil
 	}
 	if vctx.ProfileRepo == nil {
@@ -85,8 +158,7 @@ func validateProfiles(ctx context.Context, out *Output, vctx ValidationContext) 
 		}
 	}
 	var result []ValidationError
-	for _, raw := range out.BaseProfiles {
-		value := strings.TrimSpace(raw)
+	for _, value := range values {
 		if value == "" {
 			continue
 		}
@@ -114,8 +186,9 @@ func validateProfiles(ctx context.Context, out *Output, vctx ValidationContext) 
 	return result
 }
 
-func validateToolBundles(ctx context.Context, out *Output, vctx ValidationContext) []ValidationError {
-	if len(out.ToolBundles) == 0 {
+func validateToolBundles(ctx context.Context, out Output, vctx ValidationContext) []ValidationError {
+	values := OutputStringSlice(out, "toolBundles")
+	if len(values) == 0 {
 		return nil
 	}
 	if vctx.ToolBundleRepo == nil {
@@ -143,8 +216,7 @@ func validateToolBundles(ctx context.Context, out *Output, vctx ValidationContex
 		}
 	}
 	var result []ValidationError
-	for _, raw := range out.ToolBundles {
-		value := strings.TrimSpace(raw)
+	for _, value := range values {
 		if value == "" {
 			continue
 		}
@@ -160,8 +232,8 @@ func validateToolBundles(ctx context.Context, out *Output, vctx ValidationContex
 	return result
 }
 
-func validateTemplate(ctx context.Context, out *Output, vctx ValidationContext) []ValidationError {
-	value := strings.TrimSpace(out.TemplateID)
+func validateTemplate(ctx context.Context, out Output, vctx ValidationContext) []ValidationError {
+	value := OutputString(out, "templateId")
 	if value == "" {
 		return nil
 	}
@@ -245,18 +317,20 @@ func validateTemplate(ctx context.Context, out *Output, vctx ValidationContext) 
 	}}
 }
 
-func validateExecutionOrder(out *Output) []ValidationError {
-	if len(out.ExecutionOrder) == 0 {
+func validateSubset(out Output, field, within string) []ValidationError {
+	left := plannerStringSliceField(out, field)
+	if len(left) == 0 {
 		return nil
 	}
+	right := plannerStringSliceField(out, within)
 	declared := map[string]struct{}{}
-	for _, raw := range out.RequiredEvidence {
+	for _, raw := range right {
 		if trimmed := strings.ToLower(strings.TrimSpace(raw)); trimmed != "" {
 			declared[trimmed] = struct{}{}
 		}
 	}
 	var result []ValidationError
-	for _, raw := range out.ExecutionOrder {
+	for _, raw := range left {
 		value := strings.TrimSpace(raw)
 		if value == "" {
 			continue
@@ -264,11 +338,15 @@ func validateExecutionOrder(out *Output) []ValidationError {
 		if _, ok := declared[strings.ToLower(value)]; !ok {
 			result = append(result, ValidationError{
 				Code:    "execution_order_undeclared",
-				Field:   "executionOrder",
+				Field:   field,
 				Value:   value,
-				Message: fmt.Sprintf("execution order step %q is not declared in requiredEvidence", value),
+				Message: fmt.Sprintf("%s entry %q is not declared in %s", field, value, within),
 			})
 		}
 	}
 	return result
+}
+
+func plannerStringSliceField(out Output, field string) []string {
+	return OutputStringSlice(out, field)
 }

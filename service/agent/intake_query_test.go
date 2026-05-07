@@ -222,6 +222,186 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 	require.Equal(t, "repo_analysis", stored.Prompting.SuggestedProfileID)
 }
 
+func TestApplyTurnContext_EnablesPlannerModeForCreativeDirectAgentRequest(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:                  true,
+		PlannerEnabled:           true,
+		PlannerAgentID:           "steward_planner",
+		PlannerOnCreativeRequest: true,
+		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
+		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
+		ConfidenceThreshold:      0.8,
+	}
+	input := &QueryInput{
+		ConversationID: "conv-exploratory",
+		AgentID:        "steward",
+		Query:          "run forecast for audience 7268995, use exploratory strategy",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "steward"},
+		},
+	}
+	tc := &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      "Run forecast for audience with exploratory strategy",
+			Confidence: 0.86,
+		},
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "audience_forecast_dashboard",
+			TemplateID:         "audience_forecast_dashboard",
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: map[string]string{
+				"audience_id":              "7268995",
+				"use_exploratory_strategy": "true",
+				"approach":                 "exploratory",
+			},
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, intakesvc.ModePlanner, stored.Routing.Mode)
+	require.Equal(t, "steward", stored.Routing.SelectedAgentID)
+	require.Equal(t, intakesvc.SourceAgent, stored.Routing.Source)
+	require.Equal(t, "steward_planner", stored.Planner.AgentID)
+	require.Equal(t, "exploratory_strategy", stored.Planner.Trigger)
+	require.Equal(t, "audience_forecast_dashboard", input.PromptProfileId)
+	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+}
+
+func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:                  true,
+		PlannerEnabled:           true,
+		PlannerAgentID:           "steward_planner",
+		PlannerOnCreativeRequest: true,
+		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
+		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
+		ConfidenceThreshold:      0.8,
+	}
+	input := &QueryInput{
+		ConversationID: "conv-troubleshoot-creative",
+		AgentID:        "steward",
+		Query:          "troubleshoot order 2657966, use exploratory strategy",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "steward"},
+		},
+	}
+	tc := &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      "Troubleshoot ad order delivery",
+			Intent:     "troubleshoot_ad_order",
+			Confidence: 0.92,
+		},
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "diagnostic_baseline",
+			TemplateID:         "analytics_dashboard",
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: map[string]string{
+				"adOrderId":                "2657966",
+				"use_exploratory_strategy": "true",
+				"approach":                 "exploratory",
+			},
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.NotEqual(t, intakesvc.ModePlanner, stored.Routing.Mode)
+	require.Empty(t, stored.Planner.Trigger)
+	require.Equal(t, "diagnostic_baseline", input.PromptProfileId)
+	require.Equal(t, "analytics_dashboard", input.TemplateId)
+}
+
+func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot_LowConfidence(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:                  true,
+		PlannerEnabled:           true,
+		PlannerAgentID:           "steward_planner",
+		PlannerOnCreativeRequest: true,
+		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
+		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
+		ConfidenceThreshold:      0.8,
+	}
+	input := &QueryInput{
+		ConversationID: "conv-troubleshoot-creative-low",
+		AgentID:        "steward",
+		Query:          "troubleshoot order 2657966, use exploratory strategy",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "steward"},
+		},
+	}
+	tc := &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      "Troubleshoot ad order with exploratory strategy",
+			Intent:     "troubleshoot_ad_order",
+			Confidence: 0.66,
+		},
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "creative_recommendation",
+			TemplateID:         "analytics_dashboard",
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: map[string]string{
+				"adOrderId":                "2657966",
+				"use_exploratory_strategy": "true",
+				"approach":                 "exploratory",
+			},
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.NotEqual(t, intakesvc.ModePlanner, stored.Routing.Mode)
+	require.Empty(t, stored.Planner.Trigger)
+}
+
+func TestApplyTurnContext_EnablesPlannerModeForLowConfidenceDirectAgentRequest(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:                  true,
+		PlannerEnabled:           true,
+		PlannerAgentID:           "steward_planner",
+		PlannerFallbackThreshold: 0.7,
+		PlannerOnCreativeRequest: true,
+		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile},
+		ConfidenceThreshold:      0.8,
+	}
+	input := &QueryInput{
+		ConversationID: "conv-low-confidence",
+		AgentID:        "steward",
+		Query:          "run forecast for audience 7268995 with a non-standard review",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "steward"},
+		},
+	}
+	tc := &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      "Run forecast for audience",
+			Confidence: 0.52,
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: map[string]string{"audience_id": "7268995"},
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, intakesvc.ModePlanner, stored.Routing.Mode)
+	require.Equal(t, "steward", stored.Routing.SelectedAgentID)
+	require.Equal(t, intakesvc.SourceAgent, stored.Routing.Source)
+	require.Equal(t, "steward_planner", stored.Planner.AgentID)
+	require.Equal(t, "low_confidence", stored.Planner.Trigger)
+}
+
 func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {
 	recorder := &intakeRecordingConvClient{}
 	svc := &Service{conversation: recorder}

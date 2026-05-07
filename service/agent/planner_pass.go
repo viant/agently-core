@@ -10,6 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -40,6 +41,13 @@ func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) er
 	if tc == nil || tc.Routing.Mode != intakesvc.ModePlanner {
 		return nil
 	}
+	logx.Infof("conversation", "planner.pass.selected convo=%q agent=%q selectedAgent=%q trigger=%q plannerAgent=%q",
+		strings.TrimSpace(input.ConversationID),
+		strings.TrimSpace(input.AgentID),
+		strings.TrimSpace(tc.Routing.SelectedAgentID),
+		strings.TrimSpace(tc.Planner.Trigger),
+		strings.TrimSpace(tc.Planner.AgentID),
+	)
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turn.TurnID) == "" || strings.TrimSpace(turn.ConversationID) == "" {
 		return fmt.Errorf("planner pass: turn metadata is required")
@@ -52,11 +60,19 @@ func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) er
 		PlannerStaticProfile: strings.TrimSpace(input.PromptProfileId),
 		CreatedAt:            time.Now(),
 	})
-	out, pctx, err := s.runPlannerPass(ctx, input, tc)
+	plannerAgent, _, err := s.resolvePlannerExecutionInput(ctx, input, tc)
 	if err != nil {
 		return err
 	}
-	s.applyPlannerOutput(input, out, pctx)
+	contract, err := s.resolvePlannerContract(ctx, plannerAgent)
+	if err != nil {
+		return err
+	}
+	out, pctx, err := s.runPlannerPass(ctx, input, tc, contract)
+	if err != nil {
+		return err
+	}
+	s.applyPlannerOutput(input, contract, out, pctx)
 	payloadID, err := s.persistPlannerOutputPayload(ctx, out)
 	if err != nil {
 		return err
@@ -65,15 +81,15 @@ func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) er
 		Type:                   streaming.EventTypePlannerOutput,
 		ConversationID:         turn.ConversationID,
 		TurnID:                 turn.TurnID,
-		PlannerStrategyFamily:  out.StrategyFamily,
+		PlannerStrategyFamily:  planner.OutputString(out, "strategyFamily"),
 		PlannerAttempt:         pctx.Attempt,
 		PlannerOutputPayloadID: payloadID,
 		CreatedAt:              time.Now(),
 	})
-	return s.persistPlannerGuidance(ctx, &turn, input, out, pctx, payloadID)
+	return s.persistPlannerGuidance(ctx, &turn, input, contract, out, pctx, payloadID)
 }
 
-func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *intakesvc.Context) (*planner.Output, *planner.PlannerContext, error) {
+func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *intakesvc.Context, contract planner.Contract) (planner.Output, *planner.PlannerContext, error) {
 	if s == nil || s.llm == nil {
 		return nil, nil, fmt.Errorf("planner pass: llm service not configured")
 	}
@@ -85,6 +101,13 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 	}
 
 	plannerAgent, plannerInput, err := s.resolvePlannerExecutionInput(ctx, input, tc)
+	if err != nil {
+		return nil, nil, err
+	}
+	if contract == nil {
+		return nil, nil, fmt.Errorf("planner pass: planner contract is required")
+	}
+	schema, err := contract.Schema(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -122,7 +145,7 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 	modelSelection.Options.Mode = "plan"
 	modelSelection.Options.JSONMode = true
 	modelSelection.Options.ResponseMIMEType = "application/json"
-	modelSelection.Options.OutputSchema = planner.JSONSchema()
+	modelSelection.Options.OutputSchema = schema
 	if modelSelection.Options.Metadata == nil {
 		modelSelection.Options.Metadata = map[string]interface{}{}
 	}
@@ -136,7 +159,7 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 	for attempt := 1; attempt <= 2; attempt++ {
 		genInput := &core.GenerateInput{
 			Message: []llm.Message{
-				llm.NewSystemMessage(prompts.PlannerModePromptWithFeedback(formatPlannerValidationErrors(prevErrs), scenarioCatalog)),
+				llm.NewSystemMessage(prompts.PlannerModePromptWithFeedback(planner.FormatValidationErrors(prevErrs), scenarioCatalog)),
 			},
 			Prompt:         plannerAgent.Prompt,
 			SystemPrompt:   plannerAgent.SystemPrompt,
@@ -152,7 +175,7 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 		genInput.ModelSelection.Options.Mode = "plan"
 		genInput.ModelSelection.Options.JSONMode = true
 		genInput.ModelSelection.Options.ResponseMIMEType = "application/json"
-		genInput.ModelSelection.Options.OutputSchema = planner.JSONSchema()
+		genInput.ModelSelection.Options.OutputSchema = schema
 
 		out := &core.GenerateOutput{}
 		if err := s.llm.Generate(runCtx, genInput, out); err != nil {
@@ -165,10 +188,11 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 		if raw == "" {
 			return nil, nil, fmt.Errorf("planner pass: empty guidance")
 		}
-		parsed, errs, err := planner.New().Run(raw, s.plannerValidationContext(input))
+		parsed, err := contract.Parse(raw)
 		if err != nil {
 			return nil, nil, err
 		}
+		errs := contract.Validate(runCtx, parsed, s.plannerValidationContext(input))
 		if len(errs) == 0 {
 			s.writePlannerPassTrace(input, attempt, true, parsed, nil)
 			validated := true
@@ -178,7 +202,7 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 				ConversationID:        strings.TrimSpace(input.ConversationID),
 				TurnID:                strings.TrimSpace(input.MessageID),
 				PlannerValidated:      &validated,
-				PlannerStrategyFamily: parsed.StrategyFamily,
+				PlannerStrategyFamily: planner.OutputString(parsed, "strategyFamily"),
 				CreatedAt:             time.Now(),
 			})
 			return parsed, planner.NewContext(planner.Trigger(strings.TrimSpace(tc.Planner.Trigger)), attempt, parsed), nil
@@ -320,63 +344,52 @@ func (s *Service) resolvePlannerExecutionInput(ctx context.Context, input *Query
 	return plannerAgent, &plannerInput, nil
 }
 
-func (s *Service) persistPlannerGuidance(ctx context.Context, turn *runtimerequestctx.TurnMeta, input *QueryInput, out *planner.Output, pctx *planner.PlannerContext, payloadID string) error {
+func (s *Service) resolvePlannerContract(ctx context.Context, plannerAgent *agentmdl.Agent) (planner.Contract, error) {
+	if s == nil || s.plannerContracts == nil {
+		return nil, fmt.Errorf("planner pass: planner contract resolver not configured")
+	}
+	contract, err := s.plannerContracts.Resolve(ctx, plannerAgent)
+	if err != nil {
+		return nil, fmt.Errorf("planner pass: failed to resolve planner contract: %w", err)
+	}
+	if contract == nil {
+		return nil, fmt.Errorf("planner pass: planner contract resolver returned nil contract")
+	}
+	return contract, nil
+}
+
+func (s *Service) persistPlannerGuidance(ctx context.Context, turn *runtimerequestctx.TurnMeta, input *QueryInput, contract planner.Contract, out planner.Output, pctx *planner.PlannerContext, payloadID string) error {
 	if s == nil || s.conversation == nil {
 		return fmt.Errorf("planner guidance: conversation client not configured")
 	}
 	if turn == nil {
 		return fmt.Errorf("planner guidance: turn is required")
 	}
-	if out == nil {
+	if len(out) == 0 {
 		return fmt.Errorf("planner guidance: output is required")
 	}
-	type docDef struct {
-		id      string
-		summary string
-		content string
+	if contract == nil {
+		return fmt.Errorf("planner guidance: planner contract is required")
 	}
-	docs := []docDef{
-		{
-			id:      "planner-strategy:" + strings.TrimSpace(turn.TurnID),
-			summary: "planner://strategy",
-			content: renderPlannerStrategy(out, pctx, plannerDocMetadata{
-				Status:          "validated",
-				StaticProfile:   strings.TrimSpace(input.PromptProfileId),
-				OutputPayloadID: strings.TrimSpace(payloadID),
-				Validated:       llm.BoolPtr(true),
-			}),
-		},
-		{
-			id:      "planner-evidence:" + strings.TrimSpace(turn.TurnID),
-			summary: "planner://evidence",
-			content: renderPlannerEvidence(out),
-		},
-		{
-			id:      "planner-guards:" + strings.TrimSpace(turn.TurnID),
-			summary: "planner://guards",
-			content: renderPlannerGuards(out),
-		},
-		{
-			id:      "planner-policy:" + strings.TrimSpace(turn.TurnID),
-			summary: "planner://policy",
-			content: renderPlannerPolicy(out, plannerDocMetadata{
-				Validated: llm.BoolPtr(true),
-			}, nil),
-		},
-	}
+	docs := contract.GuidanceDocs(strings.TrimSpace(turn.TurnID), out, pctx, planner.GuidanceMeta{
+		Status:          "validated",
+		StaticProfile:   strings.TrimSpace(input.PromptProfileId),
+		OutputPayloadID: strings.TrimSpace(payloadID),
+		Validated:       llm.BoolPtr(true),
+	}, nil)
 	for _, doc := range docs {
-		content := strings.TrimSpace(doc.content)
+		content := strings.TrimSpace(doc.Content)
 		if content == "" {
 			continue
 		}
 		if _, err := apiconv.AddMessage(ctx, s.conversation, turn,
-			apiconv.WithId(doc.id),
+			apiconv.WithId(doc.ID),
 			apiconv.WithRole("system"),
 			apiconv.WithType("text"),
 			apiconv.WithCreatedByUserID("planner"),
 			apiconv.WithMode(toolexec.SystemDocumentMode),
 			apiconv.WithTags(toolexec.SystemDocumentTag),
-			apiconv.WithContextSummary(doc.summary),
+			apiconv.WithContextSummary(doc.Summary),
 			apiconv.WithContent(content),
 		); err != nil {
 			return err
@@ -394,45 +407,32 @@ func (s *Service) persistPlannerFailureState(ctx context.Context, input *QueryIn
 		return nil
 	}
 	validated := false
-	docs := []struct {
-		id      string
-		summary string
-		content string
-	}{
-		{
-			id:      "planner-strategy:" + strings.TrimSpace(turn.TurnID),
-			summary: "planner://strategy",
-			content: renderPlannerStrategy(nil, &planner.PlannerContext{
-				Trigger: planner.Trigger(plannerTriggerFromInput(input)),
-				Attempt: 2,
-			}, plannerDocMetadata{
-				Status:        "failed",
-				StaticProfile: strings.TrimSpace(input.PromptProfileId),
-				Validated:     &validated,
-			}),
-		},
-		{
-			id:      "planner-policy:" + strings.TrimSpace(turn.TurnID),
-			summary: "planner://policy",
-			content: renderPlannerPolicy(nil, plannerDocMetadata{
-				SecondPolicy: strings.TrimSpace(policy),
-				Validated:    &validated,
-			}, errs),
-		},
+	contract, err := s.resolvePlannerContract(ctx, input.Agent)
+	if err != nil {
+		return err
 	}
+	docs := contract.GuidanceDocs(strings.TrimSpace(turn.TurnID), nil, &planner.PlannerContext{
+		Trigger: planner.Trigger(plannerTriggerFromInput(input)),
+		Attempt: 2,
+	}, planner.GuidanceMeta{
+		Status:        "failed",
+		StaticProfile: strings.TrimSpace(input.PromptProfileId),
+		SecondPolicy:  strings.TrimSpace(policy),
+		Validated:     &validated,
+	}, errs)
 	for _, doc := range docs {
-		if strings.TrimSpace(doc.content) == "" {
+		if strings.TrimSpace(doc.Content) == "" {
 			continue
 		}
 		if _, err := apiconv.AddMessage(ctx, s.conversation, &turn,
-			apiconv.WithId(doc.id),
+			apiconv.WithId(doc.ID),
 			apiconv.WithRole("system"),
 			apiconv.WithType("text"),
 			apiconv.WithCreatedByUserID("planner"),
 			apiconv.WithMode(toolexec.SystemDocumentMode),
 			apiconv.WithTags(toolexec.SystemDocumentTag),
-			apiconv.WithContextSummary(doc.summary),
-			apiconv.WithContent(strings.TrimSpace(doc.content)),
+			apiconv.WithContextSummary(doc.Summary),
+			apiconv.WithContent(strings.TrimSpace(doc.Content)),
 		); err != nil {
 			return err
 		}
@@ -451,32 +451,24 @@ func (s *Service) plannerValidationContext(input *QueryInput) planner.Validation
 }
 
 func (s *Service) plannerScenarioCatalog(ctx context.Context, input *QueryInput) string {
-	if s == nil || s.promptRepo == nil || input == nil || input.Agent == nil {
+	if s == nil || input == nil || input.Agent == nil {
 		return ""
 	}
-	profiles, err := s.promptRepo.LoadAll(ctx)
-	if err != nil {
-		return ""
-	}
-	return plannerscenarios.Catalog(profiles, input.Agent.Prompts.Bundles)
-}
-
-func formatPlannerValidationErrors(errs []planner.ValidationError) string {
-	if len(errs) == 0 {
-		return ""
-	}
-	lines := make([]string, 0, len(errs))
-	for _, err := range errs {
-		text := strings.TrimSpace(err.Message)
-		if text == "" {
-			text = err.Error()
+	parts := make([]string, 0, 2)
+	if s.promptRepo != nil {
+		profiles, err := s.promptRepo.LoadAll(ctx)
+		if err == nil {
+			if profileKnowledge := plannerscenarios.Catalog(profiles, input.Agent.Prompts.Bundles); strings.TrimSpace(profileKnowledge) != "" {
+				parts = append(parts, profileKnowledge)
+			}
 		}
-		if text == "" {
-			continue
-		}
-		lines = append(lines, "- "+text)
 	}
-	return strings.Join(lines, "\n")
+	if s.skillSvc != nil {
+		if skillKnowledge := plannerscenarios.SkillCatalog(s.skillSvc.VisibleSkillsByName(input.Agent, input.Agent.Skills)); strings.TrimSpace(skillKnowledge) != "" {
+			parts = append(parts, skillKnowledge)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
 func (s *Service) handlePlannerSecondFailure(ctx context.Context, input *QueryInput, errs []planner.ValidationError) error {
@@ -491,7 +483,7 @@ func (s *Service) handlePlannerSecondFailure(ctx context.Context, input *QueryIn
 	if policy == "block" {
 		content = "I can't safely plan this turn."
 		status = "planner.block"
-	} else if text := formatPlannerValidationErrors(errs); text != "" {
+	} else if text := planner.FormatValidationErrors(errs); text != "" {
 		content += "\n\n" + text
 	}
 	if err := s.persistPlannerFailureState(ctx, input, policy, errs); err != nil {
@@ -524,8 +516,8 @@ func plannerTriggerFromInput(input *QueryInput) string {
 	return ""
 }
 
-func (s *Service) persistPlannerOutputPayload(ctx context.Context, out *planner.Output) (string, error) {
-	if s == nil || s.conversation == nil || out == nil {
+func (s *Service) persistPlannerOutputPayload(ctx context.Context, out planner.Output) (string, error) {
+	if s == nil || s.conversation == nil || len(out) == 0 {
 		return "", nil
 	}
 	data, err := json.Marshal(out)
@@ -580,7 +572,7 @@ func (s *Service) publishPlannerEvent(ctx context.Context, ev *streaming.Event) 
 	_ = s.streamPub.Publish(ctx, ev)
 }
 
-func (s *Service) writePlannerPassTrace(input *QueryInput, attempt int, validated bool, out *planner.Output, errs []planner.ValidationError) {
+func (s *Service) writePlannerPassTrace(input *QueryInput, attempt int, validated bool, out planner.Output, errs []planner.ValidationError) {
 	if !debugtrace.Enabled() || input == nil {
 		return
 	}
@@ -591,125 +583,31 @@ func (s *Service) writePlannerPassTrace(input *QueryInput, attempt int, validate
 		Validated:       validated,
 		ValidatorErrors: errs,
 	}
-	if out != nil {
-		trace.StrategyFamily = out.StrategyFamily
-		trace.BaseProfiles = append([]string(nil), out.BaseProfiles...)
-		trace.ToolBundles = append([]string(nil), out.ToolBundles...)
-		trace.TemplateID = out.TemplateID
-		trace.EvidenceCount = len(out.RequiredEvidence)
-		trace.ExecutionOrder = append([]string(nil), out.ExecutionOrder...)
-		trace.Guards = append([]string(nil), out.FinalizationGuards...)
+	if len(out) != 0 {
+		trace.StrategyFamily = planner.OutputString(out, "strategyFamily")
+		trace.BaseProfiles = planner.OutputStringSlice(out, "baseProfiles")
+		trace.ToolBundles = planner.OutputStringSlice(out, "toolBundles")
+		trace.TemplateID = planner.OutputString(out, "templateId")
+		trace.EvidenceCount = len(planner.OutputStringSlice(out, "requiredEvidence"))
+		trace.ExecutionOrder = planner.OutputStringSlice(out, "executionOrder")
+		trace.Guards = planner.OutputStringSlice(out, "finalizationGuards")
 	}
 	debugtrace.Write("agent", "planner_pass", trace.AsMap())
 }
 
-func (s *Service) applyPlannerOutput(input *QueryInput, out *planner.Output, pctx *planner.PlannerContext) {
-	if input == nil || out == nil {
+func (s *Service) applyPlannerOutput(input *QueryInput, contract planner.Contract, out planner.Output, pctx *planner.PlannerContext) {
+	if input == nil || len(out) == 0 || contract == nil {
 		return
 	}
-	if len(out.ToolBundles) > 0 {
-		input.ToolBundles = agenttool.NormalizeBundleNames(append(input.ToolBundles, out.ToolBundles...))
+	app := &planner.Application{
+		ToolBundles:       append([]string(nil), input.ToolBundles...),
+		TemplateID:        strings.TrimSpace(input.TemplateId),
+		ParallelToolCalls: input.ParallelToolCalls,
+		Context:           input.Context,
 	}
-	if id := strings.TrimSpace(out.TemplateID); id != "" && strings.TrimSpace(input.TemplateId) == "" {
-		input.TemplateId = id
-	}
-	if out.ParallelToolCalls != nil && input.ParallelToolCalls == nil {
-		v := *out.ParallelToolCalls
-		input.ParallelToolCalls = &v
-	}
-	if pctx != nil {
-		if input.Context == nil {
-			input.Context = make(map[string]any)
-		}
-		input.Context[planner.ContextKey] = pctx
-	}
-}
-
-type plannerDocMetadata struct {
-	Status          string
-	StaticProfile   string
-	SecondPolicy    string
-	OutputPayloadID string
-	Validated       *bool
-}
-
-func renderPlannerStrategy(out *planner.Output, pctx *planner.PlannerContext, meta plannerDocMetadata) string {
-	var parts []string
-	if value := strings.TrimSpace(meta.Status); value != "" {
-		parts = append(parts, "Status: "+value)
-	}
-	if pctx != nil {
-		if value := strings.TrimSpace(string(pctx.Trigger)); value != "" {
-			parts = append(parts, "Trigger: "+value)
-		}
-		if pctx.Attempt > 0 {
-			parts = append(parts, fmt.Sprintf("Attempt: %d", pctx.Attempt))
-		}
-	}
-	if value := strings.TrimSpace(meta.StaticProfile); value != "" {
-		parts = append(parts, "StaticProfile: "+value)
-	}
-	if meta.Validated != nil {
-		parts = append(parts, fmt.Sprintf("Validated: %t", *meta.Validated))
-	}
-	if value := strings.TrimSpace(meta.OutputPayloadID); value != "" {
-		parts = append(parts, "OutputPayloadID: "+value)
-	}
-	if out == nil {
-		return strings.TrimSpace(strings.Join(parts, "\n"))
-	}
-	if value := strings.TrimSpace(out.StrategyFamily); value != "" {
-		parts = append(parts, "StrategyFamily: "+value)
-	}
-	if len(out.BaseProfiles) > 0 {
-		parts = append(parts, "BaseProfiles: "+strings.Join(out.BaseProfiles, ", "))
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n"))
-}
-
-func renderPlannerEvidence(out *planner.Output) string {
-	if out == nil {
-		return ""
-	}
-	var parts []string
-	if len(out.RequiredEvidence) > 0 {
-		parts = append(parts, "RequiredEvidence: "+strings.Join(out.RequiredEvidence, ", "))
-	}
-	if len(out.ExecutionOrder) > 0 {
-		parts = append(parts, "ExecutionOrder: "+strings.Join(out.ExecutionOrder, ", "))
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n"))
-}
-
-func renderPlannerGuards(out *planner.Output) string {
-	if out == nil || len(out.FinalizationGuards) == 0 {
-		return ""
-	}
-	return "FinalizationGuards: " + strings.Join(out.FinalizationGuards, ", ")
-}
-
-func renderPlannerPolicy(out *planner.Output, meta plannerDocMetadata, errs []planner.ValidationError) string {
-	var parts []string
-	if value := strings.TrimSpace(meta.SecondPolicy); value != "" {
-		parts = append(parts, "SecondPolicy: "+value)
-	}
-	if meta.Validated != nil {
-		parts = append(parts, fmt.Sprintf("Validated: %t", *meta.Validated))
-	}
-	if out != nil {
-		if len(out.NarrationPolicy) > 0 {
-			if raw, err := json.MarshalIndent(out.NarrationPolicy, "", "  "); err == nil {
-				parts = append(parts, "NarrationPolicy:\n```json\n"+string(raw)+"\n```")
-			}
-		}
-		if len(out.WorkspaceExtensions) > 0 {
-			if raw, err := json.MarshalIndent(out.WorkspaceExtensions, "", "  "); err == nil {
-				parts = append(parts, "WorkspaceExtensions:\n```json\n"+string(raw)+"\n```")
-			}
-		}
-	}
-	if text := formatPlannerValidationErrors(errs); text != "" {
-		parts = append(parts, "ValidationErrors:\n"+text)
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+	contract.Apply(app, out, pctx)
+	input.ToolBundles = agenttool.NormalizeBundleNames(app.ToolBundles)
+	input.TemplateId = strings.TrimSpace(app.TemplateID)
+	input.ParallelToolCalls = app.ParallelToolCalls
+	input.Context = app.Context
 }

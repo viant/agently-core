@@ -170,7 +170,7 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 }
 
 func TestBuildCanonicalState_ReconstructsPlannerStateFromTranscript(t *testing.T) {
-	content := "Status: validated\nTrigger: creative_phrase\nAttempt: 1\nStaticProfile: repo_analysis\nValidated: true\nOutputPayloadID: planner-output:conv-1:turn-1\nStrategyFamily: troubleshoot\nBaseProfiles: repo_analysis"
+	content := "Status: validated\nTrigger: exploratory_strategy\nAttempt: 1\nStaticProfile: repo_analysis\nValidated: true\nOutputPayloadID: planner-output:conv-1:turn-1\nStrategyFamily: troubleshoot\nBaseProfiles: repo_analysis"
 	policyContent := "Validated: true"
 	mode := "exec"
 	summary := "planner://strategy"
@@ -206,7 +206,7 @@ func TestBuildCanonicalState_ReconstructsPlannerStateFromTranscript(t *testing.T
 	require.Len(t, state.Turns, 1)
 	require.NotNil(t, state.Turns[0].Planner)
 	require.Equal(t, "validated", state.Turns[0].Planner.Status)
-	require.Equal(t, "creative_phrase", state.Turns[0].Planner.Trigger)
+	require.Equal(t, "exploratory_strategy", state.Turns[0].Planner.Trigger)
 	require.Equal(t, "repo_analysis", state.Turns[0].Planner.StaticProfile)
 	require.Equal(t, "troubleshoot", state.Turns[0].Planner.StrategyFamily)
 	require.Equal(t, 1, state.Turns[0].Planner.Attempt)

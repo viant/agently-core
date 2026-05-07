@@ -10,6 +10,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	planner "github.com/viant/agently-core/service/planner"
 )
 
 // maybeRunIntakeSidecar runs the pre-turn intake sidecar when the agent is
@@ -326,6 +327,8 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 		tc.Routing.Source = existing.Routing.Source
 	}
 
+	maybeEnablePlannerMode(input, tc, cfg)
+
 	// Always store the full context under the well-known key.
 	input.Context[intakesvc.ContextKey] = tc
 
@@ -377,4 +380,140 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 			}
 		}
 	}
+}
+
+func maybeEnablePlannerMode(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) {
+	if input == nil || tc == nil || cfg == nil {
+		return
+	}
+	if strings.TrimSpace(tc.Routing.Mode) == intakesvc.ModePlanner {
+		if strings.TrimSpace(tc.Planner.AgentID) == "" {
+			tc.Planner.AgentID = strings.TrimSpace(cfg.PlannerAgentID)
+		}
+		if strings.TrimSpace(tc.Routing.SelectedAgentID) == "" {
+			tc.Routing.SelectedAgentID = strings.TrimSpace(input.AgentID)
+			if strings.TrimSpace(tc.Routing.SelectedAgentID) == "" && input.Agent != nil {
+				tc.Routing.SelectedAgentID = strings.TrimSpace(input.Agent.ID)
+			}
+		}
+		if strings.TrimSpace(tc.Routing.Source) == "" {
+			tc.Routing.Source = intakesvc.SourceAgent
+		}
+		return
+	}
+	if !cfg.PlannerEnabled || !cfg.PlannerOnCreativeRequest {
+		return
+	}
+	trigger := detectPlannerTrigger(input, tc, cfg)
+	if trigger == "" {
+		return
+	}
+	tc.Routing.Mode = intakesvc.ModePlanner
+	if strings.TrimSpace(tc.Routing.SelectedAgentID) == "" {
+		tc.Routing.SelectedAgentID = strings.TrimSpace(input.AgentID)
+		if strings.TrimSpace(tc.Routing.SelectedAgentID) == "" && input.Agent != nil {
+			tc.Routing.SelectedAgentID = strings.TrimSpace(input.Agent.ID)
+		}
+	}
+	if strings.TrimSpace(tc.Routing.Source) == "" {
+		tc.Routing.Source = intakesvc.SourceAgent
+	}
+	tc.Planner.Trigger = trigger
+	if strings.TrimSpace(tc.Planner.AgentID) == "" {
+		tc.Planner.AgentID = strings.TrimSpace(cfg.PlannerAgentID)
+	}
+	logx.Infof("conversation", "intake.planner.selected convo=%q agent=%q selectedAgent=%q trigger=%q source=%q",
+		strings.TrimSpace(input.ConversationID),
+		strings.TrimSpace(input.AgentID),
+		strings.TrimSpace(tc.Routing.SelectedAgentID),
+		strings.TrimSpace(tc.Planner.Trigger),
+		strings.TrimSpace(tc.Routing.Source),
+	)
+}
+
+func detectPlannerTrigger(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) string {
+	if input == nil || tc == nil || cfg == nil {
+		return ""
+	}
+	if plannerExploratoryStrategyRequested(input, tc, cfg) {
+		return string(planner.TriggerExploratoryStrategy)
+	}
+	if plannerLowConfidenceRequested(tc, cfg) {
+		return string(planner.TriggerLowConfidence)
+	}
+	return ""
+}
+
+func plannerExploratoryStrategyRequested(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+	if input == nil || tc == nil || cfg == nil {
+		return false
+	}
+	if suppressPlannerForConcreteTroubleshoot(tc, cfg) {
+		return false
+	}
+	if enabled := strings.ToLower(strings.TrimSpace(tc.Scope.Values["use_exploratory_strategy"])); enabled == "true" || enabled == "1" || enabled == "yes" {
+		return true
+	}
+	if approach := strings.ToLower(strings.TrimSpace(tc.Scope.Values["approach"])); approach == "exploratory" {
+		return true
+	}
+	query := strings.ToLower(strings.TrimSpace(input.Query))
+	if query == "" {
+		return false
+	}
+	for _, phrase := range cfg.PlannerTriggerPhrases {
+		phrase = strings.ToLower(strings.TrimSpace(phrase))
+		if phrase == "" {
+			continue
+		}
+		if strings.Contains(query, phrase) {
+			return true
+		}
+	}
+	explicitPhrases := []string{
+		"use exploratory strategy",
+		"exploratory strategy",
+		"exploratory approach",
+		"exploratory workflow",
+		"multi-angle approach",
+		"use planner",
+	}
+	for _, phrase := range explicitPhrases {
+		if strings.Contains(query, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func suppressPlannerForConcreteTroubleshoot(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+	if tc == nil || cfg == nil {
+		return false
+	}
+	intent := strings.ToLower(strings.TrimSpace(tc.Classification.Intent))
+	if intent == "" || !strings.Contains(intent, "troubleshoot") {
+		return false
+	}
+	scope := tc.Scope.Values
+	if len(scope) == 0 {
+		return false
+	}
+	for _, key := range []string{"adOrderId", "ad_order_id", "order_id"} {
+		if strings.TrimSpace(scope[key]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func plannerLowConfidenceRequested(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+	if tc == nil || cfg == nil {
+		return false
+	}
+	if strings.TrimSpace(tc.Prompting.SuggestedProfileID) != "" {
+		return false
+	}
+	threshold := cfg.EffectivePlannerFallbackThreshold()
+	confidence := tc.Classification.Confidence
+	return confidence > 0 && confidence < threshold
 }
