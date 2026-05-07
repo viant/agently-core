@@ -20,7 +20,9 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 				displayName := strings.TrimSpace(user.Subject)
 				if a.users != nil {
 					provider := a.oauthProviderName()
-					if resolved, err := a.users.GetBySubjectAndProvider(r.Context(), strings.TrimSpace(user.Subject), provider); err == nil && resolved != nil {
+					lookupCtx, cancel := durableAuthLookupContext(r.Context())
+					defer cancel()
+					if resolved, err := a.users.GetBySubjectAndProvider(lookupCtx, strings.TrimSpace(user.Subject), provider); err == nil && resolved != nil {
 						if v := strings.TrimSpace(resolved.DisplayName); v != "" {
 							displayName = v
 						} else if v := strings.TrimSpace(resolved.Username); v != "" {
@@ -53,7 +55,9 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 		displayName := strings.TrimSpace(sess.Username)
 		if a.users != nil {
 			provider := strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))
-			if resolved, err := a.users.GetBySubjectAndProvider(r.Context(), strings.TrimSpace(sess.Subject), provider); err == nil && resolved != nil {
+			lookupCtx, cancel := durableAuthLookupContext(r.Context())
+			defer cancel()
+			if resolved, err := a.users.GetBySubjectAndProvider(lookupCtx, strings.TrimSpace(sess.Subject), provider); err == nil && resolved != nil {
 				if v := strings.TrimSpace(resolved.DisplayName); v != "" {
 					displayName = v
 				} else if v := strings.TrimSpace(resolved.Username); v != "" {
@@ -225,9 +229,9 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 				IDToken: strings.TrimSpace(in.IDToken),
 			}
 		}
-		a.sessions.Put(r.Context(), sess)
+		a.sessions.PutAsync(r.Context(), sess)
 		if sess.Tokens != nil && !bearerBootstrap {
-			a.persistOAuthToken(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry)
+			a.scheduleOAuthTokenPersist(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry)
 		}
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username})

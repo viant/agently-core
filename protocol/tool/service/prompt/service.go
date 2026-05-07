@@ -233,6 +233,11 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*promptdef.Profile, er
 }
 
 func (s *Service) currentAgentID(ctx context.Context) string {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		if agentID := strings.TrimSpace(tm.Assistant); agentID != "" {
+			return agentID
+		}
+	}
 	if s == nil || s.conv == nil {
 		return ""
 	}

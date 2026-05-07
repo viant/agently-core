@@ -56,6 +56,7 @@ func (s *Service) appendBootstrapSystemDocuments(ctx context.Context, input *Que
 }
 
 func (s *Service) bootstrapSystemDocument(ctx context.Context, input *QueryInput, call agproto.BootstrapToolCall) (*binding.Document, error) {
+	args := expandBootstrapArgs(ctx, input, call.Args)
 	key, err := s.bootstrapCacheKey(ctx, input, call)
 	if err != nil {
 		return nil, err
@@ -67,7 +68,6 @@ func (s *Service) bootstrapSystemDocument(ctx context.Context, input *QueryInput
 	}
 
 	toolName := strings.TrimSpace(call.Tool)
-	args := cloneBootstrapArgs(call.Args)
 	toolCallID := "bootstrap:" + strings.TrimSpace(call.ID)
 	s.publishBootstrapToolEvent(ctx, input, streaming.EventTypeToolCallStarted, toolCallID, toolName, args, "")
 	result, err := s.registry.Execute(ctx, toolName, args)
@@ -77,7 +77,7 @@ func (s *Service) bootstrapSystemDocument(ctx context.Context, input *QueryInput
 	}
 	s.publishBootstrapToolEvent(ctx, input, streaming.EventTypeToolCallCompleted, toolCallID, toolName, args, "")
 
-	content := renderBootstrapToolContext(call, result)
+	content := renderBootstrapToolContext(call, args, result)
 	s.bootstrapCache.Store(key, bootstrapCacheEntry{content: content})
 	return s.newBootstrapDocument(call, content), nil
 }
@@ -107,10 +107,10 @@ func (s *Service) newBootstrapDocument(call agproto.BootstrapToolCall, content s
 	}
 }
 
-func renderBootstrapToolContext(call agproto.BootstrapToolCall, result string) string {
+func renderBootstrapToolContext(call agproto.BootstrapToolCall, args map[string]interface{}, result string) string {
 	argsJSON := "{}"
-	if len(call.Args) > 0 {
-		if data, err := json.MarshalIndent(call.Args, "", "  "); err == nil {
+	if len(args) > 0 {
+		if data, err := json.MarshalIndent(args, "", "  "); err == nil {
 			argsJSON = string(data)
 		}
 	}
@@ -162,7 +162,7 @@ func expandBootstrapHeader(header string, call agproto.BootstrapToolCall, argsJS
 }
 
 func (s *Service) bootstrapCacheKey(ctx context.Context, input *QueryInput, call agproto.BootstrapToolCall) (string, error) {
-	argsData, err := json.Marshal(cloneBootstrapArgs(call.Args))
+	argsData, err := json.Marshal(expandBootstrapArgs(ctx, input, call.Args))
 	if err != nil {
 		return "", fmt.Errorf("bootstrap tool call %q args are not JSON-serializable: %w", strings.TrimSpace(call.ID), err)
 	}
@@ -203,6 +203,73 @@ func cloneBootstrapArgs(src map[string]interface{}) map[string]interface{} {
 		dst[k] = v
 	}
 	return dst
+}
+
+func expandBootstrapArgs(ctx context.Context, input *QueryInput, src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	replacements := bootstrapArgReplacements(ctx, input)
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = expandBootstrapValue(v, replacements)
+	}
+	return dst
+}
+
+func bootstrapArgReplacements(ctx context.Context, input *QueryInput) map[string]string {
+	replacements := map[string]string{}
+	if input != nil {
+		replacements["query"] = input.Query
+		replacements["conversationId"] = strings.TrimSpace(input.ConversationID)
+		replacements["userId"] = strings.TrimSpace(input.UserId)
+		if input.Agent != nil {
+			replacements["agentId"] = strings.TrimSpace(input.Agent.ID)
+		}
+	}
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		replacements["turnId"] = strings.TrimSpace(tm.TurnID)
+		if replacements["conversationId"] == "" {
+			replacements["conversationId"] = strings.TrimSpace(tm.ConversationID)
+		}
+		if replacements["agentId"] == "" {
+			replacements["agentId"] = strings.TrimSpace(tm.Assistant)
+		}
+	}
+	return replacements
+}
+
+func expandBootstrapValue(value interface{}, replacements map[string]string) interface{} {
+	switch actual := value.(type) {
+	case string:
+		return expandBootstrapTemplate(actual, replacements)
+	case []interface{}:
+		out := make([]interface{}, 0, len(actual))
+		for _, item := range actual {
+			out = append(out, expandBootstrapValue(item, replacements))
+		}
+		return out
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(actual))
+		for k, v := range actual {
+			out[k] = expandBootstrapValue(v, replacements)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func expandBootstrapTemplate(value string, replacements map[string]string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(replacements) == 0 {
+		return value
+	}
+	pairs := make([]string, 0, len(replacements)*2)
+	for key, replacement := range replacements {
+		pairs = append(pairs, "{{"+key+"}}", replacement)
+	}
+	return strings.NewReplacer(pairs...).Replace(value)
 }
 
 func (s *Service) publishBootstrapToolEvent(ctx context.Context, input *QueryInput, eventType streaming.EventType, toolCallID, toolName string, args map[string]interface{}, errText string) {

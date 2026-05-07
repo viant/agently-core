@@ -49,6 +49,16 @@ type convGuardMap struct {
 	m  map[string]*int32
 }
 
+func stopRunHeartbeatThen(stop func(), finalize func() error) error {
+	if stop != nil {
+		stop()
+	}
+	if finalize == nil {
+		return nil
+	}
+	return finalize()
+}
+
 func (g *convGuardMap) acquire(convID string) bool {
 	g.mu.Lock()
 	v, ok := g.m[convID]
@@ -281,9 +291,13 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if err := s.startTurn(ctx, startTurnMeta, strings.TrimSpace(input.ScheduleId)); err != nil {
 		return err
 	}
-	stopRunHeartbeat := func() {}
+	rawStopRunHeartbeat := func() {}
 	if strings.TrimSpace(input.ScheduleId) == "" {
-		stopRunHeartbeat = s.startRunHeartbeat(ctx, turn)
+		rawStopRunHeartbeat = s.startRunHeartbeat(ctx, turn)
+	}
+	var stopRunHeartbeatOnce sync.Once
+	stopRunHeartbeat := func() {
+		stopRunHeartbeatOnce.Do(rawStopRunHeartbeat)
 	}
 	defer stopRunHeartbeat()
 	if strings.TrimSpace(input.AgentID) != "" {
@@ -310,7 +324,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 				finalStatus = "canceled"
 			}
 		}
-		if err := s.finalizeTurn(ctx, turn, finalStatus, finalErr); err != nil {
+		if err := stopRunHeartbeatThen(stopRunHeartbeat, func() error {
+			return s.finalizeTurn(ctx, turn, finalStatus, finalErr)
+		}); err != nil {
 			if retErr == nil {
 				retErr = err
 			}
@@ -416,7 +432,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return fmt.Errorf("execution of query function failed: %w", err)
 	}
 
-	if err := s.finalizeTurn(ctx, turn, status, err); err != nil {
+	if err := stopRunHeartbeatThen(stopRunHeartbeat, func() error {
+		return s.finalizeTurn(ctx, turn, status, err)
+	}); err != nil {
 		return err
 	}
 	turnFinalized = true

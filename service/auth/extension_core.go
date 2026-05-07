@@ -21,6 +21,7 @@ type authExtension struct {
 }
 
 const authPersistTimeout = 15 * time.Second
+const authDisplayLookupTimeout = 750 * time.Millisecond
 
 func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenStore TokenStore, users UserService) *authExtension {
 	if cfg == nil || sessions == nil {
@@ -159,11 +160,22 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 	)
 }
 
+func (a *authExtension) scheduleOAuthTokenPersist(ctx context.Context, source, username, email, subject, provider, accessToken, idToken, refreshToken string, expiresAt time.Time) {
+	if a == nil {
+		return
+	}
+	go a.persistOAuthToken(ctx, source, username, email, subject, provider, accessToken, idToken, refreshToken, expiresAt)
+}
+
 func durableAuthPersistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.WithTimeout(context.Background(), authPersistTimeout)
 	}
 	return context.WithTimeout(context.Background(), authPersistTimeout)
+}
+
+func durableAuthLookupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), authDisplayLookupTimeout)
 }
 
 func (a *authExtension) currentSession(r *http.Request) *Session {

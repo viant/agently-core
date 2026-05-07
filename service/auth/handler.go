@@ -123,7 +123,9 @@ func (h *Handler) handleMe() http.HandlerFunc {
 			"email":   ui.Email,
 		}
 		if h.users != nil {
-			if u, err := h.users.GetByUsername(r.Context(), ui.Subject); err == nil && u != nil {
+			lookupCtx, cancel := durableAuthLookupContext(r.Context())
+			defer cancel()
+			if u, err := h.users.GetByUsername(lookupCtx, ui.Subject); err == nil && u != nil {
 				resp["displayName"] = u.DisplayName
 				resp["preferences"] = u.Preferences
 			}

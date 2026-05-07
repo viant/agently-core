@@ -79,6 +79,15 @@ func (r *plannerControlRegistry) Definitions() []llm.ToolDefinition {
 				"type": "object",
 			},
 		},
+		{Name: "llm/agents:topology", Description: "planner topology", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "llm/agents:tool_details", Description: "planner tool details", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "prompt:list", Description: "list prompt profiles", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "template:list", Description: "list templates", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "llm/skills:list", Description: "list visible skills", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "resources:roots", Description: "list resource roots", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "resources:list", Description: "list resources", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "resources:read", Description: "read resource", Parameters: map[string]interface{}{"type": "object"}},
+		{Name: "resources:match", Description: "semantic match resource docs", Parameters: map[string]interface{}{"type": "object"}},
 	}
 }
 func (r *plannerControlRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
@@ -144,6 +153,20 @@ func (r *plannerControlRegistry) Execute(_ context.Context, name string, args ma
 		}
 		data, _ := json.Marshal(payload)
 		return string(data), nil
+	case "prompt:list":
+		return `{"items":[{"id":"repo_analysis","description":"Analyze repository state"}]}`, nil
+	case "template:list":
+		return `{"items":[{"id":"dashboard","description":"Dashboard template"}]}`, nil
+	case "llm/skills:list":
+		return `{"items":[]}`, nil
+	case "resources:roots":
+		return `{"roots":[{"id":"planner-business-logic","uri":"workspace://localhost/knowledge/planner","role":"system"}]}`, nil
+	case "resources:list":
+		return `{"items":[{"path":"README.md","uri":"workspace://localhost/knowledge/planner/README.md","rootId":"planner-business-logic"}]}`, nil
+	case "resources:read":
+		return `{"content":"# Planner business logic\nUse semantic evidence when the case spans several business-rule families."}`, nil
+	case "resources:match":
+		return `{"content":"# Matched business logic\nMixed recommendation needs KPI posture, site candidates, benchmark, and forecast guardrails.","documents":[{"metadata":{"path":"workspace://localhost/knowledge/planner/mixed.md"},"score":0.91}]}`, nil
 	default:
 		return "{}", nil
 	}
@@ -337,6 +360,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 	}
 	write("prompts/repo_analysis.yaml", "id: repo_analysis\nname: Repo Analysis\ndescription: Analyze repository state\n")
 	write("tools/bundles/analyst_tools.yaml", "id: analyst-tools\nmatch:\n  - name: system/exec\n")
+	write("tools/bundles/planner_visibility.yaml", "id: planner-visibility\nmatch:\n  - name: llm/agents:topology\n  - name: llm/agents:tool_details\n  - name: prompt:list\n  - name: template:list\n  - name: llm/skills:list\n  - name: resources:roots\n  - name: resources:list\n  - name: resources:read\n  - name: resources:match\n")
 	write("templates/dashboard.yaml", "id: dashboard\nname: dashboard\ndescription: Dashboard template\n")
 	write("templates/bundles/analytics.yaml", "id: analytics-templates\ntemplates:\n  - dashboard\n")
 	store := fsstore.New(root)
@@ -344,11 +368,12 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 	model := &plannerPassModel{}
 	finder := &plannerPassFinder{model: model}
 	llmSvc := core.New(finder, nil, convClient)
+	reg := &plannerControlRegistry{}
 	svc := &Service{
 		llm:                llmSvc,
 		conversation:       convClient,
 		defaults:           &config.Defaults{},
-		registry:           &plannerControlRegistry{},
+		registry:           reg,
 		plannerContracts:   testPlannerContractResolver(),
 		promptRepo:         promptrepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
@@ -361,8 +386,19 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 					ModelSelection: llm.ModelSelection{Model: "planner-model"},
 					Prompt:         &binding.Prompt{Text: "{{ .Task.Query }}"},
 					SystemPrompt:   &binding.Prompt{Text: "PLANNER AGENT GUIDANCE"},
-					Prompts:        agentmdl.PromptAccess{Bundles: []string{"repo_analysis"}},
-					Template:       agentmdl.Template{Bundles: []string{"analytics-templates"}},
+					Tool:           agentmdl.Tool{Bundles: []string{"planner-visibility"}},
+					Bootstrap: agentmdl.Bootstrap{ToolCalls: []agentmdl.BootstrapToolCall{
+						{ID: "planner_topology", Tool: "llm/agents:topology", Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/topology"}},
+						{ID: "planner_profiles", Tool: "prompt:list", Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/prompts"}},
+						{ID: "planner_templates", Tool: "template:list", Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/templates"}},
+						{ID: "planner_skills", Tool: "llm/skills:list", Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/skills"}},
+						{ID: "planner_roots", Tool: "resources:roots", Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/roots"}},
+						{ID: "planner_logic_index", Tool: "resources:list", Args: map[string]interface{}{"rootId": "planner-business-logic"}, Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/resources-list"}},
+						{ID: "planner_logic_overview", Tool: "resources:read", Args: map[string]interface{}{"rootId": "planner-business-logic", "path": "README.md"}, Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/resources-read"}},
+						{ID: "planner_logic_match", Tool: "resources:match", Args: map[string]interface{}{"query": "{{query}}", "rootIds": []interface{}{"planner-business-logic"}, "maxDocuments": 3}, Inject: agentmdl.BootstrapInject{As: "systemContext", SourceURI: "internal://planner/bootstrap/resources-match"}},
+					}},
+					Prompts:  agentmdl.PromptAccess{Bundles: []string{"repo_analysis"}},
+					Template: agentmdl.Template{Bundles: []string{"analytics-templates"}},
 				},
 			},
 		},
@@ -412,6 +448,129 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 	require.NotContains(t, joined, "EXECUTOR GUIDANCE")
 	require.Contains(t, joined, "llm/agents:topology")
 	require.Contains(t, joined, "llm/agents:tool_details")
+	require.Contains(t, joined, "prompt:list")
+	require.Contains(t, joined, "template:list")
+	require.Contains(t, joined, "resources:roots")
+	require.Contains(t, joined, "resources:list")
+	require.Contains(t, joined, "resources:read")
+	require.Contains(t, joined, "resources:match")
+	require.Contains(t, joined, "planner-business-logic")
+	require.Equal(t, 1, countString(reg.calls, "llm/agents:topology"))
+}
+
+func TestPlannerPass_KeepsTemplateListVisibleForBootstrapWhenTemplateSelected(t *testing.T) {
+	convClient := convmem.New()
+	ctx := context.Background()
+
+	conv := apiconv.NewConversation()
+	conv.SetId("conv-planner-template")
+	conv.SetAgentId("coder")
+	require.NoError(t, convClient.PatchConversations(ctx, conv))
+
+	turn := apiconv.NewTurn()
+	turn.SetId("turn-planner-template")
+	turn.SetConversationID("conv-planner-template")
+	turn.SetStatus("running")
+	require.NoError(t, convClient.PatchTurn(ctx, turn))
+
+	root := t.TempDir()
+	write := func(rel, body string) {
+		path := filepath.Join(root, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	}
+	write("prompts/repo_analysis.yaml", "id: repo_analysis\nname: Repo Analysis\ndescription: Analyze repository state\n")
+	write("tools/bundles/analyst_tools.yaml", "id: analyst-tools\nmatch:\n  - name: system/exec\n")
+	write("tools/bundles/planner_visibility.yaml", "id: planner-visibility\nmatch:\n  - name: llm/agents:topology\n  - name: llm/agents:tool_details\n  - name: prompt:list\n  - name: template:list\n  - name: llm/skills:list\n  - name: resources:roots\n  - name: resources:list\n  - name: resources:read\n  - name: resources:match\n")
+	write("templates/dashboard.yaml", "id: dashboard\nname: dashboard\ndescription: Dashboard template\ninstructions: Use dashboard output.\n")
+	write("templates/bundles/analytics.yaml", "id: analytics-templates\ntemplates:\n  - dashboard\n")
+	store := fsstore.New(root)
+	plannerAgent := &agentmdl.Agent{
+		Identity:       agentmdl.Identity{ID: "steward_planner"},
+		ModelSelection: llm.ModelSelection{Model: "planner-model"},
+		Prompt:         &binding.Prompt{Text: "{{ .Task.Query }}"},
+		Tool:           agentmdl.Tool{Bundles: []string{"planner-visibility"}},
+		Bootstrap: agentmdl.Bootstrap{ToolCalls: []agentmdl.BootstrapToolCall{
+			{
+				ID:   "planner_templates",
+				Tool: "template:list",
+				Inject: agentmdl.BootstrapInject{
+					As:        "systemContext",
+					SourceURI: "internal://planner/bootstrap/templates",
+					Title:     "planner/templates",
+					Header:    "# Planner Template Directory",
+				},
+			},
+		}},
+	}
+
+	model := &plannerPassModel{}
+	reg := &plannerControlRegistry{}
+	svc := &Service{
+		llm:                core.New(&plannerPassFinder{model: model}, nil, convClient),
+		conversation:       convClient,
+		defaults:           &config.Defaults{},
+		registry:           reg,
+		agentFinder:        &allAgentFinder{items: []*agentmdl.Agent{plannerAgent}},
+		plannerContracts:   testPlannerContractResolver(),
+		promptRepo:         promptrepo.NewWithStore(store),
+		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
+		templateRepo:       tplrepo.NewWithStore(store),
+		templateBundleRepo: tplbundlerepo.NewWithStore(store),
+	}
+
+	input := &QueryInput{
+		ConversationID: "conv-planner-template",
+		MessageID:      "turn-planner-template",
+		UserId:         "user-1",
+		Query:          "use exploratory strategy",
+		TemplateId:     "dashboard",
+		Agent: &agentmdl.Agent{
+			Identity:       agentmdl.Identity{ID: "coder"},
+			ModelSelection: llm.ModelSelection{Model: "router-model"},
+			Prompt:         &binding.Prompt{Text: "{{ .Task.Query }}"},
+			Tool:           agentmdl.Tool{Bundles: []string{"analyst-tools"}},
+			Prompts:        agentmdl.PromptAccess{Bundles: []string{"repo_analysis"}},
+			Template:       agentmdl.Template{Bundles: []string{"analytics-templates"}},
+		},
+	}
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
+		ConversationID: "conv-planner-template",
+		TurnID:         "turn-planner-template",
+		Assistant:      "coder",
+	})
+	ctx = runtimerequestctx.WithConversationID(ctx, "conv-planner-template")
+
+	tc := &intakesvc.Context{
+		Routing: intakesvc.RoutingContext{
+			Mode:            intakesvc.ModePlanner,
+			SelectedAgentID: "coder",
+			Source:          intakesvc.SourceWorkspace,
+		},
+		Planner: intakesvc.PlannerContext{
+			Trigger: "exploratory_strategy",
+			AgentID: "steward_planner",
+		},
+	}
+
+	_, _, err := svc.runPlannerPass(ctx, input, tc, mustResolveTestPlannerContract(t, testPlannerContractResolver(), input.Agent))
+	require.NoError(t, err)
+	require.NotEmpty(t, model.requests)
+
+	joined := collectRequestText(model.requests[0])
+	require.Contains(t, joined, "Planner Template Directory")
+	require.Contains(t, joined, "template-list")
+	require.Equal(t, 1, countString(reg.calls, "template:list"))
+}
+
+func countString(items []string, want string) int {
+	count := 0
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(want)) {
+			count++
+		}
+	}
+	return count
 }
 
 func TestPlannerPass_RetriesWithValidationFeedback(t *testing.T) {

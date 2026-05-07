@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -147,4 +148,28 @@ func TestStartRunHeartbeatPatchesInteractiveRunLiveness(t *testing.T) {
 	require.NotNil(t, last.LeaseUntil)
 	require.NotNil(t, last.LeaseOwner)
 	require.Equal(t, "host-a:123:lease", *last.LeaseOwner)
+}
+
+func TestStopRunHeartbeatThen_StopsBeforeFinalize(t *testing.T) {
+	order := make([]string, 0, 2)
+
+	err := stopRunHeartbeatThen(func() {
+		order = append(order, "stop")
+	}, func() error {
+		order = append(order, "finalize")
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"stop", "finalize"}, order)
+}
+
+func TestStopRunHeartbeatThen_PropagatesFinalizeError(t *testing.T) {
+	want := errors.New("boom")
+
+	err := stopRunHeartbeatThen(func() {}, func() error {
+		return want
+	})
+
+	require.ErrorIs(t, err, want)
 }

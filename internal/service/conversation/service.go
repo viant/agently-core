@@ -14,6 +14,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/sqlitewrite"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convdel "github.com/viant/agently-core/pkg/agently/conversation/delete"
 	convlist "github.com/viant/agently-core/pkg/agently/conversation/list"
@@ -44,6 +45,7 @@ import (
 type Service struct {
 	dao       *datly.Service
 	streamPub streaming.Publisher
+	writeGate string
 }
 
 func (s *Service) SetStreamPublisher(p streaming.Publisher) {
@@ -59,7 +61,7 @@ func New(ctx context.Context, dao *datly.Service) (*Service, error) {
 	if dao == nil {
 		return nil, errors.New("conversation service requires a non-nil datly.Service")
 	}
-	srv := &Service{dao: dao}
+	srv := &Service{dao: dao, writeGate: sqlitewrite.Key(dao, "agently")}
 	err := srv.init(ctx, dao)
 	if err != nil {
 		return nil, err
@@ -152,27 +154,40 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 
 var componentsByDAO sync.Map
 
+func (s *Service) withWriteGate(ctx context.Context, fn func() error) error {
+	_, err := sqlitewrite.Do(ctx, s.writeGate, func() (struct{}, error) {
+		return struct{}{}, fn()
+	})
+	return err
+}
+
 func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
 	if conversations != nil {
 		logx.Infof("conversation", "PatchConversations start id=%q status=%q visibility=%q", strings.TrimSpace(conversations.Id), strings.TrimSpace(valueOrEmptyStr(conversations.Status)), strings.TrimSpace(valueOrEmptyStr(conversations.Visibility)))
 	} else {
 		logx.Infof("conversation", "PatchConversations start id=\"\" status=\"\" visibility=\"\" (nil input)")
 	}
-	conv := []*convw.Conversation{(*convw.Conversation)(conversations)}
-	input := &convw.Input{Conversations: conv}
-	out := &convw.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, convw.PathURI)),
-		datly.WithInput(input),
-		datly.WithOutput(out),
-	)
+	err := s.withWriteGate(ctx, func() error {
+		conv := []*convw.Conversation{(*convw.Conversation)(conversations)}
+		input := &convw.Input{Conversations: conv}
+		out := &convw.Output{}
+		_, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPatch, convw.PathURI)),
+			datly.WithInput(input),
+			datly.WithOutput(out),
+		)
+		if err != nil {
+			logx.Errorf("conversation", "PatchConversations error id=%q err=%v", strings.TrimSpace(conversations.Id), err)
+			return err
+		}
+		if len(out.Violations) > 0 {
+			logx.Warnf("conversation", "PatchConversations violation id=%q msg=%q", strings.TrimSpace(conversations.Id), out.Violations[0].Message)
+			return errors.New(out.Violations[0].Message)
+		}
+		return nil
+	})
 	if err != nil {
-		logx.Errorf("conversation", "PatchConversations error id=%q err=%v", strings.TrimSpace(conversations.Id), err)
 		return err
-	}
-	if len(out.Violations) > 0 {
-		logx.Warnf("conversation", "PatchConversations violation id=%q msg=%q", strings.TrimSpace(conversations.Id), out.Violations[0].Message)
-		return errors.New(out.Violations[0].Message)
 	}
 	logx.Infof("conversation", "PatchConversations ok id=%q", strings.TrimSpace(conversations.Id))
 	s.publishConversationMetaEvent(ctx, conversations)
@@ -432,22 +447,28 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	if logPayloadDebug {
 		logx.Infof("conversation", "PatchPayload start id=%q kind=%q mime=%q size_bytes=%d", strings.TrimSpace(payload.Id), strings.TrimSpace(payload.Kind), strings.TrimSpace(payload.MimeType), payload.SizeBytes)
 	}
-	// MutablePayload is an alias of pkg/agently/payload.Payload
-	pw := (*payloadwrite.Payload)(payload)
-	input := &payloadwrite.Input{Payloads: []*payloadwrite.Payload{pw}}
-	out := &payloadwrite.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, payloadwrite.PathURI)),
-		datly.WithInput(input),
-		datly.WithOutput(out),
-	)
+	err := s.withWriteGate(ctx, func() error {
+		// MutablePayload is an alias of pkg/agently/payload.Payload
+		pw := (*payloadwrite.Payload)(payload)
+		input := &payloadwrite.Input{Payloads: []*payloadwrite.Payload{pw}}
+		out := &payloadwrite.Output{}
+		_, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPatch, payloadwrite.PathURI)),
+			datly.WithInput(input),
+			datly.WithOutput(out),
+		)
+		if err != nil {
+			logx.Errorf("conversation", "PatchPayload error id=%q err=%v", strings.TrimSpace(payload.Id), err)
+			return err
+		}
+		if len(out.Violations) > 0 {
+			logx.Warnf("conversation", "PatchPayload violation id=%q msg=%q", strings.TrimSpace(payload.Id), out.Violations[0].Message)
+			return errors.New(out.Violations[0].Message)
+		}
+		return nil
+	})
 	if err != nil {
-		logx.Errorf("conversation", "PatchPayload error id=%q err=%v", strings.TrimSpace(payload.Id), err)
 		return err
-	}
-	if len(out.Violations) > 0 {
-		logx.Warnf("conversation", "PatchPayload violation id=%q msg=%q", strings.TrimSpace(payload.Id), out.Violations[0].Message)
-		return errors.New(out.Violations[0].Message)
 	}
 	if logPayloadDebug {
 		logx.Infof("conversation", "PatchPayload ok id=%q", strings.TrimSpace(payload.Id))
@@ -622,39 +643,45 @@ func (s *Service) PatchMessage(ctx context.Context, message *convcli.MutableMess
 		logx.Infof("conversation", "PatchMessage start id=\"\" convo=\"\" turn=\"\" role=\"\" type=\"\" status=\"\" (nil input)")
 	}
 	mm := (*msgwrite.Message)(message)
-	input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
-	out := &msgwrite.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, msgwrite.PathURI)),
-		datly.WithInput(input),
-		datly.WithOutput(out),
-	)
+	err := s.withWriteGate(ctx, func() error {
+		input := &msgwrite.Input{Messages: []*msgwrite.Message{mm}}
+		out := &msgwrite.Output{}
+		_, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPatch, msgwrite.PathURI)),
+			datly.WithInput(input),
+			datly.WithOutput(out),
+		)
+		if err != nil {
+			// Augment DB/validation error with key message fields to aid diagnosis
+			logx.Errorf("conversation", "PatchMessage error id=%q convo=%q err=%v", message.Id, message.ConversationID, err)
+			return fmt.Errorf(
+				"patch message failed (id=%s convo=%s turn=%v role=%s type=%s status=%q): %w",
+				message.Id,
+				message.ConversationID,
+				valueOrEmpty(message.TurnID),
+				strings.TrimSpace(message.Role),
+				strings.TrimSpace(message.Type),
+				strings.TrimSpace(valueOrEmptyStr(message.Status)),
+				err,
+			)
+		}
+		if len(out.Violations) > 0 {
+			logx.Warnf("conversation", "PatchMessage violation id=%q convo=%q msg=%q", message.Id, message.ConversationID, out.Violations[0].Message)
+			return fmt.Errorf(
+				"patch message violation (id=%s convo=%s turn=%v role=%s type=%s status=%q): %s",
+				message.Id,
+				message.ConversationID,
+				valueOrEmpty(message.TurnID),
+				strings.TrimSpace(message.Role),
+				strings.TrimSpace(message.Type),
+				strings.TrimSpace(valueOrEmptyStr(message.Status)),
+				out.Violations[0].Message,
+			)
+		}
+		return nil
+	})
 	if err != nil {
-		// Augment DB/validation error with key message fields to aid diagnosis
-		logx.Errorf("conversation", "PatchMessage error id=%q convo=%q err=%v", message.Id, message.ConversationID, err)
-		return fmt.Errorf(
-			"patch message failed (id=%s convo=%s turn=%v role=%s type=%s status=%q): %w",
-			message.Id,
-			message.ConversationID,
-			valueOrEmpty(message.TurnID),
-			strings.TrimSpace(message.Role),
-			strings.TrimSpace(message.Type),
-			strings.TrimSpace(valueOrEmptyStr(message.Status)),
-			err,
-		)
-	}
-	if len(out.Violations) > 0 {
-		logx.Warnf("conversation", "PatchMessage violation id=%q convo=%q msg=%q", message.Id, message.ConversationID, out.Violations[0].Message)
-		return fmt.Errorf(
-			"patch message violation (id=%s convo=%s turn=%v role=%s type=%s status=%q): %s",
-			message.Id,
-			message.ConversationID,
-			valueOrEmpty(message.TurnID),
-			strings.TrimSpace(message.Role),
-			strings.TrimSpace(message.Type),
-			strings.TrimSpace(valueOrEmptyStr(message.Status)),
-			out.Violations[0].Message,
-		)
+		return err
 	}
 	s.publishMessagePatchEvent(ctx, message)
 	logx.Infof("conversation", "PatchMessage ok id=%q convo=%q", message.Id, message.ConversationID)
@@ -1243,22 +1270,28 @@ func (s *Service) PatchModelCall(ctx context.Context, modelCall *convcli.Mutable
 		return errors.New("invalid modelCall: nil")
 	}
 	logx.Infof("conversation", "PatchModelCall start message_id=%q turn_id=%q provider=%q model=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(valueOrEmptyStr(modelCall.TurnID)), strings.TrimSpace(modelCall.Provider), strings.TrimSpace(modelCall.Model), strings.TrimSpace(modelCall.Status))
-	mc := (*modelcallwrite.ModelCall)(modelCall)
-	input := &modelcallwrite.Input{ModelCalls: []*modelcallwrite.ModelCall{mc}}
-	out := &modelcallwrite.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, modelcallwrite.PathURI)),
-		datly.WithInput(input),
-		datly.WithOutput(out),
-	)
+	err := s.withWriteGate(ctx, func() error {
+		mc := (*modelcallwrite.ModelCall)(modelCall)
+		input := &modelcallwrite.Input{ModelCalls: []*modelcallwrite.ModelCall{mc}}
+		out := &modelcallwrite.Output{}
+		_, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPatch, modelcallwrite.PathURI)),
+			datly.WithInput(input),
+			datly.WithOutput(out),
+		)
 
+		if err != nil {
+			logx.Errorf("conversation", "PatchModelCall error message_id=%q err=%v", strings.TrimSpace(modelCall.MessageID), err)
+			return err
+		}
+		if len(out.Violations) > 0 {
+			logx.Warnf("conversation", "PatchModelCall violation message_id=%q msg=%q", strings.TrimSpace(modelCall.MessageID), out.Violations[0].Message)
+			return errors.New(out.Violations[0].Message)
+		}
+		return nil
+	})
 	if err != nil {
-		logx.Errorf("conversation", "PatchModelCall error message_id=%q err=%v", strings.TrimSpace(modelCall.MessageID), err)
 		return err
-	}
-	if len(out.Violations) > 0 {
-		logx.Warnf("conversation", "PatchModelCall violation message_id=%q msg=%q", strings.TrimSpace(modelCall.MessageID), out.Violations[0].Message)
-		return errors.New(out.Violations[0].Message)
 	}
 	s.emitCanonicalModelEvent(ctx, modelCall)
 	logx.Infof("conversation", "PatchModelCall ok message_id=%q status=%q", strings.TrimSpace(modelCall.MessageID), strings.TrimSpace(modelCall.Status))
@@ -1273,21 +1306,27 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 		return errors.New("invalid toolCall: nil")
 	}
 	logx.Infof("conversation", "PatchToolCall start message_id=%q op_id=%q tool=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.OpID), strings.TrimSpace(toolCall.ToolName), strings.TrimSpace(toolCall.Status))
-	tc := (*toolcallwrite.ToolCall)(toolCall)
-	input := &toolcallwrite.Input{ToolCalls: []*toolcallwrite.ToolCall{tc}}
-	out := &toolcallwrite.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, toolcallwrite.PathURI)),
-		datly.WithInput(input),
-		datly.WithOutput(out),
-	)
+	err := s.withWriteGate(ctx, func() error {
+		tc := (*toolcallwrite.ToolCall)(toolCall)
+		input := &toolcallwrite.Input{ToolCalls: []*toolcallwrite.ToolCall{tc}}
+		out := &toolcallwrite.Output{}
+		_, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPatch, toolcallwrite.PathURI)),
+			datly.WithInput(input),
+			datly.WithOutput(out),
+		)
+		if err != nil {
+			logx.Errorf("conversation", "PatchToolCall error message_id=%q err=%v", strings.TrimSpace(toolCall.MessageID), err)
+			return err
+		}
+		if len(out.Violations) > 0 {
+			logx.Warnf("conversation", "PatchToolCall violation message_id=%q msg=%q", strings.TrimSpace(toolCall.MessageID), out.Violations[0].Message)
+			return errors.New(out.Violations[0].Message)
+		}
+		return nil
+	})
 	if err != nil {
-		logx.Errorf("conversation", "PatchToolCall error message_id=%q err=%v", strings.TrimSpace(toolCall.MessageID), err)
 		return err
-	}
-	if len(out.Violations) > 0 {
-		logx.Warnf("conversation", "PatchToolCall violation message_id=%q msg=%q", strings.TrimSpace(toolCall.MessageID), out.Violations[0].Message)
-		return errors.New(out.Violations[0].Message)
 	}
 	if event := toolCallEvent(ctx, toolCall); event != nil {
 		s.emitTimelineEvent(ctx, event, "PatchToolCall publish timeline event")
@@ -1361,21 +1400,27 @@ func (s *Service) PatchTurn(ctx context.Context, turn *convcli.MutableTurn) erro
 		return errors.New("invalid turn: nil")
 	}
 	logx.Infof("conversation", "PatchTurn start id=%q convo=%q status=%q queue_seq=%v", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.Status), valueOrEmpty(turn.QueueSeq))
-	tr := (*turnwrite.Turn)(turn)
-	input := &turnwrite.Input{Turns: []*turnwrite.Turn{tr}}
-	out := &turnwrite.Output{}
-	_, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPatch, turnwrite.PathURI)),
-		datly.WithInput(input),
-		datly.WithOutput(out),
-	)
+	err := s.withWriteGate(ctx, func() error {
+		tr := (*turnwrite.Turn)(turn)
+		input := &turnwrite.Input{Turns: []*turnwrite.Turn{tr}}
+		out := &turnwrite.Output{}
+		_, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPatch, turnwrite.PathURI)),
+			datly.WithInput(input),
+			datly.WithOutput(out),
+		)
+		if err != nil {
+			logx.Errorf("conversation", "PatchTurn error id=%q err=%v", strings.TrimSpace(turn.Id), err)
+			return err
+		}
+		if len(out.Violations) > 0 {
+			logx.Warnf("conversation", "PatchTurn violation id=%q msg=%q", strings.TrimSpace(turn.Id), out.Violations[0].Message)
+			return errors.New(out.Violations[0].Message)
+		}
+		return nil
+	})
 	if err != nil {
-		logx.Errorf("conversation", "PatchTurn error id=%q err=%v", strings.TrimSpace(turn.Id), err)
 		return err
-	}
-	if len(out.Violations) > 0 {
-		logx.Warnf("conversation", "PatchTurn violation id=%q msg=%q", strings.TrimSpace(turn.Id), out.Violations[0].Message)
-		return errors.New(out.Violations[0].Message)
 	}
 	s.publishTurnEvent(ctx, turn)
 	logx.Infof("conversation", "PatchTurn ok id=%q status=%q", strings.TrimSpace(turn.Id), strings.TrimSpace(turn.Status))

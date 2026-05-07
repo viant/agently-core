@@ -16,10 +16,24 @@ import (
 )
 
 const (
-	defaultConnMaxLifetime = 55 * time.Minute
-	defaultConnMaxIdle     = 5 * time.Minute
-	defaultMaxIdleConns    = 4
+	defaultConnMaxLifetime    = 55 * time.Minute
+	defaultConnMaxIdle        = 5 * time.Minute
+	defaultMaxIdleConns       = 4
+	defaultSQLiteMaxOpenConns = 2
+	defaultSQLiteMaxIdleConns = 2
 )
+
+func applySQLitePoolDefaults(conn *view.Connector) {
+	if conn == nil {
+		return
+	}
+	if conn.MaxOpenConns == 0 {
+		conn.MaxOpenConns = defaultSQLiteMaxOpenConns
+	}
+	if conn.MaxIdleConns == 0 {
+		conn.MaxIdleConns = defaultSQLiteMaxIdleConns
+	}
+}
 
 // NewDatly constructs a datly.Service and wires the optional SQL connector
 // from AGENTLY_DB_* environment variables. It returns the service with or without
@@ -81,6 +95,8 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 			if conn.MaxIdleConns == 0 {
 				conn.MaxIdleConns = defaultMaxIdleConns
 			}
+		} else if strings.EqualFold(driver, "sqlite") {
+			applySQLitePoolDefaults(conn)
 		}
 		if err := svc.AddConnectors(ctx, conn); err != nil {
 			initErr = err

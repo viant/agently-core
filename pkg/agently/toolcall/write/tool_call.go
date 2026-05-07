@@ -88,6 +88,11 @@ func (t *ToolCall) SetErrorMessage(v string) {
 	t.ensureHas()
 	t.Has.ErrorMessage = true
 }
+func (t *ToolCall) SetCompletedAt(v time.Time) {
+	t.CompletedAt = &v
+	t.ensureHas()
+	t.Has.CompletedAt = true
+}
 func (t *ToolCall) SetRunID(v string) { t.RunID = &v; t.ensureHas(); t.Has.RunID = true }
 func (t *ToolCall) SetIteration(v int) {
 	t.Iteration = &v

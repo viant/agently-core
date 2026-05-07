@@ -153,13 +153,21 @@ func (s *DatlyUserService) upsert(ctx context.Context, explicitID, username, dis
 	}
 	id := strings.TrimSpace(explicitID)
 	normalizedProvider := firstNonEmpty(strings.TrimSpace(provider), "oauth")
+	var existingBySubject *User
 	if id == "" && strings.TrimSpace(subject) != "" {
-		existingBySubject, err := s.GetBySubjectAndProvider(ctx, strings.TrimSpace(subject), normalizedProvider)
+		var err error
+		existingBySubject, err = s.GetBySubjectAndProvider(ctx, strings.TrimSpace(subject), normalizedProvider)
 		if err != nil {
 			return "", err
 		}
 		if existingBySubject != nil && strings.TrimSpace(existingBySubject.ID) != "" {
 			id = existingBySubject.ID
+			if subjectIdentityReusable(existingBySubject, strings.TrimSpace(email), normalizedProvider, strings.TrimSpace(subject), strings.TrimSpace(timezone), settings) {
+				return id, nil
+			}
+			if userMatchesDesired(existingBySubject, strings.TrimSpace(username), strings.TrimSpace(displayName), strings.TrimSpace(email), normalizedProvider, strings.TrimSpace(subject), strings.TrimSpace(timezone), settings) {
+				return id, nil
+			}
 		}
 	}
 	if id == "" {
@@ -200,6 +208,57 @@ func (s *DatlyUserService) upsert(ctx context.Context, explicitID, username, dis
 		return "", err
 	}
 	return id, nil
+}
+
+func userMatchesDesired(existing *User, username, displayName, email, provider, subject, timezone string, settings map[string]any) bool {
+	if existing == nil {
+		return false
+	}
+	if strings.TrimSpace(existing.Username) != strings.TrimSpace(username) {
+		return false
+	}
+	wantDisplay := strings.TrimSpace(firstNonEmpty(displayName, username))
+	if strings.TrimSpace(existing.DisplayName) != wantDisplay {
+		return false
+	}
+	if strings.TrimSpace(existing.Email) != strings.TrimSpace(email) {
+		return false
+	}
+	if strings.TrimSpace(existing.Provider) != strings.TrimSpace(provider) {
+		return false
+	}
+	if strings.TrimSpace(existing.Subject) != strings.TrimSpace(subject) {
+		return false
+	}
+	if strings.TrimSpace(timezone) != "" && !strings.EqualFold(strings.TrimSpace(timezone), "UTC") {
+		return false
+	}
+	if len(settings) > 0 {
+		return false
+	}
+	return true
+}
+
+func subjectIdentityReusable(existing *User, email, provider, subject, timezone string, settings map[string]any) bool {
+	if existing == nil {
+		return false
+	}
+	if strings.TrimSpace(existing.Provider) != strings.TrimSpace(provider) {
+		return false
+	}
+	if strings.TrimSpace(existing.Subject) != strings.TrimSpace(subject) {
+		return false
+	}
+	if strings.TrimSpace(email) != "" && strings.TrimSpace(existing.Email) != strings.TrimSpace(email) {
+		return false
+	}
+	if strings.TrimSpace(timezone) != "" && !strings.EqualFold(strings.TrimSpace(timezone), "UTC") {
+		return false
+	}
+	if len(settings) > 0 {
+		return false
+	}
+	return true
 }
 
 func (s *DatlyUserService) write(ctx context.Context, user *userwrite.User) error {

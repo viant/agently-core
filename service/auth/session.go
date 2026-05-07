@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -147,6 +148,32 @@ func (m *Manager) Put(ctx context.Context, s *Session) {
 	if m.store != nil {
 		_ = m.store.Upsert(ctx, sessionToRecord(s))
 	}
+}
+
+// PutAsync stores the session in memory immediately and persists it to the
+// backing store out-of-band. Use this on latency-sensitive HTTP auth paths
+// where the request should not block on durable session persistence.
+func (m *Manager) PutAsync(ctx context.Context, s *Session) {
+	if s == nil {
+		return
+	}
+	if s.ExpiresAt.IsZero() {
+		s.ExpiresAt = time.Now().Add(m.ttl)
+	}
+	m.mu.Lock()
+	m.mem[s.ID] = s
+	m.mu.Unlock()
+	if m.store == nil {
+		return
+	}
+	rec := sessionToRecord(s)
+	go func() {
+		persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := m.store.Upsert(persistCtx, rec); err != nil {
+			log.Printf("[auth-session] async persist failed session=%q err=%v", strings.TrimSpace(rec.ID), err)
+		}
+	}()
 }
 
 // ActiveSessions returns a snapshot of all non-expired sessions in memory.

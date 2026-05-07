@@ -112,7 +112,14 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 		return nil, nil, err
 	}
 
-	b, err := s.BuildBinding(ctx, plannerInput)
+	runCtx := s.ensureRunTrackedLLMContext(ctx, strings.TrimSpace(input.ConversationID), "planner_pass", strings.TrimSpace(input.MessageID))
+	runCtx = runtimerequestctx.WithRequestMode(runCtx, "plan")
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(runCtx); ok {
+		tm.Assistant = strings.TrimSpace(plannerAgent.ID)
+		runCtx = runtimerequestctx.WithTurnMeta(runCtx, tm)
+	}
+
+	b, err := s.BuildBinding(runCtx, plannerInput)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -124,8 +131,6 @@ func (s *Service) runPlannerPass(ctx context.Context, input *QueryInput, tc *int
 	b.Tools.Signatures = nil
 	b.Flags.CanUseTool = false
 
-	runCtx := s.ensureRunTrackedLLMContext(ctx, strings.TrimSpace(input.ConversationID), "planner_pass", strings.TrimSpace(input.MessageID))
-	runCtx = runtimerequestctx.WithRequestMode(runCtx, "plan")
 	if err := s.appendPlannerControlDocs(runCtx, input, plannerInput, plannerAgent, b); err != nil {
 		return nil, nil, err
 	}
@@ -278,7 +283,7 @@ func (s *Service) appendPlannerControlDoc(ctx context.Context, b *binding.Bindin
 	if b == nil || s == nil || s.registry == nil {
 		return nil
 	}
-	if hasDocumentURI(b.SystemDocuments.Items, sourceURI) {
+	if hasDocumentURI(b.SystemDocuments.Items, sourceURI) || hasDocumentTool(b.SystemDocuments.Items, toolName) {
 		return nil
 	}
 	result, err := s.registry.Execute(ctx, toolName, args)
@@ -317,6 +322,22 @@ func (s *Service) appendPlannerControlDoc(ctx context.Context, b *binding.Bindin
 		},
 	})
 	return nil
+}
+
+func hasDocumentTool(items []*binding.Document, toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return false
+	}
+	for _, doc := range items {
+		if doc == nil || doc.Metadata == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(doc.Metadata["tool"]), toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) resolvePlannerExecutionInput(ctx context.Context, input *QueryInput, tc *intakesvc.Context) (*agentmdl.Agent, *QueryInput, error) {
