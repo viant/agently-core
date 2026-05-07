@@ -79,7 +79,7 @@ func TestRenderBootstrapToolContext_DataDriven(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := renderBootstrapToolContext(testCase.call, testCase.result)
+			got := renderBootstrapToolContext(testCase.call, cloneBootstrapArgs(testCase.call.Args), testCase.result)
 			for _, expected := range testCase.contains {
 				assert.Contains(t, got, expected)
 			}

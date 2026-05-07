@@ -123,36 +123,28 @@ func (s *Service) resolveTraces(ctx context.Context, conversationID string) apic
 			continue
 		}
 		for _, m := range turn.GetMessages() {
-			if m.ModelCall != nil {
-				if m.ModelCall.TraceId == nil {
+			if m.ModelCall != nil && m.ModelCall.TraceId != nil {
+				if traceID := strings.TrimSpace(*m.ModelCall.TraceId); traceID != "" {
+					out[traceID] = m
+				}
+			}
+			indexedTool := false
+			for _, tm := range m.ToolMessage {
+				if tm == nil || tm.ToolCall == nil {
 					continue
 				}
-				out[*m.ModelCall.TraceId] = m
-				continue
-			}
-			var toolCall *apiconv.ToolCallView
-			for _, tm := range m.ToolMessage {
-				if tm != nil && tm.ToolCall != nil {
-					toolCall = tm.ToolCall
-					break
+				opID := strings.TrimSpace(tm.ToolCall.OpId)
+				if opID == "" || tm.ToolCall.TraceId == nil {
+					continue
+				}
+				if traceID := strings.TrimSpace(*tm.ToolCall.TraceId); traceID != "" {
+					out[opID] = m
+					indexedTool = true
 				}
 			}
-			if m.ModelCall == nil && toolCall == nil && m.Content != nil {
+			if m.ModelCall == nil && !indexedTool && m.Content != nil {
 				out[*m.Content] = m
 				continue
-			}
-
-			if toolCall == nil {
-				continue
-			}
-			opID := strings.TrimSpace(toolCall.OpId)
-			if opID == "" {
-				continue
-			}
-			if toolCall.TraceId != nil {
-				if v := strings.TrimSpace(*toolCall.TraceId); v != "" {
-					out[opID] = m
-				}
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -8,7 +9,41 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	scyauth "github.com/viant/scy/auth"
+	"golang.org/x/oauth2"
 )
+
+type blockingDisplayLookupUserService struct {
+	release chan struct{}
+}
+
+func (b *blockingDisplayLookupUserService) GetByUsername(_ context.Context, username string) (*User, error) {
+	return &User{ID: "user-1", Username: username, DisplayName: "Awitas"}, nil
+}
+
+func (b *blockingDisplayLookupUserService) GetBySubjectAndProvider(ctx context.Context, subject, provider string) (*User, error) {
+	select {
+	case <-b.release:
+		return &User{ID: "user-1", Username: "awitas", DisplayName: "Awitas", Subject: subject, Provider: provider}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingDisplayLookupUserService) Upsert(_ context.Context, _ *User) error { return nil }
+
+func (b *blockingDisplayLookupUserService) UpsertWithProvider(_ context.Context, username, displayName, email, provider, subject string) (string, error) {
+	return "user-1", nil
+}
+
+func (b *blockingDisplayLookupUserService) UpdateHashIPByID(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (b *blockingDisplayLookupUserService) UpdatePreferences(_ context.Context, _ string, _ *PreferencesPatch) error {
+	return nil
+}
 
 func TestRuntimeHandleCreateSession_UsesBearerTokenIdentityWhenBodyTokensMissing(t *testing.T) {
 	ext := &authExtension{
@@ -259,6 +294,56 @@ func TestRuntimeHandleMe_UsesStoredDisplayNameForOAuthSession(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out["displayName"].(string)); got != "Awitas" {
 		t.Fatalf("displayName = %q, want %q", got, "Awitas")
+	}
+}
+
+func TestRuntimeHandleMe_DoesNotBlockOnDisplayLookup(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions: NewManager(time.Hour, nil),
+		users:    &blockingDisplayLookupUserService{release: make(chan struct{})},
+	}
+
+	sess := &Session{
+		ID:        "sess-1",
+		Username:  "awitas",
+		Subject:   "awitas_viant_devtest",
+		Provider:  "oauth",
+		CreatedAt: time.Now(),
+		Tokens: &scyauth.Token{
+			Token: oauth2.Token{
+				AccessToken:  "access",
+				RefreshToken: "refresh",
+				Expiry:       time.Now().Add(time.Hour),
+			},
+			IDToken: "id",
+		},
+	}
+	ext.sessions.Put(nil, sess)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: sess.ID})
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	ext.handleMe().ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if elapsed > authDisplayLookupTimeout+250*time.Millisecond {
+		t.Fatalf("handleMe blocked on display lookup, took %s", elapsed)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if got := strings.TrimSpace(out["displayName"].(string)); got != "awitas" {
+		t.Fatalf("displayName = %q, want %q fallback", got, "awitas")
 	}
 }
 

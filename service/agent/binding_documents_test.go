@@ -36,12 +36,38 @@ type staticRegistry struct {
 	lastArgs map[string]interface{}
 }
 
-func (s *staticRegistry) Definitions() []llm.ToolDefinition                { return nil }
-func (s *staticRegistry) MatchDefinition(string) []*llm.ToolDefinition     { return nil }
-func (s *staticRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { return nil, false }
-func (s *staticRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
-func (s *staticRegistry) SetDebugLogger(io.Writer)                         {}
-func (s *staticRegistry) Initialize(context.Context)                       {}
+func (s *staticRegistry) Definitions() []llm.ToolDefinition {
+	return []llm.ToolDefinition{
+		{Name: "llm/agents:list", Description: "list agents"},
+		{Name: "llm/agents:topology", Description: "planner topology"},
+		{Name: "llm/agents:tool_details", Description: "planner tool details"},
+		{Name: "prompt:list", Description: "list prompt profiles"},
+		{Name: "template:list", Description: "list templates"},
+		{Name: "llm/skills:list", Description: "list visible skills"},
+		{Name: "resources:roots", Description: "list resource roots"},
+		{Name: "resources:list", Description: "list resources"},
+		{Name: "resources:read", Description: "read a resource"},
+		{Name: "resources:match", Description: "semantic resource match"},
+	}
+}
+func (s *staticRegistry) MatchDefinition(name string) []*llm.ToolDefinition {
+	if def, ok := s.GetDefinition(name); ok {
+		return []*llm.ToolDefinition{def}
+	}
+	return nil
+}
+func (s *staticRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	for _, def := range s.Definitions() {
+		if strings.EqualFold(strings.TrimSpace(def.Name), strings.TrimSpace(name)) {
+			copy := def
+			return &copy, true
+		}
+	}
+	return nil, false
+}
+func (s *staticRegistry) MustHaveTools([]string) ([]llm.Tool, error) { return nil, nil }
+func (s *staticRegistry) SetDebugLogger(io.Writer)                   {}
+func (s *staticRegistry) Initialize(context.Context)                 {}
 func (s *staticRegistry) Execute(_ context.Context, name string, args map[string]interface{}) (string, error) {
 	s.calls++
 	s.lastName = name
@@ -134,7 +160,7 @@ func TestAppendBootstrapSystemDocuments_ExecutesToolAndAddsProvenanceHeader(t *t
 		},
 	}
 	ctx := runtimerequestctx.WithTurnMeta(context.Background(), runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
-	b := &binding.Binding{}
+	b := &binding.Binding{Tools: binding.Tools{Signatures: []*llm.ToolDefinition{{Name: "llm/agents:list"}}}}
 
 	err := svc.appendBootstrapSystemDocuments(ctx, input, b)
 
@@ -205,10 +231,83 @@ func TestAppendBootstrapSystemDocuments_CacheInheritsToolExposure_DataDriven(t *
 
 			for _, turnID := range testCase.turnIDs {
 				ctx := runtimerequestctx.WithTurnMeta(context.Background(), runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: turnID})
-				assert.NoError(t, svc.appendBootstrapSystemDocuments(ctx, input, &binding.Binding{}))
+				assert.NoError(t, svc.appendBootstrapSystemDocuments(ctx, input, &binding.Binding{
+					Tools: binding.Tools{Signatures: []*llm.ToolDefinition{{Name: "llm/agents:list"}}},
+				}))
 			}
 
 			assert.Equal(t, testCase.expectedCalls, reg.calls)
 		})
+	}
+}
+
+func TestAppendBootstrapSystemDocuments_DoesNotRequireVisibleToolSurface(t *testing.T) {
+	reg := &staticRegistry{result: `{"ok":true}`}
+	svc := &Service{registry: reg}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Agent: &agproto.Agent{
+			Identity: agproto.Identity{ID: "parent"},
+			Bootstrap: agproto.Bootstrap{ToolCalls: []agproto.BootstrapToolCall{
+				{
+					ID:   "planner_topology",
+					Tool: "llm/agents:topology",
+					Inject: agproto.BootstrapInject{
+						As: "systemContext",
+					},
+				},
+			}},
+		},
+	}
+	ctx := runtimerequestctx.WithTurnMeta(context.Background(), runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+	b := &binding.Binding{
+		Tools: binding.Tools{Signatures: []*llm.ToolDefinition{{Name: "llm/agents:list"}}},
+	}
+
+	err := svc.appendBootstrapSystemDocuments(ctx, input, b)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, reg.calls)
+	if assert.Len(t, b.SystemDocuments.Items, 1) {
+		assert.Equal(t, "llm/agents:topology", reg.lastName)
+		assert.Contains(t, b.SystemDocuments.Items[0].PageContent, `"ok":true`)
+	}
+}
+
+func TestAppendBootstrapSystemDocuments_ExpandsArgsFromQueryInput(t *testing.T) {
+	reg := &staticRegistry{result: `{"documents":[]}`}
+	svc := &Service{registry: reg}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		UserId:         "user-1",
+		Query:          "recommend site changes for adOrder 2650500",
+		Agent: &agproto.Agent{
+			Identity: agproto.Identity{ID: "planner"},
+			Bootstrap: agproto.Bootstrap{ToolCalls: []agproto.BootstrapToolCall{
+				{
+					ID:   "planner_match",
+					Tool: "resources:match",
+					Args: map[string]interface{}{
+						"query":   "{{query}}",
+						"rootIds": []interface{}{"planner-business-logic"},
+					},
+					Inject: agproto.BootstrapInject{
+						As: "systemContext",
+					},
+				},
+			}},
+		},
+	}
+	ctx := runtimerequestctx.WithTurnMeta(context.Background(), runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1", Assistant: "planner"})
+	b := &binding.Binding{
+		Tools: binding.Tools{Signatures: []*llm.ToolDefinition{{Name: "resources:match"}}},
+	}
+
+	err := svc.appendBootstrapSystemDocuments(ctx, input, b)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "recommend site changes for adOrder 2650500", reg.lastArgs["query"])
+	if assert.Len(t, b.SystemDocuments.Items, 1) {
+		assert.Contains(t, b.SystemDocuments.Items[0].PageContent, "recommend site changes for adOrder 2650500")
 	}
 }

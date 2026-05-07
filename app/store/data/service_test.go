@@ -746,7 +746,7 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListStaleRuns() error: %v", err)
 	}
-	assertRunIDs(t, stale, []string{"run-1"})
+	assertRunIDs(t, stale, []string{"run-1", "run-6"})
 
 	staleHostB, err := svc.ListStaleRuns(ctx, &agrunstale.StaleRunsInput{
 		HeartbeatBefore: mustTime("2026-01-01T09:20:00Z"),

@@ -54,6 +54,7 @@ type Runtime struct {
 	Data              data.Service
 	Registry          tool.Registry
 	Core              *core.Service
+	Augmenter         *augmenter.Service
 	Agent             *agentsvc.Service
 	MCPManager        *mcpmgr.Manager
 	CancelRegistry    cancels.Registry
@@ -364,6 +365,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
+	out.Augmenter = aug
 	if resourcesSvc := resourcessvc.New(aug,
 		resourcessvc.WithMCPManager(out.MCPManager),
 		resourcessvc.WithConversationClient(out.Conversation),

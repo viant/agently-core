@@ -14,15 +14,10 @@ import (
 // assistant response anchor (resp.id) and including only tool-call messages that
 // map to that anchor.
 //
-// Safety rules:
-//   - Continuation is only valid when every tool call produced by the anchored
-//     iteration has a corresponding tool result selected for replay. Partial
-//     tool-result continuation can cause provider-side errors because the
-//     anchor still expects the full set of function/tool outputs for that
-//     iteration.
-//   - Leading or mid-history system messages do not disable continuation by
-//     themselves. The provider-side hard requirement is complete tool-call
-//     replay for the anchored response; dropping that continuity causes errors.
+// Continuation replays the exact tool-call/tool-result slice for the latest
+// anchored provider response. If replay state is wrong, the producer needs to
+// emit the missing tool-call trace or tool result rather than teaching the
+// continuation layer to guess around the gap.
 func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *binding.History) *llm.GenerateRequest {
 	var conversationID string
 	if meta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -61,8 +56,6 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	var selected llm.Messages
 	assistantToolCallCount := 0
 	toolResultCount := 0
-	expectedToolCallIDs := make([]string, 0)
-	toolResultIDs := make([]string, 0)
 	seenSelectedToolCalls := map[string]struct{}{}
 	seenSelectedToolResults := map[string]struct{}{}
 
@@ -108,7 +101,6 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 				}
 				seenSelectedToolCalls[id] = struct{}{}
 				unique = append(unique, call)
-				expectedToolCallIDs = append(expectedToolCallIDs, id)
 			}
 			if len(unique) == 0 {
 				continue
@@ -135,7 +127,6 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			}
 			seenSelectedToolResults[toolCallID] = struct{}{}
 			toolResultCount++
-			toolResultIDs = append(toolResultIDs, toolCallID)
 			selected.Append(m)
 			continue
 		}
@@ -165,37 +156,6 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		})
 		return nil
 	}
-	// Guard: reject continuation when tool results are incomplete.
-	// Multi-tool continuation is fine as long as every tool call has a matching
-	// result — the provider sends all function_call_output items together.
-	if assistantToolCallCount > 0 && toolResultCount < assistantToolCallCount {
-		debugtrace.LogToFile("core", "continuation_rejected", map[string]interface{}{
-			"reason":              "multi_tool_guard",
-			"anchorID":            anchorID,
-			"assistantToolCalls":  assistantToolCallCount,
-			"toolResults":         toolResultCount,
-			"expectedToolCallIDs": expectedToolCallIDs,
-			"toolResultIDs":       toolResultIDs,
-		})
-		if debugtrace.Enabled() {
-			debugtrace.Write("core", "continuation_skipped", map[string]any{
-				"conversationID":      strings.TrimSpace(conversationID),
-				"reason":              "multi_tool_anchor_fallback",
-				"anchorID":            anchorID,
-				"assistantToolCalls":  assistantToolCallCount,
-				"toolResultMessages":  toolResultCount,
-				"expectedToolCallIDs": expectedToolCallIDs,
-				"toolResultIDs":       toolResultIDs,
-				"selectedMessages":    debugtrace.SummarizeMessages(selected),
-			})
-		}
-		return nil
-	}
-
-	// Cross-check: count how many tool calls the anchor actually produced
-	// (from the traces map) vs how many we selected. If they disagree, a tool
-	// result was dropped (e.g. missing payload) and continuing would trigger
-	// "No tool output found" from the provider.
 	anchorToolCallIDs := make([]string, 0)
 	for key, trace := range history.Traces {
 		if trace == nil || trace.Kind != binding.KindToolCall || trace.ID != anchorID {
@@ -213,21 +173,6 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		"selectedToolResults": toolResultCount,
 		"selectedToolCalls":   assistantToolCallCount,
 	})
-	if len(anchorToolCallIDs) > 0 && toolResultCount < len(anchorToolCallIDs) {
-		if debugtrace.Enabled() {
-			debugtrace.Write("core", "continuation_skipped", map[string]any{
-				"conversationID":      strings.TrimSpace(conversationID),
-				"reason":              "anchor_tool_count_mismatch",
-				"anchorID":            anchorID,
-				"anchorToolCallIDs":   anchorToolCallIDs,
-				"selectedToolResults": toolResultCount,
-				"selectedToolCalls":   assistantToolCallCount,
-				"expectedToolCallIDs": expectedToolCallIDs,
-				"toolResultIDs":       toolResultIDs,
-			})
-		}
-		return nil
-	}
 
 	// Build continuation request with selected tool-call messages
 	continuationRequest := &llm.GenerateRequest{}

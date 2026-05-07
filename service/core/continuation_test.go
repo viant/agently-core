@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -157,36 +158,6 @@ func TestBuildContinuationRequest_DedupesRepeatedToolReplayPairs(t *testing.T) {
 			assert.Equal(t, "call-1", cont.Messages[1].ToolCallId)
 		}
 	}
-}
-
-// TestBuildContinuationRequest_SkipsWhenToolResultDropped reproduces the
-// "No tool output found for function call" bug. The LLM response (anchor)
-// produced two tool calls, but one tool result's payload was lost so only
-// one tool-call/result pair appears in the request messages. The old guard
-// (count-based) would incorrectly allow continuation because it saw 1:1;
-// the cross-check against the traces map detects the mismatch and skips.
-func TestBuildContinuationRequest_SkipsWhenToolResultDropped(t *testing.T) {
-	svc := &Service{}
-	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
-	history := &binding.History{
-		Traces:       map[string]*binding.Trace{},
-		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
-	}
-	// The anchor response produced two tool calls.
-	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
-	history.Traces[binding.KindToolCall.Key("call-2")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
-
-	// But only call-1's result survived (call-2's payload was lost).
-	// toolResultLLMMessages would have produced the assistant+tool pair for call-1 only.
-	req := &llm.GenerateRequest{}
-	req.Messages = append(req.Messages,
-		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "resources-list"}}},
-		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"files":["a.go"]}`},
-	)
-
-	cont := svc.BuildContinuationRequest(ctx, req, history)
-	// Must skip continuation: the anchor had 2 tool calls but we only have 1 result.
-	assert.Nil(t, cont, "continuation should be skipped when anchor tool call count exceeds selected tool results")
 }
 
 func TestBuildContinuationRequest_AllowsSystemMessagesWhenToolReplayIsComplete(t *testing.T) {
@@ -352,6 +323,150 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 		// With empty trace ID, continuation falls back to full — this IS the bug
 		assert.Nil(t, cont, "continuation should fail when tool call trace ID is empty (the bug)")
 	})
+}
+
+func TestTryGenerateContinuationByAnchor_ReplaysAllToolOutputsForSharedParentMessage(t *testing.T) {
+	respID := "resp-123"
+	call1 := "call-1"
+	call2 := "call-2"
+	convView := &agconv.ConversationView{
+		Id: "conv-1",
+		Transcript: []*agconv.TranscriptView{{
+			Id:             "turn-1",
+			ConversationId: "conv-1",
+			Message: []*agconv.MessageView{{
+				Id:             "assistant-1",
+				ConversationId: "conv-1",
+				Role:           "assistant",
+				Type:           "text",
+				CreatedAt:      time.Now(),
+				ModelCall: &agconv.ModelCallView{
+					TraceId: &respID,
+					Status:  "completed",
+				},
+				ToolMessage: []*agconv.ToolMessageView{
+					{Id: "tool-msg-1", ToolCall: &agconv.ToolCallView{MessageId: "tool-msg-1", OpId: call1, TraceId: &respID, Status: "completed"}},
+					{Id: "tool-msg-2", ToolCall: &agconv.ToolCallView{MessageId: "tool-msg-2", OpId: call2, TraceId: &respID, Status: "completed"}},
+				},
+			}},
+		}},
+	}
+	conv := (*apiconv.Conversation)(convView)
+	model := &continuationRecordingModel{
+		response: &llm.GenerateResponse{ResponseID: "resp-next"},
+	}
+	svc := &Service{convClient: continuationConversationClient{conversation: conv}}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+
+	request := &llm.GenerateRequest{
+		Messages: []llm.Message{
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{
+					{ID: call1, Name: "toolA"},
+					{ID: call2, Name: "toolB"},
+				},
+			},
+			{Role: llm.RoleTool, ToolCallId: call1, Content: `{"ok":true}`},
+			{Role: llm.RoleTool, ToolCallId: call2, Content: `{"ok":true}`},
+		},
+	}
+
+	resp, used, err := svc.tryGenerateContinuationByAnchor(ctx, model, request)
+	if err != nil {
+		t.Fatalf("tryGenerateContinuationByAnchor() error: %v", err)
+	}
+	if !used {
+		t.Fatalf("expected continuation-by-anchor to be used")
+	}
+	if resp == nil || resp.ResponseID != "resp-next" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+	if len(model.requests) != 1 {
+		t.Fatalf("expected one continuation subcall, got %d", len(model.requests))
+	}
+	got := model.requests[0]
+	if got.PreviousResponseID != respID {
+		t.Fatalf("expected previous_response_id=%q, got %q", respID, got.PreviousResponseID)
+	}
+	if len(got.Messages) != 3 {
+		t.Fatalf("expected assistant tool-call message plus two tool results, got %#v", got.Messages)
+	}
+	if len(got.Messages[0].ToolCalls) != 2 {
+		t.Fatalf("expected both tool calls to stay visible in anchored replay, got %#v", got.Messages[0].ToolCalls)
+	}
+}
+
+type continuationConversationClient struct {
+	conversation *apiconv.Conversation
+}
+
+func (c continuationConversationClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
+	return c.conversation, nil
+}
+
+func (c continuationConversationClient) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
+	return nil, fmt.Errorf("unexpected GetConversations call")
+}
+
+func (c continuationConversationClient) PatchConversations(context.Context, *apiconv.MutableConversation) error {
+	return fmt.Errorf("unexpected PatchConversations call")
+}
+
+func (c continuationConversationClient) GetPayload(context.Context, string) (*apiconv.Payload, error) {
+	return nil, fmt.Errorf("unexpected GetPayload call")
+}
+
+func (c continuationConversationClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+	return fmt.Errorf("unexpected PatchPayload call")
+}
+
+func (c continuationConversationClient) PatchMessage(context.Context, *apiconv.MutableMessage) error {
+	return fmt.Errorf("unexpected PatchMessage call")
+}
+
+func (c continuationConversationClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
+	return nil, fmt.Errorf("unexpected GetMessage call")
+}
+
+func (c continuationConversationClient) GetMessageByElicitation(context.Context, string, string) (*apiconv.Message, error) {
+	return nil, fmt.Errorf("unexpected GetMessageByElicitation call")
+}
+
+func (c continuationConversationClient) PatchModelCall(context.Context, *apiconv.MutableModelCall) error {
+	return fmt.Errorf("unexpected PatchModelCall call")
+}
+
+func (c continuationConversationClient) PatchToolCall(context.Context, *apiconv.MutableToolCall) error {
+	return fmt.Errorf("unexpected PatchToolCall call")
+}
+
+func (c continuationConversationClient) PatchTurn(context.Context, *apiconv.MutableTurn) error {
+	return fmt.Errorf("unexpected PatchTurn call")
+}
+
+func (c continuationConversationClient) DeleteConversation(context.Context, string) error {
+	return fmt.Errorf("unexpected DeleteConversation call")
+}
+
+func (c continuationConversationClient) DeleteMessage(context.Context, string, string) error {
+	return fmt.Errorf("unexpected DeleteMessage call")
+}
+
+type continuationRecordingModel struct {
+	requests []*llm.GenerateRequest
+	response *llm.GenerateResponse
+}
+
+func (m *continuationRecordingModel) Generate(_ context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	cp := *request
+	cp.Messages = append([]llm.Message(nil), request.Messages...)
+	m.requests = append(m.requests, &cp)
+	return m.response, nil
+}
+
+func (m *continuationRecordingModel) Implements(string) bool {
+	return true
 }
 
 func TestGroupMessagesByAnchor_IncludesAssistantMessages(t *testing.T) {

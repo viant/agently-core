@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/viant/agently-core/internal/sqlitewrite"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
@@ -83,12 +84,13 @@ type Service interface {
 }
 
 type datlyService struct {
-	dao *datly.Service
+	dao       *datly.Service
+	writeGate string
 }
 
 // NewService creates a thin data service on top of a Datly DAO.
 func NewService(dao *datly.Service) Service {
-	return &datlyService{dao: dao}
+	return &datlyService{dao: dao, writeGate: sqlitewrite.Key(dao, "agently")}
 }
 
 func (s *datlyService) Raw() *datly.Service {
@@ -464,39 +466,47 @@ func (s *datlyService) PatchTurns(ctx context.Context, rows []*agturnwrite.Mutab
 }
 
 func (s *datlyService) PatchModelCalls(ctx context.Context, rows []*agmodelcallwrite.MutableModelCallView) ([]*agmodelcallwrite.MutableModelCallView, error) {
-	in := &agmodelcallwrite.Input{ModelCalls: rows}
-	out := &agmodelcallwrite.Output{}
-	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agmodelcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
-		return out.Data, err
-	}
-	return out.Data, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agmodelcallwrite.MutableModelCallView, error) {
+		in := &agmodelcallwrite.Input{ModelCalls: rows}
+		out := &agmodelcallwrite.Output{}
+		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agmodelcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			return out.Data, err
+		}
+		return out.Data, nil
+	})
 }
 
 func (s *datlyService) PatchToolCalls(ctx context.Context, rows []*agtoolcallwrite.MutableToolCallView) ([]*agtoolcallwrite.MutableToolCallView, error) {
-	in := &agtoolcallwrite.Input{ToolCalls: rows}
-	out := &agtoolcallwrite.Output{}
-	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agtoolcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
-		return out.Data, err
-	}
-	return out.Data, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agtoolcallwrite.MutableToolCallView, error) {
+		in := &agtoolcallwrite.Input{ToolCalls: rows}
+		out := &agtoolcallwrite.Output{}
+		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agtoolcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			return out.Data, err
+		}
+		return out.Data, nil
+	})
 }
 
 func (s *datlyService) PatchPayloads(ctx context.Context, rows []*agpayloadwrite.MutablePayloadView) ([]*agpayloadwrite.MutablePayloadView, error) {
-	in := &agpayloadwrite.Input{Payloads: rows}
-	out := &agpayloadwrite.Output{}
-	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agpayloadwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
-		return out.Data, err
-	}
-	return out.Data, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agpayloadwrite.MutablePayloadView, error) {
+		in := &agpayloadwrite.Input{Payloads: rows}
+		out := &agpayloadwrite.Output{}
+		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agpayloadwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			return out.Data, err
+		}
+		return out.Data, nil
+	})
 }
 
 func (s *datlyService) PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
-	in := &agrunwrite.Input{Runs: rows}
-	out := &agrunwrite.Output{}
-	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agrunwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
-		return out.Data, err
-	}
-	return out.Data, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agrunwrite.MutableRunView, error) {
+		in := &agrunwrite.Input{Runs: rows}
+		out := &agrunwrite.Output{}
+		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agrunwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			return out.Data, err
+		}
+		return out.Data, nil
+	})
 }
 
 func (s *datlyService) DeleteConversations(ctx context.Context, ids ...string) error {

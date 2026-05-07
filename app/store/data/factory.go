@@ -26,7 +26,7 @@ import (
 	runstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	runsteps "github.com/viant/agently-core/pkg/agently/run/steps"
 	runwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	toolcall "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
+	toolcallbyop "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
 	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turn "github.com/viant/agently-core/pkg/agently/turn/active"
 	turnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
@@ -51,15 +51,18 @@ const (
 	defaultConnMaxIdle     = 5 * time.Minute
 	defaultMaxIdleConns    = 4
 	// defaultSQLiteMaxOpenConns caps concurrent SQLite connections.
-	// A file-backed SQLite DB (even with WAL) serializes writers at the
-	// file level and its shared-cache internal mutexes don't scale with
-	// connection count — an unbounded pool (Go's default) produces
-	// prepare-storms under bursty load, surfacing as "context canceled"
-	// errors when the client ctx expires before the driver can compile
-	// a statement. 8 gives more headroom for concurrent read-heavy auth /
-	// transcript / approval polling paths while still keeping SQLite bounded.
-	defaultSQLiteMaxOpenConns = 8
-	defaultSQLiteMaxIdleConns = 8
+	// Agently runs multiple Datly-backed services against the same local
+	// SQLite file (conversation store, run store, auth/session store). Under
+	// resumed multi-tool traffic, allowing each service to fan out its own
+	// SQLite pool creates write-lock storms: many goroutines hold or wait on
+	// separate connections to the same file, while fresh turn reads block in
+	// database/sql waiting for another connection. A single connection per
+	// SQLite-backed service keeps those writes serialized and prevents local
+	// query admission from deadlocking behind unrelated resumed-run writes,
+	// while still leaving one extra lane for a fresh read to get through.
+	// This tuning is SQLite-only; MySQL keeps its own pool settings below.
+	defaultSQLiteMaxOpenConns = 2
+	defaultSQLiteMaxIdleConns = 2
 )
 
 // applySQLitePoolDefaults configures the datly Connector with a
@@ -265,7 +268,7 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 	if err := runsteps.DefineRunStepsComponent(ctx, svc); err != nil {
 		return err
 	}
-	if err := toolcall.DefineToolCallRowsComponent(ctx, svc); err != nil {
+	if err := toolcallbyop.DefineToolCallRowsComponent(ctx, svc); err != nil {
 		return err
 	}
 	if err := payload.DefinePayloadRowsComponent(ctx, svc); err != nil {

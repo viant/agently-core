@@ -214,6 +214,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments ok convo=%q elapsed=%s", convoID, time.Since(bootstrapDocsStageStart).String())
+	if strings.TrimSpace(input.TemplateId) != "" {
+		b.Tools.Signatures = filterToolSignaturesByServicePrefix(b.Tools.Signatures, "template-")
+	}
 	agentDirectoryStageStart := time.Now()
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
 	logx.Infof("conversation", "agent.BuildBinding appendAgentDirectoryDoc ok convo=%q elapsed=%s", convoID, time.Since(agentDirectoryStageStart).String())
@@ -314,7 +317,6 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 			Metadata:    map[string]string{"kind": "template", "template": strings.TrimSpace(tpl.Name)},
 		})
 	}
-	b.Tools.Signatures = filterToolSignaturesByServicePrefix(b.Tools.Signatures, "template-")
 	return nil
 }
 

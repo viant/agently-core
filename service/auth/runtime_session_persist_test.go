@@ -71,6 +71,52 @@ func (c *cancelAwareTokenStore) CASPut(_ context.Context, _ *OAuthToken, _ int64
 	return false, nil
 }
 
+type blockingUserService struct {
+	userID  string
+	release chan struct{}
+}
+
+func (b *blockingUserService) GetByUsername(_ context.Context, username string) (*User, error) {
+	return &User{ID: b.userID, Username: username}, nil
+}
+
+func (b *blockingUserService) GetBySubjectAndProvider(_ context.Context, _, _ string) (*User, error) {
+	return nil, nil
+}
+
+func (b *blockingUserService) Upsert(_ context.Context, _ *User) error { return nil }
+
+func (b *blockingUserService) UpsertWithProvider(_ context.Context, username, displayName, email, provider, subject string) (string, error) {
+	<-b.release
+	if b.userID == "" {
+		b.userID = "blocking-user"
+	}
+	return b.userID, nil
+}
+
+func (b *blockingUserService) UpdateHashIPByID(_ context.Context, _, _ string) error { return nil }
+
+func (b *blockingUserService) UpdatePreferences(_ context.Context, _ string, _ *PreferencesPatch) error {
+	return nil
+}
+
+type blockingSessionStore struct {
+	release chan struct{}
+	upserts int
+}
+
+func (b *blockingSessionStore) Get(_ context.Context, _ string) (*SessionRecord, error) {
+	return nil, nil
+}
+
+func (b *blockingSessionStore) Upsert(_ context.Context, _ *SessionRecord) error {
+	b.upserts++
+	<-b.release
+	return nil
+}
+
+func (b *blockingSessionStore) Delete(_ context.Context, _ string) error { return nil }
+
 func TestRuntimeHandleCreateSession_PersistsOAuthTokenWithDurableContext(t *testing.T) {
 	store := &cancelAwareTokenStore{}
 	users := &cancelAwareUserService{userID: "user-42"}
@@ -109,7 +155,56 @@ func TestRuntimeHandleCreateSession_PersistsOAuthTokenWithDurableContext(t *test
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
+	deadline := time.Now().Add(time.Second)
+	for store.putUser == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if store.putUser != "user-42" {
 		t.Fatalf("persisted token user = %q, want %q", store.putUser, "user-42")
 	}
+}
+
+func TestRuntimeHandleCreateSession_DoesNotBlockOnOAuthPersistence(t *testing.T) {
+	users := &blockingUserService{userID: "user-77", release: make(chan struct{})}
+	store := &cancelAwareTokenStore{}
+	sessionStore := &blockingSessionStore{release: make(chan struct{})}
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions:   NewManager(time.Hour, sessionStore),
+		tokenStore: store,
+		users:      users,
+	}
+
+	exp := time.Now().Add(90 * time.Minute).UTC().Truncate(time.Second)
+	claims := map[string]any{
+		"sub":                "user-123",
+		"email":              "dev@example.com",
+		"preferred_username": "devuser",
+		"exp":                exp.Unix(),
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	idToken := "x." + base64.RawURLEncoding.EncodeToString(payload) + ".y"
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session", strings.NewReader(
+		`{"username":"devuser","idToken":"`+idToken+`","accessToken":"token-access"}`,
+	))
+	rec := httptest.NewRecorder()
+	start := time.Now()
+	ext.handleCreateSession().ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("session create blocked on async oauth persistence, took %s", elapsed)
+	}
+	close(users.release)
+	close(sessionStore.release)
 }

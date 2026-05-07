@@ -95,11 +95,6 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	}()
 
 	// Try anchor continuation when history provides a valid last response.
-	// BuildContinuationRequest already skips multi-tool anchors. For streaming,
-	// we apply an additional guard: only use continuation when there are NO
-	// tool-call messages in the request (single-tool anchors where all outputs
-	// are materialized). This avoids "No tool output found" provider errors
-	// when tool results haven't been fully persisted to the anchor.
 	var continuationRequest *llm.GenerateRequest
 	if input.Binding != nil {
 		candidate := s.BuildContinuationRequest(ctx, req, &input.Binding.History)
@@ -116,31 +111,7 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 			"fullMsgCount": len(req.Messages),
 		})
 		if candidate != nil {
-			hasToolResults := false
-			for _, m := range candidate.Messages {
-				if m.ToolCallId != "" {
-					hasToolResults = true
-					break
-				}
-			}
-			// Only use continuation when tool results are present (all outputs
-			// materialized) or when there are no tool calls at all (pure text
-			// continuation). Skip if continuation has tool-call assistant messages
-			// but no matching tool results — that's the fragile case.
-			hasToolCalls := false
-			for _, m := range candidate.Messages {
-				if len(m.ToolCalls) > 0 {
-					hasToolCalls = true
-					break
-				}
-			}
-			if !hasToolCalls || hasToolResults {
-				continuationRequest = candidate
-			} else if debugtrace.Enabled() {
-				debugtrace.Write("core", "stream_continuation_skipped", map[string]any{
-					"reason": "tool_calls_without_results_in_streaming",
-				})
-			}
+			continuationRequest = candidate
 		}
 	}
 	if debugtrace.Enabled() {

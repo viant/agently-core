@@ -218,6 +218,11 @@ func (s *Service) allowedTemplates(ctx context.Context) ([]*tpldef.Template, err
 }
 
 func (s *Service) currentAgentID(ctx context.Context) string {
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		if agentID := strings.TrimSpace(tm.Assistant); agentID != "" {
+			return agentID
+		}
+	}
 	if s == nil || s.conv == nil {
 		return ""
 	}
