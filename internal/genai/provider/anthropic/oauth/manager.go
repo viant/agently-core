@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -28,15 +29,15 @@ const (
 )
 
 type Manager struct {
-	issuer          string
-	authorizeURL    string
-	tokenURL        string
-	apiKeyURL       string
-	scope           string
-	lazyBrowserAuth bool
-	httpClient      *http.Client
-	client          OAuthClientLoader
-	store           TokenStateStore
+	issuer           string
+	authorizeURL     string
+	tokenURL         string
+	apiKeyURL        string
+	scope            string
+	subscriptionAuth bool
+	httpClient       *http.Client
+	client           OAuthClientLoader
+	store            TokenStateStore
 
 	mu sync.Mutex
 }
@@ -77,15 +78,15 @@ func NewManager(options *Options, client OAuthClientLoader, store TokenStateStor
 		scope = defaultScope
 	}
 	return &Manager{
-		issuer:          issuer,
-		authorizeURL:    authorizeURL,
-		tokenURL:        tokenURL,
-		apiKeyURL:       apiKeyURL,
-		scope:           scope,
-		lazyBrowserAuth: options.LazyBrowserAuth,
-		httpClient:      httpClient,
-		client:          client,
-		store:           store,
+		issuer:           issuer,
+		authorizeURL:     authorizeURL,
+		tokenURL:         tokenURL,
+		apiKeyURL:        apiKeyURL,
+		scope:            scope,
+		subscriptionAuth: options.SubscriptionAuth,
+		httpClient:       httpClient,
+		client:           client,
+		store:            store,
 	}, nil
 }
 
@@ -111,7 +112,7 @@ func (m *Manager) AccessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if state == nil {
-		if m.lazyBrowserAuth {
+		if m.subscriptionAuth {
 			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
 				return "", authErr
 			}
@@ -157,7 +158,7 @@ func (m *Manager) APIKey(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if state == nil {
-		if m.lazyBrowserAuth {
+		if m.subscriptionAuth {
 			if _, authErr := m.authorizeInteractively(ctx); authErr != nil {
 				return "", authErr
 			}
@@ -471,11 +472,11 @@ func escapeQueryValue(value string) string {
 }
 
 func (m *Manager) shouldLazyAuthorize(err error) bool {
-	if !m.lazyBrowserAuth || err == nil {
+	if !m.subscriptionAuth || err == nil {
 		return false
 	}
 	_, ok := err.(*TokenStateNotFoundError)
-	return ok
+	return ok && m.hasOAuthClientConfig(context.Background())
 }
 
 func (m *Manager) authorizeInteractively(ctx context.Context) (*TokenState, error) {
@@ -495,4 +496,19 @@ func (m *Manager) authorizeInteractively(ctx context.Context) (*TokenState, erro
 		return nil, err
 	}
 	return state, nil
+}
+
+func (m *Manager) hasOAuthClientConfig(ctx context.Context) bool {
+	if m == nil || m.client == nil {
+		return false
+	}
+	_, err := m.client.Load(ctx)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return !(strings.Contains(msg, "no such file or directory") || strings.Contains(msg, "not found"))
 }

@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestManagerAccessToken_LazyBrowserAuth(t *testing.T) {
+func TestManagerAccessToken_SubscriptionAuth(t *testing.T) {
 	store := &memoryStore{}
-	manager, err := NewManager(&Options{LazyBrowserAuth: true}, &staticClientLoader{
+	manager, err := NewManager(&Options{SubscriptionAuth: true}, &staticClientLoader{
 		cfg: &OAuthClientConfig{ClientID: "client-id"},
 	}, store, nil)
 	require.NoError(t, err)

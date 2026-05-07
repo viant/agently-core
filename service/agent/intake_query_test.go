@@ -363,6 +363,54 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot_LowCon
 	require.Empty(t, stored.Planner.Trigger)
 }
 
+func TestApplyTurnContext_SkipsPlannerModeForExploratoryBoundedTopN(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:                  true,
+		PlannerEnabled:           true,
+		PlannerAgentID:           "steward_planner",
+		PlannerOnCreativeRequest: true,
+		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
+		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
+		ConfidenceThreshold:      0.8,
+	}
+	input := &QueryInput{
+		ConversationID: "conv-topn-exploratory",
+		AgentID:        "steward",
+		Query:          "show the most 3 impactful deal ids in the last 2 days, use exploratory strategy",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "steward"},
+		},
+	}
+	tc := &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      "Top 3 impactful deal ids in last 2 days",
+			Intent:     "identify_top_deals_by_impact",
+			Confidence: 0.84,
+		},
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "supply_kpi",
+			TemplateID:         "analytics_dashboard",
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: map[string]string{
+				"use_exploratory_strategy": "true",
+				"approach":                 "exploratory",
+				"request_type":             "top_deals_rank",
+				".metric":                  "impactful_deals",
+			},
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.NotEqual(t, intakesvc.ModePlanner, stored.Routing.Mode)
+	require.Empty(t, stored.Planner.Trigger)
+	require.Equal(t, "supply_kpi", input.PromptProfileId)
+	require.Equal(t, "analytics_dashboard", input.TemplateId)
+}
+
 func TestApplyTurnContext_EnablesPlannerModeForLowConfidenceDirectAgentRequest(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,

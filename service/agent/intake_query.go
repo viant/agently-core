@@ -451,6 +451,9 @@ func plannerExploratoryStrategyRequested(input *QueryInput, tc *intakesvc.Contex
 	if suppressPlannerForConcreteTroubleshoot(tc, cfg) {
 		return false
 	}
+	if suppressPlannerForBoundedTopN(tc, cfg) {
+		return false
+	}
 	if enabled := strings.ToLower(strings.TrimSpace(tc.Scope.Values["use_exploratory_strategy"])); enabled == "true" || enabled == "1" || enabled == "yes" {
 		return true
 	}
@@ -502,6 +505,35 @@ func suppressPlannerForConcreteTroubleshoot(tc *intakesvc.Context, cfg *agentmdl
 		if strings.TrimSpace(scope[key]) != "" {
 			return true
 		}
+	}
+	return false
+}
+
+func suppressPlannerForBoundedTopN(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+	if tc == nil || cfg == nil {
+		return false
+	}
+	if tc.Classification.Confidence < cfg.EffectiveConfidenceThreshold() {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(tc.Prompting.SuggestedProfileID), "supply_kpi") {
+		return false
+	}
+	intent := strings.ToLower(strings.TrimSpace(tc.Classification.Intent))
+	if intent == "" {
+		return false
+	}
+	if !strings.Contains(intent, "top") && !strings.Contains(intent, "supply_kpi") {
+		return false
+	}
+	scope := tc.Scope.Values
+	if len(scope) == 0 {
+		return false
+	}
+	requestType := strings.ToLower(strings.TrimSpace(scope["request_type"]))
+	metric := strings.ToLower(strings.TrimSpace(scope[".metric"]))
+	if strings.Contains(requestType, "top") || strings.Contains(metric, "impactful_deals") || strings.Contains(metric, "deal") {
+		return true
 	}
 	return false
 }
