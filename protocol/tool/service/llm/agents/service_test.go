@@ -3,6 +3,8 @@ package agents
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
@@ -27,6 +30,8 @@ import (
 	linksvc "github.com/viant/agently-core/service/linking"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	statussvc "github.com/viant/agently-core/service/tool/status"
+	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -2395,4 +2400,105 @@ func TestService_Start_AsyncChildReceivesPromptProfileID(t *testing.T) {
 		return fake.lastInput != nil
 	}, 2*time.Second, 20*time.Millisecond)
 	require.Equal(t, "diagnostic_baseline", fake.lastInput.PromptProfileId)
+}
+
+func TestService_Start_InvalidPromptProfileDoesNotCreateChildShell(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "prompts"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "prompts", "creative_recommendation.yaml"), []byte("id: creative_recommendation\nname: Creative Recommendation\nmessages:\n  - role: system\n    text: test\n"), 0o644))
+
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
+		}},
+	}
+	s := New(nil, WithConversationClient(conv), WithPromptRepo(promptrepo.NewWithStore(fsstore.New(root))))
+	s.agent = fake
+
+	var out StartOutput
+	err := s.start(runCtx, &StartInput{
+		AgentID:         "worker",
+		Objective:       "work",
+		PromptProfileId: "frequency_cap_recommendation",
+	}, &out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `promptProfileId "frequency_cap_recommendation"`)
+	assert.Nil(t, fake.lastInput)
+
+	items, getErr := conv.GetConversations(ctx, &convcli.Input{
+		ParentId: "parent-conv",
+		Has:      &agconv.ConversationInputHas{ParentId: true},
+	})
+	require.NoError(t, getErr)
+	assert.Empty(t, items)
+}
+
+func TestService_Start_AsyncChildConversationMarkedRunning(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	turn := convcli.NewTurn()
+	turn.SetId("turn-1")
+	turn.SetConversationID("parent-conv")
+	require.NoError(t, conv.PatchTurn(ctx, turn))
+
+	runCtx := memory.WithTurnMeta(
+		memory.WithConversationID(ctx, "parent-conv"),
+		memory.TurnMeta{ConversationID: "parent-conv", TurnID: "turn-1"},
+	)
+
+	release := make(chan struct{})
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			<-release
+			if out != nil {
+				out.Content = "done"
+				out.ConversationID = in.ConversationID
+			}
+			return nil
+		},
+	}
+	s := New(nil, WithConversationClient(conv))
+	s.agent = fake
+
+	var out StartOutput
+	err := s.start(runCtx, &StartInput{
+		AgentID:   "worker",
+		Objective: "work",
+	}, &out)
+	require.NoError(t, err)
+	require.NotEmpty(t, out.ConversationID)
+	assert.Equal(t, "running", out.Status)
+
+	child, getErr := conv.GetConversation(ctx, out.ConversationID)
+	require.NoError(t, getErr)
+	require.NotNil(t, child)
+	require.NotNil(t, child.Status)
+	assert.Equal(t, "running", strings.TrimSpace(*child.Status))
+
+	close(release)
 }

@@ -120,3 +120,112 @@ func TestExecute_UsesRefreshedAuthContextForMCPCall(t *testing.T) {
 		t.Fatalf("auth token = %q, want %q", client.options.StringToken, "fresh-access-token")
 	}
 }
+
+type reconnectingCallClient struct {
+	errOnCall error
+	options   *mcpclient.RequestOptions
+}
+
+func (c *reconnectingCallClient) Initialize(ctx context.Context, options ...mcpclient.RequestOption) (*mcpschema.InitializeResult, error) {
+	return &mcpschema.InitializeResult{}, nil
+}
+func (c *reconnectingCallClient) ListResourceTemplates(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListResourceTemplatesResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) ListResources(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListResourcesResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) ListPrompts(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListPromptsResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) ListTools(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListToolsResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) ReadResource(ctx context.Context, params *mcpschema.ReadResourceRequestParams, options ...mcpclient.RequestOption) (*mcpschema.ReadResourceResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) GetPrompt(ctx context.Context, params *mcpschema.GetPromptRequestParams, options ...mcpclient.RequestOption) (*mcpschema.GetPromptResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) CallTool(ctx context.Context, params *mcpschema.CallToolRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+	c.options = mcpclient.NewRequestOptions(options)
+	if c.errOnCall != nil {
+		return nil, c.errOnCall
+	}
+	return &mcpschema.CallToolResult{
+		Content: []mcpschema.CallToolResultContentElem{&mcpschema.TextContent{Type: "text", Text: "ok"}},
+	}, nil
+}
+func (c *reconnectingCallClient) Complete(ctx context.Context, params *mcpschema.CompleteRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CompleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) Ping(ctx context.Context, params *mcpschema.PingRequestParams, options ...mcpclient.RequestOption) (*mcpschema.PingResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) Subscribe(ctx context.Context, params *mcpschema.SubscribeRequestParams, options ...mcpclient.RequestOption) (*mcpschema.SubscribeResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) Unsubscribe(ctx context.Context, params *mcpschema.UnsubscribeRequestParams, options ...mcpclient.RequestOption) (*mcpschema.UnsubscribeResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) SetLevel(ctx context.Context, params *mcpschema.SetLevelRequestParams, options ...mcpclient.RequestOption) (*mcpschema.SetLevelResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) ListRoots(ctx context.Context, params *mcpschema.ListRootsRequestParams, options ...mcpclient.RequestOption) (*mcpschema.ListRootsResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) CreateMessage(ctx context.Context, params *mcpschema.CreateMessageRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CreateMessageResult, error) {
+	return nil, errors.New("not implemented")
+}
+func (c *reconnectingCallClient) Elicit(ctx context.Context, params *mcpschema.ElicitRequestParams, options ...mcpclient.RequestOption) (*mcpschema.ElicitResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+type reconnectManagerStub struct {
+	client      mcpclient.Interface
+	reconnected bool
+}
+
+func (m *reconnectManagerStub) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	return m.client, nil
+}
+func (m *reconnectManagerStub) Reconnect(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	m.reconnected = true
+	m.client = &reconnectingCallClient{}
+	return m.client, nil
+}
+func (m *reconnectManagerStub) Touch(convID, serverName string) {}
+func (m *reconnectManagerStub) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
+	return nil, nil
+}
+func (m *reconnectManagerStub) UseIDToken(ctx context.Context, serverName string) bool {
+	return false
+}
+func (m *reconnectManagerStub) WithAuthTokenContext(ctx context.Context, serverName string) context.Context {
+	return ctx
+}
+
+func TestExecute_RetriesOnHandshakeMissingSessionHeader(t *testing.T) {
+	mgr := &reconnectManagerStub{
+		client: &reconnectingCallClient{errOnCall: errors.New("code: -32603, message: handshake missing Mcp-Session-Id header")},
+	}
+	reg := &Registry{
+		mgr:           mgr,
+		cache:         map[string]*toolCacheEntry{},
+		internal:      map[string]mcpclient.Interface{},
+		recentResults: map[string]map[string]recentItem{},
+	}
+
+	ctx := context.Background()
+	ctx = runtimerequestctx.WithConversationID(ctx, "conv-1")
+	out, err := reg.Execute(ctx, "helper/ping", map[string]interface{}{"q": "x"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out != "ok" {
+		t.Fatalf("Execute() output = %q, want %q", out, "ok")
+	}
+	if !mgr.reconnected {
+		t.Fatalf("expected reconnect to be attempted")
+	}
+}

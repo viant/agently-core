@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,6 +18,7 @@ import (
 	dssvc "github.com/viant/agently-core/service/datasource"
 	"github.com/viant/agently-core/service/elicitation/refiner"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
+	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -158,4 +161,136 @@ func TestBackendClient_SetDatasourceStack_NilRevertsToUnconfigured(t *testing.T)
 	if err == nil {
 		t.Fatalf("want error when stack not configured")
 	}
+}
+
+func TestBackendClient_LookupRegistryReloadsForgeLookupsFromWorkspaceStore(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	store := fsstore.New(root)
+
+	lookupRepo := filepath.Join(root, "extension/forge/lookups", "order_lookup.yaml")
+	if err := osWriteFile(lookupRepo, []byte(`
+id: order_lookup
+priority: 10
+bindings:
+  - lookup:
+      dataSource: order_lookup
+      dialogId: adOrderPicker
+      outputs:
+        - location: adOrderId
+          name: order_id
+      display: "${adOrderName}"
+    named:
+      name: order
+      title: Order list
+      queryInput: AdOrderName
+      resolveInput: AdOrderId
+      required: true
+      store: "${adOrderId}"
+      display: "${adOrderName}"
+      modelForm: "${id}"
+`)); err != nil {
+		t.Fatalf("write initial lookup: %v", err)
+	}
+
+	bc := &backendClient{
+		store:           store,
+		datasourceStore: dssvc.NewMemoryStore(),
+		overlayStore:    oversvc.NewMemoryStore(),
+	}
+	bc.datasourceSvc = dssvc.New(dssvc.Options{Store: bc.datasourceStore, Executor: fakeExecutor{}})
+	bc.overlaySvc = oversvc.New(bc.overlayStore)
+
+	reg1, err := bc.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "conversation:any"})
+	if err != nil {
+		t.Fatalf("registry 1: %v", err)
+	}
+	if len(reg1.Entries) != 1 || reg1.Entries[0].Name != "order" {
+		t.Fatalf("unexpected initial registry: %+v", reg1.Entries)
+	}
+
+	creativeLookup := filepath.Join(root, "extension/forge/lookups", "creative_lookup.yaml")
+	if err := osWriteFile(creativeLookup, []byte(`
+id: creative_lookup
+priority: 10
+bindings:
+  - lookup:
+      dataSource: creative_lookup
+      dialogId: creativePicker
+      outputs:
+        - location: creativeId
+          name: creative_id
+      display: "${creativeName}"
+    named:
+      name: creative
+      title: Creative list
+      queryInput: CreativeName
+      resolveInput: CreativeId
+      store: "${creativeId}"
+      display: "${creativeName}"
+      modelForm: "${id}"
+`)); err != nil {
+		t.Fatalf("write creative lookup: %v", err)
+	}
+
+	reg2, err := bc.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "conversation:any"})
+	if err != nil {
+		t.Fatalf("registry 2: %v", err)
+	}
+	if len(reg2.Entries) != 2 {
+		t.Fatalf("want 2 entries after reload, got %+v", reg2.Entries)
+	}
+	var foundCreative bool
+	for _, entry := range reg2.Entries {
+		if entry.Name == "creative" && entry.DialogId == "creativePicker" && entry.DataSource == "creative_lookup" {
+			foundCreative = true
+		}
+	}
+	if !foundCreative {
+		t.Fatalf("creative lookup missing after live reload: %+v", reg2.Entries)
+	}
+}
+
+func TestBackendClient_FetchDatasourceReloadsForgeDatasourcesFromWorkspaceStore(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	store := fsstore.New(root)
+
+	dsPath := filepath.Join(root, "extension/forge/datasources", "creative_lookup.yaml")
+	if err := osWriteFile(dsPath, []byte(`
+id: creative_lookup
+title: Creative Lookup
+cardinality: collection
+backend:
+  kind: inline
+  rows:
+    - creativeId: 24845598
+      creativeName: Test Creative
+      advertiserName: Acme
+`)); err != nil {
+		t.Fatalf("write datasource: %v", err)
+	}
+
+	bc := &backendClient{
+		store:           store,
+		datasourceStore: dssvc.NewMemoryStore(),
+		overlayStore:    oversvc.NewMemoryStore(),
+	}
+	bc.datasourceSvc = dssvc.New(dssvc.Options{Store: bc.datasourceStore, Executor: fakeExecutor{}})
+	bc.overlaySvc = oversvc.New(bc.overlayStore)
+
+	out, err := bc.FetchDatasource(ctx, &api.FetchDatasourceInput{ID: "creative_lookup"})
+	if err != nil {
+		t.Fatalf("fetch datasource: %v", err)
+	}
+	if len(out.Rows) != 1 || out.Rows[0]["creativeName"] != "Test Creative" {
+		t.Fatalf("unexpected datasource rows: %+v", out.Rows)
+	}
+}
+
+func osWriteFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }

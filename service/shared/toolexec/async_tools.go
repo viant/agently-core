@@ -400,6 +400,7 @@ func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step St
 		if !ok {
 			return "", false, nil
 		}
+		syncAwaitedAsyncTerminalPersistence(ctx, manager, cfg, step, opID)
 		finishAsyncNarration(ctx, narration, opID, step.Name)
 		data, err := json.Marshal(result)
 		if err != nil {
@@ -420,6 +421,7 @@ func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step St
 				if !ok {
 					return "", false, nil
 				}
+				syncAwaitedAsyncTerminalPersistence(ctx, manager, cfg, step, opID)
 				finishAsyncNarration(ctx, narration, opID, step.Name)
 				data, err := json.Marshal(result)
 				if err != nil {
@@ -437,6 +439,25 @@ func maybeAwaitAsyncStatusResult(ctx context.Context, reg tool.Registry, step St
 			}
 		}
 	}
+}
+
+func syncAwaitedAsyncTerminalPersistence(ctx context.Context, manager *asynccfg.Manager, cfg *asynccfg.Config, step StepInfo, opID string) {
+	if manager == nil || cfg == nil || strings.TrimSpace(opID) == "" {
+		return
+	}
+	rec, ok := manager.Get(ctx, opID)
+	if !ok || rec == nil || !asynccfg.ExecutionModeWaits(rec.ExecutionMode) || !rec.Terminal() {
+		return
+	}
+	payload := &asynccfg.Extracted{
+		Status:      strings.TrimSpace(rec.Status),
+		Message:     strings.TrimSpace(rec.Message),
+		MessageKind: strings.TrimSpace(rec.MessageKind),
+		Percent:     rec.Percent,
+		KeyData:     cloneRaw(rec.KeyData),
+		Error:       strings.TrimSpace(rec.Error),
+	}
+	PatchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
 }
 
 func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInfo, rec *asynccfg.OperationRecord) *asyncNarrationHandle {

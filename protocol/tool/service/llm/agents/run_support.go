@@ -114,6 +114,9 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		logx.Errorf("conversation", "agents.run internal error: agent runtime not configured")
 		return svc.NewMethodNotFoundError("agent runtime not configured")
 	}
+	if err := s.validatePromptProfile(ctx, ri); err != nil {
+		return err
+	}
 	runCtx, err := s.prepareLinkedRun(ctx, ri, "internal", true)
 	if err != nil {
 		return err
@@ -167,24 +170,21 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		qi.ConversationID = runCtx.childConversationID
 		ro.ConversationID = runCtx.childConversationID
 	}
+	// Expand prompt profile: inject instructions, merge bundles, set template.
+	// Must run after qi.MessageID and qi.ConversationID are both set.
+	if strings.TrimSpace(ri.PromptProfileId) != "" {
+		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {
+			s.failChildConversationShell(ctx, runCtx.childConversationID, err)
+			return fmt.Errorf("resolveProfile: %w", err)
+		}
+	}
 	if ri.Async != nil && *ri.Async {
+		s.setChildConversationStatus(ctx, runCtx.childConversationID, "running")
 		ro.Status = "running"
 		ro.ConversationID = runCtx.childConversationID
 		childIn := *qi
 		runReq := *ri
 		go func(parentCtx context.Context, childIn *agentsvc.QueryInput, childOut *agentsvc.QueryOutput, linked linkedRun, asyncReq *RunInput) {
-			if strings.TrimSpace(asyncReq.PromptProfileId) != "" {
-				if err := s.resolveProfile(parentCtx, asyncReq, childIn, linked.childConversationID); err != nil {
-					result := childRunResult{
-						status:         "failed",
-						conversationID: linked.childConversationID,
-						err:            fmt.Errorf("resolveProfile: %w", err),
-					}
-					s.finalizeRunStatus(parentCtx, linked, result.status)
-					s.surfaceAsyncCompletion(parentCtx, linked, strings.TrimSpace(asyncReq.AgentID), result)
-					return
-				}
-			}
 			result := s.executeChildRun(parentCtx, childIn, childOut, linked)
 			finalStatus := result.status
 			if strings.TrimSpace(finalStatus) == "" {
@@ -199,13 +199,6 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		}(context.WithoutCancel(ctx), &childIn, &agentsvc.QueryOutput{}, runCtx, &runReq)
 		logx.Infof("conversation", "agents.run async accepted agent_id=%q child_convo=%q", strings.TrimSpace(ri.AgentID), strings.TrimSpace(runCtx.childConversationID))
 		return nil
-	}
-	// Expand prompt profile: inject instructions, merge bundles, set template.
-	// Must run after qi.MessageID and qi.ConversationID are both set.
-	if strings.TrimSpace(ri.PromptProfileId) != "" {
-		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {
-			return fmt.Errorf("resolveProfile: %w", err)
-		}
 	}
 	qo := &agentsvc.QueryOutput{}
 	result := s.executeChildRun(ctx, qi, qo, runCtx)
@@ -942,6 +935,60 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 		logx.Infof("conversation", "agents.run %s skipping status message for async child agent_id=%q child_convo=%q", route, agentID, strings.TrimSpace(runCtx.childConversationID))
 	}
 	return runCtx, nil
+}
+
+func (s *Service) validatePromptProfile(ctx context.Context, ri *RunInput) error {
+	if s == nil || s.promptRepo == nil || ri == nil || strings.TrimSpace(ri.PromptProfileId) == "" {
+		return nil
+	}
+	profile, err := s.promptRepo.Load(ctx, strings.TrimSpace(ri.PromptProfileId))
+	if err != nil {
+		return fmt.Errorf("promptProfileId %q: %w", strings.TrimSpace(ri.PromptProfileId), err)
+	}
+	if profile == nil {
+		return fmt.Errorf("promptProfileId %q: not found", strings.TrimSpace(ri.PromptProfileId))
+	}
+	return nil
+}
+
+func (s *Service) setChildConversationStatus(ctx context.Context, conversationID, status string) {
+	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(status) == "" {
+		return
+	}
+	upd := convw.Conversation{Has: &convw.ConversationHas{}}
+	upd.SetId(strings.TrimSpace(conversationID))
+	upd.SetStatus(strings.TrimSpace(status))
+	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); err != nil {
+		logx.Warnf("conversation", "agents.run patch child conversation status failed child_convo=%q status=%q err=%v", strings.TrimSpace(conversationID), strings.TrimSpace(status), err)
+	}
+}
+
+func (s *Service) failChildConversationShell(ctx context.Context, conversationID string, runErr error) {
+	if s == nil || strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	s.setChildConversationStatus(ctx, conversationID, "failed")
+	if s.conv == nil || runErr == nil {
+		return
+	}
+	conv, err := s.conv.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return
+	}
+	transcript := conv.GetTranscript()
+	if len(transcript) == 0 {
+		return
+	}
+	last := transcript.Last()
+	if len(last) == 0 || last[0] == nil {
+		return
+	}
+	turnPatch := apiconv.NewTurn()
+	turnPatch.SetId(strings.TrimSpace(last[0].Id))
+	turnPatch.SetConversationID(strings.TrimSpace(conversationID))
+	turnPatch.SetStatus("failed")
+	turnPatch.SetErrorMessage(strings.TrimSpace(runErr.Error()))
+	_ = s.conv.PatchTurn(ctx, turnPatch)
 }
 
 func turnMetaFromContext(ctx context.Context) runtimerequestctx.TurnMeta {

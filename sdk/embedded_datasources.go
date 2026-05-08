@@ -56,6 +56,9 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 	if c.datasourceSvc == nil {
 		return nil, ErrDatasourceStackNotConfigured
 	}
+	if err := c.refreshDatasourceStack(ctx); err != nil {
+		return nil, err
+	}
 	if in == nil || strings.TrimSpace(in.ID) == "" {
 		return nil, fmt.Errorf("datasource id is required")
 	}
@@ -76,6 +79,9 @@ func (c *backendClient) InvalidateDatasourceCache(ctx context.Context, in *api.I
 	if c.datasourceSvc == nil {
 		return ErrDatasourceStackNotConfigured
 	}
+	if err := c.refreshDatasourceStack(ctx); err != nil {
+		return err
+	}
 	if in == nil || strings.TrimSpace(in.ID) == "" {
 		return fmt.Errorf("datasource id is required")
 	}
@@ -86,6 +92,9 @@ func (c *backendClient) InvalidateDatasourceCache(ctx context.Context, in *api.I
 func (c *backendClient) ListLookupRegistry(ctx context.Context, in *api.ListLookupRegistryInput) (*api.ListLookupRegistryOutput, error) {
 	if c.overlaySvc == nil {
 		return nil, ErrDatasourceStackNotConfigured
+	}
+	if err := c.refreshDatasourceStack(ctx); err != nil {
+		return nil, err
 	}
 	if in == nil || strings.TrimSpace(in.Context) == "" {
 		return nil, fmt.Errorf("context query parameter is required")

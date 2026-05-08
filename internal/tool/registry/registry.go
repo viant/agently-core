@@ -2223,6 +2223,7 @@ func isReconnectableError(err error) bool {
 	switch {
 	case strings.Contains(msg, "stream error"),
 		strings.Contains(msg, "internal_error; received from peer"),
+		strings.Contains(msg, "handshake missing mcp-session-id header"),
 		strings.Contains(msg, "clienthandler is not initialized"),
 		strings.Contains(msg, "rst_stream"),
 		strings.Contains(msg, "goaway"),

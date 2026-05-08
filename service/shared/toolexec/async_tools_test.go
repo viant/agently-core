@@ -377,6 +377,18 @@ func TestExecuteToolStep_StatusWaitExecutionMode_ParksUntilTerminal(t *testing.T
 	require.GreaterOrEqual(t, time.Since(started), 20*time.Millisecond)
 	require.Contains(t, out.Result, `"reason":"success"`)
 	require.Contains(t, out.Result, `"operationId":"child-1"`)
+	require.Eventually(t, func() bool {
+		for _, msg := range conv.patchedMessages {
+			if msg == nil || msg.Content == nil {
+				continue
+			}
+			body := strings.TrimSpace(*msg.Content)
+			if strings.Contains(body, `"conversationId":"child-1"`) && strings.Contains(body, `"messageKind":"response"`) {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "expected waited status carrier to be patched with the terminal response payload before returning")
 	var preambleIDs []string
 	for _, msg := range conv.patchedMessages {
 		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Narration == nil {
