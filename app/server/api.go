@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
 	"github.com/viant/agently-core/app/executor"
@@ -83,6 +84,15 @@ func NewExposedMCPServer(ctx context.Context, rt *executor.Runtime, cfg *mcpexpo
 		return nil, err
 	}
 	server.Handler = svcauth.WithAuthProtection(server.Handler, authRuntime)
+	// Bound header read and idle keep-alive so slow / abandoned connections
+	// cannot accumulate goroutines. Body read/write deadlines stay zero
+	// because MCP streamable handlers are long-lived by design.
+	if server.ReadHeaderTimeout == 0 {
+		server.ReadHeaderTimeout = 30 * time.Second
+	}
+	if server.IdleTimeout == 0 {
+		server.IdleTimeout = 120 * time.Second
+	}
 	return server, nil
 }
 

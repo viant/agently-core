@@ -39,6 +39,9 @@ func (s *Store) Root() string { return s.root }
 // List returns the names of all resources of the given kind.
 func (s *Store) List(ctx context.Context, kind string) ([]string, error) {
 	dir := filepath.Join(s.root, kind)
+	if ok, err := s.fs.Exists(ctx, dir); err == nil && !ok {
+		return nil, nil
+	}
 	objs, err := s.fs.List(ctx, dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -119,6 +122,9 @@ func (s *Store) Exists(ctx context.Context, kind, name string) (bool, error) {
 // Entries returns metadata-enriched listings for polling watchers.
 func (s *Store) Entries(ctx context.Context, kind string) ([]workspace.Entry, error) {
 	dir := filepath.Join(s.root, kind)
+	if ok, err := s.fs.Exists(ctx, dir); err == nil && !ok {
+		return nil, nil
+	}
 	objs, err := s.fs.List(ctx, dir)
 	if err != nil {
 		if os.IsNotExist(err) {

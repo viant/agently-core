@@ -27,9 +27,9 @@ require (
 	github.com/viant/forge v0.3.1-0.20260419034514-68add3876a59
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
-	github.com/viant/jsonrpc v0.17.1-0.20260312173925-ef36fc39bce0
+	github.com/viant/jsonrpc v0.19.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.14.1-0.20260330151156-6107a117f1ea
+	github.com/viant/mcp v0.15.0
 	github.com/viant/mcp-protocol v0.11.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.30.0
@@ -203,4 +203,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-

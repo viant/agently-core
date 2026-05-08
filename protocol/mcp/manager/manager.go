@@ -86,6 +86,7 @@ type Manager struct {
 	prov           Provider
 	ttl            time.Duration
 	newHandler     func() protoclient.Handler
+	newClientFn    func(context.Context, string, string) (mcpclient.Interface, error)
 	cookieJar      http.CookieJar
 	jarProvider    JarProvider
 	authRT         *authtransport.RoundTripper
@@ -93,8 +94,9 @@ type Manager struct {
 	userIDFn       UserIDExtractor
 	tokenProvider  token.Provider
 
-	mu   sync.Mutex
-	pool map[string]map[string]*entry // poolKey -> serverName -> entry
+	mu       sync.Mutex
+	pool     map[string]map[string]*entry      // poolKey -> serverName -> entry
+	inflight map[string]map[string]*createCall // poolKey -> serverName -> in-flight client creation
 }
 
 type entry struct {
@@ -102,11 +104,22 @@ type entry struct {
 	usedAt time.Time
 }
 
+type createCall struct {
+	ready  chan struct{}
+	client mcpclient.Interface
+	err    error
+}
+
 // New creates a Manager with the given Provider and options.
 func New(prov Provider, opts ...Option) (*Manager, error) {
 	// Default idle TTL reduced to 5 minutes to ensure per-conversation
 	// MCP clients are disconnected and removed promptly when idle.
-	m := &Manager{prov: prov, ttl: 5 * time.Minute, pool: map[string]map[string]*entry{}}
+	m := &Manager{
+		prov:     prov,
+		ttl:      5 * time.Minute,
+		pool:     map[string]map[string]*entry{},
+		inflight: map[string]map[string]*createCall{},
+	}
 	for _, o := range opts {
 		if err := o(m); err != nil {
 			return nil, fmt.Errorf("mcp manager option: %w", err)
@@ -158,27 +171,61 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		m.mu.Unlock()
 		return client, nil
 	}
+	if m.inflight[key] == nil {
+		m.inflight[key] = map[string]*createCall{}
+	}
+	if call := m.inflight[key][serverName]; call != nil {
+		m.mu.Unlock()
+		select {
+		case <-call.ready:
+			if call.client == nil {
+				if call.err != nil {
+					return nil, call.err
+				}
+				return nil, errors.New("mcp manager: client creation returned nil")
+			}
+			return call.client, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	call := &createCall{ready: make(chan struct{})}
+	m.inflight[key][serverName] = call
 	m.mu.Unlock()
 
-	client, err := m.newClient(ctx, convID, serverName)
+	newClient := m.newClient
+	if m.newClientFn != nil {
+		newClient = m.newClientFn
+	}
+	client, err := newClient(ctx, convID, serverName)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.inflight[key], serverName)
+	if len(m.inflight[key]) == 0 {
+		delete(m.inflight, key)
+	}
+	call.client = client
+	call.err = err
+	close(call.ready)
 	if err != nil {
 		return nil, err
 	}
-
+	if client == nil {
+		return nil, errors.New("mcp manager: nil client returned")
+	}
 	// Double-check under lock: another goroutine may have inserted meanwhile.
-	m.mu.Lock()
 	if m.pool[key] == nil {
 		m.pool[key] = map[string]*entry{}
 	}
 	if e := m.pool[key][serverName]; e != nil && e.client != nil {
 		e.usedAt = time.Now()
-		existing := e.client
-		m.mu.Unlock()
-		closeClientBestEffort(client)
-		return existing, nil
+		if e.client != client {
+			closeClientBestEffort(client)
+		}
+		return e.client, nil
 	}
 	m.pool[key][serverName] = &entry{client: client, usedAt: time.Now()}
-	m.mu.Unlock()
 	return client, nil
 }
 

@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/viant/agently-core/app/executor"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
@@ -29,44 +30,14 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 
 	// Load datasources.
 	dsStore := dssvc.NewMemoryStore()
-	if rt.Store != nil {
-		ds := forgedatasource.NewWithStore(rt.Store)
-		names, err := ds.List(ctx)
-		if err == nil {
-			for _, name := range names {
-				v, err := ds.Load(ctx, name)
-				if err != nil || v == nil {
-					continue
-				}
-				// Ensure ID is populated when absent — fall back to the
-				// resource's file name so URL path lookups resolve.
-				if v.ID == "" {
-					v.ID = name
-				}
-				dsStore.Put(v)
-			}
-		}
-	}
+	c.datasourceStore = dsStore
 
 	// Load overlays.
 	overlayStore := oversvc.NewMemoryStore()
-	if rt.Store != nil {
-		ol := forgelookup.NewWithStore(rt.Store)
-		names, err := ol.List(ctx)
-		if err == nil {
-			loaded := make([]*loproto.Overlay, 0, len(names))
-			for _, name := range names {
-				v, err := ol.Load(ctx, name)
-				if err != nil || v == nil {
-					continue
-				}
-				if v.ID == "" {
-					v.ID = name
-				}
-				loaded = append(loaded, v)
-			}
-			overlayStore.Replace(loaded)
-		}
+	c.overlayStore = overlayStore
+
+	if err := c.refreshDatasourceStack(ctx); err != nil {
+		return err
 	}
 
 	// Build the datasource service. Executor stays nil when the runtime
@@ -90,5 +61,72 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	_ = []interface{}{
 		dsproto.BackendMCPTool, loproto.ModePartial,
 	}
+	return nil
+}
+
+func (c *backendClient) refreshDatasourceStack(ctx context.Context) error {
+	if c == nil || c.store == nil {
+		return nil
+	}
+	if err := c.refreshForgeDatasources(ctx); err != nil {
+		return err
+	}
+	if err := c.refreshForgeLookups(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *backendClient) refreshForgeDatasources(ctx context.Context) error {
+	if c == nil || c.store == nil || c.datasourceStore == nil {
+		return nil
+	}
+	repo := forgedatasource.NewWithStore(c.store)
+	names, err := repo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list forge datasources: %w", err)
+	}
+	loaded := make([]*dsproto.DataSource, 0, len(names))
+	for _, name := range names {
+		v, err := repo.Load(ctx, name)
+		if err != nil {
+			return fmt.Errorf("load forge datasource %q: %w", name, err)
+		}
+		if v == nil {
+			continue
+		}
+		if v.ID == "" {
+			v.ID = name
+		}
+		loaded = append(loaded, v)
+	}
+	c.datasourceStore.Replace(loaded)
+	return nil
+}
+
+func (c *backendClient) refreshForgeLookups(ctx context.Context) error {
+	if c == nil || c.store == nil || c.overlayStore == nil {
+		return nil
+	}
+	repo := forgelookup.NewWithStore(c.store)
+	names, err := repo.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list forge lookups: %w", err)
+	}
+	loaded := make([]*loproto.Overlay, 0, len(names))
+	for _, name := range names {
+		v, err := repo.Load(ctx, name)
+		if err != nil {
+			return fmt.Errorf("load forge lookup %q: %w", name, err)
+		}
+		if v == nil {
+			continue
+		}
+		if v.ID == "" {
+			v.ID = name
+		}
+		loaded = append(loaded, v)
+	}
+	c.overlayStore.Replace(loaded)
 	return nil
 }

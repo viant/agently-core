@@ -174,3 +174,25 @@ func TestStore_Root(t *testing.T) {
 		t.Fatalf("Root: got %q, want %q", s.Root(), root)
 	}
 }
+
+func TestStore_MissingKindListAndEntriesReturnEmpty(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	ctx := context.Background()
+
+	names, err := s.List(ctx, "extension/forge/lookups")
+	if err != nil {
+		t.Fatalf("List missing kind: %v", err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("List missing kind: got %v, want empty", names)
+	}
+
+	entries, err := s.Entries(ctx, "extension/forge/datasources")
+	if err != nil {
+		t.Fatalf("Entries missing kind: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("Entries missing kind: got %v, want empty", entries)
+	}
+}

@@ -78,6 +78,11 @@ type backendClient struct {
 	// them. See sdk/embedded_datasources.go.
 	datasourceSvc *dssvc.Service
 	overlaySvc    *oversvc.Service
+	// The embedded backend keeps mutable in-memory stores for forge
+	// datasources/lookups so the runtime can refresh them from the live
+	// workspace store without rebuilding the whole backend.
+	datasourceStore *dssvc.MemoryStore
+	overlayStore    *oversvc.MemoryStore
 }
 
 type skillBackend interface {
