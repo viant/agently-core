@@ -197,6 +197,17 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		if consumeErr == nil {
 			break
 		}
+		if shouldFallbackFromContinuation(activeReq, consumeErr, output) {
+			// Continuation anchor failed before producing meaningful output.
+			// Fall back to a full-transcript retry instead of surfacing the
+			// anchor failure to the caller.
+			if len(output.Events) > 0 {
+				output.Events = output.Events[:0]
+			}
+			continuationRequest = nil
+			activeReq = req
+			continue
+		}
 		if attempt == maxStreamAttempts-1 || ctx.Err() != nil || !canRetryStreamConsume(consumeErr, output) {
 			retErr = consumeErr
 			return cleanup, retErr
@@ -506,4 +517,25 @@ func canRetryStreamConsume(err error, output *StreamOutput) bool {
 		}
 	}
 	return true
+}
+
+func shouldFallbackFromContinuation(activeReq *llm.GenerateRequest, err error, output *StreamOutput) bool {
+	if activeReq == nil || strings.TrimSpace(activeReq.PreviousResponseID) == "" {
+		return false
+	}
+	if !canRetryStreamConsume(err, output) {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "openai continuation error") {
+		return true
+	}
+	// Some continuation-anchor failures surface as plain 404s without an
+	// explicit previous_response_id message. If the attempt was anchored and
+	// failed before emitting meaningful output, retry once from the full
+	// transcript instead.
+	return strings.Contains(msg, "status 404")
 }

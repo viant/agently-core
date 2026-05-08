@@ -163,6 +163,20 @@ func TestCanRetryStreamConsume(t *testing.T) {
 	assert.False(t, canRetryStreamConsume(err500, &StreamOutput{Events: []streaming.Event{{Type: streaming.EventTypeTextDelta, Content: "partial"}}}))
 }
 
+func TestShouldFallbackFromContinuation_Status404WithoutMeaningfulOutput(t *testing.T) {
+	req := &llm.GenerateRequest{PreviousResponseID: "resp_123"}
+	err404 := fmt.Errorf("failed to handle Stream event: OpenAI API error (status 404):")
+
+	assert.True(t, shouldFallbackFromContinuation(req, err404, &StreamOutput{}))
+	assert.True(t, shouldFallbackFromContinuation(req, err404, &StreamOutput{
+		Events: []streaming.Event{{Type: streaming.EventTypeError, Error: "boom"}},
+	}))
+	assert.False(t, shouldFallbackFromContinuation(req, err404, &StreamOutput{
+		Events: []streaming.Event{{Type: streaming.EventTypeTextDelta, Content: "partial"}},
+	}))
+	assert.False(t, shouldFallbackFromContinuation(&llm.GenerateRequest{}, err404, &StreamOutput{}))
+}
+
 func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
 	svc := &Service{}
 	out := &StreamOutput{}
