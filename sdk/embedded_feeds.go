@@ -68,12 +68,12 @@ func (c *backendClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, con
 					continue
 				}
 				if toolMsg.ToolCall.RequestPayload != nil && toolMsg.ToolCall.RequestPayload.InlineBody != nil {
-					if body := strings.TrimSpace(*toolMsg.ToolCall.RequestPayload.InlineBody); body != "" {
+					if body := strings.TrimSpace(conversation.DecodeInlineBody(*toolMsg.ToolCall.RequestPayload.InlineBody, toolMsg.ToolCall.RequestPayload.Compression)); body != "" {
 						requestPayloads = append(requestPayloads, body)
 					}
 				}
 				if toolMsg.ToolCall.ResponsePayload != nil && toolMsg.ToolCall.ResponsePayload.InlineBody != nil {
-					if body := strings.TrimSpace(*toolMsg.ToolCall.ResponsePayload.InlineBody); body != "" {
+					if body := strings.TrimSpace(conversation.DecodeInlineBody(*toolMsg.ToolCall.ResponsePayload.InlineBody, toolMsg.ToolCall.ResponsePayload.Compression)); body != "" {
 						responsePayloads = append(responsePayloads, body)
 					}
 				}
@@ -234,7 +234,7 @@ func (c *backendClient) fetchToolCallResponsePayload(ctx context.Context, messag
 			continue
 		}
 		if p, err := c.conv.GetPayload(ctx, payloadID); err == nil && p != nil && p.InlineBody != nil {
-			return strings.TrimSpace(string(*p.InlineBody))
+			return strings.TrimSpace(conversation.DecodeInlineBody(string(*p.InlineBody), p.Compression))
 		}
 	}
 	return ""

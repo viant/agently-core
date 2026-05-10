@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,6 +240,47 @@ func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 			assert.JSONEq(t, tc.expectedJSON, string(feeds[0].Data))
 		})
 	}
+}
+
+func TestResolveActiveFeedsFromState_TerminalFeedDecodesCompressedPayloads(t *testing.T) {
+	spec := loadBuiltinFeedSpec(t, "terminal")
+	client := &backendClient{
+		conv: newPayloadOnlyConversationClientWithCompression(
+			map[string]string{
+				"p1": gzipFeedPayload(t, `{"commands":[{"input":"pwd","output":"/tmp"}],"stdout":"/tmp"}`),
+				"p2": gzipFeedPayload(t, `{"commands":[{"input":"ls","output":"a\nb"}],"status":"ok"}`),
+			},
+			map[string]string{
+				"p1": "gzip",
+				"p2": "gzip",
+			},
+		),
+		feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
+	}
+	state := &ConversationState{
+		ConversationID: "conv-1",
+		Turns: []*TurnState{
+			{
+				TurnID: "turn-1",
+				Execution: &ExecutionState{
+					Pages: []*ExecutionPageState{
+						{
+							ToolSteps: []*ToolStepState{
+								{ToolName: "system_exec-execute", ResponsePayloadID: "p1"},
+								{ToolName: "system_exec-execute", ResponsePayloadID: "p2"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	feeds := client.resolveActiveFeedsFromState(context.Background(), state)
+	require.Len(t, feeds, 1)
+	require.Equal(t, "terminal", feeds[0].FeedID)
+	require.Equal(t, 2, feeds[0].ItemCount)
+	assert.JSONEq(t, `{"input":{},"output":{"commands":[{"input":"pwd","output":"/tmp"},{"input":"ls","output":"a\nb"}],"stdout":"/tmp","status":"ok"}}`, string(feeds[0].Data))
 }
 
 func TestResolveActiveFeedsFromState_UsesActivationToolWhenPayloadMissing(t *testing.T) {
@@ -1520,15 +1564,20 @@ type payloadOnlyConversationClient struct {
 }
 
 func newPayloadOnlyConversationClient(raw map[string]string) *payloadOnlyConversationClient {
+	return newPayloadOnlyConversationClientWithCompression(raw, nil)
+}
+
+func newPayloadOnlyConversationClientWithCompression(raw map[string]string, compression map[string]string) *payloadOnlyConversationClient {
 	payloads := make(map[string]*conversation.Payload, len(raw))
 	for id, body := range raw {
 		b := []byte(body)
 		payloads[id] = &conversation.Payload{
-			Id:         id,
-			Kind:       "tool_response",
-			MimeType:   "application/json",
-			Storage:    "inline",
-			InlineBody: &b,
+			Id:          id,
+			Kind:        "tool_response",
+			MimeType:    "application/json",
+			Storage:     "inline",
+			InlineBody:  &b,
+			Compression: strings.TrimSpace(compression[id]),
 		}
 	}
 	return &payloadOnlyConversationClient{payloads: payloads}
@@ -1576,6 +1625,19 @@ func (p *payloadOnlyConversationClient) DeleteConversation(context.Context, stri
 }
 func (p *payloadOnlyConversationClient) DeleteMessage(context.Context, string, string) error {
 	return errors.New("unexpected DeleteMessage")
+}
+
+func gzipFeedPayload(t *testing.T, value string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(value)); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.String()
 }
 
 type conversationWithPayloadsClient struct {

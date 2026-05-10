@@ -132,6 +132,14 @@ export {
     compareExecutionGroups,
 } from './ordering';
 
+// Narration bubble visibility helpers
+export {
+    shouldShowNarrationBubble,
+} from './narrationBubble';
+export type {
+    NarrationBubbleGroupLike,
+} from './narrationBubble';
+
 // Rich content rendering (pluggable fence registry, markdown, charts, tables)
 export {
     parseFences, languageHint,

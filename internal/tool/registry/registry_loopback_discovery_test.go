@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/viant/agently-core/genai/llm"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -67,11 +68,7 @@ func TestRegistryLoopbackDiscoveryFailureUsesServerScopedCooldown(t *testing.T) 
 }
 
 func TestRegistryRefreshServerTools_IgnoresLoopbackCooldown(t *testing.T) {
-	stub := &discoveryManagerStub{
-		getFunc: func(convID, server string) (mcpclient.Interface, error) {
-			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
-		},
-	}
+	stub := &loopbackRefreshDiscoveryManagerStub{}
 	r := &Registry{
 		mgr:                stub,
 		cache:              map[string]*toolCacheEntry{},
@@ -90,5 +87,86 @@ func TestRegistryRefreshServerTools_IgnoresLoopbackCooldown(t *testing.T) {
 	}
 	if _, ok := r.discoveryFailUntil["analyst"]; ok {
 		t.Fatalf("expected loopback cooldown to clear after successful refresh")
+	}
+}
+
+type loopbackRefreshDiscoveryManagerStub struct{}
+
+func (m *loopbackRefreshDiscoveryManagerStub) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+}
+
+func (m *loopbackRefreshDiscoveryManagerStub) Reconnect(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+}
+
+func (m *loopbackRefreshDiscoveryManagerStub) Touch(convID, serverName string) {}
+
+func (m *loopbackRefreshDiscoveryManagerStub) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
+	return (&loopbackDiscoveryManagerStub{}).Options(ctx, serverName)
+}
+
+func (m *loopbackRefreshDiscoveryManagerStub) UseIDToken(ctx context.Context, serverName string) bool {
+	return false
+}
+
+func (m *loopbackRefreshDiscoveryManagerStub) WithAuthTokenContext(ctx context.Context, serverName string) context.Context {
+	return ctx
+}
+
+type remoteDiscoveryManagerStub struct{}
+
+func (m *remoteDiscoveryManagerStub) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *remoteDiscoveryManagerStub) Reconnect(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *remoteDiscoveryManagerStub) Touch(convID, serverName string) {}
+
+func (m *remoteDiscoveryManagerStub) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
+	return &mcpcfg.MCPClient{
+		ClientOptions: &mcp.ClientOptions{
+			Transport: mcp.ClientTransport{
+				Type: "streamable",
+				ClientTransportHTTP: mcp.ClientTransportHTTP{
+					URL: "https://steward.viantinc.com/mcp",
+				},
+			},
+		},
+	}, nil
+}
+
+func (m *remoteDiscoveryManagerStub) UseIDToken(ctx context.Context, serverName string) bool {
+	return true
+}
+
+func (m *remoteDiscoveryManagerStub) WithAuthTokenContext(ctx context.Context, serverName string) context.Context {
+	return ctx
+}
+
+func TestRegistryShouldWarmServer_SkipsRemoteWithoutCachedTools(t *testing.T) {
+	r := &Registry{
+		mgr:   &remoteDiscoveryManagerStub{},
+		cache: map[string]*toolCacheEntry{},
+	}
+
+	if r.shouldWarmServer(context.Background(), "steward") {
+		t.Fatalf("expected remote server without cached tools to skip background warming")
+	}
+}
+
+func TestRegistryShouldWarmServer_WarmsCachedRemoteTools(t *testing.T) {
+	r := &Registry{
+		mgr: &remoteDiscoveryManagerStub{},
+		cache: map[string]*toolCacheEntry{
+			"steward/tool": {def: llm.ToolDefinition{Name: "steward/tool"}},
+		},
+	}
+
+	if !r.shouldWarmServer(context.Background(), "steward") {
+		t.Fatalf("expected cached remote server to keep background warming")
 	}
 }

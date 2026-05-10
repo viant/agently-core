@@ -43,6 +43,37 @@ func TestManager_RegisterWaitConsume(t *testing.T) {
 	require.False(t, manager.HasActiveWaitOps(context.Background(), "conv-1", "turn-1"))
 }
 
+func TestManager_SignalTurnWakesWaitForChangeSince(t *testing.T) {
+	manager := NewManager()
+	after := manager.TurnSignalVersion("conv-1", "turn-1")
+	manager.SignalTurn(context.Background(), "conv-1", "turn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, manager.WaitForChangeSince(ctx, "conv-1", "turn-1", after))
+	require.Empty(t, manager.ConsumeChanged("conv-1", "turn-1"))
+}
+
+func TestManager_WaitForChangeRemovesCanceledWaiter(t *testing.T) {
+	manager := NewManager()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.WaitForChange(ctx, "conv-1", "turn-1")
+	}()
+	require.Eventually(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return len(manager.waiters[turnKey("conv-1", "turn-1")]) == 1
+	}, time.Second, time.Millisecond)
+
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	require.Empty(t, manager.waiters[turnKey("conv-1", "turn-1")])
+}
+
 func TestManager_RegisterStoresTimeout(t *testing.T) {
 	manager := NewManager()
 	rec, _ := manager.Register(context.Background(), RegisterInput{

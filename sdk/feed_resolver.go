@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/viant/agently-core/app/store/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -111,7 +112,7 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 		if err == nil {
 			for id, p := range fetched {
 				if p != nil && p.InlineBody != nil {
-					if body := strings.TrimSpace(string(*p.InlineBody)); body != "" {
+					if body := strings.TrimSpace(conversation.DecodeInlineBody(string(*p.InlineBody), p.Compression)); body != "" {
 						payloadContents[id] = body
 					}
 				}

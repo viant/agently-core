@@ -14,28 +14,85 @@ import (
 	hstate "github.com/viant/xdatly/handler/state"
 )
 
-func (c *backendClient) latestAssistantResponse(ctx context.Context, conversationID string) string {
-	resp, err := c.GetTranscript(ctx, &GetTranscriptInput{ConversationID: conversationID})
-	if err != nil || resp == nil || resp.Conversation == nil {
+func (c *backendClient) latestAssistantPreviewText(ctx context.Context, conversationID string) string {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
 		return ""
 	}
-	for i := len(resp.Conversation.Turns) - 1; i >= 0; i-- {
-		turn := resp.Conversation.Turns[i]
-		if turn == nil || turn.Assistant == nil {
-			continue
+	if c.data != nil {
+		preview, err := data.LatestAssistantPreview(ctx, c.data, conversationID)
+		if err != nil || preview == nil {
+			return ""
 		}
-		if turn.Assistant.Final != nil {
-			if text := strings.TrimSpace(turn.Assistant.Final.Content); text != "" {
-				return text
+		return preview.PreferredText()
+	}
+	conv, err := c.getTranscriptConversation(ctx, conversationID, "", nil, nil)
+	if err != nil || conv == nil {
+		return ""
+	}
+	turns := conv.GetTranscript()
+	c.enrichTranscriptElicitations(ctx, turns)
+	pruneTranscriptNoise(turns)
+	state := BuildCanonicalState(conversationID, turns)
+	if state == nil || len(state.Turns) == 0 {
+		return ""
+	}
+	latestFinal := ""
+	latestNarration := ""
+	var latestFinalAt time.Time
+	var latestNarrationAt time.Time
+	for _, turn := range state.Turns {
+		if turn == nil || turn.Assistant == nil {
+			if turn == nil {
+				continue
 			}
 		}
-		if turn.Assistant.Narration != nil {
-			if text := strings.TrimSpace(turn.Assistant.Narration.Content); text != "" {
-				return text
+		if turn.Assistant != nil {
+			if turn.Assistant.Final != nil {
+				if text := strings.TrimSpace(turn.Assistant.Final.Content); text != "" {
+					at := turn.Assistant.Final.CreatedAt
+					if shouldAcceptAssistantPreview(at, latestFinalAt) {
+						latestFinal = text
+						latestFinalAt = at
+					}
+				}
+			}
+			if turn.Assistant.Narration != nil {
+				if text := strings.TrimSpace(turn.Assistant.Narration.Content); text != "" {
+					at := turn.Assistant.Narration.CreatedAt
+					if shouldAcceptAssistantPreview(at, latestNarrationAt) {
+						latestNarration = text
+						latestNarrationAt = at
+					}
+				}
+			}
+		}
+		for _, message := range turn.Messages {
+			if message == nil || strings.ToLower(strings.TrimSpace(message.Role)) != "assistant" {
+				continue
+			}
+			text := strings.TrimSpace(message.Content)
+			if text == "" {
+				continue
+			}
+			at := message.CreatedAt
+			if shouldAcceptAssistantPreview(at, latestFinalAt) {
+				latestFinal = text
+				latestFinalAt = at
 			}
 		}
 	}
-	return ""
+	if latestFinal != "" {
+		return latestFinal
+	}
+	return latestNarration
+}
+
+func shouldAcceptAssistantPreview(candidate, current time.Time) bool {
+	if candidate.IsZero() {
+		return current.IsZero()
+	}
+	return current.IsZero() || !candidate.Before(current)
 }
 
 func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {

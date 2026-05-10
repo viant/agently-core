@@ -13,13 +13,15 @@ type addFakeConv struct {
 	fakeConv
 	patchedMessages []*apiconv.MutableMessage
 	patchedConvs    []*apiconv.MutableConversation
+	addEventFlags   []bool
 }
 
-func (f *addFakeConv) PatchMessage(_ context.Context, msg *apiconv.MutableMessage) error {
+func (f *addFakeConv) PatchMessage(ctx context.Context, msg *apiconv.MutableMessage) error {
 	if msg.Sequence == nil {
 		msg.SetSequence(17)
 	}
 	f.patchedMessages = append(f.patchedMessages, msg)
+	f.addEventFlags = append(f.addEventFlags, memory.MessageAddEventFromContext(ctx))
 	return nil
 }
 
@@ -57,6 +59,7 @@ func TestAdd_UsesTurnParentMessageForStandaloneAssistantNote(t *testing.T) {
 	require.Equal(t, "Preliminary investigation: PMP supply looks concentrated.", deref(msg.Content))
 	require.Equal(t, "parent-from-turn", out.ParentMessageID)
 	require.Equal(t, 17, out.Sequence)
+	require.Equal(t, []bool{true}, conv.addEventFlags)
 }
 
 func TestAdd_UsesModelParentForInterimNoteWhenTurnParentMissing(t *testing.T) {
@@ -83,6 +86,7 @@ func TestAdd_UsesModelParentForInterimNoteWhenTurnParentMissing(t *testing.T) {
 	msg := conv.patchedMessages[0]
 	require.Equal(t, "assistant-msg-1", deref(msg.ParentMessageID))
 	require.Equal(t, "assistant-msg-1", out.ParentMessageID)
+	require.Equal(t, []bool{false}, conv.addEventFlags)
 }
 
 func TestAdd_RejectsNonAssistantRole(t *testing.T) {

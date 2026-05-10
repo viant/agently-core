@@ -569,7 +569,7 @@ func (c *backendClient) ListLinkedConversations(ctx context.Context, input *List
 			CreatedAt:            item.CreatedAt,
 			UpdatedAt:            item.UpdatedAt,
 		}
-		entry.Response = strings.TrimSpace(c.latestAssistantResponse(ctx, item.Id))
+		entry.Response = strings.TrimSpace(c.latestAssistantPreviewText(ctx, item.Id))
 		if entry.Response == "" && item.Summary != nil {
 			entry.Response = strings.TrimSpace(*item.Summary)
 		}
@@ -738,12 +738,16 @@ func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*
 	msg.SetType("task")
 	msg.SetContent(content)
 	msg.SetRawContent(content)
-	msg.SetCreatedAt(time.Now())
+	createdAt := time.Now()
+	msg.SetCreatedAt(createdAt)
 	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
 		msg.SetCreatedByUserID(userID)
 	}
 	if err := c.conv.PatchMessage(ctx, msg); err != nil {
 		return nil, err
+	}
+	if c.agent != nil && c.agent.AsyncManager() != nil {
+		c.agent.AsyncManager().SignalTurn(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.TurnID))
 	}
 	logx.Infof("conversation", "steer.accepted convo=%q turn_id=%q message_id=%q role=%q content_len=%d content_head=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.TurnID), strings.TrimSpace(msg.Id), strings.TrimSpace(role), len(content), textutil.Head(content, 160))
 	return &SteerTurnOutput{MessageID: msg.Id, TurnID: input.TurnID, Status: "accepted"}, nil

@@ -320,14 +320,16 @@ func (s *Service) appendCallToolResultGuide(ctx context.Context, b *binding.Bind
 	}
 }
 
-// ensureInternalToolsIfNeeded appends message tools only when the current
-// binding actually overflowed and the selected model supports continuation.
+// ensureInternalToolsIfNeeded appends internal message tools only when an
+// explicit producer-side condition requires them: overflow recovery or an
+// in-flight steering directive.
 // Duplicates are avoided by canonical name.
 func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryInput, b *binding.Binding) {
 	if s == nil || s.registry == nil || b == nil {
 		return
 	}
-	if !b.Flags.HasMessageOverflow {
+	steering := loopHistoryHasSteeringDirective(ctx)
+	if !b.Flags.HasMessageOverflow && !steering {
 		return
 	}
 	if input != nil {
@@ -349,7 +351,10 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 	if err != nil || model == nil {
 		return
 	}
-	if !core.IsContextContinuationEnabled(model) {
+
+	overflowTools := b.Flags.HasMessageOverflow && core.IsContextContinuationEnabled(model)
+	steeringTools := steering
+	if !overflowTools && !steeringTools {
 		return
 	}
 
@@ -362,10 +367,18 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 		have[mcpname.Canonical(sig.Name)] = true
 	}
 
-	// Collect message tool definitions and append the subset used for overflow
-	// recovery in continuation-capable flows.
+	// Collect message tool definitions and append only the subset required by
+	// the active condition.
 	defs := s.registry.MatchDefinition("message")
-	wanted := map[string]bool{"show": true, "summarize": true, "match": true}
+	wanted := map[string]bool{}
+	if overflowTools {
+		wanted["show"] = true
+		wanted["summarize"] = true
+		wanted["match"] = true
+	}
+	if steeringTools {
+		wanted["add"] = true
+	}
 	for _, d := range defs {
 		if d == nil {
 			continue

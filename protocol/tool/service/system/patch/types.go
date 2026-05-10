@@ -32,9 +32,10 @@ type DiffStats struct {
 
 // ApplyOutput summarises changes applied.
 type ApplyOutput struct {
-	Stats  DiffStats `json:"stats,omitempty"`
-	Status string    `json:"status,omitempty"`
-	Error  string    `json:"error,omitempty"`
+	Changes []Change  `json:"changes,omitempty"`
+	Stats   DiffStats `json:"stats,omitempty"`
+	Status  string    `json:"status,omitempty"`
+	Error   string    `json:"error,omitempty"`
 }
 
 // ReplaceOutput summarises an exact replacement staged in the active session.

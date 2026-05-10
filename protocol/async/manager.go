@@ -213,6 +213,7 @@ type Manager struct {
 	pollers       map[string]struct{}
 	pollerCancels map[string]context.CancelFunc
 	waiters       map[string][]chan struct{}
+	turnSignals   map[string]uint64
 	subscriptions map[uint64]*changeSubscription
 	nextSubID     uint64
 
@@ -360,6 +361,7 @@ func NewManager() *Manager {
 		pollers:       map[string]struct{}{},
 		pollerCancels: map[string]context.CancelFunc{},
 		waiters:       map[string][]chan struct{}{},
+		turnSignals:   map[string]uint64{},
 		subscriptions: map[uint64]*changeSubscription{},
 	}
 }
@@ -794,6 +796,10 @@ func (m *Manager) TerminalFailure(_ context.Context, convID, turnID string) (*Op
 }
 
 func (m *Manager) WaitForChange(ctx context.Context, convID, turnID string) error {
+	return m.WaitForChangeSince(ctx, convID, turnID, m.TurnSignalVersion(convID, turnID))
+}
+
+func (m *Manager) WaitForChangeSince(ctx context.Context, convID, turnID string, signalAfter uint64) error {
 	m.mu.Lock()
 	key := turnKey(convID, turnID)
 	for _, rec := range m.ops {
@@ -802,16 +808,54 @@ func (m *Manager) WaitForChange(ctx context.Context, convID, turnID string) erro
 			return nil
 		}
 	}
+	if m.turnSignals[key] != signalAfter {
+		m.mu.Unlock()
+		return nil
+	}
 	ch := make(chan struct{}, 1)
 	m.waiters[key] = append(m.waiters[key], ch)
 	m.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
+		select {
+		case <-ch:
+			return nil
+		default:
+		}
+		m.mu.Lock()
+		m.removeWaiterLocked(key, ch)
+		m.mu.Unlock()
 		return ctx.Err()
 	case <-ch:
 		return nil
 	}
+}
+
+func (m *Manager) SignalTurn(_ context.Context, convID, turnID string) bool {
+	if strings.TrimSpace(convID) == "" || strings.TrimSpace(turnID) == "" {
+		return false
+	}
+	key := turnKey(convID, turnID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return false
+	}
+	waiting := len(m.waiters[key]) > 0
+	if m.turnSignals == nil {
+		m.turnSignals = map[string]uint64{}
+	}
+	m.turnSignals[key]++
+	m.signalLocked(key)
+	return waiting
+}
+
+func (m *Manager) TurnSignalVersion(convID, turnID string) uint64 {
+	key := turnKey(convID, turnID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.turnSignals[key]
 }
 
 func (m *Manager) WaitForNextPoll(ctx context.Context, convID, turnID string) error {
@@ -1194,6 +1238,7 @@ func (m *Manager) Close() {
 		}
 		delete(m.waiters, key)
 	}
+	m.turnSignals = nil
 	m.mu.Unlock()
 
 	// Cancel GC goroutines outside the lock (Sweep acquires m.mu), then
@@ -1482,6 +1527,27 @@ func (m *Manager) signalLocked(key string) {
 		}
 		close(waiter)
 	}
+}
+
+func (m *Manager) removeWaiterLocked(key string, target chan struct{}) {
+	waiters := m.waiters[key]
+	if len(waiters) == 0 {
+		return
+	}
+	for i, waiter := range waiters {
+		if waiter != target {
+			continue
+		}
+		copy(waiters[i:], waiters[i+1:])
+		waiters[len(waiters)-1] = nil
+		waiters = waiters[:len(waiters)-1]
+		break
+	}
+	if len(waiters) == 0 {
+		delete(m.waiters, key)
+		return
+	}
+	m.waiters[key] = waiters
 }
 
 func turnKey(convID, turnID string) string {

@@ -116,7 +116,9 @@ type QueryOutput struct {
 	Warnings       []string                             `json:"warnings,omitempty"`
 	Projection     *runtimeprojection.ContextProjection `json:"projection,omitempty"`
 
-	lastTaskCheckpoint turnTaskCheckpoint
+	lastTaskCheckpoint      turnTaskCheckpoint
+	nextSteerCheckpoint     turnTaskCheckpoint
+	nextSteerStatusMessages []*binding.Message
 }
 
 func (i *QueryInput) Actor() string {

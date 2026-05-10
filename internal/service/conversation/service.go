@@ -584,6 +584,8 @@ func (s *Service) GetMessage(ctx context.Context, id string, options ...convcli.
 		Narration:            row.Narration,
 		Iteration:            row.Iteration,
 		Phase:                row.Phase,
+		MessageToolCall:      row.MessageToolCall,
+		ModelCall:            row.ModelCall,
 	}
 	return &res, nil
 }

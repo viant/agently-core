@@ -1228,11 +1228,35 @@ func (r *Registry) shouldWarmServer(ctx context.Context, server string) bool {
 	if isInternal {
 		return true
 	}
-	if r.mgr == nil {
+	if r.hasCachedServerTools(server) {
+		return true
+	}
+	return r.isLoopbackMCPServer(server)
+}
+
+func (r *Registry) hasCachedServerTools(server string) bool {
+	if r == nil {
 		return false
 	}
-	_, err := r.mgr.Options(ctx, server)
-	return err == nil
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for alias, entry := range r.cache {
+		if entry == nil {
+			continue
+		}
+		name := strings.TrimSpace(alias)
+		if defName := strings.TrimSpace(entry.def.Name); defName != "" {
+			name = defName
+		}
+		if strings.HasPrefix(name, server+"/") || strings.HasPrefix(name, server+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) monitorServer(ctx context.Context, server string) {
@@ -1495,8 +1519,12 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	scope := r.discoveryClientScope(ctx, server)
 	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
 	if err := r.discoveryFailureFor(server, scope); err != nil {
-		r.warnDiscoveryListIssue(server, scope, "cooldown", err, userID, useID, tokenFingerprint(token))
-		return nil, err
+		if r.shouldBypassDiscoveryCooldown(server, scope) {
+			r.clearDiscoveryFailure(server, scope)
+		} else {
+			r.warnDiscoveryListIssue(server, scope, "cooldown", err, userID, useID, tokenFingerprint(token))
+			return nil, err
+		}
 	}
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get", func(callCtx context.Context) error {
@@ -1588,6 +1616,17 @@ func (r *Registry) discoveryFailureFor(server, scope string) error {
 		msg = "discovery temporarily unavailable"
 	}
 	return fmt.Errorf("mcp discovery cooldown active until %s: %s", until.Format(time.RFC3339), msg)
+}
+
+func (r *Registry) shouldBypassDiscoveryCooldown(server, scope string) bool {
+	if !r.isLoopbackMCPServer(server) {
+		return false
+	}
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return true
+	}
+	return strings.HasPrefix(scope, fmt.Sprintf("mcp-discovery:%s:", strings.TrimSpace(server)))
 }
 
 func (r *Registry) noteDiscoveryFailure(server, scope string, err error) {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -56,6 +57,49 @@ func TestRuntime_EnsureDefaultUser_OAuthBFFDoesNotFallbackToDefaultUsername(t *t
 	if got != nil {
 		t.Fatalf("expected no default user in oauth bff mode, got %#v", got)
 	}
+}
+
+func TestRuntime_EnsureDefaultUser_DoesNotBlockOnSessionPersistence(t *testing.T) {
+	store := &blockingSessionStore{
+		release: make(chan struct{}),
+	}
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:         true,
+			DefaultUsername: "devuser",
+			CookieName:      "agently_session",
+			Local:           &Local{Enabled: true},
+		},
+		sessions: NewManager(0, store),
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil)
+
+	start := time.Now()
+	got := rt.ensureDefaultUser(rec, req)
+	elapsed := time.Since(start)
+	if got == nil {
+		t.Fatalf("expected default user, got nil")
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("ensureDefaultUser blocked on session persistence for %s", elapsed)
+	}
+
+	deadline := time.Now().Add(1 * time.Second)
+	for store.upserts == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.upserts == 0 {
+		t.Fatalf("expected async session persistence to start")
+	}
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != "agently_session" || !strings.HasPrefix(cookies[0].Value, "auto-") {
+		t.Fatalf("expected auto local session cookie, got %#v", cookies)
+	}
+
+	close(store.release)
 }
 
 func TestRefreshedOAuthIDToken_UsesNewIDTokenWhenPresent(t *testing.T) {

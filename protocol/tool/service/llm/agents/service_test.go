@@ -19,6 +19,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
@@ -47,6 +48,59 @@ func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*agrunwrit
 }
 
 func ptrTime(v time.Time) *time.Time { return &v }
+func ptrStr(v string) *string        { return &v }
+
+type statusDataOnlyService struct {
+	data.Service
+	getCalls int
+	conv     *agconv.ConversationView
+}
+
+func (s *statusDataOnlyService) GetConversation(_ context.Context, _ string, _ *agconv.ConversationInput, _ ...data.Option) (*agconv.ConversationView, error) {
+	s.getCalls++
+	return s.conv, nil
+}
+
+func (s *statusDataOnlyService) GetMessagesPage(_ context.Context, input *agmessagelist.MessageRowsInput, _ *data.PageInput, _ ...data.Option) (*data.MessagePage, error) {
+	if s == nil || s.conv == nil || input == nil {
+		return &data.MessagePage{}, nil
+	}
+	for _, turn := range s.conv.Transcript {
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.Message {
+			if msg == nil || !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if input.Has != nil && input.Has.AssistantStatus {
+				return &data.MessagePage{Rows: []*agmessagelist.MessageRowsView{{
+					Id:             msg.Id,
+					ConversationId: s.conv.Id,
+					TurnId:         msg.TurnId,
+					Role:           msg.Role,
+					Type:           msg.Type,
+					Mode:           msg.Mode,
+					Interim:        msg.Interim,
+					Content:        msg.Content,
+					Narration:      msg.Narration,
+					CreatedAt:      msg.CreatedAt,
+				}}}, nil
+			}
+		}
+	}
+	return &data.MessagePage{}, nil
+}
+
+type panicStatusConversationClient struct {
+	convcli.Client
+	getCalls int
+}
+
+func (p *panicStatusConversationClient) GetConversation(_ context.Context, _ string, _ ...convcli.Option) (*convcli.Conversation, error) {
+	p.getCalls++
+	return nil, assert.AnError
+}
 
 func TestService_List_DataDriven(t *testing.T) {
 	ctx := context.Background()
@@ -93,6 +147,71 @@ func TestService_List_DataDriven(t *testing.T) {
 			assert.EqualValues(t, tc.expected, &out)
 		})
 	}
+}
+
+func TestAssistantPreviewState_UsesLatestAssistantTextByTimestamp(t *testing.T) {
+	narrationNew := "latest narration"
+	narrationOld := "older narration"
+	finalOld := "older final"
+	finalNew := "latest final"
+	t1 := time.Date(2026, 5, 8, 10, 0, 0, 0, time.UTC)
+	t2 := t1.Add(2 * time.Minute)
+	transcript := convcli.Transcript{
+		&convcli.Turn{
+			Status:    "running",
+			CreatedAt: t2,
+			Message: []*agconv.MessageView{
+				{Role: "assistant", Interim: 0, Content: &finalNew, CreatedAt: t2},
+				{Role: "assistant", Interim: 1, Narration: &narrationNew, CreatedAt: t2},
+				{Role: "assistant", Interim: 0, Content: &finalOld, CreatedAt: t1},
+				{Role: "assistant", Interim: 1, Narration: &narrationOld, CreatedAt: t1},
+			},
+		},
+	}
+
+	narration, response, hasFinal, _, _, _ := assistantPreviewState(transcript)
+	require.Equal(t, narrationNew, narration)
+	require.Equal(t, finalNew, response)
+	require.True(t, hasFinal)
+}
+
+func TestChildConversationState_PrefersSlimDataConversationFetch(t *testing.T) {
+	narration := "child still running"
+	createdAt := time.Now().UTC()
+	conv := &agconv.ConversationView{
+		Id:        "child-1",
+		Status:    ptrStr("running"),
+		CreatedAt: createdAt,
+		UpdatedAt: ptrTime(createdAt),
+		Transcript: []*agconv.TranscriptView{
+			{
+				Id:        "turn-1",
+				Status:    "running",
+				CreatedAt: createdAt,
+				Message: []*agconv.MessageView{
+					{
+						Id:        "msg-1",
+						Role:      "assistant",
+						Interim:   1,
+						Narration: &narration,
+						CreatedAt: createdAt,
+					},
+				},
+			},
+		},
+	}
+	dataSvc := &statusDataOnlyService{conv: conv}
+	convClient := &panicStatusConversationClient{}
+	svc := &Service{
+		conv: convClient,
+		data: dataSvc,
+	}
+
+	state, ok := svc.childConversationState(context.Background(), "child-1")
+	require.True(t, ok)
+	require.Equal(t, 1, dataSvc.getCalls)
+	require.Zero(t, convClient.getCalls)
+	require.Equal(t, "child still running", state.assistantNarrationPreview)
 }
 
 func expectedListOutput(items []ListItem) *ListOutput {
