@@ -321,7 +321,13 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 }
 
 func (s *Service) bindingConversation(ctx context.Context, input *QueryInput) (*apiconv.Conversation, error) {
-	return s.fetchConversationWithRetry(ctx, input.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
+	return s.fetchConversationWithRetry(
+		ctx,
+		input.ConversationID,
+		apiconv.WithIncludeTranscript(true),
+		apiconv.WithIncludeToolCall(true),
+		apiconv.WithIncludeModelCall(true),
+	)
 }
 
 func resolveToolCallExposure(input *QueryInput) agent.ToolCallExposure {
@@ -407,6 +413,18 @@ func loopHistoryMessagesFromContext(ctx context.Context) []*binding.Message {
 	}
 	msgs, _ := ctx.Value(loopHistoryContextKey{}).([]*binding.Message)
 	return msgs
+}
+
+func loopHistoryHasSteeringDirective(ctx context.Context) bool {
+	for _, msg := range loopHistoryMessagesFromContext(ctx) {
+		if msg == nil {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(msg.ID), "steer-directive:") {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneContextMap(src map[string]interface{}) map[string]interface{} {

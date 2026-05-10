@@ -42,6 +42,9 @@ func TestService_Snapshot_ReturnsResolvedPathsWithoutWorkdir(t *testing.T) {
 	if applyOut.Status != "ok" {
 		t.Fatalf("apply status: %s error=%s", applyOut.Status, applyOut.Error)
 	}
+	if len(applyOut.Changes) != 1 {
+		t.Fatalf("expected apply output to include 1 change, got %d", len(applyOut.Changes))
+	}
 
 	snapshotOut := &patch.SnapshotOutput{}
 	err = snapshot(ctx, &patch.EmptyInput{}, snapshotOut)

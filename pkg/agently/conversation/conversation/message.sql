@@ -1,4 +1,33 @@
-SELECT m.*,
-           NULL AS ELICITATION
-      FROM message m
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
+SELECT
+    m.id,
+    m.conversation_id,
+    m.turn_id,
+    m.archived,
+    m.sequence,
+    m.created_at,
+    m.updated_at,
+    m.created_by_user_id,
+    m.status,
+    m.mode,
+    m.role,
+    m.type,
+    m.content,
+    m.raw_content,
+    m.summary,
+    m.context_summary,
+    m.tags,
+    m.interim,
+    m.elicitation_id,
+    m.parent_message_id,
+    m.superseded_by,
+    NULLIF(m.linked_conversation_id, '') AS linked_conversation_id,
+    m.attachment_payload_id,
+    m.elicitation_payload_id,
+    m.tool_name,
+    m.embedding_index,
+    m.preamble,
+    m.iteration,
+    m.phase,
+    NULL AS ELICITATION
+FROM message m
+${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}

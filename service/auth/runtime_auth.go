@@ -266,7 +266,10 @@ func (r *Runtime) ensureDefaultUser(w http.ResponseWriter, req *http.Request) *r
 		Provider:  "local",
 		CreatedAt: time.Now(),
 	}
-	r.sessions.Put(req.Context(), session)
+	// Auto-bootstrap local dev sessions should not block auth endpoints on
+	// durable session persistence. Keep the session immediately usable in
+	// memory, then let persistence happen out-of-band.
+	r.sessions.PutAsync(req.Context(), session)
 	writeSessionCookie(w, r.cfg, r.sessions, session.ID)
 	return &runtimeAuthUser{Subject: username, Provider: "local"}
 }

@@ -73,7 +73,7 @@ func (m *Message) GetContent() string {
 		return ""
 	}
 	if tc := m.firstToolCall(); tc != nil && tc.ResponsePayload != nil && tc.ResponsePayload.InlineBody != nil {
-		return decodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
+		return DecodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
 	}
 	if m.RawContent != nil && strings.TrimSpace(*m.RawContent) != "" {
 		return *m.RawContent
@@ -92,7 +92,7 @@ func (m *Message) GetContentPreferContent() string {
 		return *m.Content
 	}
 	if tc := m.firstToolCall(); tc != nil && tc.ResponsePayload != nil && tc.ResponsePayload.InlineBody != nil {
-		return decodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
+		return DecodeInlineBody(*tc.ResponsePayload.InlineBody, tc.ResponsePayload.Compression)
 	}
 	if m.RawContent != nil {
 		return *m.RawContent
@@ -109,7 +109,7 @@ func (m *Message) ToolCallArguments() map[string]interface{} {
 	if m == nil || tc == nil || tc.RequestPayload == nil || tc.RequestPayload.InlineBody == nil {
 		return args
 	}
-	raw := strings.TrimSpace(decodeInlineBody(*tc.RequestPayload.InlineBody, tc.RequestPayload.Compression))
+	raw := strings.TrimSpace(DecodeInlineBody(*tc.RequestPayload.InlineBody, tc.RequestPayload.Compression))
 	if raw == "" {
 		return args
 	}
@@ -179,7 +179,7 @@ func (m Messages) SortByCreatedAt(asc bool) {
 	})
 }
 
-func decodeInlineBody(inline string, compression string) string {
+func DecodeInlineBody(inline string, compression string) string {
 	if inline == "" {
 		return ""
 	}

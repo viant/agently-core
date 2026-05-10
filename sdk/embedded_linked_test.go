@@ -55,6 +55,69 @@ func TestEmbeddedClient_ListLinkedConversations_ExcludesOrphans(t *testing.T) {
 	require.Equal(t, "child-valid", page.Rows[0].ConversationID)
 }
 
+func TestEmbeddedClient_ListLinkedConversations_PopulatesLatestAssistantPreviewText(t *testing.T) {
+	ctx := context.Background()
+	convClient := convmem.New()
+
+	parent := conversation.NewConversation()
+	parent.SetId("parent-1")
+	require.NoError(t, convClient.PatchConversations(ctx, parent))
+
+	parentTurn := conversation.NewTurn()
+	parentTurn.SetId("parent-turn-1")
+	parentTurn.SetConversationID("parent-1")
+	parentTurn.SetStatus("completed")
+	require.NoError(t, convClient.PatchTurn(ctx, parentTurn))
+
+	child := conversation.NewConversation()
+	child.SetId("child-1")
+	child.SetConversationParentId("parent-1")
+	child.SetConversationParentTurnId("parent-turn-1")
+	require.NoError(t, convClient.PatchConversations(ctx, child))
+
+	childTurn := conversation.NewTurn()
+	childTurn.SetId("child-turn-1")
+	childTurn.SetConversationID("child-1")
+	childTurn.SetStatus("running")
+	childTurn.SetCreatedAt(nowPlus(10))
+	require.NoError(t, convClient.PatchTurn(ctx, childTurn))
+
+	firstNarration := conversation.NewMessage()
+	firstNarration.SetId("child-msg-1")
+	firstNarration.SetConversationID("child-1")
+	firstNarration.SetTurnID("child-turn-1")
+	firstNarration.SetRole("assistant")
+	firstNarration.SetType("text")
+	firstNarration.SetInterim(1)
+	firstNarration.SetNarration("Checking the baseline.")
+	firstNarration.SetCreatedAt(nowPlus(11))
+	require.NoError(t, convClient.PatchMessage(ctx, firstNarration))
+
+	finalMessage := conversation.NewMessage()
+	finalMessage.SetId("child-msg-2")
+	finalMessage.SetConversationID("child-1")
+	finalMessage.SetTurnID("child-turn-1")
+	finalMessage.SetRole("assistant")
+	finalMessage.SetType("text")
+	finalMessage.SetInterim(0)
+	finalMessage.SetContent("Baseline complete.")
+	finalMessage.SetCreatedAt(nowPlus(12))
+	require.NoError(t, convClient.PatchMessage(ctx, finalMessage))
+
+	client := &backendClient{
+		conv: convClient,
+	}
+
+	page, err := client.ListLinkedConversations(ctx, &ListLinkedConversationsInput{
+		ParentConversationID: "parent-1",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, page)
+	require.Len(t, page.Rows, 1)
+	require.Equal(t, "child-1", page.Rows[0].ConversationID)
+	require.Equal(t, "Baseline complete.", page.Rows[0].Response)
+}
+
 func TestEmbeddedClient_CreateConversation_PreservesParentLink(t *testing.T) {
 	ctx := context.Background()
 	convClient := convmem.New()

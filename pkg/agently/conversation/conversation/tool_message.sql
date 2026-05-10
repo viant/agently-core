@@ -7,7 +7,7 @@ SELECT
     m.content,
     m.tool_name,
     m.iteration,
-    m.linked_conversation_id
+    NULLIF(m.linked_conversation_id, '') AS linked_conversation_id
  FROM message m
  WHERE m.parent_message_id IS NOT NULL
    AND (m.type = 'tool_op' OR m.role = 'tool')

@@ -39,6 +39,9 @@ type MessageRowsInput struct {
 	CreatedBefore   time.Time            `parameter:",kind=query,in=createdBefore" predicate:"less_or_equal,group=4,m,created_at"`
 	CursorBefore    string               `parameter:",kind=query,in=cursorBefore" predicate:"expr,group=4,EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at < x.created_at OR (m.created_at = x.created_at AND m.id < x.id)))"`
 	CursorAfter     string               `parameter:",kind=query,in=cursorAfter" predicate:"expr,group=4,EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at > x.created_at OR (m.created_at = x.created_at AND m.id > x.id)))"`
+	TurnTask        bool                 `parameter:",kind=query,in=turnTask" predicate:"expr,group=4,m.role = 'user' AND m.interim = 0 AND (m.type = 'task' OR m.mode = 'task')"`
+	AssistantFinal  bool                 `parameter:",kind=query,in=assistantFinal" predicate:"expr,group=4,m.role = 'assistant' AND m.interim = 0 AND (m.mode IS NULL OR LOWER(m.mode) <> 'router') AND m.content IS NOT NULL AND TRIM(m.content) <> ''"`
+	AssistantStatus bool                 `parameter:",kind=query,in=assistantStatus" predicate:"expr,group=4,m.role = 'assistant' AND (m.mode IS NULL OR LOWER(m.mode) <> 'router') AND ((m.preamble IS NOT NULL AND TRIM(m.preamble) <> '') OR (m.interim <> 0 AND m.content IS NOT NULL AND TRIM(m.content) <> ''))"`
 	IncludeModelCal bool                 `parameter:",kind=query,in=includeModelCall" predicate:"expr,group=2,?" value:"false"`
 	IncludeToolCall bool                 `parameter:",kind=query,in=includeToolCall" predicate:"expr,group=3,?" value:"false"`
 	Has             *MessageRowsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
@@ -57,6 +60,9 @@ type MessageRowsInputHas struct {
 	CreatedBefore   bool
 	CursorBefore    bool
 	CursorAfter     bool
+	TurnTask        bool
+	AssistantFinal  bool
+	AssistantStatus bool
 	IncludeModelCal bool
 	IncludeToolCall bool
 }
@@ -85,7 +91,7 @@ type MessageRowsView struct {
 	Mode                 *string    `sqlx:"mode"`
 	ParentMessageId      *string    `sqlx:"parent_message_id"`
 	Phase                *string    `sqlx:"phase"`
-	Narration             *string    `sqlx:"preamble"`
+	Narration            *string    `sqlx:"preamble"`
 	RawContent           *string    `sqlx:"raw_content"`
 	Role                 string     `sqlx:"role"`
 	Sequence             *int       `sqlx:"sequence"`

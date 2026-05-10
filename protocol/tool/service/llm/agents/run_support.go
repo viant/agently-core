@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	store "github.com/viant/agently-core/app/store"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	datastore "github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -24,6 +26,7 @@ import (
 	"github.com/viant/agently-core/service/shared/convterm"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	hstate "github.com/viant/xdatly/handler/state"
 )
 
 type linkedRun struct {
@@ -42,21 +45,21 @@ type childRunResult struct {
 }
 
 type childConversationState struct {
-	conversationID         string
-	parentConversationID   string
-	parentTurnID           string
-	agentID                string
-	status                 string
-	rawStatus              string
-	terminal               bool
-	errorSummary           string
-	createdAt              string
-	updatedAt              string
-	lastAssistantNarration string
-	lastAssistantResponse  string
-	hasFinalResponse       bool
-	lastMessageAt          string
-	lastActivityAt         time.Time
+	conversationID            string
+	parentConversationID      string
+	parentTurnID              string
+	agentID                   string
+	status                    string
+	rawStatus                 string
+	terminal                  bool
+	errorSummary              string
+	createdAt                 string
+	updatedAt                 string
+	assistantNarrationPreview string
+	assistantOutputPreview    string
+	hasFinalResponse          bool
+	lastMessageAt             string
+	lastActivityAt            time.Time
 }
 
 const (
@@ -292,14 +295,14 @@ func (s *Service) resolveChildRunError(ctx context.Context, runCtx linkedRun, qo
 	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) || s.isCanceledConversation(ctx, runCtx.childConversationID) {
 		if s.isCanceledConversation(ctx, runCtx.childConversationID) {
 			if state, ok := s.childConversationState(ctx, runCtx.childConversationID); ok {
-				if text := strings.TrimSpace(state.lastAssistantResponse); text != "" {
+				if text := strings.TrimSpace(state.assistantOutputPreview); text != "" {
 					return childRunResult{
 						answer:         text,
 						status:         "canceled",
 						conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
 					}
 				}
-				if text := strings.TrimSpace(state.lastAssistantNarration); text != "" {
+				if text := strings.TrimSpace(state.assistantNarrationPreview); text != "" {
 					return childRunResult{
 						answer:         text,
 						status:         "canceled",
@@ -457,8 +460,8 @@ func (s *Service) failedChildRunSummary(ctx context.Context, conversationID stri
 	} else if runErr != nil {
 		parts = append(parts, "Error: "+strings.TrimSpace(runErr.Error()))
 	}
-	if summary := strings.TrimSpace(lastAssistantContent(lastTurn)); summary != "" {
-		parts = append(parts, "Last assistant content: "+summary)
+	if summary := strings.TrimSpace(assistantContentPreview(lastTurn)); summary != "" {
+		parts = append(parts, "Assistant content preview: "+summary)
 	}
 	return strings.Join(parts, "\n"), true
 }
@@ -478,7 +481,7 @@ func (s *Service) completedChildRunOutcome(ctx context.Context, conversationID s
 		return childRunResult{}, false
 	}
 	return childRunResult{
-		answer:         state.lastAssistantResponse,
+		answer:         state.assistantOutputPreview,
 		status:         "succeeded",
 		conversationID: state.conversationID,
 	}, true
@@ -488,8 +491,15 @@ func (s *Service) childConversationState(ctx context.Context, conversationID str
 	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" {
 		return childConversationState{}, false
 	}
-	conv, err := s.conv.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true), apiconv.WithIncludeModelCall(true))
+	conv, err := s.getConversationForStatus(ctx, strings.TrimSpace(conversationID))
 	if err != nil || conv == nil {
+		return childConversationState{}, false
+	}
+	return s.childConversationStateFromConversation(ctx, conv)
+}
+
+func (s *Service) childConversationStateFromConversation(ctx context.Context, conv *apiconv.Conversation) (childConversationState, bool) {
+	if conv == nil {
 		return childConversationState{}, false
 	}
 	state := childConversationState{
@@ -508,17 +518,34 @@ func (s *Service) childConversationState(ctx context.Context, conversationID str
 		state.updatedAt = conv.UpdatedAt.Format(time.RFC3339Nano)
 		state.lastActivityAt = *conv.UpdatedAt
 	}
-	preamble, response, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt := lastAssistantState(conv.GetTranscript())
+	narrationPreview, outputPreview, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt := assistantPreviewState(conv.GetTranscript())
 	if state.status == "" {
 		state.status = lastTurnStatus
 	}
 	if !lastActivityAt.IsZero() {
 		state.lastActivityAt = lastActivityAt
 	}
-	state.lastAssistantNarration = preamble
-	state.lastAssistantResponse = response
-	state.hasFinalResponse = hasFinal
-	state.lastMessageAt = lastMessageAt
+	if s != nil && s.data != nil {
+		preview, err := datastore.LatestAssistantPreview(ctx, s.data, state.conversationID)
+		if err != nil {
+			logx.Warnf("conversation", "agents.status assistant preview query failed conv=%q err=%v", state.conversationID, err)
+		} else if preview != nil {
+			state.assistantNarrationPreview = preview.Narration
+			state.assistantOutputPreview = preview.Output
+			state.hasFinalResponse = preview.HasFinalResponse
+			if preview.LastMessageKnown {
+				state.lastMessageAt = preview.LastMessageAt.Format(time.RFC3339Nano)
+				if preview.LastMessageAt.After(state.lastActivityAt) {
+					state.lastActivityAt = preview.LastMessageAt
+				}
+			}
+		}
+	} else {
+		state.assistantNarrationPreview = narrationPreview
+		state.assistantOutputPreview = outputPreview
+		state.hasFinalResponse = hasFinal
+		state.lastMessageAt = lastMessageAt
+	}
 	state = normalizeChildConversationState(state, conv.GetTranscript())
 	if state.terminal && !isTerminalChildStatus(state.rawStatus) {
 		s.terminalizeTimedOutChildConversation(context.WithoutCancel(ctx), conv, state)
@@ -579,34 +606,60 @@ func (s *Service) terminalizeTimedOutChildConversation(ctx context.Context, conv
 	}
 }
 
-func (s *Service) statusItemFromConversation(conv *apiconv.Conversation) StatusItem {
+func (s *Service) statusItemFromConversation(ctx context.Context, conv *apiconv.Conversation) StatusItem {
 	if conv == nil {
 		return StatusItem{}
 	}
-	state, ok := s.childConversationState(context.Background(), strings.TrimSpace(conv.Id))
+	state, ok := s.childConversationStateFromConversation(ctx, conv)
 	if !ok {
 		return StatusItem{}
 	}
 	item := StatusItem{
-		ConversationID:         state.conversationID,
-		ParentConversationID:   state.parentConversationID,
-		ParentTurnID:           state.parentTurnID,
-		AgentID:                state.agentID,
-		Status:                 state.status,
-		RawStatus:              state.rawStatus,
-		Terminal:               state.terminal,
-		Error:                  state.errorSummary,
-		CreatedAt:              state.createdAt,
-		UpdatedAt:              state.updatedAt,
-		LastAssistantNarration: state.lastAssistantNarration,
-		LastAssistantResponse:  state.lastAssistantResponse,
-		HasFinalResponse:       state.hasFinalResponse,
-		LastMessageAt:          state.lastMessageAt,
+		ConversationID:            state.conversationID,
+		ParentConversationID:      state.parentConversationID,
+		ParentTurnID:              state.parentTurnID,
+		AgentID:                   state.agentID,
+		Status:                    state.status,
+		RawStatus:                 state.rawStatus,
+		Terminal:                  state.terminal,
+		Error:                     state.errorSummary,
+		CreatedAt:                 state.createdAt,
+		UpdatedAt:                 state.updatedAt,
+		AssistantNarrationPreview: state.assistantNarrationPreview,
+		AssistantOutputPreview:    state.assistantOutputPreview,
+		HasFinalResponse:          state.hasFinalResponse,
+		LastMessageAt:             state.lastMessageAt,
 	}
 	return normalizeStatusItem(item)
 }
 
-func lastAssistantContent(turn *apiconv.Turn) string {
+func (s *Service) getConversationForStatus(ctx context.Context, conversationID string) (*apiconv.Conversation, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil, nil
+	}
+	if s.data != nil {
+		in := &agconv.ConversationInput{
+			Id:                conversationID,
+			IncludeTranscript: true,
+			Has: &agconv.ConversationInputHas{
+				Id:                true,
+				IncludeTranscript: true,
+			},
+		}
+		selectors := []*hstate.NamedQuerySelector{
+			{Name: "Transcript", QuerySelector: hstate.QuerySelector{Limit: 1, OrderBy: "created_at DESC,id DESC"}},
+		}
+		conv, err := s.data.GetConversation(ctx, conversationID, in, store.WithQuerySelector(selectors...))
+		if err == nil || conv != nil {
+			return (*apiconv.Conversation)(conv), err
+		}
+		logx.Warnf("conversation", "agents.status slim conversation fetch failed conv=%q err=%v", conversationID, err)
+	}
+	return s.conv.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true))
+}
+
+func assistantContentPreview(turn *apiconv.Turn) string {
 	if turn == nil {
 		return ""
 	}
@@ -668,20 +721,20 @@ func (s *Service) statusMethod(ctx context.Context, in, out interface{}) error {
 func statusItemMessage(item StatusItem) (string, string) {
 	item = normalizeStatusItem(item)
 	if !item.Terminal {
-		if text := strings.TrimSpace(item.LastAssistantNarration); text != "" {
+		if text := strings.TrimSpace(item.AssistantNarrationPreview); text != "" {
 			return text, "preamble"
 		}
 		return "", ""
 	}
 	if item.HasFinalResponse {
-		if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
+		if text := strings.TrimSpace(item.AssistantOutputPreview); text != "" {
 			return text, "response"
 		}
 	}
-	if text := strings.TrimSpace(item.LastAssistantNarration); text != "" {
+	if text := strings.TrimSpace(item.AssistantNarrationPreview); text != "" {
 		return text, "preamble"
 	}
-	if text := strings.TrimSpace(item.LastAssistantResponse); text != "" {
+	if text := strings.TrimSpace(item.AssistantOutputPreview); text != "" {
 		return text, "response"
 	}
 	return "", ""
@@ -689,10 +742,10 @@ func statusItemMessage(item StatusItem) (string, string) {
 
 func normalizeStatusItem(item StatusItem) StatusItem {
 	if item.HasFinalResponse {
-		item.LastAssistantNarration = ""
+		item.AssistantNarrationPreview = ""
 		return item
 	}
-	item.LastAssistantResponse = ""
+	item.AssistantOutputPreview = ""
 	return item
 }
 
@@ -701,7 +754,7 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 		return nil, nil
 	}
 	if convID := strings.TrimSpace(in.ConversationID); convID != "" {
-		conv, err := s.conv.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
+		conv, err := s.getConversationForStatus(ctx, convID)
 		if err != nil {
 			if s.runExternal != nil {
 				return nil, svc.NewMethodNotFoundError("llm/agents:status unsupported for external agent conversations: " + convID)
@@ -714,7 +767,7 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 			}
 			return nil, nil
 		}
-		return []StatusItem{s.statusItemFromConversation(conv)}, nil
+		return []StatusItem{s.statusItemFromConversation(ctx, conv)}, nil
 	}
 	parentID := strings.TrimSpace(in.ParentConversationID)
 	if parentID == "" {
@@ -723,10 +776,8 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 	query := &agconv.ConversationInput{
 		ParentId: parentID,
 		Has: &agconv.ConversationInputHas{
-			ParentId:          true,
-			IncludeTranscript: true,
+			ParentId: true,
 		},
-		IncludeTranscript: true,
 	}
 	if parentTurnID := strings.TrimSpace(in.ParentTurnID); parentTurnID != "" {
 		query.ParentTurnId = parentTurnID
@@ -744,18 +795,27 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 		if item == nil {
 			continue
 		}
-		result = append(result, s.statusItemFromConversation(item))
+		conv, err := s.getConversationForStatus(ctx, strings.TrimSpace(item.Id))
+		if err != nil {
+			return nil, err
+		}
+		if conv == nil {
+			continue
+		}
+		result = append(result, s.statusItemFromConversation(ctx, conv))
 	}
 	return result, nil
 }
 
-func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, string, string, time.Time) {
+func assistantPreviewState(transcript apiconv.Transcript) (string, string, bool, string, string, time.Time) {
 	var lastNarration string
 	var lastResponse string
 	var hasFinal bool
 	var lastMessageAt string
 	var lastTurnStatus string
 	var lastActivityAt time.Time
+	var lastNarrationAt time.Time
+	var lastResponseAt time.Time
 	for _, turn := range transcript {
 		if turn == nil {
 			continue
@@ -780,22 +840,33 @@ func lastAssistantState(transcript apiconv.Transcript) (string, string, bool, st
 					lastActivityAt = msg.CreatedAt
 				}
 			}
-			if text := strings.TrimSpace(ptrString(msg.Narration)); text != "" {
+			messageTime := msg.CreatedAt
+			if text := strings.TrimSpace(ptrString(msg.Narration)); text != "" && shouldAcceptLatestAssistantText(messageTime, lastNarrationAt) {
 				lastNarration = text
+				lastNarrationAt = messageTime
 			} else if msg.Interim != 0 {
-				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
+				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" && shouldAcceptLatestAssistantText(messageTime, lastNarrationAt) {
 					lastNarration = text
+					lastNarrationAt = messageTime
 				}
 			}
 			if msg.Interim == 0 {
-				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
+				if text := strings.TrimSpace(ptrString(msg.Content)); text != "" && shouldAcceptLatestAssistantText(messageTime, lastResponseAt) {
 					lastResponse = text
 					hasFinal = true
+					lastResponseAt = messageTime
 				}
 			}
 		}
 	}
 	return lastNarration, lastResponse, hasFinal, lastMessageAt, lastTurnStatus, lastActivityAt
+}
+
+func shouldAcceptLatestAssistantText(messageTime, current time.Time) bool {
+	if messageTime.IsZero() {
+		return current.IsZero()
+	}
+	return current.IsZero() || !messageTime.Before(current)
 }
 
 func normalizeChildConversationState(state childConversationState, transcript apiconv.Transcript) childConversationState {
@@ -808,8 +879,8 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 		state.terminal = true
 		state.errorSummary = failureSummary
 		state.hasFinalResponse = true
-		state.lastAssistantNarration = ""
-		state.lastAssistantResponse = "Child agent is blocked waiting for user input and cannot continue.\n" + failureSummary
+		state.assistantNarrationPreview = ""
+		state.assistantOutputPreview = "Child agent is blocked waiting for user input and cannot continue.\n" + failureSummary
 		return state
 	}
 
@@ -822,13 +893,13 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 		}
 		state.errorSummary = "Child agent exceeded the maximum wait time of " + timeoutLabel + " without reaching a terminal state."
 		state.hasFinalResponse = true
-		state.lastAssistantNarration = ""
-		state.lastAssistantResponse = "Child agent conversation " + strings.TrimSpace(state.conversationID) + " timed out after " + timeoutLabel + " without reaching a terminal state."
+		state.assistantNarrationPreview = ""
+		state.assistantOutputPreview = "Child agent conversation " + strings.TrimSpace(state.conversationID) + " timed out after " + timeoutLabel + " without reaching a terminal state."
 		if strings.TrimSpace(state.rawStatus) != "" {
-			state.lastAssistantResponse += "\nLast known status: " + strings.TrimSpace(state.rawStatus) + "."
+			state.assistantOutputPreview += "\nLast known status: " + strings.TrimSpace(state.rawStatus) + "."
 		}
 		if strings.TrimSpace(failureSummary) != "" {
-			state.lastAssistantResponse += "\n" + failureSummary
+			state.assistantOutputPreview += "\n" + failureSummary
 		}
 		return state
 	}
@@ -839,8 +910,8 @@ func normalizeChildConversationState(state childConversationState, transcript ap
 
 	if state.terminal && !state.hasFinalResponse && strings.TrimSpace(failureSummary) != "" {
 		state.hasFinalResponse = true
-		state.lastAssistantNarration = ""
-		state.lastAssistantResponse = failureSummary
+		state.assistantNarrationPreview = ""
+		state.assistantOutputPreview = failureSummary
 	}
 	return state
 }
@@ -1131,10 +1202,10 @@ func (s *Service) surfaceAsyncCompletion(ctx context.Context, runCtx linkedRun, 
 		errText := ""
 		if state, ok := s.childConversationState(context.Background(), runCtx.childConversationID); ok {
 			status = strings.TrimSpace(state.status)
-			if text := strings.TrimSpace(state.lastAssistantResponse); text != "" {
+			if text := strings.TrimSpace(state.assistantOutputPreview); text != "" {
 				message = text
 				messageKind = "response"
-			} else if text := strings.TrimSpace(state.lastAssistantNarration); text != "" {
+			} else if text := strings.TrimSpace(state.assistantNarrationPreview); text != "" {
 				message = text
 				messageKind = "preamble"
 			}

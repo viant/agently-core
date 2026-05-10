@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	base "github.com/viant/agently-core/genai/llm/provider/base"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
@@ -248,4 +249,196 @@ func TestServiceRunPlanLoop_TerminalContentIsNotDiscardedByCompletedAsyncChange(
 	}
 	require.NotNil(t, finalMsg)
 	require.Equal(t, 0, finalMsg.Interim, "terminal content-only answer should be finalized with interim=0")
+}
+
+type steerAwareFinder struct {
+	calls    atomic.Int32
+	content  string
+	requests chan *llm.GenerateRequest
+}
+
+func (f *steerAwareFinder) Find(context.Context, string) (llm.Model, error) {
+	return steerAwareModel{finder: f}, nil
+}
+
+type steerAwareModel struct {
+	finder *steerAwareFinder
+}
+
+func (m steerAwareModel) Generate(_ context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	m.finder.calls.Add(1)
+	if m.finder.requests != nil {
+		select {
+		case m.finder.requests <- req:
+		default:
+		}
+	}
+	return &llm.GenerateResponse{
+		Choices: []llm.Choice{
+			{
+				Index: 0,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Content: m.finder.content,
+				},
+				FinishReason: "stop",
+			},
+		},
+		Model: "mock-model",
+	}, nil
+}
+
+func (steerAwareModel) Implements(feature string) bool {
+	return feature == base.CanUseTools
+}
+
+func TestServiceRunPlanLoop_SteerUnlocksAsyncWaitAndAddsDirective(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	conv := &apiconv.Conversation{
+		Id: "conv-steer",
+		Transcript: []*agconv.TranscriptView{
+			{
+				Id:             "turn-1",
+				ConversationId: "conv-steer",
+				Status:         "running",
+				Message: []*agconv.MessageView{
+					{
+						Id:             "user-1",
+						ConversationId: "conv-steer",
+						Role:           "user",
+						Type:           "text",
+						Mode:           cancelPtr("task"),
+						Content:        cancelPtr("initial ask"),
+						TurnId:         cancelPtr("turn-1"),
+						CreatedAt:      now,
+					},
+				},
+			},
+		},
+	}
+	convClient := newLoopConvClient(conv)
+	finder := &steerAwareFinder{
+		content:  "final answer",
+		requests: make(chan *llm.GenerateRequest, 1),
+	}
+	reg := &fakeRegistry{defs: []llm.ToolDefinition{
+		{Name: "message/add", Description: "Add an assistant message to the current turn."},
+	}}
+	llmSvc := core.New(finder, reg, convClient)
+	manager := asynccfg.NewManager()
+	svc := &Service{
+		llm:          llmSvc,
+		registry:     reg,
+		conversation: convClient,
+		orchestrator: reactor.New(llmSvc, reg, convClient, nil, nil),
+		defaults:     &config.Defaults{},
+		asyncManager: manager,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{
+		ConversationID: "conv-steer",
+		TurnID:         "turn-1",
+	})
+	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: "turn-1", Iteration: 1})
+
+	manager.Register(ctx, asynccfg.RegisterInput{
+		ID:            "child-1",
+		ParentConvID:  "conv-steer",
+		ParentTurnID:  "turn-1",
+		ToolCallID:    "call-1",
+		ToolMessageID: "tool-msg-1",
+		ToolName:      "llm/agents:start",
+		ExecutionMode: string(asynccfg.ExecutionModeWait),
+		Status:        "running",
+		Message:       "waiting",
+	})
+
+	input := &QueryInput{
+		ConversationID: "conv-steer",
+		UserId:         "user-1",
+		Query:          "initial ask",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "simple"},
+			ModelSelection: llm.ModelSelection{
+				Model: "mock-model",
+			},
+			Prompt: &binding.Prompt{Text: "You are helpful."},
+		},
+	}
+	output := &QueryOutput{}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- svc.runPlanLoop(ctx, input, output)
+	}()
+
+	time.Sleep(25 * time.Millisecond)
+	steerMsg := &agconv.MessageView{
+		Id:             "steer-1",
+		ConversationId: "conv-steer",
+		Role:           "user",
+		Type:           "task",
+		Mode:           cancelPtr("task"),
+		Content:        cancelPtr("focus only on the steer"),
+		TurnId:         cancelPtr("turn-1"),
+		CreatedAt:      now.Add(time.Second),
+	}
+	conv.Transcript[0].Message = append(conv.Transcript[0].Message, steerMsg)
+	convClient.messages[steerMsg.Id] = steerMsg
+	manager.SignalTurn(ctx, "conv-steer", "turn-1")
+
+	var req *llm.GenerateRequest
+	select {
+	case req = <-finder.requests:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for model generate after steer")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for runPlanLoop exit")
+	}
+
+	require.GreaterOrEqual(t, finder.calls.Load(), int32(1))
+	var sawSteerUser bool
+	var sawSteerDirective bool
+	var sawStatusSnapshot bool
+	for _, msg := range req.Messages {
+		if strings.EqualFold(string(msg.Role), string(llm.RoleUser)) && strings.Contains(msg.Content, "focus only on the steer") {
+			sawSteerUser = true
+		}
+		if strings.EqualFold(string(msg.Role), string(llm.RoleSystem)) &&
+			strings.Contains(msg.Content, "Steering update:") &&
+			strings.Contains(msg.Content, "messageId=steer-1") &&
+			strings.Contains(msg.Content, "message:add") &&
+			strings.Contains(msg.Content, "interim unset or false") &&
+			strings.Contains(msg.Content, "continue the current turn") {
+			sawSteerDirective = true
+		}
+		if strings.Contains(msg.Content, `"operationId":"child-1"`) && strings.Contains(msg.Content, `"opsStillActive":true`) && strings.Contains(msg.Content, `"detail":"waiting"`) {
+			sawStatusSnapshot = true
+		}
+	}
+	require.True(t, sawSteerUser, "expected steer task message in model history")
+	require.True(t, sawSteerDirective, "expected explicit steering directive in model history")
+	require.True(t, sawStatusSnapshot, "expected async status-so-far snapshot in model history")
+	require.True(t, requestHasTool(req, "message-add"), "expected message:add to be visible as message-add in model tools")
+}
+
+func requestHasTool(req *llm.GenerateRequest, name string) bool {
+	if req == nil || req.Options == nil {
+		return false
+	}
+	for _, tool := range req.Options.Tools {
+		if strings.EqualFold(strings.TrimSpace(tool.Definition.Name), strings.TrimSpace(name)) {
+			return true
+		}
+	}
+	return false
 }

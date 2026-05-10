@@ -2396,6 +2396,56 @@ func TestDataService_LinkedConversationList_ExcludesOrphans(t *testing.T) {
 	}
 }
 
+func TestDataService_GetConversation_IgnoresBlankLinkedConversationIDs(t *testing.T) {
+	ctx := context.Background()
+	svc := newSeededService(t, seedForBlankLinkedConversationIDs)
+
+	in := &agconv.ConversationInput{
+		IncludeTranscript: true,
+		Has: &agconv.ConversationInputHas{
+			IncludeTranscript: true,
+		},
+	}
+	got, err := svc.GetConversation(ctx, "conv-linked", in)
+	if err != nil {
+		t.Fatalf("GetConversation() error: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected conversation")
+	}
+	if len(got.Transcript) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(got.Transcript))
+	}
+	if len(got.Transcript[0].Message) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(got.Transcript[0].Message))
+	}
+
+	byID := map[string]*agconv.MessageView{}
+	for _, msg := range got.Transcript[0].Message {
+		if msg == nil {
+			continue
+		}
+		byID[msg.Id] = msg
+	}
+
+	if msg := byID["msg-blank-linked"]; msg == nil {
+		t.Fatalf("missing message with blank linked conversation id")
+	} else if msg.LinkedConversation != nil {
+		t.Fatalf("expected blank linked conversation id to stay nil, got %#v", msg.LinkedConversation)
+	}
+
+	if msg := byID["msg-valid-linked"]; msg == nil {
+		t.Fatalf("missing message with valid linked conversation id")
+	} else {
+		if msg.LinkedConversation == nil {
+			t.Fatalf("expected linked conversation to load for valid id")
+		}
+		if msg.LinkedConversation.Id != "child-linked" {
+			t.Fatalf("expected linked conversation id child-linked, got %q", msg.LinkedConversation.Id)
+		}
+	}
+}
+
 func TestDataService_ReadPermissions_MessageTurnRun(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForPermissionReadArtifacts)
@@ -2736,6 +2786,18 @@ func seedForLinkedConversationOrphans(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO conversation (id, created_at, visibility) VALUES (?, ?, ?)`, Params: []interface{}{"other-parent", "2026-01-01T09:05:00Z", "private"}},
 		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"other-turn", "other-parent", "2026-01-01T09:06:00Z", "completed"}},
 		{SQL: `INSERT INTO conversation (id, created_at, visibility, conversation_parent_id, conversation_parent_turn_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"child-mismatch-turn", "2026-01-01T09:07:00Z", "private", "parent-1", "other-turn"}},
+	}
+	dbtest.ExecAll(t, db, items)
+}
+
+func seedForBlankLinkedConversationIDs(t *testing.T, db *sql.DB) {
+	t.Helper()
+	items := []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO conversation (id, created_at, visibility) VALUES (?, ?, ?)`, Params: []interface{}{"conv-linked", "2026-01-01T09:00:00Z", "private"}},
+		{SQL: `INSERT INTO conversation (id, created_at, visibility) VALUES (?, ?, ?)`, Params: []interface{}{"child-linked", "2026-01-01T09:00:10Z", "private"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"turn-linked", "conv-linked", "2026-01-01T09:01:00Z", "completed"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, interim, linked_conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-blank-linked", "conv-linked", "turn-linked", "2026-01-01T09:01:10Z", "assistant", "text", "blank link", 0, ""}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, interim, linked_conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-valid-linked", "conv-linked", "turn-linked", "2026-01-01T09:01:20Z", "assistant", "text", "valid link", 0, "child-linked"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }

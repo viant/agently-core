@@ -1516,6 +1516,58 @@ func TestPollerExecuteStatusTick_PreservesMessageKind(t *testing.T) {
 	require.Equal(t, "preamble", stored.MessageKind)
 }
 
+func TestPollerExecuteStatusTick_SkipsNoopPersistence(t *testing.T) {
+	cfg := &asynccfg.Config{
+		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
+		PollIntervalMs:       5,
+		Run: asynccfg.RunConfig{
+			Tool:            "llm/agents:start",
+			OperationIDPath: "conversationId",
+			Selector:        &asynccfg.Selector{StatusPath: "status"},
+		},
+		Status: asynccfg.StatusConfig{
+			Tool:           "llm/agents:status",
+			OperationIDArg: "conversationId",
+			Selector: asynccfg.Selector{
+				StatusPath:  "status",
+				MessagePath: "message",
+			},
+		},
+	}
+	reg := &asyncRegistry{
+		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
+			{result: `{"status":"running","message":"same status","messageKind":"preamble"}`},
+		}},
+		cfg: cfg,
+	}
+	manager := asynccfg.NewManager()
+	conv := &stubConv{}
+	rec, _ := manager.Register(context.Background(), asynccfg.RegisterInput{
+		ID:             "child-1",
+		ParentConvID:   "conv-1",
+		ParentTurnID:   "turn-1",
+		ToolCallID:     "call-start",
+		ToolMessageID:  "tool-msg-start",
+		ToolName:       "llm/agents:start",
+		StatusToolName: "llm/agents:status",
+		StatusArgs:     map[string]interface{}{"conversationId": "child-1"},
+		ExecutionMode:  string(asynccfg.ExecutionModeDetach),
+		Status:         "running",
+		Message:        "same status",
+		MessageKind:    "preamble",
+		PollIntervalMs: 5,
+	})
+	require.NotNil(t, rec)
+
+	state := newPollerState(context.Background(), manager, reg, cfg, "child-1", conv)
+	require.NotNil(t, state)
+
+	continueLoop := state.executeStatusTick(context.Background())
+	require.True(t, continueLoop)
+	require.Empty(t, conv.patchedMessages)
+	require.Empty(t, conv.patchedToolCalls)
+}
+
 func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulUpdate(t *testing.T) {
 	cfg := &asynccfg.Config{
 		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),

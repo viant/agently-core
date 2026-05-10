@@ -142,6 +142,11 @@ func (s *Service) applyPatch(ctx context.Context, input *ApplyInput, output *App
 
 	// Compute basic stats for user feedback.
 	output.Stats = patchStats(input.Patch)
+	changes, snapErr := sess.Snapshot(ctx)
+	if snapErr != nil {
+		return snapErr
+	}
+	output.Changes = changes
 	// Session remains open for further apply calls until commit/rollback.
 	return nil
 }

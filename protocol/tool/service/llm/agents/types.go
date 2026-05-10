@@ -169,20 +169,20 @@ type StatusInput struct {
 }
 
 type StatusItem struct {
-	ConversationID         string `json:"conversationId,omitempty"`
-	ParentConversationID   string `json:"parentConversationId,omitempty"`
-	ParentTurnID           string `json:"parentTurnId,omitempty"`
-	AgentID                string `json:"agentId,omitempty"`
-	Status                 string `json:"status,omitempty"`
-	RawStatus              string `json:"rawStatus,omitempty"`
-	Terminal               bool   `json:"terminal,omitempty"`
-	Error                  string `json:"error,omitempty"`
-	CreatedAt              string `json:"createdAt,omitempty"`
-	UpdatedAt              string `json:"updatedAt,omitempty"`
-	LastAssistantNarration string `json:"lastAssistantNarration,omitempty"`
-	LastAssistantResponse  string `json:"lastAssistantResponse,omitempty"`
-	HasFinalResponse       bool   `json:"hasFinalResponse,omitempty"`
-	LastMessageAt          string `json:"lastMessageAt,omitempty"`
+	ConversationID            string `json:"conversationId,omitempty"`
+	ParentConversationID      string `json:"parentConversationId,omitempty"`
+	ParentTurnID              string `json:"parentTurnId,omitempty"`
+	AgentID                   string `json:"agentId,omitempty"`
+	Status                    string `json:"status,omitempty"`
+	RawStatus                 string `json:"rawStatus,omitempty"`
+	Terminal                  bool   `json:"terminal,omitempty"`
+	Error                     string `json:"error,omitempty"`
+	CreatedAt                 string `json:"createdAt,omitempty"`
+	UpdatedAt                 string `json:"updatedAt,omitempty"`
+	AssistantNarrationPreview string `json:"assistantNarrationPreview,omitempty"`
+	AssistantOutputPreview    string `json:"assistantOutputPreview,omitempty"`
+	HasFinalResponse          bool   `json:"hasFinalResponse,omitempty"`
+	LastMessageAt             string `json:"lastMessageAt,omitempty"`
 }
 
 type StatusOutput struct {

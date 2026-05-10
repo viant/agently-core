@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -23,6 +24,7 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/debugtrace"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	bindpkg "github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/protocol/tool"
@@ -57,6 +59,149 @@ func stopRunHeartbeatThen(stop func(), finalize func() error) error {
 		return nil
 	}
 	return finalize()
+}
+
+func steeringDirective(checkpoint turnTaskCheckpoint) *bindpkg.Message {
+	if !checkpoint.Found {
+		return nil
+	}
+	messageID := strings.TrimSpace(checkpoint.MessageID)
+	if messageID == "" {
+		return nil
+	}
+	return &bindpkg.Message{
+		ID:        "steer-directive:" + messageID,
+		Kind:      bindpkg.MessageKindChatAssistant,
+		Role:      string(llm.RoleSystem),
+		CreatedAt: checkpoint.CreatedAt,
+		Content: strings.TrimSpace(
+			fmt.Sprintf(
+				"Steering update: the latest user task message in this running turn is a steering follow-up (messageId=%s, createdAt=%s). Treat that user task message as an in-flight steering request, continue the current task instead of restarting, and prioritize addressing that steering update in your next action or response. If you need to send a visible steering acknowledgement or mid-turn progress update while work continues, use the message:add tool with interim unset or false so it emits a visible message row, then continue the current turn.",
+				messageID,
+				checkpoint.CreatedAt.UTC().Format(time.RFC3339Nano),
+			),
+		),
+	}
+}
+
+func asyncStatusSnapshotReason(rec *asynccfg.OperationRecord) string {
+	if rec == nil {
+		return ""
+	}
+	switch rec.State {
+	case asynccfg.StateCompleted:
+		return "success"
+	case asynccfg.StateFailed:
+		return "failure"
+	case asynccfg.StateCanceled:
+		return "canceled"
+	default:
+		return strings.TrimSpace(string(rec.State))
+	}
+}
+
+func asyncStatusSnapshotPayload(rec *asynccfg.OperationRecord) asynccfg.AggregatedResult {
+	if rec == nil {
+		return asynccfg.AggregatedResult{}
+	}
+	item := asynccfg.AggregatedItem{
+		OperationID:      strings.TrimSpace(rec.ID),
+		ToolName:         strings.TrimSpace(rec.ToolName),
+		OperationIntent:  strings.TrimSpace(rec.OperationIntent),
+		OperationSummary: strings.TrimSpace(rec.OperationSummary),
+		State:            rec.State,
+		Reason:           asyncStatusSnapshotReason(rec),
+		Detail:           strings.TrimSpace(rec.Message),
+	}
+	if len(rec.KeyData) > 0 {
+		item.Payload = append(json.RawMessage(nil), rec.KeyData...)
+	}
+	return asynccfg.AggregatedResult{
+		Items:          []asynccfg.AggregatedItem{item},
+		OpsStillActive: !rec.Terminal(),
+	}
+}
+
+func cloneToolArgs(args map[string]interface{}) map[string]interface{} {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(args))
+	for key, value := range args {
+		out[key] = value
+	}
+	return out
+}
+
+func (s *Service) asyncStatusReplayMessages(ctx context.Context, turn runtimerequestctx.TurnMeta, checkpoint turnTaskCheckpoint) []*bindpkg.Message {
+	if s == nil || s.asyncManager == nil {
+		return nil
+	}
+	ops := s.asyncManager.ActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
+	if len(ops) == 0 {
+		return nil
+	}
+	messages := make([]*bindpkg.Message, 0, len(ops))
+	for _, rec := range ops {
+		if rec == nil {
+			continue
+		}
+		toolCallID := strings.TrimSpace(rec.ToolCallID)
+		toolName := strings.TrimSpace(rec.ToolName)
+		if toolCallID == "" || toolName == "" {
+			logx.WarnCtxf(ctx, "conversation", "agent.runPlan steer status snapshot skipped op_id=%q tool_call_id=%q tool=%q", strings.TrimSpace(rec.ID), toolCallID, toolName)
+			continue
+		}
+		payload := asyncStatusSnapshotPayload(rec)
+		data, err := json.Marshal(payload)
+		if err != nil {
+			logx.WarnCtxf(ctx, "conversation", "agent.runPlan steer status snapshot marshal failed op_id=%q err=%v", strings.TrimSpace(rec.ID), err)
+			continue
+		}
+		messageID := strings.TrimSpace("async-status-snapshot:" + strings.TrimSpace(rec.ID) + ":" + strings.TrimSpace(checkpoint.MessageID))
+		messages = append(messages, &bindpkg.Message{
+			ID:        messageID,
+			Kind:      bindpkg.MessageKindToolResult,
+			Role:      string(llm.RoleAssistant),
+			CreatedAt: time.Now(),
+			ToolOpID:  toolCallID,
+			ToolName:  toolName,
+			ToolArgs:  cloneToolArgs(rec.StatusArgs),
+			Content:   string(data),
+		})
+	}
+	return messages
+}
+
+func (s *Service) waitForAsyncChangeOrSteer(ctx context.Context, turn runtimerequestctx.TurnMeta, checkpoint turnTaskCheckpoint) (bool, error) {
+	if s == nil || s.asyncManager == nil {
+		return false, nil
+	}
+	signalAfter := s.asyncManager.TurnSignalVersion(turn.ConversationID, turn.TurnID)
+	if pending, err := s.hasNewTurnTaskSince(ctx, turn, checkpoint); err != nil || pending {
+		return pending, err
+	}
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(chan error, 1)
+	go func() {
+		results <- s.asyncManager.WaitForChangeSince(waitCtx, turn.ConversationID, turn.TurnID, signalAfter)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case err := <-results:
+		if err != nil {
+			return false, err
+		}
+		pending, checkErr := s.hasNewTurnTaskSince(ctx, turn, checkpoint)
+		if checkErr != nil || pending {
+			return pending, checkErr
+		}
+		return false, nil
+	}
 }
 
 func (g *convGuardMap) acquire(convID string) bool {
@@ -422,6 +567,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		if !pending {
 			break
 		}
+		if latest, latestErr := s.latestTurnTaskCheckpoint(ctx, turn); latestErr == nil && latest.Found {
+			output.nextSteerCheckpoint = latest
+		}
 		logx.Infof("conversation", "agent.Query steer follow-up detected convo=%q turn_id=%q rerunning plan loop", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 
@@ -573,6 +721,18 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		iter++
 		ctx = runtimerequestctx.WithRunMeta(ctx, runtimerequestctx.RunMeta{RunID: turn.TurnID, Iteration: iter})
 		iterHistoryMsgs := append([]*bindpkg.Message(nil), loopHistoryMsgs...)
+		bypassAsyncWait := false
+		if queryOutput != nil && queryOutput.nextSteerCheckpoint.Found {
+			if len(queryOutput.nextSteerStatusMessages) > 0 {
+				iterHistoryMsgs = mergeReplayMessages(iterHistoryMsgs, queryOutput.nextSteerStatusMessages)
+			}
+			if directive := steeringDirective(queryOutput.nextSteerCheckpoint); directive != nil {
+				iterHistoryMsgs = append(iterHistoryMsgs, directive)
+				bypassAsyncWait = true
+			}
+			queryOutput.nextSteerCheckpoint = turnTaskCheckpoint{}
+			queryOutput.nextSteerStatusMessages = nil
+		}
 		if iter == 1 && len(iterHistoryMsgs) == 0 && s.skillSvc != nil {
 			if name, args, body, ok := preactivatedSkillPayload(input); ok {
 				logx.Infof("conversation", "agent.runPlan preactivated skill payload detected convo=%q turn_id=%q skill=%q body_len=%d agent_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(name), len(body), strings.TrimSpace(input.AgentID))
@@ -793,15 +953,23 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 				modelSelection.Options.Metadata["activeSkillConstraints"] = map[string]interface{}{}
 			}
 		}
-		if s.asyncManager != nil && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
+		if s.asyncManager != nil && !bypassAsyncWait && s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID) {
 			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 			if len(changedOps) > 0 {
 				queryOutput.Content = ""
 				continue
 			}
 			logx.Infof("conversation", "agent.runPlan async-wait-pre-model convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
-			if err := s.asyncManager.WaitForChange(ctx, turn.ConversationID, turn.TurnID); err != nil {
+			steerTriggered, err := s.waitForAsyncChangeOrSteer(ctx, turn, checkpoint)
+			if err != nil {
 				return err
+			}
+			if steerTriggered {
+				if latest, latestErr := s.latestTurnTaskCheckpoint(ctx, turn); latestErr == nil && latest.Found && queryOutput != nil {
+					queryOutput.nextSteerCheckpoint = latest
+					queryOutput.nextSteerStatusMessages = s.asyncStatusReplayMessages(ctx, turn, latest)
+				}
+				logx.Infof("conversation", "agent.runPlan steer wake convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 			}
 			queryOutput.Content = ""
 			continue
@@ -1091,6 +1259,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			if pErr != nil {
 				logx.Warnf("conversation", "agent.runPlan follow-up check error convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, pErr)
 			} else if pending {
+				if latest, latestErr := s.latestTurnTaskCheckpoint(ctx, turn); latestErr == nil && latest.Found && queryOutput != nil {
+					queryOutput.nextSteerCheckpoint = latest
+				}
 				logx.Infof("conversation", "agent.runPlan steer follow-up convo=%q turn_id=%q iter=%d duration=%s", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(iterStart))
 				queryOutput.Content = ""
 				continue

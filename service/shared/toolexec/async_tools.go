@@ -997,7 +997,7 @@ func (p *pollerState) executeStatusTick(ctx context.Context) (continueLoop bool)
 		// counter tracks status-tool-call errors only.
 		return true
 	}
-	rec, _ := p.manager.Update(context.Background(), asynccfg.UpdateInput{
+	rec, changed := p.manager.Update(context.Background(), asynccfg.UpdateInput{
 		ID:          p.opID,
 		Status:      payload.Status,
 		Message:     payload.Message,
@@ -1006,11 +1006,11 @@ func (p *pollerState) executeStatusTick(ctx context.Context) (continueLoop bool)
 		KeyData:     cloneRaw(payload.KeyData),
 		Error:       payload.Error,
 	})
-	if rec != nil {
+	if rec != nil && changed {
 		observeAsyncNarration(ctx, p.narration, changeEventFromRecord(rec))
+		PatchAsyncToolPersistence(context.Background(), p.conv, rec, "", payload)
+		publishAsyncUpdateEvent(ctx, p.cfg.Status.Tool, rec.ToolCallID, p.opID, payload, rec)
 	}
-	PatchAsyncToolPersistence(context.Background(), p.conv, rec, "", payload)
-	publishAsyncUpdateEvent(ctx, p.cfg.Status.Tool, rec.ToolCallID, p.opID, payload, rec)
 	if rec != nil && rec.Terminal() {
 		return false
 	}
