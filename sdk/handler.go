@@ -31,6 +31,7 @@ type handlerConfig struct {
 	fileBrowser      *svcworkspace.FileBrowserHandler
 	a2aHandler       *svca2a.Handler
 	callbackHandler  *callbackhttp.Handler
+	uiBridgeHandler  http.Handler
 }
 
 // SchedulerOptions controls scheduler behavior at the SDK level.
@@ -85,6 +86,11 @@ func WithA2AHandler(h *svca2a.Handler) HandlerOption {
 // handler — the route is not mounted in that case.
 func WithCallbackDispatchHandler(h *callbackhttp.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.callbackHandler = h }
+}
+
+// WithUIBridgeHandler mounts the Forge UI bridge RPC endpoint at /v1/ui/rpc.
+func WithUIBridgeHandler(h http.Handler) HandlerOption {
+	return func(c *handlerConfig) { c.uiBridgeHandler = h }
 }
 
 func NewHandler(client Backend, opts ...HandlerOption) http.Handler {
@@ -228,5 +234,8 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	}
 	if cfg.callbackHandler != nil {
 		cfg.callbackHandler.Register(mux)
+	}
+	if cfg.uiBridgeHandler != nil {
+		mux.Handle("/v1/ui/rpc", cfg.uiBridgeHandler)
 	}
 }

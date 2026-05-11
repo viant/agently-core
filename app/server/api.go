@@ -30,6 +30,7 @@ type APIOptions struct {
 	AuthRuntime      *svcauth.Runtime
 	SchedulerService *svcscheduler.Service
 	SchedulerOptions *sdk.SchedulerOptions
+	UIBridgeHandler  http.Handler
 }
 
 func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
@@ -56,6 +57,9 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		handlerOpts = append(handlerOpts, sdk.WithCallbackDispatchHandler(
 			callbackhttp.NewHandler(opts.Runtime.CallbackDispatch),
 		))
+	}
+	if opts.UIBridgeHandler != nil {
+		handlerOpts = append(handlerOpts, sdk.WithUIBridgeHandler(opts.UIBridgeHandler))
 	}
 	if opts.SchedulerService != nil && opts.SchedulerOptions != nil && (opts.SchedulerOptions.EnableAPI || opts.SchedulerOptions.EnableWatchdog) {
 		handlerOpts = append(handlerOpts, sdk.WithScheduler(opts.SchedulerService, svcscheduler.NewHandler(opts.SchedulerService), opts.SchedulerOptions))
