@@ -66,6 +66,16 @@ func collectToolCallSupersessionHiddenMessageIDs(
 	reg tool.Registry,
 	projection *config.Projection,
 ) ([]string, int) {
+	return collectToolCallSupersessionHiddenMessageIDsProtected(normalized, currentTurnIdx, reg, projection, nil)
+}
+
+func collectToolCallSupersessionHiddenMessageIDsProtected(
+	normalized []normalizedMsg,
+	currentTurnIdx int,
+	reg tool.Registry,
+	projection *config.Projection,
+	protected map[int]bool,
+) ([]string, int) {
 	suppress := collectToolCallSupersessionSuppressedIndices(normalized, currentTurnIdx, reg, projection)
 	if len(suppress) == 0 {
 		return nil, 0
@@ -75,6 +85,9 @@ func collectToolCallSupersessionHiddenMessageIDs(
 	tokensFreed := 0
 	for i := range normalized {
 		if !suppress[i] {
+			continue
+		}
+		if protected[i] {
 			continue
 		}
 		msgID := strings.TrimSpace(normalized[i].msg.Id)
@@ -108,6 +121,34 @@ func applyToolCallSupersession(
 		result = append(result, item)
 	}
 	return result
+}
+
+// protectedContinuationToolResultIndices marks tool results that belong to the
+// active provider response anchor. These messages are not optional history:
+// OpenAI Responses continuation rejects a request when any prior function call
+// for previous_response_id is missing its matching output.
+func protectedContinuationToolResultIndices(normalized []normalizedMsg, anchorID string) map[int]bool {
+	anchorID = strings.TrimSpace(anchorID)
+	if anchorID == "" {
+		return nil
+	}
+	protected := map[int]bool{}
+	for i, item := range normalized {
+		if item.msg == nil || !isConcreteToolResultMessage(item.msg) {
+			continue
+		}
+		tc := messageToolCall(item.msg)
+		if tc == nil || tc.TraceId == nil {
+			continue
+		}
+		if strings.TrimSpace(*tc.TraceId) == anchorID {
+			protected[i] = true
+		}
+	}
+	if len(protected) == 0 {
+		return nil
+	}
+	return protected
 }
 
 // toolCallArgs extracts parsed arguments from a tool-call message using the
