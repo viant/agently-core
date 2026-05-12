@@ -54,6 +54,39 @@ describe('summarizeLinkedConversationTranscript', () => {
             status: 'completed',
         });
     });
+
+    it('does not synthesize narration from tool or model labels when narration is empty', () => {
+        const summary = summarizeLinkedConversationTranscript(transcript({
+            turns: [
+                {
+                    status: 'running',
+                    agentIdUsed: 'steward-forecasting',
+                    execution: {
+                        pages: [
+                            {
+                                assistantMessageId: 'child-1',
+                                status: 'running',
+                                toolSteps: [
+                                    { toolName: 'steward/ForecastingCube', status: 'running' },
+                                ],
+                                modelSteps: [
+                                    { provider: 'openai', model: 'gpt-5.4', status: 'running' },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            ],
+        }));
+
+        expect(summary.response).toBe('');
+        expect(summary.previewGroups).toHaveLength(1);
+        expect(summary.previewGroups[0]).toMatchObject({
+            title: '',
+            stepKind: 'tool',
+            stepLabel: 'steward/ForecastingCube',
+        });
+    });
 });
 
 describe('reduceLinkedConversationPreviewEvent', () => {
@@ -73,6 +106,7 @@ describe('reduceLinkedConversationPreviewEvent', () => {
         }));
         expect(afterModelStart.previewGroups).toHaveLength(1);
         expect(afterModelStart.previewGroups[0]).toMatchObject({
+            title: '',
             stepKind: 'model',
             stepLabel: 'gpt-5.4',
             status: 'thinking',
@@ -86,6 +120,7 @@ describe('reduceLinkedConversationPreviewEvent', () => {
         }));
         expect(afterTool.previewGroups).toHaveLength(2);
         expect(afterTool.previewGroups[1]).toMatchObject({
+            title: '',
             stepKind: 'tool',
             stepLabel: 'steward/AdHierarchy',
             status: 'running',

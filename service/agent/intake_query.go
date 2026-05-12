@@ -438,9 +438,6 @@ func detectPlannerTrigger(input *QueryInput, tc *intakesvc.Context, cfg *agentmd
 	if plannerExploratoryStrategyRequested(input, tc, cfg) {
 		return string(planner.TriggerExploratoryStrategy)
 	}
-	if plannerLowConfidenceRequested(tc, cfg) {
-		return string(planner.TriggerLowConfidence)
-	}
 	return ""
 }
 
@@ -449,6 +446,9 @@ func plannerExploratoryStrategyRequested(input *QueryInput, tc *intakesvc.Contex
 		return false
 	}
 	if suppressPlannerForConcreteTroubleshoot(tc, cfg) {
+		return false
+	}
+	if suppressPlannerForConcreteForecast(tc, cfg) {
 		return false
 	}
 	if suppressPlannerForBoundedTopN(tc, cfg) {
@@ -538,14 +538,32 @@ func suppressPlannerForBoundedTopN(tc *intakesvc.Context, cfg *agentmdl.Intake) 
 	return false
 }
 
-func plannerLowConfidenceRequested(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+func suppressPlannerForConcreteForecast(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
 	if tc == nil || cfg == nil {
 		return false
 	}
-	if strings.TrimSpace(tc.Prompting.SuggestedProfileID) != "" {
+	intent := strings.ToLower(strings.TrimSpace(tc.Classification.Intent))
+	templateID := strings.TrimSpace(tc.Prompting.TemplateID)
+	if intent != "forecast" && !strings.Contains(intent, "forecast") &&
+		!strings.EqualFold(templateID, "audience_forecast_dashboard") {
 		return false
 	}
-	threshold := cfg.EffectivePlannerFallbackThreshold()
-	confidence := tc.Classification.Confidence
-	return confidence > 0 && confidence < threshold
+	scope := tc.Scope.Values
+	if len(scope) == 0 {
+		return false
+	}
+	for _, key := range []string{
+		"line_id",
+		"lineId",
+		"audience_id",
+		"audienceId",
+		"adOrderId",
+		"ad_order_id",
+		"order_id",
+	} {
+		if strings.TrimSpace(scope[key]) != "" {
+			return true
+		}
+	}
+	return false
 }
