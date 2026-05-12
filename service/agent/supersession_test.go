@@ -57,6 +57,17 @@ func makeTCMsg(toolName string, argsJSON *string, content string) *apiconv.Messa
 	}
 }
 
+func makeConcreteTCMsg(id, opID, toolName string, argsJSON *string, traceID *string, content string) *apiconv.Message {
+	msg := makeTCMsg(toolName, argsJSON, content)
+	msg.Id = id
+	msg.Type = "tool_op"
+	if len(msg.ToolMessage) > 0 && msg.ToolMessage[0] != nil && msg.ToolMessage[0].ToolCall != nil {
+		msg.ToolMessage[0].ToolCall.OpId = opID
+		msg.ToolMessage[0].ToolCall.TraceId = traceID
+	}
+	return msg
+}
+
 func TestSupersessionKey_IdenticalArgsDifferentOrder(t *testing.T) {
 	k1 := supersessionKey("resources/read", map[string]interface{}{"uri": "file.go", "encoding": "utf-8"})
 	k2 := supersessionKey("resources/read", map[string]interface{}{"encoding": "utf-8", "uri": "file.go"})
@@ -125,6 +136,26 @@ func TestApplyToolCallSupersession_CurrentTurnKeepsLast2(t *testing.T) {
 	require.Len(t, result, 2, "current turn should keep last 2")
 	assert.Equal(t, "call3", *result[0].msg.Content)
 	assert.Equal(t, "call4", *result[1].msg.Content)
+}
+
+func TestToolCallSupersession_ProtectsActiveContinuationAnchor(t *testing.T) {
+	reg := &stubCacheableRegistry{defs: map[string]*llm.ToolDefinition{
+		"llm/agents/status": {Name: "llm/agents/status", Cacheable: true},
+	}}
+	args := strPtr(`{"conversationId":"9ad24d03-d239-45a2-86de-7651f1d1453c"}`)
+	anchor := strPtr("resp_01522ece736e210b006a01cb7ef2488196a050b2dce5aa62d1")
+	msgs := []normalizedMsg{
+		{turnIdx: 0, msg: makeConcreteTCMsg("msg-1", "call_umCwt0iHi2P9zbXi6LEu8MXg", "llm/agents/status", args, anchor, `{"status":"running"}`)},
+		{turnIdx: 0, msg: makeConcreteTCMsg("msg-2", "call_UWNAMkZzdiwx4UgoyiQK5tHW", "llm/agents/status", args, anchor, `{"status":"running"}`)},
+		{turnIdx: 0, msg: makeConcreteTCMsg("msg-3", "call_GBtvNngY8gt65YZXNyMSw2vJ", "llm/agents/status", args, anchor, `{"status":"completed"}`)},
+	}
+
+	hidden, _ := collectToolCallSupersessionHiddenMessageIDs(msgs, 0, reg, &config.Projection{})
+	require.Equal(t, []string{"msg-1"}, hidden, "unprotected current-turn supersession keeps only the last two duplicate calls")
+
+	protected := protectedContinuationToolResultIndices(msgs, *anchor)
+	hidden, _ = collectToolCallSupersessionHiddenMessageIDsProtected(msgs, 0, reg, &config.Projection{}, protected)
+	require.Empty(t, hidden, "active continuation anchor must keep every tool output required by previous_response_id")
 }
 
 func TestApplyToolCallSupersession_CurrentTurnExactDuplicateShapeKeepsLast2(t *testing.T) {
