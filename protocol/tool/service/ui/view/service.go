@@ -162,13 +162,14 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	if input.TimeoutMs > 0 {
 		timeout = input.TimeoutMs
 	}
+	windowParameters := expandOpenParameters(item.Parameters, input.Parameters)
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID: clientID,
 		Method:   "ui.window.open",
 		Params: map[string]interface{}{
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
-			"parameters":  input.Parameters,
+			"parameters":  windowParameters,
 		},
 		TimeoutMs: timeout,
 	})
@@ -243,4 +244,103 @@ func stringValue(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func expandOpenParameters(specParams []viewproto.Parameter, provided map[string]interface{}) map[string]interface{} {
+	if len(provided) == 0 {
+		return map[string]interface{}{}
+	}
+	if len(specParams) == 0 {
+		return cloneMap(provided)
+	}
+
+	result := map[string]interface{}{}
+	for key, value := range provided {
+		matches := matchingViewParameters(specParams, key)
+		if len(matches) == 0 {
+			result[key] = value
+			continue
+		}
+		appliedBinding := false
+		for _, specParam := range matches {
+			bindTo := strings.TrimSpace(specParam.BindTo)
+			if bindTo == "" {
+				result[key] = value
+				continue
+			}
+			setNestedValue(result, bindTo, value)
+			appliedBinding = true
+		}
+		if !appliedBinding && result[key] == nil {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func matchingViewParameters(specParams []viewproto.Parameter, key string) []viewproto.Parameter {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	result := make([]viewproto.Parameter, 0, len(specParams))
+	for _, specParam := range specParams {
+		if strings.EqualFold(strings.TrimSpace(specParam.Name), key) {
+			result = append(result, specParam)
+		}
+	}
+	return result
+}
+
+func setNestedValue(target map[string]interface{}, path string, value interface{}) {
+	parts := compactPathParts(path)
+	if len(parts) == 0 {
+		return
+	}
+	current := target
+	for i := 0; i < len(parts)-1; i++ {
+		part := parts[i]
+		next, ok := current[part]
+		if !ok {
+			child := map[string]interface{}{}
+			current[part] = child
+			current = child
+			continue
+		}
+		existing, ok := next.(map[string]interface{})
+		if !ok {
+			child := map[string]interface{}{}
+			current[part] = child
+			current = child
+			continue
+		}
+		current = existing
+	}
+	current[parts[len(parts)-1]] = value
+}
+
+func compactPathParts(path string) []string {
+	raw := strings.Split(path, ".")
+	result := make([]string, 0, len(raw))
+	for _, entry := range raw {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func cloneMap(input map[string]interface{}) map[string]interface{} {
+	if len(input) == 0 {
+		return map[string]interface{}{}
+	}
+	result := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		if child, ok := value.(map[string]interface{}); ok {
+			result[key] = cloneMap(child)
+			continue
+		}
+		result[key] = value
+	}
+	return result
 }

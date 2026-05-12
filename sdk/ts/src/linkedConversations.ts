@@ -123,10 +123,13 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptLike = 
                 status: String(step?.status || step?.Status || '').trim(),
             } as ({ kind: 'tool' } & Partial<ToolStepState>)
         ));
-        const title = String(page?.narration || page?.Narration || '').trim()
-            || (toolSteps.length > 0 ? `Using ${stepTitle(toolSteps[toolSteps.length - 1])}.` : '')
-            || (modelStep ? stepTitle(modelStep) : '')
-            || `Step ${index + 1}`;
+        const title = String(
+            page?.narration
+            || page?.Narration
+            || page?.content
+            || page?.Content
+            || ''
+        ).trim();
         return {
             id: String(page?.assistantMessageId || page?.AssistantMessageId || page?.pageId || page?.PageId || `preview:${index}`).trim(),
             title,
@@ -139,10 +142,13 @@ export function summarizeLinkedConversationTranscript(payload: TranscriptLike = 
             modelStep: normalizedModelStep,
             toolSteps: normalizedToolSteps,
         };
-    }).filter((entry) => String(entry?.title || '').trim() !== '');
+    }).filter((entry) => (
+        String(entry?.title || '').trim() !== ''
+        || String(entry?.stepLabel || '').trim() !== ''
+    ));
     return {
         status: String(lastTurn?.status || lastTurn?.Status || latestPage?.status || latestPage?.Status || '').trim(),
-        response: response || (latestTool ? `Using ${stepTitle(latestTool)}.` : ''),
+        response,
         updatedAt: String(latestPage?.completedAt || latestPage?.CompletedAt || latestPage?.createdAt || latestPage?.CreatedAt || lastTurn?.updatedAt || lastTurn?.UpdatedAt || lastTurn?.createdAt || lastTurn?.CreatedAt || '').trim(),
         agentId: String(lastTurn?.agentIdUsed || lastTurn?.AgentIdUsed || lastTurn?.agentId || lastTurn?.AgentId || '').trim(),
         previewGroups,
@@ -176,7 +182,7 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
         const existingIndex = previewGroups.findIndex((item) => String(item?.id || '').trim() === groupKey);
         const merged = {
             id: groupKey,
-            title: content || (type === 'model_started' ? 'Thinking…' : 'Model step'),
+            title: content,
             status: status || (type === 'model_started' ? 'running' : 'completed'),
             finalResponse: type === 'model_completed' && !!event?.finalResponse,
             content: type === 'model_completed' ? content : '',
@@ -208,7 +214,7 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
         const groupKey = String(event?.toolCallId || event?.toolMessageId || toolName || `tool:${previewGroups.length}`).trim();
         const merged = {
             id: groupKey,
-            title: toolName ? `Using ${toolName}.` : 'Tool step',
+            title: content,
             status: status || (type === 'tool_call_started' || type === 'tool_call_waiting' ? 'running' : (type === 'tool_call_failed' ? 'failed' : (type === 'tool_call_canceled' ? 'canceled' : 'completed'))),
             finalResponse: false,
             content: '',
