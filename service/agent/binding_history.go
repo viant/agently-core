@@ -192,7 +192,17 @@ func (s *Service) buildChronologicalHistory(
 				}
 			}
 		}
-		hidden, freed := collectToolCallSupersessionHiddenMessageIDs(normalized, currentIdx, s.registry, &s.defaults.Projection)
+		activeAnchorID := ""
+		if allowContinuation {
+			if last := transcript.LastAssistantMessageWithModelCall(); last != nil && last.ModelCall != nil && last.ModelCall.TraceId != nil {
+				activeAnchorID = strings.TrimSpace(*last.ModelCall.TraceId)
+			}
+		}
+		// Provider continuation requires one tool output for every function call
+		// emitted by the active response anchor; hiding any of those outputs makes
+		// previous_response_id replay invalid even when the calls are cacheable duplicates.
+		protected := protectedContinuationToolResultIndices(normalized, activeAnchorID)
+		hidden, freed := collectToolCallSupersessionHiddenMessageIDsProtected(normalized, currentIdx, s.registry, &s.defaults.Projection, protected)
 		if len(hidden) > 0 {
 			if state, ok := runtimeprojection.StateFromContext(ctx); ok {
 				state.HideMessages(hidden...)
