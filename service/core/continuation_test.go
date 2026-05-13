@@ -129,6 +129,26 @@ func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {
 	}
 }
 
+func TestBuildContinuationRequest_RejectsIncompleteMultiToolAnchorReplay(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	history := &binding.History{
+		Traces:       map[string]*binding.Trace{},
+		LastResponse: &binding.Trace{ID: "resp-123", At: time.Now()},
+	}
+	history.Traces[binding.KindToolCall.Key("call-1")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+	history.Traces[binding.KindToolCall.Key("call-2")] = &binding.Trace{ID: "resp-123", Kind: binding.KindToolCall}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "toolA"}}},
+		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"ok":true}`},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	assert.Nil(t, cont, "continuation must be rejected when an anchored response is missing any tool call/output pair")
+}
+
 func TestBuildContinuationRequest_DedupesRepeatedToolReplayPairs(t *testing.T) {
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
@@ -209,6 +229,36 @@ func TestBuildContinuationRequest_IncludesAssistantMessagesAfterAnchor(t *testin
 		if assert.Len(t, cont.Messages, 3) {
 			assert.Equal(t, llm.RoleAssistant, cont.Messages[2].Role)
 			assert.Equal(t, "PRELIMINARY NOTE", cont.Messages[2].Content)
+		}
+	}
+}
+
+func TestBuildContinuationRequest_AllowsContentOnlyContinuation(t *testing.T) {
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	baseTime := time.Now()
+	history := &binding.History{
+		Traces: map[string]*binding.Trace{
+			binding.KindContent.Key("show my order 2667545"): {
+				ID:   "",
+				Kind: binding.KindContent,
+				At:   baseTime.Add(time.Second),
+			},
+		},
+		LastResponse: &binding.Trace{ID: "resp-123", At: baseTime, Kind: binding.KindResponse},
+	}
+
+	req := &llm.GenerateRequest{}
+	req.Messages = append(req.Messages,
+		llm.Message{Role: llm.RoleUser, Content: "show my order 2667545"},
+	)
+
+	cont := svc.BuildContinuationRequest(ctx, req, history)
+	if assert.NotNil(t, cont) {
+		assert.Equal(t, "resp-123", cont.PreviousResponseID)
+		if assert.Len(t, cont.Messages, 1) {
+			assert.Equal(t, llm.RoleUser, cont.Messages[0].Role)
+			assert.Equal(t, "show my order 2667545", cont.Messages[0].Content)
 		}
 	}
 }

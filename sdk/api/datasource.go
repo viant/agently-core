@@ -17,6 +17,7 @@ type DatasourceCacheHints struct {
 type FetchDatasourceOutput struct {
 	Rows     []map[string]interface{} `json:"rows"`
 	DataInfo map[string]interface{}   `json:"dataInfo,omitempty"`
+	Metrics  map[string]interface{}   `json:"metrics,omitempty"`
 	Cache    *DatasourceCacheMeta     `json:"cache,omitempty"`
 }
 

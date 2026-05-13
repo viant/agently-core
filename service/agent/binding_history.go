@@ -570,7 +570,7 @@ func (s *Service) collectNormalizedMessages(
 				msgID := strings.TrimSpace(baseMsg.Id)
 				if (mtype == "tool_op" || role == "tool") && msgID != "" {
 					appendNormalized(normalizedMsg{turnIdx: ti, msg: baseMsg})
-				} else if mtype == "text" || mtype == "task" || isElicitationType {
+				} else if mtype == "" || mtype == "text" || mtype == "task" || isElicitationType {
 					// Steer/follow-up inputs are persisted as user task messages on the
 					// active turn. They must enter prompt history for the next iteration,
 					// otherwise the loop can detect late steer but the model never sees it.
@@ -739,6 +739,63 @@ func appendCurrentMessages(h *binding.History, msgs ...*binding.Message) {
 		}
 		h.Current.Messages = append(h.Current.Messages, m)
 	}
+	syncCurrentTurnTraceState(h)
+}
+
+// syncCurrentTurnTraceState keeps History.Traces and History.LastResponse in
+// sync with replayed current-turn tool results. The source of truth is the
+// current-turn message itself: when a replayed tool result carries ToolOpID and
+// ToolTraceID, history should expose that provider response anchor directly
+// instead of requiring a later repair step.
+func syncCurrentTurnTraceState(h *binding.History) {
+	if h == nil || h.Current == nil || len(h.Current.Messages) == 0 {
+		return
+	}
+	var (
+		latestTraceID string
+		latestTraceAt time.Time
+	)
+	for _, msg := range h.Current.Messages {
+		if msg == nil || msg.Kind != binding.MessageKindToolResult {
+			continue
+		}
+		opID := strings.TrimSpace(msg.ToolOpID)
+		traceID := strings.TrimSpace(msg.ToolTraceID)
+		if opID == "" || traceID == "" {
+			continue
+		}
+		if h.Traces == nil {
+			h.Traces = map[string]*binding.Trace{}
+		}
+		traceAt := msg.CreatedAt
+		h.Traces[binding.KindToolCall.Key(opID)] = &binding.Trace{
+			ID:   traceID,
+			Kind: binding.KindToolCall,
+			At:   traceAt,
+		}
+		responseKey := binding.KindResponse.Key(traceID)
+		if existing := h.Traces[responseKey]; existing == nil || existing.At.Before(traceAt) {
+			h.Traces[responseKey] = &binding.Trace{
+				ID:   traceID,
+				Kind: binding.KindResponse,
+				At:   traceAt,
+			}
+		}
+		if latestTraceID == "" || traceAt.After(latestTraceAt) {
+			latestTraceID = traceID
+			latestTraceAt = traceAt
+		}
+	}
+	if latestTraceID == "" {
+		return
+	}
+	if h.LastResponse == nil || h.LastResponse.ID != latestTraceID || h.LastResponse.At.Before(latestTraceAt) {
+		h.LastResponse = &binding.Trace{
+			ID:   latestTraceID,
+			Kind: binding.KindResponse,
+			At:   latestTraceAt,
+		}
+	}
 }
 
 func collectMessageAddCreatedMessageIDs(messages []*apiconv.Message) map[string]struct{} {
@@ -797,6 +854,16 @@ func messageToolCall(msg *apiconv.Message) *apiconv.ToolCallView {
 	for _, tm := range msg.ToolMessage {
 		if tm != nil && tm.ToolCall != nil {
 			return tm.ToolCall
+		}
+	}
+	if isConcreteToolResultMessage(msg) && msg.ToolName != nil && strings.TrimSpace(*msg.ToolName) != "" {
+		opID := strings.TrimSpace(msg.Id)
+		toolName := strings.TrimSpace(*msg.ToolName)
+		return &apiconv.ToolCallView{
+			MessageId: msg.Id,
+			TurnId:    msg.TurnId,
+			OpId:      opID,
+			ToolName:  toolName,
 		}
 	}
 	return nil

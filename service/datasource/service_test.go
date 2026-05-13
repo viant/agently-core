@@ -597,6 +597,45 @@ func TestFetch_ExpandNestedArgsForCubeMCPTool_DropsBlankTypedFilter(t *testing.T
 	}
 }
 
+func TestFetch_ProjectsMetrics(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	executor := &captureExecutor{fn: func(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+		return `{"data":[{"orderId":2667545,"performanceSummary":{"periodCtr":1.23,"periodEcpm":29.4},"performanceTimeline":[{"spend":251.927}]}]}`, nil
+	}}
+	store.Put(&dsproto.DataSource{
+		ID: "perf",
+		Backend: &dsproto.Backend{
+			Kind:    dsproto.BackendMCPTool,
+			Service: "steward",
+			Method:  "OrderPerformance",
+		},
+		DataSource: types.DataSource{
+			Selectors: &types.Selectors{
+				Data:    "data.0.performanceTimeline",
+				Metrics: "data.0",
+			},
+		},
+	})
+	svc := datasource.New(datasource.Options{Store: store, Executor: executor})
+	res, err := svc.Fetch(aliceCtx(), "perf", nil, datasource.FetchOptions{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if got := len(res.Rows); got != 1 {
+		t.Fatalf("want 1 row, got %d", got)
+	}
+	if res.Metrics == nil {
+		t.Fatalf("want projected metrics")
+	}
+	summary, ok := res.Metrics["performanceSummary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("want performanceSummary in metrics, got %#v", res.Metrics)
+	}
+	if got := summary["periodCtr"]; got != 1.23 {
+		t.Fatalf("want periodCtr 1.23, got %#v", got)
+	}
+}
+
 // captureExecutor lets a test peek at args passed through to the backend.
 type captureExecutor struct {
 	fn func(ctx context.Context, name string, args map[string]interface{}) (string, error)

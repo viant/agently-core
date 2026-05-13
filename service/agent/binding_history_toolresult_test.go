@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -712,6 +715,302 @@ func TestBuildHistory_CurrentTurnSkipsAssistantMessageAddedByMessageAddReplay(t 
 		if msg != nil && msg.ID == noteID {
 			t.Fatalf("message-add-created assistant note should not be replayed into the same active turn: %#v", history.Current.Messages)
 		}
+	}
+}
+
+func intPtr(v int) *int { return &v }
+
+func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *testing.T) {
+	now := time.Now().UTC()
+
+	makeTurn := func(turnID, userID, finalAssistantID, finalAssistantText string, createdAt time.Time) *apiconv.Turn {
+		user := &apiconv.Message{
+			Id:        userID,
+			TurnId:    strPtr(turnID),
+			Role:      "user",
+			Type:      "text",
+			Content:   strPtr("show my order 2667545"),
+			CreatedAt: createdAt,
+		}
+		interim := &apiconv.Message{
+			Id:              turnID + "-assistant-interim",
+			TurnId:          strPtr(turnID),
+			Role:            "assistant",
+			Type:            "text",
+			Content:         strPtr(""),
+			ParentMessageId: strPtr(userID),
+			CreatedAt:       createdAt.Add(time.Second),
+			Interim:         1,
+		}
+		tool := &apiconv.Message{
+			Id:              turnID + "-tool",
+			TurnId:          strPtr(turnID),
+			Role:            "tool",
+			Type:            "tool_op",
+			Content:         strPtr(`{"clientId":"client-1"}`),
+			ToolName:        strPtr("ui/window/list"),
+			ParentMessageId: strPtr(interim.Id),
+			CreatedAt:       createdAt.Add(2 * time.Second),
+		}
+		finalAssistant := &apiconv.Message{
+			Id:              finalAssistantID,
+			TurnId:          strPtr(turnID),
+			Role:            "assistant",
+			Type:            "text",
+			Content:         strPtr(finalAssistantText),
+			ParentMessageId: strPtr(userID),
+			CreatedAt:       createdAt.Add(3 * time.Second),
+		}
+		return &apiconv.Turn{
+			Id:        turnID,
+			Status:    "succeeded",
+			CreatedAt: createdAt,
+			Message: []*agconv.MessageView{
+				(*agconv.MessageView)(user),
+				(*agconv.MessageView)(interim),
+				(*agconv.MessageView)(tool),
+				(*agconv.MessageView)(finalAssistant),
+			},
+		}
+	}
+
+	transcript := apiconv.Transcript{
+		makeTurn("turn-1", "user-1", "assistant-1", "The order summary window for ad order 2667545 is now open and in focus.", now),
+		makeTurn("turn-2", "user-2", "assistant-2", "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.", now.Add(10*time.Second)),
+	}
+
+	history, err := (&Service{}).buildHistory(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("buildHistory error: %v", err)
+	}
+
+	var assistantContents []string
+	for _, msg := range history.LLMMessages() {
+		if strings.EqualFold(strings.TrimSpace(string(msg.Role)), "assistant") {
+			if content := strings.TrimSpace(msg.Content); content != "" {
+				assistantContents = append(assistantContents, content)
+			}
+		}
+	}
+
+	if len(assistantContents) != 2 {
+		t.Fatalf("expected both assistant summaries in history, got %#v", assistantContents)
+	}
+	if assistantContents[0] != "The order summary window for ad order 2667545 is now open and in focus." {
+		t.Fatalf("unexpected first assistant content: %#v", assistantContents)
+	}
+	if assistantContents[1] != "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward." {
+		t.Fatalf("unexpected second assistant content: %#v", assistantContents)
+	}
+}
+
+func TestBuildHistoryWithLimit_PreservesPastOrderWindowAssistantContextWithCacheableUITools(t *testing.T) {
+	now := time.Now().UTC()
+
+	makeTurn := func(turnID, userID, finalAssistantID, finalAssistantText, toolName string, createdAt time.Time) *apiconv.Turn {
+		user := &apiconv.Message{
+			Id:        userID,
+			TurnId:    strPtr(turnID),
+			Role:      "user",
+			Type:      "text",
+			Content:   strPtr("show my order 2667545"),
+			CreatedAt: createdAt,
+		}
+		interim := &apiconv.Message{
+			Id:              turnID + "-assistant-interim",
+			TurnId:          strPtr(turnID),
+			Role:            "assistant",
+			Type:            "text",
+			Content:         strPtr(""),
+			ParentMessageId: strPtr(userID),
+			CreatedAt:       createdAt.Add(time.Second),
+			Interim:         1,
+			Archived:        intPtr(1),
+		}
+		tool := &apiconv.Message{
+			Id:              turnID + "-tool",
+			TurnId:          strPtr(turnID),
+			Role:            "tool",
+			Type:            "tool_op",
+			Content:         strPtr(`{"clientId":"client-1"}`),
+			ToolName:        strPtr(toolName),
+			ParentMessageId: strPtr(interim.Id),
+			CreatedAt:       createdAt.Add(2 * time.Second),
+		}
+		finalAssistant := &apiconv.Message{
+			Id:              finalAssistantID,
+			TurnId:          strPtr(turnID),
+			Role:            "assistant",
+			Type:            "text",
+			Content:         strPtr(finalAssistantText),
+			ParentMessageId: strPtr(userID),
+			CreatedAt:       createdAt.Add(3 * time.Second),
+		}
+		return &apiconv.Turn{
+			Id:        turnID,
+			Status:    "succeeded",
+			CreatedAt: createdAt,
+			Message: []*agconv.MessageView{
+				(*agconv.MessageView)(user),
+				(*agconv.MessageView)(interim),
+				(*agconv.MessageView)(tool),
+				(*agconv.MessageView)(finalAssistant),
+			},
+		}
+	}
+
+	transcript := apiconv.Transcript{
+		makeTurn("turn-1", "user-1", "assistant-1", "The order summary window for ad order 2667545 is now open and in focus.", "ui/window/list", now),
+		makeTurn("turn-2", "user-2", "assistant-2", "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.", "ui/datasource/peek", now.Add(10*time.Second)),
+		makeTurn("turn-3", "user-3", "assistant-3", "I couldn’t open the order window because there’s no active UI client attached to this chat right now. If you reopen this conversation in the app/browser and ask again, I can open ad order 2667545.", "ui/view:open", now.Add(20*time.Second)),
+	}
+
+	cacheableRegistry := &fakeRegistry{defs: []llm.ToolDefinition{
+		{Name: "ui/window:list", Cacheable: true},
+		{Name: "ui/datasource:peek", Cacheable: true},
+		{Name: "ui/view:open", Cacheable: true},
+	}}
+
+	svc := &Service{
+		registry: cacheableRegistry,
+		defaults: &config.Defaults{
+			Projection: config.Projection{},
+		},
+	}
+
+	result, err := svc.buildHistoryWithLimit(context.Background(), transcript, &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show my order 2667545",
+	})
+	if err != nil {
+		t.Fatalf("buildHistoryWithLimit error: %v", err)
+	}
+
+	var assistantContents []string
+	for _, msg := range result.History.LLMMessages() {
+		if strings.EqualFold(strings.TrimSpace(string(msg.Role)), "assistant") && strings.TrimSpace(msg.Content) != "" {
+			assistantContents = append(assistantContents, strings.TrimSpace(msg.Content))
+		}
+	}
+
+	if len(assistantContents) == 0 {
+		t.Fatalf("expected assistant context to survive cacheable UI-tool history shaping")
+	}
+	found := false
+	for _, content := range assistantContents {
+		if strings.Contains(content, "already open") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected prior successful already-open assistant context to survive, got %#v", assistantContents)
+	}
+}
+
+func TestBuildHistoryWithLimit_PreservesAssistantContextWhenTurnStartsWithRouterAssistant(t *testing.T) {
+	now := time.Now().UTC()
+
+	makeTurn := func(turnID, userID, finalAssistantID, finalAssistantText, toolName string, createdAt time.Time) *apiconv.Turn {
+		routerMode := "router"
+		router := &apiconv.Message{
+			Id:        turnID + "-router",
+			TurnId:    strPtr(turnID),
+			Role:      "assistant",
+			Type:      "text",
+			Mode:      &routerMode,
+			Content:   strPtr(`{"classification":{"intent":"retrieve_ad_order"}}`),
+			CreatedAt: createdAt,
+		}
+		user := &apiconv.Message{
+			Id:        userID,
+			TurnId:    strPtr(turnID),
+			Role:      "user",
+			Type:      "text",
+			Content:   strPtr("show my order 2667545"),
+			CreatedAt: createdAt.Add(time.Second),
+		}
+		interim := &apiconv.Message{
+			Id:              turnID + "-assistant-interim",
+			TurnId:          strPtr(turnID),
+			Role:            "assistant",
+			Type:            "text",
+			Content:         strPtr(""),
+			ParentMessageId: strPtr(userID),
+			CreatedAt:       createdAt.Add(2 * time.Second),
+			Interim:         1,
+			Archived:        intPtr(1),
+		}
+		tool := &apiconv.Message{
+			Id:              turnID + "-tool",
+			TurnId:          strPtr(turnID),
+			Role:            "tool",
+			Type:            "tool_op",
+			Content:         strPtr(`{"clientId":"client-1"}`),
+			ToolName:        strPtr(toolName),
+			ParentMessageId: strPtr(interim.Id),
+			CreatedAt:       createdAt.Add(3 * time.Second),
+		}
+		finalAssistant := &apiconv.Message{
+			Id:              finalAssistantID,
+			TurnId:          strPtr(turnID),
+			Role:            "assistant",
+			Type:            "text",
+			Content:         strPtr(finalAssistantText),
+			ParentMessageId: strPtr(userID),
+			CreatedAt:       createdAt.Add(4 * time.Second),
+		}
+		return &apiconv.Turn{
+			Id:        turnID,
+			Status:    "succeeded",
+			CreatedAt: createdAt,
+			Message: []*agconv.MessageView{
+				(*agconv.MessageView)(router),
+				(*agconv.MessageView)(user),
+				(*agconv.MessageView)(interim),
+				(*agconv.MessageView)(tool),
+				(*agconv.MessageView)(finalAssistant),
+			},
+		}
+	}
+
+	transcript := apiconv.Transcript{
+		makeTurn("turn-1", "user-1", "assistant-1", "The order summary window for ad order 2667545 is now open and in focus.", "ui/window/list", now),
+		makeTurn("turn-2", "user-2", "assistant-2", "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.", "ui/datasource/peek", now.Add(10*time.Second)),
+		makeTurn("turn-3", "user-3", "assistant-3", "I couldn’t open the order window because there’s no active UI client attached to this chat right now. If you reopen this conversation in the app/browser and ask again, I can open ad order 2667545.", "ui/view:open", now.Add(20*time.Second)),
+		makeTurn("turn-4", "user-4", "assistant-4", "I can’t open the Order Summary from this chat right now because there isn’t an active UI session attached. Reopen this conversation in the app/browser, then ask again and I’ll open ad order 2667545.", "ui/window/list", now.Add(30*time.Second)),
+	}
+
+	cacheableRegistry := &fakeRegistry{defs: []llm.ToolDefinition{
+		{Name: "ui/window:list", Cacheable: true},
+		{Name: "ui/datasource:peek", Cacheable: true},
+		{Name: "ui/view:open", Cacheable: true},
+	}}
+
+	svc := &Service{
+		registry: cacheableRegistry,
+		defaults: &config.Defaults{
+			Projection: config.Projection{},
+		},
+	}
+
+	result, err := svc.buildHistoryWithLimit(context.Background(), transcript, &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show my order 2667545",
+	})
+	if err != nil {
+		t.Fatalf("buildHistoryWithLimit error: %v", err)
+	}
+
+	var assistantContents []string
+	for _, msg := range result.History.LLMMessages() {
+		if strings.EqualFold(strings.TrimSpace(string(msg.Role)), "assistant") && strings.TrimSpace(msg.Content) != "" {
+			assistantContents = append(assistantContents, strings.TrimSpace(msg.Content))
+		}
+	}
+
+	if len(assistantContents) < 4 {
+		t.Fatalf("expected all prior assistant summaries, got %#v", assistantContents)
 	}
 }
 

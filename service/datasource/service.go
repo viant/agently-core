@@ -154,9 +154,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	if err != nil {
 		return nil, err
 	}
-	rows, dataInfo := project(raw, &ds.DataSource)
+	rows, dataInfo, metrics := project(raw, &ds.DataSource)
 	rows, dataInfo = applyPaging(rows, dataInfo, &ds.DataSource, mergedArgs)
-	result := &dsproto.FetchResult{Rows: rows, DataInfo: dataInfo}
+	result := &dsproto.FetchResult{Rows: rows, DataInfo: dataInfo, Metrics: metrics}
 
 	s.cache.put(cacheKey, cacheEntry{
 		result:    cloneResult(result),
@@ -425,6 +425,13 @@ func cloneResult(r *dsproto.FetchResult) *dsproto.FetchResult {
 			cp[k] = v
 		}
 		out.DataInfo = cp
+	}
+	if r.Metrics != nil {
+		cp := make(map[string]interface{}, len(r.Metrics))
+		for k, v := range r.Metrics {
+			cp[k] = v
+		}
+		out.Metrics = cp
 	}
 	return out
 }

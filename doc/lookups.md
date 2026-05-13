@@ -527,7 +527,7 @@ The hotkey path shares 100% of the resolution with §5.1 — same `Fetch`, same 
 
 Two generic endpoints are enough for both (a) and (b):
 
-- `POST /v1/api/datasources/{id}/fetch` body: `{ inputs: { ... } }` → forge result (rows + dataInfo)
+- `POST /v1/api/datasources/{id}/fetch` body: `{ inputs: { ... } }` → forge result (`rows` + `dataInfo` + `metrics`)
 - `DELETE /v1/api/datasources/{id}/cache[?inputsHash=...]`
 
 No separate "search", "children", or "resolve" endpoints — those are just `Fetch` calls with different inputs. A tree dialog paginates through children by calling `Fetch` with the parent id; a resolver by id calls `Fetch` with an id filter. All three cases are the same HTTP call.

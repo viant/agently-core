@@ -210,6 +210,10 @@ type promptProfileAllowListKeyT string
 
 var promptProfileAllowListKey = promptProfileAllowListKeyT("promptProfileAllowList")
 
+type preferredUIClientIDKeyT string
+
+var preferredUIClientIDKey = preferredUIClientIDKeyT("preferredUIClientID")
+
 func WithRequestMode(ctx context.Context, mode string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -219,6 +223,31 @@ func WithRequestMode(ctx context.Context, mode string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, requestModeKey, mode)
+}
+
+func WithPreferredUIClientID(ctx context.Context, clientID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, preferredUIClientIDKey, clientID)
+}
+
+func PreferredUIClientIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value := ctx.Value(preferredUIClientIDKey)
+	if value == nil {
+		return ""
+	}
+	if id, ok := value.(string); ok {
+		return strings.TrimSpace(id)
+	}
+	return ""
 }
 
 func RequestModeFromContext(ctx context.Context) string {

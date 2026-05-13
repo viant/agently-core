@@ -122,6 +122,15 @@ function provenanceFor(entity: object): ProvenanceMap {
     return map;
 }
 
+function forceTranscriptRefinement<E extends object, K extends keyof E & string>(
+    entity: E,
+    field: K,
+    value: E[K],
+): void {
+    (entity as Record<string, unknown>)[field] = value as unknown;
+    setFieldProvenance(entity, field, 'transcript');
+}
+
 /** Read a field's current provenance; `null` if unset. */
 export function getFieldProvenance(entity: object, field: string): Provenance {
     return provenanceByEntity.get(entity)?.[field] ?? null;
@@ -1311,10 +1320,15 @@ function mergeTranscriptTurn(
     } else {
         // Existing turn — refine.
         if (turnId && turn.turnId === '') writeField(turn, 'turnId', turnId, 'transcript');
-        // Lifecycle: transcript refines only if transcript-owned/null (§5.4).
+        // Lifecycle: transcript normally refines only transcript-owned/null
+        // fields, but a terminal persisted turn must settle an event-owned live
+        // turn once the turn has finished.
+        const transcriptLifecycle = statusToLifecycle(snapshotTurn.status);
         const trProvenance = getFieldProvenance(turn, 'lifecycle');
         if (trProvenance !== 'event') {
-            writeField(turn, 'lifecycle', statusToLifecycle(snapshotTurn.status), 'transcript');
+            writeField(turn, 'lifecycle', transcriptLifecycle, 'transcript');
+        } else if (isTerminalLifecycle(transcriptLifecycle) && isLiveLifecycle(turn.lifecycle)) {
+            forceTranscriptRefinement(turn, 'lifecycle', transcriptLifecycle);
         }
         if (snapshotTurn.createdAt) writeField(turn, 'createdAt', snapshotTurn.createdAt, 'transcript');
     }
@@ -1501,7 +1515,7 @@ function mergeTranscriptPage(
     }
 
     for (const ms of snapshotPage.modelSteps ?? []) mergeTranscriptModelStep(page, ms);
-    for (const ts of snapshotPage.toolSteps ?? []) mergeTranscriptToolCall(page, ts);
+    for (const ts of snapshotPage.toolSteps ?? []) mergeTranscriptToolCall(turn, page, ts);
     for (const le of snapshotPage.lifecycleEntries ?? []) mergeTranscriptLifecycleEntry(page, le);
 }
 
@@ -1535,10 +1549,23 @@ function mergeTranscriptModelStep(
 }
 
 function mergeTranscriptToolCall(
+    turn: ClientTurnState,
     page: ClientExecutionPage,
     snapshotStep: CanonicalToolStepState,
 ): void {
     let step = matchToolCall(page.toolCalls, { toolCallId: snapshotStep.toolCallId });
+    if (!step && snapshotStep.toolCallId) {
+        const toolCallId = String(snapshotStep.toolCallId || '').trim();
+        for (const candidatePage of turn.pages) {
+            if (candidatePage === page) continue;
+            const matched = matchToolCall(candidatePage.toolCalls, { toolCallId });
+            if (!matched) continue;
+            candidatePage.toolCalls = candidatePage.toolCalls.filter((entry) => entry !== matched);
+            step = matched;
+            page.toolCalls.push(step);
+            break;
+        }
+    }
     if (!step) {
         step = { renderKey: allocateRenderKey(), toolCallId: snapshotStep.toolCallId };
         setFieldProvenance(step, 'toolCallId', 'transcript');
@@ -1549,7 +1576,16 @@ function mergeTranscriptToolCall(
     if (snapshotStep.executionRole) writeField(step, 'executionRole', snapshotStep.executionRole, 'transcript');
     if (snapshotStep.toolName) writeField(step, 'toolName', snapshotStep.toolName, 'transcript');
     if (snapshotStep.operationId) writeField(step, 'operationId', snapshotStep.operationId, 'transcript');
-    if (snapshotStep.status) writeField(step, 'status', snapshotStep.status, 'transcript');
+    if (snapshotStep.status) {
+        const transcriptLifecycle = statusToLifecycle(snapshotStep.status);
+        const currentStatus = statusToLifecycle(String(step.status || ''));
+        const statusProvenance = getFieldProvenance(step, 'status');
+        if (statusProvenance === 'event' && isTerminalLifecycle(transcriptLifecycle) && isLiveLifecycle(currentStatus)) {
+            forceTranscriptRefinement(step, 'status', snapshotStep.status);
+        } else {
+            writeField(step, 'status', snapshotStep.status, 'transcript');
+        }
+    }
     if (snapshotStep.errorMessage) writeField(step, 'errorMessage', snapshotStep.errorMessage, 'transcript');
     if (snapshotStep.requestPayloadId) writeField(step, 'requestPayloadId', snapshotStep.requestPayloadId, 'transcript');
     if (snapshotStep.responsePayloadId) writeField(step, 'responsePayloadId', snapshotStep.responsePayloadId, 'transcript');
@@ -1557,7 +1593,13 @@ function mergeTranscriptToolCall(
     if (snapshotStep.linkedConversationAgentId) writeField(step, 'linkedConversationAgentId', snapshotStep.linkedConversationAgentId, 'transcript');
     if (snapshotStep.linkedConversationTitle) writeField(step, 'linkedConversationTitle', snapshotStep.linkedConversationTitle, 'transcript');
     if (snapshotStep.startedAt) writeField(step, 'startedAt', snapshotStep.startedAt, 'transcript');
-    if (snapshotStep.completedAt) writeField(step, 'completedAt', snapshotStep.completedAt, 'transcript');
+    if (snapshotStep.completedAt) {
+        if (getFieldProvenance(step, 'completedAt') === 'event' && isTerminalLifecycle(statusToLifecycle(snapshotStep.status))) {
+            forceTranscriptRefinement(step, 'completedAt', snapshotStep.completedAt);
+        } else {
+            writeField(step, 'completedAt', snapshotStep.completedAt, 'transcript');
+        }
+    }
 }
 
 function mergeTranscriptLifecycleEntry(

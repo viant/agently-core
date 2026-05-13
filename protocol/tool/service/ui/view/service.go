@@ -43,7 +43,7 @@ type GetOutput struct {
 
 type OpenInput struct {
 	ID         string                 `json:"id"`
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	Parameters map[string]interface{} `json:"parameters"`
 	ClientID   string                 `json:"clientId,omitempty"`
 	TimeoutMs  int                    `json:"timeoutMs,omitempty"`
 }
@@ -76,7 +76,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List workspace-defined dynamic UI views that can be opened for the user.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a workspace-defined dynamic UI view by id.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "open", Description: "Open a workspace-defined dynamic UI view for the active conversation and wait for the UI to acknowledge the request.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
+		{Name: "open", Description: "Open a workspace-defined dynamic UI view for the active conversation and wait for the UI to acknowledge the request. Always provide the view id and a parameters object. If the target view declares required parameters, include every required key in that parameters object.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
 	}
 }
 
@@ -151,21 +151,48 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	clientID := strings.TrimSpace(input.ClientID)
+	clientID := normalizeOptionalClientID(input.ClientID)
+	preferredClientID := normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	if clientID == "" {
+		clientID = preferredClientID
+	}
+	namespace := ""
+	if len(clients) == 0 && clientID != "" {
+		if clientSnap, err := s.reg.FindClient(ctx, clientID); err == nil && clientSnap != nil {
+			clients = append(clients, *clientSnap)
+		} else if preferredClientID != "" && preferredClientID != clientID {
+			if preferredSnap, preferredErr := s.reg.FindClient(ctx, preferredClientID); preferredErr == nil && preferredSnap != nil {
+				clientID = preferredClientID
+				clients = append(clients, *preferredSnap)
+			}
+		}
+	}
 	if clientID == "" {
 		if len(clients) == 0 {
 			return fmt.Errorf("no active ui client attached to conversation %q", conversationID)
 		}
 		clientID = clients[0].ClientID
+		namespace = clients[0].Namespace
+	} else {
+		for _, item := range clients {
+			if item.ClientID == clientID {
+				namespace = item.Namespace
+				break
+			}
+		}
 	}
 	timeout := 15_000
 	if input.TimeoutMs > 0 {
 		timeout = input.TimeoutMs
 	}
 	windowParameters := expandOpenParameters(item.Parameters, input.Parameters)
+	if missing := missingRequiredParameters(item.Parameters, input.Parameters); len(missing) > 0 {
+		return fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID: clientID,
-		Method:   "ui.window.open",
+		ClientID:  clientID,
+		Namespace: namespace,
+		Method:    "ui.window.open",
 		Params: map[string]interface{}{
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
@@ -246,6 +273,21 @@ func stringValue(v interface{}) string {
 	}
 }
 
+func normalizeOptionalClientID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.EqualFold(value, "default") {
+		return ""
+	}
+	return value
+}
+
+func effectiveOpenTimeout(timeoutMs int) int {
+	if timeoutMs > 0 {
+		return timeoutMs
+	}
+	return 15_000
+}
+
 func expandOpenParameters(specParams []viewproto.Parameter, provided map[string]interface{}) map[string]interface{} {
 	if len(provided) == 0 {
 		return map[string]interface{}{}
@@ -276,6 +318,57 @@ func expandOpenParameters(specParams []viewproto.Parameter, provided map[string]
 		}
 	}
 	return result
+}
+
+func missingRequiredParameters(specParams []viewproto.Parameter, provided map[string]interface{}) []string {
+	if len(specParams) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	missing := make([]string, 0)
+	for _, specParam := range specParams {
+		if !specParam.Required {
+			continue
+		}
+		name := strings.TrimSpace(specParam.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[strings.ToLower(name)]; ok {
+			continue
+		}
+		seen[strings.ToLower(name)] = struct{}{}
+		if hasRequiredParameterValue(provided, name) {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func hasRequiredParameterValue(provided map[string]interface{}, name string) bool {
+	if len(provided) == 0 {
+		return false
+	}
+	for key, value := range provided {
+		if !strings.EqualFold(strings.TrimSpace(key), name) {
+			continue
+		}
+		switch actual := value.(type) {
+		case nil:
+			return false
+		case string:
+			return strings.TrimSpace(actual) != ""
+		case []interface{}:
+			return len(actual) > 0
+		case []string:
+			return len(actual) > 0
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func matchingViewParameters(specParams []viewproto.Parameter, key string) []viewproto.Parameter {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
@@ -54,33 +56,37 @@ type DataSourceSnapshot struct {
 }
 
 type ClientSnapshot struct {
-	ClientID string
-	Snapshot *Snapshot
+	ClientID  string
+	Namespace string
+	Snapshot  *Snapshot
+	UpdatedAt time.Time
 }
 
 func (r *Registry) snapshots() ([]ClientSnapshot, error) {
 	if r == nil || r.bridge == nil {
 		return nil, fmt.Errorf("ui bridge not configured")
 	}
-	clients := r.bridge.Hub().ListClients("default")
-	result := make([]ClientSnapshot, 0, len(clients))
-	for _, clientID := range clients {
-		raw := r.bridge.Hub().Snapshot("default", clientID)
-		if len(raw) == 0 {
-			continue
-		}
+	entries := r.bridge.Hub().SnapshotEntries()
+	result := make([]ClientSnapshot, 0, len(entries))
+	for _, entry := range entries {
+		raw := entry.Snapshot
 		var snap Snapshot
 		if err := json.Unmarshal(raw, &snap); err != nil {
 			continue
 		}
 		if strings.TrimSpace(snap.ClientID) == "" {
-			snap.ClientID = strings.TrimSpace(clientID)
+			snap.ClientID = strings.TrimSpace(entry.ClientID)
 		}
 		result = append(result, ClientSnapshot{
-			ClientID: strings.TrimSpace(clientID),
-			Snapshot: &snap,
+			ClientID:  strings.TrimSpace(entry.ClientID),
+			Namespace: strings.TrimSpace(entry.Namespace),
+			Snapshot:  &snap,
+			UpdatedAt: entry.UpdatedAt,
 		})
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
 	return result, nil
 }
 
@@ -103,15 +109,34 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 	return result, nil
 }
 
-func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, windowID, windowKey string) (string, *Snapshot, *WindowSnapshot, error) {
+func (r *Registry) FindClient(ctx context.Context, clientID string) (*ClientSnapshot, error) {
+	_ = ctx
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return nil, fmt.Errorf("clientId is required")
+	}
+	items, err := r.snapshots()
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.ClientID == clientID {
+			copyItem := item
+			return &copyItem, nil
+		}
+	}
+	return nil, fmt.Errorf("client not found")
+}
+
+func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, windowID, windowKey string) (string, string, *Snapshot, *WindowSnapshot, error) {
 	windowID = strings.TrimSpace(windowID)
 	windowKey = strings.TrimSpace(windowKey)
 	if windowID == "" && windowKey == "" {
-		return "", nil, nil, fmt.Errorf("windowId or windowKey is required")
+		return "", "", nil, nil, fmt.Errorf("windowId or windowKey is required")
 	}
 	items, err := r.ListByConversation(ctx, conversationID)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 	preferredClientID := strings.TrimSpace(clientID)
 	if preferredClientID != "" {
@@ -130,12 +155,12 @@ func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, win
 		for i := range item.Snapshot.Windows {
 			win := &item.Snapshot.Windows[i]
 			if windowID != "" && strings.TrimSpace(win.WindowID) == windowID {
-				return item.ClientID, item.Snapshot, win, nil
+				return item.ClientID, item.Namespace, item.Snapshot, win, nil
 			}
 			if windowID == "" && windowKey != "" && strings.TrimSpace(win.WindowKey) == windowKey {
-				return item.ClientID, item.Snapshot, win, nil
+				return item.ClientID, item.Namespace, item.Snapshot, win, nil
 			}
 		}
 	}
-	return "", nil, nil, fmt.Errorf("window not found")
+	return "", "", nil, nil, fmt.Errorf("window not found")
 }

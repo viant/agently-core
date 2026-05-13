@@ -116,7 +116,7 @@ func toAPIFetchOutput(r *dsproto.FetchResult) *api.FetchDatasourceOutput {
 	if r == nil {
 		return &api.FetchDatasourceOutput{}
 	}
-	out := &api.FetchDatasourceOutput{Rows: r.Rows, DataInfo: r.DataInfo}
+	out := &api.FetchDatasourceOutput{Rows: r.Rows, DataInfo: r.DataInfo, Metrics: r.Metrics}
 	if r.Cache != nil {
 		out.Cache = &api.DatasourceCacheMeta{
 			Hit:        r.Cache.Hit,

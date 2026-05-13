@@ -13,7 +13,10 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
+	internalconv "github.com/viant/agently-core/internal/service/conversation"
 	"github.com/viant/agently-core/pkg/agently/conversation"
+	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
+	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/requestctx"
@@ -278,6 +281,74 @@ func TestService_BuildBinding_SelectedPromptProfileCanBeDisabledPerAgent(t *test
 	for _, doc := range binding.SystemDocuments.Items {
 		require.NotEqual(t, "prompt://repo_analysis/message/0", doc.SourceURI)
 	}
+}
+
+func TestService_BuildBinding_SQLiteConversationPreservesParentedAssistantHistory(t *testing.T) {
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	dao, err := internalconv.NewDatly(ctx)
+	require.NoError(t, err)
+	convSvc, err := internalconv.New(ctx, dao)
+	require.NoError(t, err)
+
+	convID := "conv-sql-history"
+	conv := &apiconv.MutableConversation{}
+	conv.Has = &convwrite.ConversationHas{}
+	conv.SetId(convID)
+	conv.SetStatus("running")
+	conv.SetVisibility("private")
+	require.NoError(t, convSvc.PatchConversations(ctx, conv))
+
+	turn := apiconv.NewTurn()
+	turn.Has = &turnwrite.TurnHas{}
+	turn.SetId("turn-sql-history")
+	turn.SetConversationID(convID)
+	turn.SetStatus("succeeded")
+	turn.SetCreatedAt(time.Now())
+	require.NoError(t, convSvc.PatchTurn(ctx, turn))
+
+	user := apiconv.NewMessage()
+	user.SetId("user-sql-history")
+	user.SetConversationID(convID)
+	user.SetTurnID("turn-sql-history")
+	user.SetRole("user")
+	user.SetType("text")
+	user.SetContent("show my order 2667545")
+	require.NoError(t, convSvc.PatchMessage(ctx, user))
+
+	assistantFinal := apiconv.NewMessage()
+	assistantFinal.SetId("assistant-sql-history")
+	assistantFinal.SetConversationID(convID)
+	assistantFinal.SetTurnID("turn-sql-history")
+	assistantFinal.SetRole("assistant")
+	assistantFinal.SetType("text")
+	assistantFinal.SetParentMessageID("user-sql-history")
+	assistantFinal.SetContent("The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.")
+	require.NoError(t, convSvc.PatchMessage(ctx, assistantFinal))
+
+	svc := &Service{conversation: convSvc}
+	binding, err := svc.BuildBinding(ctx, &QueryInput{
+		ConversationID: convID,
+		Agent: &agentmdl.Agent{
+			Identity:       agentmdl.Identity{ID: "steward"},
+			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.4"},
+		},
+		Query: "show my order 2667545",
+	})
+	require.NoError(t, err)
+
+	var assistantContents []string
+	for _, msg := range binding.History.LLMMessages() {
+		if strings.EqualFold(strings.TrimSpace(string(msg.Role)), "assistant") {
+			assistantContents = append(assistantContents, strings.TrimSpace(msg.Content))
+		}
+	}
+	require.Contains(t, assistantContents, "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.")
 }
 
 func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSurface(t *testing.T) {
