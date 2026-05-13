@@ -147,6 +147,7 @@ func CachePolicyOrDefault(p *CachePolicy) CachePolicy {
 type FetchResult struct {
 	Rows     []map[string]interface{} `json:"rows"`
 	DataInfo map[string]interface{}   `json:"dataInfo,omitempty"`
+	Metrics  map[string]interface{}   `json:"metrics,omitempty"`
 	Cache    *CacheMeta               `json:"cache,omitempty"`
 }
 

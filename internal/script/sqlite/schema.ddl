@@ -139,6 +139,12 @@ CREATE TABLE IF NOT EXISTS message (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_message_turn_seq ON message(turn_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_msg_conv_created ON message(conversation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_message_iteration ON message(turn_id, iteration, created_at);
+CREATE INDEX IF NOT EXISTS idx_message_parent ON message(parent_message_id);
+CREATE INDEX IF NOT EXISTS idx_message_attachment_payload ON message(attachment_payload_id);
+CREATE INDEX IF NOT EXISTS idx_message_elicitation_payload ON message(elicitation_payload_id);
+CREATE INDEX IF NOT EXISTS idx_message_parent_seq_created ON message(parent_message_id, sequence, created_at);
+CREATE INDEX IF NOT EXISTS idx_message_parent_attachment ON message(parent_message_id, attachment_payload_id);
+CREATE INDEX IF NOT EXISTS idx_message_parent_elicitation ON message(parent_message_id, elicitation_payload_id);
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

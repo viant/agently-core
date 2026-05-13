@@ -8,11 +8,11 @@ import (
 )
 
 // project applies the forge Selectors to the backend payload and returns
-// (rows, dataInfo). Rows are always []map[string]interface{}; dataInfo is the
-// optional pagination metadata payload.
-func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, map[string]interface{}) {
+// (rows, dataInfo, metrics). Rows are always []map[string]interface{}.
+func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, map[string]interface{}, map[string]interface{}) {
 	rowsRaw := raw
 	var dataInfo map[string]interface{}
+	var metrics map[string]interface{}
 	if ds != nil && ds.Selectors != nil {
 		if ds.Selectors.Data != "" {
 			rowsRaw = selectPath(ds.Selectors.Data, raw)
@@ -22,9 +22,14 @@ func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, m
 				dataInfo = di
 			}
 		}
+		if ds.Selectors.Metrics != "" {
+			if met, ok := selectPath(ds.Selectors.Metrics, raw).(map[string]interface{}); ok {
+				metrics = met
+			}
+		}
 	}
 	rows := coerceRows(rowsRaw)
-	return rows, dataInfo
+	return rows, dataInfo, metrics
 }
 
 // coerceRows turns whatever the selector returned into []map[string]interface{}.

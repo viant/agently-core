@@ -25,8 +25,9 @@ type dsStubBackend struct {
 func (s *dsStubBackend) FetchDatasource(ctx context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
 	s.fetchCalls++
 	return &api.FetchDatasourceOutput{
-		Rows:  []map[string]interface{}{{"id": 1, "name": "stub:" + in.ID}},
-		Cache: &api.DatasourceCacheMeta{Hit: false, FetchedAt: "2026-04-22T00:00:00Z"},
+		Rows:    []map[string]interface{}{{"id": 1, "name": "stub:" + in.ID}},
+		Metrics: map[string]interface{}{"summary": map[string]interface{}{"count": 1}},
+		Cache:   &api.DatasourceCacheMeta{Hit: false, FetchedAt: "2026-04-22T00:00:00Z"},
 	}, nil
 }
 func (s *dsStubBackend) InvalidateDatasourceCache(ctx context.Context, in *api.InvalidateDatasourceCacheInput) error {
@@ -115,6 +116,9 @@ func TestHandleFetchDatasource_DispatchesToBackend(t *testing.T) {
 	}
 	if len(out.Rows) != 1 || out.Rows[0]["name"] != "stub:account" {
 		t.Fatalf("projection mismatch: %+v", out.Rows)
+	}
+	if summary, ok := out.Metrics["summary"].(map[string]interface{}); !ok || summary["count"] != float64(1) {
+		t.Fatalf("metrics mismatch: %+v", out.Metrics)
 	}
 }
 

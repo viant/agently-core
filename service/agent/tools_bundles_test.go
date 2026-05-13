@@ -273,6 +273,32 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			},
 			expectNames: []string{canon("scratchpad:append"), canon("scratchpad:fetch"), canon("scratchpad:list"), canon("scratchpad:memorize")},
 		},
+		{
+			name: "orchestrator_bundle_exposes_generic_view_open_tool",
+			query: &QueryInput{
+				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"orchestrator"}}},
+			},
+			bundles: []*toolbundle.Bundle{
+				{
+					ID: "orchestrator",
+					Match: []llm.Tool{
+						{Name: "ui/view:open"},
+						{Name: "ui/window:list"},
+						{Name: "ui/view:list"},
+					},
+				},
+			},
+			defs: []llm.ToolDefinition{
+				{Name: "ui/view:open"},
+				{Name: "ui/window:list"},
+				{Name: "ui/view:list"},
+			},
+			expectNames: []string{
+				canon("ui/view:open"),
+				canon("ui/view:list"),
+				canon("ui/window:list"),
+			},
+		},
 	}
 
 	for _, tc := range testCases {

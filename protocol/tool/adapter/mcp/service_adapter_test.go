@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	viewsvc "github.com/viant/agently-core/protocol/tool/service/ui/view"
 )
 
 type testInner struct {
@@ -193,5 +194,29 @@ func TestFromService_ChoiceEnum(t *testing.T) {
 	}
 	if len(enumVals) != 2 || enumVals[0] != "alpha" || enumVals[1] != "beta" {
 		t.Fatalf("enum mismatch: %#v", mode["enum"])
+	}
+}
+
+func TestFromService_ViewOpenRequiresGenericParametersObject(t *testing.T) {
+	tools := FromService(&viewsvc.Service{})
+	var openToolFound bool
+	for _, tool := range tools {
+		if tool.Name != "open" {
+			continue
+		}
+		openToolFound = true
+		required := map[string]bool{}
+		for _, name := range tool.InputSchema.Required {
+			required[name] = true
+		}
+		if !required["id"] {
+			t.Fatalf("expected ui/view:open to require id, got %#v", tool.InputSchema.Required)
+		}
+		if !required["parameters"] {
+			t.Fatalf("expected ui/view:open to require generic parameters object, got %#v", tool.InputSchema.Required)
+		}
+	}
+	if !openToolFound {
+		t.Fatalf("expected ui/view open tool in schema output")
 	}
 }

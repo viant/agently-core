@@ -112,7 +112,17 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	preferred := strings.TrimSpace(input.ClientID)
+	preferred := normalizeOptionalClientID(input.ClientID)
+	if preferred == "" {
+		preferred = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	}
+	if preferred != "" && len(items) == 0 {
+		var fallback *uireg.ClientSnapshot
+		if snap, findErr := s.reg.FindClient(ctx, preferred); findErr == nil && snap != nil {
+			fallback = snap
+		}
+		items = resolveListSnapshots(items, preferred, fallback)
+	}
 	if preferred == "" && len(items) > 0 {
 		preferred = items[0].ClientID
 	}
@@ -145,6 +155,13 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
+func resolveListSnapshots(items []uireg.ClientSnapshot, preferred string, fallback *uireg.ClientSnapshot) []uireg.ClientSnapshot {
+	if preferred != "" && len(items) == 0 && fallback != nil && strings.TrimSpace(fallback.ClientID) == strings.TrimSpace(preferred) {
+		return []uireg.ClientSnapshot{*fallback}
+	}
+	return items
+}
+
 func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*GetInput)
 	if !ok {
@@ -155,7 +172,11 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, snap, win, err := s.reg.FindWindow(ctx, conversationID, input.ClientID, input.WindowID, input.WindowKey)
+	preferredClientID := normalizeOptionalClientID(input.ClientID)
+	if preferredClientID == "" {
+		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	}
+	clientID, _, snap, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -177,18 +198,28 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	if s.bridge == nil {
-		return fmt.Errorf("ui bridge not configured")
-	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, err := s.reg.FindWindow(ctx, conversationID, input.ClientID, input.WindowID, "")
+	preferredClientID := normalizeOptionalClientID(input.ClientID)
+	if preferredClientID == "" {
+		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	}
+	clientID, namespace, snap, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, "")
 	if err != nil {
 		return err
 	}
+	if windowAlreadyFocused(snap, win) {
+		output.ClientID = clientID
+		output.OK = true
+		return nil
+	}
+	if s.bridge == nil {
+		return fmt.Errorf("ui bridge not configured")
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID: clientID,
-		Method:   "ui.window.activate",
-		Params:   map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
+		ClientID:  clientID,
+		Namespace: namespace,
+		Method:    "ui.window.activate",
+		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
 	})
 	if err != nil {
 		return err
@@ -197,6 +228,13 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	output.OK = resp.OK
 	output.Error = resp.Error
 	return nil
+}
+
+func windowAlreadyFocused(snap *uireg.Snapshot, win *uireg.WindowSnapshot) bool {
+	if snap == nil || win == nil {
+		return false
+	}
+	return strings.TrimSpace(snap.Selected.WindowID) != "" && strings.TrimSpace(snap.Selected.WindowID) == strings.TrimSpace(win.WindowID)
 }
 
 func (s *Service) hide(ctx context.Context, in, out interface{}) error {
@@ -212,14 +250,19 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("ui bridge not configured")
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, err := s.reg.FindWindow(ctx, conversationID, input.ClientID, input.WindowID, "")
+	preferredClientID := normalizeOptionalClientID(input.ClientID)
+	if preferredClientID == "" {
+		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	}
+	clientID, namespace, _, _, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, "")
 	if err != nil {
 		return err
 	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID: clientID,
-		Method:   "ui.window.close",
-		Params:   map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
+		ClientID:  clientID,
+		Namespace: namespace,
+		Method:    "ui.window.close",
+		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
 	})
 	if err != nil {
 		return err
@@ -228,4 +271,12 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	output.OK = resp.OK
 	output.Error = resp.Error
 	return nil
+}
+
+func normalizeOptionalClientID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.EqualFold(value, "default") {
+		return ""
+	}
+	return value
 }

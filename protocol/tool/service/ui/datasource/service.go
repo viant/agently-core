@@ -64,7 +64,7 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, win, err := s.reg.FindWindow(ctx, conversationID, input.ClientID, input.WindowID, input.WindowKey)
+	clientID, _, _, win, err := s.reg.FindWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -82,4 +82,12 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 	output.DataSourceRef = ref
 	output.Snapshot = &snap
 	return nil
+}
+
+func normalizeOptionalClientID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.EqualFold(value, "default") {
+		return ""
+	}
+	return value
 }

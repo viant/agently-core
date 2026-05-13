@@ -226,6 +226,54 @@ func TestBuildHistory_SkipsRouterModeMessages(t *testing.T) {
 	require.Equal(t, "Hi there.", hist.Past[0].Messages[1].Content)
 }
 
+func TestBuildHistory_PreservesAssistantMessageWithEmptyType(t *testing.T) {
+	now := time.Now().UTC()
+
+	tr := apiconv.Transcript{
+		{
+			Id:     "turn-1",
+			Status: "succeeded",
+			Message: []*agconv.MessageView{
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "user-1",
+					Role:      "user",
+					Type:      "text",
+					Content:   strPtr("show my order 2667545"),
+					CreatedAt: now,
+				}),
+				(*agconv.MessageView)(&apiconv.Message{
+					Id:        "assistant-1",
+					Role:      "assistant",
+					Content:   strPtr("The order summary window for ad order 2667545 is now open and in focus."),
+					CreatedAt: now.Add(time.Second),
+				}),
+			},
+		},
+	}
+
+	svc := &Service{}
+	hist, err := svc.buildHistory(context.Background(), tr)
+	require.NoError(t, err)
+
+	var roles []string
+	var contents []string
+	for _, turn := range hist.Past {
+		if turn == nil {
+			continue
+		}
+		for _, m := range turn.Messages {
+			if m == nil {
+				continue
+			}
+			roles = append(roles, strings.TrimSpace(m.Role))
+			contents = append(contents, strings.TrimSpace(m.Content))
+		}
+	}
+
+	require.Equal(t, []string{"user", "assistant"}, roles)
+	require.Equal(t, []string{"show my order 2667545", "The order summary window for ad order 2667545 is now open and in focus."}, contents)
+}
+
 func TestBuildTraces_SkipsRouterAssistantMessages(t *testing.T) {
 	now := time.Now().UTC()
 	routerMode := "router"

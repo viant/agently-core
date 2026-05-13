@@ -958,6 +958,56 @@ describe('chatStore/reducer — applyTranscript lifecycle init', () => {
         const lifecycles = state.turns.map((t) => t.lifecycle);
         expect(lifecycles).toEqual(['completed', 'failed', 'cancelled', 'pending', 'running']);
     });
+
+    it('terminal transcript settles an event-owned running turn and tool call', () => {
+        const state = fresh();
+        applyEvent(state, sse({
+            type: 'turn_started',
+            turnId: 'tn_settle',
+            createdAt: '2025-01-01T00:00:00.000Z',
+        }));
+        applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_settle',
+            pageId: 'pg_settle',
+            toolCallId: 'call_settle',
+            toolName: 'ui/view/showOrderPerformance',
+            status: 'running',
+            startedAt: '2025-01-01T00:00:01.000Z',
+        } as SSEEvent));
+
+        expect(state.turns[0].lifecycle).toBe('running');
+        const beforeSettle = state.turns[0].pages.flatMap((p) => p.toolCalls || []);
+        expect(beforeSettle.find((tool) => tool.toolCallId === 'call_settle')?.status).toBe('running');
+
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_settle',
+                status: 'completed',
+                execution: {
+                    pages: [{
+                        pageId: 'pg_settle',
+                        status: 'completed',
+                        toolSteps: [{
+                            toolCallId: 'call_settle',
+                            toolName: 'ui/view/showOrderPerformance',
+                            status: 'completed',
+                            completedAt: '2025-01-01T00:00:03.000Z',
+                        }],
+                    }],
+                },
+            }],
+        });
+
+        expect(state.turns[0].lifecycle).toBe('completed');
+        const settledPages = state.turns[0].pages.filter((p) => (p.toolCalls || []).some((tool) => tool.toolCallId === 'call_settle'));
+        expect(settledPages).toHaveLength(1);
+        expect(settledPages[0].pageId).toBe('pg_settle');
+        const settled = settledPages[0].toolCalls[0];
+        expect(settled?.status).toBe('completed');
+        expect(settled?.completedAt).toBe('2025-01-01T00:00:03.000Z');
+    });
 });
 
 describe('chatStore/reducer — SSE + transcript de-dup for turn.messages', () => {

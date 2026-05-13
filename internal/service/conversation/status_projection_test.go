@@ -247,3 +247,101 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 		t.Fatalf("expected whitespace-only chunk to be preserved, got %d messages", len(got.Transcript[0].Message))
 	}
 }
+
+func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T) {
+	ctx := context.Background()
+
+	tmp := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmp)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+
+	dao, err := NewDatly(ctx)
+	if err != nil {
+		t.Fatalf("NewDatly: %v", err)
+	}
+	svc, err := New(ctx, dao)
+	if err != nil {
+		t.Fatalf("conversation.New: %v", err)
+	}
+
+	convID := "conv_parented_rows"
+	conv := &convcli.MutableConversation{}
+	conv.Has = &convwrite.ConversationHas{}
+	conv.SetId(convID)
+	conv.SetStatus("running")
+	conv.SetVisibility("private")
+	if err := svc.PatchConversations(ctx, conv); err != nil {
+		t.Fatalf("PatchConversations: %v", err)
+	}
+
+	turn := convcli.NewTurn()
+	turn.Has = &turnwrite.TurnHas{}
+	turn.SetId("turn_parented_rows")
+	turn.SetConversationID(convID)
+	turn.SetStatus("succeeded")
+	turn.SetCreatedAt(time.Now())
+	if err := svc.PatchTurn(ctx, turn); err != nil {
+		t.Fatalf("PatchTurn: %v", err)
+	}
+
+	user := convcli.NewMessage()
+	user.SetId("user-parented")
+	user.SetConversationID(convID)
+	user.SetTurnID("turn_parented_rows")
+	user.SetRole("user")
+	user.SetType("text")
+	user.SetContent("show my order 2667545")
+	if err := svc.PatchMessage(ctx, user); err != nil {
+		t.Fatalf("PatchMessage user: %v", err)
+	}
+
+	assistantInterim := convcli.NewMessage()
+	assistantInterim.SetId("assistant-parented-interim")
+	assistantInterim.SetConversationID(convID)
+	assistantInterim.SetTurnID("turn_parented_rows")
+	assistantInterim.SetRole("assistant")
+	assistantInterim.SetType("text")
+	assistantInterim.SetParentMessageID("user-parented")
+	assistantInterim.SetContent("")
+	assistantInterim.SetInterim(1)
+	if err := svc.PatchMessage(ctx, assistantInterim); err != nil {
+		t.Fatalf("PatchMessage assistant interim: %v", err)
+	}
+
+	tool := convcli.NewMessage()
+	tool.SetId("tool-parented")
+	tool.SetConversationID(convID)
+	tool.SetTurnID("turn_parented_rows")
+	tool.SetRole("tool")
+	tool.SetType("tool_op")
+	tool.SetToolName("ui/window/list")
+	tool.SetParentMessageID("assistant-parented-interim")
+	tool.SetContent(`{"clientId":"client-1"}`)
+	if err := svc.PatchMessage(ctx, tool); err != nil {
+		t.Fatalf("PatchMessage tool: %v", err)
+	}
+
+	assistantFinal := convcli.NewMessage()
+	assistantFinal.SetId("assistant-parented-final")
+	assistantFinal.SetConversationID(convID)
+	assistantFinal.SetTurnID("turn_parented_rows")
+	assistantFinal.SetRole("assistant")
+	assistantFinal.SetType("text")
+	assistantFinal.SetParentMessageID("user-parented")
+	assistantFinal.SetContent("The order summary window is open.")
+	if err := svc.PatchMessage(ctx, assistantFinal); err != nil {
+		t.Fatalf("PatchMessage assistant final: %v", err)
+	}
+
+	got, err := svc.GetConversation(ctx, convID, convcli.WithIncludeTranscript(true), convcli.WithIncludeToolCall(true), convcli.WithIncludeModelCall(true))
+	if err != nil {
+		t.Fatalf("GetConversation: %v", err)
+	}
+	if got == nil || len(got.Transcript) != 1 {
+		t.Fatalf("expected one turn transcript, got %#v", got)
+	}
+	if len(got.Transcript[0].Message) != 4 {
+		t.Fatalf("expected user + interim assistant + tool + final assistant, got %d messages", len(got.Transcript[0].Message))
+	}
+}

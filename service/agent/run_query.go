@@ -285,6 +285,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input != nil {
 		logx.Infof("conversation", "agent.Query serviceStart at=%s convo=%q message_id=%q agent_id=%q user_id=%q", queryStarted.Format(time.RFC3339Nano), strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.AgentID), strings.TrimSpace(input.UserId))
 	}
+	if input != nil && input.Context != nil {
+		if clientID, _ := input.Context["uiClientId"].(string); strings.TrimSpace(clientID) != "" {
+			ctx = runtimerequestctx.WithPreferredUIClientID(ctx, strings.TrimSpace(clientID))
+		}
+	}
 	if input != nil && strings.TrimSpace(input.MessageID) == "" {
 		input.MessageID = uuid.New().String()
 	}
@@ -763,13 +768,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					opID := "skill-activate-" + name
 					input.Query = strings.TrimSpace(args)
 					msg := &bindpkg.Message{
-						ID:       opID,
-						Kind:     bindpkg.MessageKindToolResult,
-						Role:     string(llm.RoleAssistant),
-						ToolOpID: opID,
-						ToolName: "llm/skills:activate",
-						ToolArgs: map[string]interface{}{"name": name, "args": args},
-						Content:  strings.TrimSpace(body),
+						ID:          opID,
+						Kind:        bindpkg.MessageKindToolResult,
+						Role:        string(llm.RoleAssistant),
+						ToolOpID:    opID,
+						ToolName:    "llm/skills:activate",
+						ToolArgs:    map[string]interface{}{"name": name, "args": args},
+						ToolTraceID: strings.TrimSpace(runtimerequestctx.TurnTrace(turn.TurnID)),
+						Content:     strings.TrimSpace(body),
 					}
 					iterHistoryMsgs = append(iterHistoryMsgs, msg)
 					loopHistoryMsgs = mergeReplayMessages(loopHistoryMsgs, []*bindpkg.Message{msg})
@@ -1121,6 +1127,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if s.orchestrator != nil {
 			toolCalls := s.orchestrator.TurnToolResults(strings.TrimSpace(turn.TurnID))
 			if len(toolCalls) > 0 {
+				turnTraceID := strings.TrimSpace(runtimerequestctx.TurnTrace(turn.TurnID))
 				nextHistory := make([]*bindpkg.Message, 0, len(toolCalls))
 				for _, call := range toolCalls {
 					id := strings.TrimSpace(call.ID)
@@ -1136,13 +1143,14 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 						continue
 					}
 					nextHistory = append(nextHistory, &bindpkg.Message{
-						ID:       msgID,
-						Kind:     bindpkg.MessageKindToolResult,
-						Role:     string(llm.RoleAssistant),
-						ToolOpID: id,
-						ToolName: name,
-						ToolArgs: call.Arguments,
-						Content:  strings.TrimSpace(call.Result),
+						ID:          msgID,
+						Kind:        bindpkg.MessageKindToolResult,
+						Role:        string(llm.RoleAssistant),
+						ToolOpID:    id,
+						ToolName:    name,
+						ToolArgs:    call.Arguments,
+						ToolTraceID: turnTraceID,
+						Content:     strings.TrimSpace(call.Result),
 					})
 				}
 				if len(nextHistory) > 0 {

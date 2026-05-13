@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -19,6 +20,9 @@ import (
 // emit the missing tool-call trace or tool result rather than teaching the
 // continuation layer to guess around the gap.
 func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *binding.History) *llm.GenerateRequest {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var conversationID string
 	if meta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		conversationID = meta.ConversationID
@@ -56,6 +60,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	var selected llm.Messages
 	assistantToolCallCount := 0
 	toolResultCount := 0
+	selectedToolCallIDs := map[string]struct{}{}
 	seenSelectedToolCalls := map[string]struct{}{}
 	seenSelectedToolResults := map[string]struct{}{}
 
@@ -100,6 +105,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 					continue
 				}
 				seenSelectedToolCalls[id] = struct{}{}
+				selectedToolCallIDs[id] = struct{}{}
 				unique = append(unique, call)
 			}
 			if len(unique) == 0 {
@@ -157,22 +163,40 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		return nil
 	}
 	anchorToolCallIDs := make([]string, 0)
+	anchorToolCallSet := map[string]struct{}{}
 	for key, trace := range history.Traces {
 		if trace == nil || trace.Kind != binding.KindToolCall || trace.ID != anchorID {
 			continue
 		}
 		// Extract the opID from the key (format "toolcall:<opID>")
 		if idx := strings.Index(key, ":"); idx >= 0 && idx+1 < len(key) {
-			anchorToolCallIDs = append(anchorToolCallIDs, key[idx+1:])
+			opID := key[idx+1:]
+			anchorToolCallIDs = append(anchorToolCallIDs, opID)
+			anchorToolCallSet[opID] = struct{}{}
 		}
 	}
+	sort.Strings(anchorToolCallIDs)
+	missingToolCalls := missingContinuationIDs(anchorToolCallSet, selectedToolCallIDs)
+	missingToolResults := missingContinuationIDs(anchorToolCallSet, seenSelectedToolResults)
 	debugtrace.LogToFile("core", "continuation_cross_check", map[string]interface{}{
 		"anchorID":            anchorID,
 		"anchorToolCallCount": len(anchorToolCallIDs),
 		"anchorToolCallIDs":   anchorToolCallIDs,
 		"selectedToolResults": toolResultCount,
 		"selectedToolCalls":   assistantToolCallCount,
+		"missingToolCalls":    missingToolCalls,
+		"missingToolResults":  missingToolResults,
 	})
+	if len(anchorToolCallSet) > 0 && (len(missingToolCalls) > 0 || len(missingToolResults) > 0) {
+		debugtrace.LogToFile("core", "continuation_rejected", map[string]interface{}{
+			"reason":             "incomplete_anchor_tool_replay",
+			"anchorID":           anchorID,
+			"anchorToolCallIDs":  anchorToolCallIDs,
+			"missingToolCalls":   missingToolCalls,
+			"missingToolResults": missingToolResults,
+		})
+		return nil
+	}
 
 	// Build continuation request with selected tool-call messages
 	continuationRequest := &llm.GenerateRequest{}
@@ -234,4 +258,19 @@ func filterToolCallsByAnchor(toolCalls []llm.ToolCall, history *binding.History,
 		filtered = append(filtered, call)
 	}
 	return filtered
+}
+
+func missingContinuationIDs(expected map[string]struct{}, actual map[string]struct{}) []string {
+	if len(expected) == 0 {
+		return nil
+	}
+	missing := make([]string, 0)
+	for id := range expected {
+		if _, ok := actual[id]; ok {
+			continue
+		}
+		missing = append(missing, id)
+	}
+	sort.Strings(missing)
+	return missing
 }
