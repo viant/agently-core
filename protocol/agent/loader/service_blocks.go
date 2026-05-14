@@ -14,6 +14,10 @@ import (
 )
 
 func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	return s.parseToolBlockInto(valueNode, &agent.Tool)
+}
+
+func (s *Service) parseToolBlockInto(valueNode *yml.Node, target *agentmdl.Tool) error {
 	if valueNode.Kind != yaml.SequenceNode {
 		return fmt.Errorf("tool must be a sequence")
 	}
@@ -25,7 +29,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 		case yaml.ScalarNode:
 			v := strings.TrimSpace(item.Value)
 			if v != "" {
-				agent.Tool.Items = append(agent.Tool.Items, &llm.Tool{Name: v})
+				target.Items = append(target.Items, &llm.Tool{Name: v})
 			}
 		case yaml.MappingNode:
 			var t llm.Tool
@@ -108,7 +112,7 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 				}
 			}
 			if t.Definition.Name != "" || t.Name != "" {
-				agent.Tool.Items = append(agent.Tool.Items, &t)
+				target.Items = append(target.Items, &t)
 			}
 		}
 	}
@@ -117,10 +121,13 @@ func (s *Service) parseToolBlock(valueNode *yml.Node, agent *agentmdl.Agent) err
 
 // parseToolConfig parses the new tool mapping contract.
 func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	return s.parseToolConfigInto(valueNode, &agent.Tool, agent)
+}
+
+func (s *Service) parseToolConfigInto(valueNode *yml.Node, cfg *agentmdl.Tool, agent *agentmdl.Agent) error {
 	if valueNode.Kind != yaml.MappingNode {
 		return fmt.Errorf("tool must be a mapping")
 	}
-	var cfg agentmdl.Tool
 	var itemsNode *yml.Node
 	if err := valueNode.Pairs(func(k string, v *yml.Node) error {
 		switch strings.ToLower(strings.TrimSpace(k)) {
@@ -154,13 +161,11 @@ func (s *Service) parseToolConfig(valueNode *yml.Node, agent *agentmdl.Agent) er
 		return err
 	}
 	if itemsNode != nil {
-		if err := s.parseToolBlock(itemsNode, agent); err != nil {
+		if err := s.parseToolBlockInto(itemsNode, cfg); err != nil {
 			return err
 		}
-		cfg.Items = agent.Tool.Items
 	}
 	cfg.Bundles = normalizeStrings(cfg.Bundles)
-	agent.Tool = cfg
 	return nil
 }
 

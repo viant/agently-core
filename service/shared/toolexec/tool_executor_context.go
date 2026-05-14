@@ -35,9 +35,9 @@ const (
 
 // FeedNotifier is called after a tool completes to check if a feed should be activated.
 type FeedNotifier interface {
-	// NotifyToolCompleted is called with the tool name and result after execution.
+	// NotifyToolCompleted is called with the tool name, request payload, and result after execution.
 	// Implementations should check if the tool matches any feed spec and emit SSE events.
-	NotifyToolCompleted(ctx context.Context, toolName string, result string)
+	NotifyToolCompleted(ctx context.Context, toolName string, request map[string]interface{}, result string)
 }
 
 // WithFeedNotifier attaches a FeedNotifier to the context.

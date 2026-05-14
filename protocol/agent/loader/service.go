@@ -604,6 +604,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					if v.Kind == yaml.ScalarNode {
 						agent.Intake.Prompt = strings.TrimSpace(v.Value)
 					}
+				case "tool":
+					if err := s.parseToolConfigInto(v, &agent.Intake.Tool, agent); err != nil {
+						return fmt.Errorf("invalid intake.tool block: %w", err)
+					}
 				case "model":
 					if v.Kind == yaml.ScalarNode {
 						agent.Intake.Model = strings.TrimSpace(v.Value)

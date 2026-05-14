@@ -401,6 +401,20 @@ func TestService_Load_Intake_Worker(t *testing.T) {
 	assert.False(t, cfg.HasScope("tools"))
 }
 
+func TestService_Load_Intake_ToolConfig(t *testing.T) {
+	ctx := context.Background()
+	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
+
+	got, err := service.Load(ctx, "intake_tool.yaml")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	assert.True(t, got.Intake.Enabled)
+	assert.Equal(t, []string{"system/exec"}, got.Intake.Tool.Bundles)
+	require.Len(t, got.Intake.Tool.Items, 1)
+	assert.Equal(t, "resources/read", got.Intake.Tool.Items[0].Name)
+}
+
 func TestService_Load_PromptBundles(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))

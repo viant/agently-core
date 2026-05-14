@@ -19,6 +19,12 @@ type Intake struct {
 	// without forking the generic classifier instructions.
 	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 
+	// Tool reuses the agent Tool shape to authorize deterministic directAction
+	// execution proposed by intake. This keeps direct-action policy on the same
+	// items/bundles abstraction as the normal agent tool surface instead of a
+	// separate hardcoded allowlist.
+	Tool Tool `yaml:"tool,omitempty" json:"tool,omitempty"`
+
 	// Scope lists which intake Context fields the sidecar is allowed to populate.
 	// Class A fields (safe for any agent): title, context, intent, clarification.
 	// Class B fields (orchestrators only, opt-in): profile, tools, template.

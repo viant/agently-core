@@ -28,12 +28,12 @@ func TestParseOutput_ValidJSON(t *testing.T) {
 }
 
 func TestParseOutput_DirectAction(t *testing.T) {
-	raw := `{"classification":{"title":"Show order","intent":"show_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"orderPerformance\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"Opened the order summary window."}}`
+	raw := `{"classification":{"title":"Show order","intent":"show_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"Opened the order summary window."}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
 	require.NotNil(t, tc.DirectAction.Input)
-	assert.Equal(t, "orderPerformance", tc.DirectAction.Input["id"])
+	assert.Equal(t, "order", tc.DirectAction.Input["id"])
 	assert.Equal(t, "Opened the order summary window.", tc.DirectAction.AssistantText)
 }
 

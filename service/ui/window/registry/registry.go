@@ -38,6 +38,9 @@ type WindowSnapshot struct {
 	WindowKey   string                        `json:"windowKey,omitempty"`
 	WindowTitle string                        `json:"windowTitle,omitempty"`
 	Parameters  map[string]interface{}        `json:"parameters,omitempty"`
+	WindowForm  map[string]interface{}        `json:"windowForm,omitempty"`
+	ViewState   map[string]interface{}        `json:"viewState,omitempty"`
+	Metadata    map[string]interface{}        `json:"metadata,omitempty"`
 	InTab       bool                          `json:"inTab,omitempty"`
 	IsModal     bool                          `json:"isModal,omitempty"`
 	IsMinimized bool                          `json:"isMinimized,omitempty"`
