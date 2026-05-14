@@ -168,6 +168,8 @@ func (m *Manager) PutAsync(ctx context.Context, s *Session) {
 	}
 	rec := sessionToRecord(s)
 	go func() {
+		authPersistMu.Lock()
+		defer authPersistMu.Unlock()
 		persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := m.store.Upsert(persistCtx, rec); err != nil {

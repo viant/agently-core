@@ -45,6 +45,28 @@ func (b *blockingDisplayLookupUserService) UpdatePreferences(_ context.Context, 
 	return nil
 }
 
+type canonicalLookupUserService struct{}
+
+func (canonicalLookupUserService) GetByUsername(_ context.Context, username string) (*User, error) {
+	return &User{ID: "user-canonical", Username: username}, nil
+}
+
+func (canonicalLookupUserService) GetBySubjectAndProvider(_ context.Context, subject, provider string) (*User, error) {
+	return &User{ID: "user-canonical", Username: "awitas", Subject: subject, Provider: provider, Email: "awitas@viantinc.com"}, nil
+}
+
+func (canonicalLookupUserService) Upsert(_ context.Context, _ *User) error { return nil }
+
+func (canonicalLookupUserService) UpsertWithProvider(_ context.Context, username, displayName, email, provider, subject string) (string, error) {
+	return "user-canonical", nil
+}
+
+func (canonicalLookupUserService) UpdateHashIPByID(_ context.Context, _, _ string) error { return nil }
+
+func (canonicalLookupUserService) UpdatePreferences(_ context.Context, _ string, _ *PreferencesPatch) error {
+	return nil
+}
+
 func TestRuntimeHandleCreateSession_UsesBearerTokenIdentityWhenBodyTokensMissing(t *testing.T) {
 	ext := &authExtension{
 		cfg: &Config{
@@ -177,6 +199,75 @@ func TestRuntimeHandleCreateSession_BearerBootstrapDoesNotPersistOAuthToken(t *t
 	}
 	if store.putUser != "" {
 		t.Fatalf("expected bearer bootstrap not to persist oauth token, got putUser=%q", store.putUser)
+	}
+}
+
+func TestRuntimeHandleCreateSession_DefersCanonicalUserIDLookup(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions: NewManager(time.Hour, nil),
+		users:    canonicalLookupUserService{},
+	}
+
+	claims := `{"sub":"awitas_viant_devtest","email":"awitas@viantinc.com","preferred_username":"awitas"}`
+	token := "x." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".y"
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	ext.handleCreateSession().ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("session create blocked on canonical user lookup, took %s", elapsed)
+	}
+
+	resp := rec.Result()
+	defer resp.Body.Close()
+	var sessionCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "agently_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("expected agently_session cookie to be set")
+	}
+	sess := ext.sessions.Get(req.Context(), strings.TrimSpace(sessionCookie.Value))
+	if sess == nil {
+		t.Fatalf("expected session to be stored")
+	}
+	if got := strings.TrimSpace(sess.UserID); got != "" {
+		t.Fatalf("UserID = %q, want empty until canonical persistence resolves it", got)
+	}
+	if got := strings.TrimSpace(sess.Subject); got != "awitas_viant_devtest" {
+		t.Fatalf("Subject = %q, want %q", got, "awitas_viant_devtest")
+	}
+	if got := strings.TrimSpace(sess.Provider); got != "oauth" {
+		t.Fatalf("Provider = %q, want %q", got, "oauth")
+	}
+}
+
+func TestResolveOAuthTokenOwnerID_PrefersCanonicalSubjectMappingOverStaleSessionUserID(t *testing.T) {
+	sess := &Session{
+		UserID:   "awitas_viant_devtest",
+		Username: "awitas",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+	}
+
+	got := resolveOAuthTokenOwnerID(context.Background(), canonicalLookupUserService{}, "oauth", sess)
+	if got != "user-canonical" {
+		t.Fatalf("resolveOAuthTokenOwnerID() = %q, want canonical id", got)
 	}
 }
 

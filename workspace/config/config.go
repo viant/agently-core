@@ -68,6 +68,7 @@ func (r *Root) DecodeAuth(out interface{}) error {
 // DefaultsWithFallback merges the workspace default section over the supplied fallback.
 func (r *Root) DefaultsWithFallback(fallback *execconfig.Defaults) *execconfig.Defaults {
 	base := &execconfig.Defaults{
+		AppName:  "Agently",
 		Model:    "openai_gpt-5.2",
 		Embedder: "openai_text",
 		Agent:    "chatter",
@@ -178,6 +179,9 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	}
 	if strings.TrimSpace(src.Agent) != "" {
 		dst.Agent = strings.TrimSpace(src.Agent)
+	}
+	if strings.TrimSpace(src.AppName) != "" {
+		dst.AppName = strings.TrimSpace(src.AppName)
 	}
 	if len(src.Skills.Roots) > 0 {
 		dst.Skills.Roots = append([]string(nil), src.Skills.Roots...)

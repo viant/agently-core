@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
@@ -69,6 +71,61 @@ func TestShouldRunIntake_ExplicitPromptProfileSkipsSidecar(t *testing.T) {
 		PromptProfileId: "diagnostic_baseline",
 	}, cfg)
 	require.False(t, got, "explicit prompt profile should bypass agent-intake classification")
+}
+
+func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *testing.T) {
+	now := time.Now()
+	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"orderPerformance\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+				{
+					Id: "turn-1",
+					Message: []*agconv.MessageView{
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my order 2637048"), CreatedAt: now},
+						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
+					},
+				},
+			}},
+		},
+	}
+	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
+	got := s.shouldRunIntake(context.Background(), &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show my order 2637048",
+	}, cfg)
+	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when the prior turn carried a direct action")
+}
+
+func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePriorTurnDidNot(t *testing.T) {
+	now := time.Now()
+	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"orderPerformance\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+				{
+					Id: "turn-1",
+					Message: []*agconv.MessageView{
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my order 2637048"), CreatedAt: now},
+						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
+					},
+				},
+				{
+					Id: "turn-2",
+					Message: []*agconv.MessageView{
+						{Id: "msg-user-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("show my order 2637048"), CreatedAt: now.Add(time.Second)},
+						{Id: "msg-assistant-2", TurnId: strPtr("turn-2"), Role: "assistant", Type: "text", Content: strPtr("I couldn't reopen it..."), CreatedAt: now.Add(time.Second)},
+					},
+				},
+			}},
+		},
+	}
+	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
+	got := s.shouldRunIntake(context.Background(), &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show my order 2637048",
+	}, cfg)
+	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when an older matching turn carried a direct action")
 }
 
 // TestApplyTurnContext_CopiesTemplateIdToInput closes the gap where the

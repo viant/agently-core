@@ -8,6 +8,8 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
 // expansionMetaPrompt is the fixed system instruction sent to the sidecar LLM.
@@ -76,7 +78,14 @@ func (s *Service) callExpansionSidecar(ctx context.Context, msgs []promptdef.Mes
 		opts.MaxTokens = cfg.MaxTokens
 	}
 
-	resp, err := model.Generate(ctx, &llm.GenerateRequest{
+	// Prompt expansion is an internal preparation step, not a user-visible
+	// model turn. Strip conversation tracking and recorder state so the sidecar
+	// cannot persist transcript rows or become a continuation anchor for the
+	// parent conversation.
+	sidecarCtx := runtimerequestctx.WithoutConversationTracking(ctx)
+	sidecarCtx = modelcallctx.WithObserver(sidecarCtx, nil)
+
+	resp, err := model.Generate(sidecarCtx, &llm.GenerateRequest{
 		Instructions: expansionMetaPrompt,
 		Messages:     reqMsgs,
 		Options:      opts,

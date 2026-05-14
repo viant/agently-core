@@ -34,6 +34,21 @@ func WithConversationID(ctx context.Context, conversationID string) context.Cont
 	return context.WithValue(ctx, ConversationIDKey, conversationID)
 }
 
+// WithoutConversationTracking removes conversation / turn-local tracking keys
+// from context for internal sidecar model calls that must not participate in
+// transcript persistence, SSE ownership, or continuation anchoring.
+func WithoutConversationTracking(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = context.WithValue(ctx, ConversationIDKey, "")
+	ctx = context.WithValue(ctx, ModelMessageIDKey, "")
+	ctx = context.WithValue(ctx, ToolMessageIDKey, "")
+	ctx = context.WithValue(ctx, turnMetaKey, TurnMeta{})
+	ctx = context.WithValue(ctx, modelCompletionMetaKey, ModelCompletionMeta{})
+	return ctx
+}
+
 type modelMessageIDKey string
 
 var ModelMessageIDKey = modelMessageIDKey("modelMessageID")

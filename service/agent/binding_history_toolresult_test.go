@@ -751,6 +751,17 @@ func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *tes
 			ToolName:        strPtr("ui/window/list"),
 			ParentMessageId: strPtr(interim.Id),
 			CreatedAt:       createdAt.Add(2 * time.Second),
+			ToolMessage: []*agconv.ToolMessageView{
+				{
+					Id:        turnID + "-tool",
+					CreatedAt: createdAt.Add(2 * time.Second),
+					ToolCall: &agconv.ToolCallView{
+						OpId:            turnID + "-tool-op",
+						ToolName:        "ui/window/list",
+						ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1"}`)},
+					},
+				},
+			},
 		}
 		finalAssistant := &apiconv.Message{
 			Id:              finalAssistantID,

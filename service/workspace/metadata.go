@@ -23,6 +23,7 @@ type MetadataResponse struct {
 	DefaultAgent     string       `json:"defaultAgent,omitempty"`
 	DefaultModel     string       `json:"defaultModel,omitempty"`
 	DefaultEmbedder  string       `json:"defaultEmbedder,omitempty"`
+	AppName          string       `json:"appName,omitempty"`
 	Defaults         *Defaults    `json:"defaults,omitempty"`
 	Capabilities     Capabilities `json:"capabilities,omitempty"`
 	Agents           []string     `json:"agents,omitempty"`
@@ -34,6 +35,7 @@ type MetadataResponse struct {
 
 // Defaults captures UI-facing runtime defaults in a stable nested shape.
 type Defaults struct {
+	AppName         string `json:"appName,omitempty"`
 	Agent           string `json:"agent,omitempty"`
 	Model           string `json:"model,omitempty"`
 	Embedder        string `json:"embedder,omitempty"`
@@ -118,7 +120,9 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 			resp.DefaultAgent = h.defaults.Agent
 			resp.DefaultModel = h.defaults.Model
 			resp.DefaultEmbedder = h.defaults.Embedder
+			resp.AppName = h.defaults.AppName
 			resp.Defaults = &Defaults{
+				AppName:               h.defaults.AppName,
 				Agent:                 h.defaults.Agent,
 				Model:                 h.defaults.Model,
 				Embedder:              h.defaults.Embedder,

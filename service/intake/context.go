@@ -16,6 +16,13 @@ type PromptingContext struct {
 	TemplateID         string   `json:"templateId,omitempty"`
 }
 
+type DirectActionContext struct {
+	ToolName      string                 `json:"toolName,omitempty"`
+	Input         map[string]interface{} `json:"input,omitempty"`
+	InputJSON     string                 `json:"inputJson,omitempty"`
+	AssistantText string                 `json:"assistantText,omitempty"`
+}
+
 type RoutingContext struct {
 	SelectedAgentID string `json:"selectedAgentId,omitempty"`
 	Mode            string `json:"mode,omitempty"`
@@ -34,6 +41,7 @@ type Context struct {
 	Classification ClassificationContext `json:"classification,omitempty"`
 	Scope          ScopeContext          `json:"scope,omitempty"`
 	Prompting      PromptingContext      `json:"prompting,omitempty"`
+	DirectAction   DirectActionContext   `json:"directAction,omitempty"`
 	Routing        RoutingContext        `json:"routing,omitempty"`
 	Planner        PlannerContext        `json:"planner,omitempty"`
 }

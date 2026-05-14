@@ -211,6 +211,13 @@ func (k Kind) Key(raw string) string {
 	}
 }
 
+// ContentMessageKey produces the explicit trace key for a concrete persisted
+// user/assistant message id. Continuation should prefer this exact identity
+// instead of hashing raw content text.
+func ContentMessageKey(messageID string) string {
+	return "contentmsg:" + strings.TrimSpace(messageID)
+}
+
 // NormalizeContent trims whitespace and, if content is valid JSON, returns
 // its minified canonical form.
 func NormalizeContent(s string) string {

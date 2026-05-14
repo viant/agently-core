@@ -373,6 +373,7 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeContext) {
 		b.WriteString("\n- scope (object): grouped orchestration scope with `values` containing lightweight extracted identifiers and hints")
+		b.WriteString("\n- directAction (object, optional): exact deterministic action to execute without another LLM turn when the request already fully specifies it")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
 		b.WriteString("\n- prompting (object): grouped execution hints with `suggestedProfileId`, `appendToolBundles`, and `templateId`")
@@ -421,6 +422,16 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 			"required":             []string{"values"},
 			"additionalProperties": false,
 		}
+		properties["directAction"] = map[string]interface{}{
+			"type": []string{"object", "null"},
+			"properties": map[string]interface{}{
+				"toolName":      map[string]interface{}{"type": "string"},
+				"inputJson":     map[string]interface{}{"type": "string"},
+				"assistantText": map[string]interface{}{"type": "string"},
+			},
+			"required":             []string{"toolName", "inputJson", "assistantText"},
+			"additionalProperties": false,
+		}
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) || cfg.HasScope(agentmdl.IntakeScopeTools) || cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 		promptingProps := map[string]interface{}{}
@@ -463,7 +474,9 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 const intakeBasePrompt = `You are a request classifier that extracts structured metadata from user messages.
 Your output drives downstream routing and tool selection — be precise and conservative.
 Do not invent context, dates, or constraints not present in the message.
-Do not output tool names or capability descriptions.
+Do not output tool names or capability descriptions, except when the schema
+explicitly includes the directAction.toolName field; in that case emit only
+the exact tool name required by that field.
 When you emit string fields such as intent, suggestedProfileId, or templateId:
 - return the exact bare string value only
 - do not append explanations, comments, punctuation notes, or side remarks
@@ -510,6 +523,7 @@ func filterByScope(tc *Context, cfg *agentmdl.Intake) {
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeContext) {
 		tc.Scope.Values = nil
+		tc.DirectAction = DirectActionContext{}
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeProfile) {
 		tc.Prompting.SuggestedProfileID = ""
@@ -544,6 +558,7 @@ type contextWire struct {
 	Classification     *contextClassificationWire `json:"classification,omitempty"`
 	Scope              *contextScopeWire          `json:"scope,omitempty"`
 	Prompting          *contextPromptingWire      `json:"prompting,omitempty"`
+	DirectAction       *contextDirectActionWire   `json:"directAction,omitempty"`
 	Routing            *contextRoutingWire        `json:"routing,omitempty"`
 	Planner            *contextPlannerWire        `json:"planner,omitempty"`
 	Title              string                     `json:"title,omitempty"`
@@ -578,6 +593,13 @@ type contextPromptingWire struct {
 	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
 	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
 	TemplateID         string   `json:"templateId,omitempty"`
+}
+
+type contextDirectActionWire struct {
+	ToolName      string                 `json:"toolName,omitempty"`
+	Input         map[string]interface{} `json:"input,omitempty"`
+	InputJSON     string                 `json:"inputJson,omitempty"`
+	AssistantText string                 `json:"assistantText,omitempty"`
 }
 
 type contextRoutingWire struct {
@@ -634,6 +656,19 @@ func unmarshalContext(data []byte, tc *Context) error {
 	}
 	if tc.Prompting.TemplateID == "" {
 		tc.Prompting.TemplateID = wire.TemplateId
+	}
+
+	if wire.DirectAction != nil {
+		tc.DirectAction.ToolName = wire.DirectAction.ToolName
+		tc.DirectAction.Input = wire.DirectAction.Input
+		tc.DirectAction.InputJSON = wire.DirectAction.InputJSON
+		tc.DirectAction.AssistantText = wire.DirectAction.AssistantText
+		if len(tc.DirectAction.Input) == 0 && strings.TrimSpace(tc.DirectAction.InputJSON) != "" {
+			var parsed map[string]interface{}
+			if err := json.Unmarshal([]byte(tc.DirectAction.InputJSON), &parsed); err == nil {
+				tc.DirectAction.Input = parsed
+			}
+		}
 	}
 
 	if wire.Routing != nil {

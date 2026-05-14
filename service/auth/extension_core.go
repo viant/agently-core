@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	scyauth "github.com/viant/scy/auth"
@@ -19,6 +20,8 @@ type authExtension struct {
 	tokenStore TokenStore
 	users      UserService
 }
+
+var authPersistMu sync.Mutex
 
 const authPersistTimeout = 15 * time.Second
 const authDisplayLookupTimeout = 750 * time.Millisecond
@@ -82,6 +85,8 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 	if a == nil {
 		return
 	}
+	authPersistMu.Lock()
+	defer authPersistMu.Unlock()
 	persistCtx, cancel := durableAuthPersistContext(ctx)
 	defer cancel()
 	storeUser := strings.TrimSpace(firstNonEmpty(subject, username))
@@ -176,6 +181,43 @@ func durableAuthPersistContext(ctx context.Context) (context.Context, context.Ca
 
 func durableAuthLookupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), authDisplayLookupTimeout)
+}
+
+func (a *authExtension) canonicalizeSessionUser(ctx context.Context, sess *Session) {
+	if a == nil || sess == nil || a.users == nil {
+		return
+	}
+	provider := strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))
+	subject := strings.TrimSpace(sess.Subject)
+	if provider != "" && subject != "" {
+		lookupCtx, cancel := durableAuthLookupContext(ctx)
+		defer cancel()
+		if user, err := a.users.GetBySubjectAndProvider(lookupCtx, subject, provider); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
+			sess.UserID = strings.TrimSpace(user.ID)
+			if strings.TrimSpace(sess.Username) == "" {
+				sess.Username = strings.TrimSpace(firstNonEmpty(user.Username, user.DisplayName, sess.Username))
+			}
+			if strings.TrimSpace(sess.Email) == "" {
+				sess.Email = strings.TrimSpace(firstNonEmpty(user.Email, sess.Email))
+			}
+			return
+		}
+	}
+	if strings.TrimSpace(sess.UserID) != "" {
+		return
+	}
+	username := strings.TrimSpace(sess.Username)
+	if username == "" {
+		return
+	}
+	lookupCtx, cancel := durableAuthLookupContext(ctx)
+	defer cancel()
+	if user, err := a.users.GetByUsername(lookupCtx, username); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
+		sess.UserID = strings.TrimSpace(user.ID)
+		if strings.TrimSpace(sess.Email) == "" {
+			sess.Email = strings.TrimSpace(firstNonEmpty(user.Email, sess.Email))
+		}
+	}
 }
 
 func (a *authExtension) currentSession(r *http.Request) *Session {

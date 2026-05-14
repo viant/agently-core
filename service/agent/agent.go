@@ -53,6 +53,18 @@ func presetAssistantFromContext(ctx map[string]any) (text, kind string) {
 	return text, kind
 }
 
+func directActionFromContext(ctx map[string]any) *intakesvc.DirectActionContext {
+	tc := intakesvc.FromContext(ctx)
+	if tc == nil {
+		return nil
+	}
+	if strings.TrimSpace(tc.DirectAction.ToolName) == "" {
+		return nil
+	}
+	copy := tc.DirectAction
+	return &copy
+}
+
 func applyWorkspaceIntakeContext(qi *QueryInput, dec *routingDecision, agent *agentmdl.Agent) {
 	if qi == nil || dec == nil || dec.WorkspaceIntakeContext == nil {
 		return

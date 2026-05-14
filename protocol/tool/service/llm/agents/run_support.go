@@ -232,6 +232,9 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 		toolpol.WithPolicy(context.WithoutCancel(ctx), nil),
 		runtimerequestctx.ModelMessageIDKey, "",
 	)
+	if len(qi.ToolBundles) > 0 {
+		childCtx = agentsvc.WithRequiredResolvedToolBundles(childCtx, qi.ToolBundles)
+	}
 	// Child runs must not inherit the parent's conversation/turn context.
 	// Agent.Query performs pre-turn work before it seeds a new turn, so bind
 	// the child conversation id here and reset turn metadata up front.

@@ -80,6 +80,11 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 	if err != nil {
 		return nil, err
 	}
+	if len(defs) == 0 {
+		if required := requiredResolvedToolBundlesFromContext(ctx); len(required) > 0 {
+			return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(required, ", "))
+		}
+	}
 	out := defsToTools(defs)
 	out = s.appendRegistryWarnings(ctx, out)
 	return out, nil

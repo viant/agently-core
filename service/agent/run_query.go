@@ -502,6 +502,15 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
 
+	if handled, err := s.maybeRunDirectAction(ctx, input, output); handled {
+		if err != nil {
+			return err
+		}
+		turnStatus = "succeeded"
+		turnRunErr = nil
+		return nil
+	}
+
 	if pErr := s.maybeRunPlannerPass(ctx, input); pErr != nil {
 		var handled *plannerHandledError
 		if errors.As(pErr, &handled) {

@@ -210,8 +210,8 @@ func TestBuildContinuationRequest_IncludesAssistantMessagesAfterAnchor(t *testin
 	baseTime := time.Now()
 	history := &binding.History{
 		Traces: map[string]*binding.Trace{
-			binding.KindToolCall.Key("call-1"):          {ID: "resp-123", Kind: binding.KindToolCall, At: baseTime},
-			binding.KindContent.Key("PRELIMINARY NOTE"): {ID: "", Kind: binding.KindContent, At: baseTime.Add(time.Second)},
+			binding.KindToolCall.Key("call-1"):              {ID: "resp-123", Kind: binding.KindToolCall, At: baseTime},
+			binding.ContentMessageKey("assistant-note-msg"): {ID: "", Kind: binding.KindContent, At: baseTime.Add(time.Second)},
 		},
 		LastResponse: &binding.Trace{ID: "resp-123", At: baseTime, Kind: binding.KindResponse},
 	}
@@ -220,7 +220,7 @@ func TestBuildContinuationRequest_IncludesAssistantMessagesAfterAnchor(t *testin
 	req.Messages = append(req.Messages,
 		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "message-add"}}},
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"messageId":"msg-1"}`},
-		llm.Message{Role: llm.RoleAssistant, Content: "PRELIMINARY NOTE"},
+		llm.Message{ID: "assistant-note-msg", Role: llm.RoleAssistant, Content: "PRELIMINARY NOTE"},
 	)
 
 	cont := svc.BuildContinuationRequest(ctx, req, history)
@@ -239,7 +239,7 @@ func TestBuildContinuationRequest_AllowsContentOnlyContinuation(t *testing.T) {
 	baseTime := time.Now()
 	history := &binding.History{
 		Traces: map[string]*binding.Trace{
-			binding.KindContent.Key("show my order 2667545"): {
+			binding.ContentMessageKey("user-msg-1"): {
 				ID:   "",
 				Kind: binding.KindContent,
 				At:   baseTime.Add(time.Second),
@@ -250,7 +250,7 @@ func TestBuildContinuationRequest_AllowsContentOnlyContinuation(t *testing.T) {
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
-		llm.Message{Role: llm.RoleUser, Content: "show my order 2667545"},
+		llm.Message{ID: "user-msg-1", Role: llm.RoleUser, Content: "show my order 2667545"},
 	)
 
 	cont := svc.BuildContinuationRequest(ctx, req, history)
@@ -292,7 +292,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 		// Full LLM request messages for iteration 2
 		req := &llm.GenerateRequest{}
 		req.Messages = append(req.Messages,
-			llm.Message{Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
+			llm.Message{ID: "iter2-user", Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
 			// synthetic assistant+tool pair from toolResultLLMMessages for op-1
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "op-1", Name: "orchestration-updatePlan"}}},
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-1", Content: `{"status":"ok"}`},
@@ -322,7 +322,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 		// Full LLM request messages for iteration 3 (includes all prior tool results)
 		req := &llm.GenerateRequest{}
 		req.Messages = append(req.Messages,
-			llm.Message{Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
+			llm.Message{ID: "iter3-user", Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
 			// from iteration 1: op-1 → resp_A
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "op-1", Name: "orchestration-updatePlan"}}},
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-1", Content: `{"status":"ok"}`},

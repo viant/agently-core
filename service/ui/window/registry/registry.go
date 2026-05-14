@@ -15,6 +15,8 @@ type Registry struct {
 	bridge *forgeuisvc.Service
 }
 
+const defaultSnapshotFreshness = 15 * time.Second
+
 func New(bridge *forgeuisvc.Service) *Registry {
 	return &Registry{bridge: bridge}
 }
@@ -90,6 +92,16 @@ func (r *Registry) snapshots() ([]ClientSnapshot, error) {
 	return result, nil
 }
 
+func isFreshSnapshot(item ClientSnapshot, now time.Time) bool {
+	if item.Snapshot == nil {
+		return false
+	}
+	if item.UpdatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(item.UpdatedAt) <= defaultSnapshotFreshness
+}
+
 func (r *Registry) ListByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
 	_ = ctx
 	conversationID = strings.TrimSpace(conversationID)
@@ -97,11 +109,21 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	if conversationID == "" {
-		return items, nil
+		result := make([]ClientSnapshot, 0, len(items))
+		for _, item := range items {
+			if isFreshSnapshot(item, now) {
+				result = append(result, item)
+			}
+		}
+		return result, nil
 	}
 	result := make([]ClientSnapshot, 0, len(items))
 	for _, item := range items {
+		if !isFreshSnapshot(item, now) {
+			continue
+		}
 		if strings.TrimSpace(item.Snapshot.ConversationID) == conversationID {
 			result = append(result, item)
 		}
@@ -119,7 +141,11 @@ func (r *Registry) FindClient(ctx context.Context, clientID string) (*ClientSnap
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	for _, item := range items {
+		if !isFreshSnapshot(item, now) {
+			continue
+		}
 		if item.ClientID == clientID {
 			copyItem := item
 			return &copyItem, nil

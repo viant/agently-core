@@ -118,7 +118,7 @@ func TestContinuationRequest_QueuedPromptUsesTurnCreatedAt(t *testing.T) {
 		LastResponse: &binding.Trace{ID: "resp-2", At: anchorAt},
 	}
 
-	req := &llm.GenerateRequest{Messages: []llm.Message{{Role: llm.RoleUser, Content: promptText}}}
+	req := &llm.GenerateRequest{Messages: []llm.Message{{ID: "turn-3", Role: llm.RoleUser, Content: promptText}}}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-3"})
 	cont := (&core.Service{}).BuildContinuationRequest(ctx, req, history)
 
@@ -316,7 +316,7 @@ func TestBuildTraces_SkipsRouterAssistantMessages(t *testing.T) {
 	svc := &Service{}
 	traces := svc.buildTraces(tr)
 	require.NotContains(t, traces, binding.KindResponse.Key(routerTrace))
-	require.NotContains(t, traces, binding.KindContent.Key(`{"agentId":"chatter"}`))
+	require.NotContains(t, traces, binding.ContentMessageKey("router-1"))
 	require.Contains(t, traces, binding.KindResponse.Key(assistantTrace))
-	require.Contains(t, traces, binding.KindContent.Key("Hi there."))
+	require.Contains(t, traces, binding.ContentMessageKey("assistant-1"))
 }

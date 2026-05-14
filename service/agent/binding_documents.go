@@ -223,7 +223,11 @@ func (s *Service) buildTraces(tr apiconv.Transcript) map[string]*binding.Trace {
 
 			// User/assistant text message
 			if !isInternalAssistant && strings.ToLower(strings.TrimSpace(m.Type)) == "text" && m.Content != nil && *m.Content != "" {
-				ckey := binding.KindContent.Key(*m.Content)
+				msgID := strings.TrimSpace(m.Id)
+				if msgID == "" {
+					continue
+				}
+				ckey := binding.ContentMessageKey(msgID)
 				// Use a stable "effective at" timestamp for queued turns:
 				// queued user messages may be persisted before the prior assistant
 				// response exists, so comparing raw message.CreatedAt to the anchor
