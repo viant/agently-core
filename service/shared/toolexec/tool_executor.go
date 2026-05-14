@@ -346,7 +346,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	// Feed activation is ancillary; it must never be able to strand the
 	// conversation's canonical tool_call state in "running".
 	if notifier := feedNotifierFromContext(ctx); notifier != nil {
-		notifier.NotifyToolCompleted(ctx, step.Name, toolResult)
+		notifier.NotifyToolCompleted(ctx, step.Name, step.Args, toolResult)
 	}
 
 	if len(errs) > 0 {

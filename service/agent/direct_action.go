@@ -6,14 +6,12 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/internal/logx"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
+	agenttool "github.com/viant/agently-core/service/agent/tool"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
-
-var allowedDirectActionTools = map[string]bool{
-	"ui/view:open":   true,
-	"ui/window:show": true,
-}
 
 func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	if action == nil {
@@ -22,9 +20,6 @@ func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	toolName := strings.TrimSpace(action.ToolName)
 	if toolName == "" {
 		return fmt.Errorf("direct action toolName is required")
-	}
-	if !allowedDirectActionTools[toolName] {
-		return fmt.Errorf("direct action tool %q is not allowed", toolName)
 	}
 	if strings.TrimSpace(action.AssistantText) == "" {
 		return fmt.Errorf("direct action assistantText is required")
@@ -35,12 +30,79 @@ func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	return nil
 }
 
+func directActionSelectionFromIntake(cfg *agentmdl.Intake) agenttool.Selection {
+	if cfg == nil {
+		return agenttool.Selection{}
+	}
+	selection := agenttool.Selection{
+		Bundles: append([]string(nil), cfg.Tool.Bundles...),
+	}
+	for _, item := range cfg.Tool.Items {
+		if item == nil {
+			continue
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = strings.TrimSpace(item.Definition.Name)
+		}
+		if name == "" {
+			continue
+		}
+		selection.Tools = append(selection.Tools, name)
+	}
+	return selection
+}
+
+func (s *Service) directActionAllowedToolNames(ctx context.Context, cfg *agentmdl.Intake) (map[string]struct{}, error) {
+	control := directActionSelectionFromIntake(cfg)
+	if len(control.Tools) == 0 && len(control.Bundles) == 0 {
+		return nil, nil
+	}
+	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]struct{}, len(defs))
+	for _, def := range defs {
+		name := strings.TrimSpace(mcpname.Canonical(def.Name))
+		if name == "" {
+			continue
+		}
+		allowed[strings.ToLower(name)] = struct{}{}
+	}
+	return allowed, nil
+}
+
+func (s *Service) authorizeDirectAction(ctx context.Context, input *QueryInput, action *intakesvc.DirectActionContext) error {
+	if input == nil || input.Agent == nil {
+		return fmt.Errorf("direct action requires an agent context")
+	}
+	allowed, err := s.directActionAllowedToolNames(ctx, &input.Agent.Intake)
+	if err != nil {
+		return err
+	}
+	toolName := strings.ToLower(strings.TrimSpace(mcpname.Canonical(action.ToolName)))
+	if toolName == "" {
+		return fmt.Errorf("direct action toolName is required")
+	}
+	if len(allowed) == 0 {
+		return fmt.Errorf("direct action tool %q is not allowed by intake.tool policy", strings.TrimSpace(action.ToolName))
+	}
+	if _, ok := allowed[toolName]; !ok {
+		return fmt.Errorf("direct action tool %q is not allowed by intake.tool policy", strings.TrimSpace(action.ToolName))
+	}
+	return nil
+}
+
 func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, output *QueryOutput) (bool, error) {
 	action := directActionFromContext(input.Context)
 	if action == nil {
 		return false, nil
 	}
 	if err := validateDirectAction(action); err != nil {
+		return true, err
+	}
+	if err := s.authorizeDirectAction(ctx, input, action); err != nil {
 		return true, err
 	}
 	toolName := strings.TrimSpace(action.ToolName)

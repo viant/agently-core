@@ -75,7 +75,7 @@ func TestShouldRunIntake_ExplicitPromptProfileSkipsSidecar(t *testing.T) {
 
 func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *testing.T) {
 	now := time.Now()
-	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"orderPerformance\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
+	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
@@ -99,7 +99,7 @@ func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *te
 
 func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePriorTurnDidNot(t *testing.T) {
 	now := time.Now()
-	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"orderPerformance\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
+	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{

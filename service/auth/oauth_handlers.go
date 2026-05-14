@@ -117,6 +117,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 				IDToken: idToken,
 			},
 		}
+		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		a.scheduleOAuthTokenPersist(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
@@ -234,6 +235,7 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 				IDToken: idToken,
 			},
 		}
+		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		a.scheduleOAuthTokenPersist(r.Context(), "oauth_callback", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)

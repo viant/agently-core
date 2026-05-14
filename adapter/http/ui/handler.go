@@ -56,8 +56,12 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 		target := targetContextFromRequest(r)
 		aWindow, err := forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			workspaceWindow, workspaceErr := loadWorkspaceWindowFallback(r.Context(), windowKey)
+			if workspaceErr != nil || workspaceWindow == nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			aWindow = workspaceWindow
 		}
 		if err := mergeWorkspaceForgeAssets(r.Context(), aWindow); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -71,6 +75,27 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 	})
 
 	return mux
+}
+
+func loadWorkspaceWindowFallback(ctx context.Context, windowKey string) (*forgeTypes.Window, error) {
+	windowKey = strings.TrimSpace(windowKey)
+	if windowKey == "" {
+		return nil, nil
+	}
+	svc := wsmeta.New(afs.New(), workspace.Root())
+	windowPath := filepath.Join(workspace.KindForgeWindow, windowKey+".yaml")
+	exists, err := svc.Exists(ctx, windowPath)
+	if err != nil || !exists {
+		return nil, err
+	}
+	result := &forgeTypes.Window{}
+	if err := svc.Load(ctx, windowPath, result); err != nil {
+		return nil, err
+	}
+	if result.View.Content == nil {
+		return nil, nil
+	}
+	return result, nil
 }
 
 func targetContextFromRequest(r *http.Request) *metaSvc.TargetContext {

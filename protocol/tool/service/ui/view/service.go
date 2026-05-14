@@ -261,7 +261,24 @@ func (s *Service) loadOne(ctx context.Context, id string) (*ListItem, error) {
 			return &item, nil
 		}
 	}
-	return nil, fmt.Errorf("ui view %q not found", id)
+	available := availableViewIDs(items)
+	if len(available) == 0 {
+		return nil, fmt.Errorf("ui view %q not found; no workspace Forge windows are loaded", id)
+	}
+	return nil, fmt.Errorf("ui view %q not found; available views: %s", id, strings.Join(available, ", "))
+}
+
+func availableViewIDs(items []ListItem) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		result = append(result, id)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func stringValue(v interface{}) string {

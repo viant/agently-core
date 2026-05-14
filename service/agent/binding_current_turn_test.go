@@ -47,7 +47,7 @@ func TestAppendCurrentMessages_AdvancesAnchorToCurrentTurn(t *testing.T) {
 		Role:        string(llm.RoleAssistant),
 		ToolOpID:    "call-current",
 		ToolName:    "ui_view-open",
-		ToolArgs:    map[string]any{"id": "orderPerformance", "parameters": map[string]any{"AdOrderId": []any{2667545}}},
+		ToolArgs:    map[string]any{"id": "order", "parameters": map[string]any{"AdOrderId": []any{2667545}}},
 		Content:     `{"ok":false,"error":"no active ui client attached"}`,
 		CreatedAt:   baseTime,
 		ToolTraceID: "resp-current",

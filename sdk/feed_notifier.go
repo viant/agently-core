@@ -32,7 +32,7 @@ func newFeedNotifier(registry *FeedRegistry, bus streaming.Bus) *feedNotifier {
 
 // NotifyToolCompleted checks if the completed tool matches any feed spec
 // and emits a tool_feed_active SSE event.
-func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string, result string) {
+func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string, request map[string]interface{}, result string) {
 	if n.registry == nil || n.bus == nil {
 		return
 	}
@@ -69,8 +69,9 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 	n.mu.Unlock()
 	// Emit SSE events outside the lock — bus.Publish must not be called under
 	// n.mu to avoid deadlock if the bus callback re-enters the notifier.
+	requestPayload := normalizeJSON(request)
 	for _, spec := range matched {
-		feedData, feedCount := genericNotifierFeedPayload(spec, result)
+		feedData, feedCount := genericNotifierFeedPayload(spec, requestPayload, result)
 		itemCount := feedCount
 		if itemCount == 0 && feedData != nil {
 			itemCount = estimateItemCount(result)
@@ -135,13 +136,19 @@ func estimateItemCount(result string) int {
 	return 1
 }
 
-func genericNotifierFeedPayload(spec *FeedSpec, result string) (interface{}, int) {
+func genericNotifierFeedPayload(spec *FeedSpec, requestPayload, result string) (interface{}, int) {
 	if spec != nil {
-		if extracted, err := extractFeedData(spec, nil, []string{result}); err == nil {
+		var requestPayloads []string
+		if strings.TrimSpace(requestPayload) != "" {
+			requestPayloads = []string{requestPayload}
+		}
+		if extracted, err := extractFeedData(spec, requestPayloads, []string{result}); err == nil {
 			if extracted != nil && extracted.RootData != nil && extracted.ItemCount > 0 {
 				return extracted.RootData, extracted.ItemCount
 			}
-			return nil, 0
+			if len(spec.DataSource) > 0 {
+				return nil, 0
+			}
 		}
 	}
 	var feedData interface{}

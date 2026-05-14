@@ -50,6 +50,7 @@ func TestFeedNotifier_BuiltinFeedsLiveBehavior(t *testing.T) {
 		name              string
 		specName          string
 		toolName          string
+		request           map[string]interface{}
 		result            string
 		expectedItemCount int
 		expectedJSON      string
@@ -86,6 +87,15 @@ func TestFeedNotifier_BuiltinFeedsLiveBehavior(t *testing.T) {
 			expectedItemCount: 2,
 			expectedJSON:      `{"input":null,"output":{"files":[{"Path":"bitset.go","Matches":3},{"Path":"state.go","Matches":2}]},"entries":[{"Path":"bitset.go","Matches":3},{"Path":"state.go","Matches":2}]}`,
 		},
+		{
+			name:              "resources",
+			specName:          "resources",
+			toolName:          "resources-read",
+			request:           map[string]interface{}{"path": "/tmp/recovery.md", "maxBytes": 12000, "rootId": "local"},
+			result:            `{"content":"hello"}`,
+			expectedItemCount: 1,
+			expectedJSON:      `{"input":{},"output":[{"maxBytes":12000,"path":"/tmp/recovery.md","rootId":"local"}]}`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -101,7 +111,7 @@ func TestFeedNotifier_BuiltinFeedsLiveBehavior(t *testing.T) {
 				ConversationID: "conv-live",
 				TurnID:         "turn-live",
 			})
-			notifier.NotifyToolCompleted(ctx, tc.toolName, tc.result)
+			notifier.NotifyToolCompleted(ctx, tc.toolName, tc.request, tc.result)
 
 			ev := readEvent(t, sub)
 			require.NotNil(t, ev)
@@ -132,7 +142,7 @@ func TestFeedNotifier_SkipsChangesFeedWhenNoChangesExtracted(t *testing.T) {
 		TurnID:         "turn-live",
 	})
 
-	notifier.NotifyToolCompleted(ctx, "system_patch-apply", `{"stats":{},"status":"ok"}`)
+	notifier.NotifyToolCompleted(ctx, "system_patch-apply", nil, `{"stats":{},"status":"ok"}`)
 	assertNoEvent(t, sub)
 }
 
@@ -561,7 +571,7 @@ func TestFeedNotifier_DoesNotEmitInactiveWhenFeedStillMatched(t *testing.T) {
 		ConversationID: "conv-still-active",
 		TurnID:         "turn-1",
 	})
-	notifier.NotifyToolCompleted(ctx, "system_exec-execute", `{"commands":[{"input":"pwd","output":"/tmp"}]}`)
+	notifier.NotifyToolCompleted(ctx, "system_exec-execute", nil, `{"commands":[{"input":"pwd","output":"/tmp"}]}`)
 	ev := readEvent(t, sub)
 	require.NotNil(t, ev)
 	assert.Equal(t, streaming.EventTypeToolFeedActive, ev.Type)
@@ -582,14 +592,14 @@ func TestFeedNotifier_IgnoresUnmatchedTool(t *testing.T) {
 		ConversationID: "conv-unmatched",
 		TurnID:         "turn-1",
 	})
-	notifier.NotifyToolCompleted(ctx, "resources-grepFiles", `{"files":[{"Path":"a.go","Matches":1}]}`)
+	notifier.NotifyToolCompleted(ctx, "resources-grepFiles", nil, `{"files":[{"Path":"a.go","Matches":1}]}`)
 	assertNoEvent(t, sub)
 }
 
 func TestFeedNotifier_GuardBranches(t *testing.T) {
 	t.Run("nil registry or bus", func(t *testing.T) {
 		n := newFeedNotifier(nil, nil)
-		n.NotifyToolCompleted(context.Background(), "system_exec-execute", `{}`)
+		n.NotifyToolCompleted(context.Background(), "system_exec-execute", nil, `{}`)
 		n.EmitInactiveForMissing(context.Background(), "conv", nil)
 	})
 
@@ -600,7 +610,7 @@ func TestFeedNotifier_GuardBranches(t *testing.T) {
 		require.NoError(t, err)
 		defer sub.Close()
 		n := newFeedNotifier(&FeedRegistry{specs: []*FeedSpec{spec}}, bus)
-		n.NotifyToolCompleted(context.Background(), "system_exec-execute", `{}`)
+		n.NotifyToolCompleted(context.Background(), "system_exec-execute", nil, `{}`)
 		assertNoEvent(t, sub)
 	})
 
@@ -618,7 +628,7 @@ func TestFeedNotifier_GuardBranches(t *testing.T) {
 		defer sub.Close()
 		n := newFeedNotifier(&FeedRegistry{specs: []*FeedSpec{spec}}, bus)
 		ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-empty", TurnID: "turn-1"})
-		n.NotifyToolCompleted(ctx, "system_exec-execute", "")
+		n.NotifyToolCompleted(ctx, "system_exec-execute", nil, "")
 		assertNoEvent(t, sub)
 	})
 
@@ -630,7 +640,7 @@ func TestFeedNotifier_GuardBranches(t *testing.T) {
 		defer sub.Close()
 		n := newFeedNotifier(&FeedRegistry{specs: []*FeedSpec{spec}}, bus)
 		ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-turn-only", TurnID: "turn-1"})
-		n.NotifyToolCompleted(ctx, "system_exec-execute", `{"commands":[{"input":"pwd","output":"/tmp"}]}`)
+		n.NotifyToolCompleted(ctx, "system_exec-execute", nil, `{"commands":[{"input":"pwd","output":"/tmp"}]}`)
 		ev := readEvent(t, sub)
 		require.NotNil(t, ev)
 		assert.Equal(t, "conv-turn-only", ev.ConversationID)

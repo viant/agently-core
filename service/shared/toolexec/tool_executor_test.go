@@ -535,7 +535,7 @@ type recordingFeedNotifier struct {
 	onCall func()
 }
 
-func (r *recordingFeedNotifier) NotifyToolCompleted(_ context.Context, _ string, _ string) {
+func (r *recordingFeedNotifier) NotifyToolCompleted(_ context.Context, _ string, _ map[string]interface{}, _ string) {
 	r.calls++
 	if r.onCall != nil {
 		r.onCall()
