@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"encoding/json"
 	"path"
 	"strings"
 	"unsafe"
@@ -151,6 +152,9 @@ func (t *Transcript) LastAssistantMessageWithModelCall() *Message {
 			if m.Status != nil && strings.EqualFold(strings.TrimSpace(*m.Status), "summary") {
 				continue
 			}
+			if !assistantMessageHasContinuationSafeModelCall(m) {
+				continue
+			}
 			last = m
 			if m.ModelCall.TraceId != nil {
 				return m
@@ -161,6 +165,67 @@ func (t *Transcript) LastAssistantMessageWithModelCall() *Message {
 		}
 	}
 	return nil
+}
+
+func assistantMessageHasContinuationSafeModelCall(m *Message) bool {
+	if m == nil || m.ModelCall == nil {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(m.Role)) != "assistant" {
+		return false
+	}
+	if len(m.ToolMessage) > 0 {
+		return true
+	}
+	if strings.TrimSpace(ptrString(m.Content)) != "" || strings.TrimSpace(ptrString(m.RawContent)) != "" || strings.TrimSpace(ptrString(m.Narration)) != "" {
+		return true
+	}
+	if hasAssistantPayloadChoice(m.ModelCall.ModelCallResponsePayload) || hasAssistantPayloadChoice(m.ModelCall.ModelCallProviderResponsePayload) {
+		return true
+	}
+	// Compatibility fallback: older transcripts may only persist the trace id
+	// without a decoded provider payload. Those calls remain usable anchors.
+	return m.ModelCall.ModelCallResponsePayload == nil &&
+		m.ModelCall.ModelCallProviderResponsePayload == nil &&
+		m.ModelCall.TraceId != nil &&
+		strings.TrimSpace(*m.ModelCall.TraceId) != ""
+}
+
+func hasAssistantPayloadChoice(payload *conversation.ModelCallStreamPayloadView) bool {
+	if payload == nil || payload.InlineBody == nil {
+		return false
+	}
+	body := strings.TrimSpace(*payload.InlineBody)
+	if body == "" {
+		return false
+	}
+	var decoded struct {
+		Choices []struct {
+			Message struct {
+				Content   string `json:"content"`
+				ToolCalls []any  `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+		return false
+	}
+	for _, choice := range decoded.Choices {
+		if strings.TrimSpace(choice.Message.Content) != "" {
+			return true
+		}
+		if len(choice.Message.ToolCalls) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func ptrString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // LastAssistantMessage returns the last assistant text message in this transcript.

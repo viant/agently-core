@@ -324,6 +324,32 @@ func TestResolveTools_WithBundles(t *testing.T) {
 	}
 }
 
+func TestResolveTools_ErrorsWhenRequestedBundlesResolveZeroDefinitions(t *testing.T) {
+	reg := &fakeRegistry{defs: []llm.ToolDefinition{
+		{Name: "prompt:list"},
+	}}
+	svc := &Service{
+		registry: reg,
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID: "analyst-diagnostic-tools",
+				Match: []llm.Tool{
+					{Name: "steward-AdDiagnostic"},
+				},
+			}}, nil
+		},
+	}
+
+	ctx := WithRequiredResolvedToolBundles(context.Background(), []string{"analyst-diagnostic-tools"})
+	_, err := svc.resolveTools(ctx, &QueryInput{
+		ToolBundles: []string{"analyst-diagnostic-tools"},
+		Agent:       &agentmdl.Agent{},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requested tool bundles resolved zero tool definitions")
+	require.Contains(t, err.Error(), "analyst-diagnostic-tools")
+}
+
 func TestResolveTools_CachesStructuredBundleResolution(t *testing.T) {
 	registry := &countingRegistry{
 		fakeRegistry: fakeRegistry{

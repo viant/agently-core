@@ -142,8 +142,11 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 			if role != llm.RoleUser && role != llm.RoleAssistant {
 				continue
 			}
-
-			key := binding.KindContent.Key(m.Content)
+			messageID := strings.TrimSpace(m.ID)
+			if messageID == "" {
+				continue
+			}
+			key := binding.ContentMessageKey(messageID)
 			trace, ok := history.Traces[key]
 
 			if !ok || trace.At.Before(anchor.At) || trace.At.Equal(anchor.At) {

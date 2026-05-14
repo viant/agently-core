@@ -19,14 +19,15 @@ type ListInput struct {
 }
 
 type WindowItem struct {
-	ClientID       string   `json:"clientId,omitempty"`
-	WindowID       string   `json:"windowId,omitempty"`
-	WindowKey      string   `json:"windowKey,omitempty"`
-	WindowTitle    string   `json:"windowTitle,omitempty"`
-	InTab          bool     `json:"inTab,omitempty"`
-	IsModal        bool     `json:"isModal,omitempty"`
-	IsMinimized    bool     `json:"isMinimized,omitempty"`
-	DataSourceRefs []string `json:"dataSourceRefs,omitempty"`
+	ClientID       string                 `json:"clientId,omitempty"`
+	WindowID       string                 `json:"windowId,omitempty"`
+	WindowKey      string                 `json:"windowKey,omitempty"`
+	WindowTitle    string                 `json:"windowTitle,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
+	InTab          bool                   `json:"inTab,omitempty"`
+	IsModal        bool                   `json:"isModal,omitempty"`
+	IsMinimized    bool                   `json:"isMinimized,omitempty"`
+	DataSourceRefs []string               `json:"dataSourceRefs,omitempty"`
 }
 
 type ListOutput struct {
@@ -42,9 +43,10 @@ type GetInput struct {
 }
 
 type GetOutput struct {
-	ClientID string                  `json:"clientId,omitempty"`
-	Window   *uireg.WindowSnapshot   `json:"window,omitempty"`
-	Selected *uireg.SnapshotSelected `json:"selected,omitempty"`
+	ClientID       string                  `json:"clientId,omitempty"`
+	Window         *uireg.WindowSnapshot   `json:"window,omitempty"`
+	Selected       *uireg.SnapshotSelected `json:"selected,omitempty"`
+	DataSourceRefs []string                `json:"dataSourceRefs,omitempty"`
 }
 
 type ActivateInput struct {
@@ -143,6 +145,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					WindowID:       win.WindowID,
 					WindowKey:      win.WindowKey,
 					WindowTitle:    win.WindowTitle,
+					Parameters:     compactWindowParameters(win.Parameters),
 					InTab:          win.InTab,
 					IsModal:        win.IsModal,
 					IsMinimized:    win.IsMinimized,
@@ -181,7 +184,8 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	output.ClientID = clientID
-	output.Window = win
+	output.Window = compactWindowSnapshot(win)
+	output.DataSourceRefs = listDataSourceRefs(win)
 	if snap != nil {
 		selected := snap.Selected
 		output.Selected = &selected
@@ -279,4 +283,35 @@ func normalizeOptionalClientID(raw string) string {
 		return ""
 	}
 	return value
+}
+
+func compactWindowParameters(parameters map[string]interface{}) map[string]interface{} {
+	if len(parameters) == 0 {
+		return nil
+	}
+	result := make(map[string]interface{}, len(parameters))
+	for key, value := range parameters {
+		result[key] = value
+	}
+	return result
+}
+
+func compactWindowSnapshot(win *uireg.WindowSnapshot) *uireg.WindowSnapshot {
+	if win == nil {
+		return nil
+	}
+	copyWin := *win
+	copyWin.DataSources = nil
+	return &copyWin
+}
+
+func listDataSourceRefs(win *uireg.WindowSnapshot) []string {
+	if win == nil || len(win.DataSources) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(win.DataSources))
+	for ref := range win.DataSources {
+		refs = append(refs, ref)
+	}
+	return refs
 }

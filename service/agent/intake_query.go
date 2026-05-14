@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"unicode"
 
@@ -87,6 +88,14 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		tc.Classification.Confidence,
 		strings.TrimSpace(tc.Prompting.SuggestedProfileID),
 	)
+	if strings.TrimSpace(tc.DirectAction.ToolName) != "" {
+		logx.Infof("conversation", "intake.direct_action convo=%q agent=%q tool=%q assistant_text_len=%d",
+			strings.TrimSpace(input.ConversationID),
+			strings.TrimSpace(input.Agent.ID),
+			strings.TrimSpace(tc.DirectAction.ToolName),
+			len(strings.TrimSpace(tc.DirectAction.AssistantText)),
+		)
+	}
 	applyTurnContext(input, tc, cfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
 }
@@ -193,6 +202,9 @@ func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *a
 	}
 	similarity := jaccardWordSimilarity(previous, current)
 	divergence := 1.0 - similarity
+	if divergence < threshold && s.priorMatchingTurnHadDirectAction(ctx, input.ConversationID, current) {
+		return true
+	}
 	return divergence >= threshold
 }
 
@@ -236,6 +248,61 @@ func (s *Service) previousUserMessage(ctx context.Context, convID string) string
 		}
 	}
 	return ""
+}
+
+func (s *Service) priorMatchingTurnHadDirectAction(ctx context.Context, convID string, current string) bool {
+	if s == nil || s.conversation == nil {
+		return false
+	}
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return false
+	}
+	conv, err := s.conversation.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return false
+	}
+	turns := conv.GetTranscript()
+	current = strings.TrimSpace(current)
+	for i := len(turns) - 1; i >= 0; i-- {
+		turn := turns[i]
+		if turn == nil || len(turn.Message) == 0 {
+			continue
+		}
+		var userText string
+		var intakeDirectAction bool
+		for _, msg := range turn.Message {
+			if msg == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
+				if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" {
+					userText = strings.TrimSpace(*msg.Content)
+				}
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if msg.Phase == nil || !strings.EqualFold(strings.TrimSpace(*msg.Phase), "intake") {
+				continue
+			}
+			if msg.Content == nil || strings.TrimSpace(*msg.Content) == "" {
+				continue
+			}
+			var tc intakesvc.Context
+			if err := json.Unmarshal([]byte(strings.TrimSpace(*msg.Content)), &tc); err != nil {
+				continue
+			}
+			intakeDirectAction = strings.TrimSpace(tc.DirectAction.ToolName) != ""
+		}
+		if userText == "" {
+			continue
+		}
+		if strings.EqualFold(userText, current) && intakeDirectAction {
+			return true
+		}
+	}
+	return false
 }
 
 // jaccardWordSimilarity returns |A ∩ B| / |A ∪ B| over lowercased word

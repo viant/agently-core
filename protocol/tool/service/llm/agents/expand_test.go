@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
 
 // --- mock model finder + model ---
@@ -17,9 +19,13 @@ import (
 type mockModel struct {
 	response string
 	err      error
+	check    func(context.Context, *llm.GenerateRequest)
 }
 
-func (m *mockModel) Generate(_ context.Context, _ *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (m *mockModel) Generate(ctx context.Context, req *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	if m.check != nil {
+		m.check(ctx, req)
+	}
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -137,6 +143,46 @@ func TestExpandMessages_EmptyTextFallsBack(t *testing.T) {
 	result := s.expandMessages(context.Background(), original, "obj", cfg)
 	assert.Equal(t, original, result, "empty text should fall back")
 }
+
+func TestExpandMessages_SidecarDoesNotInheritConversationTracking(t *testing.T) {
+	refined := []promptdef.Message{
+		{Role: "system", Text: "Refined system"},
+	}
+	raw, _ := json.Marshal(refined)
+	model := &mockModel{
+		response: string(raw),
+		check: func(ctx context.Context, _ *llm.GenerateRequest) {
+			require.Nil(t, modelcallctx.ObserverFromContext(ctx), "sidecar must not inherit recorder observer")
+			require.Equal(t, "", runtimerequestctx.ConversationIDFromContext(ctx), "sidecar must not inherit conversation tracking")
+			if meta, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+				require.Equal(t, "", meta.TurnID, "sidecar must not inherit turn tracking")
+				require.Equal(t, "", meta.ConversationID, "sidecar must not inherit turn conversation tracking")
+			}
+		},
+	}
+	s := svcWithFinder(&mockModelFinder{model: model})
+	original := []promptdef.Message{{Role: "system", Text: "Original system"}}
+	cfg := &promptdef.Expansion{Mode: "llm", Model: "haiku"}
+	ctx := context.Background()
+	ctx = runtimerequestctx.WithConversationID(ctx, "conv-1")
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
+		TurnID:         "turn-1",
+		ConversationID: "conv-1",
+		Assistant:      "steward",
+	})
+	ctx = modelcallctx.WithObserver(ctx, mockObserver{})
+	result := s.expandMessages(ctx, original, "objective", cfg)
+	require.Len(t, result, 1)
+	require.Equal(t, "Refined system", result[0].Text)
+}
+
+type mockObserver struct{}
+
+func (mockObserver) OnCallStart(ctx context.Context, info modelcallctx.Info) (context.Context, error) {
+	return ctx, nil
+}
+func (mockObserver) OnCallEnd(context.Context, modelcallctx.Info) error { return nil }
+func (mockObserver) OnStreamDelta(context.Context, []byte) error        { return nil }
 
 func TestParseExpansionOutput_PlainJSON(t *testing.T) {
 	input := `[{"role":"system","text":"hello"},{"role":"user","text":"world"}]`

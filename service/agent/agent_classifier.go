@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/agent/prompts"
 	"github.com/viant/agently-core/service/core"
+	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 type agentSelection struct {
@@ -24,10 +25,11 @@ type agentSelection struct {
 	// the agent id rides alongside under one of the AgentID/AgentId/ID/Agent fields. For
 	// action=answer the Text field carries the capability answer; for
 	// action=clarify the Question field carries the disambiguation question.
-	Action         string `json:"action,omitempty"`
-	Text           string `json:"text,omitempty"`
-	Question       string `json:"question,omitempty"`
-	PlannerTrigger string `json:"plannerTrigger,omitempty"`
+	Action         string                  `json:"action,omitempty"`
+	Text           string                  `json:"text,omitempty"`
+	Question       string                  `json:"question,omitempty"`
+	PlannerTrigger string                  `json:"plannerTrigger,omitempty"`
+	DirectAction   *classifierDirectAction `json:"directAction,omitempty"`
 	// Agent-id fields (used when action=route, or when the LLM emits the
 	// legacy {agentId: X} schema without an action key). Multiple key names
 	// are accepted for backward compatibility.
@@ -35,6 +37,13 @@ type agentSelection struct {
 	AgentId string `json:"agent_id"`
 	ID      string `json:"id"`
 	Agent   string `json:"agent"`
+}
+
+type classifierDirectAction struct {
+	ToolName      string                 `json:"toolName,omitempty"`
+	Input         map[string]interface{} `json:"input,omitempty"`
+	InputJSON     string                 `json:"inputJson,omitempty"`
+	AssistantText string                 `json:"assistantText,omitempty"`
 }
 
 // ClassifierAction enumerates the terminal outcomes of a workspace
@@ -66,6 +75,7 @@ type ClassifierResult struct {
 	Answer         string
 	Question       string
 	PlannerTrigger string
+	DirectAction   *intakesvc.DirectActionContext
 }
 
 func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conversation, query, preferredTurnID string, candidates []*agentmdl.Agent) (*ClassifierResult, error) {
@@ -277,7 +287,7 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 	if strings.TrimSpace(action) == "" {
 		action = ClassifierActionRoute
 	}
-	result := &ClassifierResult{Action: action, AgentID: canonicalID, PlannerTrigger: strings.TrimSpace(parsed.PlannerTrigger)}
+	result := &ClassifierResult{Action: action, AgentID: canonicalID, PlannerTrigger: strings.TrimSpace(parsed.PlannerTrigger), DirectAction: parsed.DirectAction}
 	s.publishIntakeWorkspaceCompleted(ctx, convID, result, modelName, durationMs)
 	return result, nil
 }
@@ -306,6 +316,9 @@ func (s *Service) publishIntakeWorkspaceCompleted(ctx context.Context, conversat
 		patch["answerLen"] = len(result.Answer)
 	case ClassifierActionClarify:
 		patch["questionLen"] = len(result.Question)
+	}
+	if result.DirectAction != nil {
+		patch["directActionToolName"] = strings.TrimSpace(result.DirectAction.ToolName)
 	}
 	turnID := ""
 	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -427,7 +440,7 @@ func parseClassifierResult(resp *llm.GenerateResponse, outputKey string) *Classi
 				if action == "" {
 					action = ClassifierActionRoute
 				}
-				return &ClassifierResult{Action: action, AgentID: id, PlannerTrigger: strings.TrimSpace(sel.PlannerTrigger)}
+				return &ClassifierResult{Action: action, AgentID: id, PlannerTrigger: strings.TrimSpace(sel.PlannerTrigger), DirectAction: parseClassifierDirectAction(sel.DirectAction)}
 			}
 			return nil
 		}
@@ -436,7 +449,7 @@ func parseClassifierResult(resp *llm.GenerateResponse, outputKey string) *Classi
 		// through to the non-JSON token fallback because the input parsed
 		// as JSON; treating its raw bytes as an agent id would be nonsense.
 		if id := pickAgentIDField(sel, outputKey); id != "" {
-			return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id, PlannerTrigger: strings.TrimSpace(sel.PlannerTrigger)}
+			return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id, PlannerTrigger: strings.TrimSpace(sel.PlannerTrigger), DirectAction: parseClassifierDirectAction(sel.DirectAction)}
 		}
 		return nil
 	}
@@ -452,6 +465,33 @@ func parseClassifierResult(resp *llm.GenerateResponse, outputKey string) *Classi
 		return &ClassifierResult{Action: ClassifierActionRoute, AgentID: id}
 	}
 	return nil
+}
+
+func parseClassifierDirectAction(raw *classifierDirectAction) *intakesvc.DirectActionContext {
+	if raw == nil {
+		return nil
+	}
+	toolName := strings.TrimSpace(raw.ToolName)
+	assistantText := strings.TrimSpace(raw.AssistantText)
+	if toolName == "" || assistantText == "" {
+		return nil
+	}
+	result := &intakesvc.DirectActionContext{
+		ToolName:      toolName,
+		Input:         raw.Input,
+		InputJSON:     strings.TrimSpace(raw.InputJSON),
+		AssistantText: assistantText,
+	}
+	if len(result.Input) == 0 && result.InputJSON != "" {
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(result.InputJSON), &parsed); err == nil {
+			result.Input = parsed
+		}
+	}
+	if len(result.Input) == 0 {
+		return nil
+	}
+	return result
 }
 
 // pickAgentIDField selects the agent-id field according to the configured

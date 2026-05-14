@@ -27,6 +27,33 @@ func TestParseOutput_ValidJSON(t *testing.T) {
 	assert.InDelta(t, 0.91, tc.Classification.Confidence, 0.001)
 }
 
+func TestParseOutput_DirectAction(t *testing.T) {
+	raw := `{"classification":{"title":"Show order","intent":"show_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"orderPerformance\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"Opened the order summary window."}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
+	require.NotNil(t, tc.DirectAction.Input)
+	assert.Equal(t, "orderPerformance", tc.DirectAction.Input["id"])
+	assert.Equal(t, "Opened the order summary window.", tc.DirectAction.AssistantText)
+}
+
+func TestParseOutput_WithoutDirectAction(t *testing.T) {
+	raw := `{"classification":{"title":"Find IRIS segments","intent":"summary","confidence":0.58},"scope":{"values":{"query":"gambling","taxonomy":"IRIS"}},"prompting":{"suggestedProfileId":"","templateId":""}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "Find IRIS segments", tc.Classification.Title)
+	assert.Empty(t, tc.DirectAction.ToolName)
+	assert.Nil(t, tc.DirectAction.Input)
+}
+
+func TestParseOutput_NullDirectAction(t *testing.T) {
+	raw := `{"classification":{"title":"Find IRIS segments","intent":"summary","confidence":0.58},"scope":{"values":{"query":"gambling","taxonomy":"IRIS"}},"directAction":null,"prompting":{"suggestedProfileId":"","templateId":""}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Empty(t, tc.DirectAction.ToolName)
+	assert.Nil(t, tc.DirectAction.Input)
+}
+
 func TestParseOutput_FencedJSON(t *testing.T) {
 	raw := "```json\n{\"title\":\"test\"}\n```"
 	tc, err := parseOutput(raw)
@@ -111,8 +138,20 @@ func TestBuildOutputSchema_ClassAOnly(t *testing.T) {
 	schema := buildOutputSchema(cfg)
 	assert.Contains(t, schema, "classification")
 	assert.Contains(t, schema, "scope")
+	assert.Contains(t, schema, "directAction")
 	assert.NotContains(t, schema, "suggestedProfileId")
 	assert.NotContains(t, schema, "appendToolBundles")
+}
+
+func TestBuildOutputJSONSchema_DirectActionNullableAndRequired(t *testing.T) {
+	cfg := &agentmdl.Intake{Scope: []string{"title", "context", "intent", "profile", "template"}}
+	schema := buildOutputJSONSchema(cfg)
+	required, _ := schema["required"].([]string)
+	assert.Contains(t, required, "directAction")
+	props, _ := schema["properties"].(map[string]interface{})
+	directAction, _ := props["directAction"].(map[string]interface{})
+	require.NotNil(t, directAction)
+	assert.Equal(t, []string{"object", "null"}, directAction["type"])
 }
 
 func TestBuildOutputSchema_ClassBIncluded(t *testing.T) {

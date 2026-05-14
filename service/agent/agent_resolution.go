@@ -398,9 +398,19 @@ func (s *Service) resolveTurnRouting(ctx context.Context, conv *apiconv.Conversa
 						AutoSelected:  true,
 						RoutingReason: "llm_router",
 					}
+					if result.DirectAction != nil {
+						decision.WorkspaceIntakeContext = &intakesvc.Context{
+							Routing: intakesvc.RoutingContext{
+								SelectedAgentID: id,
+								Mode:            intakesvc.ModeRoute,
+								Source:          intakesvc.SourceWorkspace,
+							},
+							DirectAction: *result.DirectAction,
+						}
+					}
 					if result.Action == ClassifierActionPlanner {
 						decision.RoutingReason = "llm_router_planner"
-						decision.WorkspaceIntakeContext = &intakesvc.Context{
+						plannerContext := &intakesvc.Context{
 							Routing: intakesvc.RoutingContext{
 								SelectedAgentID: id,
 								Mode:            intakesvc.ModePlanner,
@@ -411,6 +421,10 @@ func (s *Service) resolveTurnRouting(ctx context.Context, conv *apiconv.Conversa
 								AgentID: plannerAgentID,
 							},
 						}
+						if result.DirectAction != nil {
+							plannerContext.DirectAction = *result.DirectAction
+						}
+						decision.WorkspaceIntakeContext = plannerContext
 					}
 					return decision, nil
 				}

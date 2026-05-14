@@ -856,16 +856,6 @@ func messageToolCall(msg *apiconv.Message) *apiconv.ToolCallView {
 			return tm.ToolCall
 		}
 	}
-	if isConcreteToolResultMessage(msg) && msg.ToolName != nil && strings.TrimSpace(*msg.ToolName) != "" {
-		opID := strings.TrimSpace(msg.Id)
-		toolName := strings.TrimSpace(*msg.ToolName)
-		return &apiconv.ToolCallView{
-			MessageId: msg.Id,
-			TurnId:    msg.TurnId,
-			OpId:      opID,
-			ToolName:  toolName,
-		}
-	}
 	return nil
 }
 

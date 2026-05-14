@@ -14,6 +14,7 @@ import (
 type AsyncDefaults = wsconfig.WorkspaceConfig
 
 type Defaults struct {
+	AppName  string
 	Model    string
 	Embedder string
 	Agent    string
@@ -96,6 +97,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	type raw struct {
+		AppName     string         `yaml:"appName,omitempty"`
 		Model       string         `yaml:"model"`
 		Embedder    string         `yaml:"embedder"`
 		Agent       string         `yaml:"agent"`
@@ -137,6 +139,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	*d = Defaults{
+		AppName:     tmp.AppName,
 		Model:       tmp.Model,
 		Embedder:    tmp.Embedder,
 		Agent:       tmp.Agent,
