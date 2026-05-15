@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -102,4 +103,29 @@ func TestAuthorizeDirectAction_UsesIntakeToolItemsAndBundles(t *testing.T) {
 		Input:         map[string]any{"cmd": "pwd"},
 		AssistantText: "open",
 	}))
+}
+
+func TestConversationMetadata_RoundTripsWorkspace(t *testing.T) {
+	meta := ConversationMetadata{
+		Workspace: &WorkspaceWindowMetadata{
+			WindowID:    "order_123",
+			WindowKey:   "order",
+			WindowTitle: "Order Summary",
+			ParentKey:   "chat/new",
+			InTab:       true,
+			Parameters: map[string]interface{}{
+				"AdOrderId": []interface{}{2656980},
+			},
+		},
+	}
+	data, err := json.Marshal(meta)
+	require.NoError(t, err)
+	var decoded ConversationMetadata
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.NotNil(t, decoded.Workspace)
+	require.Equal(t, "order_123", decoded.Workspace.WindowID)
+	require.Equal(t, "order", decoded.Workspace.WindowKey)
+	require.Equal(t, "Order Summary", decoded.Workspace.WindowTitle)
+	require.Equal(t, "chat/new", decoded.Workspace.ParentKey)
+	require.True(t, decoded.Workspace.InTab)
 }
