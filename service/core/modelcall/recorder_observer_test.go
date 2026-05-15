@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,54 @@ type captureModelCallClient struct {
 type streamAwareConversationClient struct {
 	apiconv.Client
 	bus *streaming.MemoryBus
+}
+
+type captureStreamPublisher struct {
+	mu     sync.Mutex
+	events []*StreamEvent
+}
+
+func (p *captureStreamPublisher) Publish(_ context.Context, ev *StreamEvent) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = append(p.events, ev)
+	return nil
+}
+
+func (p *captureStreamPublisher) deltas() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	deltas := make([]string, 0, len(p.events))
+	for _, ev := range p.events {
+		content, ok := ev.Content.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		delta, _ := content["delta"].(string)
+		deltas = append(deltas, delta)
+	}
+	return deltas
+}
+
+func TestStreamPublishCoalescePolicyForAdaptsByAccumulatedSize(t *testing.T) {
+	cases := []struct {
+		name     string
+		total    int
+		interval time.Duration
+		minBytes int
+	}{
+		{name: "small", total: streamPublishMediumAfterBytes - 1, interval: 50 * time.Millisecond, minBytes: 128},
+		{name: "medium", total: streamPublishMediumAfterBytes, interval: 75 * time.Millisecond, minBytes: 512},
+		{name: "large", total: streamPublishLargeAfterBytes, interval: 100 * time.Millisecond, minBytes: 1024},
+		{name: "huge", total: streamPublishHugeAfterBytes, interval: 150 * time.Millisecond, minBytes: 4 * 1024},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := streamPublishCoalescePolicyFor(tc.total)
+			assert.Equal(t, tc.interval, got.interval)
+			assert.Equal(t, tc.minBytes, got.minBytes)
+		})
+	}
 }
 
 func (c *streamAwareConversationClient) PatchConversations(ctx context.Context, conv *apiconv.MutableConversation) error {
@@ -607,6 +656,64 @@ func TestRecorderObserver_OnStreamDelta_IgnoresCanceledPersistenceAndFinalizesAc
 		t.Fatalf("missing stream payload: %v", err)
 	}
 	assert.Equal(t, "Hello world", string(*payload.InlineBody))
+}
+
+func TestRecorderObserver_OnStreamDelta_CoalescesPublishedDeltasUntilTimer(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "final")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	publisher := &captureStreamPublisher{}
+	ctx := WithRecorderObserver(WithStreamPublisher(base, publisher), client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("Hel")))
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("lo")))
+	assert.Empty(t, publisher.deltas())
+
+	require.Eventually(t, func() bool {
+		return len(publisher.deltas()) == 1
+	}, time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{"Hello"}, publisher.deltas())
+}
+
+func TestRecorderObserver_OnCallEnd_FlushesPendingPublishedDelta(t *testing.T) {
+	t.Setenv(streamPersistModeEnv, "final")
+
+	client := convmem.New()
+	base := memory.WithConversationID(context.Background(), "conv-1")
+	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+
+	publisher := &captureStreamPublisher{}
+	ctx := WithRecorderObserver(WithStreamPublisher(base, publisher), client)
+	ob := ObserverFromContext(ctx)
+	require.NotNil(t, ob)
+
+	ctx2, err := ob.OnCallStart(ctx, Info{
+		Provider:   "test",
+		Model:      "test-model",
+		LLMRequest: &llm.GenerateRequest{Options: &llm.Options{Mode: "chat"}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.OnStreamDelta(ctx2, []byte("Hello")))
+	assert.Empty(t, publisher.deltas())
+
+	require.NoError(t, ob.OnCallEnd(ctx2, Info{Model: "test-model", StreamText: "Hello"}))
+	assert.Equal(t, []string{"Hello"}, publisher.deltas())
+
+	time.Sleep(streamPublishCoalesceInterval * 2)
+	assert.Equal(t, []string{"Hello"}, publisher.deltas())
 }
 
 func TestRecorderObserver_OnStreamDelta_DefaultBufferedFlushesOnInterval(t *testing.T) {
