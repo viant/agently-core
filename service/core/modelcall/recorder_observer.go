@@ -33,6 +33,15 @@ const (
 	streamPersistBufferedMinBytes = 10 * 1024
 )
 
+const (
+	streamPublishCoalesceInterval = 50 * time.Millisecond
+	streamPublishCoalesceMinBytes = 128
+
+	streamPublishMediumAfterBytes = 4 * 1024
+	streamPublishLargeAfterBytes  = 64 * 1024
+	streamPublishHugeAfterBytes   = 256 * 1024
+)
+
 var invalidStreamPersistModes sync.Map
 
 // recorderObserver writes model-call data directly using conversation client.
@@ -51,6 +60,9 @@ type recorderObserver struct {
 	streamStatusSet          bool
 	lastFlushAt              time.Time
 	lastFlushSize            int
+	streamPublishMu          sync.Mutex
+	streamPublishBuffer      strings.Builder
+	streamPublishTimer       *time.Timer
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -61,6 +73,7 @@ func (o *recorderObserver) OnCallStart(ctx context.Context, info Info) (context.
 	o.start = info
 	o.hasBeg = true
 	o.acc.Reset()
+	o.resetStreamPublishBuffer()
 	o.streamPayloadID = ""
 	o.requestPayloadID = ""
 	o.providerRequestPayloadID = ""
@@ -184,6 +197,8 @@ func (o *recorderObserver) markEnded(msgID string) {
 }
 
 func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, info Info) error {
+	o.flushPendingStreamDelta(context.WithoutCancel(ctx))
+
 	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), finalizePersistTimeout)
 	defer cancelPersist()
 	turn, _ := runtimerequestctx.TurnMetaFromContext(persistCtx)
@@ -398,7 +413,7 @@ func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error
 	if len(data) == 0 {
 		return nil
 	}
-	o.publishStreamDelta(ctx, data)
+	o.publishStreamDelta(ctx, data, o.acc.Len()+len(data))
 	o.acc.Write(data)
 	msgID := runtimerequestctx.ModelMessageIDFromContext(ctx)
 	mode := streamPersistModeFromEnv()
