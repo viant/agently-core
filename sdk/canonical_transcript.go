@@ -214,6 +214,8 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 			_ = buildPageFromMessage(ts, turn, message, parentToolMessages)
 		case isNarratorAssistantMessage(message):
 			_ = buildNarratorPageFromMessage(ts, message)
+		case isStandaloneToolExecutionMessage(message):
+			_ = buildStandaloneToolPage(ts, message)
 		}
 	}
 	if ts.Execution == nil {
@@ -258,6 +260,17 @@ func isNarratorAssistantMessage(message *agconv.MessageView) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(stringValue(message.Mode)), "narrator")
+}
+
+func isStandaloneToolExecutionMessage(message *agconv.MessageView) bool {
+	if message == nil || message.MessageToolCall == nil {
+		return false
+	}
+	role := strings.ToLower(strings.TrimSpace(message.Role))
+	if role == "tool" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(message.Type), "tool_op")
 }
 
 func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *ExecutionPageState {
@@ -309,6 +322,41 @@ func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *E
 	}
 	existing := upsertModelStep(page, step.ModelCallID)
 	*existing = *step
+	refreshExecutionRole(page)
+	return page
+}
+
+func buildStandaloneToolPage(ts *TurnState, message *agconv.MessageView) *ExecutionPageState {
+	if ts == nil || message == nil || message.MessageToolCall == nil {
+		return nil
+	}
+	page := findOrCreatePage(ts, message.Id, intValue(message.Iteration), strings.TrimSpace(stringValue(message.Mode)))
+	if page == nil {
+		return nil
+	}
+	page.PageID = message.Id
+	page.AssistantMessageID = message.Id
+	page.ParentMessageID = firstNonEmpty(strings.TrimSpace(ptrString(message.ParentMessageId)), message.Id)
+	page.TurnID = stringValue(message.TurnId)
+	page.Iteration = intValue(message.Iteration)
+	page.Sequence = intValue(message.Sequence)
+	page.Phase = strings.TrimSpace(stringValue(message.Phase))
+	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
+	page.Status = stepStatusFromString(strings.TrimSpace(message.MessageToolCall.Status), "")
+	if page.Status == "" && ts != nil {
+		page.Status = stepStatusFromString(string(ts.Status), "")
+	}
+	if page.Status == "" {
+		page.Status = "completed"
+	}
+	if content := visibleContentOrEmpty(message.Content); content != "" {
+		page.Content = content
+	}
+	if step := buildToolStepFromMessageToolCall(message); step != nil {
+		existing := upsertToolStep(page, step.ToolCallID)
+		*existing = mergeToolStepState(existing, step)
+	}
+	deriveExecutionPagePhase(page)
 	refreshExecutionRole(page)
 	return page
 }
@@ -527,6 +575,46 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	attachTranscriptAsyncOperation(step)
 	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, "", "", step.ToolName, step.RequestPayload, step.ResponsePayload)
 	return step
+}
+
+func buildToolStepFromMessageToolCall(message *agconv.MessageView) *ToolStepState {
+	if message == nil || message.MessageToolCall == nil {
+		return nil
+	}
+	tc := message.MessageToolCall
+	step := &ToolStepState{
+		ToolCallID:      normalizeCanonicalToolCallID(tc.OpId),
+		ToolMessageID:   strings.TrimSpace(message.Id),
+		ParentMessageID: strings.TrimSpace(ptrString(message.ParentMessageId)),
+		ToolName:        strings.TrimSpace(tc.ToolName),
+		Content:         visibleContentOrEmpty(message.Content),
+		Status:          stepStatusFromString(tc.Status, ""),
+		StartedAt:       tc.StartedAt,
+		CompletedAt:     tc.CompletedAt,
+	}
+	if tc.RequestPayloadId != nil {
+		step.RequestPayloadID = strings.TrimSpace(*tc.RequestPayloadId)
+	}
+	if tc.ResponsePayloadId != nil {
+		step.ResponsePayloadID = strings.TrimSpace(*tc.ResponsePayloadId)
+	}
+	if tc.MessageRequestPayload != nil {
+		step.RequestPayload = marshalToRawJSON(tc.MessageRequestPayload)
+	}
+	if tc.MessageResponsePayload != nil {
+		step.ResponsePayload = marshalToRawJSON(tc.MessageResponsePayload)
+	}
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, strings.TrimSpace(stringValue(message.Phase)), strings.TrimSpace(stringValue(message.Mode)), step.ToolName, step.RequestPayload, step.ResponsePayload)
+	return step
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func normalizeCanonicalToolCallID(value string) string {
