@@ -163,7 +163,7 @@ func (s *Service) withWriteGate(ctx context.Context, fn func() error) error {
 
 func (s *Service) PatchConversations(ctx context.Context, conversations *convcli.MutableConversation) error {
 	if conversations != nil {
-		logx.Infof("conversation", "PatchConversations start id=%q status=%q visibility=%q", strings.TrimSpace(conversations.Id), strings.TrimSpace(valueOrEmptyStr(conversations.Status)), strings.TrimSpace(valueOrEmptyStr(conversations.Visibility)))
+		logx.Infof("conversation", "PatchConversations start id=%q status=%q visibility=%q metadata_set=%t metadata_len=%d", strings.TrimSpace(conversations.Id), strings.TrimSpace(valueOrEmptyStr(conversations.Status)), strings.TrimSpace(valueOrEmptyStr(conversations.Visibility)), conversations.Has != nil && conversations.Has.Metadata, len(strings.TrimSpace(valueOrEmptyStr(conversations.Metadata))))
 	} else {
 		logx.Infof("conversation", "PatchConversations start id=\"\" status=\"\" visibility=\"\" (nil input)")
 	}

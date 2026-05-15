@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -126,6 +127,139 @@ func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePrio
 		Query:          "show my order 2637048",
 	}, cfg)
 	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when an older matching turn carried a direct action")
+}
+
+func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithoutTopicShift(t *testing.T) {
+	now := time.Now()
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+				{
+					Id: "turn-1",
+					Message: []*agconv.MessageView{
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show order 2656980"), CreatedAt: now},
+						{Id: "msg-assistant-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr("opened"), CreatedAt: now},
+					},
+				},
+			}},
+		},
+	}
+	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
+	got := s.shouldRunIntake(context.Background(), &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show order 2609393",
+	}, cfg)
+	require.True(t, got, "concrete order-open asks must rerun intake even when only the order id changed")
+}
+
+func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(t *testing.T) {
+	meta, err := json.Marshal(ConversationMetadata{
+		Context: map[string]interface{}{
+			"uiClientId": "client-1",
+		},
+		Workspace: &WorkspaceWindowMetadata{
+			WindowID:  "order_123",
+			WindowKey: "order",
+		},
+	})
+	require.NoError(t, err)
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{
+				Id:       "conv-1",
+				Metadata: strPtr(string(meta)),
+			},
+		},
+	}
+	testCases := []struct {
+		query         string
+		tabID         string
+		assistantText string
+	}{
+		{query: "show kpi", tabID: "kpiTab", assistantText: "Switched the open order summary to the KPIs tab."},
+		{query: "show delivery", tabID: "deliveryTab", assistantText: "Switched the open order summary to the Delivery tab."},
+		{query: "show hh metrics", tabID: "hhMetricsTab", assistantText: "Switched the open order summary to the HH Metrics tab."},
+		{query: "show household metrics", tabID: "hhMetricsTab", assistantText: "Switched the open order summary to the HH Metrics tab."},
+		{query: "show pacing", tabID: "pacingTab", assistantText: "Switched the open order summary to the Pacing tab."},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.query, func(t *testing.T) {
+			input := &QueryInput{
+				ConversationID: "conv-1",
+				Query:          testCase.query,
+				Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true}},
+			}
+
+			s.maybeRunIntakeSidecar(context.Background(), input)
+
+			tc := intakesvc.FromContext(input.Context)
+			require.NotNil(t, tc)
+			require.Equal(t, "ui/window/selectTab", tc.DirectAction.ToolName)
+			require.Equal(t, "order_123", tc.DirectAction.Input["windowId"])
+			require.Equal(t, testCase.tabID, tc.DirectAction.Input["tabId"])
+			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
+			require.Equal(t, testCase.assistantText, tc.DirectAction.AssistantText)
+		})
+	}
+}
+
+func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderControls(t *testing.T) {
+	meta, err := json.Marshal(ConversationMetadata{
+		Context: map[string]interface{}{
+			"uiClientId": "client-1",
+		},
+		Workspace: &WorkspaceWindowMetadata{
+			WindowID:  "order_123",
+			WindowKey: "order",
+		},
+	})
+	require.NoError(t, err)
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{
+				Id:       "conv-1",
+				Metadata: strPtr(string(meta)),
+			},
+		},
+	}
+	testCases := []struct {
+		query         string
+		controlID     string
+		value         string
+		assistantText string
+	}{
+		{query: "show today", controlID: "periodView", value: "today", assistantText: "Switched the open order summary period to Today."},
+		{query: "show yesterday", controlID: "periodView", value: "yesterday", assistantText: "Switched the open order summary period to Yesterday."},
+		{query: "show 7d", controlID: "periodView", value: "7d", assistantText: "Switched the open order summary period to 7D."},
+		{query: "show 30d", controlID: "periodView", value: "30d", assistantText: "Switched the open order summary period to 30D."},
+		{query: "show hour", controlID: "granularity", value: "hour", assistantText: "Switched the open order summary granularity to Hour."},
+		{query: "switch to hour", controlID: "granularity", value: "hour", assistantText: "Switched the open order summary granularity to Hour."},
+		{query: "show day", controlID: "granularity", value: "day", assistantText: "Switched the open order summary granularity to Day."},
+		{query: "switch to day", controlID: "granularity", value: "day", assistantText: "Switched the open order summary granularity to Day."},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.query, func(t *testing.T) {
+			input := &QueryInput{
+				ConversationID: "conv-1",
+				Query:          testCase.query,
+				Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true}},
+			}
+
+			s.maybeRunIntakeSidecar(context.Background(), input)
+
+			tc := intakesvc.FromContext(input.Context)
+			require.NotNil(t, tc)
+			require.Equal(t, "ui/control:setValue", tc.DirectAction.ToolName)
+			require.Equal(t, "order_123", tc.DirectAction.Input["windowId"])
+			require.Equal(t, testCase.controlID, tc.DirectAction.Input["controlId"])
+			require.Equal(t, "windowForm", tc.DirectAction.Input["scope"])
+			require.Equal(t, testCase.value, tc.DirectAction.Input["value"])
+			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
+			require.Equal(t, testCase.assistantText, tc.DirectAction.AssistantText)
+		})
+	}
 }
 
 // TestApplyTurnContext_CopiesTemplateIdToInput closes the gap where the
@@ -606,8 +740,9 @@ func TestIntakeTrackedContext_UsesRouterModeAndTrackedTurn(t *testing.T) {
 }
 
 type intakeRecordingConvClient struct {
-	lastTurn    *apiconv.MutableTurn
-	lastMessage *apiconv.MutableMessage
+	lastTurn       *apiconv.MutableTurn
+	lastMessage    *apiconv.MutableMessage
+	lastMessageAdd bool
 }
 
 func (r *intakeRecordingConvClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -625,8 +760,9 @@ func (r *intakeRecordingConvClient) GetPayload(context.Context, string) (*apicon
 func (r *intakeRecordingConvClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
 	return nil
 }
-func (r *intakeRecordingConvClient) PatchMessage(_ context.Context, m *apiconv.MutableMessage) error {
+func (r *intakeRecordingConvClient) PatchMessage(ctx context.Context, m *apiconv.MutableMessage) error {
 	r.lastMessage = m
+	r.lastMessageAdd = runtimerequestctx.MessageAddEventFromContext(ctx)
 	return nil
 }
 func (r *intakeRecordingConvClient) GetMessage(context.Context, string, ...apiconv.Option) (*apiconv.Message, error) {
@@ -680,6 +816,7 @@ func TestPublishPresetAssistantMessage(t *testing.T) {
 		require.Equal(t, "## Summary\nWorkspace can do X.", *recorder.lastMessage.Content)
 		require.NotNil(t, recorder.lastMessage.Status)
 		require.Equal(t, "intake.answer", *recorder.lastMessage.Status)
+		require.True(t, recorder.lastMessageAdd, "preset assistant write must be marked as an explicit message add for SSE")
 	})
 
 	t.Run("clarify kind writes with intake.clarify status", func(t *testing.T) {
@@ -693,6 +830,7 @@ func TestPublishPresetAssistantMessage(t *testing.T) {
 		require.Equal(t, "Which order?", *recorder.lastMessage.Content)
 		require.NotNil(t, recorder.lastMessage.Status)
 		require.Equal(t, "intake.clarify", *recorder.lastMessage.Status)
+		require.True(t, recorder.lastMessageAdd, "clarification assistant write must be marked as an explicit message add for SSE")
 	})
 
 	t.Run("nil conversation client is a no-op (callers still get output.Content)", func(t *testing.T) {
@@ -719,6 +857,7 @@ func TestPublishPresetAssistantMessage(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, recorder.lastMessage)
 		require.Nil(t, recorder.lastMessage.Status, "no kind hint → no status field")
+		require.True(t, recorder.lastMessageAdd, "assistant write without kind must still be marked as an explicit message add for SSE")
 	})
 }
 

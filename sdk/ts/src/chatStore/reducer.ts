@@ -301,6 +301,38 @@ function findSinglePendingBootstrapTurn(
     return pending.length === 1 ? pending[0] : null;
 }
 
+function findPendingBootstrapTurnForTranscript(
+    state: ClientConversationState,
+    snapshotTurn: CanonicalTurnState,
+): ClientTurnState | null {
+    const pending = findSinglePendingBootstrapTurn(state);
+    if (!pending) return null;
+    if (pending.users.length !== 1) return null;
+    const snapshotUsers = snapshotTurn.users ?? (snapshotTurn.user ? [snapshotTurn.user] : []);
+    if (snapshotUsers.length !== 1) return null;
+    const pendingUser = pending.users[0];
+    if ((pendingUser.messageId ?? '').trim() !== '') return null;
+    if ((pendingUser.clientRequestId ?? '').trim() === '') return null;
+    const pendingContent = normalizeContent(pendingUser.content);
+    const snapshotContent = normalizeContent(snapshotUsers[0]?.content);
+    if (!pendingContent || !snapshotContent || pendingContent !== snapshotContent) return null;
+    return pending;
+}
+
+function dropMatchedPendingBootstrapTurn(
+    state: ClientConversationState,
+    turn: ClientTurnState | null,
+    snapshotTurn: CanonicalTurnState,
+): void {
+    if (!turn) return;
+    const pending = findPendingBootstrapTurnForTranscript(state, snapshotTurn);
+    if (!pending || pending === turn) return;
+    if (turn.users.length === 0 && pending.users.length > 0) {
+        turn.users = pending.users;
+    }
+    state.turns = state.turns.filter((entry) => entry !== pending);
+}
+
 // ─── applyLocalSubmit (§4.1 pending bootstrap) ────────────────────────────────
 
 /**
@@ -1312,6 +1344,14 @@ function mergeTranscriptTurn(
         if (crid) turn = findTurnByPendingClientRequestId(state, crid);
     }
 
+    // (2b) Completed direct-action / fast-turn bootstrap coalescence:
+    // if the transcript arrives without echoed clientRequestId and there is
+    // exactly one unresolved local bootstrap turn with the same single user
+    // content, reuse it instead of projecting both turns.
+    if (!turn) {
+        turn = findPendingBootstrapTurnForTranscript(state, snapshotTurn);
+    }
+
     // (3) Create a fresh transcript-origin turn.
     if (!turn) {
         const lifecycle = statusToLifecycle(snapshotTurn.status);
@@ -1332,6 +1372,7 @@ function mergeTranscriptTurn(
         }
         if (snapshotTurn.createdAt) writeField(turn, 'createdAt', snapshotTurn.createdAt, 'transcript');
     }
+    dropMatchedPendingBootstrapTurn(state, turn, snapshotTurn);
     if (snapshotTurn.queueSeq) writeField(turn, 'queueSeq', snapshotTurn.queueSeq, 'transcript');
     if (snapshotTurn.startedByMessageId) writeField(turn, 'startedByMessageId', snapshotTurn.startedByMessageId, 'transcript');
 
@@ -1378,13 +1419,17 @@ function mergeTranscriptUser(
         const starterMessageId = (turn.startedByMessageId ?? '').trim();
         const snapshotMessageId = (snapshotUser.messageId ?? '').trim();
         const snapshotContent = normalizeContent(snapshotUser.content);
-        if (starterMessageId && snapshotMessageId && starterMessageId === snapshotMessageId && snapshotContent) {
+        if (snapshotContent) {
             const candidates = turn.users.filter((user) =>
                 (user.messageId ?? '').trim() === ''
                 && (user.clientRequestId ?? '').trim() !== ''
                 && normalizeContent(user.content) === snapshotContent
             );
-            if (candidates.length === 1) {
+            if (candidates.length === 1 && (
+                !starterMessageId
+                || !snapshotMessageId
+                || starterMessageId === snapshotMessageId
+            )) {
                 matched = candidates[0];
             }
         }

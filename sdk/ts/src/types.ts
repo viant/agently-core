@@ -496,6 +496,7 @@ export interface QueryOutput {
     conversationId: string;
     content: string;
     model?: string;
+    turnId?: string;
     messageId?: string;
     elicitation?: JSONObject;
     plan?: JSONObject;

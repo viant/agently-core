@@ -8,6 +8,8 @@ type Spec struct {
 	Title        string       `json:"title,omitempty" yaml:"title,omitempty"`
 	Description  string       `json:"description,omitempty" yaml:"description,omitempty"`
 	WindowKey    string       `json:"windowKey" yaml:"windowKey"`
+	Presentation string       `json:"presentation,omitempty" yaml:"presentation,omitempty"`
+	Region       string       `json:"region,omitempty" yaml:"region,omitempty"`
 	Parameters   []Parameter  `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 	Capabilities Capabilities `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 }

@@ -634,4 +634,86 @@ describe('ConversationStreamTracker', () => {
             content: 'newer',
         });
     });
+
+    it('prefers a standalone assistant message row over a later lifecycle row for the same turn', () => {
+        const row = latestEffectiveLiveAssistantRow(
+            null,
+            [
+                {
+                    id: 'assistant-final',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:02Z',
+                    content: 'Your order summary is now open for ad order 2656980.',
+                    interim: 0,
+                    _bubbleSource: 'message_add',
+                    executionGroups: [],
+                },
+                {
+                    id: 'turn:turn-1',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:03Z',
+                    content: '',
+                    interim: 1,
+                    executionGroups: [
+                        { pageId: 'turn:turn-1:lifecycle', turnId: 'turn-1', status: 'running' } as any,
+                    ],
+                },
+            ],
+            'conv-1',
+            'turn-1',
+        );
+
+        expect(row).toMatchObject({
+            id: 'assistant-final',
+            content: 'Your order summary is now open for ad order 2656980.',
+        });
+    });
+
+    it('prefers a standalone assistant message row over a tracker-backed lifecycle row for the same turn', () => {
+        const tracker = new ConversationStreamTracker();
+        tracker.applyEvent({
+            type: 'model_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            messageId: 'msg-tracker',
+            assistantMessageId: 'msg-tracker',
+            patch: { status: 'thinking' },
+        } as SSEEvent);
+
+        const row = latestEffectiveLiveAssistantRow(
+            tracker.canonicalState,
+            [
+                {
+                    id: 'turn:turn-1',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:03Z',
+                    content: '',
+                    interim: 1,
+                    executionGroups: [
+                        { pageId: 'turn:turn-1:lifecycle', turnId: 'turn-1', status: 'running' } as any,
+                    ],
+                },
+                {
+                    id: 'assistant-final',
+                    role: 'assistant',
+                    turnId: 'turn-1',
+                    createdAt: '2026-01-01T00:00:02Z',
+                    content: 'Your order summary is now open for ad order 2656980.',
+                    interim: 0,
+                    _bubbleSource: 'message_add',
+                    executionGroups: [],
+                },
+            ],
+            'conv-1',
+            'turn-1',
+        );
+
+        expect(row).toMatchObject({
+            id: 'assistant-final',
+            content: 'Your order summary is now open for ad order 2656980.',
+        });
+    });
 });

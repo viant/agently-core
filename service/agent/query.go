@@ -112,7 +112,8 @@ type QueryOutput struct {
 	Plan           *execution.Plan                      `json:"plan,omitempty"`        // current execution plan (optional)
 	Usage          *usage.Aggregator                    `json:"usage,omitempty"`
 	Model          string                               `json:"model,omitempty"`
-	MessageID      string                               `json:"messageId,omitempty"`
+	TurnID         string                               `json:"turnId,omitempty"`    // canonical turn identity for this query
+	MessageID      string                               `json:"messageId,omitempty"` // legacy alias for turn identity; kept for compatibility
 	Warnings       []string                             `json:"warnings,omitempty"`
 	Projection     *runtimeprojection.ContextProjection `json:"projection,omitempty"`
 

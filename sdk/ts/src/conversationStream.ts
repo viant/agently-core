@@ -90,6 +90,7 @@ export interface LiveAssistantTransientOverlay {
     turnId?: string;
     role?: string;
     _type?: string;
+    _bubbleSource?: string;
     createdAt?: string;
     updatedAt?: string;
     sequence?: number | null;
@@ -97,6 +98,9 @@ export interface LiveAssistantTransientOverlay {
     iteration?: number | null;
     messageId?: string;
     assistantMessageId?: string;
+    content?: string;
+    narration?: string;
+    interim?: number | null;
     executionGroups?: LiveExecutionGroup[];
     isStreaming?: boolean;
     _streamContent?: string;
@@ -116,6 +120,33 @@ function selectExplicitLiveAssistantRowsForTurn(
             && String(row?.role || '').trim().toLowerCase() === 'assistant'
         ))
         .sort(compareTemporalEntries);
+}
+
+function explicitAssistantRowPriority(row: Partial<CanonicalLiveAssistantRow & LiveAssistantTransientOverlay> = {}): number {
+    const content = String(row?.content || row?._streamContent || '').trim();
+    const narration = String(row?.narration || '').trim();
+    const hasRenderableContent = content !== '' || narration !== '';
+    const executionGroupCount = Array.isArray(row?.executionGroups) ? row.executionGroups.length : 0;
+    const bubbleSource = String(row?._bubbleSource || '').trim().toLowerCase();
+    const interim = Number(row?.interim ?? 1);
+    if (bubbleSource === 'message_add' && hasRenderableContent) return 4;
+    if (executionGroupCount === 0 && hasRenderableContent && interim === 0) return 3;
+    if (executionGroupCount === 0 && hasRenderableContent) return 2;
+    if (hasRenderableContent) return 1;
+    return 0;
+}
+
+function latestPreferredExplicitLiveAssistantRow(
+    liveRows: LiveAssistantTransientOverlay[] = [],
+    turnId = '',
+): LiveAssistantTransientOverlay | null {
+    const rows = selectExplicitLiveAssistantRowsForTurn(liveRows, turnId);
+    if (rows.length === 0) return null;
+    return [...rows].sort((left, right) => {
+        const priorityDelta = explicitAssistantRowPriority(left) - explicitAssistantRowPriority(right);
+        if (priorityDelta !== 0) return priorityDelta;
+        return compareTemporalEntries(left, right);
+    }).at(-1) || null;
 }
 
 function cloneExecutionGroups(groupsById: LiveExecutionGroupsById = {}): LiveExecutionGroupsById {
@@ -698,6 +729,17 @@ export function latestEffectiveLiveAssistantRow(
         conversationId,
         targetTurnId,
     );
+    const preferredExplicit = latestPreferredExplicitLiveAssistantRow(liveRows, targetTurnId);
+    if (trackerBacked && preferredExplicit) {
+        if (explicitAssistantRowPriority(preferredExplicit) > explicitAssistantRowPriority(trackerBacked)) {
+            return {
+                ...trackerBacked,
+                ...preferredExplicit,
+                executionGroups: trackerBacked.executionGroups || preferredExplicit.executionGroups || [],
+            } as CanonicalLiveAssistantRow;
+        }
+        return trackerBacked;
+    }
     if (trackerBacked) return trackerBacked;
-    return selectExplicitLiveAssistantRowsForTurn(liveRows, targetTurnId).at(-1) || null;
+    return preferredExplicit;
 }
