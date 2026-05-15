@@ -173,6 +173,95 @@ describe('chatStore/reducer — applyLocalSubmit', () => {
         expect(state.turns[0].users[0].renderKey).toBe(originalUserKey);
         expect(state.turns[0].users[0].messageId).toBe('msg_bootstrap');
     });
+
+    it('completed transcript coalesces a single pending bootstrap turn even without echoed ids', () => {
+        const state = applyLocalSubmit(fresh(), submit({
+            clientRequestId: 'crid_only',
+            content: 'show order 2656980',
+        }));
+        const originalTurnKey = state.turns[0].renderKey;
+        const originalUserKey = state.turns[0].users[0].renderKey;
+
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_completed_bootstrap',
+                status: 'completed',
+                createdAt: '2025-01-01T00:00:03.000Z',
+                user: {
+                    messageId: 'msg_bootstrap',
+                    content: 'show order 2656980',
+                },
+                messages: [{
+                    messageId: 'msg_assistant',
+                    role: 'assistant',
+                    content: 'opened',
+                    status: 'intake.direct_action',
+                }],
+            }],
+        });
+
+        expect(state.turns).toHaveLength(1);
+        expect(state.turns[0].renderKey).toBe(originalTurnKey);
+        expect(state.turns[0].turnId).toBe('tn_completed_bootstrap');
+        expect(state.turns[0].lifecycle).toBe('completed');
+        expect(state.turns[0].users).toHaveLength(1);
+        expect(state.turns[0].users[0].renderKey).toBe(originalUserKey);
+        expect(state.turns[0].users[0].messageId).toBe('msg_bootstrap');
+        expect(state.turns[0].messages).toHaveLength(1);
+    });
+
+    it('completed transcript drops a matching pending bootstrap turn when a real turn already exists', () => {
+        const state = applyLocalSubmit(fresh(), submit({
+            clientRequestId: 'crid_only',
+            content: 'show order 2656980',
+        }));
+
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_completed_bootstrap',
+                status: 'completed',
+                createdAt: '2025-01-01T00:00:03.000Z',
+                user: {
+                    messageId: 'msg_bootstrap',
+                    content: 'show order 2656980',
+                },
+                messages: [{
+                    messageId: 'msg_assistant',
+                    role: 'assistant',
+                    content: 'opened',
+                    status: 'intake.direct_action',
+                }],
+            }],
+        });
+
+        // Apply the same transcript again to simulate the real runtime path
+        // where an SSE-created real turn may already exist before the latest
+        // completed transcript snapshot is forwarded into the canonical store.
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_completed_bootstrap',
+                status: 'completed',
+                createdAt: '2025-01-01T00:00:03.000Z',
+                user: {
+                    messageId: 'msg_bootstrap',
+                    content: 'show order 2656980',
+                },
+                messages: [{
+                    messageId: 'msg_assistant',
+                    role: 'assistant',
+                    content: 'opened',
+                    status: 'intake.direct_action',
+                }],
+            }],
+        });
+
+        expect(state.turns).toHaveLength(1);
+        expect(state.turns[0].users).toHaveLength(1);
+        expect(state.turns[0].turnId).toBe('tn_completed_bootstrap');
+    });
 });
 
 // ─── applyEvent — turn_started and lifecycle ──────────────────────────────────

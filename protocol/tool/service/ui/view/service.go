@@ -25,6 +25,8 @@ type ListItem struct {
 	Title        string                 `json:"title,omitempty"`
 	Description  string                 `json:"description,omitempty"`
 	WindowKey    string                 `json:"windowKey,omitempty"`
+	Presentation string                 `json:"presentation,omitempty"`
+	Region       string                 `json:"region,omitempty"`
 	Parameters   []viewproto.Parameter  `json:"parameters,omitempty"`
 	Capabilities viewproto.Capabilities `json:"capabilities,omitempty"`
 }
@@ -197,6 +199,11 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
 			"parameters":  windowParameters,
+			"options": map[string]interface{}{
+				"conversationId": conversationID,
+				"presentation":   strings.TrimSpace(item.Presentation),
+				"region":         strings.TrimSpace(item.Region),
+			},
 		},
 		TimeoutMs: timeout,
 	})
@@ -234,6 +241,8 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			Title:        strings.TrimSpace(spec.Title),
 			Description:  strings.TrimSpace(spec.Description),
 			WindowKey:    strings.TrimSpace(spec.WindowKey),
+			Presentation: strings.TrimSpace(spec.Presentation),
+			Region:       strings.TrimSpace(spec.Region),
 			Parameters:   append([]viewproto.Parameter(nil), spec.Parameters...),
 			Capabilities: spec.Capabilities,
 		})

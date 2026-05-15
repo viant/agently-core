@@ -24,12 +24,14 @@ type ConversationMetadata struct {
 }
 
 type WorkspaceWindowMetadata struct {
-	WindowID    string                 `json:"windowId,omitempty"`
-	WindowKey   string                 `json:"windowKey,omitempty"`
-	WindowTitle string                 `json:"windowTitle,omitempty"`
-	ParentKey   string                 `json:"parentKey,omitempty"`
-	InTab       bool                   `json:"inTab,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	WindowID     string                 `json:"windowId,omitempty"`
+	WindowKey    string                 `json:"windowKey,omitempty"`
+	WindowTitle  string                 `json:"windowTitle,omitempty"`
+	Presentation string                 `json:"presentation,omitempty"`
+	Region       string                 `json:"region,omitempty"`
+	ParentKey    string                 `json:"parentKey,omitempty"`
+	InTab        bool                   `json:"inTab,omitempty"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty"`
 }
 
 func (m *ConversationMetadata) UnmarshalJSON(data []byte) error {

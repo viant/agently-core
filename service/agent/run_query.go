@@ -257,7 +257,7 @@ func (s *Service) publishAssistantMessageWithStatus(ctx context.Context, input *
 	if s := strings.TrimSpace(status); s != "" {
 		msg.SetStatus(s)
 	}
-	return s.conversation.PatchMessage(ctx, msg)
+	return s.conversation.PatchMessage(runtimerequestctx.WithMessageAddEvent(ctx), msg)
 }
 
 func (s *Service) publishPresetAssistantMessage(ctx context.Context, input *QueryInput, text, kind string) error {
@@ -305,6 +305,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return fmt.Errorf("invalid input: agent is required")
 	}
 	output.ConversationID = input.ConversationID
+	output.TurnID = input.MessageID
 
 	// Workspace-intake preset short-circuit ("ONE LLM call for capability
 	// turns"). When the classifier produced action=answer or action=clarify,
@@ -313,6 +314,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// runs. Total intake-side LLM calls for the turn: exactly 1 (the
 	// classifier's).
 	if presetText, presetKind := presetAssistantFromContext(input.Context); presetText != "" {
+		output.TurnID = input.MessageID
 		output.MessageID = input.MessageID
 		output.Content = presetText
 		logx.Infof("conversation",
@@ -331,6 +333,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if queued, err := s.tryQueueTurn(ctx, input); err != nil {
 		return err
 	} else if queued {
+		output.TurnID = input.MessageID
 		output.MessageID = input.MessageID
 		output.Content = ""
 		return nil
@@ -514,6 +517,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if pErr := s.maybeRunPlannerPass(ctx, input); pErr != nil {
 		var handled *plannerHandledError
 		if errors.As(pErr, &handled) {
+			output.TurnID = input.MessageID
 			output.MessageID = input.MessageID
 			output.Content = handled.content
 			turnStatus = "succeeded"

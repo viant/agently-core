@@ -122,6 +122,7 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 		return true, persistErr
 	}
 	text := strings.TrimSpace(action.AssistantText)
+	output.TurnID = input.MessageID
 	output.MessageID = input.MessageID
 	output.Content = text
 	if err := s.publishAssistantMessageWithStatus(ctx, input, text, "intake.direct_action"); err != nil {
@@ -135,14 +136,14 @@ func (s *Service) persistDirectActionWorkspaceState(ctx context.Context, input *
 	if s == nil || s.conversation == nil || input == nil {
 		return nil
 	}
-	if strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName))) != "ui/view/open" {
+	if strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName))) != strings.ToLower(strings.TrimSpace(mcpname.Canonical("ui/view/open"))) {
 		return nil
 	}
 	windowKey := strings.TrimSpace(stringValue(args["id"]))
 	if windowKey == "" {
 		return nil
 	}
-	parameters, _ := args["parameters"].(map[string]interface{})
+	parameters := normalizeInterfaceMap(args["parameters"])
 	if len(parameters) == 0 {
 		return nil
 	}
@@ -165,17 +166,20 @@ func (s *Service) persistDirectActionWorkspaceState(ctx context.Context, input *
 		_ = json.Unmarshal([]byte(*conv.Metadata), &meta)
 	}
 	meta.Workspace = &WorkspaceWindowMetadata{
-		WindowID:    strings.TrimSpace(stringValue(resultMap["windowId"])),
-		WindowKey:   firstNonEmpty(strings.TrimSpace(stringValue(resultMap["windowKey"])), windowKey),
-		WindowTitle: firstNonEmpty(strings.TrimSpace(stringValue(resultMap["windowTitle"])), "Order Summary"),
-		ParentKey:   "chat/new",
-		InTab:       true,
-		Parameters:  parameters,
+		WindowID:     strings.TrimSpace(stringValue(resultMap["windowId"])),
+		WindowKey:    firstNonEmpty(strings.TrimSpace(stringValue(resultMap["windowKey"])), windowKey),
+		WindowTitle:  firstNonEmpty(strings.TrimSpace(stringValue(resultMap["windowTitle"])), "Order Summary"),
+		Presentation: firstNonEmpty(strings.TrimSpace(stringValue(resultMap["presentation"])), "hosted"),
+		Region:       firstNonEmpty(strings.TrimSpace(stringValue(resultMap["region"])), "chat.top"),
+		ParentKey:    "chat/new",
+		InTab:        true,
+		Parameters:   parameters,
 	}
 	b, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("failed to marshal workspace metadata: %w", err)
 	}
+	logx.Infof("conversation", "agent.directAction workspace persist convo=%q tool=%q window_key=%q metadata=%s", convID, toolName, meta.Workspace.WindowKey, string(b))
 	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
 	patch.SetId(convID)
 	patch.SetMetadata(string(b))
@@ -205,4 +209,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeInterfaceMap(value interface{}) map[string]interface{} {
+	if value == nil {
+		return nil
+	}
+	if mapped, ok := value.(map[string]interface{}); ok {
+		return mapped
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	result := map[string]interface{}{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil
+	}
+	return result
 }

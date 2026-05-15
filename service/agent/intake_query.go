@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -33,6 +34,10 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		return
 	}
 	cfg := &input.Agent.Intake
+
+	if s.maybeInjectWorkspaceFollowUpDirectAction(ctx, input) {
+		return
+	}
 
 	// Skip rule §2.c — caller-provided override.
 	// run_support.go places RunInput.WorkspaceIntake under intakesvc.ContextKey
@@ -98,6 +103,118 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	applyTurnContext(input, tc, cfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
+}
+
+func (s *Service) maybeInjectWorkspaceFollowUpDirectAction(ctx context.Context, input *QueryInput) bool {
+	if s == nil || input == nil || s.conversation == nil {
+		return false
+	}
+	toolName, actionInput, assistantText, ok := s.resolveWorkspaceFollowUpDirectAction(ctx, input.ConversationID, input.Query)
+	if !ok {
+		return false
+	}
+	override := &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      strings.TrimSpace(input.Query),
+			Intent:     "summary",
+			Confidence: 1,
+		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName:      toolName,
+			Input:         actionInput,
+			AssistantText: assistantText,
+		},
+	}
+	input.Context, _ = intakesvc.StoreCallerProvided(input.Context, override)
+	logx.Infof("conversation", "intake.workspace_followup_direct_action convo=%q tool=%q query=%q", strings.TrimSpace(input.ConversationID), toolName, strings.TrimSpace(input.Query))
+	return true
+}
+
+func (s *Service) resolveWorkspaceFollowUpDirectAction(ctx context.Context, conversationID, query string) (string, map[string]interface{}, string, bool) {
+	conversationID = strings.TrimSpace(conversationID)
+	query = strings.TrimSpace(query)
+	if conversationID == "" || query == "" {
+		return "", nil, "", false
+	}
+	conversation, err := s.conversation.GetConversation(ctx, conversationID)
+	if err != nil || conversation == nil || conversation.Metadata == nil || strings.TrimSpace(*conversation.Metadata) == "" {
+		return "", nil, "", false
+	}
+	var meta ConversationMetadata
+	if err := json.Unmarshal([]byte(strings.TrimSpace(*conversation.Metadata)), &meta); err != nil || meta.Workspace == nil {
+		return "", nil, "", false
+	}
+	if strings.TrimSpace(meta.Workspace.WindowKey) != "order" || strings.TrimSpace(meta.Workspace.WindowID) == "" {
+		return "", nil, "", false
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(query), " "))
+	tabID := ""
+	assistantText := ""
+	switch normalized {
+	case "show kpi", "show kpis":
+		tabID = "kpiTab"
+		assistantText = "Switched the open order summary to the KPIs tab."
+	case "show delivery":
+		tabID = "deliveryTab"
+		assistantText = "Switched the open order summary to the Delivery tab."
+	case "show hh metrics", "show household metrics":
+		tabID = "hhMetricsTab"
+		assistantText = "Switched the open order summary to the HH Metrics tab."
+	case "show pacing":
+		tabID = "pacingTab"
+		assistantText = "Switched the open order summary to the Pacing tab."
+	}
+	if tabID != "" {
+		input := map[string]interface{}{
+			"windowId": strings.TrimSpace(meta.Workspace.WindowID),
+			"tabId":    tabID,
+		}
+		if clientID, ok := meta.Context["uiClientId"].(string); ok && strings.TrimSpace(clientID) != "" {
+			input["clientId"] = strings.TrimSpace(clientID)
+		}
+		return "ui/window/selectTab", input, assistantText, true
+	}
+
+	controlID := ""
+	controlValue := ""
+	switch normalized {
+	case "show today":
+		controlID = "periodView"
+		controlValue = "today"
+		assistantText = "Switched the open order summary period to Today."
+	case "show yesterday":
+		controlID = "periodView"
+		controlValue = "yesterday"
+		assistantText = "Switched the open order summary period to Yesterday."
+	case "show 7d":
+		controlID = "periodView"
+		controlValue = "7d"
+		assistantText = "Switched the open order summary period to 7D."
+	case "show 30d":
+		controlID = "periodView"
+		controlValue = "30d"
+		assistantText = "Switched the open order summary period to 30D."
+	case "switch to hour", "show hour":
+		controlID = "granularity"
+		controlValue = "hour"
+		assistantText = "Switched the open order summary granularity to Hour."
+	case "switch to day", "show day":
+		controlID = "granularity"
+		controlValue = "day"
+		assistantText = "Switched the open order summary granularity to Day."
+	default:
+		return "", nil, "", false
+	}
+	input := map[string]interface{}{
+		"windowId":  strings.TrimSpace(meta.Workspace.WindowID),
+		"controlId": controlID,
+		"scope":     "windowForm",
+		"value":     controlValue,
+	}
+	if clientID, ok := meta.Context["uiClientId"].(string); ok && strings.TrimSpace(clientID) != "" {
+		input["clientId"] = strings.TrimSpace(clientID)
+	}
+	return "ui/control:setValue", input, assistantText, true
 }
 
 func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) {
@@ -190,6 +307,9 @@ func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *a
 	if current == "" {
 		return true
 	}
+	if isConcreteOrderOpenAsk(current) {
+		return true
+	}
 	previous := s.previousUserMessage(ctx, input.ConversationID)
 	if previous == "" {
 		// First turn — no prior user message to compare against; run so the
@@ -206,6 +326,12 @@ func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *a
 		return true
 	}
 	return divergence >= threshold
+}
+
+var concreteOrderOpenAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+(my\s+|ad\s+)?order\s+\d+\s*$`)
+
+func isConcreteOrderOpenAsk(query string) bool {
+	return concreteOrderOpenAskPattern.MatchString(strings.TrimSpace(query))
 }
 
 // previousUserMessage returns the trimmed content of the most recent user

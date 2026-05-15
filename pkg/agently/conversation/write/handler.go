@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/handler/response"
@@ -47,15 +48,40 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, output *Output
 	conversations := input.Conversations
 
 	for _, recConversation := range conversations {
-		if _, ok := input.CurConversationById[recConversation.Id]; !ok {
+		current, ok := input.CurConversationById[recConversation.Id]
+		if !ok {
 			if err = sql.Insert("conversation", recConversation); err != nil {
 				return err
 			}
 		} else {
-			if err = sql.Update("conversation", recConversation); err != nil {
+			if err = sql.Update("conversation", mergeConversationPatch(current, recConversation)); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func mergeConversationPatch(current, patch *Conversation) *Conversation {
+	if patch == nil || patch.Has == nil || current == nil {
+		return patch
+	}
+	merged := *patch
+	currentValue := reflect.ValueOf(current).Elem()
+	mergedValue := reflect.ValueOf(&merged).Elem()
+	hasValue := reflect.ValueOf(merged.Has).Elem()
+	hasType := hasValue.Type()
+	for i := 0; i < hasValue.NumField(); i++ {
+		if hasValue.Field(i).Bool() {
+			continue
+		}
+		fieldName := hasType.Field(i).Name
+		mergedField := mergedValue.FieldByName(fieldName)
+		currentField := currentValue.FieldByName(fieldName)
+		if !mergedField.IsValid() || !currentField.IsValid() || !mergedField.CanSet() {
+			continue
+		}
+		mergedField.Set(currentField)
+	}
+	return &merged
 }

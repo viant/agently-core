@@ -231,6 +231,7 @@ describe('Query', () => {
         const f = mockFetch(200, {
             conversationId: 'conv_1',
             content: 'Hello',
+            turnId: 'turn_1',
             messageId: 'msg_1',
             projection: {
                 scope: 'conversation',
@@ -250,6 +251,7 @@ describe('Query', () => {
         });
 
         expect(res.content).toBe('Hello');
+        expect(res.turnId).toBe('turn_1');
         expect(res.projection?.scope).toBe('conversation');
         expect(res.projection?.hiddenTurnIds).toEqual(['turn_1']);
         const call = lastCall(f);
