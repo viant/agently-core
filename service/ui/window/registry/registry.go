@@ -34,17 +34,21 @@ type SnapshotSelected struct {
 }
 
 type WindowSnapshot struct {
-	WindowID    string                        `json:"windowId,omitempty"`
-	WindowKey   string                        `json:"windowKey,omitempty"`
-	WindowTitle string                        `json:"windowTitle,omitempty"`
-	Parameters  map[string]interface{}        `json:"parameters,omitempty"`
-	WindowForm  map[string]interface{}        `json:"windowForm,omitempty"`
-	ViewState   map[string]interface{}        `json:"viewState,omitempty"`
-	Metadata    map[string]interface{}        `json:"metadata,omitempty"`
-	InTab       bool                          `json:"inTab,omitempty"`
-	IsModal     bool                          `json:"isModal,omitempty"`
-	IsMinimized bool                          `json:"isMinimized,omitempty"`
-	DataSources map[string]DataSourceSnapshot `json:"dataSources,omitempty"`
+	WindowID       string                        `json:"windowId,omitempty"`
+	WindowKey      string                        `json:"windowKey,omitempty"`
+	WindowTitle    string                        `json:"windowTitle,omitempty"`
+	ConversationID string                        `json:"conversationId,omitempty"`
+	Presentation   string                        `json:"presentation,omitempty"`
+	Region         string                        `json:"region,omitempty"`
+	ParentKey      string                        `json:"parentKey,omitempty"`
+	Parameters     map[string]interface{}        `json:"parameters,omitempty"`
+	WindowForm     map[string]interface{}        `json:"windowForm,omitempty"`
+	ViewState      map[string]interface{}        `json:"viewState,omitempty"`
+	Metadata       map[string]interface{}        `json:"metadata,omitempty"`
+	InTab          bool                          `json:"inTab,omitempty"`
+	IsModal        bool                          `json:"isModal,omitempty"`
+	IsMinimized    bool                          `json:"isMinimized,omitempty"`
+	DataSources    map[string]DataSourceSnapshot `json:"dataSources,omitempty"`
 }
 
 type DataSourceSnapshot struct {
@@ -105,6 +109,62 @@ func isFreshSnapshot(item ClientSnapshot, now time.Time) bool {
 	return now.Sub(item.UpdatedAt) <= defaultSnapshotFreshness
 }
 
+func isMainChatWindow(win WindowSnapshot) bool {
+	return strings.TrimSpace(win.WindowID) == "chat/new" || strings.TrimSpace(win.WindowKey) == "chat/new"
+}
+
+func windowVisibleToConversation(win WindowSnapshot, conversationID string) bool {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return true
+	}
+	if isMainChatWindow(win) {
+		return true
+	}
+	if strings.TrimSpace(win.ConversationID) == conversationID {
+		return true
+	}
+	if strings.TrimSpace(win.Presentation) != "hosted" {
+		return true
+	}
+	return false
+}
+
+func filterSnapshotForConversation(snapshot *Snapshot, conversationID string) *Snapshot {
+	if snapshot == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return snapshot
+	}
+	filtered := make([]WindowSnapshot, 0, len(snapshot.Windows))
+	for _, win := range snapshot.Windows {
+		if windowVisibleToConversation(win, conversationID) {
+			filtered = append(filtered, win)
+		}
+	}
+	selected := snapshot.Selected
+	if strings.TrimSpace(selected.WindowID) != "" {
+		matched := false
+		for _, win := range filtered {
+			if strings.TrimSpace(win.WindowID) == strings.TrimSpace(selected.WindowID) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			selected.WindowID = ""
+		}
+	}
+	return &Snapshot{
+		ConversationID: snapshot.ConversationID,
+		ClientID:       snapshot.ClientID,
+		Selected:       selected,
+		Windows:        filtered,
+	}
+}
+
 func (r *Registry) ListByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
 	_ = ctx
 	conversationID = strings.TrimSpace(conversationID)
@@ -128,6 +188,11 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 			continue
 		}
 		if strings.TrimSpace(item.Snapshot.ConversationID) == conversationID {
+			filteredSnapshot := filterSnapshotForConversation(item.Snapshot, conversationID)
+			if filteredSnapshot == nil {
+				continue
+			}
+			item.Snapshot = filteredSnapshot
 			result = append(result, item)
 		}
 	}
@@ -181,13 +246,17 @@ func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, win
 		if item.Snapshot == nil {
 			continue
 		}
-		for i := range item.Snapshot.Windows {
-			win := &item.Snapshot.Windows[i]
+		filteredSnapshot := filterSnapshotForConversation(item.Snapshot, conversationID)
+		if filteredSnapshot == nil {
+			continue
+		}
+		for i := range filteredSnapshot.Windows {
+			win := &filteredSnapshot.Windows[i]
 			if windowID != "" && strings.TrimSpace(win.WindowID) == windowID {
-				return item.ClientID, item.Namespace, item.Snapshot, win, nil
+				return item.ClientID, item.Namespace, filteredSnapshot, win, nil
 			}
 			if windowID == "" && windowKey != "" && strings.TrimSpace(win.WindowKey) == windowKey {
-				return item.ClientID, item.Namespace, item.Snapshot, win, nil
+				return item.ClientID, item.Namespace, filteredSnapshot, win, nil
 			}
 		}
 	}

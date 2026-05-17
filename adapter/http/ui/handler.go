@@ -56,7 +56,7 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 		target := targetContextFromRequest(r)
 		aWindow, err := forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
 		if err != nil {
-			workspaceWindow, workspaceErr := loadWorkspaceWindowFallback(r.Context(), windowKey)
+			workspaceWindow, workspaceErr := loadWorkspaceWindowFallback(r.Context(), windowKey, target)
 			if workspaceErr != nil || workspaceWindow == nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -77,10 +77,15 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 	return mux
 }
 
-func loadWorkspaceWindowFallback(ctx context.Context, windowKey string) (*forgeTypes.Window, error) {
+func loadWorkspaceWindowFallback(ctx context.Context, windowKey string, target *metaSvc.TargetContext) (*forgeTypes.Window, error) {
 	windowKey = strings.TrimSpace(windowKey)
 	if windowKey == "" {
 		return nil, nil
+	}
+	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspace.Root(), workspace.KindForgeWindow))
+	workspaceLoader := metaSvc.New(afs.New(), workspaceWindowRoot)
+	if result, err := forgeHandlers.LoadWindow(ctx, workspaceLoader, workspaceWindowRoot, windowKey, "", target); err == nil && result != nil && result.View.Content != nil {
+		return result, nil
 	}
 	svc := wsmeta.New(afs.New(), workspace.Root())
 	windowPath := filepath.Join(workspace.KindForgeWindow, windowKey+".yaml")
@@ -91,6 +96,14 @@ func loadWorkspaceWindowFallback(ctx context.Context, windowKey string) (*forgeT
 	result := &forgeTypes.Window{}
 	if err := svc.Load(ctx, windowPath, result); err != nil {
 		return nil, err
+	}
+	jsPath := filepath.Join(workspace.KindForgeWindow, windowKey+".js")
+	if ok, _ := svc.Exists(ctx, jsPath); ok {
+		code, err := svc.Download(ctx, jsPath)
+		if err != nil {
+			return nil, err
+		}
+		result.SetCode(code)
 	}
 	if result.View.Content == nil {
 		return nil, nil

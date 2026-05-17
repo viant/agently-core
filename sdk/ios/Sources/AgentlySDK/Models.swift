@@ -248,6 +248,8 @@ public struct WorkspaceModelInfo: Codable, Sendable, Identifiable {
 
 public struct WorkspaceMetadata: Codable, Sendable {
     public let workspaceRoot: String?
+    public let workspaceVersion: String?
+    public let metadataVersion: String?
     public let defaultAgent: String?
     public let defaultModel: String?
     public let defaultEmbedder: String?
@@ -261,6 +263,8 @@ public struct WorkspaceMetadata: Codable, Sendable {
 
     public init(
         workspaceRoot: String? = nil,
+        workspaceVersion: String? = nil,
+        metadataVersion: String? = nil,
         defaultAgent: String? = nil,
         defaultModel: String? = nil,
         defaultEmbedder: String? = nil,
@@ -273,6 +277,8 @@ public struct WorkspaceMetadata: Codable, Sendable {
         version: String? = nil
     ) {
         self.workspaceRoot = workspaceRoot
+        self.workspaceVersion = workspaceVersion
+        self.metadataVersion = metadataVersion
         self.defaultAgent = defaultAgent
         self.defaultModel = defaultModel
         self.defaultEmbedder = defaultEmbedder
@@ -283,6 +289,50 @@ public struct WorkspaceMetadata: Codable, Sendable {
         self.defaults = defaults
         self.capabilities = capabilities
         self.version = version
+    }
+}
+
+public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
+    public let windowId: String
+    public let conversationId: String?
+    public let windowKey: String
+    public let windowTitle: String?
+    public let presentation: String?
+    public let region: String?
+    public let parentKey: String?
+    public let inTab: Bool?
+    public let parameters: [String: JSONValue]?
+
+    public init(
+        windowId: String,
+        conversationId: String? = nil,
+        windowKey: String,
+        windowTitle: String? = nil,
+        presentation: String? = nil,
+        region: String? = nil,
+        parentKey: String? = nil,
+        inTab: Bool? = nil,
+        parameters: [String: JSONValue]? = nil
+    ) {
+        self.windowId = windowId
+        self.conversationId = conversationId
+        self.windowKey = windowKey
+        self.windowTitle = windowTitle
+        self.presentation = presentation
+        self.region = region
+        self.parentKey = parentKey
+        self.inTab = inTab
+        self.parameters = parameters
+    }
+}
+
+public struct HostedWorkspaceRestoreState: Codable, Sendable, Equatable {
+    public let windows: [WorkspaceWindowSnapshot]
+    public let selectedWindowId: String?
+
+    public init(windows: [WorkspaceWindowSnapshot] = [], selectedWindowId: String? = nil) {
+        self.windows = windows
+        self.selectedWindowId = selectedWindowId
     }
 }
 

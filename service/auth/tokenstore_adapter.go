@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"time"
 
 	token "github.com/viant/agently-core/internal/auth/token"
@@ -10,18 +12,38 @@ import (
 type canonicalTokenStore struct {
 	inner TokenStore
 	users UserService
+	mu    sync.RWMutex
+	ids   map[string]string
 }
 
 func (s *canonicalTokenStore) resolveOwner(ctx context.Context, username, provider string) string {
 	if s == nil || s.inner == nil {
 		return ""
 	}
+	cacheKey := strings.TrimSpace(provider) + "|" + strings.TrimSpace(username)
+	if cacheKey != "|" {
+		s.mu.RLock()
+		if resolved, ok := s.ids[cacheKey]; ok && strings.TrimSpace(resolved) != "" {
+			s.mu.RUnlock()
+			return resolved
+		}
+		s.mu.RUnlock()
+	}
 	sess := &Session{
 		Username: username,
 		Subject:  username,
 		Provider: provider,
 	}
-	return resolveOAuthTokenOwnerID(ctx, s.users, provider, sess)
+	resolved := resolveOAuthTokenOwnerID(ctx, s.users, provider, sess)
+	if cacheKey != "|" && strings.TrimSpace(resolved) != "" {
+		s.mu.Lock()
+		if s.ids == nil {
+			s.ids = map[string]string{}
+		}
+		s.ids[cacheKey] = resolved
+		s.mu.Unlock()
+	}
+	return resolved
 }
 
 func (s *canonicalTokenStore) Get(ctx context.Context, username, provider string) (*OAuthToken, error) {
@@ -66,7 +88,7 @@ type tokenStoreAdapter struct {
 
 // NewTokenStoreAdapter wraps a service/auth.TokenStore to satisfy token.TokenStore.
 func NewTokenStoreAdapter(store TokenStore, users UserService) token.TokenStore {
-	return &tokenStoreAdapter{inner: &canonicalTokenStore{inner: store, users: users}}
+	return &tokenStoreAdapter{inner: &canonicalTokenStore{inner: store, users: users, ids: map[string]string{}}}
 }
 
 func (a *tokenStoreAdapter) Get(ctx context.Context, username, provider string) (*token.OAuthToken, error) {

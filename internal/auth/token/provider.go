@@ -76,6 +76,8 @@ type Manager struct {
 	mu                 sync.RWMutex
 	cache              map[Key]*entry
 	missCache          map[Key]time.Time
+	retryCache         map[Key]time.Time
+	loggedRetryCache   map[Key]time.Time
 	store              TokenStore // optional persistent backing
 	broker             Broker     // optional refresh/exchange (nil = cache-only)
 	minTTL             time.Duration
@@ -130,12 +132,14 @@ func WithLeaseTTL(d time.Duration) ManagerOption {
 // To explicitly disable distributed mode, use WithInstanceID("").
 func NewManager(opts ...ManagerOption) *Manager {
 	m := &Manager{
-		cache:     make(map[Key]*entry),
-		missCache: make(map[Key]time.Time),
-		sf:        make(map[Key]*refreshInFlight),
-		minTTL:    2 * time.Minute,
-		missTTL:   30 * time.Second,
-		leaseTTL:  30 * time.Second,
+		cache:            make(map[Key]*entry),
+		missCache:        make(map[Key]time.Time),
+		retryCache:       make(map[Key]time.Time),
+		loggedRetryCache: make(map[Key]time.Time),
+		sf:               make(map[Key]*refreshInFlight),
+		minTTL:           2 * time.Minute,
+		missTTL:          30 * time.Second,
+		leaseTTL:         30 * time.Second,
 	}
 	for _, o := range opts {
 		o(m)
@@ -170,6 +174,14 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 		logSchedulerEnsure(ctx, key, "oauth token cache hit expires_at=%q", e.expiresAt.UTC().Format(time.RFC3339))
 		return injectTokens(ctx, e.tok), nil
 	}
+	if ok && e != nil && e.tok != nil {
+		if retryUntil := m.loadRefreshRetryAt(key); !retryUntil.IsZero() && time.Now().Before(retryUntil) {
+			if m.shouldLogRefreshRetry(key, retryUntil) {
+				logSchedulerEnsure(ctx, key, "oauth token refresh cooldown active retry_at=%q", retryUntil.UTC().Format(time.RFC3339))
+			}
+			return injectTokens(ctx, e.tok), nil
+		}
+	}
 	if missed && time.Now().Before(missUntil) {
 		return ctx, nil
 	}
@@ -189,6 +201,12 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 			e = &entry{tok: tok, expiresAt: stored.ExpiresAt}
 			m.clearMissCache(key)
 			logSchedulerEnsure(ctx, key, "oauth token store hit stale expires_at=%q", stored.ExpiresAt.UTC().Format(time.RFC3339))
+			if retryUntil := m.loadRefreshRetryAt(key); !retryUntil.IsZero() && time.Now().Before(retryUntil) {
+				if m.shouldLogRefreshRetry(key, retryUntil) {
+					logSchedulerEnsure(ctx, key, "oauth token refresh cooldown active retry_at=%q", retryUntil.UTC().Format(time.RFC3339))
+				}
+				return injectTokens(ctx, tok), nil
+			}
 		} else if err != nil {
 			logSchedulerEnsure(ctx, key, "oauth token store error err=%v", err)
 		} else {
@@ -198,14 +216,18 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 
 	// 4. If near-expiry and Broker available, refresh (mutex-serialized per key).
 	if m.broker != nil && e != nil && e.tok != nil && e.tok.RefreshToken != "" {
-		logSchedulerEnsure(ctx, key, "oauth token refresh start")
 		refreshed, err := m.serializedRefresh(ctx, key, e.tok.RefreshToken)
 		if err != nil {
-			logSchedulerEnsure(ctx, key, "oauth token refresh failed err=%v", err)
-			return ctx, err
+			retryAt := time.Now().Add(30 * time.Second)
+			m.storeRefreshRetryAt(key, retryAt)
+			if m.shouldLogRefreshRetry(key, retryAt) {
+				logSchedulerEnsure(ctx, key, "oauth token refresh failed transiently retry_at=%q err=%v", retryAt.UTC().Format(time.RFC3339), err)
+			}
+			return injectTokens(ctx, e.tok), nil
 		}
 		if refreshed != nil {
 			m.clearMissCache(key)
+			m.clearRefreshRetryAt(key)
 			logSchedulerEnsure(ctx, key, "oauth token refresh ok")
 			return injectTokens(ctx, refreshed), nil
 		}
@@ -280,6 +302,54 @@ func (m *Manager) clearMissCache(key Key) {
 	m.mu.Unlock()
 }
 
+func (m *Manager) loadRefreshRetryAt(key Key) time.Time {
+	if m == nil {
+		return time.Time{}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if until, ok := m.retryCache[key]; ok {
+		if time.Now().Before(until) {
+			return until
+		}
+		delete(m.retryCache, key)
+		delete(m.loggedRetryCache, key)
+	}
+	return time.Time{}
+}
+
+func (m *Manager) storeRefreshRetryAt(key Key, until time.Time) {
+	if m == nil || until.IsZero() {
+		return
+	}
+	m.mu.Lock()
+	m.retryCache[key] = until
+	m.mu.Unlock()
+}
+
+func (m *Manager) clearRefreshRetryAt(key Key) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	delete(m.retryCache, key)
+	delete(m.loggedRetryCache, key)
+	m.mu.Unlock()
+}
+
+func (m *Manager) shouldLogRefreshRetry(key Key, until time.Time) bool {
+	if m == nil || until.IsZero() {
+		return true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if prev, ok := m.loggedRetryCache[key]; ok && prev.Equal(until) {
+		return false
+	}
+	m.loggedRetryCache[key] = until
+	return true
+}
+
 // serializedRefresh performs a broker refresh with per-key mutex serialization (L1 in-process lock).
 // When instanceID is set and a store is available, it delegates to distributedRefresh for cross-pod coordination.
 func (m *Manager) serializedRefresh(ctx context.Context, key Key, refreshToken string) (*scyauth.Token, error) {
@@ -307,6 +377,7 @@ func (m *Manager) serializedRefresh(ctx context.Context, key Key, refreshToken s
 		return m.distributedRefresh(ctx, key, refreshToken)
 	}
 
+	logSchedulerEnsure(ctx, key, "oauth token refresh start")
 	tok, err := m.broker.Refresh(ctx, key, refreshToken)
 	if err != nil {
 		return nil, err
@@ -352,6 +423,7 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 	}
 
 	// Lease acquired — perform the actual refresh.
+	logSchedulerEnsure(ctx, key, "oauth token refresh start")
 	tok, err := m.broker.Refresh(ctx, key, refreshToken)
 	if err != nil {
 		// Release the lease so another pod can try.

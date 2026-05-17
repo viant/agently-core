@@ -1,0 +1,6 @@
+origin: https://github.com/openai/skills
+path: skills/.curated/pdf/SKILL.md
+sha: fd5d56058f10202e4f50a30bc2906f39696024a1
+license: see openai/skills repo (typically permissive; verify before vendoring expansion)
+fetched: 2026-04
+purpose: portability fixture; agently-core's parser must accept this verbatim.

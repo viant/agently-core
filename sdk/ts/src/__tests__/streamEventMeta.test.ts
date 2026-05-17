@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    conversationLifecyclePatchForStreamPhase,
+    conversationStageForStreamEvent,
+    conversationStatusForStreamEvent,
     executionGroupStatusForEvent,
     eventIterationValue,
     eventSequenceValue,
@@ -25,6 +28,30 @@ describe('streamEventMeta', () => {
         expect(terminalStatusForType('turn_completed')).toBe('completed');
         expect(terminalStatusForType('turn_failed')).toBe('failed');
         expect(terminalStatusForType('turn_canceled')).toBe('canceled');
+        expect(conversationStatusForStreamEvent('turn_completed', 'succeeded')).toBe('succeeded');
+        expect(conversationStatusForStreamEvent('turn_failed', '')).toBe('failed');
+        expect(conversationStatusForStreamEvent('turn_canceled', '')).toBe('canceled');
+        expect(conversationStageForStreamEvent('turn_completed')).toBe('done');
+        expect(conversationStageForStreamEvent('turn_failed')).toBe('error');
+        expect(conversationStageForStreamEvent('turn_canceled')).toBe('canceled');
+    });
+
+    it('builds normalized conversation lifecycle patches for stream phases', () => {
+        expect(conversationLifecyclePatchForStreamPhase('thinking', event({ status: 'running' }))).toEqual({
+            running: true,
+            stage: 'thinking',
+            status: 'running'
+        });
+        expect(conversationLifecyclePatchForStreamPhase('eliciting', event({}))).toEqual({
+            running: true,
+            stage: 'eliciting',
+            status: 'pending'
+        });
+        expect(conversationLifecyclePatchForStreamPhase('terminal', event({ type: 'turn_completed', status: 'succeeded' }))).toEqual({
+            running: false,
+            stage: 'done',
+            status: 'succeeded'
+        });
     });
 
     it('marks text deltas as streaming when there is no explicit status', () => {

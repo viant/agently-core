@@ -179,6 +179,7 @@ type WorkspaceModelInfo struct {
 type WorkspaceMetadata struct {
 	WorkspaceRoot    string                `json:"workspaceRoot,omitempty"`
 	WorkspaceVersion string                `json:"workspaceVersion,omitempty"`
+	MetadataVersion  string                `json:"metadataVersion,omitempty"`
 	DefaultAgent     string                `json:"defaultAgent,omitempty"`
 	DefaultModel     string                `json:"defaultModel,omitempty"`
 	DefaultEmbedder  string                `json:"defaultEmbedder,omitempty"`
@@ -189,6 +190,23 @@ type WorkspaceMetadata struct {
 	AgentInfos       []WorkspaceAgentInfo  `json:"agentInfos,omitempty"`
 	ModelInfos       []WorkspaceModelInfo  `json:"modelInfos,omitempty"`
 	Version          string                `json:"version,omitempty"`
+}
+
+type WorkspaceWindowSnapshot struct {
+	WindowID       string                 `json:"windowId,omitempty"`
+	ConversationID string                 `json:"conversationId,omitempty"`
+	WindowKey      string                 `json:"windowKey,omitempty"`
+	WindowTitle    string                 `json:"windowTitle,omitempty"`
+	Presentation   string                 `json:"presentation,omitempty"`
+	Region         string                 `json:"region,omitempty"`
+	ParentKey      string                 `json:"parentKey,omitempty"`
+	InTab          bool                   `json:"inTab,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
+}
+
+type HostedWorkspaceRestoreState struct {
+	Windows          []WorkspaceWindowSnapshot `json:"windows,omitempty"`
+	SelectedWindowID string                    `json:"selectedWindowId,omitempty"`
 }
 
 type ListTemplatesInput struct{}

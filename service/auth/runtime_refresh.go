@@ -25,6 +25,11 @@ var runtimeWorkerID = func() string {
 }()
 
 const transientRefreshRetryWindow = 30 * time.Second
+const runtimeAuthStoreTimeout = 5 * time.Second
+
+func authStoreContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), runtimeAuthStoreTimeout)
+}
 
 func (r *Runtime) ensureSessionOAuthTokens(ctx context.Context, sess *Session) bool {
 	if sess == nil {
@@ -59,7 +64,9 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 	if username == "" || provider == "" {
 		return nil
 	}
-	dbTok, err := r.ext.tokenStore.Get(ctx, username, provider)
+	storeCtx, cancel := authStoreContext(ctx)
+	defer cancel()
+	dbTok, err := r.ext.tokenStore.Get(storeCtx, username, provider)
 	if err != nil || dbTok == nil {
 		return nil
 	}
@@ -101,7 +108,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	}
 	tokenStore := r.ext.tokenStore
 	if tokenStore != nil {
-		_, acquired, err := tokenStore.TryAcquireRefreshLease(ctx, username, provider, runtimeWorkerID, 30*time.Second)
+		storeCtx, cancel := authStoreContext(ctx)
+		_, acquired, err := tokenStore.TryAcquireRefreshLease(storeCtx, username, provider, runtimeWorkerID, 30*time.Second)
+		cancel()
 		if err != nil {
 			logx.Warnf("token-refresh", "lease acquire error user=%q err=%v", username, err)
 			return nil
@@ -111,7 +120,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 			return r.tryLoadFreshTokenFromStore(ctx, sess)
 		}
 		defer func() {
-			_ = tokenStore.ReleaseRefreshLease(ctx, username, provider, runtimeWorkerID)
+			releaseCtx, releaseCancel := authStoreContext(ctx)
+			defer releaseCancel()
+			_ = tokenStore.ReleaseRefreshLease(releaseCtx, username, provider, runtimeWorkerID)
 		}()
 	}
 
@@ -150,7 +161,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	sess.Provider = provider
 	r.sessions.Put(ctx, sess)
 	if tokenStore != nil {
-		_ = tokenStore.Put(ctx, &OAuthToken{
+		storeCtx, cancel := authStoreContext(ctx)
+		defer cancel()
+		_ = tokenStore.Put(storeCtx, &OAuthToken{
 			Username:     username,
 			Provider:     provider,
 			AccessToken:  refreshed.AccessToken,

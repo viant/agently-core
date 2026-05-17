@@ -90,5 +90,10 @@ func (s *Service) Exists(ctx context.Context, URL string) (bool, error) {
 	return s.fs.Exists(ctx, s.resolve(URL), s.options...)
 }
 
+// Download returns the raw bytes for the resolved URL.
+func (s *Service) Download(ctx context.Context, URL string) ([]byte, error) {
+	return s.fs.DownloadWithURL(ctx, s.resolve(URL), s.options...)
+}
+
 // GetURL returns the resolved absolute URL/path for a possibly relative path.
 func (s *Service) GetURL(p string) string { return s.resolve(p) }

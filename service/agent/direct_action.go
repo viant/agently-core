@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
@@ -110,16 +108,13 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	}
 	toolName := strings.TrimSpace(action.ToolName)
 	logx.Infof("conversation", "agent.Query directAction start convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)
-	call, _, err := toolexec.ExecuteToolStep(ctx, s.registry, toolexec.StepInfo{
+	_, _, err := toolexec.ExecuteToolStep(ctx, s.registry, toolexec.StepInfo{
 		Name:       toolName,
 		Args:       action.Input,
 		ResponseID: "intake_direct_action",
 	}, s.conversation)
 	if err != nil {
 		return true, err
-	}
-	if persistErr := s.persistDirectActionWorkspaceState(ctx, input, toolName, action.Input, call.Result); persistErr != nil {
-		return true, persistErr
 	}
 	text := strings.TrimSpace(action.AssistantText)
 	output.TurnID = input.MessageID
@@ -130,64 +125,6 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	}
 	logx.Infof("conversation", "agent.Query directAction ok convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)
 	return true, nil
-}
-
-func (s *Service) persistDirectActionWorkspaceState(ctx context.Context, input *QueryInput, toolName string, args map[string]interface{}, result string) error {
-	if s == nil || s.conversation == nil || input == nil {
-		return nil
-	}
-	if strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName))) != strings.ToLower(strings.TrimSpace(mcpname.Canonical("ui/view/open"))) {
-		return nil
-	}
-	windowKey := strings.TrimSpace(stringValue(args["id"]))
-	if windowKey == "" {
-		return nil
-	}
-	parameters := normalizeInterfaceMap(args["parameters"])
-	if len(parameters) == 0 {
-		return nil
-	}
-	resultMap := map[string]interface{}{}
-	if strings.TrimSpace(result) != "" {
-		if err := json.Unmarshal([]byte(result), &resultMap); err != nil {
-			return nil
-		}
-	}
-	convID := strings.TrimSpace(input.ConversationID)
-	if convID == "" {
-		return nil
-	}
-	conv, err := s.conversation.GetConversation(ctx, convID)
-	if err != nil {
-		return fmt.Errorf("failed to load conversation for workspace metadata: %w", err)
-	}
-	var meta ConversationMetadata
-	if conv != nil && conv.Metadata != nil && strings.TrimSpace(*conv.Metadata) != "" {
-		_ = json.Unmarshal([]byte(*conv.Metadata), &meta)
-	}
-	meta.Workspace = &WorkspaceWindowMetadata{
-		WindowID:     strings.TrimSpace(stringValue(resultMap["windowId"])),
-		WindowKey:    firstNonEmpty(strings.TrimSpace(stringValue(resultMap["windowKey"])), windowKey),
-		WindowTitle:  firstNonEmpty(strings.TrimSpace(stringValue(resultMap["windowTitle"])), "Order Summary"),
-		Presentation: firstNonEmpty(strings.TrimSpace(stringValue(resultMap["presentation"])), "hosted"),
-		Region:       firstNonEmpty(strings.TrimSpace(stringValue(resultMap["region"])), "chat.top"),
-		ParentKey:    "chat/new",
-		InTab:        true,
-		Parameters:   parameters,
-	}
-	b, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("failed to marshal workspace metadata: %w", err)
-	}
-	logx.Infof("conversation", "agent.directAction workspace persist convo=%q tool=%q window_key=%q metadata=%s", convID, toolName, meta.Workspace.WindowKey, string(b))
-	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
-	patch.SetId(convID)
-	patch.SetMetadata(string(b))
-	mw := convw.Conversation(*patch)
-	if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
-		return fmt.Errorf("failed to persist workspace metadata: %w", err)
-	}
-	return nil
 }
 
 func stringValue(v interface{}) string {

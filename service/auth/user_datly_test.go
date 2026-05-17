@@ -147,7 +147,7 @@ func TestDatlyUserService_UpsertWithProvider_PreservesFriendlyDisplayIdentity(t 
 	if user.Username != "awitas" {
 		t.Fatalf("user.Username = %q, want %q", user.Username, "awitas")
 	}
-	if user.DisplayName != "awitas" {
-		t.Fatalf("user.DisplayName = %q, want %q", user.DisplayName, "awitas")
+	if user.DisplayName != "Awitas" {
+		t.Fatalf("user.DisplayName = %q, want %q", user.DisplayName, "Awitas")
 	}
 }

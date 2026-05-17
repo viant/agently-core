@@ -285,6 +285,56 @@ func TestEnsureTokens_StoreClearsMissCache(t *testing.T) {
 	}
 }
 
+func TestEnsureTokens_TransientRefreshFailureUsesCooldownAndReturnsStaleToken(t *testing.T) {
+	staleExpiry := time.Now().Add(-1 * time.Minute)
+	store := &mockTokenStore{
+		getFunc: func(_ context.Context, _, _ string) (*OAuthToken, error) {
+			return &OAuthToken{
+				Username:     "user1",
+				Provider:     "google",
+				AccessToken:  "stale-access",
+				RefreshToken: "stale-refresh",
+				ExpiresAt:    staleExpiry,
+			}, nil
+		},
+	}
+	broker := &mockBroker{
+		refreshFunc: func(_ context.Context, _ Key, _ string) (*scyauth.Token, error) {
+			return nil, errors.New("temporary oauth endpoint error")
+		},
+	}
+	mgr := NewManager(
+		WithTokenStore(store),
+		WithBroker(broker),
+		WithInstanceID(""),
+	)
+
+	ctx := context.Background()
+	next, err := mgr.EnsureTokens(ctx, testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() unexpected error: %v", err)
+	}
+	tok := iauth.TokensFromContext(next)
+	if tok == nil || tok.AccessToken != "stale-access" {
+		t.Fatalf("expected stale token to remain usable after transient refresh failure, got %#v", tok)
+	}
+	if broker.refreshCalls != 1 {
+		t.Fatalf("broker refresh calls = %d, want 1", broker.refreshCalls)
+	}
+
+	next, err = mgr.EnsureTokens(ctx, testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() during cooldown unexpected error: %v", err)
+	}
+	tok = iauth.TokensFromContext(next)
+	if tok == nil || tok.AccessToken != "stale-access" {
+		t.Fatalf("expected stale token during cooldown, got %#v", tok)
+	}
+	if broker.refreshCalls != 1 {
+		t.Fatalf("broker refresh calls after cooldown reuse = %d, want still 1", broker.refreshCalls)
+	}
+}
+
 // TestDistributedRefresh_CASFails verifies that when CASPut returns false (version
 // mismatch), we re-read from store and use that token.
 func TestDistributedRefresh_CASFails(t *testing.T) {

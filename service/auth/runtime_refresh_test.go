@@ -110,3 +110,71 @@ func TestInvalidateSessionTokens_NilStoreIsSafe(t *testing.T) {
 		t.Fatalf("expected tokens cleared, got %#v", sess.Tokens)
 	}
 }
+
+type canceledCtxTokenStore struct {
+	gotCtxCanceled bool
+	putCtxCanceled bool
+	token          *OAuthToken
+}
+
+func (s *canceledCtxTokenStore) Get(ctx context.Context, _, _ string) (*OAuthToken, error) {
+	s.gotCtxCanceled = ctx.Err() != nil
+	return s.token, nil
+}
+
+func (s *canceledCtxTokenStore) Put(ctx context.Context, _ *OAuthToken) error {
+	s.putCtxCanceled = ctx.Err() != nil
+	return nil
+}
+
+func (s *canceledCtxTokenStore) Delete(_ context.Context, _, _ string) error { return nil }
+func (s *canceledCtxTokenStore) TryAcquireRefreshLease(_ context.Context, _, _, _ string, _ time.Duration) (int64, bool, error) {
+	return 0, false, nil
+}
+func (s *canceledCtxTokenStore) ReleaseRefreshLease(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (s *canceledCtxTokenStore) CASPut(_ context.Context, _ *OAuthToken, _ int64, _ string) (bool, error) {
+	return false, nil
+}
+
+func TestTryLoadFreshTokenFromStore_IgnoresCanceledCallerContext(t *testing.T) {
+	store := &canceledCtxTokenStore{
+		token: &OAuthToken{
+			Username:     "user-42",
+			Provider:     "oauth",
+			AccessToken:  "fresh-access",
+			RefreshToken: "refresh",
+			IDToken:      "fresh-id",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
+	rt := &Runtime{
+		ext: &authExtension{
+			tokenStore: store,
+			users: &testUserService{userBySubjectProvider: map[string]*User{
+				"user-sub|oauth": {ID: "user-42", Username: "awitas"},
+			}},
+		},
+		sessions: NewManager(time.Hour, nil),
+	}
+	sess := &Session{
+		ID:       "sess-fresh",
+		Subject:  "user-sub",
+		Provider: "oauth",
+		Tokens: &scyauth.Token{
+			Token:   oauth2.Token{AccessToken: "stale", Expiry: time.Now().Add(-time.Minute)},
+			IDToken: "stale-id",
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tok := rt.tryLoadFreshTokenFromStore(ctx, sess)
+	if tok == nil || tok.AccessToken != "fresh-access" {
+		t.Fatalf("expected fresh token, got %#v", tok)
+	}
+	if store.gotCtxCanceled {
+		t.Fatalf("token store Get should not receive a canceled context")
+	}
+}

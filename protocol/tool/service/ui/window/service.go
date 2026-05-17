@@ -24,6 +24,10 @@ type WindowItem struct {
 	WindowID       string                 `json:"windowId,omitempty"`
 	WindowKey      string                 `json:"windowKey,omitempty"`
 	WindowTitle    string                 `json:"windowTitle,omitempty"`
+	ConversationID string                 `json:"conversationId,omitempty"`
+	Presentation   string                 `json:"presentation,omitempty"`
+	Region         string                 `json:"region,omitempty"`
+	ParentKey      string                 `json:"parentKey,omitempty"`
 	Parameters     map[string]interface{} `json:"parameters,omitempty"`
 	InTab          bool                   `json:"inTab,omitempty"`
 	IsModal        bool                   `json:"isModal,omitempty"`
@@ -95,6 +99,14 @@ type HideInput struct {
 	WindowID string `json:"windowId,omitempty"`
 }
 
+type SetFormDataInput struct {
+	ClientID  string                 `json:"clientId,omitempty"`
+	WindowID  string                 `json:"windowId,omitempty"`
+	WindowKey string                 `json:"windowKey,omitempty"`
+	Values    map[string]interface{} `json:"values,omitempty"`
+	Replace   bool                   `json:"replace,omitempty"`
+}
+
 type CommandOutput struct {
 	ClientID string `json:"clientId,omitempty"`
 	OK       bool   `json:"ok,omitempty"`
@@ -117,6 +129,7 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "list", Description: "List live UI windows for the current conversation.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get one live UI window by windowId or windowKey for the current conversation.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 		{Name: "show", Description: "Activate an existing live UI window by windowId.", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&CommandOutput{})},
+		{Name: "setFormData", Description: "Patch the windowForm state for an existing live UI window by windowId or windowKey.", Input: reflect.TypeOf(&SetFormDataInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 		{Name: "selectTab", Description: "Select a tab inside an existing live UI window by windowId and tabId.", Input: reflect.TypeOf(&SelectTabInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 		{Name: "hide", Description: "Hide or close an existing live UI window by windowId.", Input: reflect.TypeOf(&HideInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 	}
@@ -130,6 +143,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.get, nil
 	case "show":
 		return s.show, nil
+	case "setformdata":
+		return s.setFormData, nil
 	case "selecttab":
 		return s.selectTab, nil
 	case "hide":
@@ -184,6 +199,10 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					WindowID:       win.WindowID,
 					WindowKey:      win.WindowKey,
 					WindowTitle:    win.WindowTitle,
+					ConversationID: win.ConversationID,
+					Presentation:   win.Presentation,
+					Region:         win.Region,
+					ParentKey:      win.ParentKey,
 					Parameters:     compactWindowParameters(win.Parameters),
 					InTab:          win.InTab,
 					IsModal:        win.IsModal,
@@ -264,6 +283,50 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		Namespace: namespace,
 		Method:    "ui.window.activate",
 		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
+	})
+	if err != nil {
+		return err
+	}
+	output.ClientID = clientID
+	output.OK = resp.OK
+	output.Error = resp.Error
+	return nil
+}
+
+func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*SetFormDataInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*CommandOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	if s.bridge == nil {
+		return fmt.Errorf("ui bridge not configured")
+	}
+	if len(input.Values) == 0 {
+		return fmt.Errorf("values are required")
+	}
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	preferredClientID := normalizeOptionalClientID(input.ClientID)
+	if preferredClientID == "" {
+		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	}
+	clientID, namespace, _, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
+	if err != nil {
+		return err
+	}
+	targetWindowID := strings.TrimSpace(win.WindowID)
+	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
+		ClientID:  clientID,
+		Namespace: namespace,
+		Method:    "ui.window.setFormData",
+		Params: map[string]interface{}{
+			"windowId": targetWindowID,
+			"values":   input.Values,
+			"replace":  input.Replace,
+		},
 	})
 	if err != nil {
 		return err

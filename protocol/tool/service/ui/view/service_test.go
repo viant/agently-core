@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"testing"
 
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
@@ -19,11 +20,11 @@ func TestExpandOpenParametersBindsOneInputToMultipleTargets(t *testing.T) {
 		"AdOrderId": []interface{}{2664124.0},
 	})
 
-	assertNestedValue(t, actual, "order_performance_profile", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, "order_performance_period_today", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, "order_performance_period_yesterday", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, "order_performance_period_7d", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, "order_performance_period_30d", "parameters", "AdOrderId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_profile", "parameters", "AdOrderId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_today", "parameters", "AdOrderId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_yesterday", "parameters", "AdOrderId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_7d", "parameters", "AdOrderId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_30d", "parameters", "AdOrderId")
 }
 
 func TestExpandOpenParametersPreservesUnboundParameters(t *testing.T) {
@@ -39,6 +40,24 @@ func TestExpandOpenParametersPreservesUnboundParameters(t *testing.T) {
 	if actual["ClientID"] != "client-1" {
 		t.Fatalf("expected passthrough ClientID, got %#v", actual["ClientID"])
 	}
+}
+
+func TestExpandOpenParametersBindsSemanticBuilderPrefill(t *testing.T) {
+	specParams := []viewproto.Parameter{
+		{Name: "advertiserId", BindTo: "prefill.advertiserId"},
+		{Name: "dealId", BindTo: "prefill.dealId"},
+		{Name: "targetingIncl", BindTo: "prefill.targetingIncl"},
+	}
+
+	actual := expandOpenParameters(specParams, map[string]interface{}{
+		"advertiserId":  123.0,
+		"dealId":        "deal-xyz",
+		"targetingIncl": "iris:1466062,123",
+	})
+
+	assertNestedValue(t, actual, 123.0, "prefill", "advertiserId")
+	assertNestedValue(t, actual, "deal-xyz", "prefill", "dealId")
+	assertNestedValue(t, actual, "iris:1466062,123", "prefill", "targetingIncl")
 }
 
 func TestMissingRequiredParameters(t *testing.T) {
@@ -73,7 +92,80 @@ func TestAvailableViewIDs(t *testing.T) {
 	}
 }
 
-func assertNestedValue(t *testing.T, holder map[string]interface{}, parts ...string) {
+func TestBuildOpenWindowOptions_HostedViewsAttachToChatRootAndReplaceRegion(t *testing.T) {
+	item := &ListItem{
+		WindowKey:    "order",
+		Presentation: "hosted",
+		Region:       "chat.top",
+		OpenMode:     "replace",
+	}
+	got := buildOpenWindowOptions(item, "conv-1", "")
+	if got["conversationId"] != "conv-1" {
+		t.Fatalf("expected conversationId, got %#v", got["conversationId"])
+	}
+	if got["parentKey"] != "chat/new" {
+		t.Fatalf("expected chat/new parentKey, got %#v", got["parentKey"])
+	}
+	if got["replaceHostedRegion"] != true {
+		t.Fatalf("expected replaceHostedRegion=true, got %#v", got["replaceHostedRegion"])
+	}
+}
+
+func TestBuildOpenWindowOptions_NonHostedViewsDoNotForceHostedOwnership(t *testing.T) {
+	item := &ListItem{
+		WindowKey:    "schedule",
+		Presentation: "",
+		Region:       "",
+	}
+	got := buildOpenWindowOptions(item, "conv-1", "")
+	if _, ok := got["parentKey"]; ok {
+		t.Fatalf("did not expect parentKey for non-hosted view")
+	}
+	if _, ok := got["replaceHostedRegion"]; ok {
+		t.Fatalf("did not expect replaceHostedRegion for non-hosted view")
+	}
+}
+
+func TestBuildOpenWindowOptions_AppendOverrideDisablesReplacement(t *testing.T) {
+	item := &ListItem{
+		WindowKey:    "order",
+		Presentation: "hosted",
+		Region:       "chat.top",
+		OpenMode:     "replace",
+	}
+	got := buildOpenWindowOptions(item, "conv-1", "append")
+	if got["replaceHostedRegion"] != false {
+		t.Fatalf("expected replaceHostedRegion=false for append override, got %#v", got["replaceHostedRegion"])
+	}
+}
+
+func TestComputeWindowID_HostedViewsAreConversationScoped(t *testing.T) {
+	item := &ListItem{
+		WindowKey:    "order",
+		Presentation: "hosted",
+		Region:       "chat.top",
+	}
+	parameters := map[string]interface{}{
+		"AdOrderId": []interface{}{2656980.0},
+	}
+	got := computeWindowID("order", parameters, "conv-1", item)
+	expected := "order_" + fmt.Sprint(generateIntHash(parameters)) + "__conv-1"
+	if got != expected {
+		t.Fatalf("unexpected hosted window id: %s", got)
+	}
+}
+
+func TestComputeWindowID_NonHostedViewsRemainUnscoped(t *testing.T) {
+	item := &ListItem{
+		WindowKey: "schedule",
+	}
+	got := computeWindowID("schedule", nil, "conv-1", item)
+	if got != "schedule" {
+		t.Fatalf("unexpected non-hosted window id: %s", got)
+	}
+}
+
+func assertNestedValue(t *testing.T, holder map[string]interface{}, expected interface{}, parts ...string) {
 	t.Helper()
 	current := interface{}(holder)
 	for _, part := range parts {
@@ -86,8 +178,7 @@ func assertNestedValue(t *testing.T, holder map[string]interface{}, parts ...str
 			t.Fatalf("missing nested key %q in %#v", part, asMap)
 		}
 	}
-	ids, ok := current.([]interface{})
-	if !ok || len(ids) != 1 || ids[0] != 2664124.0 {
-		t.Fatalf("unexpected bound value: %#v", current)
+	if fmt.Sprintf("%#v", current) != fmt.Sprintf("%#v", expected) {
+		t.Fatalf("unexpected bound value: got=%#v want=%#v", current, expected)
 	}
 }

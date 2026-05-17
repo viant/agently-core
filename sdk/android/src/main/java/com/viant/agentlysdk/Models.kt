@@ -150,6 +150,8 @@ data class IDPDelegateOutput(
 @Serializable
 data class WorkspaceMetadata(
     val workspaceRoot: String? = null,
+    val workspaceVersion: String? = null,
+    val metadataVersion: String? = null,
     val defaultAgent: String? = null,
     val defaultModel: String? = null,
     val defaultEmbedder: String? = null,
@@ -160,6 +162,25 @@ data class WorkspaceMetadata(
     val agentInfos: List<WorkspaceAgentInfo> = emptyList(),
     val modelInfos: List<WorkspaceModelInfo> = emptyList(),
     val version: String? = null
+)
+
+@Serializable
+data class WorkspaceWindowSnapshot(
+    val windowId: String,
+    val conversationId: String? = null,
+    val windowKey: String,
+    val windowTitle: String? = null,
+    val presentation: String? = null,
+    val region: String? = null,
+    val parentKey: String? = null,
+    val inTab: Boolean? = null,
+    val parameters: JsonObject? = null
+)
+
+@Serializable
+data class HostedWorkspaceRestoreState(
+    val windows: List<WorkspaceWindowSnapshot> = emptyList(),
+    val selectedWindowId: String? = null
 )
 
 @Serializable

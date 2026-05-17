@@ -21,14 +21,17 @@ const Name = "ui/view"
 type ListInput struct{}
 
 type ListItem struct {
-	ID           string                 `json:"id,omitempty"`
-	Title        string                 `json:"title,omitempty"`
-	Description  string                 `json:"description,omitempty"`
-	WindowKey    string                 `json:"windowKey,omitempty"`
-	Presentation string                 `json:"presentation,omitempty"`
-	Region       string                 `json:"region,omitempty"`
-	Parameters   []viewproto.Parameter  `json:"parameters,omitempty"`
-	Capabilities viewproto.Capabilities `json:"capabilities,omitempty"`
+	ID                 string                 `json:"id,omitempty"`
+	Title              string                 `json:"title,omitempty"`
+	Description        string                 `json:"description,omitempty"`
+	WindowKey          string                 `json:"windowKey,omitempty"`
+	Presentation       string                 `json:"presentation,omitempty"`
+	Region             string                 `json:"region,omitempty"`
+	OpenMode           string                 `json:"openMode,omitempty"`
+	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
+	Parameters         []viewproto.Parameter  `json:"parameters,omitempty"`
+	Capabilities       viewproto.Capabilities `json:"capabilities,omitempty"`
 }
 
 type ListOutput struct {
@@ -44,18 +47,45 @@ type GetOutput struct {
 }
 
 type OpenInput struct {
-	ID         string                 `json:"id"`
-	Parameters map[string]interface{} `json:"parameters"`
+	ID         string                 `json:"id,omitempty"`
+	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	OpenMode   string                 `json:"openMode,omitempty"`
+	Items      []OpenItem             `json:"items,omitempty"`
 	ClientID   string                 `json:"clientId,omitempty"`
 	TimeoutMs  int                    `json:"timeoutMs,omitempty"`
 }
 
+type OpenItem struct {
+	ID         string                 `json:"id"`
+	Parameters map[string]interface{} `json:"parameters"`
+	OpenMode   string                 `json:"openMode,omitempty"`
+}
+
 type OpenOutput struct {
-	ClientID  string `json:"clientId,omitempty"`
-	WindowID  string `json:"windowId,omitempty"`
-	WindowKey string `json:"windowKey,omitempty"`
-	OK        bool   `json:"ok,omitempty"`
-	Error     string `json:"error,omitempty"`
+	ClientID         string                 `json:"clientId,omitempty"`
+	WindowID         string                 `json:"windowId,omitempty"`
+	SelectedWindowID string                 `json:"selectedWindowId,omitempty"`
+	WindowKey        string                 `json:"windowKey,omitempty"`
+	WindowTitle      string                 `json:"windowTitle,omitempty"`
+	ConversationID   string                 `json:"conversationId,omitempty"`
+	Presentation     string                 `json:"presentation,omitempty"`
+	Region           string                 `json:"region,omitempty"`
+	ParentKey        string                 `json:"parentKey,omitempty"`
+	Parameters       map[string]interface{} `json:"parameters,omitempty"`
+	Items            []OpenResultItem       `json:"items,omitempty"`
+	OK               bool                   `json:"ok,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+}
+
+type OpenResultItem struct {
+	WindowID       string                 `json:"windowId,omitempty"`
+	WindowKey      string                 `json:"windowKey,omitempty"`
+	WindowTitle    string                 `json:"windowTitle,omitempty"`
+	ConversationID string                 `json:"conversationId,omitempty"`
+	Presentation   string                 `json:"presentation,omitempty"`
+	Region         string                 `json:"region,omitempty"`
+	ParentKey      string                 `json:"parentKey,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
 }
 
 type Service struct {
@@ -78,7 +108,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List workspace-defined dynamic UI views that can be opened for the user.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a workspace-defined dynamic UI view by id.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "open", Description: "Open a workspace-defined dynamic UI view for the active conversation and wait for the UI to acknowledge the request. Always provide the view id and a parameters object. If the target view declares required parameters, include every required key in that parameters object.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
+		{Name: "open", Description: "Open one or more workspace-defined dynamic UI views for the active conversation and wait for the UI to acknowledge the request. For a single open, provide id plus parameters. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
 	}
 }
 
@@ -138,29 +168,80 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	if s.bridge == nil {
-		return fmt.Errorf("ui bridge not configured")
-	}
-	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
+	clientID, namespace, conversationID, err := s.resolveOpenClient(ctx, input.ClientID)
 	if err != nil {
 		return err
+	}
+	items := make([]OpenItem, 0, max(1, len(input.Items)))
+	if len(input.Items) > 0 {
+		items = append(items, input.Items...)
+	} else {
+		items = append(items, OpenItem{
+			ID:         input.ID,
+			Parameters: input.Parameters,
+			OpenMode:   input.OpenMode,
+		})
+	}
+	if len(items) == 0 {
+		return fmt.Errorf("id or items are required")
+	}
+	timeout := effectiveOpenTimeout(input.TimeoutMs)
+	output.ClientID = clientID
+	output.OK = true
+	output.Items = make([]OpenResultItem, 0, len(items))
+	for _, item := range items {
+		resolved, openErr := s.openResolvedItem(ctx, clientID, namespace, conversationID, item, timeout)
+		if openErr != nil {
+			output.OK = false
+			output.Error = openErr.Error()
+			return openErr
+		}
+		output.Items = append(output.Items, OpenResultItem{
+			WindowID:       resolved.WindowID,
+			WindowKey:      resolved.WindowKey,
+			WindowTitle:    resolved.WindowTitle,
+			ConversationID: resolved.ConversationID,
+			Presentation:   resolved.Presentation,
+			Region:         resolved.Region,
+			ParentKey:      resolved.ParentKey,
+			Parameters:     resolved.Parameters,
+		})
+	}
+	if len(output.Items) > 0 {
+		selected := output.Items[len(output.Items)-1]
+		output.WindowID = selected.WindowID
+		output.SelectedWindowID = selected.WindowID
+		output.WindowKey = selected.WindowKey
+		output.WindowTitle = selected.WindowTitle
+		output.ConversationID = selected.ConversationID
+		output.Presentation = selected.Presentation
+		output.Region = selected.Region
+		output.ParentKey = selected.ParentKey
+		output.Parameters = selected.Parameters
+	}
+	return nil
+}
+
+func (s *Service) resolveOpenClient(ctx context.Context, requestedClientID string) (string, string, string, error) {
+	if s.bridge == nil {
+		return "", "", "", fmt.Errorf("ui bridge not configured")
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	if conversationID == "" {
-		return fmt.Errorf("conversation id is required")
+		return "", "", "", fmt.Errorf("conversation id is required")
 	}
 	clients, err := s.reg.ListByConversation(ctx, conversationID)
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
-	clientID := normalizeOptionalClientID(input.ClientID)
+	clientID := normalizeOptionalClientID(requestedClientID)
 	preferredClientID := normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 	if clientID == "" {
 		clientID = preferredClientID
 	}
 	namespace := ""
 	if len(clients) == 0 && clientID != "" {
-		if clientSnap, err := s.reg.FindClient(ctx, clientID); err == nil && clientSnap != nil {
+		if clientSnap, findErr := s.reg.FindClient(ctx, clientID); findErr == nil && clientSnap != nil {
 			clients = append(clients, *clientSnap)
 		} else if preferredClientID != "" && preferredClientID != clientID {
 			if preferredSnap, preferredErr := s.reg.FindClient(ctx, preferredClientID); preferredErr == nil && preferredSnap != nil {
@@ -171,7 +252,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	}
 	if clientID == "" {
 		if len(clients) == 0 {
-			return fmt.Errorf("no active ui client attached to conversation %q", conversationID)
+			return "", "", "", fmt.Errorf("no active ui client attached to conversation %q", conversationID)
 		}
 		clientID = clients[0].ClientID
 		namespace = clients[0].Namespace
@@ -183,44 +264,138 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			}
 		}
 	}
-	timeout := 15_000
-	if input.TimeoutMs > 0 {
-		timeout = input.TimeoutMs
+	return clientID, namespace, conversationID, nil
+}
+
+func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, conversationID string, input OpenItem, timeout int) (*OpenOutput, error) {
+	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
+	if err != nil {
+		return nil, err
 	}
 	windowParameters := expandOpenParameters(item.Parameters, input.Parameters)
 	if missing := missingRequiredParameters(item.Parameters, input.Parameters); len(missing) > 0 {
-		return fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
+		return nil, fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
 	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.window.open",
 		Params: map[string]interface{}{
+			"windowId":    computeWindowID(item.WindowKey, windowParameters, conversationID, item),
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
 			"parameters":  windowParameters,
-			"options": map[string]interface{}{
-				"conversationId": conversationID,
-				"presentation":   strings.TrimSpace(item.Presentation),
-				"region":         strings.TrimSpace(item.Region),
-			},
+			"options":     buildOpenWindowOptions(item, conversationID, input.OpenMode),
 		},
 		TimeoutMs: timeout,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	output.ClientID = clientID
-	output.WindowKey = item.WindowKey
-	output.OK = resp.OK
-	output.Error = resp.Error
+	output := &OpenOutput{
+		ClientID:       clientID,
+		WindowKey:      item.WindowKey,
+		WindowTitle:    item.Title,
+		ConversationID: conversationID,
+		Presentation:   strings.TrimSpace(item.Presentation),
+		Region:         strings.TrimSpace(item.Region),
+		ParentKey:      parentKeyForPresentation(item),
+		Parameters:     windowParameters,
+		OK:             resp.OK,
+		Error:          resp.Error,
+	}
 	if len(resp.Result) > 0 {
 		var payload map[string]interface{}
 		if jsonErr := json.Unmarshal(resp.Result, &payload); jsonErr == nil {
 			output.WindowID = strings.TrimSpace(stringValue(payload["windowId"]))
 		}
 	}
-	return nil
+	return output, nil
+}
+
+func buildOpenWindowOptions(item *ListItem, conversationID string, openModeOverride string) map[string]interface{} {
+	openMode := strings.ToLower(strings.TrimSpace(firstNonEmpty(openModeOverride, item.OpenMode)))
+	options := map[string]interface{}{
+		"conversationId": strings.TrimSpace(conversationID),
+		"presentation":   strings.TrimSpace(item.Presentation),
+		"region":         strings.TrimSpace(item.Region),
+	}
+	if item.WorkspaceSharePct > 0 {
+		options["workspaceSharePct"] = item.WorkspaceSharePct
+	}
+	if item.WorkspaceMinHeight > 0 {
+		options["workspaceMinHeight"] = item.WorkspaceMinHeight
+	}
+	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
+		// Hosted workspace windows are explicit subwindows of the main chat root.
+		options["parentKey"] = "chat/new"
+	}
+	switch openMode {
+	case "replace":
+		options["replaceHostedRegion"] = true
+	case "append":
+		options["replaceHostedRegion"] = false
+	}
+	return options
+}
+
+func parentKeyForPresentation(item *ListItem) string {
+	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
+		return "chat/new"
+	}
+	return ""
+}
+
+func computeWindowID(windowKey string, parameters map[string]interface{}, conversationID string, item *ListItem) string {
+	base := strings.TrimSpace(windowKey)
+	if base == "" {
+		return ""
+	}
+	if len(parameters) > 0 {
+		base = fmt.Sprintf("%s_%d", base, generateIntHash(parameters))
+	}
+	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
+		convID := strings.TrimSpace(conversationID)
+		if convID != "" {
+			return base + "__" + convID
+		}
+	}
+	return base
+}
+
+func generateIntHash(input map[string]interface{}) uint32 {
+	var serialize func(value interface{}) string
+	serialize = func(value interface{}) string {
+		switch actual := value.(type) {
+		case nil:
+			return "<nil>"
+		case map[string]interface{}:
+			keys := make([]string, 0, len(actual))
+			for key := range actual {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, key := range keys {
+				parts = append(parts, key+":"+serialize(actual[key]))
+			}
+			return strings.Join(parts, "|")
+		case []interface{}:
+			parts := make([]string, 0, len(actual))
+			for _, item := range actual {
+				parts = append(parts, serialize(item))
+			}
+			return strings.Join(parts, "|")
+		default:
+			return fmt.Sprint(actual)
+		}
+	}
+	serialized := serialize(input)
+	var hash int32
+	for _, char := range serialized {
+		hash = hash*31 + int32(char)
+	}
+	return uint32(hash)
 }
 
 func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
@@ -237,14 +412,17 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			continue
 		}
 		items = append(items, ListItem{
-			ID:           strings.TrimSpace(spec.ID),
-			Title:        strings.TrimSpace(spec.Title),
-			Description:  strings.TrimSpace(spec.Description),
-			WindowKey:    strings.TrimSpace(spec.WindowKey),
-			Presentation: strings.TrimSpace(spec.Presentation),
-			Region:       strings.TrimSpace(spec.Region),
-			Parameters:   append([]viewproto.Parameter(nil), spec.Parameters...),
-			Capabilities: spec.Capabilities,
+			ID:                 strings.TrimSpace(spec.ID),
+			Title:              strings.TrimSpace(spec.Title),
+			Description:        strings.TrimSpace(spec.Description),
+			WindowKey:          strings.TrimSpace(spec.WindowKey),
+			Presentation:       strings.TrimSpace(spec.Presentation),
+			Region:             strings.TrimSpace(spec.Region),
+			OpenMode:           strings.TrimSpace(spec.OpenMode),
+			WorkspaceSharePct:  spec.WorkspaceSharePct,
+			WorkspaceMinHeight: spec.WorkspaceMinHeight,
+			Parameters:         append([]viewproto.Parameter(nil), spec.Parameters...),
+			Capabilities:       spec.Capabilities,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -297,6 +475,15 @@ func stringValue(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func normalizeOptionalClientID(raw string) string {

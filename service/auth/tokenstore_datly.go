@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/viant/datly"
@@ -27,8 +28,11 @@ type encToken struct {
 
 // TokenStoreDAO is a Datly-backed TokenStore with Blowfish encryption.
 type TokenStoreDAO struct {
-	dao  *datly.Service
-	salt string
+	dao     *datly.Service
+	salt    string
+	mu      sync.RWMutex
+	dbCache *sql.DB
+	dialect string
 }
 
 // NewTokenStoreDAO creates a Datly-backed token store.
@@ -91,8 +95,14 @@ func (s *TokenStoreDAO) Get(ctx context.Context, username, provider string) (*OA
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp("token", "get", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+	}()
 	db, err := s.db()
 	if err != nil {
+		opErr = err
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
@@ -103,6 +113,7 @@ ORDER BY provider`,
 		strings.TrimSpace(username),
 	)
 	if err != nil {
+		opErr = err
 		return nil, err
 	}
 	defer rows.Close()
@@ -118,6 +129,7 @@ ORDER BY provider`,
 	for rows.Next() {
 		var userID, rowProvider, rowEnc string
 		if err := rows.Scan(&userID, &rowProvider, &rowEnc); err != nil {
+			opErr = err
 			return nil, err
 		}
 		if strings.TrimSpace(rowEnc) == "" {
@@ -136,6 +148,7 @@ ORDER BY provider`,
 		}
 	}
 	if err := rows.Err(); err != nil {
+		opErr = err
 		return nil, err
 	}
 	if encToken == "" {
@@ -148,6 +161,7 @@ ORDER BY provider`,
 	}
 	tok, err := s.decrypt(ctx, encToken)
 	if err != nil {
+		opErr = err
 		return nil, err
 	}
 	tok.Username = strings.TrimSpace(firstNonEmpty(selectedUser, username))
@@ -160,8 +174,14 @@ func (s *TokenStoreDAO) Put(ctx context.Context, token *OAuthToken) error {
 	if s == nil || s.dao == nil || token == nil {
 		return nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp("token", "put", strings.TrimSpace(token.Username)+"|"+strings.TrimSpace(token.Provider), started, opErr)
+	}()
 	enc, err := s.encrypt(ctx, token)
 	if err != nil {
+		opErr = err
 		return err
 	}
 	in := &oauthwrite.Input{Token: &oauthwrite.Token{}}
@@ -170,6 +190,7 @@ func (s *TokenStoreDAO) Put(ctx context.Context, token *OAuthToken) error {
 	in.Token.SetEncToken(enc)
 	out := &oauthwrite.Output{}
 	_, err = s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", oauthwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out))
+	opErr = err
 	return err
 }
 
@@ -178,8 +199,14 @@ func (s *TokenStoreDAO) Delete(ctx context.Context, username, provider string) e
 	if s == nil || s.dao == nil {
 		return nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp("token", "delete", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+	}()
 	db, err := s.db()
 	if err != nil {
+		opErr = err
 		return err
 	}
 	_, err = db.ExecContext(ctx,
@@ -188,6 +215,7 @@ SET enc_token = ''
 WHERE user_id = ? AND provider = ?`,
 		strings.TrimSpace(username), strings.TrimSpace(provider),
 	)
+	opErr = err
 	return err
 }
 
@@ -236,14 +264,41 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 
 // db returns a raw *sql.DB from the datly connector.
 func (s *TokenStoreDAO) db() (*sql.DB, error) {
+	if s == nil || s.dao == nil {
+		return nil, nil
+	}
+	s.mu.RLock()
+	if s.dbCache != nil {
+		db := s.dbCache
+		s.mu.RUnlock()
+		return db, nil
+	}
+	s.mu.RUnlock()
 	conn, err := s.dao.Resource().Connector("agently")
 	if err != nil {
 		return nil, fmt.Errorf("tokenstore: connector lookup: %w", err)
 	}
-	return conn.DB()
+	db, err := conn.DB()
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	if s.dbCache == nil {
+		s.dbCache = db
+	}
+	cached := s.dbCache
+	s.mu.Unlock()
+	return cached, nil
 }
 
 func (s *TokenStoreDAO) dbDialect() (string, error) {
+	s.mu.RLock()
+	if s.dialect != "" {
+		dialect := s.dialect
+		s.mu.RUnlock()
+		return dialect, nil
+	}
+	s.mu.RUnlock()
 	db, err := s.db()
 	if err != nil {
 		return "", err
@@ -251,7 +306,17 @@ func (s *TokenStoreDAO) dbDialect() (string, error) {
 	if db == nil {
 		return "", fmt.Errorf("tokenstore: nil db")
 	}
-	return detectDBDialect(db.Driver())
+	dialect, err := detectDBDialect(db.Driver())
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	if s.dialect == "" {
+		s.dialect = dialect
+	}
+	cached := s.dialect
+	s.mu.Unlock()
+	return cached, nil
 }
 
 func detectDBDialect(d interface{}) (string, error) {
@@ -311,12 +376,19 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 	if s == nil || s.dao == nil {
 		return 0, false, nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp("token", "lease", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+	}()
 	db, err := s.db()
 	if err != nil {
+		opErr = err
 		return 0, false, err
 	}
 	dialect, err := s.dbDialect()
 	if err != nil {
+		opErr = err
 		return 0, false, err
 	}
 
@@ -332,10 +404,12 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 	}
 	res, err := db.ExecContext(ctx, query, owner, ttlSeconds, username, provider)
 	if err != nil {
+		opErr = err
 		return 0, false, fmt.Errorf("tokenstore: acquire lease: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
+		opErr = err
 		return 0, false, err
 	}
 	if n == 0 {
@@ -348,6 +422,7 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 		`SELECT version FROM user_oauth_token WHERE user_id = ? AND provider = ?`,
 		username, provider,
 	).Scan(&version); err != nil {
+		opErr = err
 		return 0, false, fmt.Errorf("tokenstore: read version: %w", err)
 	}
 
@@ -360,8 +435,14 @@ func (s *TokenStoreDAO) ReleaseRefreshLease(ctx context.Context, username, provi
 	if s == nil || s.dao == nil {
 		return nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp("token", "release", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+	}()
 	db, err := s.db()
 	if err != nil {
+		opErr = err
 		return err
 	}
 	_, err = db.ExecContext(ctx,
@@ -370,6 +451,7 @@ func (s *TokenStoreDAO) ReleaseRefreshLease(ctx context.Context, username, provi
 		 WHERE user_id = ? AND provider = ? AND lease_owner = ?`,
 		username, provider, owner,
 	)
+	opErr = err
 	return err
 }
 
@@ -380,16 +462,24 @@ func (s *TokenStoreDAO) CASPut(ctx context.Context, token *OAuthToken, expectedV
 	if s == nil || s.dao == nil || token == nil {
 		return false, nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp("token", "cas_put", strings.TrimSpace(token.Username)+"|"+strings.TrimSpace(token.Provider), started, opErr)
+	}()
 	enc, err := s.encrypt(ctx, token)
 	if err != nil {
+		opErr = err
 		return false, err
 	}
 	db, err := s.db()
 	if err != nil {
+		opErr = err
 		return false, err
 	}
 	dialect, err := s.dbDialect()
 	if err != nil {
+		opErr = err
 		return false, err
 	}
 
@@ -399,10 +489,12 @@ func (s *TokenStoreDAO) CASPut(ctx context.Context, token *OAuthToken, expectedV
 	}
 	res, err := db.ExecContext(ctx, query, enc, token.Username, token.Provider, expectedVersion, owner)
 	if err != nil {
+		opErr = err
 		return false, fmt.Errorf("tokenstore: CAS put: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
+		opErr = err
 		return false, err
 	}
 	return n == 1, nil
