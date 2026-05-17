@@ -82,6 +82,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response.WorkspaceRoot)
 	assert.Equal(t, "0.0.0", response.WorkspaceVersion)
+	assert.NotEmpty(t, response.MetadataVersion)
 	assert.Equal(t, "chatter", response.DefaultAgent)
 	assert.Equal(t, "openai_gpt4o_mini", response.DefaultModel)
 	assert.Equal(t, "openai_text", response.DefaultEmbedder)
@@ -135,7 +136,39 @@ func TestMetadataHandler_WorkspaceVersionFromRootFile(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, tempRoot, response.WorkspaceRoot)
 	assert.Equal(t, "1.2.3", response.WorkspaceVersion)
+	assert.NotEmpty(t, response.MetadataVersion)
 	assert.Equal(t, "test-version", response.Version)
+}
+
+func TestMetadataHandler_MetadataVersionChangesWithPayload(t *testing.T) {
+	store := &metadataTestStore{items: map[string]map[string][]byte{}}
+
+	left := NewMetadataHandler(&config.Defaults{
+		Agent: "steward",
+		Model: "openai_gpt-5_4",
+	}, store, "test-version")
+	right := NewMetadataHandler(&config.Defaults{
+		Agent: "steward",
+		Model: "openai_gpt-5-mini",
+	}, store, "test-version")
+
+	run := func(handler *MetadataHandler) MetadataResponse {
+		mux := http.NewServeMux()
+		handler.Register(mux)
+		req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var response MetadataResponse
+		err := json.Unmarshal(rec.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, response.MetadataVersion)
+		return response
+	}
+
+	leftResp := run(left)
+	rightResp := run(right)
+	assert.NotEqual(t, leftResp.MetadataVersion, rightResp.MetadataVersion)
 }
 
 func TestMetadataHandler_DescriptorInfos(t *testing.T) {

@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
-	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
@@ -107,33 +105,15 @@ func TestAuthorizeDirectAction_UsesIntakeToolItemsAndBundles(t *testing.T) {
 	}))
 }
 
-func TestConversationMetadata_RoundTripsWorkspace(t *testing.T) {
-	meta := ConversationMetadata{
-		Workspace: &WorkspaceWindowMetadata{
-			WindowID:     "order_123",
-			WindowKey:    "order",
-			WindowTitle:  "Order Summary",
-			Presentation: "hosted",
-			Region:       "chat.top",
-			ParentKey:    "chat/new",
-			InTab:        true,
-			Parameters: map[string]interface{}{
-				"AdOrderId": []interface{}{2656980},
-			},
-		},
-	}
-	data, err := json.Marshal(meta)
-	require.NoError(t, err)
+func TestConversationMetadata_PreservesUnknownWorkspaceKeysInExtra(t *testing.T) {
+	raw := `{"workspace":{"windowId":"order_123","windowKey":"order"},"workspaceState":{"selectedWindowId":"order_123","windows":[{"windowId":"order_123","windowKey":"order"}]}}`
 	var decoded ConversationMetadata
-	require.NoError(t, json.Unmarshal(data, &decoded))
-	require.NotNil(t, decoded.Workspace)
-	require.Equal(t, "order_123", decoded.Workspace.WindowID)
-	require.Equal(t, "order", decoded.Workspace.WindowKey)
-	require.Equal(t, "Order Summary", decoded.Workspace.WindowTitle)
-	require.Equal(t, "hosted", decoded.Workspace.Presentation)
-	require.Equal(t, "chat.top", decoded.Workspace.Region)
-	require.Equal(t, "chat/new", decoded.Workspace.ParentKey)
-	require.True(t, decoded.Workspace.InTab)
+	require.NoError(t, json.Unmarshal([]byte(raw), &decoded))
+	require.Contains(t, decoded.Extra, "workspace")
+	require.Contains(t, decoded.Extra, "workspaceState")
+	encoded, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	require.JSONEq(t, raw, string(encoded))
 }
 
 func TestNormalizeInterfaceMap(t *testing.T) {
@@ -148,86 +128,4 @@ func TestNormalizeInterfaceMap(t *testing.T) {
 	require.Equal(t, map[string]interface{}{
 		"AdOrderId": []interface{}{float64(2656980)},
 	}, got)
-}
-
-type recordingConversationClient struct {
-	conv      *apiconv.Conversation
-	lastPatch *apiconv.MutableConversation
-}
-
-func (c *recordingConversationClient) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
-	return c.conv, nil
-}
-func (c *recordingConversationClient) GetConversations(ctx context.Context, input *apiconv.Input) ([]*apiconv.Conversation, error) {
-	return nil, nil
-}
-func (c *recordingConversationClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
-	c.lastPatch = conversations
-	if c.conv == nil {
-		now := time.Now()
-		c.conv = &apiconv.Conversation{Id: conversations.Id, CreatedAt: now, UpdatedAt: &now, LastActivity: &now}
-	}
-	if conversations.Has != nil && conversations.Has.Metadata {
-		c.conv.Metadata = conversations.Metadata
-	}
-	return nil
-}
-func (c *recordingConversationClient) GetPayload(ctx context.Context, id string) (*apiconv.Payload, error) {
-	return nil, nil
-}
-func (c *recordingConversationClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
-	return nil
-}
-func (c *recordingConversationClient) PatchMessage(ctx context.Context, message *apiconv.MutableMessage) error {
-	return nil
-}
-func (c *recordingConversationClient) GetMessage(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Message, error) {
-	return nil, nil
-}
-func (c *recordingConversationClient) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string) (*apiconv.Message, error) {
-	return nil, nil
-}
-func (c *recordingConversationClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
-	return nil
-}
-func (c *recordingConversationClient) PatchToolCall(ctx context.Context, toolCall *apiconv.MutableToolCall) error {
-	return nil
-}
-func (c *recordingConversationClient) PatchTurn(ctx context.Context, turn *apiconv.MutableTurn) error {
-	return nil
-}
-func (c *recordingConversationClient) DeleteConversation(ctx context.Context, id string) error {
-	return nil
-}
-func (c *recordingConversationClient) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
-	return nil
-}
-
-func TestPersistDirectActionWorkspaceState_PatchesConversationMetadata(t *testing.T) {
-	now := time.Now()
-	client := &recordingConversationClient{
-		conv: &apiconv.Conversation{
-			Id:           "conv-1",
-			CreatedAt:    now,
-			UpdatedAt:    &now,
-			LastActivity: &now,
-		},
-	}
-	svc := &Service{conversation: client}
-	err := svc.persistDirectActionWorkspaceState(context.Background(), &QueryInput{ConversationID: "conv-1"}, "ui/view:open", map[string]interface{}{
-		"id": "order",
-		"parameters": struct {
-			AdOrderID []int `json:"AdOrderId"`
-		}{AdOrderID: []int{2656980}},
-	}, `{"windowId":"order_1527048368","windowKey":"order"}`)
-	require.NoError(t, err)
-	require.NotNil(t, client.lastPatch)
-	require.NotNil(t, client.lastPatch.Metadata)
-	var meta ConversationMetadata
-	require.NoError(t, json.Unmarshal([]byte(*client.lastPatch.Metadata), &meta))
-	require.NotNil(t, meta.Workspace)
-	require.Equal(t, "order_1527048368", meta.Workspace.WindowID)
-	require.Equal(t, "order", meta.Workspace.WindowKey)
-	require.Equal(t, "hosted", meta.Workspace.Presentation)
-	require.Equal(t, "chat.top", meta.Workspace.Region)
 }

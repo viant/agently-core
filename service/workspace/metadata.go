@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -20,6 +22,7 @@ import (
 type MetadataResponse struct {
 	WorkspaceRoot    string       `json:"workspaceRoot,omitempty"`
 	WorkspaceVersion string       `json:"workspaceVersion,omitempty"`
+	MetadataVersion  string       `json:"metadataVersion,omitempty"`
 	DefaultAgent     string       `json:"defaultAgent,omitempty"`
 	DefaultModel     string       `json:"defaultModel,omitempty"`
 	DefaultEmbedder  string       `json:"defaultEmbedder,omitempty"`
@@ -140,10 +143,21 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 				resp.Models = modelInfoIDs(resp.ModelInfos)
 			}
 		}
+		resp.MetadataVersion = resolveMetadataVersion(resp)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func resolveMetadataVersion(resp MetadataResponse) string {
+	resp.MetadataVersion = ""
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func resolveWorkspaceVersion(root string) string {

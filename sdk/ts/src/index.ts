@@ -114,6 +114,17 @@ export {
 
 // Conversation status helpers
 export { isLiveConversationState } from './conversationStatus';
+export {
+    conversationLifecyclePatchForStreamPhase,
+    conversationStageForStreamEvent,
+    conversationStatusForStreamEvent,
+    terminalStatusForType,
+} from './streamEventMeta';
+export type { ConversationLifecyclePatch } from './streamEventMeta';
+
+// Transcript-backed workspace restore helpers
+export { deriveHostedWorkspaceRestoreStateFromTranscriptTurns } from './workspaceRestore';
+export type { HostedWorkspaceRestoreState, WorkspaceWindowSnapshot } from './workspaceRestore';
 
 // Approval editing / callback helpers
 export {

@@ -1,0 +1,6 @@
+origin: https://github.com/anthropics/skills
+path: skills/pdf/SKILL.md
+sha: d3e046a5ae107a6cb23cfb16c219837094ab35d3
+license: see SKILL.md frontmatter — "Proprietary. LICENSE.txt has complete terms"
+fetched: 2026-04
+purpose: portability fixture; agently-core's parser must accept this verbatim.

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -153,21 +152,19 @@ func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithout
 }
 
 func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(t *testing.T) {
-	meta, err := json.Marshal(ConversationMetadata{
-		Context: map[string]interface{}{
-			"uiClientId": "client-1",
-		},
-		Workspace: &WorkspaceWindowMetadata{
-			WindowID:  "order_123",
-			WindowKey: "order",
-		},
-	})
-	require.NoError(t, err)
+	now := time.Now()
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{
-				Id:       "conv-1",
-				Metadata: strPtr(string(meta)),
+				Id: "conv-1",
+				Transcript: []*agconv.TranscriptView{
+					workspaceFollowUpFocusTurn(
+						now,
+						"turn-focus",
+						"order_2656980",
+						"order_2609393",
+					),
+				},
 			},
 		},
 	}
@@ -196,7 +193,8 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 			tc := intakesvc.FromContext(input.Context)
 			require.NotNil(t, tc)
 			require.Equal(t, "ui/window/selectTab", tc.DirectAction.ToolName)
-			require.Equal(t, "order_123", tc.DirectAction.Input["windowId"])
+			require.Equal(t, "order_2656980", tc.DirectAction.Input["windowId"])
+			require.Equal(t, "order", tc.DirectAction.Input["windowKey"])
 			require.Equal(t, testCase.tabID, tc.DirectAction.Input["tabId"])
 			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
 			require.Equal(t, testCase.assistantText, tc.DirectAction.AssistantText)
@@ -205,21 +203,18 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 }
 
 func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderControls(t *testing.T) {
-	meta, err := json.Marshal(ConversationMetadata{
-		Context: map[string]interface{}{
-			"uiClientId": "client-1",
-		},
-		Workspace: &WorkspaceWindowMetadata{
-			WindowID:  "order_123",
-			WindowKey: "order",
-		},
-	})
-	require.NoError(t, err)
+	now := time.Now()
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{
-				Id:       "conv-1",
-				Metadata: strPtr(string(meta)),
+				Id: "conv-1",
+				Transcript: []*agconv.TranscriptView{
+					workspaceFollowUpControlTurn(
+						now,
+						"turn-control",
+						"order_2656980",
+					),
+				},
 			},
 		},
 	}
@@ -252,13 +247,114 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 			tc := intakesvc.FromContext(input.Context)
 			require.NotNil(t, tc)
 			require.Equal(t, "ui/control:setValue", tc.DirectAction.ToolName)
-			require.Equal(t, "order_123", tc.DirectAction.Input["windowId"])
+			require.Equal(t, "order_2656980", tc.DirectAction.Input["windowId"])
+			require.Equal(t, "order", tc.DirectAction.Input["windowKey"])
 			require.Equal(t, testCase.controlID, tc.DirectAction.Input["controlId"])
 			require.Equal(t, "windowForm", tc.DirectAction.Input["scope"])
 			require.Equal(t, testCase.value, tc.DirectAction.Input["value"])
 			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
 			require.Equal(t, testCase.assistantText, tc.DirectAction.AssistantText)
 		})
+	}
+}
+
+func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previousWindowID string) *agconv.TranscriptView {
+	return &agconv.TranscriptView{
+		Id: turnID,
+		Message: []*agconv.MessageView{
+			{
+				Id:        "msg-user-" + turnID,
+				TurnId:    strPtr(turnID),
+				Role:      "user",
+				Type:      "text",
+				Content:   strPtr("focus on 2656980"),
+				CreatedAt: now,
+			},
+			{
+				Id:        "msg-assistant-" + turnID,
+				TurnId:    strPtr(turnID),
+				Role:      "assistant",
+				Type:      "text",
+				Content:   strPtr("Focused on ad order 2656980."),
+				CreatedAt: now.Add(time.Second),
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:        "msg-tool-list-" + turnID,
+						Type:      "tool_op",
+						Content:   strPtr(`{"clientId":"client-1","focusedWindowId":"` + previousWindowID + `","items":[{"windowId":"` + selectedWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"},{"windowId":"` + previousWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"}]}`),
+						CreatedAt: now.Add(2 * time.Second),
+						ToolName:  strPtr("ui/window:list"),
+						ToolCall: &agconv.ToolCallView{
+							ToolName:       "ui/window:list",
+							Status:         "completed",
+							RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1"}`), Compression: "none"},
+							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								InlineBody:  strPtr(`{"clientId":"client-1","focusedWindowId":"` + previousWindowID + `","items":[{"windowId":"` + selectedWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"},{"windowId":"` + previousWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"}]}`),
+								Compression: "none",
+							},
+						},
+					},
+					{
+						Id:        "msg-tool-show-" + turnID,
+						Type:      "tool_op",
+						Content:   strPtr(`{"clientId":"client-1","ok":true}`),
+						CreatedAt: now.Add(3 * time.Second),
+						ToolName:  strPtr("ui/window:show"),
+						ToolCall: &agconv.ToolCallView{
+							ToolName:       "ui/window:show",
+							Status:         "completed",
+							RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1","windowId":"` + selectedWindowID + `","windowKey":"order"}`), Compression: "none"},
+							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								InlineBody:  strPtr(`{"clientId":"client-1","ok":true}`),
+								Compression: "none",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func workspaceFollowUpControlTurn(now time.Time, turnID, selectedWindowID string) *agconv.TranscriptView {
+	return &agconv.TranscriptView{
+		Id: turnID,
+		Message: []*agconv.MessageView{
+			{
+				Id:        "msg-user-" + turnID,
+				TurnId:    strPtr(turnID),
+				Role:      "user",
+				Type:      "text",
+				Content:   strPtr("show 7d"),
+				CreatedAt: now,
+			},
+			{
+				Id:        "msg-assistant-" + turnID,
+				TurnId:    strPtr(turnID),
+				Role:      "assistant",
+				Type:      "text",
+				Content:   strPtr("Switched the open order summary period to 7D."),
+				CreatedAt: now.Add(time.Second),
+				ToolMessage: []*agconv.ToolMessageView{
+					{
+						Id:        "msg-tool-control-" + turnID,
+						Type:      "tool_op",
+						Content:   strPtr(`{"clientId":"client-1","ok":true}`),
+						CreatedAt: now.Add(2 * time.Second),
+						ToolName:  strPtr("ui/control:setValue"),
+						ToolCall: &agconv.ToolCallView{
+							ToolName:       "ui/control:setValue",
+							Status:         "completed",
+							RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1","windowId":"` + selectedWindowID + `","windowKey":"order","controlId":"periodView","scope":"windowForm","value":"7d"}`), Compression: "none"},
+							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								InlineBody:  strPtr(`{"clientId":"client-1","ok":true}`),
+								Compression: "none",
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -489,9 +585,14 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *tes
 			SuggestedProfileID: "diagnostic_baseline",
 			TemplateID:         "analytics_dashboard",
 		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open",
+			Input: map[string]interface{}{
+				"id": "order",
+			},
+		},
 		Scope: intakesvc.ScopeContext{
 			Values: map[string]string{
-				"adOrderId":                "2657966",
 				"use_exploratory_strategy": "true",
 				"approach":                 "exploratory",
 			},
@@ -536,9 +637,14 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot_LowCon
 			SuggestedProfileID: "creative_recommendation",
 			TemplateID:         "analytics_dashboard",
 		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open",
+			Input: map[string]interface{}{
+				"id": "order",
+			},
+		},
 		Scope: intakesvc.ScopeContext{
 			Values: map[string]string{
-				"adOrderId":                "2657966",
 				"use_exploratory_strategy": "true",
 				"approach":                 "exploratory",
 			},
@@ -580,6 +686,12 @@ func TestApplyTurnContext_SkipsPlannerModeForExploratoryBoundedTopN(t *testing.T
 		Prompting: intakesvc.PromptingContext{
 			SuggestedProfileID: "supply_kpi",
 			TemplateID:         "analytics_dashboard",
+		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open",
+			Input: map[string]interface{}{
+				"id": "supply-kpi-dashboard",
+			},
 		},
 		Scope: intakesvc.ScopeContext{
 			Values: map[string]string{
@@ -624,8 +736,14 @@ func TestApplyTurnContext_DoesNotEnablePlannerModeForLowConfidenceDirectAgentReq
 			Title:      "Run forecast for audience",
 			Confidence: 0.52,
 		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open",
+			Input: map[string]interface{}{
+				"id": "audience-forecast",
+			},
+		},
 		Scope: intakesvc.ScopeContext{
-			Values: map[string]string{"audience_id": "7268995"},
+			Values: map[string]string{},
 		},
 	}
 
@@ -664,10 +782,14 @@ func TestApplyTurnContext_SkipsPlannerModeForConcreteForecast_LowConfidence(t *t
 		Prompting: intakesvc.PromptingContext{
 			TemplateID: "audience_forecast_dashboard",
 		},
-		Scope: intakesvc.ScopeContext{
-			Values: map[string]string{
-				"line_id": "7272328",
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open",
+			Input: map[string]interface{}{
+				"id": "audience_forecast_dashboard",
 			},
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: map[string]string{},
 		},
 	}
 

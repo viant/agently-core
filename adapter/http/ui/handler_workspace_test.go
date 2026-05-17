@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/viant/agently-core/workspace"
@@ -172,6 +173,212 @@ parameters:
 	}
 	if _, ok := payload.Data.DataSource["order_performance_period_today"]; !ok {
 		t.Fatalf("expected merged workspace datasource")
+	}
+}
+
+func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowWithImportedSharedContent(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder.yaml"), `
+id: metricReportBuilder
+title: Metric Report Builder
+windowKey: metricReportBuilder
+namespace: Metric Report Builder
+view:
+  content:
+    $import('../../../shared/metric_report_builder.yaml')
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "shared", "metric_report_builder.yaml"), `
+kind: dashboard.reportBuilder
+id: metricsCubeBuilder
+title: Metric Report Builder
+dataSourceRef: metrics_ad_cube_report
+reportBuilder:
+  measures:
+    - id: totalSpend
+      key: totalSpend
+      label: Spend
+      paramPath: measures.totalSpend
+  dimensions:
+    - id: eventDate
+      key: eventDate
+      label: Date
+      chartAxis: true
+      default: true
+      paramPath: dimensions.eventDate
+  result:
+    defaultMode: chart
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "datasources", "metrics_ad_cube_report.yaml"), `
+id: metrics_ad_cube_report
+cardinality: collection
+autoFetch: false
+backend:
+  kind: mcp_tool
+  service: steward
+  method: MetricsAdCube
+`)
+
+	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/window/metricReportBuilder")
+	if err != nil {
+		t.Fatalf("window request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Namespace string `json:"namespace"`
+			View      struct {
+				Content struct {
+					ID            string `json:"id"`
+					Kind          string `json:"kind"`
+					DataSourceRef string `json:"dataSourceRef"`
+					Dashboard     struct {
+						ReportBuilder map[string]interface{} `json:"reportBuilder"`
+					} `json:"dashboard"`
+				} `json:"content"`
+			} `json:"view"`
+			DataSource map[string]map[string]interface{} `json:"dataSource"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", payload.Status)
+	}
+	if payload.Data.Namespace != "Metric Report Builder" {
+		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
+	}
+	if payload.Data.View.Content.ID != "metricsCubeBuilder" {
+		t.Fatalf("expected imported content id, got %q", payload.Data.View.Content.ID)
+	}
+	if payload.Data.View.Content.Kind != "dashboard.reportBuilder" {
+		t.Fatalf("expected imported report builder kind, got %q", payload.Data.View.Content.Kind)
+	}
+	if payload.Data.View.Content.DataSourceRef != "metrics_ad_cube_report" {
+		t.Fatalf("expected imported datasource ref, got %q", payload.Data.View.Content.DataSourceRef)
+	}
+	if payload.Data.View.Content.Dashboard.ReportBuilder == nil {
+		t.Fatalf("expected imported reportBuilder config")
+	}
+	measures, ok := payload.Data.View.Content.Dashboard.ReportBuilder["measures"].([]interface{})
+	if !ok || len(measures) == 0 {
+		t.Fatalf("expected reportBuilder measures, got %#v", payload.Data.View.Content.Dashboard.ReportBuilder["measures"])
+	}
+	if _, ok := payload.Data.DataSource["metrics_ad_cube_report"]; !ok {
+		t.Fatalf("expected merged workspace datasource")
+	}
+	if payload.Data.DataSource["metrics_ad_cube_report"]["autoFetch"] != false {
+		t.Fatalf("expected datasource autoFetch=false, got %#v", payload.Data.DataSource["metrics_ad_cube_report"]["autoFetch"])
+	}
+}
+
+func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowCompanionJS(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder", "main.yaml"), `
+id: metricReportBuilder
+title: Metric Report Builder
+windowKey: metricReportBuilder
+namespace: Metric Report Builder
+view:
+  content:
+    id: metricReportBuilderRoot
+    kind: dashboard.reportBuilder
+    dataSourceRef: metrics_ad_cube_report
+    dashboard:
+      reportBuilder:
+        hooks:
+          buildRequest: stewardReportBuilder.buildRequest
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder", "main.js"), `
+(() => ({
+  stewardReportBuilder: {
+    buildRequest({ request }) {
+      return {
+        ...request,
+        filters: {
+          ...(request.filters || {}),
+          hello: "world",
+        },
+      };
+    },
+  },
+}))()
+`)
+
+	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/window/metricReportBuilder")
+	if err != nil {
+		t.Fatalf("window request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Namespace string `json:"namespace"`
+			View      struct {
+				Content struct {
+					ID string `json:"id"`
+				} `json:"content"`
+			} `json:"view"`
+			Actions *struct {
+				Code string `json:"code"`
+			} `json:"actions"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", payload.Status)
+	}
+	if payload.Data.Namespace != "Metric Report Builder" {
+		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
+	}
+	if payload.Data.View.Content.ID != "metricReportBuilderRoot" {
+		t.Fatalf("expected workspace content id, got %q", payload.Data.View.Content.ID)
+	}
+	if payload.Data.Actions == nil || payload.Data.Actions.Code == "" {
+		t.Fatalf("expected companion js code to load, got %#v", payload.Data.Actions)
+	}
+	if !strings.Contains(payload.Data.Actions.Code, "hello: \"world\"") {
+		t.Fatalf("expected companion js code in actions, got %q", payload.Data.Actions.Code)
 	}
 }
 

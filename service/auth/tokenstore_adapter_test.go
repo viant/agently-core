@@ -18,6 +18,22 @@ type canonicalStoreStub struct {
 	token       *OAuthToken
 }
 
+type countingCanonicalUserService struct {
+	testUserService
+	subjectCalls  int
+	usernameCalls int
+}
+
+func (c *countingCanonicalUserService) GetBySubjectAndProvider(ctx context.Context, subject, provider string) (*User, error) {
+	c.subjectCalls++
+	return c.testUserService.GetBySubjectAndProvider(ctx, subject, provider)
+}
+
+func (c *countingCanonicalUserService) GetByUsername(ctx context.Context, username string) (*User, error) {
+	c.usernameCalls++
+	return c.testUserService.GetByUsername(ctx, username)
+}
+
 func (s *canonicalStoreStub) Get(_ context.Context, username, _ string) (*OAuthToken, error) {
 	s.getUsername = username
 	return s.token, nil
@@ -141,5 +157,41 @@ func TestTokenStoreAdapter_CanonicalizesInternalTokenStoreBridge(t *testing.T) {
 	}
 	if raw.putUsername != "user-42" {
 		t.Fatalf("Put() username = %q, want canonical user ID %q", raw.putUsername, "user-42")
+	}
+}
+
+func TestCanonicalTokenStore_CachesResolvedOwner(t *testing.T) {
+	raw := &canonicalStoreStub{
+		token: &OAuthToken{
+			Username:     "user-42",
+			Provider:     "oauth",
+			AccessToken:  "access",
+			RefreshToken: "refresh",
+			IDToken:      "id",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
+	users := &countingCanonicalUserService{
+		testUserService: testUserService{
+			userBySubjectProvider: map[string]*User{
+				"user-sub-123|oauth": {ID: "user-42", Username: "awitas"},
+			},
+		},
+	}
+	store := &canonicalTokenStore{inner: raw, users: users, ids: map[string]string{}}
+	ctx := context.Background()
+
+	if _, err := store.Get(ctx, "user-sub-123", "oauth"); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if _, _, err := store.TryAcquireRefreshLease(ctx, "user-sub-123", "oauth", "owner-1", 30*time.Second); err != nil {
+		t.Fatalf("TryAcquireRefreshLease() error = %v", err)
+	}
+	if _, err := store.CASPut(ctx, &OAuthToken{Username: "user-sub-123", Provider: "oauth"}, 1, "owner-1"); err != nil {
+		t.Fatalf("CASPut() error = %v", err)
+	}
+
+	if users.subjectCalls != 1 {
+		t.Fatalf("GetBySubjectAndProvider() calls = %d, want 1", users.subjectCalls)
 	}
 }

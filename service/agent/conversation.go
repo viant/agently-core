@@ -19,19 +19,7 @@ type ConversationMetadata struct {
 	Tools       []string                   `json:"tools,omitempty"`
 	ToolBundles []string                   `json:"toolBundles,omitempty"`
 	Context     map[string]interface{}     `json:"context,omitempty"`
-	Workspace   *WorkspaceWindowMetadata   `json:"workspace,omitempty"`
 	Extra       map[string]json.RawMessage `json:"-"`
-}
-
-type WorkspaceWindowMetadata struct {
-	WindowID     string                 `json:"windowId,omitempty"`
-	WindowKey    string                 `json:"windowKey,omitempty"`
-	WindowTitle  string                 `json:"windowTitle,omitempty"`
-	Presentation string                 `json:"presentation,omitempty"`
-	Region       string                 `json:"region,omitempty"`
-	ParentKey    string                 `json:"parentKey,omitempty"`
-	InTab        bool                   `json:"inTab,omitempty"`
-	Parameters   map[string]interface{} `json:"parameters,omitempty"`
 }
 
 func (m *ConversationMetadata) UnmarshalJSON(data []byte) error {
@@ -56,11 +44,6 @@ func (m *ConversationMetadata) UnmarshalJSON(data []byte) error {
 			var ctx map[string]interface{}
 			if err := json.Unmarshal(v, &ctx); err == nil {
 				m.Context = ctx
-			}
-		case "workspace":
-			var workspace WorkspaceWindowMetadata
-			if err := json.Unmarshal(v, &workspace); err == nil {
-				m.Workspace = &workspace
 			}
 		default:
 			m.Extra[k] = v
@@ -88,13 +71,6 @@ func (m ConversationMetadata) MarshalJSON() ([]byte, error) {
 	if len(m.Context) > 0 {
 		if b, err := json.Marshal(m.Context); err == nil {
 			out["context"] = b
-		} else {
-			return nil, err
-		}
-	}
-	if m.Workspace != nil {
-		if b, err := json.Marshal(m.Workspace); err == nil {
-			out["workspace"] = b
 		} else {
 			return nil, err
 		}

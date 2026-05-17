@@ -1,0 +1,11 @@
+id: intake-tool-agent
+name: Intake Tool Agent
+modelRef: gpt-4o
+intake:
+  enabled: true
+  model: haiku
+  tool:
+    bundles:
+      - system/exec
+    items:
+      - name: resources/read

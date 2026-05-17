@@ -11,6 +11,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const sessionStoreLoadTimeout = 5 * time.Second
+
 // Session represents an authenticated user session.
 //
 // Identity model:
@@ -85,10 +87,16 @@ type SessionStore interface {
 
 // Manager manages user sessions with an in-memory cache and optional persistent store.
 type Manager struct {
-	mu    sync.RWMutex
-	mem   map[string]*Session
-	ttl   time.Duration
-	store SessionStore // optional persistent backing store
+	mu     sync.RWMutex
+	mem    map[string]*Session
+	ttl    time.Duration
+	store  SessionStore // optional persistent backing store
+	loadMu sync.Mutex
+	loads  map[string]*sessionLoad
+}
+
+type sessionLoad struct {
+	done chan struct{}
 }
 
 // NewManager creates a session manager with the given TTL.
@@ -101,6 +109,7 @@ func NewManager(ttl time.Duration, store SessionStore) *Manager {
 		mem:   make(map[string]*Session),
 		ttl:   ttl,
 		store: store,
+		loads: make(map[string]*sessionLoad),
 	}
 }
 
@@ -119,7 +128,25 @@ func (m *Manager) Get(ctx context.Context, id string) *Session {
 	if m.store == nil {
 		return nil
 	}
-	rec, err := m.store.Get(ctx, id)
+	load, leader := m.beginSessionLoad(id)
+	if !leader {
+		<-load.done
+		m.mu.RLock()
+		s, ok = m.mem[id]
+		m.mu.RUnlock()
+		if ok {
+			if s.IsExpired() {
+				m.Delete(ctx, id)
+				return nil
+			}
+			return s
+		}
+		return nil
+	}
+	defer m.finishSessionLoad(id, load)
+	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionStoreLoadTimeout)
+	defer cancel()
+	rec, err := m.store.Get(loadCtx, id)
 	if err != nil || rec == nil {
 		return nil
 	}
@@ -132,6 +159,27 @@ func (m *Manager) Get(ctx context.Context, id string) *Session {
 	m.mem[id] = sess
 	m.mu.Unlock()
 	return sess
+}
+
+func (m *Manager) beginSessionLoad(id string) (*sessionLoad, bool) {
+	m.loadMu.Lock()
+	defer m.loadMu.Unlock()
+	if existing, ok := m.loads[id]; ok {
+		return existing, false
+	}
+	load := &sessionLoad{done: make(chan struct{})}
+	m.loads[id] = load
+	return load, true
+}
+
+func (m *Manager) finishSessionLoad(id string, load *sessionLoad) {
+	m.loadMu.Lock()
+	defer m.loadMu.Unlock()
+	current, ok := m.loads[id]
+	if ok && current == load {
+		delete(m.loads, id)
+		close(load.done)
+	}
 }
 
 // Put stores a session.

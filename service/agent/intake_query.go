@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
@@ -136,15 +139,12 @@ func (s *Service) resolveWorkspaceFollowUpDirectAction(ctx context.Context, conv
 	if conversationID == "" || query == "" {
 		return "", nil, "", false
 	}
-	conversation, err := s.conversation.GetConversation(ctx, conversationID)
-	if err != nil || conversation == nil || conversation.Metadata == nil || strings.TrimSpace(*conversation.Metadata) == "" {
+	conversation, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
+	if err != nil || conversation == nil {
 		return "", nil, "", false
 	}
-	var meta ConversationMetadata
-	if err := json.Unmarshal([]byte(strings.TrimSpace(*conversation.Metadata)), &meta); err != nil || meta.Workspace == nil {
-		return "", nil, "", false
-	}
-	if strings.TrimSpace(meta.Workspace.WindowKey) != "order" || strings.TrimSpace(meta.Workspace.WindowID) == "" {
+	state := deriveWorkspaceFollowUpStateFromTranscript(conversation.GetTranscript())
+	if state == nil || strings.TrimSpace(state.WindowID) == "" || strings.TrimSpace(state.WindowKey) != "order" {
 		return "", nil, "", false
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(query), " "))
@@ -166,11 +166,12 @@ func (s *Service) resolveWorkspaceFollowUpDirectAction(ctx context.Context, conv
 	}
 	if tabID != "" {
 		input := map[string]interface{}{
-			"windowId": strings.TrimSpace(meta.Workspace.WindowID),
-			"tabId":    tabID,
+			"windowId":  strings.TrimSpace(state.WindowID),
+			"windowKey": "order",
+			"tabId":     tabID,
 		}
-		if clientID, ok := meta.Context["uiClientId"].(string); ok && strings.TrimSpace(clientID) != "" {
-			input["clientId"] = strings.TrimSpace(clientID)
+		if strings.TrimSpace(state.ClientID) != "" {
+			input["clientId"] = strings.TrimSpace(state.ClientID)
 		}
 		return "ui/window/selectTab", input, assistantText, true
 	}
@@ -206,15 +207,202 @@ func (s *Service) resolveWorkspaceFollowUpDirectAction(ctx context.Context, conv
 		return "", nil, "", false
 	}
 	input := map[string]interface{}{
-		"windowId":  strings.TrimSpace(meta.Workspace.WindowID),
+		"windowId":  strings.TrimSpace(state.WindowID),
+		"windowKey": "order",
 		"controlId": controlID,
 		"scope":     "windowForm",
 		"value":     controlValue,
 	}
-	if clientID, ok := meta.Context["uiClientId"].(string); ok && strings.TrimSpace(clientID) != "" {
-		input["clientId"] = strings.TrimSpace(clientID)
+	if strings.TrimSpace(state.ClientID) != "" {
+		input["clientId"] = strings.TrimSpace(state.ClientID)
 	}
 	return "ui/control:setValue", input, assistantText, true
+}
+
+type workspaceFollowUpState struct {
+	WindowID  string
+	WindowKey string
+	ClientID  string
+}
+
+type transcriptToolStep struct {
+	ToolName        string
+	Status          string
+	Content         string
+	RequestPayload  *agconv.ModelCallStreamPayloadView
+	ResponsePayload *agconv.ModelCallStreamPayloadView
+	CreatedAt       time.Time
+	Sequence        int
+}
+
+func deriveWorkspaceFollowUpStateFromTranscript(transcript apiconv.Transcript) *workspaceFollowUpState {
+	if len(transcript) == 0 {
+		return nil
+	}
+	lastTurn := transcript[len(transcript)-1]
+	if lastTurn == nil {
+		return nil
+	}
+	steps := collectTranscriptToolSteps(lastTurn)
+	if len(steps) == 0 {
+		return nil
+	}
+	windowsByID := map[string]string{}
+	selectedWindowID := ""
+	clientID := ""
+	for _, step := range steps {
+		if !strings.EqualFold(strings.TrimSpace(step.Status), "completed") {
+			continue
+		}
+		toolName := normalizeWorkspaceToolName(step.ToolName)
+		switch toolName {
+		case "ui/view/open":
+			payload := firstWorkspacePayloadMap(step.Content, step.ResponsePayload)
+			indexWorkspaceWindows(payload, windowsByID)
+			if id := strings.TrimSpace(stringValue(payload["selectedWindowId"])); id != "" {
+				selectedWindowID = id
+			} else if id := strings.TrimSpace(stringValue(payload["windowId"])); id != "" {
+				selectedWindowID = id
+			}
+			if clientID == "" {
+				clientID = firstNonEmpty(
+					strings.TrimSpace(stringValue(payload["clientId"])),
+					strings.TrimSpace(stringValue(payloadBodyMap(step.RequestPayload)["clientId"])),
+				)
+			}
+		case "ui/window/list":
+			payload := firstWorkspacePayloadMap(step.Content, step.ResponsePayload)
+			indexWorkspaceWindows(payload, windowsByID)
+			if id := strings.TrimSpace(stringValue(payload["focusedWindowId"])); id != "" {
+				selectedWindowID = id
+			}
+			if clientID == "" {
+				clientID = firstNonEmpty(
+					strings.TrimSpace(stringValue(payload["clientId"])),
+					strings.TrimSpace(stringValue(payloadBodyMap(step.RequestPayload)["clientId"])),
+				)
+			}
+		case "ui/window/show", "ui/window/selecttab", "ui/control/setvalue":
+			requestPayload := payloadBodyMap(step.RequestPayload)
+			if id := strings.TrimSpace(stringValue(requestPayload["windowId"])); id != "" {
+				selectedWindowID = id
+				if key := strings.TrimSpace(stringValue(requestPayload["windowKey"])); key != "" {
+					windowsByID[id] = key
+				}
+			}
+			if clientID == "" {
+				clientID = strings.TrimSpace(stringValue(requestPayload["clientId"]))
+			}
+		}
+	}
+	selectedWindowID = strings.TrimSpace(selectedWindowID)
+	if selectedWindowID == "" {
+		return nil
+	}
+	windowKey := strings.TrimSpace(windowsByID[selectedWindowID])
+	if windowKey == "" {
+		return nil
+	}
+	return &workspaceFollowUpState{
+		WindowID:  selectedWindowID,
+		WindowKey: windowKey,
+		ClientID:  strings.TrimSpace(clientID),
+	}
+}
+
+func collectTranscriptToolSteps(turn *apiconv.Turn) []transcriptToolStep {
+	if turn == nil || len(turn.Message) == 0 {
+		return nil
+	}
+	result := make([]transcriptToolStep, 0)
+	for _, message := range turn.Message {
+		if message == nil || len(message.ToolMessage) == 0 {
+			continue
+		}
+		for _, toolMessage := range message.ToolMessage {
+			if toolMessage == nil || toolMessage.ToolCall == nil {
+				continue
+			}
+			seq := 0
+			if toolMessage.Sequence != nil {
+				seq = *toolMessage.Sequence
+			}
+			result = append(result, transcriptToolStep{
+				ToolName:        strings.TrimSpace(toolMessage.ToolCall.ToolName),
+				Status:          strings.TrimSpace(toolMessage.ToolCall.Status),
+				Content:         strings.TrimSpace(valueOrEmpty(toolMessage.Content)),
+				RequestPayload:  toolMessage.ToolCall.RequestPayload,
+				ResponsePayload: toolMessage.ToolCall.ResponsePayload,
+				CreatedAt:       toolMessage.CreatedAt,
+				Sequence:        seq,
+			})
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].Sequence < result[j].Sequence
+		}
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return result
+}
+
+func normalizeWorkspaceToolName(raw string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(raw), ":", "/"))
+}
+
+func payloadBodyMap(payload *agconv.ModelCallStreamPayloadView) map[string]interface{} {
+	if payload == nil || payload.InlineBody == nil {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(payload.Compression), "none") && strings.TrimSpace(payload.Compression) != "" {
+		return nil
+	}
+	return parseWorkspacePayload(strings.TrimSpace(*payload.InlineBody))
+}
+
+func firstWorkspacePayloadMap(content string, payload *agconv.ModelCallStreamPayloadView) map[string]interface{} {
+	if parsed := parseWorkspacePayload(strings.TrimSpace(content)); len(parsed) > 0 {
+		return parsed
+	}
+	return payloadBodyMap(payload)
+}
+
+func parseWorkspacePayload(raw string) map[string]interface{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func indexWorkspaceWindows(payload map[string]interface{}, windowsByID map[string]string) {
+	if len(payload) == 0 {
+		return
+	}
+	if items, ok := payload["items"].([]interface{}); ok {
+		for _, raw := range items {
+			entry, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			windowID := strings.TrimSpace(stringValue(entry["windowId"]))
+			windowKey := strings.TrimSpace(stringValue(entry["windowKey"]))
+			if windowID == "" || windowKey == "" {
+				continue
+			}
+			windowsByID[windowID] = windowKey
+		}
+	}
+	windowID := strings.TrimSpace(stringValue(payload["windowId"]))
+	windowKey := strings.TrimSpace(stringValue(payload["windowKey"]))
+	if windowID != "" && windowKey != "" {
+		windowsByID[windowID] = windowKey
+	}
 }
 
 func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) {
@@ -638,13 +826,7 @@ func plannerExploratoryStrategyRequested(input *QueryInput, tc *intakesvc.Contex
 	if input == nil || tc == nil || cfg == nil {
 		return false
 	}
-	if suppressPlannerForConcreteTroubleshoot(tc, cfg) {
-		return false
-	}
-	if suppressPlannerForConcreteForecast(tc, cfg) {
-		return false
-	}
-	if suppressPlannerForBoundedTopN(tc, cfg) {
+	if suppressPlannerForDeterministicDirectAction(tc) {
 		return false
 	}
 	if enabled := strings.ToLower(strings.TrimSpace(tc.Scope.Values["use_exploratory_strategy"])); enabled == "true" || enabled == "1" || enabled == "yes" {
@@ -682,81 +864,13 @@ func plannerExploratoryStrategyRequested(input *QueryInput, tc *intakesvc.Contex
 	return false
 }
 
-func suppressPlannerForConcreteTroubleshoot(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
-	if tc == nil || cfg == nil {
+func suppressPlannerForDeterministicDirectAction(tc *intakesvc.Context) bool {
+	if tc == nil {
 		return false
 	}
-	intent := strings.ToLower(strings.TrimSpace(tc.Classification.Intent))
-	if intent == "" || !strings.Contains(intent, "troubleshoot") {
+	toolName := strings.TrimSpace(tc.DirectAction.ToolName)
+	if toolName == "" {
 		return false
 	}
-	scope := tc.Scope.Values
-	if len(scope) == 0 {
-		return false
-	}
-	for _, key := range []string{"adOrderId", "ad_order_id", "order_id"} {
-		if strings.TrimSpace(scope[key]) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func suppressPlannerForBoundedTopN(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
-	if tc == nil || cfg == nil {
-		return false
-	}
-	if tc.Classification.Confidence < cfg.EffectiveConfidenceThreshold() {
-		return false
-	}
-	if !strings.EqualFold(strings.TrimSpace(tc.Prompting.SuggestedProfileID), "supply_kpi") {
-		return false
-	}
-	intent := strings.ToLower(strings.TrimSpace(tc.Classification.Intent))
-	if intent == "" {
-		return false
-	}
-	if !strings.Contains(intent, "top") && !strings.Contains(intent, "supply_kpi") {
-		return false
-	}
-	scope := tc.Scope.Values
-	if len(scope) == 0 {
-		return false
-	}
-	requestType := strings.ToLower(strings.TrimSpace(scope["request_type"]))
-	metric := strings.ToLower(strings.TrimSpace(scope[".metric"]))
-	if strings.Contains(requestType, "top") || strings.Contains(metric, "impactful_deals") || strings.Contains(metric, "deal") {
-		return true
-	}
-	return false
-}
-
-func suppressPlannerForConcreteForecast(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
-	if tc == nil || cfg == nil {
-		return false
-	}
-	intent := strings.ToLower(strings.TrimSpace(tc.Classification.Intent))
-	templateID := strings.TrimSpace(tc.Prompting.TemplateID)
-	if intent != "forecast" && !strings.Contains(intent, "forecast") &&
-		!strings.EqualFold(templateID, "audience_forecast_dashboard") {
-		return false
-	}
-	scope := tc.Scope.Values
-	if len(scope) == 0 {
-		return false
-	}
-	for _, key := range []string{
-		"line_id",
-		"lineId",
-		"audience_id",
-		"audienceId",
-		"adOrderId",
-		"ad_order_id",
-		"order_id",
-	} {
-		if strings.TrimSpace(scope[key]) != "" {
-			return true
-		}
-	}
-	return false
+	return len(tc.DirectAction.Input) > 0 || strings.TrimSpace(tc.DirectAction.InputJSON) != ""
 }
