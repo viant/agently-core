@@ -3,6 +3,7 @@ package modelcall
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -37,9 +38,81 @@ func messageText(msg llm.Message) string {
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
-func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte) {
+type streamPublishCoalescePolicy struct {
+	interval time.Duration
+	minBytes int
+}
+
+func streamPublishCoalescePolicyFor(totalBytes int) streamPublishCoalescePolicy {
+	switch {
+	case totalBytes >= streamPublishHugeAfterBytes:
+		return streamPublishCoalescePolicy{interval: 150 * time.Millisecond, minBytes: 4 * 1024}
+	case totalBytes >= streamPublishLargeAfterBytes:
+		return streamPublishCoalescePolicy{interval: 100 * time.Millisecond, minBytes: 1024}
+	case totalBytes >= streamPublishMediumAfterBytes:
+		return streamPublishCoalescePolicy{interval: 75 * time.Millisecond, minBytes: 512}
+	default:
+		return streamPublishCoalescePolicy{interval: streamPublishCoalesceInterval, minBytes: streamPublishCoalesceMinBytes}
+	}
+}
+
+func (o *recorderObserver) publishStreamDelta(ctx context.Context, data []byte, totalBytes int) {
+	if len(data) == 0 || looksLikeElicitationDelta(data) {
+		return
+	}
+	if _, ok := StreamPublisherFromContext(ctx); !ok {
+		return
+	}
+	policy := streamPublishCoalescePolicyFor(totalBytes)
+	o.streamPublishMu.Lock()
+	o.streamPublishBuffer.Write(data)
+	if o.streamPublishBuffer.Len() >= policy.minBytes {
+		payload := o.drainStreamPublishBufferLocked(true)
+		o.streamPublishMu.Unlock()
+		o.publishStreamDeltaNow(ctx, payload)
+		return
+	}
+	if o.streamPublishTimer == nil {
+		// Keep the UI live while avoiding one browser render per tiny provider chunk.
+		o.streamPublishTimer = time.AfterFunc(policy.interval, func() {
+			o.flushPendingStreamDelta(ctx)
+		})
+	}
+	o.streamPublishMu.Unlock()
+}
+
+func (o *recorderObserver) flushPendingStreamDelta(ctx context.Context) {
+	o.streamPublishMu.Lock()
+	payload := o.drainStreamPublishBufferLocked(true)
+	o.streamPublishMu.Unlock()
+	o.publishStreamDeltaNow(ctx, payload)
+}
+
+func (o *recorderObserver) resetStreamPublishBuffer() {
+	o.streamPublishMu.Lock()
+	defer o.streamPublishMu.Unlock()
+	o.drainStreamPublishBufferLocked(true)
+}
+
+func (o *recorderObserver) drainStreamPublishBufferLocked(stopTimer bool) []byte {
+	if stopTimer && o.streamPublishTimer != nil {
+		o.streamPublishTimer.Stop()
+		o.streamPublishTimer = nil
+	}
+	if o.streamPublishBuffer.Len() == 0 {
+		return nil
+	}
+	payload := []byte(o.streamPublishBuffer.String())
+	o.streamPublishBuffer.Reset()
+	return payload
+}
+
+func (o *recorderObserver) publishStreamDeltaNow(ctx context.Context, data []byte) {
+	if len(data) == 0 {
+		return
+	}
 	pub, ok := StreamPublisherFromContext(ctx)
-	if !ok || looksLikeElicitationDelta(data) {
+	if !ok {
 		return
 	}
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
