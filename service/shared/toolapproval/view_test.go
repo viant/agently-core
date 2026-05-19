@@ -97,3 +97,85 @@ func TestApplyEdits(t *testing.T) {
 		assert.EqualValues(t, map[string]interface{}{"id": "r2", "label": "Record 2"}, args["record"])
 	})
 }
+
+func TestApplyReview_GroupRows(t *testing.T) {
+	args := map[string]interface{}{
+		"rows": []interface{}{
+			map[string]interface{}{
+				"publisher_id": 37,
+				"site_id":      3945613211,
+				"location":     "37/3945613211",
+				"audience_id":  7301206,
+				"relationship": "target",
+				"selected":     true,
+			},
+			map[string]interface{}{
+				"publisher_id": 48,
+				"site_id":      3004169891,
+				"location":     "48/3004169891",
+				"audience_id":  7301206,
+				"relationship": "target",
+				"selected":     true,
+			},
+			map[string]interface{}{
+				"publisher_id": 509,
+				"site_id":      3966455595,
+				"location":     "509/3966455595",
+				"audience_id":  7301206,
+				"relationship": "exclusion",
+				"selected":     true,
+			},
+		},
+		"intent": "submit_target",
+	}
+	review := &llm.ApprovalReviewConfig{
+		XForm: map[string]interface{}{
+			"type":            "group_rows",
+			"rowsField":       "rows",
+			"selectionField":  "selected",
+			"groupBy":         "relationship",
+			"valueField":      "location",
+			"audienceIdField": "audience_id",
+			"feature":         "publisher",
+			"writePath":       "recommendation",
+			"intentField":     "intent",
+			"intentGroupMap": map[string]interface{}{
+				"submit_target":    "target",
+				"submit_exclusion": "exclusion",
+			},
+			"groups": map[string]interface{}{
+				"target": map[string]interface{}{
+					"mode":              "ADD",
+					"selectorDirection": "INCLUDE",
+					"targetField":       "target",
+				},
+				"exclusion": map[string]interface{}{
+					"mode":              "EXCLUDE",
+					"selectorDirection": "EXCLUDE",
+					"targetField":       "exclusion",
+				},
+			},
+		},
+	}
+
+	err := ApplyReview(args, review, args)
+	assert.NoError(t, err)
+	assert.NotContains(t, args, "rows")
+	assert.NotContains(t, args, "intent")
+	assert.EqualValues(t, map[string]interface{}{
+		"audience_id":        7301206,
+		"mode":               "ADD",
+		"selector_direction": "INCLUDE",
+		"target_field":       "target",
+		"proposed_value": map[string]interface{}{
+			"target": map[string]interface{}{
+				"clauses": []interface{}{
+					map[string]interface{}{
+						"feature": "publisher",
+						"values":  []interface{}{"37/3945613211", "48/3004169891"},
+					},
+				},
+			},
+		},
+	}, args["recommendation"])
+}

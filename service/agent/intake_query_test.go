@@ -309,6 +309,57 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 	}
 }
 
+func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmpty(t *testing.T) {
+	s := &Service{}
+	input := &QueryInput{
+		Query: "Recommend sites for audience 7301206, including candidate additions and exclusions",
+		Agent: &agentmdl.Agent{
+			Intake: agentmdl.Intake{
+				Enabled: true,
+				Scope: []string{
+					agentmdl.IntakeScopeIntent,
+					agentmdl.IntakeScopeContext,
+					agentmdl.IntakeScopeProfile,
+					agentmdl.IntakeScopeTools,
+					agentmdl.IntakeScopeTemplate,
+				},
+				ActivationRules: []agentmdl.ActivationRule{
+					{
+						ID: "site_list_recommendation_candidates",
+						Match: agentmdl.ActivationMatch{
+							Patterns: []string{
+								`(?i)^recommend\s+sites?\s+for\s+audience\s+(\d+)(?:\b.*)?$`,
+							},
+						},
+						Classification: agentmdl.ActivationClassification{Intent: "recommendation"},
+						Prompting: agentmdl.ActivationPrompting{
+							SuggestedProfileID: "site_list_recommendation",
+						},
+						Scope: agentmdl.ActivationScope{
+							Values: map[string]string{
+								"audienceId":  "$1",
+								"requestType": "recommend_sites_with_candidates_and_exclusions",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	s.maybeRunIntakeSidecar(context.Background(), input)
+
+	tc := intakesvc.FromContext(input.Context)
+	require.NotNil(t, tc)
+	require.Equal(t, "recommendation", tc.Classification.Intent)
+	require.Equal(t, "site_list_recommendation", tc.Prompting.SuggestedProfileID)
+	require.Empty(t, tc.Prompting.TemplateID, "site recommendation activation must not preselect a planner template")
+	require.Equal(t, "7301206", tc.Scope.Values["audienceId"])
+	require.Equal(t, "recommend_sites_with_candidates_and_exclusions", tc.Scope.Values["requestType"])
+	require.Equal(t, "site_list_recommendation", input.PromptProfileId)
+	require.Empty(t, input.TemplateId, "applyTurnContext must keep template empty for site recommendation activation")
+}
+
 func testOrderFollowUpRules() []agentmdl.ActivationRule {
 	return []agentmdl.ActivationRule{
 		{

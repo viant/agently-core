@@ -74,10 +74,11 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 
 func buildApprovalRequestedSchema(toolName string, view toolapproval.View, cfg *llm.ApprovalConfig, args map[string]interface{}, acceptLabel, rejectLabel, cancelLabel string) mcpschema.ElicitRequestParamsRequestedSchema {
 	if cfg != nil && cfg.Review != nil && len(cfg.Review.RequestedSchema) > 0 {
-		properties := cloneApprovalSchemaMap(cfg.Review.RequestedSchema)
-		applyApprovalReviewSeeds(properties, cfg.Review.Seeds, args)
+		schema := cloneApprovalSchemaMap(cfg.Review.RequestedSchema)
+		applyApprovalReviewSeeds(schema, cfg.Review.Seeds, args)
+		properties := ensureApprovalSchemaProperties(schema)
 		injectApprovalMeta(properties, map[string]interface{}{
-			"type":        "tool_review",
+			"type":        "tool_approval",
 			"toolName":    toolName,
 			"title":       view.Title,
 			"message":     view.Message,
@@ -85,8 +86,8 @@ func buildApprovalRequestedSchema(toolName string, view toolapproval.View, cfg *
 			"rejectLabel": rejectLabel,
 			"cancelLabel": cancelLabel,
 			"review":      cfg.Review,
-		}, toolName, view.Title, acceptLabel, rejectLabel, cancelLabel, "tool_review")
-		raw, _ := json.Marshal(properties)
+		}, toolName, view.Title, acceptLabel, rejectLabel, cancelLabel, "tool_approval")
+		raw, _ := json.Marshal(schema)
 		var reqSchema mcpschema.ElicitRequestParamsRequestedSchema
 		if err := json.Unmarshal(raw, &reqSchema); err == nil {
 			if strings.TrimSpace(reqSchema.Type) == "" {
@@ -145,6 +146,18 @@ func cloneApprovalSchemaMap(src map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return out
+}
+
+func ensureApprovalSchemaProperties(schema map[string]interface{}) map[string]interface{} {
+	if len(schema) == 0 {
+		return map[string]interface{}{}
+	}
+	if existing, ok := schema["properties"].(map[string]interface{}); ok && existing != nil {
+		return existing
+	}
+	properties := map[string]interface{}{}
+	schema["properties"] = properties
+	return properties
 }
 
 func applyApprovalReviewSeeds(schema map[string]interface{}, seeds []*llm.ApprovalReviewSeed, args map[string]interface{}) {
