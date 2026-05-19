@@ -211,6 +211,33 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			expectNames: []string{canon("system/os:getEnv")},
 		},
 		{
+			name: "explicit_tools_allowed_with_runtime_bundles_unions_surface_and_preserves_bundle_metadata",
+			query: &QueryInput{
+				ToolsAllowed: []string{"system/os:getEnv"},
+				ToolBundles:  []string{"system"},
+				Agent:        &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"system"}}},
+			},
+			bundles: []*toolbundle.Bundle{
+				{
+					ID: "system",
+					Match: []llm.Tool{
+						{
+							Name: "system/os:getEnv",
+							Approval: &llm.ApprovalConfig{
+								Mode: llm.ApprovalModePrompt,
+							},
+						},
+						{Name: "system/exec:execute"},
+					},
+				},
+			},
+			defs: []llm.ToolDefinition{
+				{Name: "system/exec:execute"},
+				{Name: "system/os:getEnv"},
+			},
+			expectNames: []string{canon("system/exec:execute"), canon("system/os:getEnv")},
+		},
+		{
 			name: "analyst_bundle_matches_colon_registry_names",
 			query: &QueryInput{
 				Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"analyst-agent"}}},
@@ -310,7 +337,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 					return tc.bundles, nil
 				},
 			}
-			ctx, _ := withWarnings(context.Background())
+			ctx, _ := withWarnings(toolapprovalqueue.WithState(context.Background()))
 			actual, err := svc.resolveTools(ctx, tc.query)
 			assert.EqualValues(t, nil, err)
 			var got []string
@@ -320,6 +347,12 @@ func TestResolveTools_WithBundles(t *testing.T) {
 			sort.Strings(got)
 			sort.Strings(tc.expectNames)
 			assert.EqualValues(t, tc.expectNames, got)
+			if tc.name == "explicit_tools_allowed_with_runtime_bundles_unions_surface_and_preserves_bundle_metadata" {
+				cfg, ok := toolapprovalqueue.ConfigFor(ctx, "system/os:getEnv")
+				require.True(t, ok)
+				require.NotNil(t, cfg)
+				require.True(t, cfg.IsPrompt())
+			}
 		})
 	}
 }
