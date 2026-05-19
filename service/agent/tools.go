@@ -96,8 +96,11 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 		return agenttool.Selection{}, nil
 	}
 	selections := agenttool.Selections{
-		Agent:   agenttool.FromAgent(qi.Agent),
-		Runtime: agenttool.Selection{Bundles: append([]string(nil), qi.ToolBundles...)},
+		Agent: agenttool.FromAgent(qi.Agent),
+		Runtime: agenttool.Selection{
+			Bundles: append([]string(nil), qi.ToolBundles...),
+			Tools:   append([]string(nil), qi.ToolsAllowed...),
+		},
 	}
 	profileDef, err := s.selectedPromptProfile(ctx, qi)
 	if err != nil {
