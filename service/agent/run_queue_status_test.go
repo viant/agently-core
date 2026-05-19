@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -9,8 +10,10 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	cancelstore "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/genai/llm"
 	memconv "github.com/viant/agently-core/internal/service/conversation/memory"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
+	queuewrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -305,6 +308,109 @@ func TestService_TurnAwaitingUserAction(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, waiting)
+}
+
+func TestService_TurnAwaitingUserAction_DetachedQueueDoesNotBlock(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	svc := &Service{conversation: client}
+
+	conv := apiconv.NewConversation()
+	conv.SetId("c-detach")
+	require.NoError(t, client.PatchConversations(ctx, conv))
+
+	turn := apiconv.NewTurn()
+	turn.SetId("t-detach")
+	turn.SetConversationID("c-detach")
+	turn.SetStatus("queued")
+	require.NoError(t, client.PatchTurn(ctx, turn))
+
+	userMsg := apiconv.NewMessage()
+	userMsg.SetId("m-detach-user")
+	userMsg.SetConversationID("c-detach")
+	userMsg.SetTurnID("t-detach")
+	userMsg.SetRole("user")
+	userMsg.SetType("task")
+	userMsg.SetContent("queue it")
+	require.NoError(t, client.PatchMessage(ctx, userMsg))
+
+	toolMsg := apiconv.NewMessage()
+	toolMsg.SetId("m-detach-tool")
+	toolMsg.SetConversationID("c-detach")
+	toolMsg.SetTurnID("t-detach")
+	toolMsg.SetRole("tool")
+	toolMsg.SetType("tool_op")
+	toolMsg.SetToolName("steward/RecommendationPatch")
+	toolMsg.SetStatus("queued")
+	toolMsg.SetContent("queued for user approval")
+	require.NoError(t, client.PatchMessage(ctx, toolMsg))
+
+	meta, err := json.Marshal(map[string]interface{}{"queueBehavior": llm.ApprovalQueueBehaviorDetach})
+	require.NoError(t, err)
+	queue := &queuewrite.ToolApprovalQueue{}
+	queue.SetId("q-detach")
+	queue.SetUserId("u1")
+	queue.SetConversationId("c-detach")
+	queue.SetTurnId("t-detach")
+	queue.SetToolName("steward/RecommendationPatch")
+	queue.SetArguments([]byte(`{}`))
+	queue.SetMetadata(meta)
+	queue.SetStatus("pending")
+	require.NoError(t, client.PatchToolApprovalQueue(ctx, queue))
+
+	waiting, err := svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-detach",
+		TurnID:         "t-detach",
+	})
+	require.NoError(t, err)
+	require.False(t, waiting)
+}
+
+func TestService_TurnAwaitingUserAction_WaitQueueStillBlocks(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	svc := &Service{conversation: client}
+
+	conv := apiconv.NewConversation()
+	conv.SetId("c-wait")
+	require.NoError(t, client.PatchConversations(ctx, conv))
+
+	turn := apiconv.NewTurn()
+	turn.SetId("t-wait")
+	turn.SetConversationID("c-wait")
+	turn.SetStatus("queued")
+	require.NoError(t, client.PatchTurn(ctx, turn))
+
+	toolMsg := apiconv.NewMessage()
+	toolMsg.SetId("m-wait-tool")
+	toolMsg.SetConversationID("c-wait")
+	toolMsg.SetTurnID("t-wait")
+	toolMsg.SetRole("tool")
+	toolMsg.SetType("tool_op")
+	toolMsg.SetToolName("steward/RecommendationPatch")
+	toolMsg.SetStatus("queued")
+	toolMsg.SetContent("queued for user approval")
+	require.NoError(t, client.PatchMessage(ctx, toolMsg))
+
+	meta, err := json.Marshal(map[string]interface{}{"queueBehavior": llm.ApprovalQueueBehaviorWait})
+	require.NoError(t, err)
+	queue := &queuewrite.ToolApprovalQueue{}
+	queue.SetId("q-wait")
+	queue.SetUserId("u1")
+	queue.SetConversationId("c-wait")
+	queue.SetTurnId("t-wait")
+	queue.SetToolName("steward/RecommendationPatch")
+	queue.SetArguments([]byte(`{}`))
+	queue.SetMetadata(meta)
+	queue.SetStatus("pending")
+	require.NoError(t, client.PatchToolApprovalQueue(ctx, queue))
+
+	waiting, err := svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-wait",
+		TurnID:         "t-wait",
+	})
+	require.NoError(t, err)
+	require.True(t, waiting)
 }
 
 func TestService_TurnAwaitingUserAction_UsesDataService(t *testing.T) {

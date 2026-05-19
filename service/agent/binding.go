@@ -124,6 +124,10 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		logx.Infof("conversation", "agent.BuildBinding applyActiveSkillToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
 		return nil, err
 	}
+	if err := s.reapplyPromptApprovalReviewToolSurface(ctx, input, b); err != nil {
+		logx.Infof("conversation", "agent.BuildBinding reapplyPromptApprovalReviewToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
+		return nil, err
+	}
 
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := resolveToolCallExposure(input)

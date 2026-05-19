@@ -17,6 +17,13 @@ const (
 	ApprovalModePrompt ApprovalMode = "prompt"
 )
 
+type ApprovalQueueBehavior string
+
+const (
+	ApprovalQueueBehaviorWait   ApprovalQueueBehavior = "wait"
+	ApprovalQueueBehaviorDetach ApprovalQueueBehavior = "detach"
+)
+
 // ApprovalPrompt configures inline prompt-mode labels.
 type ApprovalPrompt struct {
 	Message     string `json:"message,omitempty" yaml:"message,omitempty"`
@@ -88,6 +95,7 @@ type ApprovalConfig struct {
 	Prompt             *ApprovalPrompt       `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	UI                 *ApprovalUIBinding    `json:"ui,omitempty" yaml:"ui,omitempty"`
 	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
+	QueueBehavior      ApprovalQueueBehavior `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
@@ -106,6 +114,23 @@ func (a *ApprovalConfig) IsPrompt() bool {
 		return false
 	}
 	return a.Mode == ApprovalModePrompt
+}
+
+func (a *ApprovalConfig) QueueDetaches() bool {
+	if a == nil {
+		return false
+	}
+	return a.EffectiveQueueBehavior() == ApprovalQueueBehaviorDetach
+}
+
+func (a *ApprovalConfig) EffectiveQueueBehavior() ApprovalQueueBehavior {
+	if a == nil || !a.IsQueue() {
+		return ""
+	}
+	if a.QueueBehavior == "" {
+		return ApprovalQueueBehaviorDetach
+	}
+	return a.QueueBehavior
 }
 
 // EffectiveTitleSelector returns the title selector from UI binding or the top-level field.

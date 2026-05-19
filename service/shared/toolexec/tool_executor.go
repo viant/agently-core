@@ -583,6 +583,9 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 				out.Error = err.Error()
 				return out, "", err
 			}
+			if cfg.QueueDetaches() {
+				return out, msg, nil
+			}
 			return out, msg, errToolQueued
 		}
 		if cfg.IsPrompt() {
@@ -792,10 +795,12 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	cfg, _ := toolapprovalqueue.ConfigFor(ctx, step.Name)
 	view := toolapproval.BuildView(step.Name, step.Args, cfg)
 	metadata, _ := json.Marshal(map[string]interface{}{
-		"opId":       step.ID,
-		"responseId": step.ResponseID,
-		"turnId":     turn.TurnID,
-		"approval":   view,
+		"opId":          step.ID,
+		"responseId":    step.ResponseID,
+		"turnId":        turn.TurnID,
+		"approval":      view,
+		"review":        cfg.Review,
+		"queueBehavior": cfg.EffectiveQueueBehavior(),
 	})
 
 	rec := &queuew.ToolApprovalQueue{Has: &queuew.ToolApprovalQueueHas{}}
