@@ -31,6 +31,14 @@ func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	return nil
 }
 
+func clearDirectActionInContext(ctx map[string]any) {
+	tc := intakesvc.FromContext(ctx)
+	if tc == nil {
+		return
+	}
+	tc.DirectAction = intakesvc.DirectActionContext{}
+}
+
 func directActionSelectionFromIntake(cfg *agentmdl.Intake) agenttool.Selection {
 	if cfg == nil {
 		return agenttool.Selection{}
@@ -101,10 +109,14 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 		return false, nil
 	}
 	if err := validateDirectAction(action); err != nil {
-		return true, err
+		logx.Warnf("conversation", "agent.Query directAction ignored convo=%q turn_id=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), err)
+		clearDirectActionInContext(input.Context)
+		return false, nil
 	}
 	if err := s.authorizeDirectAction(ctx, input, action); err != nil {
-		return true, err
+		logx.Warnf("conversation", "agent.Query directAction unauthorized convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(action.ToolName), err)
+		clearDirectActionInContext(input.Context)
+		return false, nil
 	}
 	toolName := strings.TrimSpace(action.ToolName)
 	logx.Infof("conversation", "agent.Query directAction start convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)

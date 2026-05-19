@@ -158,3 +158,33 @@ func TestAnnotateDirectActionExecution(t *testing.T) {
 	require.Equal(t, true, input.Context["intake.directActionExecuted"])
 	require.Equal(t, "ui/view:open", input.Context["intake.directActionTool"])
 }
+
+func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		MessageID:      "turn-1",
+		Context: map[string]any{
+			intakesvc.ContextKey: &intakesvc.Context{
+				Prompting: intakesvc.PromptingContext{
+					SuggestedProfileID: "workspace_ui",
+				},
+				DirectAction: intakesvc.DirectActionContext{
+					ToolName:      "ui/view:open",
+					InputJSON:     "",
+					AssistantText: "Opening Recommendation Review window.",
+				},
+			},
+		},
+	}
+	output := &QueryOutput{}
+
+	handled, err := svc.maybeRunDirectAction(context.Background(), input, output)
+	require.NoError(t, err)
+	require.False(t, handled)
+
+	tc := intakesvc.FromContext(input.Context)
+	require.NotNil(t, tc)
+	require.Empty(t, tc.DirectAction.ToolName)
+	require.Equal(t, "workspace_ui", tc.Prompting.SuggestedProfileID)
+}
