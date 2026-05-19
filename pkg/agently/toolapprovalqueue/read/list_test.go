@@ -42,7 +42,7 @@ func TestQueueRowsRead_SQLite(t *testing.T) {
 			expectIDs: []string{"q1"},
 		},
 		{
-			name: "orders by created_at then id",
+			name: "orders newest first by created_at then id",
 			seed: func(t *testing.T, db *sql.DB) {
 				t.Helper()
 				seedUser(t, db, "u1")
@@ -57,7 +57,7 @@ func TestQueueRowsRead_SQLite(t *testing.T) {
 				UserId: "u1",
 				Has:    &QueueRowsInputHas{UserId: true},
 			},
-			expectIDs: []string{"q1", "q2"},
+			expectIDs: []string{"q2", "q1"},
 		},
 	}
 
