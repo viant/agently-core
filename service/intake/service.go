@@ -523,7 +523,7 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 			"type": []string{"object", "null"},
 			"properties": map[string]interface{}{
 				"toolName":      map[string]interface{}{"type": "string"},
-				"inputJson":     map[string]interface{}{"type": "string"},
+				"inputJson":     map[string]interface{}{"type": "string", "minLength": 2},
 				"assistantText": map[string]interface{}{"type": "string"},
 			},
 			"required":             []string{"toolName", "inputJson", "assistantText"},
@@ -699,6 +699,31 @@ type contextDirectActionWire struct {
 	AssistantText string                 `json:"assistantText,omitempty"`
 }
 
+func normalizeDirectActionWire(wire *contextDirectActionWire) DirectActionContext {
+	if wire == nil {
+		return DirectActionContext{}
+	}
+	result := DirectActionContext{
+		ToolName:      strings.TrimSpace(wire.ToolName),
+		Input:         wire.Input,
+		InputJSON:     strings.TrimSpace(wire.InputJSON),
+		AssistantText: strings.TrimSpace(wire.AssistantText),
+	}
+	if result.ToolName == "" || result.AssistantText == "" {
+		return DirectActionContext{}
+	}
+	if len(result.Input) == 0 && result.InputJSON != "" {
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(result.InputJSON), &parsed); err == nil {
+			result.Input = parsed
+		}
+	}
+	if len(result.Input) == 0 {
+		return DirectActionContext{}
+	}
+	return result
+}
+
 type contextRoutingWire struct {
 	SelectedAgentID string `json:"selectedAgentId,omitempty"`
 	Mode            string `json:"mode,omitempty"`
@@ -755,18 +780,7 @@ func unmarshalContext(data []byte, tc *Context) error {
 		tc.Prompting.TemplateID = wire.TemplateId
 	}
 
-	if wire.DirectAction != nil {
-		tc.DirectAction.ToolName = wire.DirectAction.ToolName
-		tc.DirectAction.Input = wire.DirectAction.Input
-		tc.DirectAction.InputJSON = wire.DirectAction.InputJSON
-		tc.DirectAction.AssistantText = wire.DirectAction.AssistantText
-		if len(tc.DirectAction.Input) == 0 && strings.TrimSpace(tc.DirectAction.InputJSON) != "" {
-			var parsed map[string]interface{}
-			if err := json.Unmarshal([]byte(tc.DirectAction.InputJSON), &parsed); err == nil {
-				tc.DirectAction.Input = parsed
-			}
-		}
-	}
+	tc.DirectAction = normalizeDirectActionWire(wire.DirectAction)
 
 	if wire.Routing != nil {
 		tc.Routing.SelectedAgentID = wire.Routing.SelectedAgentID

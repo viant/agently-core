@@ -40,6 +40,16 @@ func TestParseOutput_DirectAction(t *testing.T) {
 	assert.Equal(t, "Opened the order summary window.", tc.DirectAction.AssistantText)
 }
 
+func TestParseOutput_DropsMalformedDirectAction(t *testing.T) {
+	raw := `{"classification":{"title":"Open Recommendation Review","intent":"open_recommendations","confidence":0.56},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"recommendation_review_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"","assistantText":"Opening the Recommendation Review workspace."}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Empty(t, tc.DirectAction.ToolName)
+	assert.Nil(t, tc.DirectAction.Input)
+	assert.Equal(t, "workspace_ui", tc.Prompting.SuggestedProfileID)
+	assert.Equal(t, "recommendation_review_dashboard", tc.Prompting.TemplateID)
+}
+
 func TestParseOutput_WithoutDirectAction(t *testing.T) {
 	raw := `{"classification":{"title":"Find IRIS segments","intent":"summary","confidence":0.58},"scope":{"values":{"query":"gambling","taxonomy":"IRIS"}},"prompting":{"suggestedProfileId":"","templateId":""}}`
 	tc, err := parseOutput(raw)
@@ -155,6 +165,10 @@ func TestBuildOutputJSONSchema_DirectActionNullableAndRequired(t *testing.T) {
 	directAction, _ := props["directAction"].(map[string]interface{})
 	require.NotNil(t, directAction)
 	assert.Equal(t, []string{"object", "null"}, directAction["type"])
+	directActionProps, _ := directAction["properties"].(map[string]interface{})
+	inputJSON, _ := directActionProps["inputJson"].(map[string]interface{})
+	require.NotNil(t, inputJSON)
+	assert.Equal(t, 2, inputJSON["minLength"])
 }
 
 func TestBuildOutputJSONSchema_ConstrainsDirectActionToAllowedToolNames(t *testing.T) {
