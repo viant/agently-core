@@ -134,10 +134,6 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	audienceIDField := strings.TrimSpace(stringValue(xform["audienceIdField"]))
 	feature := strings.TrimSpace(stringValue(xform["feature"]))
 	writePath := strings.TrimSpace(stringValue(xform["writePath"]))
-	intentField := strings.TrimSpace(stringValue(xform["intentField"]))
-	if intentField == "" {
-		intentField = "intent"
-	}
 	if groupBy == "" || valueField == "" || audienceIDField == "" || feature == "" || writePath == "" {
 		return fmt.Errorf("approval review group_rows requires groupBy, valueField, audienceIdField, feature, and writePath")
 	}
@@ -166,6 +162,10 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 		return fmt.Errorf("approval review group_rows requires at least one selected row")
 	}
 	targetGroup := ""
+	intentField := strings.TrimSpace(stringValue(xform["intentField"]))
+	if intentField == "" {
+		intentField = "intent"
+	}
 	if intentGroupMap, ok := xform["intentGroupMap"].(map[string]interface{}); ok && len(intentGroupMap) > 0 {
 		intentValue := strings.ToLower(strings.TrimSpace(stringValue(payload[intentField])))
 		if intentValue != "" {
@@ -212,18 +212,23 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	if len(values) == 0 {
 		return fmt.Errorf("approval review group_rows produced no values for group %q", targetGroup)
 	}
-	recommendation := map[string]interface{}{
-		"audience_id":        audienceID,
-		"mode":               mode,
-		"selector_direction": selectorDirection,
-		"target_field":       targetField,
-		"proposed_value": map[string]interface{}{
-			targetField: map[string]interface{}{
-				"clauses": []interface{}{
-					map[string]interface{}{
-						"feature": feature,
-						"values":  values,
-					},
+	recommendation := cloneMapValue(existingMapValue(args[writePath]))
+	if recommendation == nil {
+		recommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+	}
+	if recommendation == nil {
+		recommendation = map[string]interface{}{}
+	}
+	recommendation["audience_id"] = audienceID
+	recommendation["mode"] = mode
+	recommendation["selector_direction"] = selectorDirection
+	recommendation["target_field"] = targetField
+	recommendation["proposed_value"] = map[string]interface{}{
+		targetField: map[string]interface{}{
+			"clauses": []interface{}{
+				map[string]interface{}{
+					"feature": feature,
+					"values":  values,
 				},
 			},
 		},
@@ -234,6 +239,22 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	delete(args, rowsField)
 	delete(args, intentField)
 	return nil
+}
+
+func existingMapValue(value interface{}) map[string]interface{} {
+	actual, _ := value.(map[string]interface{})
+	return actual
+}
+
+func cloneMapValue(value map[string]interface{}) map[string]interface{} {
+	if value == nil {
+		return nil
+	}
+	cloned, _ := cloneValue(value).(map[string]interface{})
+	if cloned == nil {
+		return nil
+	}
+	return cloned
 }
 
 func stringValue(value interface{}) string {

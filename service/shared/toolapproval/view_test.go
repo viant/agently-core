@@ -117,16 +117,14 @@ func TestApplyReview_GroupRows(t *testing.T) {
 				"relationship": "target",
 				"selected":     true,
 			},
-			map[string]interface{}{
-				"publisher_id": 509,
-				"site_id":      3966455595,
-				"location":     "509/3966455595",
-				"audience_id":  7301206,
-				"relationship": "exclusion",
-				"selected":     true,
+		},
+		"recommendation": map[string]interface{}{
+			"recommendation_id": 7301206001,
+			"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
+			"metadata": map[string]interface{}{
+				"source": "site_list_planner_submit",
 			},
 		},
-		"intent": "submit_target",
 	}
 	review := &llm.ApprovalReviewConfig{
 		XForm: map[string]interface{}{
@@ -138,11 +136,6 @@ func TestApplyReview_GroupRows(t *testing.T) {
 			"audienceIdField": "audience_id",
 			"feature":         "publisher",
 			"writePath":       "recommendation",
-			"intentField":     "intent",
-			"intentGroupMap": map[string]interface{}{
-				"submit_target":    "target",
-				"submit_exclusion": "exclusion",
-			},
 			"groups": map[string]interface{}{
 				"target": map[string]interface{}{
 					"mode":              "ADD",
@@ -163,6 +156,11 @@ func TestApplyReview_GroupRows(t *testing.T) {
 	assert.NotContains(t, args, "rows")
 	assert.NotContains(t, args, "intent")
 	assert.EqualValues(t, map[string]interface{}{
+		"recommendation_id": float64(7301206001),
+		"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
+		"metadata": map[string]interface{}{
+			"source": "site_list_planner_submit",
+		},
 		"audience_id":        7301206,
 		"mode":               "ADD",
 		"selector_direction": "INCLUDE",
@@ -178,4 +176,54 @@ func TestApplyReview_GroupRows(t *testing.T) {
 			},
 		},
 	}, args["recommendation"])
+}
+
+func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
+	args := map[string]interface{}{
+		"rows": []interface{}{
+			map[string]interface{}{
+				"publisher_id": 37,
+				"site_id":      3945613211,
+				"location":     "37/3945613211",
+				"audience_id":  7301206,
+				"relationship": "target",
+				"selected":     true,
+			},
+			map[string]interface{}{
+				"publisher_id": 509,
+				"site_id":      3966455595,
+				"location":     "509/3966455595",
+				"audience_id":  7301206,
+				"relationship": "exclusion",
+				"selected":     true,
+			},
+		},
+	}
+	review := &llm.ApprovalReviewConfig{
+		XForm: map[string]interface{}{
+			"type":            "group_rows",
+			"rowsField":       "rows",
+			"selectionField":  "selected",
+			"groupBy":         "relationship",
+			"valueField":      "location",
+			"audienceIdField": "audience_id",
+			"feature":         "publisher",
+			"writePath":       "recommendation",
+			"groups": map[string]interface{}{
+				"target": map[string]interface{}{
+					"mode":              "ADD",
+					"selectorDirection": "INCLUDE",
+					"targetField":       "target",
+				},
+				"exclusion": map[string]interface{}{
+					"mode":              "EXCLUDE",
+					"selectorDirection": "EXCLUDE",
+					"targetField":       "exclusion",
+				},
+			},
+		},
+	}
+
+	err := ApplyReview(args, review, args)
+	assert.EqualError(t, err, "approval review group_rows requires a single selected group when no intentGroupMap resolved it")
 }
