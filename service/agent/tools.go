@@ -8,6 +8,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	"github.com/viant/agently-core/protocol/binding"
 	toolctx "github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
@@ -186,6 +187,66 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 	}
 	s.applyResolvedToolSurfaceMetadata(ctx, entry)
 	return cloneToolDefinitions(entry.Definitions), nil
+}
+
+func (s *Service) promptApprovalConfigsForSelection(ctx context.Context, control agenttool.Selection) (map[string]*llm.ApprovalConfig, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if len(control.Bundles) == 0 {
+		return nil, nil
+	}
+	res, err := s.resolveBundleResult(ctx, control.Bundles)
+	if err != nil {
+		return nil, err
+	}
+	if res == nil || len(res.ApprovalByID) == 0 {
+		return nil, nil
+	}
+	out := map[string]*llm.ApprovalConfig{}
+	for key, cfg := range res.ApprovalByID {
+		if cfg == nil || (!cfg.IsPrompt() && !cfg.IsQueue()) || cfg.Review == nil || len(cfg.Review.RequestedSchema) == 0 {
+			continue
+		}
+		out[key] = cfg
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func (s *Service) reapplyPromptApprovalReviewToolSurface(ctx context.Context, input *QueryInput, b *binding.Binding) error {
+	if s == nil || input == nil || b == nil || len(b.Tools.Signatures) == 0 {
+		return nil
+	}
+	control, err := s.resolveToolControl(ctx, input)
+	if err != nil {
+		return err
+	}
+	approvalByID, err := s.promptApprovalConfigsForSelection(ctx, control)
+	if err != nil {
+		return err
+	}
+	if len(approvalByID) == 0 {
+		return nil
+	}
+	defs := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
+	for _, sig := range b.Tools.Signatures {
+		if sig == nil {
+			continue
+		}
+		defs = append(defs, cloneToolDefinition(*sig))
+	}
+	defs = augmentPromptApprovalReviewDefinitions(defs, approvalByID)
+	updated := make([]*llm.ToolDefinition, 0, len(defs))
+	for i := range defs {
+		def := defs[i]
+		def.Normalize()
+		updated = append(updated, &def)
+	}
+	b.Tools.Signatures = dedupeToolDefinitions(updated)
+	return nil
 }
 
 func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []string) ([]llm.ToolDefinition, error) {
@@ -396,7 +457,7 @@ func augmentPromptApprovalReviewDefinitions(defs []llm.ToolDefinition, approvalB
 	out := make([]llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {
 		cfg := approvalByID[strings.ToLower(mcpname.Canonical(strings.TrimSpace(def.Name)))]
-		if cfg == nil || !cfg.IsPrompt() || cfg.Review == nil || len(cfg.Review.RequestedSchema) == 0 {
+		if cfg == nil || (!cfg.IsPrompt() && !cfg.IsQueue()) || cfg.Review == nil || len(cfg.Review.RequestedSchema) == 0 {
 			out = append(out, def)
 			continue
 		}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
@@ -12,11 +13,13 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 )
@@ -617,7 +620,7 @@ func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimereques
 		if err != nil {
 			return false, err
 		}
-		return waiting, nil
+		return s.normalizeDetachedQueueWaiting(ctx, conversationID, turnID, waiting)
 	}
 	if s.conversation == nil {
 		return false, nil
@@ -635,11 +638,11 @@ func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimereques
 		}
 		status := strings.ToLower(strings.TrimSpace(transcriptTurn.Status))
 		if status == "waiting_for_user" || status == "queued" {
-			return true, nil
+			return s.normalizeDetachedQueueWaiting(ctx, conversationID, turnID, true)
 		}
 		for _, msg := range transcriptTurn.GetMessages() {
 			if messageAwaitingUserAction(msg) {
-				return true, nil
+				return s.normalizeDetachedQueueWaiting(ctx, conversationID, turnID, true)
 			}
 		}
 		return false, nil
@@ -664,7 +667,57 @@ func (s *Service) turnAwaitingUserActionData(ctx context.Context, conversationID
 	}
 	for _, msg := range page.Rows {
 		if messageRowAwaitingUserAction(msg) {
-			return true, nil
+			return s.normalizeDetachedQueueWaiting(ctx, conversationID, turnID, true)
+		}
+	}
+	return false, nil
+}
+
+type toolApprovalQueueLister interface {
+	ListToolApprovalQueues(ctx context.Context, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error)
+}
+
+type toolApprovalQueueMetadata struct {
+	QueueBehavior string `json:"queueBehavior,omitempty"`
+}
+
+func (s *Service) normalizeDetachedQueueWaiting(ctx context.Context, conversationID, turnID string, waiting bool) (bool, error) {
+	if !waiting || s == nil || s.conversation == nil {
+		return waiting, nil
+	}
+	lister, ok := s.conversation.(toolApprovalQueueLister)
+	if !ok || lister == nil {
+		return waiting, nil
+	}
+	rows, err := lister.ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+		ConversationId: strings.TrimSpace(conversationID),
+		TurnId:         strings.TrimSpace(turnID),
+		QueueStatus:    "pending",
+		Has: &queueRead.QueueRowsInputHas{
+			ConversationId: true,
+			TurnId:         true,
+			QueueStatus:    true,
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("load tool approval queue %s/%s: %w", conversationID, turnID, err)
+	}
+	if len(rows) == 0 {
+		return waiting, nil
+	}
+	for _, row := range rows {
+		if row == nil {
+			return waiting, nil
+		}
+		meta := toolApprovalQueueMetadata{}
+		if row.Metadata == nil || len(*row.Metadata) == 0 {
+			return waiting, nil
+		}
+		if err := json.Unmarshal(*row.Metadata, &meta); err != nil {
+			return waiting, nil
+		}
+		if strings.TrimSpace(meta.QueueBehavior) != string(llm.ApprovalQueueBehaviorDetach) {
+			return waiting, nil
 		}
 	}
 	return false, nil

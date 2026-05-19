@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/toolvalidate"
@@ -540,6 +541,15 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		if err := toolapproval.ApplyEdits(args, approvalEditorsFromMeta(meta), input.EditedFields); err != nil {
 			return nil, err
 		}
+		reviewPayload := input.Payload
+		if len(reviewPayload) == 0 && len(input.EditedFields) > 0 {
+			reviewPayload = input.EditedFields
+		}
+		if meta.Review != nil && len(reviewPayload) > 0 {
+			if err := toolapproval.ApplyReview(args, meta.Review, reviewPayload); err != nil {
+				return nil, err
+			}
+		}
 		execCtx := ctx
 		if strings.TrimSpace(input.UserID) != "" {
 			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
@@ -678,10 +688,11 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 }
 
 type toolApprovalMetadata struct {
-	OpID       string             `json:"opId"`
-	ResponseID string             `json:"responseId"`
-	TurnID     string             `json:"turnId"`
-	Approval   *toolapproval.View `json:"approval,omitempty"`
+	OpID       string                    `json:"opId"`
+	ResponseID string                    `json:"responseId"`
+	TurnID     string                    `json:"turnId"`
+	Approval   *toolapproval.View        `json:"approval,omitempty"`
+	Review     *llm.ApprovalReviewConfig `json:"review,omitempty"`
 }
 
 func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
