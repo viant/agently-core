@@ -1,10 +1,74 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/protocol/binding"
+	"gopkg.in/yaml.v3"
 )
+
+// IntakePrompt supports both the legacy scalar-string intake prompt and the
+// richer prompt object shape (`text` / `uri` / `engine`).
+type IntakePrompt struct {
+	binding.Prompt `yaml:",inline" json:",inline"`
+}
+
+func (p *IntakePrompt) UnmarshalYAML(node *yaml.Node) error {
+	if node == nil {
+		*p = IntakePrompt{}
+		return nil
+	}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		p.Text = node.Value
+		p.URI = ""
+		p.Engine = ""
+		return nil
+	case yaml.MappingNode:
+		var prompt binding.Prompt
+		if err := node.Decode(&prompt); err != nil {
+			return err
+		}
+		p.Prompt = prompt
+		return nil
+	default:
+		*p = IntakePrompt{}
+		return nil
+	}
+}
+
+func (p IntakePrompt) MarshalYAML() (interface{}, error) {
+	if strings.TrimSpace(p.URI) == "" && strings.TrimSpace(p.Engine) == "" {
+		return p.Text, nil
+	}
+	return p.Prompt, nil
+}
+
+func (p *IntakePrompt) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*p = IntakePrompt{}
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "\"") {
+		var text string
+		if err := json.Unmarshal(data, &text); err != nil {
+			return err
+		}
+		p.Text = text
+		p.URI = ""
+		p.Engine = ""
+		return nil
+	}
+	var prompt binding.Prompt
+	if err := json.Unmarshal(data, &prompt); err != nil {
+		return err
+	}
+	p.Prompt = prompt
+	return nil
+}
 
 // Intake configures the pre-turn intake sidecar for an agent.
 // The sidecar runs a lightweight LLM call before the main turn to extract
@@ -17,7 +81,13 @@ type Intake struct {
 	// Prompt appends workspace-specific guidance to the shared intake classifier
 	// prompt. Use this to tune routing/clarification behavior for a workspace
 	// without forking the generic classifier instructions.
-	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Prompt IntakePrompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+
+	// ActivationRules declare deterministic workspace-owned intake actions for
+	// exact operational asks. Core only evaluates the generic matching and
+	// substitution contract; the actual phrases, parameters, and assistant text
+	// remain workspace-defined.
+	ActivationRules []ActivationRule `yaml:"activationRules,omitempty" json:"activationRules,omitempty"`
 
 	// Tool reuses the agent Tool shape to authorize deterministic directAction
 	// execution proposed by intake. This keeps direct-action policy on the same
@@ -69,7 +139,9 @@ type Intake struct {
 	PlannerOnValidatorFailure bool `yaml:"plannerOnValidatorFailure,omitempty" json:"plannerOnValidatorFailure,omitempty"`
 
 	// PlannerOnCreativeRequest allows the router prompt to select planner mode
-	// for explicit creative/exploratory asks. Default: false.
+	// for explicit creative/exploratory asks. Runtime orchestration must not
+	// infer planner mode from wording alone; planner mode is explicit intake
+	// output. Default: false.
 	PlannerOnCreativeRequest bool `yaml:"plannerOnCreativeRequest,omitempty" json:"plannerOnCreativeRequest,omitempty"`
 
 	// PlannerSecondFailurePolicy controls the planner retry terminal path.
@@ -160,4 +232,69 @@ func (in *Intake) EffectiveMaxTokens() int {
 		return 800
 	}
 	return in.MaxTokens
+}
+
+type ActivationRule struct {
+	ID             string                   `yaml:"id,omitempty" json:"id,omitempty"`
+	Mode           string                   `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Source         string                   `yaml:"source,omitempty" json:"source,omitempty"`
+	WindowKey      string                   `yaml:"windowKey,omitempty" json:"windowKey,omitempty"`
+	Match          ActivationMatch          `yaml:"match,omitempty" json:"match,omitempty"`
+	Classification ActivationClassification `yaml:"classification,omitempty" json:"classification,omitempty"`
+	Prompting      ActivationPrompting      `yaml:"prompting,omitempty" json:"prompting,omitempty"`
+	Scope          ActivationScope          `yaml:"scope,omitempty" json:"scope,omitempty"`
+	Action         ActivationAction         `yaml:"action,omitempty" json:"action,omitempty"`
+	Response       ActivationResponse       `yaml:"response,omitempty" json:"response,omitempty"`
+	SurfaceMatch   *ActivationSurfaceMatch  `yaml:"surfaceMatch,omitempty" json:"surfaceMatch,omitempty"`
+}
+
+type ActivationMatch struct {
+	Pattern    string                         `yaml:"pattern,omitempty" json:"pattern,omitempty"`
+	Patterns   []string                       `yaml:"patterns,omitempty" json:"patterns,omitempty"`
+	Flags      string                         `yaml:"flags,omitempty" json:"flags,omitempty"`
+	Extractors map[string]ActivationExtractor `yaml:"extractors,omitempty" json:"extractors,omitempty"`
+}
+
+type ActivationExtractor struct {
+	Type    string `yaml:"type,omitempty" json:"type,omitempty"`
+	Source  string `yaml:"source,omitempty" json:"source,omitempty"`
+	Pattern string `yaml:"pattern,omitempty" json:"pattern,omitempty"`
+}
+
+type ActivationClassification struct {
+	Intent     string  `yaml:"intent,omitempty" json:"intent,omitempty"`
+	Confidence float64 `yaml:"confidence,omitempty" json:"confidence,omitempty"`
+}
+
+type ActivationPrompting struct {
+	SuggestedProfileID string `yaml:"suggestedProfileId,omitempty" json:"suggestedProfileId,omitempty"`
+	TemplateID         string `yaml:"templateId,omitempty" json:"templateId,omitempty"`
+}
+
+type ActivationScope struct {
+	Values map[string]string `yaml:"values,omitempty" json:"values,omitempty"`
+}
+
+type ActivationAction struct {
+	Tool    string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
+	Input   map[string]interface{} `yaml:"input,omitempty" json:"input,omitempty"`
+	Foreach string                 `yaml:"foreach,omitempty" json:"foreach,omitempty"`
+	Item    map[string]interface{} `yaml:"item,omitempty" json:"item,omitempty"`
+}
+
+type ActivationResponse struct {
+	AssistantText string `yaml:"assistantText,omitempty" json:"assistantText,omitempty"`
+}
+
+type ActivationSurfaceMatch struct {
+	Tabs           []string                                 `yaml:"tabs,omitempty" json:"tabs,omitempty"`
+	Controls       []string                                 `yaml:"controls,omitempty" json:"controls,omitempty"`
+	TabAliases     map[string]string                        `yaml:"tabAliases,omitempty" json:"tabAliases,omitempty"`
+	ControlAliases map[string]ActivationSurfaceControlAlias `yaml:"controlAliases,omitempty" json:"controlAliases,omitempty"`
+}
+
+type ActivationSurfaceControlAlias struct {
+	ControlID  string      `yaml:"controlId,omitempty" json:"controlId,omitempty"`
+	Value      interface{} `yaml:"value,omitempty" json:"value,omitempty"`
+	ValueLabel string      `yaml:"valueLabel,omitempty" json:"valueLabel,omitempty"`
 }

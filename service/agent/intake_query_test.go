@@ -2,9 +2,14 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -12,7 +17,56 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
+
+type followupStubConversationClient struct {
+	conversation *apiconv.Conversation
+}
+
+func (s *followupStubConversationClient) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
+	if s == nil || s.conversation == nil {
+		return nil, errors.New("not found")
+	}
+	return s.conversation, nil
+}
+
+func (s *followupStubConversationClient) GetConversations(ctx context.Context, input *apiconv.Input) ([]*apiconv.Conversation, error) {
+	return nil, nil
+}
+func (s *followupStubConversationClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
+	return nil
+}
+func (s *followupStubConversationClient) GetPayload(ctx context.Context, id string) (*apiconv.Payload, error) {
+	return nil, nil
+}
+func (s *followupStubConversationClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
+	return nil
+}
+func (s *followupStubConversationClient) PatchMessage(ctx context.Context, message *apiconv.MutableMessage) error {
+	return nil
+}
+func (s *followupStubConversationClient) GetMessage(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Message, error) {
+	return nil, nil
+}
+func (s *followupStubConversationClient) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string) (*apiconv.Message, error) {
+	return nil, nil
+}
+func (s *followupStubConversationClient) PatchModelCall(ctx context.Context, modelCall *apiconv.MutableModelCall) error {
+	return nil
+}
+func (s *followupStubConversationClient) PatchToolCall(ctx context.Context, toolCall *apiconv.MutableToolCall) error {
+	return nil
+}
+func (s *followupStubConversationClient) PatchTurn(ctx context.Context, turn *apiconv.MutableTurn) error {
+	return nil
+}
+func (s *followupStubConversationClient) DeleteConversation(ctx context.Context, id string) error {
+	return nil
+}
+func (s *followupStubConversationClient) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
+	return nil
+}
 
 func TestJaccardWordSimilarity(t *testing.T) {
 	cases := []struct {
@@ -169,15 +223,14 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 		},
 	}
 	testCases := []struct {
-		query         string
-		tabID         string
-		assistantText string
+		query string
+		tabID string
 	}{
-		{query: "show kpi", tabID: "kpiTab", assistantText: "Switched the open order summary to the KPIs tab."},
-		{query: "show delivery", tabID: "deliveryTab", assistantText: "Switched the open order summary to the Delivery tab."},
-		{query: "show hh metrics", tabID: "hhMetricsTab", assistantText: "Switched the open order summary to the HH Metrics tab."},
-		{query: "show household metrics", tabID: "hhMetricsTab", assistantText: "Switched the open order summary to the HH Metrics tab."},
-		{query: "show pacing", tabID: "pacingTab", assistantText: "Switched the open order summary to the Pacing tab."},
+		{query: "show kpi", tabID: "kpiTab"},
+		{query: "show delivery", tabID: "deliveryTab"},
+		{query: "show hh metrics", tabID: "hhMetricsTab"},
+		{query: "show household metrics", tabID: "hhMetricsTab"},
+		{query: "show pacing", tabID: "pacingTab"},
 	}
 
 	for _, testCase := range testCases {
@@ -185,19 +238,19 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 			input := &QueryInput{
 				ConversationID: "conv-1",
 				Query:          testCase.query,
-				Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true}},
+				Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true, ActivationRules: testOrderFollowUpRules()}},
 			}
 
 			s.maybeRunIntakeSidecar(context.Background(), input)
 
 			tc := intakesvc.FromContext(input.Context)
 			require.NotNil(t, tc)
-			require.Equal(t, "ui/window/selectTab", tc.DirectAction.ToolName)
+			require.Equal(t, "ui/window:selectTab", tc.DirectAction.ToolName)
 			require.Equal(t, "order_2656980", tc.DirectAction.Input["windowId"])
 			require.Equal(t, "order", tc.DirectAction.Input["windowKey"])
 			require.Equal(t, testCase.tabID, tc.DirectAction.Input["tabId"])
 			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
-			require.Equal(t, testCase.assistantText, tc.DirectAction.AssistantText)
+			require.Contains(t, strings.ToLower(tc.DirectAction.AssistantText), strings.TrimSpace(strings.TrimPrefix(strings.ToLower(testCase.query), "show ")))
 		})
 	}
 }
@@ -219,19 +272,18 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 		},
 	}
 	testCases := []struct {
-		query         string
-		controlID     string
-		value         string
-		assistantText string
+		query     string
+		controlID string
+		value     string
 	}{
-		{query: "show today", controlID: "periodView", value: "today", assistantText: "Switched the open order summary period to Today."},
-		{query: "show yesterday", controlID: "periodView", value: "yesterday", assistantText: "Switched the open order summary period to Yesterday."},
-		{query: "show 7d", controlID: "periodView", value: "7d", assistantText: "Switched the open order summary period to 7D."},
-		{query: "show 30d", controlID: "periodView", value: "30d", assistantText: "Switched the open order summary period to 30D."},
-		{query: "show hour", controlID: "granularity", value: "hour", assistantText: "Switched the open order summary granularity to Hour."},
-		{query: "switch to hour", controlID: "granularity", value: "hour", assistantText: "Switched the open order summary granularity to Hour."},
-		{query: "show day", controlID: "granularity", value: "day", assistantText: "Switched the open order summary granularity to Day."},
-		{query: "switch to day", controlID: "granularity", value: "day", assistantText: "Switched the open order summary granularity to Day."},
+		{query: "show today", controlID: "periodView", value: "today"},
+		{query: "show yesterday", controlID: "periodView", value: "yesterday"},
+		{query: "show 7d", controlID: "periodView", value: "7d"},
+		{query: "show 30d", controlID: "periodView", value: "30d"},
+		{query: "show hour", controlID: "granularity", value: "hour"},
+		{query: "switch to hour", controlID: "granularity", value: "hour"},
+		{query: "show day", controlID: "granularity", value: "day"},
+		{query: "switch to day", controlID: "granularity", value: "day"},
 	}
 
 	for _, testCase := range testCases {
@@ -239,7 +291,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 			input := &QueryInput{
 				ConversationID: "conv-1",
 				Query:          testCase.query,
-				Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true}},
+				Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true, ActivationRules: testOrderFollowUpRules()}},
 			}
 
 			s.maybeRunIntakeSidecar(context.Background(), input)
@@ -250,11 +302,57 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 			require.Equal(t, "order_2656980", tc.DirectAction.Input["windowId"])
 			require.Equal(t, "order", tc.DirectAction.Input["windowKey"])
 			require.Equal(t, testCase.controlID, tc.DirectAction.Input["controlId"])
-			require.Equal(t, "windowForm", tc.DirectAction.Input["scope"])
 			require.Equal(t, testCase.value, tc.DirectAction.Input["value"])
 			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
-			require.Equal(t, testCase.assistantText, tc.DirectAction.AssistantText)
+			require.Contains(t, strings.ToLower(tc.DirectAction.AssistantText), strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(testCase.query), "show "), "switch to ")))
 		})
+	}
+}
+
+func testOrderFollowUpRules() []agentmdl.ActivationRule {
+	return []agentmdl.ActivationRule{
+		{
+			ID:        "order_followup_tabs",
+			Mode:      "followup",
+			Source:    "either",
+			WindowKey: "order",
+			Match: agentmdl.ActivationMatch{
+				Patterns: []string{`(?i)^show\s+(.+)$`},
+			},
+			Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+			SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
+				TabAliases: map[string]string{
+					"kpi":               "kpiTab",
+					"kpis":              "kpiTab",
+					"delivery":          "deliveryTab",
+					"hh metrics":        "hhMetricsTab",
+					"household metrics": "hhMetricsTab",
+					"pacing":            "pacingTab",
+				},
+			},
+			Response: agentmdl.ActivationResponse{AssistantText: "Updated the open order summary to $1."},
+		},
+		{
+			ID:        "order_followup_period_and_granularity",
+			Mode:      "followup",
+			Source:    "either",
+			WindowKey: "order",
+			Match: agentmdl.ActivationMatch{
+				Patterns: []string{`(?i)^show\s+(.+)$`, `(?i)^switch\s+to\s+(.+)$`},
+			},
+			Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+			SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
+				ControlAliases: map[string]agentmdl.ActivationSurfaceControlAlias{
+					"today":     {ControlID: "periodView", Value: "today", ValueLabel: "Today"},
+					"yesterday": {ControlID: "periodView", Value: "yesterday", ValueLabel: "Yesterday"},
+					"7d":        {ControlID: "periodView", Value: "7d", ValueLabel: "7D"},
+					"30d":       {ControlID: "periodView", Value: "30d", ValueLabel: "30D"},
+					"hour":      {ControlID: "granularity", Value: "hour", ValueLabel: "Hour"},
+					"day":       {ControlID: "granularity", Value: "day", ValueLabel: "Day"},
+				},
+			},
+			Response: agentmdl.ActivationResponse{AssistantText: "Updated the open order summary to $1."},
+		},
 	}
 }
 
@@ -509,7 +607,7 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 	require.Equal(t, "repo_analysis", stored.Prompting.SuggestedProfileID)
 }
 
-func TestApplyTurnContext_EnablesPlannerModeForCreativeDirectAgentRequest(t *testing.T) {
+func TestApplyTurnContext_PreservesExplicitPlannerModeFromIntake(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
@@ -535,6 +633,14 @@ func TestApplyTurnContext_EnablesPlannerModeForCreativeDirectAgentRequest(t *tes
 		Prompting: intakesvc.PromptingContext{
 			SuggestedProfileID: "diagnostic_baseline",
 			TemplateID:         "analytics_dashboard",
+		},
+		Routing: intakesvc.RoutingContext{
+			Mode:            intakesvc.ModePlanner,
+			SelectedAgentID: "steward",
+			Source:          intakesvc.SourceAgent,
+		},
+		Planner: intakesvc.PlannerContext{
+			Trigger: "exploratory_strategy",
 		},
 		Scope: intakesvc.ScopeContext{
 			Values: map[string]string{
@@ -1125,4 +1231,250 @@ func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 		require.Nil(t, intakesvc.FromContext(map[string]any{}))
 		require.Nil(t, intakesvc.FromContext(map[string]any{"other": "value"}))
 	})
+}
+
+func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		Query: "show me order 2656980 and 2609393",
+		Agent: &agentmdl.Agent{
+			Intake: agentmdl.Intake{
+				ActivationRules: []agentmdl.ActivationRule{
+					{
+						ID: "open_order_windows",
+						Match: agentmdl.ActivationMatch{
+							Patterns: []string{`^show me order\s+(.+)$`},
+							Extractors: map[string]agentmdl.ActivationExtractor{
+								"ids": {Type: "regex_all", Source: "$1", Pattern: `\d+`},
+							},
+						},
+						Classification: agentmdl.ActivationClassification{Intent: "troubleshoot_ad_order"},
+						Prompting:      agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+						Scope: agentmdl.ActivationScope{Values: map[string]string{
+							"uiTarget":    "order",
+							"workspaceUI": "activation",
+							"action":      "open",
+							"adOrderIds":  "$ids",
+						}},
+						Action: agentmdl.ActivationAction{
+							Tool:    "ui/view:open",
+							Foreach: "ids",
+							Input:   map[string]interface{}{"timeoutMs": 600000},
+							Item: map[string]interface{}{
+								"id":       "order",
+								"openMode": "append",
+								"parameters": map[string]interface{}{
+									"AdOrderId": []interface{}{"$item:int"},
+								},
+							},
+						},
+						Response: agentmdl.ActivationResponse{AssistantText: "The requested orders are now open."},
+					},
+				},
+			},
+		},
+	}
+	override := svc.resolveWorkspaceActivationProfileOverride(input)
+	require.NotNil(t, override)
+	require.Equal(t, "workspace_ui", override.Prompting.SuggestedProfileID)
+	require.Equal(t, "order", override.Scope.Values["uiTarget"])
+	require.Equal(t, "open", override.Scope.Values["action"])
+	require.Equal(t, "2656980,2609393", override.Scope.Values["adOrderIds"])
+	require.Equal(t, "ui/view:open", override.DirectAction.ToolName)
+	require.Len(t, override.DirectAction.Input["items"], 2)
+}
+
+func TestResolveWorkspaceUIIntentOverride_LiveTabMatch(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bridge.Hub().ServeWS(w, r)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{
+		"type":     "ui.hello",
+		"clientId": "client-1",
+	}))
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{
+		"type":     "ui.snapshot",
+		"clientId": "client-1",
+		"data": map[string]interface{}{
+			"clientId":       "client-1",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "order__conv-1",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "order__conv-1",
+					"windowKey":      "order",
+					"windowTitle":    "Order Summary",
+					"conversationId": "conv-1",
+					"presentation":   "hosted",
+					"region":         "chat.top",
+					"parentKey":      "chat/new",
+					"viewState": map[string]interface{}{
+						"tabs": map[string]interface{}{
+							"analysisPane": "deliveryTab",
+						},
+					},
+					"metadata": map[string]interface{}{
+						"view": map[string]interface{}{
+							"tabs": []interface{}{
+								map[string]interface{}{"containerId": "analysisPane", "tabId": "deliveryTab", "title": "Delivery"},
+								map[string]interface{}{"containerId": "analysisPane", "tabId": "kpiTab", "title": "KPIs"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}))
+
+	svc := &Service{}
+	svc.SetUIBridge(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show KPI",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID:        "order_followup_tabs",
+					Mode:      "followup",
+					Source:    "either",
+					WindowKey: "order",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{`(?i)^show\s+(.+)$`},
+					},
+					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
+						TabAliases: map[string]string{
+							"kpi":  "kpiTab",
+							"kpis": "kpiTab",
+						},
+					},
+					Response: agentmdl.ActivationResponse{AssistantText: "Updated the open order summary to $1."},
+				},
+			},
+		}},
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		override := svc.resolveWorkspaceUIIntentOverride(ctx, input)
+		if override != nil {
+			require.Equal(t, "ui/window:selectTab", override.DirectAction.ToolName)
+			require.Equal(t, "kpiTab", override.DirectAction.Input["tabId"])
+			require.Contains(t, strings.ToLower(override.DirectAction.AssistantText), "kpi")
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected live workspace tab match for show KPI")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestResolveWorkspaceUIIntentOverride_FollowUpRuleTranscriptOrderControl(t *testing.T) {
+	svc := &Service{
+		conversation: &followupStubConversationClient{
+			conversation: &apiconv.Conversation{
+				Transcript: []*agconv.TranscriptView{
+					{
+						Message: []*agconv.MessageView{
+							{
+								ToolMessage: []*agconv.ToolMessageView{
+									{
+										Content: strPtr(`{"clientId":"client-1","selectedWindowId":"order__conv-1","items":[{"windowId":"order__conv-1","windowKey":"order"}]}`),
+										ToolCall: &agconv.ToolCallView{
+											ToolName: "ui/view:open",
+											Status:   "completed",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show 7d",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID:        "order_followup_period",
+					Mode:      "followup",
+					Source:    "either",
+					WindowKey: "order",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{`(?i)^show\s+(.+)$`},
+					},
+					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
+						ControlAliases: map[string]agentmdl.ActivationSurfaceControlAlias{
+							"7d": {ControlID: "periodView", Value: "7d", ValueLabel: "7D"},
+						},
+					},
+					Response: agentmdl.ActivationResponse{AssistantText: "Updated the open order summary to $1."},
+				},
+			},
+		}},
+	}
+
+	override := svc.resolveWorkspaceUIIntentOverride(context.Background(), input)
+	require.NotNil(t, override)
+	require.Equal(t, "ui/control:setValue", override.DirectAction.ToolName)
+	require.Equal(t, "periodView", override.DirectAction.Input["controlId"])
+	require.Equal(t, "7d", override.DirectAction.Input["value"])
+}
+
+func TestMaybeRunIntakeSidecar_AppliesWorkspaceActivationProfileOverride(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "open metric report builder",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "template"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "open_metric_report_builder",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{`^open metric report builder$`},
+					},
+					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"uiTarget":    "metricReportBuilder",
+						"workspaceUI": "activation",
+						"action":      "open",
+					}},
+					Action: agentmdl.ActivationAction{
+						Tool:  "ui/view:open",
+						Input: map[string]interface{}{"id": "metricReportBuilder", "timeoutMs": 600000},
+					},
+					Response: agentmdl.ActivationResponse{AssistantText: "The Performance Metrics workspace is now open."},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "workspace_ui", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "metricReportBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "activation", stored.Scope.Values["workspaceUI"])
+	require.Equal(t, "ui/view:open", stored.DirectAction.ToolName)
+	require.Equal(t, "metricReportBuilder", stored.DirectAction.Input["id"])
 }

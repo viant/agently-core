@@ -3,13 +3,14 @@ package prompt
 // Profile is a scenario configuration unit pairing instruction messages,
 // tool bundles, and one default plus optional additional output templates.
 type Profile struct {
-	ID           string     `yaml:"id"                       json:"id"`
-	Name         string     `yaml:"name,omitempty"           json:"name,omitempty"`
-	Description  string     `yaml:"description,omitempty"    json:"description,omitempty"`
-	AppliesTo    []string   `yaml:"appliesTo,omitempty"      json:"appliesTo,omitempty"`
-	Messages     []Message  `yaml:"messages,omitempty"       json:"messages,omitempty"`
-	Instructions string     `yaml:"instructions,omitempty"   json:"instructions,omitempty"`
-	MCP          *MCPSource `yaml:"mcp,omitempty"            json:"mcp,omitempty"`
+	ID               string            `yaml:"id"                       json:"id"`
+	Name             string            `yaml:"name,omitempty"           json:"name,omitempty"`
+	Description      string            `yaml:"description,omitempty"    json:"description,omitempty"`
+	AppliesTo        []string          `yaml:"appliesTo,omitempty"      json:"appliesTo,omitempty"`
+	EvidenceContract *EvidenceContract `yaml:"evidenceContract,omitempty" json:"evidenceContract,omitempty"`
+	Messages         []Message         `yaml:"messages,omitempty"       json:"messages,omitempty"`
+	Instructions     string            `yaml:"instructions,omitempty"   json:"instructions,omitempty"`
+	MCP              *MCPSource        `yaml:"mcp,omitempty"            json:"mcp,omitempty"`
 	// ToolBundles lists the tool-bundle ids that are activated for the worker
 	// when this profile is applied.  Runtime enforcement, not access control.
 	ToolBundles    []string `yaml:"toolBundles,omitempty"    json:"toolBundles,omitempty"`
@@ -42,6 +43,13 @@ type Expansion struct {
 	Mode      string `yaml:"mode"                json:"mode"`
 	Model     string `yaml:"model,omitempty"     json:"model,omitempty"`
 	MaxTokens int    `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
+}
+
+type EvidenceContract struct {
+	Required   []string `yaml:"required,omitempty" json:"required,omitempty"`
+	Optional   []string `yaml:"optional,omitempty" json:"optional,omitempty"`
+	Forbidden  []string `yaml:"forbidden,omitempty" json:"forbidden,omitempty"`
+	Completion []string `yaml:"completion,omitempty" json:"completion,omitempty"`
 }
 
 // EffectiveMessages returns the messages to render.

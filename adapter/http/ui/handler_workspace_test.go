@@ -292,6 +292,116 @@ backend:
 	}
 }
 
+func TestWindowHandler_LoadsWorkspaceOwnedForgeForecastingBuilderWithImportedSharedContent(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "forecastingCubeBuilder.yaml"), `
+id: forecastingCubeBuilder
+title: Forecasting Cube
+windowKey: forecastingCubeBuilder
+namespace: Forecasting Cube
+view:
+  content:
+    $import('../../../shared/forecasting_report_builder.yaml')
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "shared", "forecasting_report_builder.yaml"), `
+kind: dashboard.reportBuilder
+id: forecastingCubeBuilder
+title: Forecasting Cube
+dataSourceRef: forecasting_cube_report
+reportBuilder:
+  hooks:
+    initializeState: Forecasting Cube.stewardForecastingBuilder.initializeState
+    buildRequest: Forecasting Cube.stewardForecastingBuilder.buildRequest
+  measures:
+    - id: avails
+      key: avails
+      label: Avails
+  dimensions:
+    - id: eventDate
+      key: eventDate
+      label: Date
+      chartAxis: true
+      default: true
+  result:
+    defaultMode: chart
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "datasources", "forecasting_cube_report.yaml"), `
+id: forecasting_cube_report
+cardinality: collection
+autoFetch: false
+backend:
+  kind: mcp_tool
+  service: steward
+  method: ForecastingCube
+`)
+
+	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/window/forecastingCubeBuilder")
+	if err != nil {
+		t.Fatalf("window request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Namespace string `json:"namespace"`
+			View      struct {
+				Content struct {
+					ID            string `json:"id"`
+					Kind          string `json:"kind"`
+					DataSourceRef string `json:"dataSourceRef"`
+					Dashboard     struct {
+						ReportBuilder map[string]interface{} `json:"reportBuilder"`
+					} `json:"dashboard"`
+				} `json:"content"`
+			} `json:"view"`
+			DataSource map[string]map[string]interface{} `json:"dataSource"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", payload.Status)
+	}
+	if payload.Data.Namespace != "Forecasting Cube" {
+		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
+	}
+	if payload.Data.View.Content.ID != "forecastingCubeBuilder" {
+		t.Fatalf("expected imported content id, got %q", payload.Data.View.Content.ID)
+	}
+	if payload.Data.View.Content.Kind != "dashboard.reportBuilder" {
+		t.Fatalf("expected imported report builder kind, got %q", payload.Data.View.Content.Kind)
+	}
+	if payload.Data.View.Content.DataSourceRef != "forecasting_cube_report" {
+		t.Fatalf("expected imported datasource ref, got %q", payload.Data.View.Content.DataSourceRef)
+	}
+	if payload.Data.View.Content.Dashboard.ReportBuilder == nil {
+		t.Fatalf("expected imported reportBuilder config")
+	}
+	if _, ok := payload.Data.DataSource["forecasting_cube_report"]; !ok {
+		t.Fatalf("expected merged forecasting datasource")
+	}
+}
+
 func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowCompanionJS(t *testing.T) {
 	metaRoot := t.TempDir()
 	workspaceRoot := t.TempDir()

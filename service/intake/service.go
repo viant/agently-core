@@ -4,17 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/viant/afs"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
+	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/binding"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	tpldef "github.com/viant/agently-core/protocol/template"
+	toolbundledef "github.com/viant/agently-core/protocol/tool/bundle"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
+	"github.com/viant/agently-core/workspace"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
@@ -168,7 +174,70 @@ func (s *Service) buildOutputJSONSchema(ctx context.Context, cfg *agentmdl.Intak
 			}
 		}
 	}
+	if cfg.HasScope(agentmdl.IntakeScopeContext) {
+		if directAction, ok := props["directAction"].(map[string]interface{}); ok {
+			if directActionProps, ok := directAction["properties"].(map[string]interface{}); ok {
+				if prop, ok := directActionProps["toolName"].(map[string]interface{}); ok {
+					if enums := s.allowedDirectActionToolNames(ctx, cfg); len(enums) > 0 {
+						prop["enum"] = enums
+					}
+				}
+			}
+		}
+	}
 	return schema
+}
+
+func (s *Service) allowedDirectActionToolNames(ctx context.Context, cfg *agentmdl.Intake) []string {
+	if cfg == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	names := make([]string, 0)
+	add := func(name string) {
+		raw := strings.TrimSpace(name)
+		canon := strings.TrimSpace(mcpname.Canonical(raw))
+		if raw == "" || canon == "" || seen[canon] {
+			return
+		}
+		seen[canon] = true
+		names = append(names, raw)
+	}
+	for _, item := range cfg.Tool.Items {
+		if item == nil {
+			continue
+		}
+		if strings.TrimSpace(item.Definition.Name) != "" {
+			add(item.Definition.Name)
+			continue
+		}
+		add(item.Name)
+	}
+	if s != nil && s.bundleRepo != nil && len(cfg.Tool.Bundles) > 0 {
+		all, err := s.bundleRepo.LoadAll(ctx)
+		if err == nil {
+			byID := map[string]*toolbundledef.Bundle{}
+			for _, bun := range all {
+				if bun == nil {
+					continue
+				}
+				byID[strings.TrimSpace(bun.ID)] = bun
+			}
+			for _, id := range cfg.Tool.Bundles {
+				if bun := byID[strings.TrimSpace(id)]; bun != nil {
+					for _, match := range bun.Match {
+						if strings.TrimSpace(match.Definition.Name) != "" {
+							add(match.Definition.Name)
+							continue
+						}
+						add(match.Name)
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (s *Service) allowedPromptProfileIDs(ctx context.Context) []string {
@@ -287,7 +356,11 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 	b.WriteString(intakeBasePrompt)
 	b.WriteString("\nCurrent local date: ")
 	b.WriteString(time.Now().Format("2006-01-02"))
-	if extra := strings.TrimSpace(cfg.Prompt); extra != "" {
+	extra, err := s.resolveIntakePromptText(ctx, cfg.Prompt)
+	if err != nil {
+		return "", err
+	}
+	if extra = strings.TrimSpace(extra); extra != "" {
 		b.WriteString("\n\nWorkspace-specific intake guidance:\n")
 		b.WriteString(extra)
 	}
@@ -353,6 +426,29 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 	return b.String(), nil
 }
 
+func (s *Service) resolveIntakePromptText(ctx context.Context, prompt agentmdl.IntakePrompt) (string, error) {
+	if strings.TrimSpace(prompt.URI) != "" {
+		resolved := prompt
+		if !filepath.IsAbs(strings.TrimSpace(resolved.URI)) && !strings.Contains(resolved.URI, "://") {
+			resolved.URI = filepath.Join(workspace.Root(), strings.TrimSpace(resolved.URI))
+		}
+		if err := resolved.Init(ctx); err != nil {
+			return "", err
+		}
+		return resolved.Text, nil
+	}
+	text := strings.TrimSpace(prompt.Text)
+	if text == "" {
+		return "", nil
+	}
+	if !strings.Contains(text, "$import(") {
+		return text, nil
+	}
+	fs := afs.New()
+	base := filepath.Join(workspace.Root(), "intake", "inline-intake.tmpl")
+	return binding.ResolveTextImports(ctx, fs, text, base)
+}
+
 func templateAppliesTo(tpl *tpldef.Template) []string {
 	if tpl == nil {
 		return nil
@@ -373,7 +469,8 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeContext) {
 		b.WriteString("\n- scope (object): grouped orchestration scope with `values` containing lightweight extracted identifiers and hints")
-		b.WriteString("\n- directAction (object, optional): exact deterministic action to execute without another LLM turn when the request already fully specifies it")
+		b.WriteString("\n- directAction (object, optional): exact deterministic executable tool action to execute without another LLM turn when the request already fully specifies it")
+		b.WriteString("\n- directAction is only for allowed tool actions; never use a prompt-profile id or route label as directAction.toolName")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
 		b.WriteString("\n- prompting (object): grouped execution hints with `suggestedProfileId`, `appendToolBundles`, and `templateId`")

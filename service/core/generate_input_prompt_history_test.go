@@ -3,11 +3,13 @@ package core
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/binding"
+	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestGenerateInputInit_AppendsLiveUserPromptAfterKnowledgeDocsWhenMissingFromHistory(t *testing.T) {
@@ -82,6 +84,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnDisplayTaskWithExpandedPromptForLL
 					ID: "turn-1",
 					Messages: []*binding.Message{
 						{
+							ID:      "msg-current",
 							Kind:    binding.MessageKindChatUser,
 							Role:    string(llm.RoleUser),
 							Content: "Recommend resource lists for workspace 7180287",
@@ -96,6 +99,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnDisplayTaskWithExpandedPromptForLL
 	require.NoError(t, err)
 	require.Len(t, in.Message, 1)
 	assert.Equal(t, llm.RoleUser, in.Message[0].Role)
+	assert.Equal(t, "msg-current", in.Message[0].ID)
 	assert.Equal(t, "User Query:\nRecommend resource lists for workspace 7180287\n\nEND_OF_USER_PROMPT", in.Message[0].Content)
 	assert.Equal(t, "Recommend resource lists for workspace 7180287", in.Binding.History.Current.Messages[0].Content)
 }
@@ -114,6 +118,7 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 						ID: "turn-1",
 						Messages: []*binding.Message{
 							{
+								ID:      "msg-current",
 								Kind:    binding.MessageKindChatUser,
 								Role:    string(llm.RoleUser),
 								Content: "resource-list recommendation workflow for workspace 7180287 and matched target resource_list_id 117385.",
@@ -134,9 +139,67 @@ func TestGenerateInputInit_ReplacesCurrentTurnPromptWhenCurrentTurnStillLivesInP
 	require.NoError(t, err)
 	require.Len(t, in.Message, 2)
 	assert.Equal(t, llm.RoleUser, in.Message[0].Role)
+	assert.Equal(t, "msg-current", in.Message[0].ID)
 	assert.Equal(t, "User Query:\nresource-list recommendation workflow for workspace 7180287 and matched target resource_list_id 117385.\n\nEND_OF_USER_PROMPT", in.Message[0].Content)
 	assert.Equal(t, llm.RoleAssistant, in.Message[1].Role)
 	assert.Equal(t, "I have the IDs already.", in.Message[1].Content)
+}
+
+func TestGenerateInputInit_PreservesCurrentUserMessageIDForContinuationReplay(t *testing.T) {
+	baseTime := time.Now().UTC()
+	history := binding.History{
+		CurrentTurnID: "turn-current",
+		Current: &binding.Turn{
+			ID: "turn-current",
+			Messages: []*binding.Message{
+				{
+					ID:        "msg-current-user",
+					Kind:      binding.MessageKindChatUser,
+					Role:      string(llm.RoleUser),
+					Content:   "Open metric report builder",
+					CreatedAt: baseTime.Add(time.Second),
+				},
+			},
+		},
+		Traces: map[string]*binding.Trace{
+			binding.ContentMessageKey("msg-current-user"): {
+				ID:   "",
+				Kind: binding.KindContent,
+				At:   baseTime.Add(time.Second),
+			},
+		},
+		LastResponse: &binding.Trace{
+			ID:   "resp-anchor",
+			Kind: binding.KindResponse,
+			At:   baseTime,
+		},
+	}
+
+	in := &GenerateInput{
+		ModelSelection: llm.ModelSelection{Model: "mock-model"},
+		UserID:         "user-1",
+		Prompt:         &binding.Prompt{Text: "Expanded:\n{{.Task.Prompt}}", Engine: "go"},
+		Binding: &binding.Binding{
+			Task:    binding.Task{Prompt: "Open metric report builder"},
+			History: history,
+		},
+	}
+
+	err := in.Init(context.Background())
+	require.NoError(t, err)
+	require.Len(t, in.Message, 1)
+	assert.Equal(t, "msg-current-user", in.Message[0].ID)
+
+	svc := &Service{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
+	req := &llm.GenerateRequest{Messages: append([]llm.Message(nil), in.Message...)}
+	cont := svc.BuildContinuationRequest(ctx, req, &in.Binding.History)
+	if assert.NotNil(t, cont) {
+		require.Len(t, cont.Messages, 1)
+		assert.Equal(t, llm.RoleUser, cont.Messages[0].Role)
+		assert.Equal(t, "msg-current-user", cont.Messages[0].ID)
+		assert.Equal(t, "Expanded:\nOpen metric report builder", cont.Messages[0].Content)
+	}
 }
 
 func TestGenerateInputInit_PreservesMessageIDForReplayToolResults(t *testing.T) {

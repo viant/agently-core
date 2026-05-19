@@ -159,11 +159,12 @@ type (
 
 	// StarterTask describes a suggested starter prompt for empty chat state.
 	StarterTask struct {
-		ID          string `yaml:"id,omitempty" json:"id,omitempty"`
-		Title       string `yaml:"title,omitempty" json:"title,omitempty"`
-		Prompt      string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
-		Description string `yaml:"description,omitempty" json:"description,omitempty"`
-		Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
+		ID              string   `yaml:"id,omitempty" json:"id,omitempty"`
+		Title           string   `yaml:"title,omitempty" json:"title,omitempty"`
+		Prompt          string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+		Description     string   `yaml:"description,omitempty" json:"description,omitempty"`
+		Icon            string   `yaml:"icon,omitempty" json:"icon,omitempty"`
+		CoverageEvalIDs []string `yaml:"coverageEvalIds,omitempty" json:"coverageEvalIds,omitempty"`
 	}
 
 	// Resource defines a single resource root with optional binding behavior.

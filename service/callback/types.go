@@ -55,6 +55,10 @@ type DispatchOutput struct {
 	// presented to the user. Network / authz errors are returned via the
 	// HTTP status code instead.
 	Error string `json:"error,omitempty"`
+
+	// Blocked reports that the callback was intentionally blocked by a
+	// producer-owned callback gate before any tool invocation occurred.
+	Blocked bool `json:"blocked,omitempty"`
 }
 
 // reservedKeys is the set of template-root fields populated by the

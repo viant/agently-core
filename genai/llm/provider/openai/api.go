@@ -413,6 +413,9 @@ func (c *Client) marshalRequestBody(req *Request) ([]byte, error) {
 	if shouldUseResponsesAPI(c, req) {
 		return c.marshalResponsesApiRequestBody(req)
 	}
+	// Legacy chat/completions does not accept Responses-only fields such as
+	// reasoning/instructions/prompt_cache_key/text/previous_response_id.
+	req.Reasoning = nil
 
 	return c.marshalChatCompletionApiRequestBody(req)
 }

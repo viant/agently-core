@@ -101,6 +101,10 @@ func TestService_list_AllowsProfilesByDirectID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.Profiles, 1)
 	assert.Equal(t, "performance_analysis", out.Profiles[0].ID)
+	require.NotNil(t, out.Profiles[0].EvidenceContract)
+	assert.Equal(t, []string{"hierarchy", "pacing_campaign"}, out.Profiles[0].EvidenceContract.Required)
+	assert.Equal(t, []string{"audience_delivery"}, out.Profiles[0].EvidenceContract.Optional)
+	assert.Equal(t, []string{"recommendation_only"}, out.Profiles[0].EvidenceContract.Forbidden)
 }
 
 func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
@@ -129,6 +133,9 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 	err := service.get(ctx, &GetInput{ID: "performance_analysis", IncludeDocument: &include}, out)
 	require.NoError(t, err)
 	assert.True(t, out.Injected)
+	require.NotNil(t, out.EvidenceContract)
+	assert.Equal(t, []string{"hierarchy", "pacing_campaign"}, out.EvidenceContract.Required)
+	assert.Equal(t, []string{"emit DATA:hierarchy", "emit at least one pacing block"}, out.EvidenceContract.Completion)
 	require.Len(t, out.Messages, 2)
 	require.Len(t, client.messages, 2)
 

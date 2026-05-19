@@ -182,3 +182,33 @@ func TestDispatch_EmptyEventName(t *testing.T) {
 		t.Fatal("expected error for empty eventName")
 	}
 }
+
+func TestDispatch_BlockedByCallbackGate(t *testing.T) {
+	svc, stub := newTestService(t)
+
+	out, err := svc.Dispatch(context.Background(), &DispatchInput{
+		EventName: "simple_echo",
+		Context: map[string]interface{}{
+			"callbackGate": map[string]interface{}{
+				"allowed":     false,
+				"blockSubmit": true,
+				"reason":      "blocked by evaluator verdict",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected blocked error")
+	}
+	if !IsBlockedError(err) {
+		t.Fatalf("expected blocked error type, got %T %v", err, err)
+	}
+	if stub.lastName != "" {
+		t.Fatalf("expected no tool invocation on blocked callback, got %q", stub.lastName)
+	}
+	if out == nil || !out.Blocked {
+		t.Fatalf("expected blocked dispatch output, got %#v", out)
+	}
+	if !strings.Contains(out.Error, "blocked by evaluator verdict") {
+		t.Fatalf("expected blocked reason in output, got %#v", out)
+	}
+}

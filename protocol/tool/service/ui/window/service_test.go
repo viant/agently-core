@@ -95,7 +95,7 @@ func TestListDataSourceRefs(t *testing.T) {
 			"a": {},
 		},
 	}
-	got := listDataSourceRefs(win)
+	got := uireg.ListDataSourceRefs(win)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 refs, got %#v", got)
 	}
@@ -228,7 +228,7 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 			Values: map[string]interface{}{
 				"prefill": map[string]interface{}{
 					"advertiserId": 123,
-					"dealId":       "deal-xyz",
+					"dealId":       778899,
 				},
 			},
 		}, out)
@@ -267,7 +267,7 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 		t.Fatalf("expected values map, got %#v", params["values"])
 	}
 	prefill, ok := values["prefill"].(map[string]interface{})
-	if !ok || prefill["dealId"] != "deal-xyz" {
+	if !ok || prefill["dealId"] != float64(778899) {
 		t.Fatalf("expected semantic prefill payload, got %#v", values)
 	}
 
@@ -289,7 +289,7 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 				"windowForm": map[string]interface{}{
 					"prefill": map[string]interface{}{
 						"advertiserId": float64(123),
-						"dealId":       "deal-xyz",
+						"dealId":       float64(778899),
 					},
 				},
 				"metadata": map[string]interface{}{
@@ -333,7 +333,7 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected prefill map in windowForm, got %#v", got.Window.WindowForm)
 	}
-	if prefillMap["dealId"] != "deal-xyz" {
+	if prefillMap["dealId"] != float64(778899) {
 		t.Fatalf("expected updated live snapshot value, got %#v", prefillMap)
 	}
 }

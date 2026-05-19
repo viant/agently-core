@@ -51,12 +51,12 @@ func TestExpandOpenParametersBindsSemanticBuilderPrefill(t *testing.T) {
 
 	actual := expandOpenParameters(specParams, map[string]interface{}{
 		"advertiserId":  123.0,
-		"dealId":        "deal-xyz",
+		"dealId":        778899.0,
 		"targetingIncl": "iris:1466062,123",
 	})
 
 	assertNestedValue(t, actual, 123.0, "prefill", "advertiserId")
-	assertNestedValue(t, actual, "deal-xyz", "prefill", "dealId")
+	assertNestedValue(t, actual, 778899.0, "prefill", "dealId")
 	assertNestedValue(t, actual, "iris:1466062,123", "prefill", "targetingIncl")
 }
 

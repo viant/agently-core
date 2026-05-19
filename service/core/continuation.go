@@ -203,7 +203,12 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 
 	// Build continuation request with selected tool-call messages
 	continuationRequest := &llm.GenerateRequest{}
-	continuationRequest.Instructions = strings.TrimSpace(req.Instructions)
+	// Provider-side anchored continuation should reuse the prior response's
+	// instruction state via previous_response_id. Re-sending a thinner
+	// req.Instructions layer here can partially override the anchored context and
+	// drop turn-critical guidance that only existed in the original system/bootstrap
+	// message set.
+	continuationRequest.Instructions = ""
 	continuationRequest.PromptCacheKey = strings.TrimSpace(req.PromptCacheKey)
 	if req.Options != nil {
 		opts := *req.Options

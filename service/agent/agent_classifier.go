@@ -168,6 +168,13 @@ func (s *Service) classifyAgentIDWithLLM(ctx context.Context, conv *apiconv.Conv
 			"",
 		)
 	}
+	if bootstrap := s.workspaceUIBootstrap(ctx, convID(conv)); strings.TrimSpace(bootstrap) != "" {
+		userParts = append(userParts,
+			"Workspace UI bootstrap:",
+			bootstrap,
+			"",
+		)
+	}
 	userParts = append(userParts,
 		"User request:",
 		query,

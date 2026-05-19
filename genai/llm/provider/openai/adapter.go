@@ -215,12 +215,15 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		}
 		// Enable streaming if requested
 		req.Stream = request.Options.Stream
-		// Propagate reasoning summary if requested on supported models
+		// Propagate reasoning only on the Responses API path. Legacy
+		// chat/completions rejects the `reasoning` field entirely.
 		if r := request.Options.Reasoning; r != nil {
-			switch req.Model {
-			case "o3", "o4-mini", "codex-mini-latest",
-				"gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.4", "o3-mini":
-				req.Reasoning = r
+			if isContextContinuationEnabled(c) {
+				switch req.Model {
+				case "o3", "o4-mini", "codex-mini-latest",
+					"gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.4", "o3-mini":
+					req.Reasoning = r
+				}
 			}
 		}
 

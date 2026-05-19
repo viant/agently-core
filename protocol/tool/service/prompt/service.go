@@ -80,13 +80,14 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			continue
 		}
 		items = append(items, ListItem{
-			ID:          strings.TrimSpace(p.ID),
-			Name:        strings.TrimSpace(p.Name),
-			Description: strings.TrimSpace(p.Description),
-			AppliesTo:   p.AppliesTo,
-			ToolBundles: p.ToolBundles,
-			Template:    strings.TrimSpace(p.Template),
-			Templates:   append([]string(nil), p.Templates...),
+			ID:               strings.TrimSpace(p.ID),
+			Name:             strings.TrimSpace(p.Name),
+			Description:      strings.TrimSpace(p.Description),
+			AppliesTo:        p.AppliesTo,
+			EvidenceContract: mapEvidenceContract(p.EvidenceContract),
+			ToolBundles:      p.ToolBundles,
+			Template:         strings.TrimSpace(p.Template),
+			Templates:        append([]string(nil), p.Templates...),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].ID) < strings.ToLower(items[j].ID) })
@@ -128,6 +129,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	go_.ID = strings.TrimSpace(selected.ID)
 	go_.Name = strings.TrimSpace(selected.Name)
 	go_.Description = strings.TrimSpace(selected.Description)
+	go_.EvidenceContract = mapEvidenceContract(selected.EvidenceContract)
 	go_.ToolBundles = selected.ToolBundles
 	go_.PreferredTools = selected.PreferredTools
 	go_.Template = strings.TrimSpace(selected.Template)
@@ -250,4 +252,16 @@ func (s *Service) currentAgentID(ctx context.Context) string {
 		return ""
 	}
 	return strings.TrimSpace(*conv.AgentId)
+}
+
+func mapEvidenceContract(in *promptdef.EvidenceContract) *EvidenceContract {
+	if in == nil {
+		return nil
+	}
+	return &EvidenceContract{
+		Required:   append([]string(nil), in.Required...),
+		Optional:   append([]string(nil), in.Optional...),
+		Forbidden:  append([]string(nil), in.Forbidden...),
+		Completion: append([]string(nil), in.Completion...),
+	}
 }

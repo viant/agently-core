@@ -13,12 +13,13 @@ import (
 
 type Registry struct {
 	bridge *forgeuisvc.Service
+	state  *sharedState
 }
 
 const defaultSnapshotFreshness = 15 * time.Second
 
 func New(bridge *forgeuisvc.Service) *Registry {
-	return &Registry{bridge: bridge}
+	return &Registry{bridge: bridge, state: sharedStateFor(bridge)}
 }
 
 type Snapshot struct {
@@ -83,6 +84,9 @@ func (r *Registry) snapshots() ([]ClientSnapshot, error) {
 		if err := json.Unmarshal(raw, &snap); err != nil {
 			continue
 		}
+		if r.state != nil {
+			r.state.ingestSnapshot(entry.Namespace, entry.ClientID, &snap, raw, entry.UpdatedAt)
+		}
 		if strings.TrimSpace(snap.ClientID) == "" {
 			snap.ClientID = strings.TrimSpace(entry.ClientID)
 		}
@@ -97,6 +101,59 @@ func (r *Registry) snapshots() ([]ClientSnapshot, error) {
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
 	return result, nil
+}
+
+func (r *Registry) RecordEvent(ns, clientID string, event UIEvent) {
+	if r == nil || r.state == nil {
+		return
+	}
+	r.state.recordEvent(ns, clientID, event)
+}
+
+func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey string, limit int, sinceSeq int64) []UIEvent {
+	if r == nil || r.state == nil {
+		return nil
+	}
+	clientID = strings.TrimSpace(clientID)
+	windowID = strings.TrimSpace(windowID)
+	windowKey = strings.TrimSpace(windowKey)
+	conversationID = strings.TrimSpace(conversationID)
+	if limit <= 0 {
+		limit = 10
+	}
+	items, err := r.ListByConversation(context.Background(), conversationID)
+	if err != nil {
+		return nil
+	}
+	var out []UIEvent
+	for _, item := range items {
+		if clientID != "" && strings.TrimSpace(item.ClientID) != clientID {
+			continue
+		}
+		events := r.state.listEvents(item.Namespace, item.ClientID)
+		for _, event := range events {
+			if sinceSeq > 0 && event.Seq <= sinceSeq {
+				continue
+			}
+			if conversationID != "" && strings.TrimSpace(event.ConversationID) != conversationID {
+				continue
+			}
+			if windowID != "" && strings.TrimSpace(event.WindowID) != windowID {
+				continue
+			}
+			if windowID == "" && windowKey != "" && strings.TrimSpace(event.WindowKey) != windowKey {
+				continue
+			}
+			out = append(out, event)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Seq < out[j].Seq
+	})
+	if len(out) > limit {
+		out = append([]UIEvent(nil), out[len(out)-limit:]...)
+	}
+	return out
 }
 
 func isFreshSnapshot(item ClientSnapshot, now time.Time) bool {
