@@ -33,8 +33,10 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		w.ClearWarnings()
 	}
 	// Prefer explicit allow-list when provided and non-empty.
-
-	if len(qi.ToolsAllowed) > 0 {
+	// When explicit tool bundles are also present, resolve the allowed tools
+	// through the structured bundle path so bundle-owned approval/async metadata
+	// is preserved on the final tool surface.
+	if len(qi.ToolsAllowed) > 0 && len(qi.ToolBundles) == 0 {
 		var out []llm.Tool
 		var missing []string
 		for _, n := range qi.ToolsAllowed {

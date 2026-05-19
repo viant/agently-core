@@ -639,6 +639,11 @@ func promptToolApproval(ctx context.Context, step StepInfo, cfg *plan.ApprovalCo
 				return "", err
 			}
 		}
+		if cfg != nil && cfg.Review != nil {
+			if err := toolapproval.ApplyReview(step.Args, cfg.Review, payload); err != nil {
+				return "", err
+			}
+		}
 	}
 	return action, nil
 }
