@@ -62,16 +62,32 @@ type ApprovalUIBinding struct {
 	Forge           *ApprovalForgeView       `json:"forge,omitempty" yaml:"forge,omitempty"`
 }
 
+// ApprovalReviewSeed seeds a requestedSchema path from the original tool args.
+type ApprovalReviewSeed struct {
+	SchemaPath string `json:"schemaPath,omitempty" yaml:"schemaPath,omitempty"`
+	Selector   string `json:"selector,omitempty" yaml:"selector,omitempty"`
+}
+
+// ApprovalReviewConfig defines a schema-driven review contract for a tool.
+// It is generic transport metadata; business meaning remains workspace-owned.
+type ApprovalReviewConfig struct {
+	RequestedSchema    map[string]interface{} `json:"requestedSchema,omitempty" yaml:"requestedSchema,omitempty"`
+	Seeds              []*ApprovalReviewSeed  `json:"seeds,omitempty" yaml:"seeds,omitempty"`
+	XForm              map[string]interface{} `json:"xform,omitempty" yaml:"xform,omitempty"`
+	ResponseProjection map[string]interface{} `json:"responseProjection,omitempty" yaml:"responseProjection,omitempty"`
+}
+
 // ApprovalConfig configures approval behavior for a bundle rule.
 // It replaces the legacy split between llm.ApprovalQueue and protocol/tool.ApprovalQueueConfig.
 type ApprovalConfig struct {
-	Mode               ApprovalMode       `json:"mode,omitempty" yaml:"mode,omitempty"`
-	TitleSelector      string             `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
-	DataSourceSelector string             `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
-	UIURI              string             `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
-	AllowUserAuto      bool               `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
-	Prompt             *ApprovalPrompt    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	UI                 *ApprovalUIBinding `json:"ui,omitempty" yaml:"ui,omitempty"`
+	Mode               ApprovalMode          `json:"mode,omitempty" yaml:"mode,omitempty"`
+	TitleSelector      string                `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
+	DataSourceSelector string                `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
+	UIURI              string                `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
+	AllowUserAuto      bool                  `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
+	Prompt             *ApprovalPrompt       `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	UI                 *ApprovalUIBinding    `json:"ui,omitempty" yaml:"ui,omitempty"`
+	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }

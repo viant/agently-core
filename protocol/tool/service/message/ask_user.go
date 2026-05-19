@@ -18,8 +18,9 @@ type Elicitor interface {
 
 // AskUserInput is the tool input for message-askUser.
 type AskUserInput struct {
-	Message string                 `json:"message" description:"The question or prompt to display to the user."`
-	Schema  map[string]interface{} `json:"schema,omitempty" description:"Optional JSON Schema for the expected user response."`
+	Message         string                 `json:"message" description:"The question or prompt to display to the user."`
+	RequestedSchema map[string]interface{} `json:"requestedSchema,omitempty" description:"Optional JSON Schema for the expected user response."`
+	Schema          map[string]interface{} `json:"schema,omitempty" description:"Legacy alias for requestedSchema."`
 }
 
 // AskUserOutput is the tool result for message-askUser.
@@ -52,8 +53,13 @@ func (s *Service) askUser(ctx context.Context, in, out interface{}) error {
 	req := &execution.Elicitation{}
 	req.Message = strings.TrimSpace(input.Message)
 
-	if len(input.Schema) > 0 {
-		raw, err := json.Marshal(input.Schema)
+	requestedSchema := input.RequestedSchema
+	if len(requestedSchema) == 0 {
+		requestedSchema = input.Schema
+	}
+
+	if len(requestedSchema) > 0 {
+		raw, err := json.Marshal(requestedSchema)
 		if err != nil {
 			return fmt.Errorf("failed to marshal schema: %w", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/pkg/agently/tool/resolver"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicitation "github.com/viant/agently-core/service/elicitation"
@@ -51,41 +52,16 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 		}
 	}
 
-	// Embed approval metadata as schema properties so the UI can detect
-	// this is a tool_approval elicitation and render accordingly.
-	properties := map[string]interface{}{
-		"_type":        map[string]interface{}{"type": "string", "const": "tool_approval"},
-		"_toolName":    map[string]interface{}{"type": "string", "const": toolName},
-		"_title":       map[string]interface{}{"type": "string", "const": view.Title},
-		"_acceptLabel": map[string]interface{}{"type": "string", "const": acceptLabel},
-		"_rejectLabel": map[string]interface{}{"type": "string", "const": rejectLabel},
-		"_cancelLabel": map[string]interface{}{"type": "string", "const": cancelLabel},
-	}
-	if meta, err := json.Marshal(map[string]interface{}{
-		"type":        "tool_approval",
-		"toolName":    toolName,
-		"title":       view.Title,
-		"message":     view.Message,
-		"acceptLabel": acceptLabel,
-		"rejectLabel": rejectLabel,
-		"cancelLabel": cancelLabel,
-		"editors":     view.Editors,
-	}); err == nil && len(meta) > 0 {
-		properties["_approvalMeta"] = map[string]interface{}{"type": "string", "const": string(meta)}
-	}
-
 	message := view.Message
 	if message == "" {
 		message = fmt.Sprintf("Approve execution of %s?", view.Title)
 	}
 
+	reqSchema := buildApprovalRequestedSchema(toolName, view, cfg, args, acceptLabel, rejectLabel, cancelLabel)
 	req := &execution.Elicitation{
 		ElicitRequestParams: mcpschema.ElicitRequestParams{
-			Message: message,
-			RequestedSchema: mcpschema.ElicitRequestParamsRequestedSchema{
-				Type:       "object",
-				Properties: properties,
-			},
+			Message:         message,
+			RequestedSchema: reqSchema,
 		},
 	}
 
@@ -94,4 +70,124 @@ func (e *agentToolApprovalElicitor) ElicitToolApproval(
 		return elicaction.Decline, nil, err
 	}
 	return elicaction.Normalize(action), payload, nil
+}
+
+func buildApprovalRequestedSchema(toolName string, view toolapproval.View, cfg *llm.ApprovalConfig, args map[string]interface{}, acceptLabel, rejectLabel, cancelLabel string) mcpschema.ElicitRequestParamsRequestedSchema {
+	if cfg != nil && cfg.Review != nil && len(cfg.Review.RequestedSchema) > 0 {
+		properties := cloneApprovalSchemaMap(cfg.Review.RequestedSchema)
+		applyApprovalReviewSeeds(properties, cfg.Review.Seeds, args)
+		injectApprovalMeta(properties, map[string]interface{}{
+			"type":        "tool_review",
+			"toolName":    toolName,
+			"title":       view.Title,
+			"message":     view.Message,
+			"acceptLabel": acceptLabel,
+			"rejectLabel": rejectLabel,
+			"cancelLabel": cancelLabel,
+			"review":      cfg.Review,
+		}, toolName, view.Title, acceptLabel, rejectLabel, cancelLabel, "tool_review")
+		raw, _ := json.Marshal(properties)
+		var reqSchema mcpschema.ElicitRequestParamsRequestedSchema
+		if err := json.Unmarshal(raw, &reqSchema); err == nil {
+			if strings.TrimSpace(reqSchema.Type) == "" {
+				reqSchema.Type = "object"
+			}
+			if reqSchema.Properties == nil {
+				reqSchema.Properties = map[string]interface{}{}
+			}
+			return reqSchema
+		}
+	}
+
+	properties := map[string]interface{}{}
+	injectApprovalMeta(properties, map[string]interface{}{
+		"type":        "tool_approval",
+		"toolName":    toolName,
+		"title":       view.Title,
+		"message":     view.Message,
+		"acceptLabel": acceptLabel,
+		"rejectLabel": rejectLabel,
+		"cancelLabel": cancelLabel,
+		"editors":     view.Editors,
+	}, toolName, view.Title, acceptLabel, rejectLabel, cancelLabel, "tool_approval")
+	return mcpschema.ElicitRequestParamsRequestedSchema{
+		Type:       "object",
+		Properties: properties,
+	}
+}
+
+func injectApprovalMeta(properties map[string]interface{}, meta map[string]interface{}, toolName, title, acceptLabel, rejectLabel, cancelLabel, kind string) {
+	properties["_type"] = map[string]interface{}{"type": "string", "const": kind}
+	properties["_toolName"] = map[string]interface{}{"type": "string", "const": toolName}
+	properties["_title"] = map[string]interface{}{"type": "string", "const": title}
+	properties["_acceptLabel"] = map[string]interface{}{"type": "string", "const": acceptLabel}
+	properties["_rejectLabel"] = map[string]interface{}{"type": "string", "const": rejectLabel}
+	properties["_cancelLabel"] = map[string]interface{}{"type": "string", "const": cancelLabel}
+	if raw, err := json.Marshal(meta); err == nil && len(raw) > 0 {
+		properties["_approvalMeta"] = map[string]interface{}{"type": "string", "const": string(raw)}
+	}
+}
+
+func cloneApprovalSchemaMap(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	raw, err := json.Marshal(src)
+	if err != nil {
+		out := make(map[string]interface{}, len(src))
+		for key, value := range src {
+			out[key] = value
+		}
+		return out
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]interface{}{}
+	}
+	return out
+}
+
+func applyApprovalReviewSeeds(schema map[string]interface{}, seeds []*llm.ApprovalReviewSeed, args map[string]interface{}) {
+	for _, seed := range seeds {
+		if seed == nil {
+			continue
+		}
+		path := strings.TrimSpace(seed.SchemaPath)
+		selector := strings.TrimSpace(seed.Selector)
+		if path == "" || selector == "" {
+			continue
+		}
+		if !strings.HasPrefix(selector, "input.") && !strings.HasPrefix(selector, "output.") && selector != "input" && selector != "output" {
+			selector = "input." + selector
+		}
+		value := resolver.Select(selector, args, nil)
+		if value == nil {
+			continue
+		}
+		assignApprovalSchemaPath(schema, path, value)
+	}
+}
+
+func assignApprovalSchemaPath(target map[string]interface{}, path string, value interface{}) {
+	if len(target) == 0 || strings.TrimSpace(path) == "" {
+		return
+	}
+	parts := strings.Split(path, ".")
+	current := target
+	for index, part := range parts {
+		key := strings.TrimSpace(part)
+		if key == "" {
+			return
+		}
+		if index == len(parts)-1 {
+			current[key] = value
+			return
+		}
+		next, ok := current[key].(map[string]interface{})
+		if !ok || next == nil {
+			next = map[string]interface{}{}
+			current[key] = next
+		}
+		current = next
+	}
 }
