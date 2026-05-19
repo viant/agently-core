@@ -12,7 +12,6 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
-	padapter "github.com/viant/agently-core/protocol/binding/adapter"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace/repository/toolplaybook"
@@ -493,11 +492,23 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	if s.registry == nil || input == nil || input.Agent == nil {
 		return nil, nil
 	}
-	tools, err := s.resolveTools(ctx, input)
+	control, err := s.resolveToolControl(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	out := padapter.ToToolDefinitions(tools)
+	if len(control.Tools) == 0 && len(control.Bundles) == 0 {
+		return nil, nil
+	}
+	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*llm.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		cloned := def
+		cloned.Normalize()
+		out = append(out, &cloned)
+	}
 	out = dedupeToolDefinitions(out)
 	if logx.Enabled() {
 		names := make([]string, 0, len(out))
