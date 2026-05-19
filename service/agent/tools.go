@@ -69,66 +69,6 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 		}
 		return out, nil
 	}
-	if len(qi.ToolsAllowed) > 0 && len(qi.ToolBundles) > 0 {
-		res, err := s.resolveBundleResult(ctx, qi.ToolBundles)
-		if err != nil {
-			return nil, err
-		}
-		allowed := map[string]struct{}{}
-		for _, raw := range qi.ToolsAllowed {
-			name := strings.TrimSpace(mcpname.Canonical(raw))
-			if name == "" {
-				continue
-			}
-			allowed[strings.ToLower(name)] = struct{}{}
-		}
-		defs := make([]llm.ToolDefinition, 0, len(res.Definitions))
-		seen := map[string]struct{}{}
-		for _, def := range res.Definitions {
-			key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(def.Name)))
-			if _, ok := allowed[key]; !ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			defs = append(defs, def)
-		}
-		for _, raw := range qi.ToolsAllowed {
-			name := strings.TrimSpace(raw)
-			key := strings.ToLower(mcpname.Canonical(name))
-			if name == "" || key == "" {
-				continue
-			}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			if def, ok := s.registry.GetDefinition(name); ok && def != nil {
-				canonical := *def
-				canonical.Name = mcpname.Canonical(canonical.Name)
-				defs = append(defs, canonical)
-				seen[key] = struct{}{}
-				continue
-			}
-			appendWarning(ctx, fmt.Sprintf("allowed tool not found: %s", name))
-		}
-		filtered := &resolvedToolSurface{
-			Definitions:  dedupeDefinitions(defs),
-			ApprovalByID: map[string]*llm.ApprovalConfig{},
-			AsyncByID:    map[string]*llm.Tool{},
-		}
-		for key, cfg := range res.ApprovalByID {
-			if _, ok := allowed[strings.ToLower(key)]; ok {
-				filtered.ApprovalByID[key] = cfg
-			}
-		}
-		for key, asyncRule := range res.AsyncByID {
-			if _, ok := allowed[strings.ToLower(key)]; ok {
-				filtered.AsyncByID[key] = asyncRule
-			}
-		}
-		s.applyResolvedToolSurfaceMetadata(ctx, filtered)
-		return defsToTools(filtered.Definitions), nil
-	}
-
 	control, err := s.resolveToolControl(ctx, qi)
 	if err != nil {
 		return nil, err
