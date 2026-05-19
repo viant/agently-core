@@ -1552,6 +1552,7 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 	}
 
 	maybeEnablePlannerMode(input, tc, cfg)
+	normalizePlannerSubmitTurnContext(input, tc, cfg)
 
 	// Always store the full context under the well-known key.
 	input.Context[intakesvc.ContextKey] = tc
@@ -1603,6 +1604,57 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 				input.PromptProfileId = suggested
 			}
 		}
+	}
+}
+
+func normalizePlannerSubmitTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) {
+	if input == nil || tc == nil {
+		return
+	}
+	plannerSubmitEvent, ok := input.Context["plannerSubmitEvent"].(map[string]interface{})
+	if !ok || len(plannerSubmitEvent) == 0 {
+		return
+	}
+	plannerSubmit, ok := plannerSubmitEvent["plannerSubmit"].(map[string]interface{})
+	if !ok || len(plannerSubmit) == 0 {
+		return
+	}
+	toolGuidance, ok := plannerSubmit["toolGuidance"].(map[string]interface{})
+	if !ok || len(toolGuidance) == 0 {
+		return
+	}
+	guidedTool := strings.TrimSpace(stringValue(toolGuidance["tool"]))
+	if guidedTool == "" {
+		return
+	}
+	tc.DirectAction = intakesvc.DirectActionContext{}
+	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.Prompting.SuggestedProfileID) == "" {
+		tc.Prompting.SuggestedProfileID = "site_list_recommendation"
+	}
+	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeTemplate) {
+		tc.Prompting.TemplateID = ""
+		input.TemplateId = ""
+	}
+	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeTools) {
+		guidedBundle := strings.TrimSpace(stringValue(toolGuidance["toolBundle"]))
+		if guidedBundle != "" {
+			exists := false
+			for _, item := range tc.Prompting.AppendToolBundles {
+				if strings.EqualFold(strings.TrimSpace(item), guidedBundle) {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				tc.Prompting.AppendToolBundles = append(tc.Prompting.AppendToolBundles, guidedBundle)
+			}
+		}
+	}
+	if tc.Scope.Values == nil {
+		tc.Scope.Values = map[string]string{}
+	}
+	if strings.TrimSpace(tc.Scope.Values["requestType"]) == "" {
+		tc.Scope.Values["requestType"] = "site_list_submit_followup"
 	}
 }
 

@@ -714,6 +714,52 @@ func TestApplyTurnContext_PreservesExplicitPlannerModeFromIntake(t *testing.T) {
 	require.Equal(t, "analytics_dashboard", input.TemplateId)
 }
 
+func TestApplyTurnContext_ClearsDirectActionForPlannerSubmitGuidedTool(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:             true,
+		ConfidenceThreshold: 0.5,
+		Scope:               []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate, agentmdl.IntakeScopeTools},
+	}
+	input := &QueryInput{
+		Context: map[string]interface{}{
+			"plannerSubmitEvent": map[string]interface{}{
+				"eventName": "site_list_planner_submit",
+				"plannerSubmit": map[string]interface{}{
+					"domain": "site_list",
+					"toolGuidance": map[string]interface{}{
+						"tool":       "steward-RecommendationPatch",
+						"toolBundle": "analyst-sitelist-tools",
+					},
+				},
+			},
+		},
+	}
+	tc := &intakesvc.Context{
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: "",
+			TemplateID:         "site_list_planner",
+			AppendToolBundles:  []string{"workspace-ui"},
+		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName:      "ui/window:setFormData",
+			Input:         map[string]interface{}{"action": "plannerSubmit"},
+			AssistantText: "Submitting planner event",
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Empty(t, stored.DirectAction.ToolName)
+	require.Nil(t, stored.DirectAction.Input)
+	require.Equal(t, "site_list_recommendation", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "", stored.Prompting.TemplateID)
+	require.Equal(t, "", input.TemplateId)
+	require.Equal(t, "site_list_submit_followup", stored.Scope.Values["requestType"])
+	require.Contains(t, stored.Prompting.AppendToolBundles, "analyst-sitelist-tools")
+}
+
 func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
