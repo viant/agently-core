@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -205,10 +206,6 @@ func evaluateActivationRule(query string, rule agentmdl.ActivationRule) *intakes
 		if !ok {
 			continue
 		}
-		input, ok := buildActivationActionInput(rule.Action, vars)
-		if !ok {
-			continue
-		}
 		override := &intakesvc.Context{
 			Classification: intakesvc.ClassificationContext{
 				Title:      query,
@@ -222,18 +219,37 @@ func evaluateActivationRule(query string, rule agentmdl.ActivationRule) *intakes
 			Scope: intakesvc.ScopeContext{
 				Values: renderActivationScope(rule.Scope.Values, vars),
 			},
-			DirectAction: intakesvc.DirectActionContext{
+		}
+		if activationRuleHasDirectAction(rule.Action) {
+			input, ok := buildActivationActionInput(rule.Action, vars)
+			if !ok {
+				continue
+			}
+			override.DirectAction = intakesvc.DirectActionContext{
 				ToolName:      strings.TrimSpace(rule.Action.Tool),
 				Input:         input,
 				AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), vars),
-			},
-		}
-		if strings.TrimSpace(override.DirectAction.ToolName) == "" {
-			override.DirectAction = intakesvc.DirectActionContext{}
+			}
 		}
 		return override
 	}
 	return nil
+}
+
+func activationRuleHasDirectAction(action agentmdl.ActivationAction) bool {
+	if strings.TrimSpace(action.Tool) != "" {
+		return true
+	}
+	if strings.TrimSpace(action.Foreach) != "" {
+		return true
+	}
+	if len(action.Input) > 0 {
+		return true
+	}
+	if len(action.Item) > 0 {
+		return true
+	}
+	return false
 }
 
 func activationRulePatterns(match agentmdl.ActivationMatch) []string {
@@ -469,12 +485,13 @@ func activationStringValue(value interface{}) string {
 }
 
 type activationFollowUpState struct {
-	Source      string
-	ClientID    string
-	WindowID    string
-	WindowKey   string
-	WindowTitle string
-	LiveWindow  *uireg.WindowSnapshot
+	Source         string
+	ClientID       string
+	WindowID       string
+	WindowKey      string
+	WindowTitle    string
+	WindowOrderIDs []string
+	LiveWindow     *uireg.WindowSnapshot
 }
 
 func (s *Service) resolveWorkspaceFollowUpRuleOverride(ctx context.Context, conversationID, query string, rules []agentmdl.ActivationRule) *intakesvc.Context {
@@ -506,12 +523,13 @@ func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversat
 		if client, activeWindow := liveWindowState(s.uiRegistry, ctx, conversationID); client != nil {
 			if activeWindow != nil {
 				result = append(result, activationFollowUpState{
-					Source:      "live_window",
-					ClientID:    strings.TrimSpace(client.ClientID),
-					WindowID:    strings.TrimSpace(activeWindow.WindowID),
-					WindowKey:   strings.TrimSpace(activeWindow.WindowKey),
-					WindowTitle: strings.TrimSpace(activeWindow.WindowTitle),
-					LiveWindow:  activeWindow,
+					Source:         "live_window",
+					ClientID:       strings.TrimSpace(client.ClientID),
+					WindowID:       strings.TrimSpace(activeWindow.WindowID),
+					WindowKey:      strings.TrimSpace(activeWindow.WindowKey),
+					WindowTitle:    strings.TrimSpace(activeWindow.WindowTitle),
+					WindowOrderIDs: extractWindowOrderIDs(activeWindow),
+					LiveWindow:     activeWindow,
 				})
 			}
 			if client.Snapshot != nil {
@@ -524,12 +542,13 @@ func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversat
 						continue
 					}
 					result = append(result, activationFollowUpState{
-						Source:      "live_window",
-						ClientID:    strings.TrimSpace(client.ClientID),
-						WindowID:    strings.TrimSpace(win.WindowID),
-						WindowKey:   strings.TrimSpace(win.WindowKey),
-						WindowTitle: strings.TrimSpace(win.WindowTitle),
-						LiveWindow:  win,
+						Source:         "live_window",
+						ClientID:       strings.TrimSpace(client.ClientID),
+						WindowID:       strings.TrimSpace(win.WindowID),
+						WindowKey:      strings.TrimSpace(win.WindowKey),
+						WindowTitle:    strings.TrimSpace(win.WindowTitle),
+						WindowOrderIDs: extractWindowOrderIDs(win),
+						LiveWindow:     win,
 					})
 				}
 			}
@@ -539,10 +558,11 @@ func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversat
 		if conversation, err := s.conversation.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true)); err == nil && conversation != nil {
 			if state := deriveWorkspaceFollowUpStateFromTranscript(conversation.GetTranscript()); state != nil && strings.TrimSpace(state.WindowID) != "" {
 				result = append(result, activationFollowUpState{
-					Source:    "transcript_window",
-					ClientID:  strings.TrimSpace(state.ClientID),
-					WindowID:  strings.TrimSpace(state.WindowID),
-					WindowKey: strings.TrimSpace(state.WindowKey),
+					Source:         "transcript_window",
+					ClientID:       strings.TrimSpace(state.ClientID),
+					WindowID:       strings.TrimSpace(state.WindowID),
+					WindowKey:      strings.TrimSpace(state.WindowKey),
+					WindowOrderIDs: append([]string(nil), state.OrderIDs...),
 				})
 			}
 		}
@@ -568,8 +588,9 @@ func evaluateFollowUpRule(query string, rule agentmdl.ActivationRule, states []a
 		if !ok {
 			continue
 		}
-		for _, state := range filterFollowUpStates(states, rule) {
-			override := buildFollowUpOverrideFromState(rule, vars, state, query)
+		filtered := filterFollowUpStates(states, rule)
+		for _, state := range filtered {
+			override := buildFollowUpOverrideFromState(rule, vars, state, filtered, query)
 			if override != nil {
 				return override
 			}
@@ -597,7 +618,7 @@ func filterFollowUpStates(states []activationFollowUpState, rule agentmdl.Activa
 	return result
 }
 
-func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[string]interface{}, state activationFollowUpState, query string) *intakesvc.Context {
+func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[string]interface{}, state activationFollowUpState, relatedStates []activationFollowUpState, query string) *intakesvc.Context {
 	stateVars := map[string]interface{}{}
 	for key, value := range vars {
 		stateVars[key] = value
@@ -606,6 +627,12 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 	stateVars["windowKey"] = state.WindowKey
 	stateVars["windowTitle"] = state.WindowTitle
 	stateVars["clientId"] = state.ClientID
+	if len(state.WindowOrderIDs) > 0 {
+		stateVars["windowOrderIds"] = strings.Join(state.WindowOrderIDs, ",")
+	}
+	if related := collectFollowUpOrderIDs(relatedStates); len(related) > 0 {
+		stateVars["compareOrderIds"] = strings.Join(related, ",")
+	}
 
 	var direct *workspaceFollowUpDirectAction
 	if rule.SurfaceMatch != nil {
@@ -624,13 +651,14 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 			AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), stateVars),
 		}
 	}
-	if direct == nil {
+	if direct == nil && strings.TrimSpace(rule.Prompting.SuggestedProfileID) == "" && len(rule.Scope.Values) == 0 {
 		return nil
 	}
-	if strings.TrimSpace(direct.AssistantText) == "" {
+	if direct != nil && strings.TrimSpace(direct.AssistantText) == "" {
 		direct.AssistantText = renderActivationString(strings.TrimSpace(rule.Response.AssistantText), stateVars)
 	}
-	return &intakesvc.Context{
+	scopeValues := renderActivationScope(rule.Scope.Values, stateVars)
+	override := &intakesvc.Context{
 		Classification: intakesvc.ClassificationContext{
 			Title:      strings.TrimSpace(query),
 			Intent:     firstNonEmpty(strings.TrimSpace(rule.Classification.Intent), "summary"),
@@ -641,14 +669,117 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 			TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
 		},
 		Scope: intakesvc.ScopeContext{
-			Values: renderActivationScope(rule.Scope.Values, stateVars),
+			Values: scopeValues,
 		},
-		DirectAction: intakesvc.DirectActionContext{
+	}
+	if direct != nil {
+		override.DirectAction = intakesvc.DirectActionContext{
 			ToolName:      direct.ToolName,
 			Input:         direct.Input,
 			AssistantText: direct.AssistantText,
-		},
+		}
 	}
+	return override
+}
+
+func collectFollowUpOrderIDs(states []activationFollowUpState) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0)
+	for _, state := range states {
+		for _, id := range state.WindowOrderIDs {
+			trimmed := strings.TrimSpace(id)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func extractWindowOrderIDs(win *uireg.WindowSnapshot) []string {
+	if win == nil {
+		return nil
+	}
+	var collected []string
+	appendRaw := func(raw interface{}) {
+		switch actual := raw.(type) {
+		case []interface{}:
+			for _, item := range actual {
+				value := ""
+				switch typed := item.(type) {
+				case float64:
+					value = strings.TrimSpace(strconv.FormatInt(int64(typed), 10))
+				default:
+					value = activationStringValue(item)
+				}
+				if value != "" && value != "<nil>" {
+					collected = append(collected, value)
+				}
+			}
+		case []string:
+			for _, item := range actual {
+				value := strings.TrimSpace(item)
+				if value != "" {
+					collected = append(collected, value)
+				}
+			}
+		default:
+			value := ""
+			switch typed := raw.(type) {
+			case float64:
+				value = strings.TrimSpace(strconv.FormatInt(int64(typed), 10))
+			default:
+				value = activationStringValue(raw)
+			}
+			if value != "" && value != "<nil>" {
+				collected = append(collected, value)
+			}
+		}
+	}
+	if win.Parameters != nil {
+		if raw, ok := win.Parameters["AdOrderId"]; ok {
+			appendRaw(raw)
+		}
+	}
+	if win.CompareContext != nil {
+		if raw, ok := win.CompareContext["orderIds"]; ok {
+			appendRaw(raw)
+		}
+	}
+	for _, ds := range win.DataSources {
+		if ds.Input == nil {
+			continue
+		}
+		if raw, ok := ds.Input["order_id"]; ok {
+			appendRaw(raw)
+		}
+		if raw, ok := ds.Input["AdOrderId"]; ok {
+			appendRaw(raw)
+		}
+	}
+	if len(collected) == 0 {
+		for _, item := range extractOrderIDs(firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowID))) {
+			collected = append(collected, item)
+		}
+	}
+	if len(collected) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(collected))
+	for _, item := range collected {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
 }
 
 func resolveSurfaceMatchAction(rule agentmdl.ActivationRule, vars map[string]interface{}, state activationFollowUpState) *workspaceFollowUpDirectAction {
@@ -790,6 +921,7 @@ type workspaceFollowUpState struct {
 	WindowID  string
 	WindowKey string
 	ClientID  string
+	OrderIDs  []string
 }
 
 type workspaceFollowUpDirectAction struct {
