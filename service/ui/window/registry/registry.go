@@ -42,6 +42,7 @@ type WindowSnapshot struct {
 	Presentation   string                        `json:"presentation,omitempty"`
 	Region         string                        `json:"region,omitempty"`
 	ParentKey      string                        `json:"parentKey,omitempty"`
+	CompareContext map[string]interface{}        `json:"compareContext,omitempty"`
 	Parameters     map[string]interface{}        `json:"parameters,omitempty"`
 	WindowForm     map[string]interface{}        `json:"windowForm,omitempty"`
 	ViewState      map[string]interface{}        `json:"viewState,omitempty"`
