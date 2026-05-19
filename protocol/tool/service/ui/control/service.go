@@ -107,6 +107,19 @@ func (s *Service) setValue(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(win.ConversationID),
+		ClientID:       clientID,
+		WindowID:       targetWindowID,
+		WindowKey:      strings.TrimSpace(win.WindowKey),
+		Kind:           "control.set_value",
+		Actor:          "agent",
+		Detail: map[string]interface{}{
+			"controlId": controlID,
+			"scope":     strings.TrimSpace(input.Scope),
+			"value":     input.Value,
+		},
+	})
 	return nil
 }
 

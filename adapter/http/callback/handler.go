@@ -79,12 +79,20 @@ func NewDispatchHandler(svc *callbacksvc.Service) http.Handler {
 		if err != nil {
 			// Message-based discrimination is intentional — the service
 			// returns plain errors. "no callback registered" → 404 so the
-			// client can fall back; everything else → 400.
+			// client can fall back; blocked callbacks → 409; everything else → 400.
 			status := http.StatusBadRequest
 			if strings.Contains(err.Error(), "no callback registered") {
 				status = http.StatusNotFound
+			} else if callbacksvc.IsBlockedError(err) {
+				status = http.StatusConflict
 			}
-			http.Error(w, err.Error(), status)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":      false,
+				"blocked": callbacksvc.IsBlockedError(err),
+				"error":   err.Error(),
+			})
 			return
 		}
 

@@ -73,6 +73,20 @@ type AgentInfo struct {
 	StarterTasks []agentmdl.StarterTask `json:"starterTasks,omitempty"`
 }
 
+type metadataAgentProjection struct {
+	ID           string                 `yaml:"id,omitempty"`
+	Name         string                 `yaml:"name,omitempty"`
+	Internal     bool                   `yaml:"internal,omitempty"`
+	ModelRef     string                 `yaml:"modelRef,omitempty"`
+	Model        string                 `yaml:"model,omitempty"`
+	Profile      *metadataProfile       `yaml:"profile,omitempty"`
+	StarterTasks []agentmdl.StarterTask `yaml:"starterTasks,omitempty"`
+}
+
+type metadataProfile struct {
+	Name string `yaml:"name,omitempty"`
+}
+
 // ModelInfo describes a UI-facing model entry.
 type ModelInfo struct {
 	ID   string `json:"id,omitempty"`
@@ -189,7 +203,7 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 			result = append(result, AgentInfo{ID: name, Name: name})
 			continue
 		}
-		cfg := &agentmdl.Agent{}
+		cfg := &metadataAgentProjection{}
 		rawMap := map[string]interface{}{}
 		if err := wscodec.DecodeData(name+".yaml", raw, cfg); err != nil {
 			result = append(result, AgentInfo{ID: name, Name: name})
@@ -211,8 +225,8 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 			ID:           id,
 			Name:         label,
 			Internal:     cfg.Internal,
-			ModelRef:     firstNonEmpty(cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
-			Tools:        agentToolDefaults(cfg, rawMap),
+			ModelRef:     firstNonEmpty(cfg.ModelRef, cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
+			Tools:        agentToolDefaults(rawMap),
 			StarterTasks: append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
 		})
 	}
@@ -227,7 +241,7 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 	return result
 }
 
-func agentToolDefaults(cfg *agentmdl.Agent, raw map[string]interface{}) []string {
+func agentToolDefaults(raw map[string]interface{}) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	add := func(value string) {
@@ -241,18 +255,6 @@ func agentToolDefaults(cfg *agentmdl.Agent, raw map[string]interface{}) []string
 		seen[value] = struct{}{}
 		out = append(out, value)
 	}
-	if cfg != nil {
-		for _, bundle := range cfg.Tool.Bundles {
-			add(bundle)
-		}
-		for _, item := range cfg.Tool.Items {
-			if item == nil {
-				continue
-			}
-			add(item.Name)
-			add(item.Definition.Name)
-		}
-	}
 	toolBlock, _ := raw["tool"].(map[string]interface{})
 	for _, bundle := range stringList(toolBlock["bundles"]) {
 		add(bundle)
@@ -260,6 +262,9 @@ func agentToolDefaults(cfg *agentmdl.Agent, raw map[string]interface{}) []string
 	for _, entry := range objectList(toolBlock["items"]) {
 		add(stringValue(entry["pattern"]))
 		add(stringValue(entry["name"]))
+		if definition, ok := entry["definition"].(map[string]interface{}); ok {
+			add(stringValue(definition["name"]))
+		}
 	}
 	return out
 }

@@ -186,6 +186,36 @@ func TestDispatch_UnknownEvent_Returns404(t *testing.T) {
 	}
 }
 
+func TestDispatch_BlockedGate_Returns409(t *testing.T) {
+	mux, stub := newTestMux(t)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"eventName": "simple_echo",
+		"context": map[string]interface{}{
+			"callbackGate": map[string]interface{}{
+				"allowed":     false,
+				"blockSubmit": true,
+				"reason":      "blocked by evaluator verdict",
+			},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/callbacks/dispatch", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if stub.lastName != "" {
+		t.Fatalf("expected no tool invocation on blocked callback, got %q", stub.lastName)
+	}
+	if !strings.Contains(rr.Body.String(), "\"blocked\":true") {
+		t.Fatalf("expected blocked response body, got %s", rr.Body.String())
+	}
+}
+
 // TestDispatch_NonPOST_Returns405 rejects GET / PUT etc.
 func TestDispatch_NonPOST_Returns405(t *testing.T) {
 	mux, _ := newTestMux(t)

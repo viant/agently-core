@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sort"
 	"strings"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
@@ -243,7 +242,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	}
 	output.ClientID = clientID
 	output.Window = compactWindowSnapshot(win)
-	output.DataSourceRefs = listDataSourceRefs(win)
+	output.DataSourceRefs = uireg.ListDataSourceRefs(win)
 	output.Surface = buildWindowSurface(win)
 	if snap != nil {
 		selected := snap.Selected
@@ -290,6 +289,14 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(win.ConversationID),
+		ClientID:       clientID,
+		WindowID:       strings.TrimSpace(win.WindowID),
+		WindowKey:      strings.TrimSpace(win.WindowKey),
+		Kind:           "window.show",
+		Actor:          "agent",
+	})
 	return nil
 }
 
@@ -334,6 +341,18 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(win.ConversationID),
+		ClientID:       clientID,
+		WindowID:       strings.TrimSpace(win.WindowID),
+		WindowKey:      strings.TrimSpace(win.WindowKey),
+		Kind:           "window.set_form_data",
+		Actor:          "agent",
+		Detail: map[string]interface{}{
+			"replace": input.Replace,
+			"values":  input.Values,
+		},
+	})
 	return nil
 }
 
@@ -361,7 +380,7 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	if preferredClientID == "" {
 		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 	}
-	clientID, namespace, _, _, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, "")
+	clientID, namespace, _, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, "")
 	if err != nil {
 		return err
 	}
@@ -377,6 +396,14 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(win.ConversationID),
+		ClientID:       clientID,
+		WindowID:       strings.TrimSpace(win.WindowID),
+		WindowKey:      strings.TrimSpace(win.WindowKey),
+		Kind:           "window.hide",
+		Actor:          "agent",
+	})
 	return nil
 }
 
@@ -424,6 +451,16 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: conversationID,
+		ClientID:       clientID,
+		WindowID:       windowID,
+		Kind:           "tab.selected",
+		Actor:          "agent",
+		Detail: map[string]interface{}{
+			"tabId": tabID,
+		},
+	})
 	return nil
 }
 
@@ -455,165 +492,40 @@ func compactWindowSnapshot(win *uireg.WindowSnapshot) *uireg.WindowSnapshot {
 	return &copyWin
 }
 
-func listDataSourceRefs(win *uireg.WindowSnapshot) []string {
-	if win == nil || len(win.DataSources) == 0 {
-		return nil
-	}
-	refs := make([]string, 0, len(win.DataSources))
-	for ref := range win.DataSources {
-		refs = append(refs, ref)
-	}
-	return refs
-}
-
 func buildWindowSurface(win *uireg.WindowSnapshot) *WindowSurface {
-	if win == nil {
+	base := uireg.BuildWindowSurface(win)
+	if base == nil {
 		return nil
 	}
-	viewMeta, _ := mapValue(win.Metadata, "view")
-	tabsRaw, _ := sliceValue(viewMeta, "tabs")
-	controlsRaw, _ := sliceValue(viewMeta, "controls")
-	viewStateTabs := viewStateTabs(win.ViewState)
-
 	surface := &WindowSurface{}
-	for _, raw := range tabsRaw {
-		entry, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		containerID := strings.TrimSpace(stringValue(entry["containerId"]))
-		tabID := strings.TrimSpace(stringValue(entry["tabId"]))
-		if tabID == "" {
-			continue
-		}
+	for _, tab := range base.Tabs {
 		surface.Tabs = append(surface.Tabs, WindowTabHint{
-			ContainerID: containerID,
-			TabID:       tabID,
-			Title:       strings.TrimSpace(stringValue(entry["title"])),
-			Selected:    containerID != "" && viewStateTabs[containerID] == tabID,
+			ContainerID: tab.ContainerID,
+			TabID:       tab.TabID,
+			Title:       tab.Title,
+			Selected:    tab.Selected,
 		})
 	}
-	sort.SliceStable(surface.Tabs, func(i, j int) bool {
-		if surface.Tabs[i].ContainerID != surface.Tabs[j].ContainerID {
-			return surface.Tabs[i].ContainerID < surface.Tabs[j].ContainerID
+	for _, control := range base.Controls {
+		options := make([]WindowControlOption, 0, len(control.Options))
+		for _, option := range control.Options {
+			options = append(options, WindowControlOption{Value: option.Value, Label: option.Label})
 		}
-		return surface.Tabs[i].TabID < surface.Tabs[j].TabID
-	})
-
-	for _, raw := range controlsRaw {
-		entry, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		id := strings.TrimSpace(stringValue(entry["id"]))
-		if id == "" {
-			continue
-		}
-		scope := strings.TrimSpace(stringValue(entry["scope"]))
-		bindingPath := strings.TrimSpace(stringValue(entry["bindingPath"]))
-		dataField := strings.TrimSpace(stringValue(entry["dataField"]))
-		value := controlValue(win.WindowForm, scope, bindingPath, dataField, id)
-		options := controlOptions(entry["options"])
 		surface.Controls = append(surface.Controls, WindowControlHint{
-			ID:          id,
-			Label:       strings.TrimSpace(stringValue(entry["label"])),
-			Type:        strings.TrimSpace(stringValue(entry["type"])),
-			Scope:       scope,
-			BindingPath: bindingPath,
-			DataField:   dataField,
-			Value:       value,
+			ID:          control.ID,
+			Label:       control.Label,
+			Type:        control.Type,
+			Scope:       control.Scope,
+			BindingPath: control.BindingPath,
+			DataField:   control.DataField,
+			Value:       control.Value,
 			Options:     options,
 		})
 	}
-	sort.SliceStable(surface.Controls, func(i, j int) bool {
-		return surface.Controls[i].ID < surface.Controls[j].ID
-	})
 	if len(surface.Tabs) == 0 && len(surface.Controls) == 0 {
 		return nil
 	}
 	return surface
-}
-
-func mapValue(source map[string]interface{}, key string) (map[string]interface{}, bool) {
-	if len(source) == 0 {
-		return nil, false
-	}
-	raw, ok := source[key]
-	if !ok {
-		return nil, false
-	}
-	value, ok := raw.(map[string]interface{})
-	return value, ok
-}
-
-func sliceValue(source map[string]interface{}, key string) ([]interface{}, bool) {
-	if len(source) == 0 {
-		return nil, false
-	}
-	raw, ok := source[key]
-	if !ok {
-		return nil, false
-	}
-	value, ok := raw.([]interface{})
-	return value, ok
-}
-
-func viewStateTabs(viewState map[string]interface{}) map[string]string {
-	result := map[string]string{}
-	raw, ok := viewState["tabs"]
-	if !ok {
-		return result
-	}
-	tabs, ok := raw.(map[string]interface{})
-	if !ok {
-		return result
-	}
-	for key, value := range tabs {
-		id := strings.TrimSpace(stringValue(value))
-		if key == "" || id == "" {
-			continue
-		}
-		result[key] = id
-	}
-	return result
-}
-
-func controlValue(windowForm map[string]interface{}, scope, bindingPath, dataField, id string) interface{} {
-	if !strings.EqualFold(strings.TrimSpace(scope), "windowForm") {
-		return nil
-	}
-	switch {
-	case bindingPath != "":
-		return resolvePath(windowForm, bindingPath)
-	case dataField != "":
-		return resolvePath(windowForm, dataField)
-	case id != "":
-		return resolvePath(windowForm, id)
-	default:
-		return nil
-	}
-}
-
-func controlOptions(raw interface{}) []WindowControlOption {
-	list, ok := raw.([]interface{})
-	if !ok || len(list) == 0 {
-		return nil
-	}
-	result := make([]WindowControlOption, 0, len(list))
-	for _, item := range list {
-		entry, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		result = append(result, WindowControlOption{
-			Value: entry["value"],
-			Label: strings.TrimSpace(stringValue(entry["label"])),
-		})
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
 }
 
 func stringValue(v interface{}) string {
@@ -626,23 +538,4 @@ func stringValue(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
-}
-
-func resolvePath(source map[string]interface{}, path string) interface{} {
-	current := interface{}(source)
-	for _, part := range strings.Split(strings.TrimSpace(path), ".") {
-		if part == "" {
-			continue
-		}
-		asMap, ok := current.(map[string]interface{})
-		if !ok {
-			return nil
-		}
-		next, exists := asMap[part]
-		if !exists {
-			return nil
-		}
-		current = next
-	}
-	return current
 }

@@ -342,12 +342,14 @@ func TestService_Load_StarterTasks(t *testing.T) {
 	assert.Equal(t, "Analyze this repository.", got.StarterTasks[0].Prompt)
 	assert.Equal(t, "Architecture summary and next steps.", got.StarterTasks[0].Description)
 	assert.Equal(t, "tree-structure", got.StarterTasks[0].Icon)
+	assert.Equal(t, []string{"repo-analysis"}, got.StarterTasks[0].CoverageEvalIDs)
 
 	assert.Equal(t, "write-tests", got.StarterTasks[1].ID)
 	assert.Equal(t, "Add missing tests", got.StarterTasks[1].Title)
 	assert.Equal(t, "Add focused tests for a weakly covered area.", got.StarterTasks[1].Prompt)
 	assert.Equal(t, "Targeted coverage improvements.", got.StarterTasks[1].Description)
 	assert.Equal(t, "flask", got.StarterTasks[1].Icon)
+	assert.Equal(t, []string{"write-tests"}, got.StarterTasks[1].CoverageEvalIDs)
 }
 
 func TestService_Load_Intake_Orchestrator(t *testing.T) {
@@ -360,7 +362,7 @@ func TestService_Load_Intake_Orchestrator(t *testing.T) {
 
 	cfg := got.Intake
 	assert.True(t, cfg.Enabled)
-	assert.Contains(t, cfg.Prompt, "show the most 3 impactful deal ids in the last 2 days")
+	assert.Contains(t, cfg.Prompt.Text, "show the most 3 impactful deal ids in the last 2 days")
 	assert.Equal(t, "haiku", cfg.Model)
 	assert.Equal(t, 400, cfg.MaxTokens)
 	assert.InDelta(t, 0.85, cfg.ConfidenceThreshold, 0.001)
@@ -379,6 +381,87 @@ func TestService_Load_Intake_Orchestrator(t *testing.T) {
 	assert.True(t, cfg.HasScope("template"))
 	assert.True(t, cfg.HasScope("title"))
 	assert.False(t, cfg.HasScope("unknown"))
+}
+
+func TestService_Load_IntakePromptObject(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agents", "steward")
+	require.NoError(t, os.MkdirAll(agentDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "intake"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "steward.yaml"), []byte(`
+id: steward
+name: Steward
+modelRef: gpt-4o
+intake:
+  enabled: true
+  prompt:
+    uri: intake/intake.tmpl
+  scope: [intent]
+`), 0o644))
+
+	service := New(WithMetaService(meta.New(afs.New(), root)))
+	got, err := service.Load(ctx, "steward")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "intake/intake.tmpl", got.Intake.Prompt.URI)
+	assert.Empty(t, got.Intake.Prompt.Text)
+}
+
+func TestService_Load_IntakeActivationRules(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agents", "steward")
+	require.NoError(t, os.MkdirAll(agentDir, 0o755))
+	intakeDir := filepath.Join(root, "intake")
+	require.NoError(t, os.MkdirAll(intakeDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(intakeDir, "activation_rules.yaml"), []byte(`
+- id: open_order_windows
+  match:
+    patterns:
+      - '^show me order\\s+(.+)$'
+    extractors:
+      ids:
+        type: regex_all
+        source: "$1"
+        pattern: '\d+'
+  prompting:
+    suggestedProfileId: workspace_ui
+  action:
+    tool: ui/view:open
+    input:
+      timeoutMs: 600000
+    foreach: ids
+    item:
+      id: order
+      parameters:
+        AdOrderId:
+          - "$item:int"
+  response:
+    assistantText: The requested orders are now open.
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "steward.yaml"), []byte(`
+id: steward
+name: Steward
+modelRef: gpt-4o
+intake:
+  enabled: true
+  activationRules: $import(../../intake/activation_rules.yaml)
+`), 0o644))
+
+	service := New(WithMetaService(meta.New(afs.New(), root)))
+	got, err := service.Load(ctx, "steward")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got.Intake.ActivationRules, 1)
+	rule := got.Intake.ActivationRules[0]
+	assert.Equal(t, "open_order_windows", rule.ID)
+	assert.Equal(t, "workspace_ui", rule.Prompting.SuggestedProfileID)
+	assert.Equal(t, "ui/view:open", rule.Action.Tool)
+	assert.Equal(t, "ids", rule.Action.Foreach)
+	assert.Equal(t, "The requested orders are now open.", rule.Response.AssistantText)
+	require.Contains(t, rule.Match.Extractors, "ids")
+	assert.Equal(t, "regex_all", rule.Match.Extractors["ids"].Type)
 }
 
 func TestService_Load_Intake_Worker(t *testing.T) {

@@ -157,11 +157,12 @@ type WorkspaceCapabilities struct {
 }
 
 type StarterTask struct {
-	ID          string `json:"id,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Prompt      string `json:"prompt,omitempty"`
-	Description string `json:"description,omitempty"`
-	Icon        string `json:"icon,omitempty"`
+	ID              string   `json:"id,omitempty"`
+	Title           string   `json:"title,omitempty"`
+	Prompt          string   `json:"prompt,omitempty"`
+	Description     string   `json:"description,omitempty"`
+	Icon            string   `json:"icon,omitempty"`
+	CoverageEvalIDs []string `json:"coverageEvalIds,omitempty"`
 }
 
 type WorkspaceAgentInfo struct {

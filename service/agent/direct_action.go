@@ -108,7 +108,7 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	}
 	toolName := strings.TrimSpace(action.ToolName)
 	logx.Infof("conversation", "agent.Query directAction start convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)
-	_, _, err := toolexec.ExecuteToolStep(ctx, s.registry, toolexec.StepInfo{
+	toolCall, _, err := toolexec.ExecuteToolStep(ctx, s.registry, toolexec.StepInfo{
 		Name:       toolName,
 		Args:       action.Input,
 		ResponseID: "intake_direct_action",
@@ -116,6 +116,7 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	if err != nil {
 		return true, err
 	}
+	s.annotateDirectActionExecution(input, action, &toolCall.Result)
 	text := strings.TrimSpace(action.AssistantText)
 	output.TurnID = input.MessageID
 	output.MessageID = input.MessageID
@@ -164,4 +165,46 @@ func normalizeInterfaceMap(value interface{}) map[string]interface{} {
 		return nil
 	}
 	return result
+}
+
+func normalizeToolResult(result string) interface{} {
+	result = strings.TrimSpace(result)
+	if result == "" {
+		return nil
+	}
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(result), &decoded); err == nil {
+		return decoded
+	}
+	return nil
+}
+
+func (s *Service) annotateDirectActionExecution(input *QueryInput, action *intakesvc.DirectActionContext, result *string) {
+	if input == nil || action == nil {
+		return
+	}
+	tc := intakesvc.FromContext(input.Context)
+	if tc == nil {
+		return
+	}
+	resultText := ""
+	var normalized interface{}
+	if result != nil {
+		resultText = strings.TrimSpace(*result)
+		normalized = normalizeToolResult(resultText)
+	}
+	tc.DirectActionExecution = intakesvc.DirectActionExecutionContext{
+		Executed:   true,
+		ToolName:   strings.TrimSpace(action.ToolName),
+		Result:     normalized,
+		ResultText: resultText,
+	}
+	input.Context["intake.directActionExecuted"] = true
+	input.Context["intake.directActionTool"] = strings.TrimSpace(action.ToolName)
+	if normalized != nil {
+		input.Context["intake.directActionResult"] = normalized
+	}
+	if resultText != "" {
+		input.Context["intake.directActionResultText"] = resultText
+	}
 }

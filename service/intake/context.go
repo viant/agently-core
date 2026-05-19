@@ -23,6 +23,13 @@ type DirectActionContext struct {
 	AssistantText string                 `json:"assistantText,omitempty"`
 }
 
+type DirectActionExecutionContext struct {
+	Executed   bool        `json:"executed,omitempty"`
+	ToolName   string      `json:"toolName,omitempty"`
+	Result     interface{} `json:"result,omitempty"`
+	ResultText string      `json:"resultText,omitempty"`
+}
+
 type RoutingContext struct {
 	SelectedAgentID string `json:"selectedAgentId,omitempty"`
 	Mode            string `json:"mode,omitempty"`
@@ -38,12 +45,13 @@ type PlannerContext struct {
 // area so routing, scope extraction, prompting hints, and planner state do not
 // bleed together as unrelated top-level keys.
 type Context struct {
-	Classification ClassificationContext `json:"classification,omitempty"`
-	Scope          ScopeContext          `json:"scope,omitempty"`
-	Prompting      PromptingContext      `json:"prompting,omitempty"`
-	DirectAction   DirectActionContext   `json:"directAction,omitempty"`
-	Routing        RoutingContext        `json:"routing,omitempty"`
-	Planner        PlannerContext        `json:"planner,omitempty"`
+	Classification        ClassificationContext        `json:"classification,omitempty"`
+	Scope                 ScopeContext                 `json:"scope,omitempty"`
+	Prompting             PromptingContext             `json:"prompting,omitempty"`
+	DirectAction          DirectActionContext          `json:"directAction,omitempty"`
+	DirectActionExecution DirectActionExecutionContext `json:"directActionExecution,omitempty"`
+	Routing               RoutingContext               `json:"routing,omitempty"`
+	Planner               PlannerContext               `json:"planner,omitempty"`
 }
 
 // ContextKey is the key used to store Context in QueryInput.Context.

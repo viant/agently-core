@@ -50,7 +50,13 @@ func (s *Service) resolve(p string) string {
 func (s *Service) Load(ctx context.Context, URL string, v interface{}) error {
 	URL = s.resolve(URL)
 	if _, ok := v.(*yaml.Node); ok {
-		return wscodec.DecodeURL(ctx, s.fs, URL, v, s.options...)
+		if err := wscodec.DecodeURL(ctx, s.fs, URL, v, s.options...); err != nil {
+			return err
+		}
+		if node, ok := v.(*yaml.Node); ok {
+			return ResolveImports(ctx, s.fs, node, filepath.Dir(URL), s.options...)
+		}
+		return nil
 	}
 	var node yaml.Node
 	if err := wscodec.DecodeURL(ctx, s.fs, URL, &node, s.options...); err != nil {

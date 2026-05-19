@@ -310,6 +310,18 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 			output.WindowID = strings.TrimSpace(stringValue(payload["windowId"]))
 		}
 	}
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: conversationID,
+		ClientID:       clientID,
+		WindowID:       strings.TrimSpace(output.WindowID),
+		WindowKey:      strings.TrimSpace(item.WindowKey),
+		Kind:           "view.open",
+		Actor:          "agent",
+		Detail: map[string]interface{}{
+			"viewId":     strings.TrimSpace(item.ID),
+			"parameters": windowParameters,
+		},
+	})
 	return output, nil
 }
 

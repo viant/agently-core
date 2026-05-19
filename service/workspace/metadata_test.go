@@ -12,8 +12,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/app/executor/config"
-	"github.com/viant/agently-core/genai/llm"
-	agentmdl "github.com/viant/agently-core/protocol/agent"
 	ws "github.com/viant/agently-core/workspace"
 )
 
@@ -55,7 +53,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
 			ws.KindAgent: {
-				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\ntool:\n  bundles:\n    - system/exec\n    - system/patch\nstarterTasks:\n  - id: analyze-repo\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\n"),
+				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\ntool:\n  bundles:\n    - system/exec\n    - system/patch\nstarterTasks:\n  - id: analyze-repo\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\nintake:\n  enabled: true\n  activationRules: $import(../../intake/activation_rules.yaml)\n"),
 			},
 		},
 	}
@@ -298,26 +296,27 @@ func TestMetadataHandler_SortsAgentAndModelInfosByLabel(t *testing.T) {
 func TestAgentToolDefaults(t *testing.T) {
 	testCases := []struct {
 		name     string
-		agent    *agentmdl.Agent
 		raw      map[string]interface{}
 		expected []string
 	}{
 		{
-			name: "bundles from decoded agent config",
-			agent: &agentmdl.Agent{
-				Tool: agentmdl.Tool{
-					Bundles: []string{"system/exec", "system/patch"},
+			name: "bundles from raw tool config",
+			raw: map[string]interface{}{
+				"tool": map[string]interface{}{
+					"bundles": []interface{}{"system/exec", "system/patch"},
 				},
 			},
 			expected: []string{"system/exec", "system/patch"},
 		},
 		{
-			name: "explicit tool item names from decoded agent config",
-			agent: &agentmdl.Agent{
-				Tool: agentmdl.Tool{
-					Items: []*llm.Tool{
-						{Name: "system/exec"},
-						{Definition: llm.ToolDefinition{Name: "system/patch"}},
+			name: "explicit tool item names from raw tool config",
+			raw: map[string]interface{}{
+				"tool": map[string]interface{}{
+					"items": []interface{}{
+						map[string]interface{}{"name": "system/exec"},
+						map[string]interface{}{
+							"definition": map[string]interface{}{"name": "system/patch"},
+						},
 					},
 				},
 			},
@@ -337,14 +336,6 @@ func TestAgentToolDefaults(t *testing.T) {
 		},
 		{
 			name: "dedupes mixed bundle and item sources",
-			agent: &agentmdl.Agent{
-				Tool: agentmdl.Tool{
-					Bundles: []string{"system/exec"},
-					Items: []*llm.Tool{
-						{Name: "system/patch"},
-					},
-				},
-			},
 			raw: map[string]interface{}{
 				"tool": map[string]interface{}{
 					"bundles": []interface{}{"system/exec"},
@@ -360,7 +351,7 @@ func TestAgentToolDefaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := agentToolDefaults(testCase.agent, testCase.raw)
+			actual := agentToolDefaults(testCase.raw)
 			assert.ElementsMatch(t, testCase.expected, actual)
 		})
 	}

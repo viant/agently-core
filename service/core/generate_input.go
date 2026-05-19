@@ -224,7 +224,7 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 		if trimmedPrompt == "" {
 			return nil
 		}
-		return []llm.Message{newExpandedUserLLMMessage(trimmedPrompt, attachments)}
+		return []llm.Message{newExpandedUserLLMMessage(trimmedPrompt, attachments, "")}
 	}
 	if trimmedPrompt == "" {
 		return h.LLMMessages()
@@ -287,7 +287,7 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 				if !replacedCurrentUser &&
 					m.Kind == binding.MessageKindChatUser &&
 					strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) {
-					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
+					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments, strings.TrimSpace(m.ID)))
 					replacedCurrentUser = true
 					continue
 				}
@@ -295,36 +295,43 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 			}
 		}
 		if !replacedCurrentUser {
-			out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
+			out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments, ""))
 		}
 		return out
 	}
 
 	out = append(out, h.LLMMessages()...)
-	out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments))
+	out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments, ""))
 	return out
 }
 
-func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment) llm.Message {
+func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment, messageID string) llm.Message {
+	var msg llm.Message
 	if len(attachments) == 0 {
-		return llm.NewUserMessage(content)
-	}
-	items := make([]*llm.AttachmentItem, 0, len(attachments))
-	for _, attachment := range attachments {
-		if attachment == nil || len(attachment.Data) == 0 {
-			continue
+		msg = llm.NewUserMessage(content)
+	} else {
+		items := make([]*llm.AttachmentItem, 0, len(attachments))
+		for _, attachment := range attachments {
+			if attachment == nil || len(attachment.Data) == 0 {
+				continue
+			}
+			items = append(items, &llm.AttachmentItem{
+				Name:     attachment.Name,
+				MimeType: attachment.Mime,
+				Data:     attachment.Data,
+				Content:  attachment.Content,
+			})
 		}
-		items = append(items, &llm.AttachmentItem{
-			Name:     attachment.Name,
-			MimeType: attachment.Mime,
-			Data:     attachment.Data,
-			Content:  attachment.Content,
-		})
+		if len(items) == 0 {
+			msg = llm.NewUserMessage(content)
+		} else {
+			msg = llm.NewMessageWithBinaries(llm.RoleUser, items, content)
+		}
 	}
-	if len(items) == 0 {
-		return llm.NewUserMessage(content)
+	if trimmedID := strings.TrimSpace(messageID); trimmedID != "" {
+		msg.ID = trimmedID
 	}
-	return llm.NewMessageWithBinaries(llm.RoleUser, items, content)
+	return msg
 }
 
 func (i *GenerateInput) Validate(ctx context.Context) error {

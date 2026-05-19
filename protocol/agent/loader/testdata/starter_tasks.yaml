@@ -7,8 +7,12 @@ starterTasks:
     prompt: Analyze this repository.
     description: Architecture summary and next steps.
     icon: tree-structure
+    coverageEvalIds:
+      - repo-analysis
   - id: write-tests
     title: Add missing tests
     prompt: Add focused tests for a weakly covered area.
     description: Targeted coverage improvements.
     icon: flask
+    coverageEvalIds:
+      - write-tests

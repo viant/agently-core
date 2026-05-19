@@ -62,6 +62,17 @@ func (s *Service) Dispatch(ctx context.Context, in *DispatchInput) (*DispatchOut
 	if eventName == "" {
 		return nil, fmt.Errorf("eventName is required")
 	}
+	if blocked, reason := callbackGateDecision(in.Context); blocked {
+		out := &DispatchOutput{
+			EventName: eventName,
+			Blocked:   true,
+			Error:     reason,
+		}
+		if strings.TrimSpace(reason) == "" {
+			out.Error = "callback blocked by callbackGate"
+		}
+		return out, &blockedError{reason: out.Error}
+	}
 	cb, err := s.repo.GetByEvent(ctx, eventName)
 	if err != nil {
 		return nil, fmt.Errorf("lookup callback %q: %w", eventName, err)
@@ -85,6 +96,55 @@ func (s *Service) Dispatch(ctx context.Context, in *DispatchInput) (*DispatchOut
 		out.Error = err.Error()
 	}
 	return out, nil
+}
+
+type blockedError struct {
+	reason string
+}
+
+func (e *blockedError) Error() string {
+	if strings.TrimSpace(e.reason) == "" {
+		return "callback blocked"
+	}
+	return e.reason
+}
+
+func IsBlockedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := err.(*blockedError)
+	return ok
+}
+
+func callbackGateDecision(ctx map[string]interface{}) (bool, string) {
+	if len(ctx) == 0 {
+		return false, ""
+	}
+	for _, key := range []string{"callbackGate", "submitGate"} {
+		raw, ok := ctx[key]
+		if !ok || raw == nil {
+			continue
+		}
+		gate, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		allowed, hasAllowed := gate["allowed"].(bool)
+		blockSubmit, hasBlockSubmit := gate["blockSubmit"].(bool)
+		if (!hasAllowed || allowed) && (!hasBlockSubmit || !blockSubmit) {
+			continue
+		}
+		reason := ""
+		for _, reasonKey := range []string{"reason", "message", "summary"} {
+			if v, ok := gate[reasonKey].(string); ok && strings.TrimSpace(v) != "" {
+				reason = strings.TrimSpace(v)
+				break
+			}
+		}
+		return true, reason
+	}
+	return false, ""
 }
 
 // buildTemplateRoot produces the flat map handed to the payload template.

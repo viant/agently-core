@@ -129,3 +129,32 @@ func TestNormalizeInterfaceMap(t *testing.T) {
 		"AdOrderId": []interface{}{float64(2656980)},
 	}, got)
 }
+
+func TestAnnotateDirectActionExecution(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		MessageID:      "turn-1",
+		Context: map[string]any{
+			intakesvc.ContextKey: &intakesvc.Context{
+				DirectAction: intakesvc.DirectActionContext{
+					ToolName:      "ui/view:open",
+					Input:         map[string]any{"id": "order"},
+					AssistantText: "Opened order.",
+				},
+			},
+		},
+	}
+	action := directActionFromContext(input.Context)
+	require.NotNil(t, action)
+	result := `{"ok":true,"windowId":"order_2656980"}`
+	svc.annotateDirectActionExecution(input, action, &result)
+	tc := intakesvc.FromContext(input.Context)
+	require.NotNil(t, tc)
+	require.True(t, tc.DirectActionExecution.Executed)
+	require.Equal(t, "ui/view:open", tc.DirectActionExecution.ToolName)
+	require.Equal(t, map[string]interface{}{"ok": true, "windowId": "order_2656980"}, tc.DirectActionExecution.Result)
+	require.Equal(t, `{"ok":true,"windowId":"order_2656980"}`, tc.DirectActionExecution.ResultText)
+	require.Equal(t, true, input.Context["intake.directActionExecuted"])
+	require.Equal(t, "ui/view:open", input.Context["intake.directActionTool"])
+}

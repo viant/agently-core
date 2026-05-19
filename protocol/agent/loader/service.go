@@ -601,8 +601,12 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				case "scope":
 					agent.Intake.Scope = asStrings(v)
 				case "prompt":
-					if v.Kind == yaml.ScalarNode {
-						agent.Intake.Prompt = strings.TrimSpace(v.Value)
+					if err := (*yaml.Node)(v).Decode(&agent.Intake.Prompt); err != nil {
+						return fmt.Errorf("invalid intake.prompt: %w", err)
+					}
+				case "activationrules":
+					if err := (*yaml.Node)(v).Decode(&agent.Intake.ActivationRules); err != nil {
+						return fmt.Errorf("invalid intake.activationRules: %w", err)
 					}
 				case "tool":
 					if err := s.parseToolConfigInto(v, &agent.Intake.Tool, agent); err != nil {

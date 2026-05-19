@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
-	planner "github.com/viant/agently-core/service/planner"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
 
 // maybeRunIntakeSidecar runs the pre-turn intake sidecar when the agent is
@@ -37,8 +38,16 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		return
 	}
 	cfg := &input.Agent.Intake
+	runCfg := *cfg
+	if bootstrap := s.workspaceUIBootstrap(ctx, input.ConversationID); strings.TrimSpace(bootstrap) != "" {
+		if extra := strings.TrimSpace(runCfg.Prompt.Text); extra != "" {
+			runCfg.Prompt.Text = extra + "\n\nWorkspace UI bootstrap:\n" + bootstrap
+		} else {
+			runCfg.Prompt.Text = "Workspace UI bootstrap:\n" + bootstrap
+		}
+	}
 
-	if s.maybeInjectWorkspaceFollowUpDirectAction(ctx, input) {
+	if s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg) {
 		return
 	}
 
@@ -61,16 +70,16 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if s.intakeSvc == nil {
 		return
 	}
-	if !cfg.Enabled {
+	if !runCfg.Enabled {
 		return
 	}
 	logx.Infof("conversation", "intake.consider convo=%q agent=%q promptProfileId=%q triggerOnTopicShift=%v",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
 		strings.TrimSpace(input.PromptProfileId),
-		cfg.TriggerOnTopicShift,
+		runCfg.TriggerOnTopicShift,
 	)
-	if !s.shouldRunIntake(ctx, input, cfg) {
+	if !s.shouldRunIntake(ctx, input, &runCfg) {
 		logx.Infof("conversation", "intake.skipped.gate convo=%q agent=%q promptProfileId=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),
@@ -83,11 +92,11 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		return
 	}
 	runCtx := s.intakeTrackedContext(ctx, input)
-	tc := s.intakeSvc.Run(runCtx, userMessage, cfg, strings.TrimSpace(input.UserId))
+	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId))
 	if tc == nil {
 		return
 	}
-	s.normalizeIntakeTurnContext(ctx, input, tc, cfg)
+	s.normalizeIntakeTurnContext(ctx, input, tc, &runCfg)
 	logx.Infof("conversation", "intake.done convo=%q agent=%q title=%q intent=%q confidence=%.2f profile=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
@@ -104,125 +113,815 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 			len(strings.TrimSpace(tc.DirectAction.AssistantText)),
 		)
 	}
-	applyTurnContext(input, tc, cfg)
+	applyTurnContext(input, tc, &runCfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
 }
 
-func (s *Service) maybeInjectWorkspaceFollowUpDirectAction(ctx context.Context, input *QueryInput) bool {
-	if s == nil || input == nil || s.conversation == nil {
+func (s *Service) maybeInjectWorkspaceUIOverride(ctx context.Context, input *QueryInput, cfg *agentmdl.Intake) bool {
+	if s == nil || input == nil {
 		return false
 	}
-	toolName, actionInput, assistantText, ok := s.resolveWorkspaceFollowUpDirectAction(ctx, input.ConversationID, input.Query)
-	if !ok {
+	override := s.resolveWorkspaceUIIntentOverride(ctx, input)
+	if override == nil {
 		return false
-	}
-	override := &intakesvc.Context{
-		Classification: intakesvc.ClassificationContext{
-			Title:      strings.TrimSpace(input.Query),
-			Intent:     "summary",
-			Confidence: 1,
-		},
-		DirectAction: intakesvc.DirectActionContext{
-			ToolName:      toolName,
-			Input:         actionInput,
-			AssistantText: assistantText,
-		},
 	}
 	input.Context, _ = intakesvc.StoreCallerProvided(input.Context, override)
-	logx.Infof("conversation", "intake.workspace_followup_direct_action convo=%q tool=%q query=%q", strings.TrimSpace(input.ConversationID), toolName, strings.TrimSpace(input.Query))
+	if cfg != nil {
+		applyTurnContext(input, override, cfg)
+		s.maybeSetConversationTitle(ctx, input.ConversationID, override.Classification.Title)
+	}
+	logx.Infof("conversation", "intake.workspace_override convo=%q query=%q profile=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Query), strings.TrimSpace(override.Prompting.SuggestedProfileID), strings.TrimSpace(override.DirectAction.ToolName))
 	return true
 }
 
-func (s *Service) resolveWorkspaceFollowUpDirectAction(ctx context.Context, conversationID, query string) (string, map[string]interface{}, string, bool) {
+func (s *Service) resolveWorkspaceUIIntentOverride(ctx context.Context, input *QueryInput) *intakesvc.Context {
+	if input == nil {
+		return nil
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	query := strings.TrimSpace(input.Query)
 	conversationID = strings.TrimSpace(conversationID)
-	query = strings.TrimSpace(query)
-	if conversationID == "" || query == "" {
-		return "", nil, "", false
+	if query == "" {
+		return nil
 	}
-	conversation, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
-	if err != nil || conversation == nil {
-		return "", nil, "", false
-	}
-	state := deriveWorkspaceFollowUpStateFromTranscript(conversation.GetTranscript())
-	if state == nil || strings.TrimSpace(state.WindowID) == "" || strings.TrimSpace(state.WindowKey) != "order" {
-		return "", nil, "", false
-	}
-	normalized := strings.ToLower(strings.Join(strings.Fields(query), " "))
-	tabID := ""
-	assistantText := ""
-	switch normalized {
-	case "show kpi", "show kpis":
-		tabID = "kpiTab"
-		assistantText = "Switched the open order summary to the KPIs tab."
-	case "show delivery":
-		tabID = "deliveryTab"
-		assistantText = "Switched the open order summary to the Delivery tab."
-	case "show hh metrics", "show household metrics":
-		tabID = "hhMetricsTab"
-		assistantText = "Switched the open order summary to the HH Metrics tab."
-	case "show pacing":
-		tabID = "pacingTab"
-		assistantText = "Switched the open order summary to the Pacing tab."
-	}
-	if tabID != "" {
-		input := map[string]interface{}{
-			"windowId":  strings.TrimSpace(state.WindowID),
-			"windowKey": "order",
-			"tabId":     tabID,
+	if input.Agent != nil {
+		if direct := s.resolveWorkspaceFollowUpRuleOverride(ctx, conversationID, query, input.Agent.Intake.ActivationRules); direct != nil {
+			return direct
 		}
-		if strings.TrimSpace(state.ClientID) != "" {
-			input["clientId"] = strings.TrimSpace(state.ClientID)
-		}
-		return "ui/window/selectTab", input, assistantText, true
 	}
+	return s.resolveWorkspaceActivationProfileOverride(input)
+}
 
-	controlID := ""
-	controlValue := ""
-	switch normalized {
-	case "show today":
-		controlID = "periodView"
-		controlValue = "today"
-		assistantText = "Switched the open order summary period to Today."
-	case "show yesterday":
-		controlID = "periodView"
-		controlValue = "yesterday"
-		assistantText = "Switched the open order summary period to Yesterday."
-	case "show 7d":
-		controlID = "periodView"
-		controlValue = "7d"
-		assistantText = "Switched the open order summary period to 7D."
-	case "show 30d":
-		controlID = "periodView"
-		controlValue = "30d"
-		assistantText = "Switched the open order summary period to 30D."
-	case "switch to hour", "show hour":
-		controlID = "granularity"
-		controlValue = "hour"
-		assistantText = "Switched the open order summary granularity to Hour."
-	case "switch to day", "show day":
-		controlID = "granularity"
-		controlValue = "day"
-		assistantText = "Switched the open order summary granularity to Day."
+func (s *Service) resolveWorkspaceActivationProfileOverride(input *QueryInput) *intakesvc.Context {
+	if input == nil || input.Agent == nil {
+		return nil
+	}
+	rules := input.Agent.Intake.ActivationRules
+	if len(rules) == 0 {
+		return nil
+	}
+	return resolveActivationRuleOverride(strings.TrimSpace(input.Query), rules)
+}
+
+func mustAtoi(value string) int {
+	result := 0
+	for _, r := range strings.TrimSpace(value) {
+		if r < '0' || r > '9' {
+			return result
+		}
+		result = result*10 + int(r-'0')
+	}
+	return result
+}
+
+func resolveActivationRuleOverride(query string, rules []agentmdl.ActivationRule) *intakesvc.Context {
+	query = strings.TrimSpace(query)
+	if query == "" || len(rules) == 0 {
+		return nil
+	}
+	for _, rule := range rules {
+		if override := evaluateActivationRule(query, rule); override != nil {
+			return override
+		}
+	}
+	return nil
+}
+
+func evaluateActivationRule(query string, rule agentmdl.ActivationRule) *intakesvc.Context {
+	patterns := activationRulePatterns(rule.Match)
+	if len(patterns) == 0 {
+		return nil
+	}
+	for _, pattern := range patterns {
+		re, err := compileActivationRegex(pattern, rule.Match.Flags)
+		if err != nil {
+			continue
+		}
+		matches := re.FindStringSubmatch(query)
+		if len(matches) == 0 {
+			continue
+		}
+		vars, ok := buildActivationVariables(query, matches, rule.Match.Extractors)
+		if !ok {
+			continue
+		}
+		input, ok := buildActivationActionInput(rule.Action, vars)
+		if !ok {
+			continue
+		}
+		override := &intakesvc.Context{
+			Classification: intakesvc.ClassificationContext{
+				Title:      query,
+				Intent:     firstNonEmpty(strings.TrimSpace(rule.Classification.Intent), "summary"),
+				Confidence: activationConfidence(rule.Classification.Confidence),
+			},
+			Prompting: intakesvc.PromptingContext{
+				SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
+				TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
+			},
+			Scope: intakesvc.ScopeContext{
+				Values: renderActivationScope(rule.Scope.Values, vars),
+			},
+			DirectAction: intakesvc.DirectActionContext{
+				ToolName:      strings.TrimSpace(rule.Action.Tool),
+				Input:         input,
+				AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), vars),
+			},
+		}
+		if strings.TrimSpace(override.DirectAction.ToolName) == "" {
+			override.DirectAction = intakesvc.DirectActionContext{}
+		}
+		return override
+	}
+	return nil
+}
+
+func activationRulePatterns(match agentmdl.ActivationMatch) []string {
+	var result []string
+	if value := strings.TrimSpace(match.Pattern); value != "" {
+		result = append(result, value)
+	}
+	for _, pattern := range match.Patterns {
+		if value := strings.TrimSpace(pattern); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func compileActivationRegex(pattern, flags string) (*regexp.Regexp, error) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil, fmt.Errorf("empty activation regex")
+	}
+	prefix := ""
+	if strings.Contains(strings.ToLower(strings.TrimSpace(flags)), "i") {
+		prefix = "(?i)"
+	}
+	return regexp.Compile(prefix + pattern)
+}
+
+func activationConfidence(value float64) float64 {
+	if value > 0 {
+		return value
+	}
+	return 1
+}
+
+func buildActivationVariables(query string, matches []string, extractors map[string]agentmdl.ActivationExtractor) (map[string]interface{}, bool) {
+	vars := map[string]interface{}{
+		"query": query,
+	}
+	for i, value := range matches {
+		vars[fmt.Sprintf("%d", i)] = value
+	}
+	for name, extractor := range extractors {
+		key := strings.TrimSpace(name)
+		if key == "" {
+			continue
+		}
+		value, ok := runActivationExtractor(extractor, vars)
+		if !ok {
+			return nil, false
+		}
+		vars[key] = value
+	}
+	return vars, true
+}
+
+func runActivationExtractor(extractor agentmdl.ActivationExtractor, vars map[string]interface{}) (interface{}, bool) {
+	switch strings.ToLower(strings.TrimSpace(extractor.Type)) {
+	case "regex_all":
+		source := renderActivationString(strings.TrimSpace(extractor.Source), vars)
+		pattern := strings.TrimSpace(extractor.Pattern)
+		if source == "" || pattern == "" {
+			return nil, false
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, false
+		}
+		found := re.FindAllString(source, -1)
+		if len(found) == 0 {
+			return nil, false
+		}
+		unique := make([]string, 0, len(found))
+		seen := map[string]struct{}{}
+		for _, entry := range found {
+			value := strings.TrimSpace(entry)
+			if value == "" {
+				continue
+			}
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			unique = append(unique, value)
+		}
+		if len(unique) == 0 {
+			return nil, false
+		}
+		return unique, true
 	default:
-		return "", nil, "", false
+		return nil, false
 	}
-	input := map[string]interface{}{
-		"windowId":  strings.TrimSpace(state.WindowID),
-		"windowKey": "order",
-		"controlId": controlID,
-		"scope":     "windowForm",
-		"value":     controlValue,
+}
+
+func renderActivationScope(scope map[string]string, vars map[string]interface{}) map[string]string {
+	if len(scope) == 0 {
+		return nil
 	}
-	if strings.TrimSpace(state.ClientID) != "" {
-		input["clientId"] = strings.TrimSpace(state.ClientID)
+	out := make(map[string]string, len(scope))
+	for key, value := range scope {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		out[trimmedKey] = renderActivationString(value, vars)
 	}
-	return "ui/control:setValue", input, assistantText, true
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildActivationActionInput(action agentmdl.ActivationAction, vars map[string]interface{}) (map[string]interface{}, bool) {
+	input := map[string]interface{}{}
+	for key, value := range action.Input {
+		input[key] = renderActivationValue(value, vars, nil)
+	}
+	foreachKey := strings.TrimSpace(action.Foreach)
+	if foreachKey == "" {
+		if len(input) == 0 {
+			return nil, false
+		}
+		return input, true
+	}
+	itemsRaw, ok := vars[foreachKey]
+	if !ok {
+		return nil, false
+	}
+	itemsList := toActivationList(itemsRaw)
+	if len(itemsList) == 0 {
+		return nil, false
+	}
+	renderedItems := make([]interface{}, 0, len(itemsList))
+	for _, item := range itemsList {
+		itemVars := map[string]interface{}{}
+		for key, value := range vars {
+			itemVars[key] = value
+		}
+		itemVars["item"] = item
+		renderedItems = append(renderedItems, renderActivationValue(action.Item, itemVars, nil))
+	}
+	input["items"] = renderedItems
+	return input, true
+}
+
+func toActivationList(value interface{}) []interface{} {
+	switch actual := value.(type) {
+	case []interface{}:
+		return append([]interface{}{}, actual...)
+	case []string:
+		result := make([]interface{}, 0, len(actual))
+		for _, entry := range actual {
+			result = append(result, entry)
+		}
+		return result
+	default:
+		if actual == nil {
+			return nil
+		}
+		return []interface{}{actual}
+	}
+}
+
+var activationExactPlaceholderRE = regexp.MustCompile(`^\$([A-Za-z0-9_]+)(?::([A-Za-z]+))?$`)
+var activationInlinePlaceholderRE = regexp.MustCompile(`\$([A-Za-z0-9_]+)`)
+
+func renderActivationValue(value interface{}, vars map[string]interface{}, fallback interface{}) interface{} {
+	switch actual := value.(type) {
+	case string:
+		if matches := activationExactPlaceholderRE.FindStringSubmatch(strings.TrimSpace(actual)); len(matches) > 0 {
+			name := strings.TrimSpace(matches[1])
+			if resolved, ok := vars[name]; ok {
+				return coerceActivationValue(resolved, strings.TrimSpace(matches[2]))
+			}
+			return fallback
+		}
+		return renderActivationString(actual, vars)
+	case []interface{}:
+		out := make([]interface{}, 0, len(actual))
+		for _, entry := range actual {
+			out = append(out, renderActivationValue(entry, vars, nil))
+		}
+		return out
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(actual))
+		for key, entry := range actual {
+			out[key] = renderActivationValue(entry, vars, nil)
+		}
+		return out
+	default:
+		return actual
+	}
+}
+
+func renderActivationString(template string, vars map[string]interface{}) string {
+	return activationInlinePlaceholderRE.ReplaceAllStringFunc(template, func(match string) string {
+		groups := activationInlinePlaceholderRE.FindStringSubmatch(match)
+		if len(groups) != 2 {
+			return match
+		}
+		if value, ok := vars[strings.TrimSpace(groups[1])]; ok {
+			return activationStringValue(value)
+		}
+		return match
+	})
+}
+
+func coerceActivationValue(value interface{}, coercion string) interface{} {
+	switch strings.ToLower(strings.TrimSpace(coercion)) {
+	case "int":
+		return mustAtoi(activationStringValue(value))
+	default:
+		return value
+	}
+}
+
+func activationStringValue(value interface{}) string {
+	switch actual := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return actual
+	case []string:
+		return strings.Join(actual, ",")
+	case []interface{}:
+		parts := make([]string, 0, len(actual))
+		for _, entry := range actual {
+			parts = append(parts, activationStringValue(entry))
+		}
+		return strings.Join(parts, ",")
+	default:
+		return fmt.Sprintf("%v", actual)
+	}
+}
+
+type activationFollowUpState struct {
+	Source      string
+	ClientID    string
+	WindowID    string
+	WindowKey   string
+	WindowTitle string
+	LiveWindow  *uireg.WindowSnapshot
+}
+
+func (s *Service) resolveWorkspaceFollowUpRuleOverride(ctx context.Context, conversationID, query string, rules []agentmdl.ActivationRule) *intakesvc.Context {
+	if len(rules) == 0 {
+		return nil
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+	states := s.collectActivationFollowUpStates(ctx, conversationID)
+	if len(states) == 0 {
+		return nil
+	}
+	for _, rule := range rules {
+		if strings.ToLower(strings.TrimSpace(rule.Mode)) != "followup" {
+			continue
+		}
+		if override := evaluateFollowUpRule(query, rule, states); override != nil {
+			return override
+		}
+	}
+	return nil
+}
+
+func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversationID string) []activationFollowUpState {
+	var result []activationFollowUpState
+	if s != nil && s.uiRegistry != nil {
+		if client, activeWindow := liveWindowState(s.uiRegistry, ctx, conversationID); client != nil {
+			if activeWindow != nil {
+				result = append(result, activationFollowUpState{
+					Source:      "live_window",
+					ClientID:    strings.TrimSpace(client.ClientID),
+					WindowID:    strings.TrimSpace(activeWindow.WindowID),
+					WindowKey:   strings.TrimSpace(activeWindow.WindowKey),
+					WindowTitle: strings.TrimSpace(activeWindow.WindowTitle),
+					LiveWindow:  activeWindow,
+				})
+			}
+			if client.Snapshot != nil {
+				for i := range client.Snapshot.Windows {
+					win := &client.Snapshot.Windows[i]
+					if activeWindow != nil && strings.TrimSpace(win.WindowID) == strings.TrimSpace(activeWindow.WindowID) {
+						continue
+					}
+					if strings.EqualFold(strings.TrimSpace(win.WindowKey), "chat/new") {
+						continue
+					}
+					result = append(result, activationFollowUpState{
+						Source:      "live_window",
+						ClientID:    strings.TrimSpace(client.ClientID),
+						WindowID:    strings.TrimSpace(win.WindowID),
+						WindowKey:   strings.TrimSpace(win.WindowKey),
+						WindowTitle: strings.TrimSpace(win.WindowTitle),
+						LiveWindow:  win,
+					})
+				}
+			}
+		}
+	}
+	if s != nil && s.conversation != nil {
+		if conversation, err := s.conversation.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true)); err == nil && conversation != nil {
+			if state := deriveWorkspaceFollowUpStateFromTranscript(conversation.GetTranscript()); state != nil && strings.TrimSpace(state.WindowID) != "" {
+				result = append(result, activationFollowUpState{
+					Source:    "transcript_window",
+					ClientID:  strings.TrimSpace(state.ClientID),
+					WindowID:  strings.TrimSpace(state.WindowID),
+					WindowKey: strings.TrimSpace(state.WindowKey),
+				})
+			}
+		}
+	}
+	return result
+}
+
+func evaluateFollowUpRule(query string, rule agentmdl.ActivationRule, states []activationFollowUpState) *intakesvc.Context {
+	patterns := activationRulePatterns(rule.Match)
+	if len(patterns) == 0 {
+		return nil
+	}
+	for _, pattern := range patterns {
+		re, err := compileActivationRegex(pattern, rule.Match.Flags)
+		if err != nil {
+			continue
+		}
+		matches := re.FindStringSubmatch(query)
+		if len(matches) == 0 {
+			continue
+		}
+		vars, ok := buildActivationVariables(query, matches, rule.Match.Extractors)
+		if !ok {
+			continue
+		}
+		for _, state := range filterFollowUpStates(states, rule) {
+			override := buildFollowUpOverrideFromState(rule, vars, state, query)
+			if override != nil {
+				return override
+			}
+		}
+	}
+	return nil
+}
+
+func filterFollowUpStates(states []activationFollowUpState, rule agentmdl.ActivationRule) []activationFollowUpState {
+	source := strings.ToLower(strings.TrimSpace(rule.Source))
+	windowKey := strings.TrimSpace(rule.WindowKey)
+	var result []activationFollowUpState
+	for _, state := range states {
+		if source == "live_window" && state.Source != "live_window" {
+			continue
+		}
+		if source == "transcript_window" && state.Source != "transcript_window" {
+			continue
+		}
+		if windowKey != "" && strings.TrimSpace(state.WindowKey) != windowKey {
+			continue
+		}
+		result = append(result, state)
+	}
+	return result
+}
+
+func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[string]interface{}, state activationFollowUpState, query string) *intakesvc.Context {
+	stateVars := map[string]interface{}{}
+	for key, value := range vars {
+		stateVars[key] = value
+	}
+	stateVars["windowId"] = state.WindowID
+	stateVars["windowKey"] = state.WindowKey
+	stateVars["windowTitle"] = state.WindowTitle
+	stateVars["clientId"] = state.ClientID
+
+	var direct *workspaceFollowUpDirectAction
+	if rule.SurfaceMatch != nil {
+		direct = resolveSurfaceMatchAction(rule, stateVars, state)
+		if direct == nil {
+			return nil
+		}
+	} else if strings.TrimSpace(rule.Action.Tool) != "" {
+		input, ok := buildActivationActionInput(rule.Action, stateVars)
+		if !ok {
+			return nil
+		}
+		direct = &workspaceFollowUpDirectAction{
+			ToolName:      strings.TrimSpace(rule.Action.Tool),
+			Input:         input,
+			AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), stateVars),
+		}
+	}
+	if direct == nil {
+		return nil
+	}
+	if strings.TrimSpace(direct.AssistantText) == "" {
+		direct.AssistantText = renderActivationString(strings.TrimSpace(rule.Response.AssistantText), stateVars)
+	}
+	return &intakesvc.Context{
+		Classification: intakesvc.ClassificationContext{
+			Title:      strings.TrimSpace(query),
+			Intent:     firstNonEmpty(strings.TrimSpace(rule.Classification.Intent), "summary"),
+			Confidence: activationConfidence(rule.Classification.Confidence),
+		},
+		Prompting: intakesvc.PromptingContext{
+			SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
+			TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
+		},
+		Scope: intakesvc.ScopeContext{
+			Values: renderActivationScope(rule.Scope.Values, stateVars),
+		},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName:      direct.ToolName,
+			Input:         direct.Input,
+			AssistantText: direct.AssistantText,
+		},
+	}
+}
+
+func resolveSurfaceMatchAction(rule agentmdl.ActivationRule, vars map[string]interface{}, state activationFollowUpState) *workspaceFollowUpDirectAction {
+	if rule.SurfaceMatch == nil {
+		return nil
+	}
+	target := strings.TrimSpace(activationStringValue(firstNonEmptyVar(vars, "target", "1")))
+	if target == "" {
+		return nil
+	}
+	normalizedTarget := normalizeSurfaceToken(target)
+	if normalizedTarget == "" {
+		return nil
+	}
+	if aliasTabID, ok := matchSurfaceTabAlias(rule.SurfaceMatch.TabAliases, normalizedTarget); ok {
+		if state.LiveWindow != nil {
+			surface := uireg.BuildWindowSurface(state.LiveWindow)
+			if surface != nil {
+				for _, tab := range surface.Tabs {
+					if strings.TrimSpace(tab.TabID) == aliasTabID {
+						return buildSelectTabAction(state.ClientID, state.LiveWindow, tab)
+					}
+				}
+			}
+		}
+		return &workspaceFollowUpDirectAction{
+			ToolName: "ui/window:selectTab",
+			Input: map[string]interface{}{
+				"windowId":  state.WindowID,
+				"windowKey": state.WindowKey,
+				"tabId":     aliasTabID,
+				"clientId":  optionalStringInput(state.ClientID),
+			},
+			AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), vars),
+		}
+	}
+	if aliasControl, ok := matchSurfaceControlAlias(rule.SurfaceMatch.ControlAliases, normalizedTarget); ok {
+		input := map[string]interface{}{
+			"windowId":  state.WindowID,
+			"windowKey": state.WindowKey,
+			"controlId": aliasControl.ControlID,
+			"value":     aliasControl.Value,
+		}
+		if state.ClientID != "" {
+			input["clientId"] = state.ClientID
+		}
+		return &workspaceFollowUpDirectAction{
+			ToolName:      "ui/control:setValue",
+			Input:         input,
+			AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), vars),
+		}
+	}
+	if state.LiveWindow == nil {
+		return nil
+	}
+	surface := uireg.BuildWindowSurface(state.LiveWindow)
+	if surface == nil {
+		return nil
+	}
+	allowedTabs := normalizedStringSet(rule.SurfaceMatch.Tabs)
+	for _, tab := range surface.Tabs {
+		if len(allowedTabs) > 0 && !allowedTabs[strings.TrimSpace(tab.TabID)] {
+			continue
+		}
+		if normalizeSurfaceToken(tab.Title) == normalizedTarget || normalizeSurfaceToken(tab.TabID) == normalizedTarget {
+			return buildSelectTabAction(state.ClientID, state.LiveWindow, tab)
+		}
+	}
+	allowedControls := normalizedStringSet(rule.SurfaceMatch.Controls)
+	for _, control := range surface.Controls {
+		if len(allowedControls) > 0 && !allowedControls[strings.TrimSpace(control.ID)] {
+			continue
+		}
+		for _, option := range control.Options {
+			valueLabel := firstNonEmpty(strings.TrimSpace(option.Label), fmt.Sprint(option.Value))
+			if normalizeSurfaceToken(valueLabel) == normalizedTarget || normalizeSurfaceToken(fmt.Sprint(option.Value)) == normalizedTarget {
+				return buildSetControlAction(state.ClientID, state.LiveWindow, control, option.Value, valueLabel)
+			}
+		}
+	}
+	return nil
+}
+
+func normalizedStringSet(values []string) map[string]bool {
+	if len(values) == 0 {
+		return nil
+	}
+	result := map[string]bool{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		result[trimmed] = true
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func matchSurfaceTabAlias(aliases map[string]string, target string) (string, bool) {
+	for key, value := range aliases {
+		if normalizeSurfaceToken(key) == target {
+			return strings.TrimSpace(value), strings.TrimSpace(value) != ""
+		}
+	}
+	return "", false
+}
+
+func matchSurfaceControlAlias(aliases map[string]agentmdl.ActivationSurfaceControlAlias, target string) (agentmdl.ActivationSurfaceControlAlias, bool) {
+	for key, value := range aliases {
+		if normalizeSurfaceToken(key) == target {
+			return value, strings.TrimSpace(value.ControlID) != ""
+		}
+	}
+	return agentmdl.ActivationSurfaceControlAlias{}, false
+}
+
+func firstNonEmptyVar(vars map[string]interface{}, keys ...string) interface{} {
+	for _, key := range keys {
+		if value, ok := vars[key]; ok {
+			if strings.TrimSpace(activationStringValue(value)) != "" {
+				return value
+			}
+		}
+	}
+	return nil
+}
+
+func optionalStringInput(value string) interface{} {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.TrimSpace(value)
 }
 
 type workspaceFollowUpState struct {
 	WindowID  string
 	WindowKey string
 	ClientID  string
+}
+
+type workspaceFollowUpDirectAction struct {
+	ToolName      string
+	Input         map[string]interface{}
+	AssistantText string
+}
+
+func liveWindowState(reg *uireg.Registry, ctx context.Context, conversationID string) (*uireg.ClientSnapshot, *uireg.WindowSnapshot) {
+	if reg == nil {
+		return nil, nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	preferredClientID := normalizeOptionalClientID(strings.TrimSpace(runtimerequestctx.PreferredUIClientIDFromContext(ctx)))
+	items, err := reg.ListByConversation(ctx, conversationID)
+	if err != nil || len(items) == 0 {
+		return nil, nil
+	}
+	if preferredClientID != "" {
+		for _, item := range items {
+			if strings.TrimSpace(item.ClientID) == preferredClientID {
+				items = []uireg.ClientSnapshot{item}
+				break
+			}
+		}
+	}
+	client := items[0]
+	if client.Snapshot == nil {
+		return &client, nil
+	}
+	selectedWindowID := strings.TrimSpace(client.Snapshot.Selected.WindowID)
+	for i := range client.Snapshot.Windows {
+		if strings.TrimSpace(client.Snapshot.Windows[i].WindowID) == selectedWindowID {
+			return &client, &client.Snapshot.Windows[i]
+		}
+	}
+	return &client, nil
+}
+
+func normalizeOptionalClientID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.EqualFold(value, "default") {
+		return ""
+	}
+	return value
+}
+
+func normalizedWorkspaceIntent(query string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(query)), " "))
+}
+
+func matchesAny(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+var orderIDPattern = regexp.MustCompile(`\b\d{4,}\b`)
+
+func extractOrderIDs(query string) []string {
+	found := orderIDPattern.FindAllString(query, -1)
+	if len(found) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(found))
+	for _, item := range found {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func normalizeSurfaceToken(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	value = regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(value, " ")
+	value = strings.Join(strings.Fields(value), " ")
+	if strings.HasSuffix(value, "s") && len(value) > 3 {
+		value = strings.TrimSuffix(value, "s")
+	}
+	return value
+}
+
+func buildSelectTabAction(clientID string, win *uireg.WindowSnapshot, tab uireg.SurfaceTab) *workspaceFollowUpDirectAction {
+	if win == nil {
+		return nil
+	}
+	assistantText := fmt.Sprintf("Switched the open %s workspace to the %s tab.", firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowKey), "workspace"), firstNonEmpty(strings.TrimSpace(tab.Title), strings.TrimSpace(tab.TabID), "selected"))
+	input := map[string]interface{}{
+		"windowId": strings.TrimSpace(win.WindowID),
+		"tabId":    strings.TrimSpace(tab.TabID),
+	}
+	if clientID = strings.TrimSpace(clientID); clientID != "" {
+		input["clientId"] = clientID
+	}
+	return &workspaceFollowUpDirectAction{
+		ToolName:      "ui/window:selectTab",
+		Input:         input,
+		AssistantText: assistantText,
+	}
+}
+
+func buildSetControlAction(clientID string, win *uireg.WindowSnapshot, control uireg.SurfaceControl, value interface{}, valueLabel string) *workspaceFollowUpDirectAction {
+	if win == nil {
+		return nil
+	}
+	assistantText := fmt.Sprintf("Updated %s to %s on the open %s workspace.", firstNonEmpty(strings.TrimSpace(control.Label), strings.TrimSpace(control.ID), "control"), firstNonEmpty(strings.TrimSpace(valueLabel), fmt.Sprint(value)), firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowKey), "workspace"))
+	input := map[string]interface{}{
+		"windowId":    strings.TrimSpace(win.WindowID),
+		"controlId":   strings.TrimSpace(control.ID),
+		"scope":       strings.TrimSpace(control.Scope),
+		"value":       value,
+		"bindingPath": strings.TrimSpace(control.BindingPath),
+		"dataField":   strings.TrimSpace(control.DataField),
+	}
+	if clientID = strings.TrimSpace(clientID); clientID != "" {
+		input["clientId"] = clientID
+	}
+	return &workspaceFollowUpDirectAction{
+		ToolName:      "ui/control:setValue",
+		Input:         input,
+		AssistantText: assistantText,
+	}
 }
 
 type transcriptToolStep struct {
@@ -517,9 +1216,21 @@ func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *a
 }
 
 var concreteOrderOpenAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+(my\s+|ad\s+)?order\s+\d+\s*$`)
+var concreteOrderCompareAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+((me|my|ad)\s+)?orders?\b`)
 
 func isConcreteOrderOpenAsk(query string) bool {
 	return concreteOrderOpenAskPattern.MatchString(strings.TrimSpace(query))
+}
+
+func isConcreteOrderActivationAsk(query string) bool {
+	trimmed := strings.TrimSpace(query)
+	if isConcreteOrderOpenAsk(trimmed) {
+		return true
+	}
+	if !concreteOrderCompareAskPattern.MatchString(trimmed) {
+		return false
+	}
+	return len(extractOrderIDs(trimmed)) >= 2
 }
 
 // previousUserMessage returns the trimmed content of the most recent user
@@ -767,26 +1478,12 @@ func maybeEnablePlannerMode(input *QueryInput, tc *intakesvc.Context, cfg *agent
 	if input == nil || tc == nil || cfg == nil {
 		return
 	}
-	if strings.TrimSpace(tc.Routing.Mode) == intakesvc.ModePlanner {
-		if strings.TrimSpace(tc.Planner.AgentID) == "" {
-			tc.Planner.AgentID = strings.TrimSpace(cfg.PlannerAgentID)
-		}
-		if strings.TrimSpace(tc.Routing.SelectedAgentID) == "" {
-			tc.Routing.SelectedAgentID = strings.TrimSpace(input.AgentID)
-			if strings.TrimSpace(tc.Routing.SelectedAgentID) == "" && input.Agent != nil {
-				tc.Routing.SelectedAgentID = strings.TrimSpace(input.Agent.ID)
-			}
-		}
-		if strings.TrimSpace(tc.Routing.Source) == "" {
-			tc.Routing.Source = intakesvc.SourceAgent
-		}
+	if !cfg.PlannerEnabled {
 		return
 	}
-	if !cfg.PlannerEnabled || !cfg.PlannerOnCreativeRequest {
-		return
-	}
-	trigger := detectPlannerTrigger(input, tc, cfg)
-	if trigger == "" {
+	explicitMode := strings.TrimSpace(tc.Routing.Mode) == intakesvc.ModePlanner
+	explicitTrigger := strings.TrimSpace(tc.Planner.Trigger)
+	if !explicitMode && explicitTrigger == "" {
 		return
 	}
 	tc.Routing.Mode = intakesvc.ModePlanner
@@ -799,7 +1496,6 @@ func maybeEnablePlannerMode(input *QueryInput, tc *intakesvc.Context, cfg *agent
 	if strings.TrimSpace(tc.Routing.Source) == "" {
 		tc.Routing.Source = intakesvc.SourceAgent
 	}
-	tc.Planner.Trigger = trigger
 	if strings.TrimSpace(tc.Planner.AgentID) == "" {
 		tc.Planner.AgentID = strings.TrimSpace(cfg.PlannerAgentID)
 	}
@@ -810,67 +1506,4 @@ func maybeEnablePlannerMode(input *QueryInput, tc *intakesvc.Context, cfg *agent
 		strings.TrimSpace(tc.Planner.Trigger),
 		strings.TrimSpace(tc.Routing.Source),
 	)
-}
-
-func detectPlannerTrigger(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) string {
-	if input == nil || tc == nil || cfg == nil {
-		return ""
-	}
-	if plannerExploratoryStrategyRequested(input, tc, cfg) {
-		return string(planner.TriggerExploratoryStrategy)
-	}
-	return ""
-}
-
-func plannerExploratoryStrategyRequested(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
-	if input == nil || tc == nil || cfg == nil {
-		return false
-	}
-	if suppressPlannerForDeterministicDirectAction(tc) {
-		return false
-	}
-	if enabled := strings.ToLower(strings.TrimSpace(tc.Scope.Values["use_exploratory_strategy"])); enabled == "true" || enabled == "1" || enabled == "yes" {
-		return true
-	}
-	if approach := strings.ToLower(strings.TrimSpace(tc.Scope.Values["approach"])); approach == "exploratory" {
-		return true
-	}
-	query := strings.ToLower(strings.TrimSpace(input.Query))
-	if query == "" {
-		return false
-	}
-	for _, phrase := range cfg.PlannerTriggerPhrases {
-		phrase = strings.ToLower(strings.TrimSpace(phrase))
-		if phrase == "" {
-			continue
-		}
-		if strings.Contains(query, phrase) {
-			return true
-		}
-	}
-	explicitPhrases := []string{
-		"use exploratory strategy",
-		"exploratory strategy",
-		"exploratory approach",
-		"exploratory workflow",
-		"multi-angle approach",
-		"use planner",
-	}
-	for _, phrase := range explicitPhrases {
-		if strings.Contains(query, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-func suppressPlannerForDeterministicDirectAction(tc *intakesvc.Context) bool {
-	if tc == nil {
-		return false
-	}
-	toolName := strings.TrimSpace(tc.DirectAction.ToolName)
-	if toolName == "" {
-		return false
-	}
-	return len(tc.DirectAction.Input) > 0 || strings.TrimSpace(tc.DirectAction.InputJSON) != ""
 }

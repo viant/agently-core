@@ -8,11 +8,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/binding"
 	tpldef "github.com/viant/agently-core/protocol/template"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
+	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
@@ -154,6 +157,41 @@ func TestBuildOutputJSONSchema_DirectActionNullableAndRequired(t *testing.T) {
 	assert.Equal(t, []string{"object", "null"}, directAction["type"])
 }
 
+func TestBuildOutputJSONSchema_ConstrainsDirectActionToAllowedToolNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlesDir := filepath.Join(tmpDir, "tools", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "workspace-ui.yaml"), []byte(`
+id: workspace-ui
+title: Workspace UI
+match:
+  - name: "ui/view:open"
+  - name: "ui/window:show"
+`), 0o644))
+
+	svc := &Service{
+		bundleRepo: toolbundlerepo.NewWithStore(fsstore.New(tmpDir)),
+	}
+	cfg := &agentmdl.Intake{
+		Scope: []string{"context"},
+		Tool: agentmdl.Tool{
+			Bundles: []string{"workspace-ui"},
+			Items: []*llm.Tool{
+				{Name: "message:askUser"},
+			},
+		},
+	}
+
+	schema := svc.buildOutputJSONSchema(context.Background(), cfg)
+	props, _ := schema["properties"].(map[string]interface{})
+	directAction, _ := props["directAction"].(map[string]interface{})
+	require.NotNil(t, directAction)
+	directActionProps, _ := directAction["properties"].(map[string]interface{})
+	toolNameProp, _ := directActionProps["toolName"].(map[string]interface{})
+	require.NotNil(t, toolNameProp)
+	assert.Equal(t, []string{"message:askUser", "ui/view:open", "ui/window:show"}, toolNameProp["enum"])
+}
+
 func TestBuildOutputSchema_ClassBIncluded(t *testing.T) {
 	cfg := &agentmdl.Intake{Scope: []string{"title", "profile", "tools", "template"}}
 	schema := buildOutputSchema(cfg)
@@ -288,13 +326,34 @@ func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{
 		Scope:  []string{"intent"},
-		Prompt: "Concrete resource troubleshoot requests are actionable without extra clarification.",
+		Prompt: agentmdl.IntakePrompt{Prompt: binding.Prompt{Text: "Concrete resource troubleshoot requests are actionable without extra clarification."}},
 	}
 
 	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Workspace-specific intake guidance:")
 	assert.Contains(t, prompt, "Concrete resource troubleshoot requests are actionable without extra clarification.")
+}
+
+func TestBuildSystemPrompt_ResolvesObjectPromptURIWithImports(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tmpDir)
+	intakeDir := filepath.Join(tmpDir, "intake", "rules")
+	require.NoError(t, os.MkdirAll(intakeDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "intake", "intake.tmpl"), []byte("$import(rules/01.md)\n$import(rules/02.md)\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(intakeDir, "01.md"), []byte("Rule one."), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(intakeDir, "02.md"), []byte("Rule two."), 0o644))
+
+	svc := &Service{}
+	cfg := &agentmdl.Intake{
+		Scope:  []string{"intent"},
+		Prompt: agentmdl.IntakePrompt{Prompt: binding.Prompt{URI: "intake/intake.tmpl"}},
+	}
+
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, "Rule one.")
+	assert.Contains(t, prompt, "Rule two.")
 }
 
 func TestBuildSystemPrompt_IncludesMonthDayDateRule(t *testing.T) {

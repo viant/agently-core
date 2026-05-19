@@ -164,6 +164,23 @@ func TestToRequest_ReasoningSummary(t *testing.T) {
 	}
 }
 
+func TestClientToRequest_StripsReasoningWhenContextContinuationDisabled(t *testing.T) {
+	disabled := false
+	client := &Client{ContextContinuation: &disabled}
+	in := &llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("Classify")},
+		Options:  &llm.Options{Model: "gpt-5.4", Reasoning: &llm.Reasoning{Effort: "low"}},
+	}
+
+	got, err := client.ToRequest(in)
+	if err != nil {
+		t.Fatalf("ToRequest failed: %v", err)
+	}
+	if got.Reasoning != nil {
+		t.Fatalf("expected reasoning to be stripped when contextContinuation is disabled, got %#v", got.Reasoning)
+	}
+}
+
 func TestToRequest_ParallelToolCallsRequiresTools(t *testing.T) {
 	t.Run("parallel tool calls omitted when no tools", func(t *testing.T) {
 		in := llm.GenerateRequest{

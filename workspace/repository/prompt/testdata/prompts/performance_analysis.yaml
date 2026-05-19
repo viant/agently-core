@@ -4,6 +4,17 @@ description: "Use when the user asks about system health or performance trends."
 appliesTo:
   - performance
   - health
+evidenceContract:
+  required:
+    - hierarchy
+    - pacing_campaign
+  optional:
+    - audience_delivery
+  forbidden:
+    - recommendation_only
+  completion:
+    - emit DATA:hierarchy
+    - emit at least one pacing block
 messages:
   - role: system
     text: $import(../shared/system.txt)

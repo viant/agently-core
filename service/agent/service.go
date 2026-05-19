@@ -31,10 +31,12 @@ import (
 	planner "github.com/viant/agently-core/service/planner"
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
+	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
 // Option customises Service instances.
@@ -95,6 +97,8 @@ type Service struct {
 	toolBundleRepo     *bundlerepo.Repository
 	templateBundleRepo *tplbundlerepo.Repository
 	plannerContracts   planner.Resolver
+	uiBridge           *forgeuisvc.Service
+	uiRegistry         *uireg.Registry
 
 	runWorkerHost           string
 	runLeaseOwner           string
@@ -122,6 +126,16 @@ func (s *Service) SetSkillService(svc *skillsvc.Service) {
 		return
 	}
 	s.skillSvc = svc
+}
+
+func (s *Service) SetUIBridge(bridge *forgeuisvc.Service) {
+	if s == nil {
+		return
+	}
+	s.uiBridge = bridge
+	if bridge != nil {
+		s.uiRegistry = uireg.New(bridge)
+	}
 }
 
 // SetRuntime removed: orchestration decoupled
