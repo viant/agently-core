@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -179,6 +180,7 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 		return nil, err
 	}
 	entry.Definitions = dedupeDefinitions(entry.Definitions)
+	entry.Definitions = augmentPromptApprovalReviewDefinitions(entry.Definitions, entry.ApprovalByID)
 	if key != "" {
 		s.toolSurfaceCache.Store(key, entry)
 	}
@@ -352,7 +354,119 @@ func cloneToolDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 		return nil
 	}
 	out := make([]llm.ToolDefinition, len(in))
-	copy(out, in)
+	for i, def := range in {
+		out[i] = cloneToolDefinition(def)
+	}
+	return out
+}
+
+func cloneToolDefinition(in llm.ToolDefinition) llm.ToolDefinition {
+	out := in
+	out.Parameters = cloneInterfaceMap(in.Parameters)
+	out.OutputSchema = cloneInterfaceMap(in.OutputSchema)
+	if len(in.Required) > 0 {
+		out.Required = append([]string(nil), in.Required...)
+	}
+	return out
+}
+
+func cloneInterfaceMap(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(src)
+	if err != nil {
+		out := make(map[string]interface{}, len(src))
+		for key, value := range src {
+			out[key] = value
+		}
+		return out
+	}
+	out := map[string]interface{}{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]interface{}{}
+	}
+	return out
+}
+
+func augmentPromptApprovalReviewDefinitions(defs []llm.ToolDefinition, approvalByID map[string]*llm.ApprovalConfig) []llm.ToolDefinition {
+	if len(defs) == 0 || len(approvalByID) == 0 {
+		return defs
+	}
+	out := make([]llm.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		cfg := approvalByID[strings.ToLower(mcpname.Canonical(strings.TrimSpace(def.Name)))]
+		if cfg == nil || !cfg.IsPrompt() || cfg.Review == nil || len(cfg.Review.RequestedSchema) == 0 {
+			out = append(out, def)
+			continue
+		}
+		out = append(out, augmentPromptApprovalReviewDefinition(def, cfg.Review.RequestedSchema))
+	}
+	return out
+}
+
+func augmentPromptApprovalReviewDefinition(def llm.ToolDefinition, reviewSchema map[string]interface{}) llm.ToolDefinition {
+	out := cloneToolDefinition(def)
+	if out.Parameters == nil {
+		out.Parameters = map[string]interface{}{}
+	}
+	if _, ok := out.Parameters["type"]; !ok {
+		out.Parameters["type"] = "object"
+	}
+	props, _ := out.Parameters["properties"].(map[string]interface{})
+	if props == nil {
+		props = map[string]interface{}{}
+		out.Parameters["properties"] = props
+	}
+	reviewProps, _ := reviewSchema["properties"].(map[string]interface{})
+	for key, value := range reviewProps {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if _, exists := props[key]; exists {
+			continue
+		}
+		props[key] = value
+	}
+	existingRequired := map[string]struct{}{}
+	required := make([]interface{}, 0)
+	switch actual := out.Parameters["required"].(type) {
+	case []interface{}:
+		for _, item := range actual {
+			name := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if name == "" {
+				continue
+			}
+			existingRequired[name] = struct{}{}
+			required = append(required, name)
+		}
+	case []string:
+		for _, item := range actual {
+			name := strings.TrimSpace(item)
+			if name == "" {
+				continue
+			}
+			existingRequired[name] = struct{}{}
+			required = append(required, name)
+		}
+	}
+	switch actual := reviewSchema["required"].(type) {
+	case []interface{}:
+		for _, item := range actual {
+			name := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if name == "" {
+				continue
+			}
+			if _, ok := existingRequired[name]; ok {
+				continue
+			}
+			existingRequired[name] = struct{}{}
+			required = append(required, name)
+		}
+	}
+	if len(required) > 0 {
+		out.Parameters["required"] = required
+	}
 	return out
 }
 

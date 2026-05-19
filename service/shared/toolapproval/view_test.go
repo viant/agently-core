@@ -118,7 +118,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 				"selected":     true,
 			},
 		},
-		"recommendation": map[string]interface{}{
+		"Recommendation": map[string]interface{}{
 			"recommendation_id": 7301206001,
 			"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
 			"metadata": map[string]interface{}{
@@ -135,7 +135,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 			"valueField":      "location",
 			"audienceIdField": "audience_id",
 			"feature":         "publisher",
-			"writePath":       "recommendation",
+			"writePath":       "Recommendation",
 			"groups": map[string]interface{}{
 				"target": map[string]interface{}{
 					"mode":              "ADD",
@@ -175,7 +175,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 				},
 			},
 		},
-	}, args["recommendation"])
+	}, args["Recommendation"])
 }
 
 func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
@@ -208,7 +208,7 @@ func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
 			"valueField":      "location",
 			"audienceIdField": "audience_id",
 			"feature":         "publisher",
-			"writePath":       "recommendation",
+			"writePath":       "Recommendation",
 			"groups": map[string]interface{}{
 				"target": map[string]interface{}{
 					"mode":              "ADD",

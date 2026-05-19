@@ -223,6 +223,74 @@ func TestBuildToolSignatures_ExposesMessageShowOnlyWhenOverflowDetected(t *testi
 	assert.NotContains(t, normalNames, "message-remove")
 }
 
+func TestBuildToolSignatures_PromptApprovalToolExposesReviewSchemaFields(t *testing.T) {
+	reg := &fakeRegistry{
+		defs: []llm.ToolDefinition{
+			{
+				Name: "steward/RecommendationPatch",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"Recommendation": map[string]interface{}{
+							"type": "object",
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := &Service{
+		registry: reg,
+		toolBundles: func(ctx context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{
+				{
+					ID: "analyst-sitelist-tools",
+					Match: []llm.Tool{
+						{
+							Name: "steward-RecommendationPatch",
+							Approval: &llm.ApprovalConfig{
+								Mode: llm.ApprovalModePrompt,
+								Review: &llm.ApprovalReviewConfig{
+									RequestedSchema: map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"intent": map[string]interface{}{
+												"type":     "string",
+												"readOnly": true,
+											},
+											"rows": map[string]interface{}{
+												"type": "array",
+											},
+										},
+										"required": []interface{}{"rows"},
+									},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	actual, err := svc.buildToolSignatures(context.Background(), &QueryInput{
+		Agent: &agentmdl.Agent{
+			Tool: agentmdl.Tool{Bundles: []string{"analyst-sitelist-tools"}},
+		},
+	})
+	assert.NoError(t, err)
+	if assert.Len(t, actual, 1) {
+		props, _ := actual[0].Parameters["properties"].(map[string]interface{})
+		if assert.NotNil(t, props) {
+			assert.Contains(t, props, "Recommendation")
+			assert.Contains(t, props, "rows")
+			assert.Contains(t, props, "intent")
+		}
+		required, _ := actual[0].Parameters["required"].([]interface{})
+		assert.Contains(t, required, "rows")
+	}
+}
+
 func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 	reg := &fakeRegistry{
 		defs: []llm.ToolDefinition{
