@@ -1619,3 +1619,55 @@ func TestMaybeRunIntakeSidecar_AppliesWorkspaceActivationProfileOverride_Without
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
 }
+
+func TestMaybeRunIntakeSidecar_ActivationRuleForecastLineWithoutForRoutesToBuilderAssist(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "forecast line 7288305",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "template", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "forecast_builder_assist",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{
+							`(?i)^forecast\s+line\s+(\d+)$`,
+							`(?i)^forecast\s+audience\s+(\d+)$`,
+							`(?i)^set\s+forecast\s+for\s+line\s+(\d+)$`,
+							`(?i)^set\s+forecast\s+for\s+audience\s+(\d+)$`,
+							`(?i)^forecast\s+for\s+line\s+(\d+)$`,
+							`(?i)^forecast\s+for\s+audience\s+(\d+)$`,
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "forecast_builder_assist"},
+					Prompting:      agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"uiTarget":    "forecastingCubeBuilder",
+						"workspaceUI": "builder_assist",
+						"action":      "open",
+						"audienceId":  "$1",
+						"audienceIds": "$1",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "forecast_builder_assist", stored.Classification.Intent)
+	require.Equal(t, "workspace_ui", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "forecastingCubeBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "builder_assist", stored.Scope.Values["workspaceUI"])
+	require.Equal(t, "open", stored.Scope.Values["action"])
+	require.Equal(t, "7288305", stored.Scope.Values["audienceId"])
+	require.Equal(t, "7288305", stored.Scope.Values["audienceIds"])
+	require.Empty(t, stored.DirectAction.ToolName)
+	require.Nil(t, stored.DirectAction.Input)
+}

@@ -53,6 +53,22 @@ func TestBuildView_RecordCollectionEditors(t *testing.T) {
 	}
 }
 
+func TestBuildView_ApprovalSelectorsDefaultToInputRoot(t *testing.T) {
+	view := BuildView("steward/RecommendationPatch", map[string]interface{}{
+		"Recommendation": map[string]interface{}{
+			"change_reason": "Narrow follow-up add bundle passed forecast guardrails against baseline.",
+		},
+	}, &llm.ApprovalConfig{
+		TitleSelector: "Recommendation.change_reason",
+		UI: &llm.ApprovalUIBinding{
+			MessageSelector: "Recommendation.change_reason",
+		},
+	})
+
+	assert.Equal(t, "Narrow follow-up add bundle passed forecast guardrails against baseline.", view.Title)
+	assert.Equal(t, "Narrow follow-up add bundle passed forecast guardrails against baseline.", view.Message)
+}
+
 func TestApplyEdits(t *testing.T) {
 	t.Run("checkbox list rewrites selected items", func(t *testing.T) {
 		args := map[string]interface{}{
