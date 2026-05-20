@@ -133,11 +133,15 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	output.TurnID = input.MessageID
 	output.MessageID = input.MessageID
 	output.Content = text
-	if err := s.publishAssistantMessageWithStatus(ctx, input, text, "intake.direct_action"); err != nil {
+	if err := s.publishDirectActionAssistantMessage(ctx, input, text); err != nil {
 		return true, err
 	}
 	logx.Infof("conversation", "agent.Query directAction ok convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)
 	return true, nil
+}
+
+func (s *Service) publishDirectActionAssistantMessage(ctx context.Context, input *QueryInput, text string) error {
+	return s.publishAssistantMessageWithStatus(ctx, input, text, "completed")
 }
 
 func stringValue(v interface{}) string {
