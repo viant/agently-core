@@ -36,6 +36,17 @@ type OptionView struct {
 	Selected    bool        `json:"selected"`
 }
 
+func selectApprovalArg(selector string, args map[string]interface{}) interface{} {
+	sel := strings.TrimSpace(selector)
+	if sel == "" {
+		return nil
+	}
+	if strings.HasPrefix(sel, "input.") || strings.HasPrefix(sel, "output.") || sel == "input" || sel == "output" {
+		return resolver.Select(sel, args, nil)
+	}
+	return resolver.Select("input."+sel, args, nil)
+}
+
 func BuildView(toolName string, args map[string]interface{}, cfg *llm.ApprovalConfig) View {
 	displayName := mcpname.Display(strings.TrimSpace(toolName))
 	v := View{
@@ -49,14 +60,14 @@ func BuildView(toolName string, args map[string]interface{}, cfg *llm.ApprovalCo
 		return applyToolSpecificView(v, toolName, args)
 	}
 	if sel := cfg.EffectiveTitleSelector(); sel != "" {
-		if raw := resolver.Select(sel, args, nil); raw != nil {
+		if raw := selectApprovalArg(sel, args); raw != nil {
 			if s := strings.TrimSpace(fmt.Sprintf("%v", raw)); s != "" {
 				v.Title = s
 			}
 		}
 	}
 	if cfg.UI != nil && strings.TrimSpace(cfg.UI.MessageSelector) != "" {
-		if raw := resolver.Select(cfg.UI.MessageSelector, args, nil); raw != nil {
+		if raw := selectApprovalArg(cfg.UI.MessageSelector, args); raw != nil {
 			if s := strings.TrimSpace(fmt.Sprintf("%v", raw)); s != "" {
 				v.Message = s
 			}
@@ -65,11 +76,11 @@ func BuildView(toolName string, args map[string]interface{}, cfg *llm.ApprovalCo
 		v.Message = strings.TrimSpace(cfg.Prompt.Message)
 	}
 	if cfg.UI != nil && strings.TrimSpace(cfg.UI.DataSelector) != "" {
-		if raw := resolver.Select(cfg.UI.DataSelector, args, nil); raw != nil {
+		if raw := selectApprovalArg(cfg.UI.DataSelector, args); raw != nil {
 			v.Data = raw
 		}
 	} else if strings.TrimSpace(cfg.DataSourceSelector) != "" {
-		if raw := resolver.Select(cfg.DataSourceSelector, args, nil); raw != nil {
+		if raw := selectApprovalArg(cfg.DataSourceSelector, args); raw != nil {
 			v.Data = raw
 		}
 	}
