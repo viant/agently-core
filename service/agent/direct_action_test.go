@@ -159,6 +159,23 @@ func TestAnnotateDirectActionExecution(t *testing.T) {
 	require.Equal(t, "ui/view:open", input.Context["intake.directActionTool"])
 }
 
+func TestPublishDirectActionAssistantMessage_WritesCompletedStatus(t *testing.T) {
+	recorder := &intakeRecordingConvClient{}
+	svc := &Service{conversation: recorder}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		MessageID:      "turn-1",
+	}
+	err := svc.publishDirectActionAssistantMessage(context.Background(), input, "Opened the order summary window.")
+	require.NoError(t, err)
+	require.NotNil(t, recorder.lastMessage)
+	require.NotNil(t, recorder.lastMessage.Status)
+	require.Equal(t, "completed", *recorder.lastMessage.Status)
+	require.NotNil(t, recorder.lastMessage.Content)
+	require.Equal(t, "Opened the order summary window.", *recorder.lastMessage.Content)
+	require.True(t, recorder.lastMessageAdd)
+}
+
 func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{
