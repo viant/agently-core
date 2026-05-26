@@ -50,6 +50,8 @@ type Client interface {
 	GetConversation(ctx context.Context, id string) (*conversation.Conversation, error)
 	// UpdateConversation updates mutable conversation fields such as visibility and shareability.
 	UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error)
+	// DeleteConversation deletes a conversation tree owned by the current user.
+	DeleteConversation(ctx context.Context, id string) error
 
 	// GetRun returns the current state of a run.
 	GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error)

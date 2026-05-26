@@ -9,6 +9,8 @@ import (
 )
 
 var ErrPermissionDenied = old.ErrPermissionDenied
+var ErrConversationNotFound = old.ErrConversationNotFound
+var ErrConversationActive = old.ErrConversationActive
 
 type Service = old.Service
 type Direction = old.Direction

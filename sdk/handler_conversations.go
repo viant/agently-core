@@ -2,10 +2,13 @@ package sdk
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/viant/agently-core/app/store/data"
 )
 
 func statusForUpdateConversationError(err error) int {
@@ -20,6 +23,35 @@ func statusForUpdateConversationError(err error) int {
 	}
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	if strings.Contains(msg, "required") || strings.Contains(msg, "unsupported") || strings.Contains(msg, "invalid") {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+func statusForDeleteConversationError(err error) int {
+	if err == nil {
+		return http.StatusNoContent
+	}
+	if errors.Is(err, data.ErrConversationActive) {
+		return http.StatusConflict
+	}
+	if errors.Is(err, data.ErrConversationNotFound) {
+		return http.StatusNotFound
+	}
+	if errors.Is(err, data.ErrPermissionDenied) {
+		return http.StatusForbidden
+	}
+	if isNotFoundError(err) {
+		return http.StatusNotFound
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "still in progress") || strings.Contains(msg, "active") {
+		return http.StatusConflict
+	}
+	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
+		return http.StatusForbidden
+	}
+	if strings.Contains(msg, "required") || strings.Contains(msg, "invalid") {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
@@ -85,6 +117,21 @@ func handleUpdateConversation(client Client) http.HandlerFunc {
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleDeleteConversation(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
+			return
+		}
+		if err := client.DeleteConversation(r.Context(), id); err != nil {
+			httpError(w, statusForDeleteConversationError(err), err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

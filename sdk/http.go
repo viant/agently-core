@@ -274,6 +274,15 @@ func (c *HTTPClient) UpdateConversation(ctx context.Context, input *UpdateConver
 	return &out, nil
 }
 
+func (c *HTTPClient) DeleteConversation(ctx context.Context, id string) error {
+	conversationID := strings.TrimSpace(id)
+	if conversationID == "" {
+		return errors.New("conversation ID is required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID)
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
+}
+
 func (c *HTTPClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")

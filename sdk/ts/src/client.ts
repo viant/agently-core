@@ -148,6 +148,11 @@ export class AgentlyClient {
         return this.patch<Conversation>(`/conversations/${enc(id)}`, input);
     }
 
+    /** Delete a conversation tree owned by the current user. */
+    async deleteConversation(id: string): Promise<void> {
+        await this.del(`/conversations/${enc(id)}`);
+    }
+
     // ── Messages ─────────────────────────────────────────────────────────────
 
     /** Get messages with filters and cursor pagination. */

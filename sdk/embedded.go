@@ -232,6 +232,17 @@ func (c *backendClient) UpdateConversation(ctx context.Context, input *UpdateCon
 	return c.conv.GetConversation(ctx, conversationID)
 }
 
+func (c *backendClient) DeleteConversation(ctx context.Context, id string) error {
+	conversationID := strings.TrimSpace(id)
+	if conversationID == "" {
+		return errors.New("conversation ID is required")
+	}
+	if c.data == nil {
+		return errors.New("data service not configured")
+	}
+	return c.data.DeleteConversationTree(ctx, conversationID)
+}
+
 func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
