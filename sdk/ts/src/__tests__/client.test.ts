@@ -160,6 +160,16 @@ describe('Conversations', () => {
         expect(call.method).toBe('PATCH');
         expect(call.body).toEqual({ visibility: 'public', shareable: true });
     });
+
+    it('deleteConversation sends DELETE', async () => {
+        const f = mockFetch(204, '');
+        const c = client(f);
+        await c.deleteConversation('conv_1');
+
+        const call = lastCall(f);
+        expect(call.method).toBe('DELETE');
+        expect(call.url).toBe('http://localhost:8585/v1/conversations/conv_1');
+    });
 });
 
 // ─── Messages ──────────────────────────────────────────────────────────────────

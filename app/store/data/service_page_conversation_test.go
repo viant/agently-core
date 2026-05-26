@@ -107,6 +107,35 @@ func TestDataService_ListConversations_NewerReturnsAdjacentPage(t *testing.T) {
 	assertConversationPage(t, backToNewest, []string{"c-seq-5", "c-seq-4"}, false, true)
 }
 
+func TestDataService_ListConversations_QueryCombinesWithCursor(t *testing.T) {
+	svc := newSeededService(t, seedForConversationPagerSequence)
+	ctx := context.Background()
+	input := &agconvlist.ConversationRowsInput{
+		Query: "c-seq",
+		Has: &agconvlist.ConversationRowsInputHas{
+			Query: true,
+		},
+	}
+
+	latest, err := svc.ListConversations(ctx, input, &PageInput{Limit: 2, Direction: DirectionLatest})
+	if err != nil {
+		t.Fatalf("ListConversations(latest) error: %v", err)
+	}
+	assertConversationPage(t, latest, []string{"c-seq-5", "c-seq-4"}, false, true)
+
+	middle, err := svc.ListConversations(ctx, input, &PageInput{Limit: 2, Direction: DirectionBefore, Cursor: latest.NextCursor})
+	if err != nil {
+		t.Fatalf("ListConversations(before middle) error: %v", err)
+	}
+	assertConversationPage(t, middle, []string{"c-seq-3", "c-seq-2"}, true, true)
+
+	oldest, err := svc.ListConversations(ctx, input, &PageInput{Limit: 2, Direction: DirectionBefore, Cursor: middle.NextCursor})
+	if err != nil {
+		t.Fatalf("ListConversations(before oldest) error: %v", err)
+	}
+	assertConversationPage(t, oldest, []string{"c-seq-1"}, true, false)
+}
+
 func seedForConversationPageOrder(t *testing.T, db *sql.DB) {
 	t.Helper()
 	items := []dbtest.ParameterizedSQL{

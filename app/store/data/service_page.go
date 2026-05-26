@@ -393,8 +393,9 @@ func buildConversationRowsQuery(input *agconvlist.ConversationRowsInput, limit i
 			args = append(args, strings.TrimSpace(input.ScheduleRunId))
 		}
 		if input.Has.Query && strings.TrimSpace(input.Query) != "" {
-			builder.WriteString(" AND LOWER(c.id || ' ' || COALESCE(c.title, '') || ' ' || COALESCE(c.summary, '')) LIKE '%' || LOWER(?) || '%'")
-			args = append(args, strings.TrimSpace(input.Query))
+			query := "%" + strings.ToLower(strings.TrimSpace(input.Query)) + "%"
+			builder.WriteString(" AND (LOWER(c.id) LIKE ? OR LOWER(COALESCE(c.title, '')) LIKE ? OR LOWER(COALESCE(c.summary, '')) LIKE ?)")
+			args = append(args, query, query, query)
 		}
 		if input.Has.StatusFilter && strings.TrimSpace(input.StatusFilter) != "" {
 			builder.WriteString(" AND c.status = ?")

@@ -38,6 +38,8 @@ import (
 )
 
 var ErrPermissionDenied = errors.New("permission denied")
+var ErrConversationNotFound = errors.New("conversation not found")
+var ErrConversationActive = errors.New("conversation is still in progress")
 
 // Service is a thin facade over generated Datly read components.
 type Service interface {
@@ -75,6 +77,7 @@ type Service interface {
 	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error)
 
 	DeleteConversations(ctx context.Context, ids ...string) error
+	DeleteConversationTree(ctx context.Context, ids ...string) error
 	DeleteMessages(ctx context.Context, ids ...string) error
 	DeleteTurns(ctx context.Context, ids ...string) error
 	DeleteModelCalls(ctx context.Context, messageIDs ...string) error

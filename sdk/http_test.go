@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -263,6 +264,31 @@ func TestHTTPClient_UpdateConversation(t *testing.T) {
 	}
 	if out == nil || out.Id != "c1" {
 		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestHTTPClient_DeleteConversation(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	if err := c.DeleteConversation(context.Background(), "c1"); err != nil {
+		t.Fatalf("DeleteConversation: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Fatalf("unexpected method: %s", gotMethod)
+	}
+	if gotPath != "/v1/conversations/c1" {
+		t.Fatalf("unexpected path: %s", gotPath)
 	}
 }
 
@@ -586,6 +612,17 @@ func (s *spyConversationUpdateClient) UpdateConversation(_ context.Context, inpu
 	return &conversation.Conversation{Id: input.ConversationID}, nil
 }
 
+type spyConversationDeleteClient struct {
+	*HTTPClient
+	gotID string
+	err   error
+}
+
+func (s *spyConversationDeleteClient) DeleteConversation(_ context.Context, id string) error {
+	s.gotID = id
+	return s.err
+}
+
 func TestHandler_UpdateConversation_ErrorStatusMapping(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -609,6 +646,59 @@ func TestHandler_UpdateConversation_ErrorStatusMapping(t *testing.T) {
 			handler := NewHandler(spy)
 
 			req := httptest.NewRequest(http.MethodPatch, "/v1/conversations/c1", strings.NewReader(`{"title":"x"}`))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteConversation(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyConversationDeleteClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/conversations/c1", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if spy.gotID != "c1" {
+		t.Fatalf("unexpected delete id: %q", spy.gotID)
+	}
+}
+
+func TestHandler_DeleteConversation_ErrorStatusMapping(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "active", err: data.ErrConversationActive, wantStatus: http.StatusConflict},
+		{name: "not found", err: data.ErrConversationNotFound, wantStatus: http.StatusNotFound},
+		{name: "permission", err: data.ErrPermissionDenied, wantStatus: http.StatusForbidden},
+		{name: "validation", err: errors.New("conversation ID is required"), wantStatus: http.StatusBadRequest},
+		{name: "internal", err: errors.New("db timeout"), wantStatus: http.StatusInternalServerError},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base, err := NewHTTP("http://127.0.0.1")
+			if err != nil {
+				t.Fatalf("NewHTTP: %v", err)
+			}
+			spy := &spyConversationDeleteClient{HTTPClient: base, err: tc.err}
+			handler := NewHandler(spy)
+
+			req := httptest.NewRequest(http.MethodDelete, "/v1/conversations/c1", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
