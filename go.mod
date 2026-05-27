@@ -28,7 +28,7 @@ require (
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.20.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.15.0
+	github.com/viant/mcp v0.16.0
 	github.com/viant/mcp-protocol v0.14.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.30.0
