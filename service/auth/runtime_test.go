@@ -155,7 +155,7 @@ func TestRuntimeProtect_MixedLocalAndOAuthAcceptsLocalSessionCookie(t *testing.T
 	}
 }
 
-func TestRuntimeProtect_PrefersCanonicalSessionUserIDInContext(t *testing.T) {
+func TestRuntimeProtect_KeepsSubjectForRequestOwnership(t *testing.T) {
 	rt := &Runtime{
 		cfg: &Config{
 			Enabled:    true,
@@ -194,8 +194,8 @@ func TestRuntimeProtect_PrefersCanonicalSessionUserIDInContext(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if got := strings.TrimSpace(rec.Body.String()); got != "user-canonical" {
-		t.Fatalf("effective user = %q, want %q", got, "user-canonical")
+	if got := strings.TrimSpace(rec.Body.String()); got != "awitas_viant_devtest" {
+		t.Fatalf("effective user = %q, want %q", got, "awitas_viant_devtest")
 	}
 	if sess := rt.sessions.Get(context.Background(), "sess-1"); sess == nil || strings.TrimSpace(sess.UserID) != "user-canonical" {
 		t.Fatalf("session canonical user not updated, got %#v", sess)
