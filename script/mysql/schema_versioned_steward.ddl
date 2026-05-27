@@ -1943,4 +1943,89 @@ END $$
 CALL schema_upgrade_22() $$
 DROP PROCEDURE schema_upgrade_22 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_23 $$
+CREATE PROCEDURE schema_upgrade_23()
+BEGIN
+    DECLARE taq_status_constraint VARCHAR(255) DEFAULT NULL;
+
+    IF get_schema_version() = 23 THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_approval_queue'
+        ) THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'completed_at'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    ADD COLUMN completed_at TIMESTAMP NULL DEFAULT NULL AFTER updated_at;
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'expires_at'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL AFTER completed_at;
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'timed_out_at'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    ADD COLUMN timed_out_at TIMESTAMP NULL DEFAULT NULL AFTER expires_at;
+            END IF;
+
+            SELECT MAX(tc.CONSTRAINT_NAME) INTO taq_status_constraint
+            FROM information_schema.TABLE_CONSTRAINTS tc
+            JOIN information_schema.CHECK_CONSTRAINTS cc
+              ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+             AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+            WHERE tc.CONSTRAINT_SCHEMA = DATABASE()
+              AND tc.TABLE_NAME = 'tool_approval_queue'
+              AND tc.CONSTRAINT_TYPE = 'CHECK'
+              AND cc.CHECK_CLAUSE LIKE '%status%';
+            IF taq_status_constraint IS NOT NULL THEN
+                SET @drop_taq_status_check = CONCAT('ALTER TABLE tool_approval_queue DROP CHECK `', REPLACE(taq_status_constraint, '`', '``'), '`');
+                PREPARE drop_taq_status_stmt FROM @drop_taq_status_check;
+                EXECUTE drop_taq_status_stmt;
+                DEALLOCATE PREPARE drop_taq_status_stmt;
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+                WHERE CONSTRAINT_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND CONSTRAINT_NAME = 'tool_approval_queue_status_chk'
+                  AND CONSTRAINT_TYPE = 'CHECK'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    ADD CONSTRAINT tool_approval_queue_status_chk CHECK (status IN ('pending', 'approved', 'rejected', 'canceled', 'executed', 'failed', 'timed_out'));
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND INDEX_NAME = 'idx_taq_status_expires_at'
+            ) THEN
+                CREATE INDEX idx_taq_status_expires_at ON tool_approval_queue (status, expires_at);
+            END IF;
+        END IF;
+
+        CALL set_schema_version(24);
+    END IF;
+END $$
+
+CALL schema_upgrade_23() $$
+DROP PROCEDURE schema_upgrade_23 $$
+
 DELIMITER ;
