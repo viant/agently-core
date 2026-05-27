@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	iauth "github.com/viant/agently-core/internal/auth"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -140,19 +141,25 @@ func resourcePathRef(r *http.Request) (*ResourceRef, error) {
 func handleListPendingToolApprovals(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		userID, ok := scopedToolApprovalUserID(r.Context(), strings.TrimSpace(q.Get("userId")))
+		if !ok {
+			httpError(w, http.StatusForbidden, fmt.Errorf("permission denied"))
+			return
+		}
 		rows, err := client.ListPendingToolApprovals(r.Context(), &ListPendingToolApprovalsInput{
-			UserID:         strings.TrimSpace(q.Get("userId")),
+			UserID:         userID,
 			ConversationID: strings.TrimSpace(q.Get("conversationId")),
 			Status:         strings.TrimSpace(q.Get("status")),
 			Limit:          queryInt(q.Get("limit")),
 			Offset:         queryInt(q.Get("offset")),
+			OutcomeSince:   strings.TrimSpace(q.Get("outcomeSince")),
 		})
 		if err != nil {
 			if isToolApprovalQueueNotConfiguredErr(err) {
 				httpJSON(w, http.StatusOK, &PendingToolApprovalPage{Rows: []*PendingToolApproval{}, Total: 0, Offset: 0, Limit: 0, HasMore: false})
 				return
 			}
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, statusForToolApprovalErr(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, rows)
@@ -184,14 +191,45 @@ func handleDecideToolApproval(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
+		userID, ok := scopedToolApprovalUserID(r.Context(), strings.TrimSpace(body.UserID))
+		if !ok {
+			httpError(w, http.StatusForbidden, fmt.Errorf("permission denied"))
+			return
+		}
 		body.ID = id
+		body.UserID = userID
 		out, err := client.DecideToolApproval(r.Context(), &body)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, statusForToolApprovalErr(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
 	}
+}
+
+func scopedToolApprovalUserID(ctx context.Context, explicit string) (string, bool) {
+	derived := strings.TrimSpace(iauth.EffectiveUserID(ctx))
+	if derived == "" {
+		return strings.TrimSpace(explicit), true
+	}
+	if strings.TrimSpace(explicit) != "" && !strings.EqualFold(strings.TrimSpace(explicit), derived) {
+		return "", false
+	}
+	return derived, true
+}
+
+func statusForToolApprovalErr(err error) int {
+	msg := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
+	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
+		return http.StatusForbidden
+	}
+	if strings.Contains(msg, "not found") {
+		return http.StatusNotFound
+	}
+	if strings.Contains(msg, "required") || strings.Contains(msg, "invalid") {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
 }
 
 func statusForToolExecuteError(err error) int {

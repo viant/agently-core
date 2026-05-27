@@ -37,10 +37,28 @@ const (
 )
 
 var errToolQueued = errors.New("tool execution queued for approval")
+
+// ErrQueued is the exported signal that ExecuteToolStep returned because the
+// tool was routed to the approval queue rather than executed. Callers that
+// drive ExecuteToolStep from outside an agent turn (e.g. host-mediated
+// MCP UI guest tool calls) use it via errors.Is to distinguish a queued
+// result from a normal failure without inventing a parallel approval model.
+var ErrQueued = errToolQueued
+
 var (
 	errToolPromptDeclined = errors.New("tool execution declined by user")
 	errToolPromptCanceled = errors.New("tool execution canceled by user")
 )
+
+// IsQueued reports whether err signals that a tool execution was routed to the
+// approval queue. It hides whether the queued sentinel is wrapped one or more
+// times by errors.Join from callers outside of toolexec.
+func IsQueued(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, errToolQueued)
+}
 
 func asyncPayloadChangedMeaningfully(
 	priorStatus, priorMessage, priorKind string,
@@ -794,14 +812,18 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	}
 	cfg, _ := toolapprovalqueue.ConfigFor(ctx, step.Name)
 	view := toolapproval.BuildView(step.Name, step.Args, cfg)
-	metadata, _ := json.Marshal(map[string]interface{}{
+	metadataFields := map[string]interface{}{
 		"opId":          step.ID,
 		"responseId":    step.ResponseID,
 		"turnId":        turn.TurnID,
 		"approval":      view,
 		"review":        cfg.Review,
 		"queueBehavior": cfg.EffectiveQueueBehavior(),
-	})
+	}
+	if source := toolapprovalqueue.SourceFromContext(ctx); source != "" {
+		metadataFields["source"] = source
+	}
+	metadata, _ := json.Marshal(metadataFields)
 
 	rec := &queuew.ToolApprovalQueue{Has: &queuew.ToolApprovalQueueHas{}}
 	rec.SetId(uuid.NewString())
@@ -820,6 +842,9 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	}
 	rec.SetMessageId(parentMessageID)
 	rec.SetMetadata(metadata)
+	if timeoutSec := cfg.EffectiveTimeoutSec(); timeoutSec > 0 {
+		rec.SetExpiresAt(time.Now().UTC().Add(time.Duration(timeoutSec) * time.Second))
+	}
 	if err := writer.PatchToolApprovalQueue(ctx, rec); err != nil {
 		return "", fmt.Errorf("enqueue tool approval: %w", err)
 	}

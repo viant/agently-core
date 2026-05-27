@@ -105,12 +105,15 @@ export interface ClientModelStep extends EntityIdentity {
 export interface ClientToolCall extends EntityIdentity {
     toolMessageId?: string;
     toolName?: string;
+    uiResourceUri?: string;
     executionRole?: string;
     operationId?: string;
     status?: string;
     errorMessage?: string;
     requestPayloadId?: string;
     responsePayloadId?: string;
+    requestPayload?: JSONObject | null;
+    responsePayload?: JSONObject | null;
     linkedConversationId?: string;
     linkedConversationAgentId?: string;
     linkedConversationTitle?: string;
@@ -457,6 +460,7 @@ export interface CanonicalToolStepState {
     toolCallId: string;
     toolMessageId?: string;
     toolName?: string;
+    uiResourceUri?: string;
     executionRole?: string;
     operationId?: string;
     status?: string;

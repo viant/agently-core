@@ -569,6 +569,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	if tc.ResponsePayload != nil {
 		step.ResponsePayload = marshalToRawJSON(tc.ResponsePayload)
 	}
+	step.UIResourceURI = deriveUIResourceURI(step.ResponsePayload)
 	if tm.LinkedConversationId != nil {
 		step.LinkedConversationID = strings.TrimSpace(*tm.LinkedConversationId)
 	}
@@ -604,6 +605,7 @@ func buildToolStepFromMessageToolCall(message *agconv.MessageView) *ToolStepStat
 	if tc.MessageResponsePayload != nil {
 		step.ResponsePayload = marshalToRawJSON(tc.MessageResponsePayload)
 	}
+	step.UIResourceURI = deriveUIResourceURI(step.ResponsePayload)
 	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, strings.TrimSpace(stringValue(message.Phase)), strings.TrimSpace(stringValue(message.Mode)), step.ToolName, step.RequestPayload, step.ResponsePayload)
 	return step
 }
@@ -674,6 +676,9 @@ func mergeToolStepState(existing, incoming *ToolStepState) ToolStepState {
 	}
 	if incoming.ResponsePayload != nil {
 		merged.ResponsePayload = incoming.ResponsePayload
+	}
+	if strings.TrimSpace(incoming.UIResourceURI) != "" {
+		merged.UIResourceURI = incoming.UIResourceURI
 	}
 	if strings.TrimSpace(incoming.LinkedConversationID) != "" {
 		merged.LinkedConversationID = incoming.LinkedConversationID

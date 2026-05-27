@@ -32,7 +32,9 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/tool"
+	approvalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	api "github.com/viant/agently-core/sdk/api"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -391,9 +393,14 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	if !ok || lister == nil {
 		return nil, errors.New("tool approval queue not configured")
 	}
+	patcher, _ := c.conv.(toolApprovalQueuePatcher)
 	in := &queueRead.QueueRowsInput{}
+	effectiveUserID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if input != nil {
 		if strings.TrimSpace(input.UserID) != "" {
+			if effectiveUserID != "" && !strings.EqualFold(strings.TrimSpace(input.UserID), effectiveUserID) {
+				return nil, errors.New("permission denied")
+			}
 			in.UserId = strings.TrimSpace(input.UserID)
 			in.Has = &queueRead.QueueRowsInputHas{UserId: true}
 		}
@@ -412,41 +419,50 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 			in.Has.QueueStatus = true
 		}
 	}
+	if effectiveUserID != "" {
+		in.UserId = effectiveUserID
+		if in.Has == nil {
+			in.Has = &queueRead.QueueRowsInputHas{}
+		}
+		in.Has.UserId = true
+	}
+	// outcomeBoundary is the wall-clock instant captured *before* the
+	// in-call sweep and historical outcome lookup. Any terminal
+	// transition produced by this request (e.g. a timeout sweep) is
+	// guaranteed to record updated_at/timed_out_at at or after this
+	// boundary because the sweep captures a fresh time.Now() value.
+	// The cursor we hand back to the client is outcomeBoundary - 1ns
+	// so a follow-up poll that carries that cursor can still observe
+	// the just-produced outcome under the strict transitionAt > since
+	// rule, even on platforms where two adjacent time.Now() calls can
+	// land in the same nanosecond.
+	outcomeBoundary := time.Now().UTC()
 	rows, err := lister.ListToolApprovalQueues(ctx, in)
 	if err != nil {
 		return nil, err
 	}
+	outcomes, rows, err := expireTimedOutToolApprovals(ctx, c, patcher, lister, in, rows)
+	if err != nil {
+		return nil, err
+	}
+	historicalOutcomes, err := collectApprovalOutcomesSince(ctx, lister, &approvalOutcomeQuery{
+		UserID:         in.UserId,
+		ConversationID: in.ConversationId,
+		Since:          strings.TrimSpace(valueOrEmptyOutcomeSince(input)),
+		Until:          time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(historicalOutcomes) > 0 {
+		outcomes = mergeApprovalOutcomes(outcomes, historicalOutcomes)
+	}
+	rows = filterToolApprovalRowsByRequestedStatus(rows, in)
 	out := make([]*PendingToolApproval, 0, len(rows))
 	for _, row := range rows {
-		if row == nil {
-			continue
+		if item := pendingToolApprovalFromRow(row); item != nil {
+			out = append(out, item)
 		}
-		item := &PendingToolApproval{ID: row.Id, UserID: row.UserId, ToolName: row.ToolName, Status: row.Status, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
-		if row.Title != nil {
-			item.Title = *row.Title
-		}
-		if row.ConversationId != nil {
-			item.ConversationID = *row.ConversationId
-		}
-		if row.TurnId != nil {
-			item.TurnID = *row.TurnId
-		}
-		if row.MessageId != nil {
-			item.MessageID = *row.MessageId
-		}
-		if row.Decision != nil {
-			item.Decision = *row.Decision
-		}
-		if row.ErrorMessage != nil {
-			item.ErrorMessage = *row.ErrorMessage
-		}
-		if len(row.Arguments) > 0 {
-			_ = json.Unmarshal(row.Arguments, &item.Arguments)
-		}
-		if row.Metadata != nil && len(*row.Metadata) > 0 {
-			_ = json.Unmarshal(*row.Metadata, &item.Metadata)
-		}
-		out = append(out, item)
 	}
 	total := len(out)
 	limit := total
@@ -473,12 +489,325 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 		rowsPage = []*PendingToolApproval{}
 	}
 	return &PendingToolApprovalPage{
-		Rows:    rowsPage,
-		Total:   total,
-		Offset:  offset,
-		Limit:   limit,
-		HasMore: end < total,
+		Rows:          rowsPage,
+		Total:         total,
+		Offset:        offset,
+		Limit:         limit,
+		HasMore:       end < total,
+		Outcomes:      outcomes,
+		OutcomeCursor: outcomeBoundary.Add(-time.Nanosecond).Format(time.RFC3339Nano),
 	}, nil
+}
+
+func valueOrEmptyOutcomeSince(input *ListPendingToolApprovalsInput) string {
+	if input == nil {
+		return ""
+	}
+	return input.OutcomeSince
+}
+
+func pendingToolApprovalFromRow(row *queueRead.QueueRowView) *PendingToolApproval {
+	if row == nil {
+		return nil
+	}
+	item := &PendingToolApproval{ID: row.Id, UserID: row.UserId, ToolName: row.ToolName, Status: row.Status, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	if row.Title != nil {
+		item.Title = *row.Title
+	}
+	if row.ConversationId != nil {
+		item.ConversationID = *row.ConversationId
+	}
+	if row.TurnId != nil {
+		item.TurnID = *row.TurnId
+	}
+	if row.MessageId != nil {
+		item.MessageID = *row.MessageId
+	}
+	if row.Decision != nil {
+		item.Decision = *row.Decision
+	}
+	item.ExpiresAt = row.ExpiresAt
+	if row.ErrorMessage != nil {
+		item.ErrorMessage = *row.ErrorMessage
+	}
+	if len(row.Arguments) > 0 {
+		_ = json.Unmarshal(row.Arguments, &item.Arguments)
+	}
+	if row.Metadata != nil && len(*row.Metadata) > 0 {
+		_ = json.Unmarshal(*row.Metadata, &item.Metadata)
+	}
+	return item
+}
+
+func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, in *queueRead.QueueRowsInput, rows []*queueRead.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*queueRead.QueueRowView, error) {
+	if patcher == nil || lister == nil || len(rows) == 0 {
+		return nil, rows, nil
+	}
+	now := time.Now().UTC()
+	outcomes := make([]*api.DecideToolApprovalOutcome, 0)
+	changed := false
+	for _, row := range rows {
+		if !approvalqueue.IsTimedOut(row, now) {
+			continue
+		}
+		changed = true
+		outcome, err := timeoutToolApproval(ctx, c, patcher, lister, row, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		if outcome != nil {
+			outcomes = append(outcomes, outcome)
+		}
+	}
+	if !changed {
+		return nil, rows, nil
+	}
+	refreshed, err := lister.ListToolApprovalQueues(ctx, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outcomes, refreshed, nil
+}
+
+func filterToolApprovalRowsByRequestedStatus(rows []*queueRead.QueueRowView, in *queueRead.QueueRowsInput) []*queueRead.QueueRowView {
+	if in == nil || in.Has == nil || !in.Has.QueueStatus || strings.TrimSpace(in.QueueStatus) == "" {
+		return rows
+	}
+	wanted := strings.ToLower(strings.TrimSpace(in.QueueStatus))
+	filtered := make([]*queueRead.QueueRowView, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(row.Status)) == wanted {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
+type approvalOutcomeQuery struct {
+	UserID         string
+	ConversationID string
+	Since          string
+	Until          time.Time
+}
+
+func collectApprovalOutcomesSince(ctx context.Context, lister toolApprovalQueueLister, query *approvalOutcomeQuery) ([]*api.DecideToolApprovalOutcome, error) {
+	if lister == nil || query == nil || strings.TrimSpace(query.Since) == "" {
+		return nil, nil
+	}
+	since, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(query.Since))
+	if err != nil {
+		return nil, fmt.Errorf("invalid outcomeSince cursor: %w", err)
+	}
+	in := &queueRead.QueueRowsInput{Has: &queueRead.QueueRowsInputHas{}}
+	if strings.TrimSpace(query.UserID) != "" {
+		in.UserId = strings.TrimSpace(query.UserID)
+		in.Has.UserId = true
+	}
+	if strings.TrimSpace(query.ConversationID) != "" {
+		in.ConversationId = strings.TrimSpace(query.ConversationID)
+		in.Has.ConversationId = true
+	}
+	rows, err := lister.ListToolApprovalQueues(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	outcomes := make([]*api.DecideToolApprovalOutcome, 0)
+	for _, row := range rows {
+		if row == nil || !isTerminalApprovalStatus(row.Status) {
+			continue
+		}
+		transitionAt, ok := approvalOutcomeTransitionTime(row)
+		if !ok || !transitionAt.After(since) || transitionAt.After(query.Until) {
+			continue
+		}
+		outcome := approvalOutcomeFromRow(row)
+		if outcome == nil {
+			continue
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	sort.SliceStable(outcomes, func(i, j int) bool {
+		left := approvalOutcomeSortKey(outcomes[i])
+		right := approvalOutcomeSortKey(outcomes[j])
+		if left.Equal(right) {
+			return outcomes[i].ApprovalID < outcomes[j].ApprovalID
+		}
+		return left.Before(right)
+	})
+	return outcomes, nil
+}
+
+func mergeApprovalOutcomes(primary, extra []*api.DecideToolApprovalOutcome) []*api.DecideToolApprovalOutcome {
+	if len(extra) == 0 {
+		return primary
+	}
+	seen := make(map[string]struct{}, len(primary)+len(extra))
+	out := make([]*api.DecideToolApprovalOutcome, 0, len(primary)+len(extra))
+	for _, item := range primary {
+		if item == nil {
+			continue
+		}
+		key := strings.TrimSpace(item.ApprovalID)
+		if key != "" {
+			seen[key] = struct{}{}
+		}
+		out = append(out, item)
+	}
+	for _, item := range extra {
+		if item == nil {
+			continue
+		}
+		key := strings.TrimSpace(item.ApprovalID)
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func isTerminalApprovalStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "approved", "rejected", "canceled", "executed", "failed", "timed_out":
+		return true
+	default:
+		return false
+	}
+}
+
+func approvalOutcomeTransitionTime(row *queueRead.QueueRowView) (time.Time, bool) {
+	switch strings.ToLower(strings.TrimSpace(row.Status)) {
+	case "timed_out":
+		if row.TimedOutAt != nil && !row.TimedOutAt.IsZero() {
+			return *row.TimedOutAt, true
+		}
+	case "executed":
+		if row.ExecutedAt != nil && !row.ExecutedAt.IsZero() {
+			return *row.ExecutedAt, true
+		}
+	case "approved", "rejected", "canceled":
+		if row.ApprovedAt != nil && !row.ApprovedAt.IsZero() {
+			return *row.ApprovedAt, true
+		}
+	}
+	if row.UpdatedAt != nil && !row.UpdatedAt.IsZero() {
+		return *row.UpdatedAt, true
+	}
+	return row.CreatedAt, !row.CreatedAt.IsZero()
+}
+
+func approvalOutcomeFromRow(row *queueRead.QueueRowView) *api.DecideToolApprovalOutcome {
+	if row == nil {
+		return nil
+	}
+	meta := parseToolApprovalMetadata(row.Metadata)
+	if meta.Outcome != nil {
+		cp := *meta.Outcome
+		return &cp
+	}
+	outcome := &api.DecideToolApprovalOutcome{
+		ApprovalID: row.Id,
+		ToolName:   row.ToolName,
+	}
+	if row.ConversationId != nil {
+		outcome.ConversationID = strings.TrimSpace(*row.ConversationId)
+	}
+	if row.TurnId != nil {
+		outcome.TurnID = strings.TrimSpace(*row.TurnId)
+	}
+	if row.MessageId != nil {
+		outcome.MessageID = strings.TrimSpace(*row.MessageId)
+	}
+	switch strings.ToLower(strings.TrimSpace(row.Status)) {
+	case "timed_out":
+		outcome.Action = api.ApprovalTimeoutOutcomeAction
+		outcome.Status = api.ApprovalTimeoutOutcomeStatus
+		outcome.Decision = api.ApprovalTimeoutOutcomeDecision
+		outcome.Result = api.ApprovalTimeoutErrorMessage
+		outcome.ErrorMessage = api.ApprovalTimeoutErrorMessage
+		if row.ExpiresAt != nil {
+			t := *row.ExpiresAt
+			outcome.ExpiresAt = &t
+		}
+		if row.TimedOutAt != nil {
+			t := *row.TimedOutAt
+			outcome.TimedOutAt = &t
+		}
+	case "rejected":
+		outcome.Action = "reject"
+		outcome.Status = "rejected"
+		outcome.Decision = "reject"
+		outcome.Result = "tool execution was not approved by user"
+	case "canceled":
+		outcome.Action = "cancel"
+		outcome.Status = "canceled"
+		outcome.Decision = "cancel"
+		outcome.Result = "tool execution was not approved by user"
+	case "executed":
+		outcome.Action = "approve"
+		outcome.Status = "executed"
+		outcome.Decision = "approve"
+	case "failed":
+		outcome.Action = "approve"
+		outcome.Status = "failed"
+		outcome.Decision = "approve"
+	default:
+		outcome.Action = strings.ToLower(strings.TrimSpace(row.Status))
+		outcome.Status = strings.ToLower(strings.TrimSpace(row.Status))
+		outcome.Decision = strings.ToLower(strings.TrimSpace(valueOrEmpty(row.Decision)))
+	}
+	if row.ErrorMessage != nil {
+		outcome.ErrorMessage = strings.TrimSpace(*row.ErrorMessage)
+	}
+	return outcome
+}
+
+func approvalOutcomeSortKey(outcome *api.DecideToolApprovalOutcome) time.Time {
+	if outcome == nil {
+		return time.Time{}
+	}
+	if outcome.TimedOutAt != nil && !outcome.TimedOutAt.IsZero() {
+		return *outcome.TimedOutAt
+	}
+	if outcome.ExpiresAt != nil && !outcome.ExpiresAt.IsZero() {
+		return *outcome.ExpiresAt
+	}
+	return time.Time{}
+}
+
+func timeoutToolApproval(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, row *queueRead.QueueRowView, now time.Time) (*api.DecideToolApprovalOutcome, error) {
+	upd := approvalqueue.NewTimedOutPatch(row, now)
+	if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
+		return nil, err
+	}
+	if err := ensureToolApprovalStatus(ctx, lister, row.Id, api.ApprovalTimeoutOutcomeStatus, func() error {
+		return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+			"status":        api.ApprovalTimeoutOutcomeStatus,
+			"decision":      api.ApprovalTimeoutOutcomeDecision,
+			"timed_out_at":  now,
+			"updated_at":    now,
+			"error_message": api.ApprovalTimeoutErrorMessage,
+		})
+	}); err != nil {
+		return nil, err
+	}
+	_ = synthesizeQueueDecisionResult(ctx, c, row, api.ApprovalTimeoutErrorMessage)
+	if isSystemOSEnvTool(row.ToolName) {
+		_ = persistSystemOSEnvTimedOutAssistantResult(ctx, c, row)
+	} else {
+		_ = continueQueueConversation(ctx, c, row, buildQueueTimeoutInstruction(row.ToolName))
+	}
+	outcome := approvalqueue.NewTimedOutOutcome(row, now)
+	if err := persistToolApprovalOutcomeMetadata(ctx, patcher, row, outcome, now); err != nil {
+		return nil, err
+	}
+	return outcome, nil
 }
 
 func decideToolApproval(c *backendClient, ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
@@ -493,7 +822,18 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 	if !ok || patcher == nil {
 		return nil, errors.New("tool approval queue not configured")
 	}
+	effectiveUserID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if effectiveUserID != "" && strings.TrimSpace(input.UserID) != "" && !strings.EqualFold(strings.TrimSpace(input.UserID), effectiveUserID) {
+		return nil, errors.New("permission denied")
+	}
 	in := &queueRead.QueueRowsInput{Id: strings.TrimSpace(input.ID), Has: &queueRead.QueueRowsInputHas{Id: true}}
+	if effectiveUserID != "" {
+		in.UserId = effectiveUserID
+		in.Has.UserId = true
+	} else if strings.TrimSpace(input.UserID) != "" {
+		in.UserId = strings.TrimSpace(input.UserID)
+		in.Has.UserId = true
+	}
 	rows, err := lister.ListToolApprovalQueues(ctx, in)
 	if err != nil {
 		return nil, err
@@ -506,14 +846,39 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 	if action == "" {
 		return nil, errors.New("action is required")
 	}
-	decision := canonicalApprovalDecision(action)
 	now := time.Now().UTC()
+	// Race-condition guard: if the row is still pending but its deadline
+	// has already passed, the canonical timeout producer wins over the
+	// late user action. The decide caller learns the truthful outcome
+	// instead of overwriting a deadline-driven transition with an
+	// approve/reject/cancel.
+	if strings.EqualFold(strings.TrimSpace(row.Status), "pending") && row.ExpiresAt != nil && !row.ExpiresAt.IsZero() && !row.ExpiresAt.After(now) {
+		timeoutOutcome, terr := timeoutToolApproval(ctx, c, patcher, lister, row, now)
+		if terr != nil {
+			return nil, terr
+		}
+		return &DecideToolApprovalOutput{Status: "ok", Outcome: timeoutOutcome}, nil
+	}
 	upd := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
 	upd.SetId(row.Id)
 	upd.SetUserId(row.UserId)
 	upd.SetToolName(row.ToolName)
 	upd.SetArguments(row.Arguments)
 	upd.SetUpdatedAt(now)
+	outcome := &api.DecideToolApprovalOutcome{
+		ApprovalID: row.Id,
+		Action:     canonicalDecideAction(action),
+		ToolName:   row.ToolName,
+	}
+	if row.ConversationId != nil {
+		outcome.ConversationID = strings.TrimSpace(*row.ConversationId)
+	}
+	if row.TurnId != nil {
+		outcome.TurnID = strings.TrimSpace(*row.TurnId)
+	}
+	if row.MessageId != nil {
+		outcome.MessageID = strings.TrimSpace(*row.MessageId)
+	}
 	switch action {
 	case "approve", "accepted":
 		upd.SetStatus("approved")
@@ -551,9 +916,6 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 				return nil, err
 			}
 		}
-		if patch := approvalDecisionPatch(meta, decision); len(patch) > 0 {
-			applyDecisionPatch(args, patch)
-		}
 		execCtx := ctx
 		if strings.TrimSpace(input.UserID) != "" {
 			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
@@ -614,6 +976,17 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		if err := ensureToolApprovalStatus(ctx, lister, row.Id, finalStatus, func() error {
 			return fallbackToolApprovalUpdate(row.Id, fallbackFields)
 		}); err != nil {
+			return nil, err
+		}
+		outcome.Decision = "approve"
+		if execErr != nil {
+			outcome.Status = "failed"
+			outcome.ErrorMessage = execErr.Error()
+		} else {
+			outcome.Status = "executed"
+			outcome.Result = toolResult
+		}
+		if err := persistToolApprovalOutcomeMetadata(ctx, patcher, row, outcome, now); err != nil {
 			return nil, err
 		}
 		if execErr == nil {
@@ -648,97 +1021,20 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		}); err != nil {
 			return nil, err
 		}
-		meta := parseToolApprovalMetadata(row.Metadata)
-		if !shouldExecuteQueueDecision(meta, decision) {
-			_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
-			if isSystemOSEnvTool(row.ToolName) {
-				_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
-			} else {
-				_ = continueQueueConversation(ctx, c, row, buildQueueContinuationInstruction(row.ToolName, "tool execution was not approved by user", false))
-			}
-			break
+		outcome.Status = "rejected"
+		outcome.Decision = "reject"
+		outcome.Result = "tool execution was not approved by user"
+		if strings.TrimSpace(input.Reason) != "" {
+			outcome.ErrorMessage = strings.TrimSpace(input.Reason)
 		}
-		var args map[string]interface{}
-		_ = json.Unmarshal(row.Arguments, &args)
-		if err := toolapproval.ApplyEdits(args, approvalEditorsFromMeta(meta), input.EditedFields); err != nil {
+		if err := persistToolApprovalOutcomeMetadata(ctx, patcher, row, outcome, now); err != nil {
 			return nil, err
 		}
-		reviewPayload := input.Payload
-		if len(reviewPayload) == 0 && len(input.EditedFields) > 0 {
-			reviewPayload = input.EditedFields
-		}
-		if meta.Review != nil && len(reviewPayload) > 0 {
-			if err := toolapproval.ApplyReview(args, meta.Review, reviewPayload); err != nil {
-				return nil, err
-			}
-		}
-		if patch := approvalDecisionPatch(meta, decision); len(patch) > 0 {
-			applyDecisionPatch(args, patch)
-		}
-		execCtx := ctx
-		if strings.TrimSpace(input.UserID) != "" {
-			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
-		}
-		turn := runtimerequestctx.TurnMeta{}
-		if row.ConversationId != nil {
-			turn.ConversationID = strings.TrimSpace(*row.ConversationId)
-		}
-		if row.TurnId != nil {
-			turn.TurnID = strings.TrimSpace(*row.TurnId)
-		}
-		if row.MessageId != nil {
-			turn.ParentMessageID = strings.TrimSpace(*row.MessageId)
-		}
-		if turn.ConversationID != "" {
-			execCtx = runtimerequestctx.WithConversationID(execCtx, turn.ConversationID)
-		}
-		if turn.ConversationID != "" && turn.TurnID != "" {
-			execCtx = runtimerequestctx.WithTurnMeta(execCtx, turn)
-		}
-		toolResult, execErr := c.ExecuteTool(execCtx, row.ToolName, args)
-		if turn.ConversationID != "" && turn.TurnID != "" {
-			_ = toolexec.SynthesizeToolStep(execCtx, c.conv, toolexec.StepInfo{
-				ID:         syntheticToolStepID(meta.OpID),
-				Name:       row.ToolName,
-				Args:       args,
-				ResponseID: meta.ResponseID,
-			}, resolvedQueueToolResult(toolResult, execErr))
-		}
-		done := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
-		done.SetId(row.Id)
-		done.SetUserId(row.UserId)
-		done.SetToolName(row.ToolName)
-		done.SetArguments(row.Arguments)
-		done.SetUpdatedAt(time.Now().UTC())
-		if execErr != nil {
-			done.SetStatus("failed")
-			done.SetErrorMessage(execErr.Error())
+		_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
+		if isSystemOSEnvTool(row.ToolName) {
+			_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
 		} else {
-			done.SetStatus("executed")
-			done.SetExecutedAt(time.Now().UTC())
-		}
-		if err := patcher.PatchToolApprovalQueue(ctx, done); err != nil && !isToolApprovalQueueDuplicateErr(err) {
-			return nil, err
-		}
-		finalStatus := "executed"
-		fallbackFields := map[string]interface{}{
-			"status":      "executed",
-			"executed_at": time.Now().UTC(),
-			"updated_at":  time.Now().UTC(),
-		}
-		if execErr != nil {
-			finalStatus = "failed"
-			fallbackFields["status"] = "failed"
-			fallbackFields["error_message"] = execErr.Error()
-			delete(fallbackFields, "executed_at")
-		}
-		if err := ensureToolApprovalStatus(ctx, lister, row.Id, finalStatus, func() error {
-			return fallbackToolApprovalUpdate(row.Id, fallbackFields)
-		}); err != nil {
-			return nil, err
-		}
-		if execErr == nil {
-			_ = continueQueueConversation(execCtx, c, row, buildQueueContinuationInstruction(row.ToolName, toolResult, true))
+			_ = continueQueueConversation(ctx, c, row, buildQueueContinuationInstruction(row.ToolName, "tool execution was not approved by user", false))
 		}
 	case "cancel", "canceled", "cancelled":
 		upd.SetStatus("canceled")
@@ -765,6 +1061,15 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		}); err != nil {
 			return nil, err
 		}
+		outcome.Status = "canceled"
+		outcome.Decision = "cancel"
+		outcome.Result = "tool execution was not approved by user"
+		if strings.TrimSpace(input.Reason) != "" {
+			outcome.ErrorMessage = strings.TrimSpace(input.Reason)
+		}
+		if err := persistToolApprovalOutcomeMetadata(ctx, patcher, row, outcome, now); err != nil {
+			return nil, err
+		}
 		_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
 		if isSystemOSEnvTool(row.ToolName) {
 			_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
@@ -774,15 +1079,29 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 	default:
 		return nil, errors.New("action must be approve, reject, or cancel")
 	}
-	return &DecideToolApprovalOutput{Status: "ok"}, nil
+	return &DecideToolApprovalOutput{Status: "ok", Outcome: outcome}, nil
+}
+
+func canonicalDecideAction(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "approve", "accepted":
+		return "approve"
+	case "reject", "rejected":
+		return "reject"
+	case "cancel", "canceled", "cancelled":
+		return "cancel"
+	default:
+		return strings.ToLower(strings.TrimSpace(action))
+	}
 }
 
 type toolApprovalMetadata struct {
-	OpID       string                    `json:"opId"`
-	ResponseID string                    `json:"responseId"`
-	TurnID     string                    `json:"turnId"`
-	Approval   *toolapproval.View        `json:"approval,omitempty"`
-	Review     *llm.ApprovalReviewConfig `json:"review,omitempty"`
+	OpID       string                         `json:"opId"`
+	ResponseID string                         `json:"responseId"`
+	TurnID     string                         `json:"turnId"`
+	Approval   *toolapproval.View             `json:"approval,omitempty"`
+	Review     *llm.ApprovalReviewConfig      `json:"review,omitempty"`
+	Outcome    *api.DecideToolApprovalOutcome `json:"outcome,omitempty"`
 }
 
 func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
@@ -794,66 +1113,34 @@ func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
 	return result
 }
 
+func persistToolApprovalOutcomeMetadata(ctx context.Context, patcher toolApprovalQueuePatcher, row *queueRead.QueueRowView, outcome *api.DecideToolApprovalOutcome, now time.Time) error {
+	if patcher == nil || row == nil || outcome == nil {
+		return nil
+	}
+	meta := parseToolApprovalMetadata(row.Metadata)
+	meta.Outcome = outcome
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	upd := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	upd.SetId(row.Id)
+	upd.SetUserId(row.UserId)
+	upd.SetToolName(row.ToolName)
+	upd.SetArguments(row.Arguments)
+	upd.SetMetadata(encoded)
+	upd.SetUpdatedAt(now)
+	if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
+		return err
+	}
+	return nil
+}
+
 func approvalEditorsFromMeta(meta toolApprovalMetadata) []*toolapproval.EditorView {
 	if meta.Approval == nil {
 		return nil
 	}
 	return meta.Approval.Editors
-}
-
-func canonicalApprovalDecision(action string) string {
-	switch strings.ToLower(strings.TrimSpace(action)) {
-	case "approve", "approved", "accepted":
-		return "approve"
-	case "reject", "rejected", "decline", "declined":
-		return "reject"
-	case "cancel", "canceled", "cancelled":
-		return "cancel"
-	default:
-		return strings.ToLower(strings.TrimSpace(action))
-	}
-}
-
-func shouldExecuteQueueDecision(meta toolApprovalMetadata, decision string) bool {
-	if decision == "approve" {
-		return true
-	}
-	if meta.Approval == nil || len(meta.Approval.Decisions) == 0 {
-		return false
-	}
-	cfg, ok := meta.Approval.Decisions[decision]
-	return ok && cfg != nil && cfg.Execute
-}
-
-func approvalDecisionPatch(meta toolApprovalMetadata, decision string) map[string]interface{} {
-	if meta.Approval == nil || len(meta.Approval.Decisions) == 0 {
-		return nil
-	}
-	cfg, ok := meta.Approval.Decisions[decision]
-	if !ok || cfg == nil {
-		return nil
-	}
-	return cfg.Patch
-}
-
-func applyDecisionPatch(dst map[string]interface{}, patch map[string]interface{}) {
-	for key, value := range patch {
-		existing, hasExisting := dst[key]
-		nextMap, nextIsMap := value.(map[string]interface{})
-		existingMap, existingIsMap := existing.(map[string]interface{})
-		if nextIsMap {
-			if !hasExisting || !existingIsMap {
-				cloned := map[string]interface{}{}
-				applyDecisionPatch(cloned, nextMap)
-				dst[key] = cloned
-				continue
-			}
-			applyDecisionPatch(existingMap, nextMap)
-			dst[key] = existingMap
-			continue
-		}
-		dst[key] = value
-	}
 }
 
 func syntheticToolStepID(opID string) string {
@@ -956,6 +1243,11 @@ func buildQueueContinuationInstruction(toolName, result string, approved bool) s
 	return fmt.Sprintf("Continue the previous request. The %s execution was not approved by the user. Do not ask for approval again in this turn and do not call any tools. Explain briefly that the value could not be retrieved because approval was not granted. Latest tool result:\n\n%s", toolName, result)
 }
 
+func buildQueueTimeoutInstruction(toolName string) string {
+	toolName = strings.TrimSpace(toolName)
+	return fmt.Sprintf("Continue the previous request. The %s execution could not proceed because user approval timed out. Do not ask for approval again in this turn and do not call any tools. Explain briefly that the value could not be retrieved because approval timed out.", toolName)
+}
+
 func isSystemOSEnvTool(name string) bool {
 	return mcpname.Canonical(strings.TrimSpace(name)) == mcpname.Canonical("system/os/getEnv")
 }
@@ -973,6 +1265,10 @@ func persistSystemOSEnvAssistantResult(ctx context.Context, c *backendClient, ro
 
 func persistSystemOSEnvDeniedAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView) error {
 	return persistQueueAssistantResult(ctx, c, row, formatSystemOSEnvDeniedResult(row))
+}
+
+func persistSystemOSEnvTimedOutAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView) error {
+	return persistQueueAssistantResult(ctx, c, row, formatSystemOSEnvTimedOutResult(row))
 }
 
 func persistQueueAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, content string) error {
@@ -1091,6 +1387,25 @@ func formatSystemOSEnvDeniedResult(row *queueRead.QueueRowView) string {
 	return "I couldn't retrieve the requested environment variable because approval was not granted."
 }
 
+func formatSystemOSEnvTimedOutResult(row *queueRead.QueueRowView) string {
+	if row == nil {
+		return "I couldn't retrieve the requested environment variable because approval timed out."
+	}
+	var args struct {
+		Names []string `json:"names"`
+	}
+	if len(row.Arguments) > 0 {
+		_ = json.Unmarshal(row.Arguments, &args)
+	}
+	if len(args.Names) == 1 && strings.TrimSpace(args.Names[0]) != "" {
+		return fmt.Sprintf("I couldn't retrieve your %s environment variable because approval timed out.", strings.TrimSpace(args.Names[0]))
+	}
+	if len(args.Names) > 1 {
+		return "I couldn't retrieve the requested environment variables because approval timed out."
+	}
+	return "I couldn't retrieve the requested environment variable because approval timed out."
+}
+
 func completeResolvedQueueTurn(ctx context.Context, c *backendClient, conversationID, turnID string) error {
 	conversationID = strings.TrimSpace(conversationID)
 	turnID = strings.TrimSpace(turnID)
@@ -1200,6 +1515,12 @@ func fallbackToolApprovalUpdate(id string, fields map[string]interface{}) error 
 	}
 	if value, ok := fields["executed_at"]; ok {
 		add("executed_at", value)
+	}
+	if value, ok := fields["expires_at"]; ok {
+		add("expires_at", value)
+	}
+	if value, ok := fields["timed_out_at"]; ok {
+		add("timed_out_at", value)
 	}
 	if value, ok := fields["error_message"]; ok {
 		add("error_message", nullableString(value))

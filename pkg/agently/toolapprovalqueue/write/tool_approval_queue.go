@@ -15,6 +15,8 @@ type ToolApprovalQueue struct {
 	Metadata         *[]byte               `sqlx:"metadata" json:",omitempty"`
 	Status           string                `sqlx:"status" validate:"required"`
 	Decision         *string               `sqlx:"decision" json:",omitempty"`
+	ExpiresAt        *time.Time            `sqlx:"expires_at" json:",omitempty"`
+	TimedOutAt       *time.Time            `sqlx:"timed_out_at" json:",omitempty"`
 	ApprovedByUserId *string               `sqlx:"approved_by_user_id" json:",omitempty"`
 	ApprovedAt       *time.Time            `sqlx:"approved_at" json:",omitempty"`
 	ExecutedAt       *time.Time            `sqlx:"executed_at" json:",omitempty"`
@@ -42,6 +44,8 @@ type ToolApprovalQueueHas struct {
 	Metadata         bool
 	Status           bool
 	Decision         bool
+	ExpiresAt        bool
+	TimedOutAt       bool
 	ApprovedByUserId bool
 	ApprovedAt       bool
 	ExecutedAt       bool
@@ -94,6 +98,16 @@ func (q *ToolApprovalQueue) SetDecision(v string) {
 	q.Decision = &v
 	q.ensureHas()
 	q.Has.Decision = true
+}
+func (q *ToolApprovalQueue) SetExpiresAt(v time.Time) {
+	q.ExpiresAt = &v
+	q.ensureHas()
+	q.Has.ExpiresAt = true
+}
+func (q *ToolApprovalQueue) SetTimedOutAt(v time.Time) {
+	q.TimedOutAt = &v
+	q.ensureHas()
+	q.Has.TimedOutAt = true
 }
 func (q *ToolApprovalQueue) SetApprovedByUserId(v string) {
 	q.ApprovedByUserId = &v

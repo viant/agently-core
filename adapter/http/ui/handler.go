@@ -1,20 +1,16 @@
 package ui
 
 import (
-	"context"
 	"embed"
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
-	"github.com/viant/agently-core/workspace"
-	wsmeta "github.com/viant/agently-core/workspace/service/meta"
+	windowloader "github.com/viant/agently-core/service/ui/window"
 	forgeHandlers "github.com/viant/forge/backend/handlers"
 	metaSvc "github.com/viant/forge/backend/service/meta"
-	forgeTypes "github.com/viant/forge/backend/types"
 )
 
 // NewEmbeddedHandler builds a UI http.Handler backed by an embedded filesystem.
@@ -56,14 +52,14 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 		target := targetContextFromRequest(r)
 		aWindow, err := forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
 		if err != nil {
-			workspaceWindow, workspaceErr := loadWorkspaceWindowFallback(r.Context(), windowKey, target)
+			workspaceWindow, workspaceErr := windowloader.LoadWorkspaceWindow(r.Context(), windowKey, target)
 			if workspaceErr != nil || workspaceWindow == nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			aWindow = workspaceWindow
 		}
-		if err := mergeWorkspaceForgeAssets(r.Context(), aWindow); err != nil {
+		if err := windowloader.MergeWorkspaceForgeAssets(r.Context(), aWindow); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -75,40 +71,6 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 	})
 
 	return mux
-}
-
-func loadWorkspaceWindowFallback(ctx context.Context, windowKey string, target *metaSvc.TargetContext) (*forgeTypes.Window, error) {
-	windowKey = strings.TrimSpace(windowKey)
-	if windowKey == "" {
-		return nil, nil
-	}
-	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspace.Root(), workspace.KindForgeWindow))
-	workspaceLoader := metaSvc.New(afs.New(), workspaceWindowRoot)
-	if result, err := forgeHandlers.LoadWindow(ctx, workspaceLoader, workspaceWindowRoot, windowKey, "", target); err == nil && result != nil && result.View.Content != nil {
-		return result, nil
-	}
-	svc := wsmeta.New(afs.New(), workspace.Root())
-	windowPath := filepath.Join(workspace.KindForgeWindow, windowKey+".yaml")
-	exists, err := svc.Exists(ctx, windowPath)
-	if err != nil || !exists {
-		return nil, err
-	}
-	result := &forgeTypes.Window{}
-	if err := svc.Load(ctx, windowPath, result); err != nil {
-		return nil, err
-	}
-	jsPath := filepath.Join(workspace.KindForgeWindow, windowKey+".js")
-	if ok, _ := svc.Exists(ctx, jsPath); ok {
-		code, err := svc.Download(ctx, jsPath)
-		if err != nil {
-			return nil, err
-		}
-		result.SetCode(code)
-	}
-	if result.View.Content == nil {
-		return nil, nil
-	}
-	return result, nil
 }
 
 func targetContextFromRequest(r *http.Request) *metaSvc.TargetContext {
@@ -142,105 +104,4 @@ func compactStrings(values []string) []string {
 		}
 	}
 	return result
-}
-
-func mergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window) error {
-	if window == nil {
-		return nil
-	}
-	svc := wsmeta.New(afs.New(), workspace.Root())
-
-	dialogs, err := loadWorkspaceDialogs(ctx, svc)
-	if err != nil {
-		return err
-	}
-	if len(dialogs) > 0 {
-		existing := map[string]bool{}
-		for _, dialog := range window.Dialogs {
-			id := strings.TrimSpace(dialog.Id)
-			if id != "" {
-				existing[id] = true
-			}
-		}
-		for _, dialog := range dialogs {
-			id := strings.TrimSpace(dialog.Id)
-			if id == "" || existing[id] {
-				continue
-			}
-			window.Dialogs = append(window.Dialogs, dialog)
-			existing[id] = true
-		}
-	}
-
-	dataSources, err := loadWorkspaceDataSources(ctx, svc)
-	if err != nil {
-		return err
-	}
-	if len(dataSources) > 0 {
-		if window.DataSource == nil {
-			window.DataSource = map[string]forgeTypes.DataSource{}
-		}
-		for id, dataSource := range dataSources {
-			if _, exists := window.DataSource[id]; exists {
-				continue
-			}
-			window.DataSource[id] = dataSource
-		}
-	}
-	return nil
-}
-
-func loadWorkspaceDialogs(ctx context.Context, svc *wsmeta.Service) ([]forgeTypes.Dialog, error) {
-	paths, err := svc.List(ctx, workspace.KindForgeDialog)
-	if err != nil {
-		return nil, nil
-	}
-	result := make([]forgeTypes.Dialog, 0, len(paths))
-	for _, dialogPath := range paths {
-		var dialog forgeTypes.Dialog
-		if err := svc.Load(ctx, filepath.Clean(dialogPath), &dialog); err != nil {
-			return nil, err
-		}
-		result = append(result, dialog)
-	}
-	return result, nil
-}
-
-func loadWorkspaceDataSources(ctx context.Context, svc *wsmeta.Service) (map[string]forgeTypes.DataSource, error) {
-	paths, err := svc.List(ctx, workspace.KindForgeDataSource)
-	if err != nil {
-		return nil, nil
-	}
-	result := make(map[string]forgeTypes.DataSource, len(paths))
-	for _, dataSourcePath := range paths {
-		var dataSource forgeTypes.DataSource
-		if err := svc.Load(ctx, filepath.Clean(dataSourcePath), &dataSource); err != nil {
-			return nil, err
-		}
-		id := strings.TrimSpace(filepath.Base(strings.TrimSuffix(dataSourcePath, filepath.Ext(dataSourcePath))))
-		if strings.TrimSpace(dataSource.DataSourceRef) != "" {
-			id = strings.TrimSpace(dataSource.DataSourceRef)
-		}
-		if id == "" {
-			continue
-		}
-		if dataSource.Service == nil {
-			dataSource.Service = &forgeTypes.Service{
-				Endpoint: "agentlyAPI",
-				URI:      "/v1/api/datasources/" + id + "/fetch",
-				Method:   "POST",
-			}
-			if dataSource.Selectors == nil {
-				dataSource.Selectors = &forgeTypes.Selectors{}
-			}
-			if strings.TrimSpace(dataSource.Selectors.Data) == "" || strings.TrimSpace(dataSource.Selectors.Data) == "data" {
-				dataSource.Selectors.Data = "rows"
-			}
-			if strings.TrimSpace(dataSource.Selectors.DataInfo) == "" || strings.TrimSpace(dataSource.Selectors.DataInfo) == "meta" {
-				dataSource.Selectors.DataInfo = "dataInfo"
-			}
-		}
-		result[id] = dataSource
-	}
-	return result, nil
 }

@@ -14,11 +14,13 @@ import (
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	"github.com/viant/agently-core/protocol/tool"
+	uiresource "github.com/viant/agently-core/protocol/ui/resource"
 	"github.com/viant/agently-core/sdk"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 type APIOptions struct {
@@ -151,6 +153,14 @@ func (a *runtimeExecutorAdapter) LLMCore() mcpexpose.LLMCore {
 
 func (a *runtimeExecutorAdapter) ExecuteTool(ctx context.Context, name string, args map[string]interface{}, _ int) (interface{}, error) {
 	return a.rt.Registry.Execute(ctx, name, args)
+}
+
+func (a *runtimeExecutorAdapter) ListResources(ctx context.Context) ([]mcpschema.Resource, error) {
+	return uiresource.ListWorkspaceResources(ctx)
+}
+
+func (a *runtimeExecutorAdapter) ReadResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
+	return uiresource.ReadWorkspaceResource(ctx, uri)
 }
 
 func (r *registryLLMCore) ToolDefinitions() []llm.ToolDefinition {

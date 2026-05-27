@@ -6,7 +6,10 @@ import (
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	viewsvc "github.com/viant/agently-core/protocol/tool/service/ui/view"
+	mcpuimeta "github.com/viant/mcp-ui/meta"
 )
+
+const fixtureResourceURI = "ui://test.fixture/view/widget"
 
 type testInner struct {
 	Street string `json:"street" description:"Street address"`
@@ -39,6 +42,28 @@ func (fakeService) Methods() svc.Signatures {
 	}}
 }
 func (fakeService) Method(string) (svc.Executable, error) { return nil, nil }
+
+type fakeMCPUIService struct{}
+
+func (fakeMCPUIService) Name() string { return "test/mcpui" }
+func (fakeMCPUIService) Methods() svc.Signatures {
+	return []svc.Signature{{
+		Name:        "show_widget",
+		Description: "fixture",
+		Input:       reflect.TypeOf(&struct{}{}),
+		Output:      reflect.TypeOf(&struct{}{}),
+	}}
+}
+func (fakeMCPUIService) Method(string) (svc.Executable, error) { return nil, nil }
+func (fakeMCPUIService) MCPUIToolUI(method string) (mcpuimeta.ToolUI, bool) {
+	if method != "show_widget" {
+		return mcpuimeta.ToolUI{}, false
+	}
+	return mcpuimeta.ToolUI{
+		ResourceUri: fixtureResourceURI,
+		Fallback:    mcpuimeta.FallbackEmbedded,
+	}, true
+}
 
 func TestFromService_JSONSchemaGeneration(t *testing.T) {
 	tools := FromService(fakeService{})
@@ -205,18 +230,40 @@ func TestFromService_ViewOpenRequiresGenericParametersObject(t *testing.T) {
 			continue
 		}
 		openToolFound = true
-		required := map[string]bool{}
-		for _, name := range tool.InputSchema.Required {
-			required[name] = true
+		props := map[string]map[string]interface{}(tool.InputSchema.Properties)
+		if _, ok := props["id"]; !ok {
+			t.Fatalf("expected ui/view:open schema to expose id property, got %#v", tool.InputSchema.Properties)
 		}
-		if !required["id"] {
-			t.Fatalf("expected ui/view:open to require id, got %#v", tool.InputSchema.Required)
+		parameters, ok := props["parameters"]
+		if !ok {
+			t.Fatalf("expected ui/view:open schema to expose parameters property, got %#v", tool.InputSchema.Properties)
 		}
-		if !required["parameters"] {
-			t.Fatalf("expected ui/view:open to require generic parameters object, got %#v", tool.InputSchema.Required)
+		if parameters["type"] != "object" {
+			t.Fatalf("expected ui/view:open parameters to be a generic object, got %#v", parameters)
 		}
 	}
 	if !openToolFound {
 		t.Fatalf("expected ui/view open tool in schema output")
+	}
+}
+
+func TestFromService_MCPUIServiceInjectsToolUIMeta(t *testing.T) {
+	tools := FromService(fakeMCPUIService{})
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	tool := tools[0]
+	if tool.Name != "show_widget" {
+		t.Fatalf("unexpected tool name: %s", tool.Name)
+	}
+	uiMeta, ok := mcpuimeta.GetToolUI(&tool)
+	if !ok {
+		t.Fatalf("expected _meta.ui on MCP UI tool")
+	}
+	if uiMeta.ResourceUri == "" {
+		t.Fatalf("expected resourceUri in _meta.ui: %#v", uiMeta)
+	}
+	if uiMeta.Fallback != mcpuimeta.FallbackEmbedded {
+		t.Fatalf("expected embedded fallback opt-in on MCP UI tool, got %#v", uiMeta)
 	}
 }

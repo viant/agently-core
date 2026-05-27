@@ -45,6 +45,30 @@ func (b *blockingDisplayLookupUserService) UpdatePreferences(_ context.Context, 
 	return nil
 }
 
+type ignoringDisplayLookupUserService struct{}
+
+func (ignoringDisplayLookupUserService) GetByUsername(_ context.Context, username string) (*User, error) {
+	return &User{ID: "user-1", Username: username, DisplayName: "Awitas"}, nil
+}
+
+func (ignoringDisplayLookupUserService) GetBySubjectAndProvider(_ context.Context, subject, provider string) (*User, error) {
+	select {}
+}
+
+func (ignoringDisplayLookupUserService) Upsert(_ context.Context, _ *User) error { return nil }
+
+func (ignoringDisplayLookupUserService) UpsertWithProvider(_ context.Context, username, displayName, email, provider, subject string) (string, error) {
+	return "user-1", nil
+}
+
+func (ignoringDisplayLookupUserService) UpdateHashIPByID(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (ignoringDisplayLookupUserService) UpdatePreferences(_ context.Context, _ string, _ *PreferencesPatch) error {
+	return nil
+}
+
 type canonicalLookupUserService struct{}
 
 func (canonicalLookupUserService) GetByUsername(_ context.Context, username string) (*User, error) {
@@ -428,6 +452,56 @@ func TestRuntimeHandleMe_DoesNotBlockOnDisplayLookup(t *testing.T) {
 	}
 	if elapsed > authDisplayLookupTimeout+250*time.Millisecond {
 		t.Fatalf("handleMe blocked on display lookup, took %s", elapsed)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if got := strings.TrimSpace(out["displayName"].(string)); got != "awitas" {
+		t.Fatalf("displayName = %q, want %q fallback", got, "awitas")
+	}
+}
+
+func TestRuntimeHandleMe_DoesNotBlockWhenDisplayLookupIgnoresContext(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+		},
+		sessions: NewManager(time.Hour, nil),
+		users:    ignoringDisplayLookupUserService{},
+	}
+
+	sess := &Session{
+		ID:        "sess-1",
+		Username:  "awitas",
+		Subject:   "awitas_viant_devtest",
+		Provider:  "oauth",
+		CreatedAt: time.Now(),
+		Tokens: &scyauth.Token{
+			Token: oauth2.Token{
+				AccessToken:  "access",
+				RefreshToken: "refresh",
+				Expiry:       time.Now().Add(time.Hour),
+			},
+			IDToken: "id",
+		},
+	}
+	ext.sessions.Put(nil, sess)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: sess.ID})
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	ext.handleMe().ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if elapsed > authDisplayLookupTimeout+250*time.Millisecond {
+		t.Fatalf("handleMe blocked when display lookup ignored context, took %s", elapsed)
 	}
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
