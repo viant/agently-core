@@ -1,9 +1,9 @@
 pipeline:
-  stop:
-    services:
-      action: docker:stop
-      images:
-        - mysql
+#  stop:
+#    services:
+#      action: docker:stop
+#      images:
+#        - mysql
 
   services:
     mysql:

@@ -60,6 +60,13 @@ type ApprovalForgeView struct {
 	Callbacks    []*ApprovalCallback `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
 }
 
+// ApprovalDecisionAction configures what should happen for a specific queue
+// decision such as approve or reject.
+type ApprovalDecisionAction struct {
+	Execute bool                   `json:"execute,omitempty" yaml:"execute,omitempty"`
+	Patch   map[string]interface{} `json:"patch,omitempty" yaml:"patch,omitempty"`
+}
+
 // ApprovalUIBinding defines how approval data is extracted from the original tool request.
 type ApprovalUIBinding struct {
 	TitleSelector   string                   `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
@@ -97,6 +104,7 @@ type ApprovalConfig struct {
 	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
 	QueueBehavior      ApprovalQueueBehavior `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
 	TimeoutSec         int                   `json:"timeoutSec,omitempty" yaml:"timeoutSec,omitempty"`
+	Decisions          map[string]*ApprovalDecisionAction `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }

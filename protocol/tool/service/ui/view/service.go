@@ -276,12 +276,13 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 	if missing := missingRequiredParameters(item.Parameters, input.Parameters); len(missing) > 0 {
 		return nil, fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
 	}
+	windowID := computeWindowID(item.WindowKey, windowParameters, conversationID, item)
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.window.open",
 		Params: map[string]interface{}{
-			"windowId":    computeWindowID(item.WindowKey, windowParameters, conversationID, item),
+			"windowId":    windowID,
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
 			"parameters":  windowParameters,
@@ -310,6 +311,22 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 			output.WindowID = strings.TrimSpace(stringValue(payload["windowId"]))
 		}
 	}
+	if output.WindowID == "" {
+		output.WindowID = windowID
+	}
+	if shouldRefreshOpenedWindow(item, output.WindowID) {
+		if _, refreshErr := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
+			ClientID:  clientID,
+			Namespace: namespace,
+			Method:    "ui.data.fetch",
+			Params: map[string]interface{}{
+				"windowId": output.WindowID,
+			},
+			TimeoutMs: timeout,
+		}); refreshErr != nil {
+			return nil, refreshErr
+		}
+	}
 	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
 		ConversationID: conversationID,
 		ClientID:       clientID,
@@ -323,6 +340,19 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 		},
 	})
 	return output, nil
+}
+
+func shouldRefreshOpenedWindow(item *ListItem, windowID string) bool {
+	if item == nil {
+		return false
+	}
+	if strings.TrimSpace(windowID) == "" {
+		return false
+	}
+	if !item.Capabilities.Datasource {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted")
 }
 
 func buildOpenWindowOptions(item *ListItem, conversationID string, openModeOverride string) map[string]interface{} {
