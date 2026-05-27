@@ -21,9 +21,16 @@ const sessionStoreLoadTimeout = 5 * time.Second
 //   - Username = jwt.preferred_username or jwt.name — display name only
 //   - Email    = jwt.email — display / contact only
 //
-// UserID is the preferred stable identity for session-owned auth, persistence,
-// foreign-key joins, and token ownership. Subject is preserved as the raw IdP
-// identity for provider lookups and diagnostics.
+// Identity split:
+//   - sess.UserID is the canonical users.id UUID for internal persistence,
+//     token storage, token refresh, and session bookkeeping.
+//   - request EffectiveUserID is the provider subject/email/username used by
+//     ownership and visibility filters, including created_by_user_id.
+//
+// Do not feed sess.EffectiveUserID() into request context unless
+// created_by_user_id has been migrated to canonical users.id. Token persistence
+// can use the canonical UserID, but request-scoped ownership must remain
+// subject-compatible.
 type Session struct {
 	ID       string         `json:"id"`
 	UserID   string         `json:"userId,omitempty"`
@@ -39,9 +46,10 @@ type Session struct {
 	ExpiresAt               time.Time `json:"expiresAt"`
 }
 
-// EffectiveUserID returns jwt.sub as the stable user identity.
-// Falls back to Subject, then Email, then Username for sessions without a
-// canonical stored user id (e.g. local/anonymous mode).
+// EffectiveUserID returns the canonical session identity when available.
+// This is intended for session/token persistence. For request-scoped
+// ownership or visibility checks, use Subject/Email/Username directly; those
+// filters still compare against subject-based created_by_user_id values.
 func (s *Session) EffectiveUserID() string {
 	if s == nil {
 		return ""

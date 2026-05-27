@@ -158,10 +158,13 @@ func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAu
 		return nil
 	}
 	// Keep request-scoped identity on the raw provider subject/email/username.
-	// Do not use sess.EffectiveUserID() here: it prefers Session.UserID, which is
-	// the canonical users.id UUID. That UUID is correct for token persistence,
-	// but it breaks legacy ownership filters where created_by_user_id stores the
-	// provider subject, for example "agently_scheduler".
+	// See the Session identity split in session.go: sess.UserID is canonical
+	// for token/session persistence, while request EffectiveUserID must stay
+	// subject-compatible for ownership filters such as created_by_user_id.
+	// Do not replace this with sess.EffectiveUserID(): that prefers the
+	// canonical users.id UUID and breaks legacy ownership filters where
+	// created_by_user_id stores the provider subject, for example
+	// "agently_scheduler".
 	requestUserID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username))
 	return &runtimeAuthUser{
 		EffectiveUserID: requestUserID,

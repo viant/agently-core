@@ -133,11 +133,13 @@ func Protect(cfg *Config, sessions *Manager, opts ...ProtectOption) func(http.Ha
 							}
 						} else {
 							// Keep cookie-session request identity on the raw provider subject/email.
+							// See the Session identity split in session.go: sess.UserID is canonical
+							// for token/session persistence, while request EffectiveUserID must stay
+							// subject-compatible for ownership filters such as created_by_user_id.
 							// Do not replace this with sess.EffectiveUserID(): that prefers the
 							// canonical users.id UUID and breaks legacy ownership filters where
 							// created_by_user_id stores the provider subject, for example
-							// "agently_scheduler". Token persistence can use canonical UserID, but
-							// request-scoped visibility/ownership must remain subject-compatible.
+							// "agently_scheduler".
 							subject := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email))
 							email := strings.TrimSpace(sess.Email)
 							ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{
