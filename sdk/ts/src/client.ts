@@ -449,6 +449,7 @@ export class AgentlyClient {
         status?: string;
         limit?: number;
         offset?: number;
+        outcomeSince?: string;
     }): Promise<PendingToolApprovalPage> {
         const q = new URLSearchParams();
         if (input?.userId) q.set('userId', input.userId);
@@ -456,6 +457,7 @@ export class AgentlyClient {
         if (input?.status) q.set('status', input.status);
         if (Number.isFinite(input?.limit) && Number(input.limit) > 0) q.set('limit', String(Math.floor(Number(input.limit))));
         if (Number.isFinite(input?.offset) && Number(input.offset) >= 0) q.set('offset', String(Math.floor(Number(input.offset))));
+        if (input?.outcomeSince) q.set('outcomeSince', input.outcomeSince);
         const out = await this.get<PendingToolApprovalPage | PendingToolApproval[] | { data?: PendingToolApproval[]; rows?: PendingToolApproval[]; total?: number; offset?: number; limit?: number; hasMore?: boolean }>('/tool-approvals/pending', q);
         if (Array.isArray(out)) {
             return {
@@ -464,6 +466,7 @@ export class AgentlyClient {
                 offset: Number(input?.offset || 0) || 0,
                 limit: Number(input?.limit || out.length) || out.length,
                 hasMore: false,
+                outcomeCursor: '',
             };
         }
         const rows = Array.isArray(out?.rows) ? out.rows : (Array.isArray(out?.data) ? out.data : []);
@@ -473,6 +476,8 @@ export class AgentlyClient {
             offset: Number(out?.offset || 0) || 0,
             limit: Number(out?.limit || rows.length) || 0,
             hasMore: Boolean(out?.hasMore),
+            outcomes: Array.isArray(out?.outcomes) ? out.outcomes : [],
+            outcomeCursor: typeof out?.outcomeCursor === 'string' ? out.outcomeCursor : '',
         };
     }
 

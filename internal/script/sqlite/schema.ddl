@@ -258,6 +258,8 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     metadata BLOB,
     status TEXT NOT NULL DEFAULT 'pending',
     decision TEXT,
+    expires_at DATETIME,
+    timed_out_at DATETIME,
     approved_by_user_id TEXT,
     approved_at DATETIME,
     executed_at DATETIME,
@@ -272,6 +274,7 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
 CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_taq_status_expires_at ON tool_approval_queue(status, expires_at);
 
 CREATE TABLE IF NOT EXISTS schedule (
     id TEXT PRIMARY KEY,

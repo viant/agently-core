@@ -81,6 +81,20 @@ func selectPath(selector string, root interface{}) interface{} {
 			} else {
 				return nil
 			}
+		case []map[string]interface{}:
+			idx := -1
+			for _, r := range token {
+				if r < '0' || r > '9' {
+					return nil
+				}
+			}
+			if token != "" {
+				fmt.Sscanf(token, "%d", &idx)
+			}
+			if idx < 0 || idx >= len(actual) {
+				return nil
+			}
+			cur = actual[idx]
 		case []interface{}:
 			idx := -1
 			for _, r := range token {

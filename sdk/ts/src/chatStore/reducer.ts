@@ -935,6 +935,14 @@ function onToolCallEvent(state: ClientConversationState, event: SSEEvent): Clien
     if (event.operationId) writeField(step, 'operationId', event.operationId, 'event');
     if (event.status) writeField(step, 'status', event.status, 'event');
     if (event.error) writeField(step, 'errorMessage', event.error, 'event');
+    if (event.arguments && typeof event.arguments === 'object') {
+        writeField(step, 'requestPayload', event.arguments as ClientToolCall['requestPayload'], 'event');
+    }
+    if (event.responsePayload) {
+        const uiResourceUri = deriveUIResourceUri(event.responsePayload);
+        if (uiResourceUri) writeField(step, 'uiResourceUri', uiResourceUri, 'event');
+        writeField(step, 'responsePayload', event.responsePayload as ClientToolCall['responsePayload'], 'event');
+    }
     if (event.responsePayloadId) writeField(step, 'responsePayloadId', event.responsePayloadId, 'event');
     if (event.requestPayloadId) writeField(step, 'requestPayloadId', event.requestPayloadId, 'event');
     if (event.linkedConversationId) writeField(step, 'linkedConversationId', event.linkedConversationId, 'event');
@@ -947,6 +955,20 @@ function appendToolCall(page: ClientExecutionPage): ClientToolCall {
     const tc: ClientToolCall = { renderKey: allocateRenderKey() };
     page.toolCalls.push(tc);
     return tc;
+}
+
+function deriveUIResourceUri(responsePayload: unknown): string {
+    const candidate = responsePayload && typeof responsePayload === 'object'
+        ? responsePayload as Record<string, unknown>
+        : null;
+    const meta = candidate?._meta && typeof candidate._meta === 'object'
+        ? candidate._meta as Record<string, unknown>
+        : null;
+    const ui = meta?.ui && typeof meta.ui === 'object'
+        ? meta.ui as Record<string, unknown>
+        : null;
+    const uri = String(ui?.resourceUri || candidate?.resourceUri || candidate?.uri || '').trim();
+    return uri.startsWith('ui://') ? uri : '';
 }
 
 function onAssistantNarration(state: ClientConversationState, event: SSEEvent): ClientConversationState {
@@ -1620,6 +1642,7 @@ function mergeTranscriptToolCall(
     if (snapshotStep.toolMessageId) writeField(step, 'toolMessageId', snapshotStep.toolMessageId, 'transcript');
     if (snapshotStep.executionRole) writeField(step, 'executionRole', snapshotStep.executionRole, 'transcript');
     if (snapshotStep.toolName) writeField(step, 'toolName', snapshotStep.toolName, 'transcript');
+    if (snapshotStep.uiResourceUri) writeField(step, 'uiResourceUri', snapshotStep.uiResourceUri, 'transcript');
     if (snapshotStep.operationId) writeField(step, 'operationId', snapshotStep.operationId, 'transcript');
     if (snapshotStep.status) {
         const transcriptLifecycle = statusToLifecycle(snapshotStep.status);
@@ -1634,6 +1657,8 @@ function mergeTranscriptToolCall(
     if (snapshotStep.errorMessage) writeField(step, 'errorMessage', snapshotStep.errorMessage, 'transcript');
     if (snapshotStep.requestPayloadId) writeField(step, 'requestPayloadId', snapshotStep.requestPayloadId, 'transcript');
     if (snapshotStep.responsePayloadId) writeField(step, 'responsePayloadId', snapshotStep.responsePayloadId, 'transcript');
+    if (snapshotStep.requestPayload !== undefined) writeField(step, 'requestPayload', snapshotStep.requestPayload as ClientToolCall['requestPayload'], 'transcript');
+    if (snapshotStep.responsePayload !== undefined) writeField(step, 'responsePayload', snapshotStep.responsePayload as ClientToolCall['responsePayload'], 'transcript');
     if (snapshotStep.linkedConversationId) writeField(step, 'linkedConversationId', snapshotStep.linkedConversationId, 'transcript');
     if (snapshotStep.linkedConversationAgentId) writeField(step, 'linkedConversationAgentId', snapshotStep.linkedConversationAgentId, 'transcript');
     if (snapshotStep.linkedConversationTitle) writeField(step, 'linkedConversationTitle', snapshotStep.linkedConversationTitle, 'transcript');

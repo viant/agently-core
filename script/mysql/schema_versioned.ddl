@@ -1611,11 +1611,13 @@ BEGIN
                 title               TEXT,
                 arguments           LONGBLOB     NOT NULL,
                 metadata            LONGBLOB,
-                status              VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'canceled', 'executed', 'failed')),
+                status              VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'canceled', 'executed', 'failed', 'timed_out')),
                 decision            TEXT,
                 approved_by_user_id VARCHAR(255),
                 approved_at         TIMESTAMP    NULL DEFAULT NULL,
                 executed_at         TIMESTAMP    NULL DEFAULT NULL,
+                expires_at          TIMESTAMP    NULL DEFAULT NULL,
+                timed_out_at        TIMESTAMP    NULL DEFAULT NULL,
                 error_message       TEXT,
                 created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at          TIMESTAMP    NULL DEFAULT NULL,
@@ -1654,6 +1656,15 @@ BEGIN
               AND INDEX_NAME = 'idx_taq_turn'
         ) THEN
             CREATE INDEX idx_taq_turn ON tool_approval_queue (turn_id, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_approval_queue'
+              AND INDEX_NAME = 'idx_taq_status_expires_at'
+        ) THEN
+            CREATE INDEX idx_taq_status_expires_at ON tool_approval_queue (status, expires_at);
         END IF;
 
         IF NOT EXISTS (

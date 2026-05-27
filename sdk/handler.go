@@ -11,8 +11,8 @@ import (
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/service/speech"
-	"github.com/viant/agently-core/service/workflow"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 // HandlerOption customises the handler created by NewHandler.
@@ -26,12 +26,14 @@ type handlerConfig struct {
 	schedulerHandler *scheduler.Handler
 	schedulerSvc     *scheduler.Service
 	schedulerOpts    *SchedulerOptions
-	workflowHandler  *workflow.Handler
 	metadataHandler  *svcworkspace.MetadataHandler
 	fileBrowser      *svcworkspace.FileBrowserHandler
 	a2aHandler       *svca2a.Handler
 	callbackHandler  *callbackhttp.Handler
 	uiBridgeHandler  http.Handler
+
+	mcpUIResourceReader MCPUIResourceReader
+	mcpUIToolCaller     MCPUIToolCaller
 }
 
 // SchedulerOptions controls scheduler behavior at the SDK level.
@@ -63,10 +65,6 @@ func WithScheduler(svc *scheduler.Service, handler *scheduler.Handler, opts *Sch
 		c.schedulerHandler = handler
 		c.schedulerOpts = opts
 	}
-}
-
-func WithWorkflowHandler(h *workflow.Handler) HandlerOption {
-	return func(c *handlerConfig) { c.workflowHandler = h }
 }
 
 func WithMetadataHandler(h *svcworkspace.MetadataHandler) HandlerOption {
@@ -109,6 +107,20 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 	for _, o := range opts {
 		if o != nil {
 			o(cfg)
+		}
+	}
+	if cfg.mcpUIResourceReader == nil {
+		if reader, ok := client.(interface {
+			ReadMCPUIResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error)
+		}); ok {
+			cfg.mcpUIResourceReader = reader.ReadMCPUIResource
+		}
+	}
+	if cfg.mcpUIToolCaller == nil {
+		if caller, ok := client.(interface {
+			ExecuteMCPUIToolCall(ctx context.Context, input *MCPUIToolCallInput) (*MCPUIToolCallOutput, error)
+		}); ok {
+			cfg.mcpUIToolCaller = caller.ExecuteMCPUIToolCall
 		}
 	}
 
@@ -221,9 +233,6 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	} else if cfg.schedulerHandler != nil {
 		cfg.schedulerHandler.Register(mux)
 	}
-	if cfg.workflowHandler != nil {
-		cfg.workflowHandler.Register(mux)
-	}
 	if cfg.metadataHandler != nil {
 		cfg.metadataHandler.Register(mux)
 	}
@@ -238,5 +247,11 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	}
 	if cfg.uiBridgeHandler != nil {
 		mux.Handle("/v1/ui/rpc", cfg.uiBridgeHandler)
+	}
+	if cfg.mcpUIResourceReader != nil {
+		mux.HandleFunc("GET /v1/api/mcp-ui/resources/read", handleMCPUIResourceRead(cfg.mcpUIResourceReader))
+	}
+	if cfg.mcpUIToolCaller != nil {
+		mux.HandleFunc("POST /v1/api/mcp-ui/tools/call", handleMCPUIToolCall(cfg.mcpUIToolCaller))
 	}
 }

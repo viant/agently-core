@@ -184,6 +184,7 @@ export interface ToolStepState {
     toolMessageId?: string;
     parentMessageId?: string;
     toolName: string;
+    uiResourceUri?: string;
     executionRole?: string;
     content?: string;
     operationId?: string;
@@ -566,6 +567,7 @@ export interface PendingToolApproval {
     metadata?: JSONObject;
     status: string;
     decision?: string;
+    expiresAt?: string;
     createdAt: string;
     updatedAt?: string;
     errorMessage?: string;
@@ -630,6 +632,8 @@ export interface PendingToolApprovalPage {
     offset: number;
     limit: number;
     hasMore: boolean;
+    outcomes?: DecideToolApprovalOutcome[];
+    outcomeCursor?: string;
 }
 
 export interface DecideToolApprovalInput {
@@ -640,8 +644,23 @@ export interface DecideToolApprovalInput {
     payload?: JSONObject;
 }
 
+export interface DecideToolApprovalOutcome {
+    approvalId: string;
+    action: string;
+    status?: string;
+    decision?: string;
+    conversationId?: string;
+    turnId?: string;
+    messageId?: string;
+    toolName?: string;
+    result?: string;
+    errorMessage?: string;
+}
+
 export interface DecideToolApprovalOutput {
     status: string;
+    message?: string;
+    outcome?: DecideToolApprovalOutcome;
 }
 
 // ─── Files ─────────────────────────────────────────────────────────────────────

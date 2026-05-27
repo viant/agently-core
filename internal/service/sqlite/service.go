@@ -121,6 +121,10 @@ func loadSchema(ctx context.Context, db *sql.DB, ddl string) error {
 			return nil
 		}
 		if _, execErr := db.ExecContext(ctx, stmt); execErr != nil {
+			if isDuplicateSQLiteColumnError(stmt, execErr) {
+				buf.Reset()
+				return nil
+			}
 			return fmt.Errorf("schema exec failed: %w (sql: %s)", execErr, stmt)
 		}
 		buf.Reset()
@@ -147,4 +151,15 @@ func loadSchema(ctx context.Context, db *sql.DB, ddl string) error {
 		return err
 	}
 	return nil
+}
+
+func isDuplicateSQLiteColumnError(stmt string, err error) bool {
+	if err == nil {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(stmt)), "ALTER TABLE ") {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "duplicate column name")
 }

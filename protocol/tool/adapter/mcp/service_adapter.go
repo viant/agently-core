@@ -6,13 +6,26 @@ import (
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpschema "github.com/viant/mcp-protocol/schema"
+	mcpuimeta "github.com/viant/mcp-ui/meta"
 )
+
+// ToolUIMetadataProvider optionally exposes MCP UI metadata for specific
+// service methods. The MCP adapter consults this provider and, when present,
+// injects the returned `_meta.ui` payload into the generated MCP tool
+// definition for that method.
+type ToolUIMetadataProvider interface {
+	MCPUIToolUI(method string) (mcpuimeta.ToolUI, bool)
+}
 
 // FromService converts a service.Service to a slice of MCP Tool.
 // Tool.Name is the method name; Input/Output schemas are derived from reflection types.
 func FromService(s svc.Service) []mcpschema.Tool {
 	sigs := s.Methods()
 	out := make([]mcpschema.Tool, 0, len(sigs))
+	var uiProvider ToolUIMetadataProvider
+	if provider, ok := s.(ToolUIMetadataProvider); ok {
+		uiProvider = provider
+	}
 	for _, sig := range sigs {
 		inT := sig.Input
 		if inT == nil {
@@ -23,6 +36,11 @@ func FromService(s svc.Service) []mcpschema.Tool {
 			outT = reflect.TypeOf(struct{}{})
 		}
 		tool := toolFromTypes(sig.Name, sig.Description, inT, outT)
+		if tool != nil && uiProvider != nil {
+			if ui, ok := uiProvider.MCPUIToolUI(sig.Name); ok {
+				injectToolUIMeta(tool, ui)
+			}
+		}
 		out = append(out, *tool)
 	}
 	return out
@@ -46,6 +64,13 @@ func toolFromTypes(name, description string, inT, outT reflect.Type) *mcpschema.
 		InputSchema:  mcpschema.ToolInputSchema{Type: "object", Properties: mcpschema.ToolInputSchemaProperties(inProps), Required: inReq},
 		OutputSchema: &mcpschema.ToolOutputSchema{Type: "object", Properties: outProps},
 	}
+}
+
+func injectToolUIMeta(tool *mcpschema.Tool, ui mcpuimeta.ToolUI) {
+	if tool == nil {
+		return
+	}
+	mcpuimeta.SetToolUI(tool, ui)
 }
 
 func objectSchema(t reflect.Type) (map[string]map[string]interface{}, []string) {

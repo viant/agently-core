@@ -506,6 +506,22 @@ func (s *spyQueryClient) Query(_ context.Context, input *agentsvc.QueryInput) (*
 	return &agentsvc.QueryOutput{ConversationID: "c1", Content: "ok"}, nil
 }
 
+type spyToolApprovalClient struct {
+	*HTTPClient
+	gotListInput   *ListPendingToolApprovalsInput
+	gotDecideInput *DecideToolApprovalInput
+}
+
+func (s *spyToolApprovalClient) ListPendingToolApprovals(_ context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
+	s.gotListInput = input
+	return &PendingToolApprovalPage{Rows: []*PendingToolApproval{}, Total: 0, Offset: 0, Limit: 0, HasMore: false}, nil
+}
+
+func (s *spyToolApprovalClient) DecideToolApproval(_ context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
+	s.gotDecideInput = input
+	return &DecideToolApprovalOutput{Status: "ok"}, nil
+}
+
 func TestHandler_Query_AssignsAnonymousUserCookie(t *testing.T) {
 	base, err := NewHTTP("http://127.0.0.1")
 	if err != nil {
@@ -1483,5 +1499,158 @@ func TestHandler_Query_Succeeds_WhenAuthEnabledAndUserInContext(t *testing.T) {
 	}
 	if spy.gotInput.UserId != "testuser" {
 		t.Fatalf("expected userId=testuser, got %q", spy.gotInput.UserId)
+	}
+}
+
+func TestHandler_ListPendingToolApprovals_UsesContextUserScope(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolApprovalClient{HTTPClient: base}
+	authCfg := &svcauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-key",
+		CookieName: "sess",
+		Local:      &svcauth.Local{Enabled: true},
+	}
+	sessions := svcauth.NewManager(time.Hour, nil)
+	sessions.Put(context.Background(), &svcauth.Session{
+		ID:        "test-session",
+		Username:  "testuser",
+		Subject:   "testuser",
+		CreatedAt: time.Now(),
+	})
+	handler, err := NewHandlerWithContext(context.Background(), spy, WithAuth(authCfg, sessions))
+	if err != nil {
+		t.Fatalf("NewHandlerWithContext: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/tool-approvals/pending?userId=other-user&status=pending", nil)
+	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for mismatched query user, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotListInput != nil {
+		t.Fatal("expected ListPendingToolApprovals NOT to be called on mismatched user scope")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/tool-approvals/pending?status=pending", nil)
+	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotListInput == nil {
+		t.Fatal("expected ListPendingToolApprovals to be called")
+	}
+	if spy.gotListInput.UserID != "testuser" {
+		t.Fatalf("expected userId=testuser, got %q", spy.gotListInput.UserID)
+	}
+}
+
+// TestHandler_ListPendingToolApprovals_ForwardsOutcomeSinceCursor pins
+// the HTTP transport contract for the durable outcome cursor: the
+// handler must read the opaque ?outcomeSince=<cursor> query
+// parameter and pass it through verbatim on the canonical
+// ListPendingToolApprovalsInput so the backend can re-emit outcomes
+// that the client missed between polls. Without this plumbing the
+// durability contract proved at the SDK layer would not reach
+// over-the-wire callers.
+func TestHandler_ListPendingToolApprovals_ForwardsOutcomeSinceCursor(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolApprovalClient{HTTPClient: base}
+	authCfg := &svcauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-key",
+		CookieName: "sess",
+		Local:      &svcauth.Local{Enabled: true},
+	}
+	sessions := svcauth.NewManager(time.Hour, nil)
+	sessions.Put(context.Background(), &svcauth.Session{
+		ID:        "test-session",
+		Username:  "testuser",
+		Subject:   "testuser",
+		CreatedAt: time.Now(),
+	})
+	handler, err := NewHandlerWithContext(context.Background(), spy, WithAuth(authCfg, sessions))
+	if err != nil {
+		t.Fatalf("NewHandlerWithContext: %v", err)
+	}
+
+	cursor := "2026-05-26T12:00:00.000000000Z"
+	req := httptest.NewRequest(http.MethodGet, "/v1/tool-approvals/pending?status=pending&outcomeSince="+url.QueryEscape(cursor), nil)
+	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotListInput == nil {
+		t.Fatal("expected ListPendingToolApprovals to be called")
+	}
+	if spy.gotListInput.OutcomeSince != cursor {
+		t.Fatalf("expected OutcomeSince=%q to flow through, got %q", cursor, spy.gotListInput.OutcomeSince)
+	}
+}
+
+func TestHandler_DecideToolApproval_UsesContextUserScope(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolApprovalClient{HTTPClient: base}
+	authCfg := &svcauth.Config{
+		Enabled:    true,
+		IpHashKey:  "test-key",
+		CookieName: "sess",
+		Local:      &svcauth.Local{Enabled: true},
+	}
+	sessions := svcauth.NewManager(time.Hour, nil)
+	sessions.Put(context.Background(), &svcauth.Session{
+		ID:        "test-session",
+		Username:  "testuser",
+		Subject:   "testuser",
+		CreatedAt: time.Now(),
+	})
+	handler, err := NewHandlerWithContext(context.Background(), spy, WithAuth(authCfg, sessions))
+	if err != nil {
+		t.Fatalf("NewHandlerWithContext: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/tool-approvals/approval-1/decision", bytes.NewReader([]byte(`{"action":"approve","userId":"other-user"}`)))
+	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for mismatched body user, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotDecideInput != nil {
+		t.Fatal("expected DecideToolApproval NOT to be called on mismatched user scope")
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/tool-approvals/approval-1/decision", bytes.NewReader([]byte(`{"action":"approve"}`)))
+	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotDecideInput == nil {
+		t.Fatal("expected DecideToolApproval to be called")
+	}
+	if spy.gotDecideInput.UserID != "testuser" {
+		t.Fatalf("expected userId=testuser, got %q", spy.gotDecideInput.UserID)
 	}
 }

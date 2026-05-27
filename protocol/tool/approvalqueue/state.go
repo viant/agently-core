@@ -12,8 +12,9 @@ import (
 type stateKey struct{}
 
 type State struct {
-	mu    sync.RWMutex
-	tools map[string]*llm.ApprovalConfig
+	mu     sync.RWMutex
+	tools  map[string]*llm.ApprovalConfig
+	source string
 }
 
 // WithState ensures a mutable approval-queue state exists in context.
@@ -84,4 +85,29 @@ func ConfigFor(ctx context.Context, name string) (*llm.ApprovalConfig, bool) {
 	defer st.mu.RUnlock()
 	cfg, ok := st.tools[key]
 	return cfg, ok && cfg != nil
+}
+
+// MarkSource records the canonical origin label for a host-mediated approval
+// execution path. The value is stored on the shared approval state so the
+// enqueue writer can persist it without trusting downstream callers.
+func MarkSource(ctx context.Context, source string) {
+	st := StateFromContext(ctx)
+	if st == nil {
+		return
+	}
+	st.mu.Lock()
+	st.source = strings.TrimSpace(source)
+	st.mu.Unlock()
+}
+
+// SourceFromContext returns the canonical source label attached to the current
+// approval state when present.
+func SourceFromContext(ctx context.Context) string {
+	st := StateFromContext(ctx)
+	if st == nil {
+		return ""
+	}
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return strings.TrimSpace(st.source)
 }

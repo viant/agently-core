@@ -267,6 +267,61 @@ func TestFetch_InlineBackend(t *testing.T) {
 	}
 }
 
+func TestFetch_InlineBackendProjectsRowsAndMetricsViaSelectors(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	store.Put(&dsproto.DataSource{
+		ID: "order_preview",
+		Backend: &dsproto.Backend{
+			Kind: dsproto.BackendInline,
+			Rows: []map[string]interface{}{
+				{
+					"orderId": 2667545,
+					"periodSummary": map[string]interface{}{
+						"spend":       251.93,
+						"impressions": 184920,
+						"ctr":         0.0184,
+					},
+					"performanceTimeline": []map[string]interface{}{
+						{
+							"advertiserTime": "2026-05-25",
+							"spend":          251.93,
+							"impressions":    184920,
+							"ctr":            0.0184,
+						},
+					},
+				},
+			},
+		},
+		DataSource: types.DataSource{
+			Selectors: &types.Selectors{
+				Data:    "0.performanceTimeline",
+				Metrics: "0",
+			},
+		},
+	})
+	svc := datasource.New(datasource.Options{Store: store})
+	res, err := svc.Fetch(aliceCtx(), "order_preview", nil, datasource.FetchOptions{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if got := len(res.Rows); got != 1 {
+		t.Fatalf("want 1 projected row, got %d", got)
+	}
+	if got := res.Rows[0]["spend"]; got != 251.93 {
+		t.Fatalf("want projected row spend 251.93, got %#v", got)
+	}
+	if res.Metrics == nil {
+		t.Fatalf("want projected metrics")
+	}
+	summary, ok := res.Metrics["periodSummary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("want periodSummary in metrics, got %#v", res.Metrics)
+	}
+	if got := summary["spend"]; got != 251.93 {
+		t.Fatalf("want metrics spend 251.93, got %#v", got)
+	}
+}
+
 func TestFetch_PagingAppliedInDatasourceService(t *testing.T) {
 	store := datasource.NewMemoryStore()
 	store.Put(&dsproto.DataSource{

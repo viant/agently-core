@@ -22,14 +22,15 @@ func TestWithRuntimeAuthUserBridgesCoreContexts(t *testing.T) {
 	tokens.Token.AccessToken = "access-token"
 
 	ctx := withRuntimeAuthUser(context.Background(), &runtimeAuthUser{
-		Subject:  "devuser",
-		Email:    "devuser@example.com",
-		Provider: "oauth",
-		Tokens:   tokens,
+		EffectiveUserID: "user-canonical",
+		Subject:         "devuser",
+		Email:           "devuser@example.com",
+		Provider:        "oauth",
+		Tokens:          tokens,
 	})
 
-	if got := EffectiveUserID(ctx); got != "devuser" {
-		t.Fatalf("auth effective user = %q, want %q", got, "devuser")
+	if got := EffectiveUserID(ctx); got != "user-canonical" {
+		t.Fatalf("auth effective user = %q, want %q", got, "user-canonical")
 	}
 	if got := MCPAuthToken(ctx, false); got != "access-token" {
 		t.Fatalf("auth MCP token = %q, want %q", got, "access-token")
@@ -151,6 +152,53 @@ func TestRuntimeProtect_MixedLocalAndOAuthAcceptsLocalSessionCookie(t *testing.T
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestRuntimeProtect_PrefersCanonicalSessionUserIDInContext(t *testing.T) {
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			OAuth:      &OAuth{Mode: "bff"},
+		},
+		sessions: NewManager(0, nil),
+		ext: &authExtension{
+			cfg: &Config{
+				Enabled:    true,
+				CookieName: "agently_session",
+				OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
+			},
+			users: canonicalLookupUserService{},
+		},
+	}
+	rt.sessions.Put(nil, &Session{
+		ID:       "sess-1",
+		Username: "awitas",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+		Tokens:   newTokenBundle("access-token", "id-token", ""),
+	})
+
+	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(EffectiveUserID(r.Context())))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-1"})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "user-canonical" {
+		t.Fatalf("effective user = %q, want %q", got, "user-canonical")
+	}
+	if sess := rt.sessions.Get(context.Background(), "sess-1"); sess == nil || strings.TrimSpace(sess.UserID) != "user-canonical" {
+		t.Fatalf("session canonical user not updated, got %#v", sess)
 	}
 }
 

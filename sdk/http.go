@@ -571,6 +571,9 @@ func (c *HTTPClient) ListPendingToolApprovals(ctx context.Context, input *ListPe
 		if input.Offset > 0 {
 			q.Set("offset", fmt.Sprintf("%d", input.Offset))
 		}
+		if strings.TrimSpace(input.OutcomeSince) != "" {
+			q.Set("outcomeSince", strings.TrimSpace(input.OutcomeSince))
+		}
 	}
 	path := strings.TrimRight(c.toolApprovalsPath, "/") + "/pending"
 	if len(q) > 0 {
@@ -650,6 +653,17 @@ func (c *HTTPClient) ExecuteTool(ctx context.Context, name string, args map[stri
 		return "", err
 	}
 	return out.Result, nil
+}
+
+func (c *HTTPClient) ExecuteMCPUIToolCall(ctx context.Context, input *MCPUIToolCallInput) (*MCPUIToolCallOutput, error) {
+	if input == nil || strings.TrimSpace(input.ToolName) == "" {
+		return nil, errors.New("toolName is required")
+	}
+	var out MCPUIToolCallOutput
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/mcp-ui/tools/call", input, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *HTTPClient) ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error) {

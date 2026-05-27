@@ -169,6 +169,18 @@ func visibleContentOrEmpty(value *string) string {
 	return raw
 }
 
+func deriveUIResourceURI(payloads ...interface{}) string {
+	for _, payload := range payloads {
+		if value := rawJSONFieldString(marshalToRawJSON(payload), "resourceUri"); strings.HasPrefix(strings.TrimSpace(value), "ui://") {
+			return strings.TrimSpace(value)
+		}
+		if value := rawJSONFieldString(marshalToRawJSON(payload), "uri"); strings.HasPrefix(strings.TrimSpace(value), "ui://") {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func findTurnMessage(turn *TurnState, messageID string) *TurnMessageState {
 	if turn == nil {
 		return nil
@@ -690,6 +702,7 @@ func applyPlannedToolStep(step *ToolStepState, toolCallID, toolName string) {
 		step.ToolName = name
 	}
 	step.Status = stepStatusFromString("planned", step.Status)
+	step.UIResourceURI = deriveUIResourceURI(step.ResponsePayload)
 	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, "", "", step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 
@@ -714,6 +727,7 @@ func applyToolStart(step *ToolStepState, event *streaming.Event) {
 		step.RequestPayloadID = strings.TrimSpace(event.RequestPayloadID)
 	}
 	applyAsyncOperation(step, event)
+	step.UIResourceURI = deriveUIResourceURI(step.ResponsePayload)
 	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, event.Phase, event.Mode, step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 
@@ -758,8 +772,12 @@ func applyToolCompletion(step *ToolStepState, event *streaming.Event) {
 	if event.LinkedConversationID != "" {
 		step.LinkedConversationID = strings.TrimSpace(event.LinkedConversationID)
 	}
+	if event.ResponsePayload != nil {
+		step.ResponsePayload = marshalToRawJSON(event.ResponsePayload)
+	}
 	step.CompletedAt = completedAtForEvent(event)
 	applyAsyncOperation(step, event)
+	step.UIResourceURI = deriveUIResourceURI(step.ResponsePayload, step.AsyncOperation)
 	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, event.Phase, event.Mode, step.ToolName, step.RequestPayload, step.ResponsePayload)
 }
 

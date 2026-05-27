@@ -16,10 +16,12 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 	mcpserver "github.com/viant/mcp/server"
 
+	"github.com/viant/agently-core/protocol/mcp/uifallback"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	mcpadapter "github.com/viant/agently-core/protocol/tool/adapter/mcp"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	mcpuimeta "github.com/viant/mcp-ui/meta"
 )
 
 // serviceHandler adapts a genai Service to an MCP server handler implementing tools/list and tools/call.
@@ -29,6 +31,12 @@ type serviceHandler struct {
 	tools       []mcpschema.Tool
 	profileRepo profileRepo
 	mcpMgr      promptdef.MCPManager
+	clientCaps  *mcpschema.ClientCapabilities
+}
+
+type resourceProvider interface {
+	MCPListResources(ctx context.Context) ([]mcpschema.Resource, error)
+	MCPReadResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error)
 }
 
 // profileRepo is the local alias of the expose.ProfileRepo interface, defined
@@ -84,19 +92,48 @@ func (h *serviceHandler) init() {
 
 // ---------------- mcp-protocol/server.Operations ----------------
 
-func (h *serviceHandler) Initialize(_ context.Context, _ *mcpschema.InitializeRequestParams, _ *mcpschema.InitializeResult) {
+func (h *serviceHandler) Initialize(_ context.Context, params *mcpschema.InitializeRequestParams, _ *mcpschema.InitializeResult) {
+	if params == nil {
+		h.clientCaps = nil
+		return
+	}
+	caps := params.Capabilities
+	h.clientCaps = &caps
 }
 
-func (h *serviceHandler) ListResources(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListResourcesRequest]) (*mcpschema.ListResourcesResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("resources/list not implemented", nil)
+func (h *serviceHandler) ListResources(ctx context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListResourcesRequest]) (*mcpschema.ListResourcesResult, *jsonrpc.Error) {
+	provider, ok := h.service.(resourceProvider)
+	if !ok {
+		return nil, jsonrpc.NewMethodNotFound("resources/list not implemented", nil)
+	}
+	resources, err := provider.MCPListResources(ctx)
+	if err != nil {
+		return nil, jsonrpc.NewInternalError("resources/list: "+err.Error(), nil)
+	}
+	return &mcpschema.ListResourcesResult{Resources: resources}, nil
 }
 
 func (h *serviceHandler) ListResourceTemplates(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListResourceTemplatesRequest]) (*mcpschema.ListResourceTemplatesResult, *jsonrpc.Error) {
 	return nil, jsonrpc.NewMethodNotFound("resources/templates/list not implemented", nil)
 }
 
-func (h *serviceHandler) ReadResource(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ReadResourceRequest]) (*mcpschema.ReadResourceResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("resources/read not implemented", nil)
+func (h *serviceHandler) ReadResource(ctx context.Context, req *jsonrpc.TypedRequest[*mcpschema.ReadResourceRequest]) (*mcpschema.ReadResourceResult, *jsonrpc.Error) {
+	provider, ok := h.service.(resourceProvider)
+	if !ok {
+		return nil, jsonrpc.NewMethodNotFound("resources/read not implemented", nil)
+	}
+	if req == nil || req.Request == nil {
+		return nil, jsonrpc.NewInvalidRequest("missing request", nil)
+	}
+	uri := strings.TrimSpace(req.Request.Params.Uri)
+	if uri == "" {
+		return nil, jsonrpc.NewInvalidParamsError("uri is required", nil)
+	}
+	result, err := provider.MCPReadResource(ctx, uri)
+	if err != nil {
+		return nil, jsonrpc.NewInvalidParamsError("resources/read: "+err.Error(), nil)
+	}
+	return result, nil
 }
 
 func (h *serviceHandler) Subscribe(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.SubscribeRequest]) (*mcpschema.SubscribeResult, *jsonrpc.Error) {
@@ -201,12 +238,26 @@ func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest
 	}
 	// Per MCP guidance: when returning structured content, also include a text block
 	// with the serialized JSON for compatibility with clients that only read content.
-	return &mcpschema.CallToolResult{
+	result := &mcpschema.CallToolResult{
 		StructuredContent: structured,
 		Content: []mcpschema.CallToolResultContentElem{
 			mcpschema.TextContent{Type: "text", Text: textJSON},
 		},
-	}, nil
+	}
+	if provider, ok := h.service.(resourceProvider); ok {
+		var toolUI mcpuimeta.ToolUI
+		if uiProvider, ok := h.service.(mcpadapter.ToolUIMetadataProvider); ok {
+			toolUI, _ = uiProvider.MCPUIToolUI(sig.Name)
+		}
+		embedded, useEmbedded, err := uifallback.EmbeddedCallToolContent(ctx, h.clientCaps, toolUI, structured, provider.MCPReadResource)
+		if err != nil {
+			return nil, jsonrpc.NewInternalError("embedded fallback: "+err.Error(), nil)
+		}
+		if useEmbedded {
+			result.Content = append(result.Content, *embedded)
+		}
+	}
+	return result, nil
 }
 
 func (h *serviceHandler) ListPrompts(ctx context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListPromptsRequest]) (*mcpschema.ListPromptsResult, *jsonrpc.Error) {

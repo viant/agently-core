@@ -58,12 +58,14 @@ type QueueRowsView struct {
 	ConversationId   *string    `sqlx:"conversation_id"`
 	CreatedAt        time.Time  `sqlx:"created_at"`
 	Decision         *string    `sqlx:"decision"`
+	ExpiresAt        *time.Time `sqlx:"expires_at"`
 	ErrorMessage     *string    `sqlx:"error_message"`
 	ExecutedAt       *time.Time `sqlx:"executed_at"`
 	Id               string     `sqlx:"id"`
 	MessageId        *string    `sqlx:"message_id"`
 	Metadata         *string    `sqlx:"metadata"`
 	Status           string     `sqlx:"status"`
+	TimedOutAt       *time.Time `sqlx:"timed_out_at"`
 	Title            *string    `sqlx:"title"`
 	ToolName         string     `sqlx:"tool_name"`
 	TurnId           *string    `sqlx:"turn_id"`

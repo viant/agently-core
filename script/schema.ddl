@@ -257,6 +257,8 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     status_detail TEXT,
     started_at DATETIME,
     completed_at DATETIME,
+    expires_at DATETIME,
+    timed_out_at DATETIME,
     FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
     FOREIGN KEY (turn_id) REFERENCES turn(id) ON DELETE SET NULL,
     FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE SET NULL
@@ -265,6 +267,7 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
 CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_taq_status_expires_at ON tool_approval_queue(status, expires_at);
 
 CREATE TABLE IF NOT EXISTS schedule (
     id TEXT PRIMARY KEY,
