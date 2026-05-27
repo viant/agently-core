@@ -1901,7 +1901,7 @@ BEGIN
             KEY idx_snapshot_user (captured_by_user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-        CREATE TABLE CI_AUDIENCE_STEWARD_RECOMMENDATION (
+    CREATE TABLE CI_AUDIENCE_STEWARD_RECOMMENDATION (
             recommendation_id        BIGINT AUTO_INCREMENT PRIMARY KEY,
             audience_id              INT NOT NULL,
             ad_order_id              INT NULL,
@@ -1931,17 +1931,11 @@ BEGIN
             rollback_by_user_id      INT NULL,
             error_message            VARCHAR(512) NULL,
             metadata                 JSON NULL,
-            UNIQUE KEY uq_reco_pending (audience_id, mode, selector_direction, target_field, apply_status),
+            UNIQUE KEY uq_reco_change (change_hash),
             KEY idx_reco_audience (audience_id, recommended_at),
             KEY idx_reco_status (apply_status, mode),
-            KEY idx_reco_request (request_id),
-            KEY idx_reco_change (change_hash),
-            KEY idx_reco_snapshot (snapshot_id),
-            CONSTRAINT fk_reco_snapshot
-                FOREIGN KEY (snapshot_id)
-                REFERENCES CI_AUDIENCE_STEWARD_SNAPSHOT (snapshot_id)
-                ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+            KEY idx_reco_request (request_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
         CALL set_schema_version(23);
     END IF;
