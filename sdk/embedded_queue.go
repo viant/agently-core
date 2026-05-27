@@ -426,8 +426,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 			selector := &hstate.NamedQuerySelector{
 				Name: "queue_rows",
 				QuerySelector: hstate.QuerySelector{
-					OrderBy: "created_at DESC,id DESC",
-					Offset:  input.Offset,
+					Offset: input.Offset,
 				},
 			}
 			if input.Limit > 0 {
