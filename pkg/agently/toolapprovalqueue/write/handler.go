@@ -114,6 +114,14 @@ func (h *Handler) updateByID(ctx context.Context, sess handler.Session, rec *Too
 		sets = append(sets, "decision = ?")
 		args = append(args, rec.Decision)
 	}
+	if rec.Has.ExpiresAt {
+		sets = append(sets, "expires_at = ?")
+		args = append(args, rec.ExpiresAt)
+	}
+	if rec.Has.TimedOutAt {
+		sets = append(sets, "timed_out_at = ?")
+		args = append(args, rec.TimedOutAt)
+	}
 	if rec.Has.ApprovedByUserId {
 		sets = append(sets, "approved_by_user_id = ?")
 		args = append(args, rec.ApprovedByUserId)

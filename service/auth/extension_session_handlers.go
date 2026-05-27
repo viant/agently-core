@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,16 +19,11 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 		if sess == nil {
 			if user := RuntimeUserFromContext(r.Context()); user != nil {
 				displayName := strings.TrimSpace(user.Subject)
-				if a.users != nil {
-					provider := a.oauthProviderName()
-					lookupCtx, cancel := durableAuthLookupContext(r.Context())
-					defer cancel()
-					if resolved, err := a.users.GetBySubjectAndProvider(lookupCtx, strings.TrimSpace(user.Subject), provider); err == nil && resolved != nil {
-						if v := strings.TrimSpace(resolved.DisplayName); v != "" {
-							displayName = v
-						} else if v := strings.TrimSpace(resolved.Username); v != "" {
-							displayName = v
-						}
+				if resolved := a.lookupDisplayUserBySubject(r.Context(), strings.TrimSpace(user.Subject), a.oauthProviderName()); resolved != nil {
+					if v := strings.TrimSpace(resolved.DisplayName); v != "" {
+						displayName = v
+					} else if v := strings.TrimSpace(resolved.Username); v != "" {
+						displayName = v
 					}
 				}
 				runtimeJSON(w, http.StatusOK, map[string]any{
@@ -53,16 +49,11 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 			return
 		}
 		displayName := strings.TrimSpace(sess.Username)
-		if a.users != nil {
-			provider := strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))
-			lookupCtx, cancel := durableAuthLookupContext(r.Context())
-			defer cancel()
-			if resolved, err := a.users.GetBySubjectAndProvider(lookupCtx, strings.TrimSpace(sess.Subject), provider); err == nil && resolved != nil {
-				if v := strings.TrimSpace(resolved.DisplayName); v != "" {
-					displayName = v
-				} else if v := strings.TrimSpace(resolved.Username); v != "" {
-					displayName = v
-				}
+		if resolved := a.lookupDisplayUserBySubject(r.Context(), strings.TrimSpace(sess.Subject), strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))); resolved != nil {
+			if v := strings.TrimSpace(resolved.DisplayName); v != "" {
+				displayName = v
+			} else if v := strings.TrimSpace(resolved.Username); v != "" {
+				displayName = v
 			}
 		}
 		runtimeJSON(w, http.StatusOK, map[string]any{
@@ -72,6 +63,32 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 			"displayName": displayName,
 			"provider":    "session",
 		})
+	}
+}
+
+func (a *authExtension) lookupDisplayUserBySubject(ctx context.Context, subject, provider string) *User {
+	if a == nil || a.users == nil || strings.TrimSpace(subject) == "" || strings.TrimSpace(provider) == "" {
+		return nil
+	}
+	lookupCtx, cancel := durableAuthLookupContext(ctx)
+	defer cancel()
+	type result struct {
+		user *User
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		user, err := a.users.GetBySubjectAndProvider(lookupCtx, strings.TrimSpace(subject), strings.TrimSpace(provider))
+		done <- result{user: user, err: err}
+	}()
+	select {
+	case out := <-done:
+		if out.err != nil {
+			return nil
+		}
+		return out.user
+	case <-lookupCtx.Done():
+		return nil
 	}
 }
 

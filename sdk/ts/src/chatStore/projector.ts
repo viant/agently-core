@@ -37,10 +37,11 @@ import type {
 
 import { compareTemporalEntries } from '../ordering';
 import { getFieldProvenance } from './reducer';
+import type { JSONObject } from '../types';
 
 // ─── Public render-row types ──────────────────────────────────────────────────
 
-export type RenderRowKind = 'user' | 'assistant' | 'iteration';
+export type RenderRowKind = 'user' | 'assistant' | 'iteration' | 'mcpui';
 
 export interface UserRenderRow {
     kind: 'user';
@@ -65,6 +66,18 @@ export interface AssistantRenderRow {
     status?: string;
 }
 
+export interface MCPUIRenderRow {
+    kind: 'mcpui';
+    renderKey: string;
+    turnId: string;
+    toolCallId?: string;
+    toolName?: string;
+    uri: string;
+    toolInput?: JSONObject | null;
+    createdAt?: string;
+    sequence?: number;
+}
+
 export interface ModelStepRenderView {
     renderKey: string;
     modelCallId?: string;
@@ -87,6 +100,7 @@ export interface ToolCallRenderView {
     renderKey: string;
     toolCallId?: string;
     toolName?: string;
+    uiResourceUri?: string;
     operationId?: string;
     status?: string;
     errorMessage?: string;
@@ -158,7 +172,7 @@ export interface IterationRenderRow {
     sequence?: number;
 }
 
-export type RenderRow = UserRenderRow | AssistantRenderRow | IterationRenderRow;
+export type RenderRow = UserRenderRow | AssistantRenderRow | IterationRenderRow | MCPUIRenderRow;
 
 // ─── Header derivation ────────────────────────────────────────────────────────
 
@@ -264,15 +278,39 @@ export function projectTurn(turn: ClientTurnState): RenderRow[] {
     const firstUser = users.length > 0 ? users[0] : null;
     const restUsers = users.length > 1 ? users.slice(1) : [];
     const standaloneMessages = projectStandaloneMessages(turn);
+    const mcpuiRows = projectMCPUITurnRows(turn);
 
     if (firstUser) rows.push({ ...userToRow(firstUser, turn), _source: 'primary_user' });
     const trailing = [
         { ...iterationRow(turn), _source: 'iteration' },
+        ...mcpuiRows.map((row) => ({ ...row, _source: 'mcpui' })),
         ...restUsers.map((u) => ({ ...userToRow(u, turn), _source: 'steer_user' })),
         ...standaloneMessages.map((message) => ({ ...messageToRow(message, turn), _source: 'turn_message' })),
     ];
     trailing.sort(compareProjectedRows);
     return [...rows, ...trailing];
+}
+
+function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
+    const rows: MCPUIRenderRow[] = [];
+    for (const page of Array.isArray(turn.pages) ? turn.pages : []) {
+        for (const tool of Array.isArray(page.toolCalls) ? page.toolCalls : []) {
+            const uri = String(tool?.uiResourceUri || '').trim();
+            if (!uri) continue;
+            rows.push({
+                kind: 'mcpui',
+                renderKey: `${tool.renderKey}:mcpui`,
+                turnId: turn.turnId,
+                toolCallId: tool.toolCallId,
+                toolName: tool.toolName,
+                uri,
+                toolInput: tool.requestPayload ?? null,
+                createdAt: String(tool.completedAt || tool.startedAt || page.completedAt || page.startedAt || page.createdAt || '').trim() || undefined,
+                sequence: typeof page.sequence === 'number' ? page.sequence : undefined,
+            });
+        }
+    }
+    return rows;
 }
 
 function pageOwnedAssistantMessageIds(turn: ClientTurnState): Set<string> {
@@ -391,6 +429,9 @@ function compareProjectedRows(left: RenderRow & { sequence?: number; role?: stri
         if ((leftSource === 'iteration' && rightSource === 'steer_user') || (leftSource === 'steer_user' && rightSource === 'iteration')) {
             return leftSource === 'iteration' ? -1 : 1;
         }
+        if ((leftSource === 'iteration' && rightSource === 'mcpui') || (leftSource === 'mcpui' && rightSource === 'iteration')) {
+            return leftSource === 'iteration' ? -1 : 1;
+        }
         const leftSeq = Number(left.sequence);
         const rightSeq = Number(right.sequence);
         const leftHasSeq = Number.isFinite(leftSeq) && leftSeq > 0;
@@ -403,17 +444,17 @@ function compareProjectedRows(left: RenderRow & { sequence?: number; role?: stri
     return compareTemporalEntries(
         {
             id: left.renderKey,
-            messageId: left.kind === 'iteration' ? undefined : left.messageId,
+            messageId: left.kind === 'iteration' || left.kind === 'mcpui' ? undefined : left.messageId,
             turnId: leftTurnId,
-            role: left.kind === 'iteration' ? 'assistant' : left.kind,
+            role: left.kind === 'iteration' || left.kind === 'mcpui' ? 'assistant' : left.kind,
             createdAt: left.createdAt,
             sequence: left.sequence,
         },
         {
             id: right.renderKey,
-            messageId: right.kind === 'iteration' ? undefined : right.messageId,
+            messageId: right.kind === 'iteration' || right.kind === 'mcpui' ? undefined : right.messageId,
             turnId: rightTurnId,
-            role: right.kind === 'iteration' ? 'assistant' : right.kind,
+            role: right.kind === 'iteration' || right.kind === 'mcpui' ? 'assistant' : right.kind,
             createdAt: right.createdAt,
             sequence: right.sequence,
         }
@@ -467,6 +508,7 @@ function projectToolCall(tool: ClientToolCall): ToolCallRenderView {
         renderKey: tool.renderKey,
         toolCallId: tool.toolCallId,
         toolName: tool.toolName,
+        uiResourceUri: tool.uiResourceUri,
         operationId: tool.operationId,
         status: tool.status,
         errorMessage: tool.errorMessage,

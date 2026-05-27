@@ -94,16 +94,17 @@ type ApprovalReviewConfig struct {
 // ApprovalConfig configures approval behavior for a bundle rule.
 // It replaces the legacy split between llm.ApprovalQueue and protocol/tool.ApprovalQueueConfig.
 type ApprovalConfig struct {
-	Mode               ApprovalMode                       `json:"mode,omitempty" yaml:"mode,omitempty"`
-	TitleSelector      string                             `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
-	DataSourceSelector string                             `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
-	UIURI              string                             `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
-	AllowUserAuto      bool                               `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
-	Prompt             *ApprovalPrompt                    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	UI                 *ApprovalUIBinding                 `json:"ui,omitempty" yaml:"ui,omitempty"`
-	Review             *ApprovalReviewConfig              `json:"review,omitempty" yaml:"review,omitempty"`
+	Mode               ApprovalMode          `json:"mode,omitempty" yaml:"mode,omitempty"`
+	TitleSelector      string                `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
+	DataSourceSelector string                `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
+	UIURI              string                `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
+	AllowUserAuto      bool                  `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
+	Prompt             *ApprovalPrompt       `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	UI                 *ApprovalUIBinding    `json:"ui,omitempty" yaml:"ui,omitempty"`
+	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
+	QueueBehavior      ApprovalQueueBehavior `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
+	TimeoutSec         int                   `json:"timeoutSec,omitempty" yaml:"timeoutSec,omitempty"`
 	Decisions          map[string]*ApprovalDecisionAction `json:"decisions,omitempty" yaml:"decisions,omitempty"`
-	QueueBehavior      ApprovalQueueBehavior              `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
@@ -139,6 +140,13 @@ func (a *ApprovalConfig) EffectiveQueueBehavior() ApprovalQueueBehavior {
 		return ApprovalQueueBehaviorDetach
 	}
 	return a.QueueBehavior
+}
+
+func (a *ApprovalConfig) EffectiveTimeoutSec() int {
+	if a == nil || a.TimeoutSec <= 0 {
+		return 0
+	}
+	return a.TimeoutSec
 }
 
 // EffectiveTitleSelector returns the title selector from UI binding or the top-level field.

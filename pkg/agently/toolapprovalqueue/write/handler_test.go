@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
@@ -114,6 +115,97 @@ func TestToolApprovalQueueWrite_SQLite(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestToolApprovalQueueWrite_PersistsExpiresAtAndTimedOutAt asserts that
+// the canonical persistent contract — expires_at and timed_out_at —
+// round-trips through the Datly write path. These columns are how the
+// backend timeout producer records the truth of "when this approval
+// was scheduled to expire" and "when the producer transitioned it",
+// so the read path must observe what the write path persisted.
+func TestToolApprovalQueueWrite_PersistsExpiresAtAndTimedOutAt(t *testing.T) {
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-toolapproval-timeout")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	seedQueueUser(t, db, "u1")
+
+	ctx := context.Background()
+	svc, err := newWriteDatlyService(ctx, dbPath)
+	require.NoError(t, err)
+	_, err = DefineComponent(ctx, svc)
+	require.NoError(t, err)
+
+	expires := mustParseUTC(t, "2026-05-26T12:00:00Z")
+	row := &ToolApprovalQueue{Has: &ToolApprovalQueueHas{}}
+	row.SetId("q-timeout-1")
+	row.SetUserId("u1")
+	row.SetToolName("system/exec")
+	row.SetArguments([]byte(`{"cmd":"echo ok"}`))
+	row.SetStatus("pending")
+	row.SetExpiresAt(expires)
+
+	in := &Input{Queues: []*ToolApprovalQueue{row}}
+	out := &Output{}
+	_, err = svc.Operate(ctx,
+		datly.WithPath(contract.NewPath("PATCH", PathURI)),
+		datly.WithInput(in),
+		datly.WithOutput(out),
+	)
+	require.NoError(t, err)
+	require.Empty(t, out.Violations)
+
+	var expiresAtCol sql.NullString
+	require.NoError(t, db.QueryRow(`SELECT expires_at FROM tool_approval_queue WHERE id = ?`, row.Id).Scan(&expiresAtCol))
+	require.True(t, expiresAtCol.Valid)
+
+	// Producer-style transition: status, decision, timed_out_at, error_message.
+	// The producer reuses identity fields (UserId, ToolName, Arguments) from
+	// the source row so the canonical write path remains a pure patch that
+	// passes existing required-field validation.
+	timedOut := mustParseUTC(t, "2026-05-26T12:00:30Z")
+	patch := &ToolApprovalQueue{Has: &ToolApprovalQueueHas{}}
+	patch.SetId(row.Id)
+	patch.SetUserId(row.UserId)
+	patch.SetToolName(row.ToolName)
+	patch.SetArguments(row.Arguments)
+	patch.SetStatus("timed_out")
+	patch.SetDecision("timeout")
+	patch.SetTimedOutAt(timedOut)
+	patch.SetErrorMessage("approval request timed out")
+	patch.SetUpdatedAt(timedOut)
+
+	patchOut := &Output{}
+	_, err = svc.Operate(ctx,
+		datly.WithPath(contract.NewPath("PATCH", PathURI)),
+		datly.WithInput(&Input{Queues: []*ToolApprovalQueue{patch}}),
+		datly.WithOutput(patchOut),
+	)
+	require.NoError(t, err)
+	require.Empty(t, patchOut.Violations)
+
+	var (
+		status       string
+		decision     sql.NullString
+		timedOutCol  sql.NullString
+		errorMessage sql.NullString
+	)
+	require.NoError(t, db.QueryRow(
+		`SELECT status, decision, timed_out_at, error_message FROM tool_approval_queue WHERE id = ?`,
+		row.Id,
+	).Scan(&status, &decision, &timedOutCol, &errorMessage))
+	require.Equal(t, "timed_out", status)
+	require.True(t, decision.Valid)
+	require.Equal(t, "timeout", decision.String)
+	require.True(t, timedOutCol.Valid)
+	require.True(t, errorMessage.Valid)
+	require.Equal(t, "approval request timed out", errorMessage.String)
+}
+
+func mustParseUTC(t *testing.T, value string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, value)
+	require.NoError(t, err)
+	return parsed.UTC()
 }
 
 func newWriteDatlyService(ctx context.Context, dbPath string) (*datly.Service, error) {

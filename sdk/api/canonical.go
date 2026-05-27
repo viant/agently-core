@@ -138,6 +138,7 @@ type ToolStepState struct {
 	ParentMessageID           string               `json:"parentMessageId,omitempty"`
 	ToolName                  string               `json:"toolName"`
 	Content                   string               `json:"content,omitempty"`
+	UIResourceURI             string               `json:"uiResourceUri,omitempty"`
 	ExecutionRole             string               `json:"executionRole,omitempty"`
 	OperationID               string               `json:"operationId,omitempty"`
 	Status                    string               `json:"status,omitempty"`

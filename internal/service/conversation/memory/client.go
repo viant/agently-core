@@ -1385,6 +1385,12 @@ func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprov
 	if in.Has.Decision {
 		cur.Decision = in.Decision
 	}
+	if in.Has.ExpiresAt {
+		cur.ExpiresAt = in.ExpiresAt
+	}
+	if in.Has.TimedOutAt {
+		cur.TimedOutAt = in.TimedOutAt
+	}
 	if in.Has.ApprovedByUserId {
 		cur.ApprovedByUserId = in.ApprovedByUserId
 	}
@@ -1406,7 +1412,10 @@ func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprov
 	return nil
 }
 
-func (c *Client) ListToolApprovalQueues(_ context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+func (c *Client) ListToolApprovalQueues(ctx context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+	if err := enforceMemoryToolApprovalQueueUserScope(ctx, in); err != nil {
+		return nil, err
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	var out []*queueread.QueueRowView
@@ -1449,6 +1458,8 @@ func (c *Client) ListToolApprovalQueues(_ context.Context, in *queueread.QueueRo
 			Metadata:         q.Metadata,
 			Status:           q.Status,
 			Decision:         q.Decision,
+			ExpiresAt:        q.ExpiresAt,
+			TimedOutAt:       q.TimedOutAt,
 			ApprovedByUserId: q.ApprovedByUserId,
 			ApprovedAt:       q.ApprovedAt,
 			ExecutedAt:       q.ExecutedAt,
@@ -1467,4 +1478,23 @@ func (c *Client) ListToolApprovalQueues(_ context.Context, in *queueread.QueueRo
 		return out[i].CreatedAt.Before(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+func enforceMemoryToolApprovalQueueUserScope(ctx context.Context, in *queueread.QueueRowsInput) error {
+	if in == nil {
+		return nil
+	}
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if userID == "" {
+		return nil
+	}
+	if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
+		return errors.New("permission denied")
+	}
+	in.UserId = userID
+	if in.Has == nil {
+		in.Has = &queueread.QueueRowsInputHas{}
+	}
+	in.Has.UserId = true
+	return nil
 }

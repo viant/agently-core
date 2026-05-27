@@ -81,6 +81,14 @@ type Client interface {
 	// ExecuteTool invokes a registered tool by name and returns its textual result.
 	ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error)
 
+	// ExecuteMCPUIToolCall runs a host-mediated MCP UI guest tool call through
+	// the canonical conversation-backed execution path. Bundle-derived
+	// approval metadata is honored, so a tool configured for queue approval is
+	// routed to the existing approval queue and the response status is
+	// "queued" rather than "ok". This is the only path MCP UI guests use for
+	// tools/call — direct /v1/tools/execute is intentionally bypassed.
+	ExecuteMCPUIToolCall(ctx context.Context, input *MCPUIToolCallInput) (*MCPUIToolCallOutput, error)
+
 	// ListTemplates returns output templates available to the current agent/workspace.
 	ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error)
 

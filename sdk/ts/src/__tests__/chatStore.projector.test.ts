@@ -11,6 +11,7 @@ import {
     projectConversation,
     toneForLifecycle,
     type IterationRenderRow,
+    type MCPUIRenderRow,
     type UserRenderRow,
 } from '../chatStore/projector';
 import type { ClientConversationState } from '../chatStore/types';
@@ -117,6 +118,46 @@ describe('chatStore/projector — projectConversation', () => {
         expect(it.rounds.length).toBe(1);
         expect(it.rounds[0].hasContent).toBe(true);
         expect(it.isStreaming).toBe(true);
+    });
+
+    it('projects tool UI resources as separate MCP UI rows after the iteration row', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_ui',
+            createdAt: '2025-01-01T00:00:00Z',
+        }));
+        state = applyEvent(state, sse({
+            type: 'tool_call_started',
+            turnId: 'tn_ui',
+            pageId: 'pg_ui',
+            toolCallId: 'call_ui',
+            toolName: 'mcpuiverify:show_widget',
+            arguments: { title: 'hello' },
+            createdAt: '2025-01-01T00:00:01Z',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'tool_call_completed',
+            turnId: 'tn_ui',
+            pageId: 'pg_ui',
+            toolCallId: 'call_ui',
+            toolName: 'mcpuiverify:show_widget',
+            responsePayload: {
+                _meta: {
+                    ui: {
+                        resourceUri: 'ui://mcpuiverify/demo/verify_widget',
+                    },
+                },
+            },
+            createdAt: '2025-01-01T00:00:02Z',
+        } as SSEEvent));
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['iteration', 'mcpui']);
+        const uiRow = rows[1] as MCPUIRenderRow;
+        expect(uiRow.renderKey.endsWith(':mcpui')).toBe(true);
+        expect(uiRow.toolCallId).toBe('call_ui');
+        expect(uiRow.toolName).toBe('mcpuiverify:show_widget');
+        expect(uiRow.uri).toBe('ui://mcpuiverify/demo/verify_widget');
+        expect(uiRow.toolInput).toEqual({ title: 'hello' });
     });
 
     it('transcript-owned running turn is not marked streaming for wall-clock UI updates', () => {

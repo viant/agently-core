@@ -21,3 +21,13 @@ func TestApprovalConfig_EffectiveQueueBehavior_RespectsWait(t *testing.T) {
 		t.Fatalf("expected explicit wait queue behavior to keep wait semantics")
 	}
 }
+
+func TestApprovalConfig_EffectiveTimeoutSec(t *testing.T) {
+	cfg := &ApprovalConfig{Mode: ApprovalModeQueue, TimeoutSec: 45}
+	if got := cfg.EffectiveTimeoutSec(); got != 45 {
+		t.Fatalf("expected timeout 45, got %d", got)
+	}
+	if got := (&ApprovalConfig{}).EffectiveTimeoutSec(); got != 0 {
+		t.Fatalf("expected zero timeout by default, got %d", got)
+	}
+}

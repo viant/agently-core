@@ -9,9 +9,11 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/tool/matcher"
 	"github.com/viant/agently-core/pkg/mcpname"
+	"github.com/viant/agently-core/protocol/mcp/uifallback"
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
+	mcpuimeta "github.com/viant/mcp-ui/meta"
 )
 
 // ToolHandler exposes executor tool registry via MCP tools/list and tools/call.
@@ -20,6 +22,11 @@ type ToolHandler struct {
 	patterns    []string
 	profileRepo ProfileRepo
 	mcpMgr      promptdef.MCPManager
+	clientCaps  *mcpschema.ClientCapabilities
+}
+
+type toolUIProvider interface {
+	MCPUIToolUI(method string) (mcpuimeta.ToolUI, bool)
 }
 
 func NewToolHandler(exec Executor, patterns []string, opts ...func(*ToolHandler)) *ToolHandler {
@@ -39,19 +46,48 @@ func WithMCPManager(mgr promptdef.MCPManager) func(*ToolHandler) {
 
 // ---------------- mcp-protocol/server.Operations ----------------
 
-func (h *ToolHandler) Initialize(_ context.Context, _ *mcpschema.InitializeRequestParams, _ *mcpschema.InitializeResult) {
+func (h *ToolHandler) Initialize(_ context.Context, params *mcpschema.InitializeRequestParams, _ *mcpschema.InitializeResult) {
+	if params == nil {
+		h.clientCaps = nil
+		return
+	}
+	caps := params.Capabilities
+	h.clientCaps = &caps
 }
 
-func (h *ToolHandler) ListResources(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListResourcesRequest]) (*mcpschema.ListResourcesResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("resources/list not implemented", nil)
+func (h *ToolHandler) ListResources(ctx context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListResourcesRequest]) (*mcpschema.ListResourcesResult, *jsonrpc.Error) {
+	provider, ok := h.exec.(ResourceProvider)
+	if !ok {
+		return nil, jsonrpc.NewMethodNotFound("resources/list not implemented", nil)
+	}
+	resources, err := provider.ListResources(ctx)
+	if err != nil {
+		return nil, jsonrpc.NewInternalError("resources/list: "+err.Error(), nil)
+	}
+	return &mcpschema.ListResourcesResult{Resources: resources}, nil
 }
 
 func (h *ToolHandler) ListResourceTemplates(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListResourceTemplatesRequest]) (*mcpschema.ListResourceTemplatesResult, *jsonrpc.Error) {
 	return nil, jsonrpc.NewMethodNotFound("resources/templates/list not implemented", nil)
 }
 
-func (h *ToolHandler) ReadResource(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ReadResourceRequest]) (*mcpschema.ReadResourceResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("resources/read not implemented", nil)
+func (h *ToolHandler) ReadResource(ctx context.Context, req *jsonrpc.TypedRequest[*mcpschema.ReadResourceRequest]) (*mcpschema.ReadResourceResult, *jsonrpc.Error) {
+	provider, ok := h.exec.(ResourceProvider)
+	if !ok {
+		return nil, jsonrpc.NewMethodNotFound("resources/read not implemented", nil)
+	}
+	if req == nil || req.Request == nil {
+		return nil, jsonrpc.NewInvalidRequest("missing request", nil)
+	}
+	uri := strings.TrimSpace(req.Request.Params.Uri)
+	if uri == "" {
+		return nil, jsonrpc.NewInvalidParamsError("uri is required", nil)
+	}
+	result, err := provider.ReadResource(ctx, uri)
+	if err != nil {
+		return nil, jsonrpc.NewInvalidParamsError("resources/read: "+err.Error(), nil)
+	}
+	return result, nil
 }
 
 func (h *ToolHandler) Subscribe(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.SubscribeRequest]) (*mcpschema.SubscribeResult, *jsonrpc.Error) {
@@ -123,6 +159,19 @@ func (h *ToolHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest[*m
 	}
 	if structured != nil {
 		res.StructuredContent = structured
+	}
+	if provider, ok := h.exec.(ResourceProvider); ok {
+		var toolUI mcpuimeta.ToolUI
+		if uiProvider, ok := h.exec.(toolUIProvider); ok {
+			toolUI, _ = uiProvider.MCPUIToolUI(name)
+		}
+		embedded, useEmbedded, err := uifallback.EmbeddedCallToolContent(ctx, h.clientCaps, toolUI, structured, provider.ReadResource)
+		if err != nil {
+			return nil, jsonrpc.NewInternalError("embedded fallback: "+err.Error(), nil)
+		}
+		if useEmbedded {
+			res.Content = append(res.Content, *embedded)
+		}
 	}
 	return res, nil
 }

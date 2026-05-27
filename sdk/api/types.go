@@ -273,6 +273,7 @@ type ListPendingToolApprovalsInput struct {
 	Status         string
 	Limit          int
 	Offset         int
+	OutcomeSince   string
 }
 
 type PendingToolApproval struct {
@@ -287,6 +288,8 @@ type PendingToolApproval struct {
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	Status         string                 `json:"status"`
 	Decision       string                 `json:"decision,omitempty"`
+	ExpiresAt      *time.Time             `json:"expiresAt,omitempty"`
+	TimedOutAt     *time.Time             `json:"timedOutAt,omitempty"`
 	CreatedAt      time.Time              `json:"createdAt"`
 	UpdatedAt      *time.Time             `json:"updatedAt,omitempty"`
 	ErrorMessage   string                 `json:"errorMessage,omitempty"`
@@ -347,11 +350,13 @@ type ApprovalCallbackResult struct {
 }
 
 type PendingToolApprovalPage struct {
-	Rows    []*PendingToolApproval `json:"rows"`
-	Total   int                    `json:"total"`
-	Limit   int                    `json:"limit"`
-	Offset  int                    `json:"offset,omitempty"`
-	HasMore bool                   `json:"hasMore,omitempty"`
+	Rows          []*PendingToolApproval       `json:"rows"`
+	Total         int                          `json:"total"`
+	Limit         int                          `json:"limit"`
+	Offset        int                          `json:"offset,omitempty"`
+	HasMore       bool                         `json:"hasMore,omitempty"`
+	Outcomes      []*DecideToolApprovalOutcome `json:"outcomes,omitempty"`
+	OutcomeCursor string                       `json:"outcomeCursor,omitempty"`
 }
 
 type DecideToolApprovalInput struct {
@@ -367,9 +372,51 @@ type DecideToolApprovalInput struct {
 }
 
 type DecideToolApprovalOutput struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
+	Status  string                     `json:"status"`
+	Message string                     `json:"message,omitempty"`
+	Outcome *DecideToolApprovalOutcome `json:"outcome,omitempty"`
 }
+
+// DecideToolApprovalOutcome describes the resolved approval outcome after the
+// canonical decide path has finished writing the queue row and (for the
+// approve action) running the real tool execution. It is the canonical
+// payload the host propagates to UI surfaces that were waiting on the
+// approval; UI code must not invent these fields locally.
+//
+// The timed_out outcome is produced by the canonical backend sweep that
+// transitions a pending row past its expires_at deadline. Its Action and
+// Decision are both "timeout", Status is "timed_out", and TimedOutAt
+// carries the instant at which the producer recorded the transition.
+type DecideToolApprovalOutcome struct {
+	ApprovalID     string     `json:"approvalId"`
+	Action         string     `json:"action"`
+	Status         string     `json:"status,omitempty"`
+	Decision       string     `json:"decision,omitempty"`
+	ConversationID string     `json:"conversationId,omitempty"`
+	TurnID         string     `json:"turnId,omitempty"`
+	MessageID      string     `json:"messageId,omitempty"`
+	ToolName       string     `json:"toolName,omitempty"`
+	Result         string     `json:"result,omitempty"`
+	ErrorMessage   string     `json:"errorMessage,omitempty"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
+	TimedOutAt     *time.Time `json:"timedOutAt,omitempty"`
+}
+
+// ApprovalTimeoutOutcomeStatus is the canonical Status value for a
+// timeout outcome produced by the backend sweep.
+const ApprovalTimeoutOutcomeStatus = "timed_out"
+
+// ApprovalTimeoutOutcomeAction is the canonical Action value for a
+// timeout outcome produced by the backend sweep.
+const ApprovalTimeoutOutcomeAction = "timeout"
+
+// ApprovalTimeoutOutcomeDecision is the canonical Decision value
+// persisted on a queue row that was transitioned by the sweep.
+const ApprovalTimeoutOutcomeDecision = "timeout"
+
+// ApprovalTimeoutErrorMessage is the canonical error_message stored on a
+// queue row that the backend producer transitioned to timed_out.
+const ApprovalTimeoutErrorMessage = "approval request timed out"
 
 type UploadFileInput struct {
 	ConversationID string
@@ -428,6 +475,23 @@ type ToolDefinitionInfo struct {
 	Required     []string               `json:"required,omitempty"`
 	OutputSchema map[string]interface{} `json:"output_schema,omitempty"`
 	Cacheable    bool                   `json:"cacheable,omitempty"`
+}
+
+type MCPUIToolCallInput struct {
+	ConversationID string                 `json:"conversationId,omitempty"`
+	ToolName       string                 `json:"toolName"`
+	Arguments      map[string]interface{} `json:"arguments,omitempty"`
+	AssistantText  string                 `json:"assistantText,omitempty"`
+	ToolBundles    []string               `json:"toolBundles,omitempty"`
+}
+
+type MCPUIToolCallOutput struct {
+	ConversationID string               `json:"conversationId,omitempty"`
+	TurnID         string               `json:"turnId,omitempty"`
+	Status         string               `json:"status"`
+	Result         string               `json:"result,omitempty"`
+	Source         string               `json:"source,omitempty"`
+	Approval       *PendingToolApproval `json:"approval,omitempty"`
 }
 
 type ResourceRef struct {
