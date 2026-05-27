@@ -172,11 +172,6 @@ func TestApplyReview_GroupRows(t *testing.T) {
 	assert.NotContains(t, args, "rows")
 	assert.NotContains(t, args, "intent")
 	assert.EqualValues(t, map[string]interface{}{
-		"recommendation_id": float64(7301206001),
-		"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
-		"metadata": map[string]interface{}{
-			"source": "site_list_planner_submit",
-		},
 		"audience_id":        7301206,
 		"mode":               "ADD",
 		"selector_direction": "INCLUDE",

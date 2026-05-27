@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS conversation;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+
 -- =========================
 -- conversation
 -- =========================
@@ -109,7 +110,7 @@ CREATE TABLE call_payload
     redacted                 BIGINT       NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
     created_at               TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     schema_ref               TEXT,
-    
+
     CHECK (
         (storage = 'inline' AND inline_body IS NOT NULL) OR
         (storage = 'object' AND inline_body IS NULL)
@@ -234,8 +235,8 @@ CREATE TABLE model_call
     model_kind                            VARCHAR(255) NOT NULL CHECK (model_kind IN
                                                                        ('chat', 'completion', 'vision', 'reranker',
                                                                         'embedding', 'other')),
-    
-    
+
+
     error_code                            TEXT,
     error_message                         TEXT,
     finish_reason                         TEXT,
@@ -253,10 +254,10 @@ CREATE TABLE model_call
     completed_at                          TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms                            BIGINT,
     cost                                  DOUBLE,
-    
+
     trace_id                              TEXT,
     span_id                               TEXT,
-    
+
     request_payload_id                    VARCHAR(255),
     response_payload_id                   VARCHAR(255),
     provider_request_payload_id           VARCHAR(255),
@@ -305,7 +306,7 @@ CREATE TABLE tool_call
     span_id             TEXT,
     request_payload_id  VARCHAR(255),
     response_payload_id VARCHAR(255),
-    
+
 
     CONSTRAINT fk_tool_call_message
         FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE,
@@ -525,3 +526,79 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
 CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);
+
+
+CREATE TABLE IF NOT EXISTS CI_AUDIENCE_STEWARD_SNAPSHOT (
+    snapshot_id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    audience_id              INT NOT NULL,
+    request_id               CHAR(36) NULL,
+    captured_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    captured_by_user_id      INT NOT NULL,
+    ad_order_id              INT NULL,
+    name                     VARCHAR(256) NOT NULL,
+    target                   TEXT CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci,
+    exclusion                TEXT CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci,
+    bid_price                DECIMAL(10,2) NULL,
+    status                   INT NOT NULL,
+    auto_weight              DECIMAL(3,2) NULL,
+    created                  DATETIME NULL,
+    updated                  DATETIME NULL,
+    weight                   INT UNSIGNED NOT NULL DEFAULT 1,
+    estimate                 BIGINT NULL,
+    last_estimated_date_time DATETIME NULL,
+    freq_capping             DECIMAL(5,0) NULL,
+    lifetime_freq_cap        DECIMAL(5,0) NOT NULL DEFAULT 0,
+    freq_cap_duration        SMALLINT NULL,
+    freq_cap_time_period     TINYINT NULL,
+    has_pg                   TINYINT(1) NOT NULL DEFAULT 0,
+    created_user             INT NULL,
+    updated_user             INT NULL,
+    external_audience_id     VARCHAR(128) NULL,
+    budget_target_hard       TINYINT NULL,
+    manual_alloc             TINYINT(1) NOT NULL DEFAULT 0,
+    KEY idx_snapshot_audience (audience_id, captured_at),
+    KEY idx_snapshot_request (request_id),
+    KEY idx_snapshot_user (captured_by_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS CI_AUDIENCE_STEWARD_RECOMMENDATION (
+    recommendation_id        BIGINT AUTO_INCREMENT PRIMARY KEY,
+    audience_id              INT NOT NULL,
+    ad_order_id              INT NULL,
+    request_id               CHAR(36) NULL,
+    mode                     VARCHAR(16) NOT NULL CHECK (mode IN ('ADD','REMOVE','REPLACE','SET')),
+    apply_status             VARCHAR(16) NOT NULL DEFAULT 'PENDING' CHECK (apply_status IN ('PENDING','APPROVED','APPLIED','FAILED','ROLLED_BACK','REJECT')),
+    selector_direction       VARCHAR(16) NOT NULL DEFAULT 'SCALAR' CHECK (selector_direction IN ('INCLUDE','EXCLUDE','SCALAR')),
+    target_field             VARCHAR(128) NOT NULL,
+    snapshot_id              BIGINT NOT NULL,
+    original_value           JSON NULL,
+    new_value                JSON NULL,
+    proposed_value           JSON NOT NULL,
+    rollback_payload         JSON NULL,
+    diff_json                JSON NULL,
+    change_hash              CHAR(64) NOT NULL,
+    change_reason            VARCHAR(512) NULL,
+    change_summary           TEXT NULL,
+    api_method               VARCHAR(8) NOT NULL DEFAULT 'PATCH' CHECK (api_method IN ('POST','PUT','PATCH','DELETE')),
+    api_endpoint             VARCHAR(255) NOT NULL DEFAULT '/v1/api/steward/recommendation',
+    recommended_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    recommended_by_user_id   INT NOT NULL,
+    approved_at              DATETIME NULL,
+    approved_by_user_id      INT NULL,
+    applied_at               DATETIME NULL,
+    applied_by_user_id       INT NULL,
+    rollback_at              DATETIME NULL,
+    rollback_by_user_id      INT NULL,
+    error_message            VARCHAR(512) NULL,
+    metadata                 JSON NULL,
+    UNIQUE KEY uq_reco_pending (audience_id, mode, selector_direction, target_field, apply_status),
+    KEY idx_reco_audience (audience_id, recommended_at),
+    KEY idx_reco_status (apply_status, mode),
+    KEY idx_reco_request (request_id),
+    KEY idx_reco_change (change_hash),
+    KEY idx_reco_snapshot (snapshot_id),
+    CONSTRAINT fk_reco_snapshot
+        FOREIGN KEY (snapshot_id)
+            REFERENCES CI_AUDIENCE_STEWARD_SNAPSHOT (snapshot_id)
+            ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

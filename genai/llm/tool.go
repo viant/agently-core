@@ -60,6 +60,13 @@ type ApprovalForgeView struct {
 	Callbacks    []*ApprovalCallback `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
 }
 
+// ApprovalDecisionAction configures what should happen for a specific queue
+// decision such as approve or reject.
+type ApprovalDecisionAction struct {
+	Execute bool                   `json:"execute,omitempty" yaml:"execute,omitempty"`
+	Patch   map[string]interface{} `json:"patch,omitempty" yaml:"patch,omitempty"`
+}
+
 // ApprovalUIBinding defines how approval data is extracted from the original tool request.
 type ApprovalUIBinding struct {
 	TitleSelector   string                   `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
@@ -87,15 +94,16 @@ type ApprovalReviewConfig struct {
 // ApprovalConfig configures approval behavior for a bundle rule.
 // It replaces the legacy split between llm.ApprovalQueue and protocol/tool.ApprovalQueueConfig.
 type ApprovalConfig struct {
-	Mode               ApprovalMode          `json:"mode,omitempty" yaml:"mode,omitempty"`
-	TitleSelector      string                `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
-	DataSourceSelector string                `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
-	UIURI              string                `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
-	AllowUserAuto      bool                  `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
-	Prompt             *ApprovalPrompt       `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	UI                 *ApprovalUIBinding    `json:"ui,omitempty" yaml:"ui,omitempty"`
-	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
-	QueueBehavior      ApprovalQueueBehavior `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
+	Mode               ApprovalMode                       `json:"mode,omitempty" yaml:"mode,omitempty"`
+	TitleSelector      string                             `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
+	DataSourceSelector string                             `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
+	UIURI              string                             `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
+	AllowUserAuto      bool                               `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
+	Prompt             *ApprovalPrompt                    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	UI                 *ApprovalUIBinding                 `json:"ui,omitempty" yaml:"ui,omitempty"`
+	Review             *ApprovalReviewConfig              `json:"review,omitempty" yaml:"review,omitempty"`
+	Decisions          map[string]*ApprovalDecisionAction `json:"decisions,omitempty" yaml:"decisions,omitempty"`
+	QueueBehavior      ApprovalQueueBehavior              `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }

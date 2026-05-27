@@ -506,6 +506,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 	if action == "" {
 		return nil, errors.New("action is required")
 	}
+	decision := canonicalApprovalDecision(action)
 	now := time.Now().UTC()
 	upd := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
 	upd.SetId(row.Id)
@@ -549,6 +550,9 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 			if err := toolapproval.ApplyReview(args, meta.Review, reviewPayload); err != nil {
 				return nil, err
 			}
+		}
+		if patch := approvalDecisionPatch(meta, decision); len(patch) > 0 {
+			applyDecisionPatch(args, patch)
 		}
 		execCtx := ctx
 		if strings.TrimSpace(input.UserID) != "" {
@@ -644,11 +648,97 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		}); err != nil {
 			return nil, err
 		}
-		_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
-		if isSystemOSEnvTool(row.ToolName) {
-			_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
+		meta := parseToolApprovalMetadata(row.Metadata)
+		if !shouldExecuteQueueDecision(meta, decision) {
+			_ = synthesizeQueueDecisionResult(ctx, c, row, "tool execution was not approved by user")
+			if isSystemOSEnvTool(row.ToolName) {
+				_ = persistSystemOSEnvDeniedAssistantResult(ctx, c, row)
+			} else {
+				_ = continueQueueConversation(ctx, c, row, buildQueueContinuationInstruction(row.ToolName, "tool execution was not approved by user", false))
+			}
+			break
+		}
+		var args map[string]interface{}
+		_ = json.Unmarshal(row.Arguments, &args)
+		if err := toolapproval.ApplyEdits(args, approvalEditorsFromMeta(meta), input.EditedFields); err != nil {
+			return nil, err
+		}
+		reviewPayload := input.Payload
+		if len(reviewPayload) == 0 && len(input.EditedFields) > 0 {
+			reviewPayload = input.EditedFields
+		}
+		if meta.Review != nil && len(reviewPayload) > 0 {
+			if err := toolapproval.ApplyReview(args, meta.Review, reviewPayload); err != nil {
+				return nil, err
+			}
+		}
+		if patch := approvalDecisionPatch(meta, decision); len(patch) > 0 {
+			applyDecisionPatch(args, patch)
+		}
+		execCtx := ctx
+		if strings.TrimSpace(input.UserID) != "" {
+			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
+		}
+		turn := runtimerequestctx.TurnMeta{}
+		if row.ConversationId != nil {
+			turn.ConversationID = strings.TrimSpace(*row.ConversationId)
+		}
+		if row.TurnId != nil {
+			turn.TurnID = strings.TrimSpace(*row.TurnId)
+		}
+		if row.MessageId != nil {
+			turn.ParentMessageID = strings.TrimSpace(*row.MessageId)
+		}
+		if turn.ConversationID != "" {
+			execCtx = runtimerequestctx.WithConversationID(execCtx, turn.ConversationID)
+		}
+		if turn.ConversationID != "" && turn.TurnID != "" {
+			execCtx = runtimerequestctx.WithTurnMeta(execCtx, turn)
+		}
+		toolResult, execErr := c.ExecuteTool(execCtx, row.ToolName, args)
+		if turn.ConversationID != "" && turn.TurnID != "" {
+			_ = toolexec.SynthesizeToolStep(execCtx, c.conv, toolexec.StepInfo{
+				ID:         syntheticToolStepID(meta.OpID),
+				Name:       row.ToolName,
+				Args:       args,
+				ResponseID: meta.ResponseID,
+			}, resolvedQueueToolResult(toolResult, execErr))
+		}
+		done := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+		done.SetId(row.Id)
+		done.SetUserId(row.UserId)
+		done.SetToolName(row.ToolName)
+		done.SetArguments(row.Arguments)
+		done.SetUpdatedAt(time.Now().UTC())
+		if execErr != nil {
+			done.SetStatus("failed")
+			done.SetErrorMessage(execErr.Error())
 		} else {
-			_ = continueQueueConversation(ctx, c, row, buildQueueContinuationInstruction(row.ToolName, "tool execution was not approved by user", false))
+			done.SetStatus("executed")
+			done.SetExecutedAt(time.Now().UTC())
+		}
+		if err := patcher.PatchToolApprovalQueue(ctx, done); err != nil && !isToolApprovalQueueDuplicateErr(err) {
+			return nil, err
+		}
+		finalStatus := "executed"
+		fallbackFields := map[string]interface{}{
+			"status":      "executed",
+			"executed_at": time.Now().UTC(),
+			"updated_at":  time.Now().UTC(),
+		}
+		if execErr != nil {
+			finalStatus = "failed"
+			fallbackFields["status"] = "failed"
+			fallbackFields["error_message"] = execErr.Error()
+			delete(fallbackFields, "executed_at")
+		}
+		if err := ensureToolApprovalStatus(ctx, lister, row.Id, finalStatus, func() error {
+			return fallbackToolApprovalUpdate(row.Id, fallbackFields)
+		}); err != nil {
+			return nil, err
+		}
+		if execErr == nil {
+			_ = continueQueueConversation(execCtx, c, row, buildQueueContinuationInstruction(row.ToolName, toolResult, true))
 		}
 	case "cancel", "canceled", "cancelled":
 		upd.SetStatus("canceled")
@@ -709,6 +799,61 @@ func approvalEditorsFromMeta(meta toolApprovalMetadata) []*toolapproval.EditorVi
 		return nil
 	}
 	return meta.Approval.Editors
+}
+
+func canonicalApprovalDecision(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "approve", "approved", "accepted":
+		return "approve"
+	case "reject", "rejected", "decline", "declined":
+		return "reject"
+	case "cancel", "canceled", "cancelled":
+		return "cancel"
+	default:
+		return strings.ToLower(strings.TrimSpace(action))
+	}
+}
+
+func shouldExecuteQueueDecision(meta toolApprovalMetadata, decision string) bool {
+	if decision == "approve" {
+		return true
+	}
+	if meta.Approval == nil || len(meta.Approval.Decisions) == 0 {
+		return false
+	}
+	cfg, ok := meta.Approval.Decisions[decision]
+	return ok && cfg != nil && cfg.Execute
+}
+
+func approvalDecisionPatch(meta toolApprovalMetadata, decision string) map[string]interface{} {
+	if meta.Approval == nil || len(meta.Approval.Decisions) == 0 {
+		return nil
+	}
+	cfg, ok := meta.Approval.Decisions[decision]
+	if !ok || cfg == nil {
+		return nil
+	}
+	return cfg.Patch
+}
+
+func applyDecisionPatch(dst map[string]interface{}, patch map[string]interface{}) {
+	for key, value := range patch {
+		existing, hasExisting := dst[key]
+		nextMap, nextIsMap := value.(map[string]interface{})
+		existingMap, existingIsMap := existing.(map[string]interface{})
+		if nextIsMap {
+			if !hasExisting || !existingIsMap {
+				cloned := map[string]interface{}{}
+				applyDecisionPatch(cloned, nextMap)
+				dst[key] = cloned
+				continue
+			}
+			applyDecisionPatch(existingMap, nextMap)
+			dst[key] = existingMap
+			continue
+		}
+		dst[key] = value
+	}
 }
 
 func syntheticToolStepID(opID string) string {
