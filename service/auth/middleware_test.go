@@ -71,7 +71,7 @@ func TestProtect_BFFOAuthAcceptsTokenBackedSessionCookie(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "user-123")
 }
 
-func TestProtect_BFFOAuthPrefersCanonicalSessionUserID(t *testing.T) {
+func TestProtect_BFFOAuthKeepsSubjectForRequestOwnership(t *testing.T) {
 	cfg := &Config{
 		Enabled:    true,
 		CookieName: "agently_session",
@@ -101,5 +101,6 @@ func TestProtect_BFFOAuthPrefersCanonicalSessionUserID(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), "user-canonical")
+	require.Contains(t, rec.Body.String(), "awitas_viant_devtest")
+	require.NotContains(t, rec.Body.String(), "user-canonical")
 }
