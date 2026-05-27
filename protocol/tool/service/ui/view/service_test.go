@@ -165,6 +165,24 @@ func TestComputeWindowID_NonHostedViewsRemainUnscoped(t *testing.T) {
 	}
 }
 
+func TestShouldRefreshOpenedWindow(t *testing.T) {
+	if shouldRefreshOpenedWindow(nil, "win-1") {
+		t.Fatalf("did not expect nil item to refresh")
+	}
+	if shouldRefreshOpenedWindow(&ListItem{Capabilities: viewproto.Capabilities{Datasource: true}}, "") {
+		t.Fatalf("did not expect empty window id to refresh")
+	}
+	if shouldRefreshOpenedWindow(&ListItem{Presentation: "hosted"}, "win-1") {
+		t.Fatalf("did not expect hosted view without datasource capability to refresh")
+	}
+	if shouldRefreshOpenedWindow(&ListItem{Presentation: "tab", Capabilities: viewproto.Capabilities{Datasource: true}}, "win-1") {
+		t.Fatalf("did not expect non-hosted datasource view to refresh")
+	}
+	if !shouldRefreshOpenedWindow(&ListItem{Presentation: "hosted", Capabilities: viewproto.Capabilities{Datasource: true}}, "win-1") {
+		t.Fatalf("expected hosted datasource view to refresh")
+	}
+}
+
 func assertNestedValue(t *testing.T, holder map[string]interface{}, expected interface{}, parts ...string) {
 	t.Helper()
 	current := interface{}(holder)

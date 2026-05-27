@@ -11,12 +11,13 @@ import (
 
 // View is the canonical view model built from a tool call request and its approval config.
 type View struct {
-	ToolName string                 `json:"toolName"`
-	Title    string                 `json:"title"`
-	Message  string                 `json:"message"`
-	Data     interface{}            `json:"data,omitempty"`
-	Editors  []*EditorView          `json:"editors,omitempty"`
-	Forge    *llm.ApprovalForgeView `json:"forge,omitempty"`
+	ToolName  string                                 `json:"toolName"`
+	Title     string                                 `json:"title"`
+	Message   string                                 `json:"message"`
+	Data      interface{}                            `json:"data,omitempty"`
+	Editors   []*EditorView                          `json:"editors,omitempty"`
+	Forge     *llm.ApprovalForgeView                 `json:"forge,omitempty"`
+	Decisions map[string]*llm.ApprovalDecisionAction `json:"decisions,omitempty"`
 }
 
 type EditorView struct {
@@ -89,6 +90,9 @@ func BuildView(toolName string, args map[string]interface{}, cfg *llm.ApprovalCo
 	}
 	if cfg.UI != nil && cfg.UI.Forge != nil {
 		v.Forge = cfg.UI.Forge
+	}
+	if len(cfg.Decisions) > 0 {
+		v.Decisions = cfg.Decisions
 	}
 	return applyToolSpecificView(v, toolName, args)
 }
