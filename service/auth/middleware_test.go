@@ -70,3 +70,36 @@ func TestProtect_BFFOAuthAcceptsTokenBackedSessionCookie(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "user-123")
 }
+
+func TestProtect_BFFOAuthPrefersCanonicalSessionUserID(t *testing.T) {
+	cfg := &Config{
+		Enabled:    true,
+		CookieName: "agently_session",
+		IpHashKey:  "dev-hmac-salt",
+		OAuth: &OAuth{
+			Mode: "bff",
+		},
+	}
+	sessions := NewManager(0, nil)
+	sessions.Put(nil, &Session{
+		ID:       "sess-1",
+		UserID:   "user-canonical",
+		Username: "awitas",
+		Subject:  "awitas_viant_devtest",
+		Tokens:   newTokenBundle("access-token", "id-token", ""),
+	})
+
+	handler := Protect(cfg, sessions)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"userId": EffectiveUserID(r.Context()),
+		})
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-1"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "user-canonical")
+}

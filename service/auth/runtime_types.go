@@ -27,10 +27,11 @@ type Runtime struct {
 }
 
 type runtimeAuthUser struct {
-	Subject  string
-	Email    string
-	Provider string
-	Tokens   *scyauth.Token
+	EffectiveUserID string
+	Subject         string
+	Email           string
+	Provider        string
+	Tokens          *scyauth.Token
 }
 
 type runtimeAuthContextKey struct{}
@@ -57,7 +58,7 @@ func withRuntimeAuthUser(ctx context.Context, user *runtimeAuthUser) context.Con
 		return ctx
 	}
 	ctx = context.WithValue(ctx, runtimeAuthContextKey{}, *user)
-	ctx = InjectUser(ctx, user.Subject)
+	ctx = InjectUser(ctx, user.effectiveUserID())
 	if strings.TrimSpace(user.Provider) != "" {
 		ctx = iauth.WithProvider(ctx, user.Provider)
 	}
@@ -65,6 +66,19 @@ func withRuntimeAuthUser(ctx context.Context, user *runtimeAuthUser) context.Con
 		ctx = InjectTokens(ctx, user.Tokens)
 	}
 	return ctx
+}
+
+func (u *runtimeAuthUser) effectiveUserID() string {
+	if u == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(u.EffectiveUserID); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(u.Subject); v != "" {
+		return v
+	}
+	return strings.TrimSpace(u.Email)
 }
 
 func RuntimeUserFromContext(ctx context.Context) *UserInfo {

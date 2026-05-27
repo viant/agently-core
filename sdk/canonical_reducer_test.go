@@ -498,6 +498,45 @@ func TestReduce_AsyncToolLifecycleTerminalStates(t *testing.T) {
 	}
 }
 
+func TestReduce_ToolCompletionDerivesUIResourceURI(t *testing.T) {
+	now := time.Now().UTC()
+	state := Reduce(nil, &streaming.Event{
+		Type:           streaming.EventTypeTurnStarted,
+		ConversationID: "conv-ui",
+		TurnID:         "turn-ui",
+		CreatedAt:      now,
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolCallStarted,
+		ConversationID: "conv-ui",
+		TurnID:         "turn-ui",
+		ToolCallID:     "call-ui",
+		ToolName:       "mcpuiverify:show_widget",
+		Status:         "running",
+		CreatedAt:      now.Add(time.Second),
+	})
+	state = Reduce(state, &streaming.Event{
+		Type:           streaming.EventTypeToolCallCompleted,
+		ConversationID: "conv-ui",
+		TurnID:         "turn-ui",
+		ToolCallID:     "call-ui",
+		ToolName:       "mcpuiverify:show_widget",
+		Status:         "completed",
+		ResponsePayload: map[string]interface{}{
+			"uri": "ui://mcpuiverify/demo/verify_widget",
+		},
+		CreatedAt: now.Add(2 * time.Second),
+	})
+
+	page := state.Turns[0].Execution.Pages[0]
+	if len(page.ToolSteps) != 1 {
+		t.Fatalf("expected one tool step, got %#v", page.ToolSteps)
+	}
+	if got := page.ToolSteps[0].UIResourceURI; got != "ui://mcpuiverify/demo/verify_widget" {
+		t.Fatalf("expected ui resource uri, got %q", got)
+	}
+}
+
 func TestReduce_ElicitationResolvedMapsCanceledStatus(t *testing.T) {
 	now := time.Date(2026, 4, 3, 16, 2, 0, 0, time.UTC)
 	state := Reduce(nil, &streaming.Event{

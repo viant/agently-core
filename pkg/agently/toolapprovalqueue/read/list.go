@@ -63,6 +63,8 @@ type QueueRowView struct {
 	Metadata         *[]byte    `sqlx:"metadata"`
 	Status           string     `sqlx:"status"`
 	Decision         *string    `sqlx:"decision"`
+	ExpiresAt        *time.Time `sqlx:"expires_at"`
+	TimedOutAt       *time.Time `sqlx:"timed_out_at"`
 	ApprovedByUserId *string    `sqlx:"approved_by_user_id"`
 	ApprovedAt       *time.Time `sqlx:"approved_at"`
 	ExecutedAt       *time.Time `sqlx:"executed_at"`

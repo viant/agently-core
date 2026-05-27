@@ -96,6 +96,7 @@ type ApprovalConfig struct {
 	UI                 *ApprovalUIBinding    `json:"ui,omitempty" yaml:"ui,omitempty"`
 	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
 	QueueBehavior      ApprovalQueueBehavior `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
+	TimeoutSec         int                   `json:"timeoutSec,omitempty" yaml:"timeoutSec,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
@@ -131,6 +132,13 @@ func (a *ApprovalConfig) EffectiveQueueBehavior() ApprovalQueueBehavior {
 		return ApprovalQueueBehaviorDetach
 	}
 	return a.QueueBehavior
+}
+
+func (a *ApprovalConfig) EffectiveTimeoutSec() int {
+	if a == nil || a.TimeoutSec <= 0 {
+		return 0
+	}
+	return a.TimeoutSec
 }
 
 // EffectiveTitleSelector returns the title selector from UI binding or the top-level field.

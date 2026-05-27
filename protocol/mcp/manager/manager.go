@@ -289,23 +289,38 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if rt == nil {
 		rt = m.authRT
 	}
+	useTransportAuth := false
+	if opts.ClientOptions.Auth != nil {
+		if opts.ClientOptions.Auth.BackendForFrontend == nil {
+			useTransportAuth = true
+		} else {
+			useTransportAuth = *opts.ClientOptions.Auth.BackendForFrontend
+		}
+		if !useTransportAuth && len(opts.ClientOptions.Auth.OAuth2ConfigURL) > 0 {
+			useTransportAuth = true
+		}
+	}
 	// Only inject the auth RT into the HTTP transport when the MCP config
 	// explicitly has auth settings. For auth:null configs, the token is
 	// passed via the JSON-RPC interceptor (per-request) because
 	// mcp.NewClient uses context.Background() for Initialize() which has
 	// no user token.
 	hasExplicitAuth := opts.ClientOptions.Auth != nil
-	if rt != nil && hasExplicitAuth {
+	if rt != nil && hasExplicitAuth && useTransportAuth {
 		opts.ClientOptions.SetAuthTransport(rt, &http.Client{Transport: rt, Jar: effectiveJar})
 	}
-	cli, err := mcp.NewClient(h, opts.ClientOptions)
+	var clientRT *authtransport.RoundTripper
+	if useTransportAuth {
+		clientRT = rt
+	}
+	cli, err := mcp.NewClientWithContext(ctx, h, opts.ClientOptions)
 	if err != nil {
 		return nil, err
 	}
 	// Attach the MCP-level auth interceptor for per-request token injection
 	// and protocol-level 401 retries.
-	if rt != nil {
-		authorizer := auth.NewAuthorizer(rt)
+	if clientRT != nil {
+		authorizer := auth.NewAuthorizer(clientRT)
 		mcpclient.WithAuthInterceptor(authorizer)(cli)
 	}
 	return cli, nil

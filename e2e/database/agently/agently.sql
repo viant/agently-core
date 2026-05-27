@@ -488,6 +488,8 @@ CREATE TABLE `tool_approval_queue` (
   `metadata` longblob DEFAULT NULL,
   `status` varchar(32) NOT NULL DEFAULT 'pending',
   `decision` text,
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `timed_out_at` timestamp NULL DEFAULT NULL,
   `approved_by_user_id` varchar(255) DEFAULT NULL,
   `approved_at` timestamp NULL DEFAULT NULL,
   `executed_at` timestamp NULL DEFAULT NULL,
@@ -498,11 +500,12 @@ CREATE TABLE `tool_approval_queue` (
   KEY `idx_taq_user_status_created` (`user_id`,`status`,`created_at`),
   KEY `idx_taq_conversation_status` (`conversation_id`,`status`,`created_at`),
   KEY `idx_taq_turn` (`turn_id`,`created_at`),
+  KEY `idx_taq_status_expires_at` (`status`,`expires_at`),
   KEY `fk_taq_message` (`message_id`),
   CONSTRAINT `fk_taq_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_taq_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_taq_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `tool_approval_queue_chk_1` CHECK ((`status` in (_utf8mb4'pending',_utf8mb4'approved',_utf8mb4'rejected',_utf8mb4'canceled',_utf8mb4'executed',_utf8mb4'failed')))
+  CONSTRAINT `tool_approval_queue_chk_1` CHECK ((`status` in (_utf8mb4'pending',_utf8mb4'approved',_utf8mb4'rejected',_utf8mb4'canceled',_utf8mb4'executed',_utf8mb4'failed',_utf8mb4'timed_out')))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

@@ -63,6 +63,10 @@ func LoadSQLiteSchema(t *testing.T, db *sql.DB) {
 			return
 		}
 		if _, err := db.Exec(stmt); err != nil {
+			if isDuplicateSQLiteColumnError(stmt, err) {
+				buf.Reset()
+				return
+			}
 			t.Fatalf("schema exec failed: %v\nSQL: %s", err, stmt)
 		}
 		buf.Reset()
@@ -83,6 +87,17 @@ func LoadSQLiteSchema(t *testing.T, db *sql.DB) {
 		t.Fatalf("schema scan failed: %v", err)
 	}
 	flush()
+}
+
+func isDuplicateSQLiteColumnError(stmt string, err error) bool {
+	if err == nil {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(stmt)), "ALTER TABLE ") {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "duplicate column name")
 }
 
 // CreateTempSQLiteDB creates a temporary SQLite database file and opens a connection.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/afs"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
@@ -29,8 +30,10 @@ import (
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/agently-core/pkg/mcpname"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
+	uiresource "github.com/viant/agently-core/protocol/ui/resource"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -41,6 +44,8 @@ import (
 	"github.com/viant/agently-core/service/scheduler"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
+	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
+	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 type toolApprovalQueueLister interface {
@@ -64,6 +69,7 @@ type backendClient struct {
 	conv           conversation.Client
 	data           data.Service
 	registry       tool.Registry
+	mcpMgr         *mcpmgr.Manager
 	toolPolicy     *tool.Policy
 	cancelRegistry cancels.Registry
 	elicRouter     elicrouter.ElicitationRouter
@@ -131,6 +137,7 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	}
 	c.data = rt.Data
 	c.registry = rt.Registry
+	c.mcpMgr = rt.MCPManager
 	c.cancelRegistry = rt.CancelRegistry
 	c.elicRouter = rt.ElicitationRouter
 	c.elicSvc = rt.Elicitation
@@ -878,6 +885,50 @@ func (c *backendClient) GetSkillDiagnostics(ctx context.Context) (*SkillDiagnost
 func (c *backendClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	return executeTool(c, ctx, name, args)
 }
+
+func (c *backendClient) ReadMCPUIResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
+	if strings.TrimSpace(uri) == "" {
+		return nil, errors.New("uri is required")
+	}
+	if result, err := uiresource.ReadWorkspaceResource(ctx, uri); err == nil && result != nil {
+		return result, nil
+	}
+	if c == nil || c.mcpMgr == nil {
+		return nil, fmt.Errorf("unknown ui resource uri: %s", uri)
+	}
+	var repo *mcprepo.Repository
+	if c.store != nil {
+		repo = mcprepo.NewWithStore(c.store)
+	} else {
+		repo = mcprepo.New(afs.New())
+	}
+	names, err := repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, raw := range names {
+		serverName := strings.TrimSpace(raw)
+		if serverName == "" {
+			continue
+		}
+		client, err := c.mcpMgr.Get(ctx, "", serverName)
+		if err != nil || client == nil {
+			continue
+		}
+		resources, err := client.ListResources(ctx, nil)
+		if err != nil || resources == nil {
+			continue
+		}
+		for _, resource := range resources.Resources {
+			if strings.TrimSpace(resource.Uri) != strings.TrimSpace(uri) {
+				continue
+			}
+			return client.ReadResource(ctx, &mcpschema.ReadResourceRequestParams{Uri: resource.Uri})
+		}
+	}
+	return nil, fmt.Errorf("unknown ui resource uri: %s", uri)
+}
+
 func (c *backendClient) ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error) {
 	return listTemplates(c, ctx, input)
 }

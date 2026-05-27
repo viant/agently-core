@@ -86,10 +86,11 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
 				return &runtimeAuthUser{
-					Subject:  strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
-					Email:    strings.TrimSpace(claims.Email),
-					Provider: "jwt",
-					Tokens:   tok,
+					EffectiveUserID: strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
+					Subject:         strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
+					Email:           strings.TrimSpace(claims.Email),
+					Provider:        "jwt",
+					Tokens:          tok,
 				}
 			}
 		}
@@ -97,6 +98,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 	if r.sessions != nil && strings.TrimSpace(r.cfg.CookieName) != "" {
 		if c, err := req.Cookie(r.cfg.CookieName); err == nil && strings.TrimSpace(c.Value) != "" {
 			if sess := r.sessions.Get(req.Context(), strings.TrimSpace(c.Value)); sess != nil {
+				r.ensureSessionCanonicalUserID(req.Context(), sess)
 				if r.requiresOAuthTokens() && !r.ensureSessionOAuthTokens(req.Context(), sess) {
 					log.Printf("[auth] session missing usable oauth tokens, invalidating session user=%q", sess.Subject)
 					r.clearRefreshRetryAt(sess)
@@ -156,11 +158,23 @@ func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAu
 		return nil
 	}
 	return &runtimeAuthUser{
-		Subject:  strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email)),
-		Email:    strings.TrimSpace(sess.Email),
-		Provider: strings.TrimSpace(sess.Provider),
-		Tokens:   tokens,
+		EffectiveUserID: strings.TrimSpace(sess.EffectiveUserID()),
+		Subject:         strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email)),
+		Email:           strings.TrimSpace(sess.Email),
+		Provider:        strings.TrimSpace(sess.Provider),
+		Tokens:          tokens,
 	}
+}
+
+func (r *Runtime) ensureSessionCanonicalUserID(ctx context.Context, sess *Session) {
+	if r == nil || r.ext == nil || sess == nil || strings.TrimSpace(sess.UserID) != "" {
+		return
+	}
+	r.ext.canonicalizeSessionUser(ctx, sess)
+	if strings.TrimSpace(sess.UserID) == "" || r.sessions == nil {
+		return
+	}
+	r.sessions.PutAsync(ctx, sess)
 }
 
 func writeRuntimeAuthDebugHeaders(w http.ResponseWriter, req *http.Request, r *Runtime) {

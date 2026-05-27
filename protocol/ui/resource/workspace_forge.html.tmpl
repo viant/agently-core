@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{{ .Title }}</title>
+</head>
+<body>
+  <main>
+    <h1 id="window-title">{{ .Title }}</h1>
+    <p id="window-summary">Workspace-backed forge window <code>{{ .WindowKey }}</code> rendered through the MCP UI host.</p>
+
+    {{- if .Datasources }}
+    <section id="datasources">
+      <h2>Datasources</h2>
+      <ul>
+        {{- range .Datasources }}
+        <li>
+          {{ .Name }}
+          {{- if .Cardinality }} <span class="cardinality">({{ .Cardinality }})</span>{{ end }}
+        </li>
+        {{- end }}
+      </ul>
+    </section>
+    {{- end }}
+
+    {{- if .Content }}
+    <section id="content">
+      <h2>Content</h2>
+      <ul>
+        {{ template "container" .Content }}
+      </ul>
+    </section>
+    {{- end }}
+  </main>
+</body>
+</html>
+
+{{ define "container" -}}
+<li class="container"><strong>{{ .Label }}</strong>{{ if .DataSourceRef }} <span class="dataSourceRef">[{{ .DataSourceRef }}]</span>{{ end }}
+  {{- if .Items }}
+  <ul>
+    {{- range .Items }}
+    <li class="item">{{ .Label }}{{ if .DataSourceRef }} <span class="dataSourceRef">[{{ .DataSourceRef }}]</span>{{ end }}</li>
+    {{- end }}
+  </ul>
+  {{- end }}
+  {{- if .Containers }}
+  <ul>
+    {{- range .Containers }}
+    {{ template "container" . }}
+    {{- end }}
+  </ul>
+  {{- end }}
+</li>
+{{- end }}

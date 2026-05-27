@@ -11,6 +11,7 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
@@ -1367,11 +1368,33 @@ func (s *Service) ListToolApprovalQueues(ctx context.Context, in *queueRead.Queu
 	if in == nil {
 		in = &queueRead.QueueRowsInput{}
 	}
+	if err := enforceToolApprovalQueueUserScope(ctx, in); err != nil {
+		return nil, err
+	}
 	out := &queueRead.QueueRowsOutput{}
 	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(queueRead.QueueRowsPathURI), datly.WithInput(in)); err != nil {
 		return nil, err
 	}
 	return out.Data, nil
+}
+
+func enforceToolApprovalQueueUserScope(ctx context.Context, in *queueRead.QueueRowsInput) error {
+	if in == nil {
+		return nil
+	}
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if userID == "" {
+		return nil
+	}
+	if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
+		return data.ErrPermissionDenied
+	}
+	in.UserId = userID
+	if in.Has == nil {
+		in.Has = &queueRead.QueueRowsInputHas{}
+	}
+	in.Has.UserId = true
+	return nil
 }
 
 // ToolCallTraceByOp returns the persisted trace_id (LLM response.id anchor) for a tool call op_id

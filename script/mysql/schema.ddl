@@ -519,9 +519,12 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     result_payload LONGBLOB,
     status_detail TEXT,
     started_at DATETIME,
-    completed_at DATETIME
+    completed_at DATETIME,
+    expires_at DATETIME,
+    timed_out_at DATETIME
 );
 
 CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_taq_status_expires_at ON tool_approval_queue(status, expires_at);

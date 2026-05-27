@@ -39,6 +39,7 @@ export type {
     PendingElicitation, ResolveElicitationInput,
     // Tool Approvals
     PendingToolApproval, PendingToolApprovalPage, DecideToolApprovalInput, DecideToolApprovalOutput,
+    DecideToolApprovalOutcome,
     ApprovalOption, ApprovalEditor, ApprovalMeta, ApprovalCallback,
     ApprovalForgeView, ApprovalCallbackPayload, ApprovalCallbackResult,
     // Files
