@@ -117,6 +117,135 @@ func TestToolApprovalQueueWrite_SQLite(t *testing.T) {
 	}
 }
 
+func TestToolApprovalQueueWrite_SQLite_UpdateSelectiveAndNullableFields(t *testing.T) {
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-toolapproval-write-update")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	seedQueueUser(t, db, "u1")
+
+	createdAt := mustParseUTC(t, "2026-05-26T12:00:00Z")
+	expiresAt := mustParseUTC(t, "2026-05-26T12:05:00Z")
+	approvedAt := mustParseUTC(t, "2026-05-26T12:01:00Z")
+	decision := "approve"
+	errMsg := "old warning"
+	title := "Original title"
+	approvedBy := "reviewer-1"
+
+	_, err := db.Exec(
+		`INSERT INTO tool_approval_queue (id, user_id, tool_name, title, arguments, status, decision, expires_at, approved_by_user_id, approved_at, error_message, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"q-update-1",
+		"u1",
+		"system/exec",
+		title,
+		[]byte(`{"cmd":"echo old"}`),
+		"pending",
+		decision,
+		expiresAt,
+		approvedBy,
+		approvedAt,
+		errMsg,
+		createdAt,
+		createdAt,
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	svc, err := newWriteDatlyService(ctx, dbPath)
+	require.NoError(t, err)
+	_, err = DefineComponent(ctx, svc)
+	require.NoError(t, err)
+
+	t.Run("updates only marked fields and preserves others", func(t *testing.T) {
+		updatedAt := mustParseUTC(t, "2026-05-26T12:02:00Z")
+		patch := &ToolApprovalQueue{Has: &ToolApprovalQueueHas{}}
+		patch.SetId("q-update-1")
+		patch.SetUserId("u1")
+		patch.SetToolName("system/exec")
+		patch.SetArguments([]byte(`{"cmd":"echo old"}`))
+		patch.SetStatus("approved")
+		patch.SetUpdatedAt(updatedAt)
+
+		out := &Output{}
+		_, err = svc.Operate(ctx,
+			datly.WithPath(contract.NewPath("PATCH", PathURI)),
+			datly.WithInput(&Input{Queues: []*ToolApprovalQueue{patch}}),
+			datly.WithOutput(out),
+		)
+		require.NoError(t, err)
+		require.Empty(t, out.Violations)
+
+		var (
+			status          string
+			gotTitle        sql.NullString
+			gotDecision     sql.NullString
+			gotExpiresAt    sql.NullString
+			gotApprovedBy   sql.NullString
+			gotApprovedAt   sql.NullString
+			gotErrorMessage sql.NullString
+		)
+		require.NoError(t, db.QueryRow(
+			`SELECT status, title, decision, expires_at, approved_by_user_id, approved_at, error_message FROM tool_approval_queue WHERE id = ?`,
+			"q-update-1",
+		).Scan(&status, &gotTitle, &gotDecision, &gotExpiresAt, &gotApprovedBy, &gotApprovedAt, &gotErrorMessage))
+		require.Equal(t, "approved", status)
+		require.Equal(t, title, gotTitle.String)
+		require.Equal(t, decision, gotDecision.String)
+		require.True(t, gotExpiresAt.Valid)
+		require.Equal(t, approvedBy, gotApprovedBy.String)
+		require.True(t, gotApprovedAt.Valid)
+		require.Equal(t, errMsg, gotErrorMessage.String)
+	})
+
+	t.Run("clears nullable fields when marked present with nil", func(t *testing.T) {
+		updatedAt := mustParseUTC(t, "2026-05-26T12:03:00Z")
+		patch := &ToolApprovalQueue{Has: &ToolApprovalQueueHas{}}
+		patch.SetId("q-update-1")
+		patch.SetUserId("u1")
+		patch.SetToolName("system/exec")
+		patch.SetArguments([]byte(`{"cmd":"echo old"}`))
+		patch.Status = "approved"
+		patch.Has.Status = true
+		patch.Decision = nil
+		patch.Has.Decision = true
+		patch.ExpiresAt = nil
+		patch.Has.ExpiresAt = true
+		patch.ApprovedByUserId = nil
+		patch.Has.ApprovedByUserId = true
+		patch.ApprovedAt = nil
+		patch.Has.ApprovedAt = true
+		patch.ErrorMessage = nil
+		patch.Has.ErrorMessage = true
+		patch.SetUpdatedAt(updatedAt)
+
+		out := &Output{}
+		_, err = svc.Operate(ctx,
+			datly.WithPath(contract.NewPath("PATCH", PathURI)),
+			datly.WithInput(&Input{Queues: []*ToolApprovalQueue{patch}}),
+			datly.WithOutput(out),
+		)
+		require.NoError(t, err)
+		require.Empty(t, out.Violations)
+
+		var (
+			gotDecision     sql.NullString
+			gotExpiresAt    sql.NullString
+			gotApprovedBy   sql.NullString
+			gotApprovedAt   sql.NullString
+			gotErrorMessage sql.NullString
+		)
+		require.NoError(t, db.QueryRow(
+			`SELECT decision, expires_at, approved_by_user_id, approved_at, error_message FROM tool_approval_queue WHERE id = ?`,
+			"q-update-1",
+		).Scan(&gotDecision, &gotExpiresAt, &gotApprovedBy, &gotApprovedAt, &gotErrorMessage))
+		require.False(t, gotDecision.Valid)
+		require.False(t, gotExpiresAt.Valid)
+		require.False(t, gotApprovedBy.Valid)
+		require.False(t, gotApprovedAt.Valid)
+		require.False(t, gotErrorMessage.Valid)
+	})
+}
+
 // TestToolApprovalQueueWrite_PersistsExpiresAtAndTimedOutAt asserts that
 // the canonical persistent contract — expires_at and timed_out_at —
 // round-trips through the Datly write path. These columns are how the

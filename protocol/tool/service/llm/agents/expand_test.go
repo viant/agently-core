@@ -168,7 +168,7 @@ func TestExpandMessages_SidecarDoesNotInheritConversationTracking(t *testing.T) 
 	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
 		TurnID:         "turn-1",
 		ConversationID: "conv-1",
-		Assistant:      "steward",
+		Assistant:      "primary",
 	})
 	ctx = modelcallctx.WithObserver(ctx, mockObserver{})
 	result := s.expandMessages(ctx, original, "objective", cfg)

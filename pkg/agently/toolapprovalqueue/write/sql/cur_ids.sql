@@ -1,3 +1,1 @@
-SELECT q.id AS values
-FROM tool_approval_queue q
-WHERE q.id IN ($Unsafe.Selector($CurIDs<[]string>(body/Queues).Values, 'id').Prefix("'").Suffix("'").JoinBy(","))
+? SELECT ARRAY_AGG(Id) AS Values FROM `/` LIMIT 1

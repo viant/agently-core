@@ -55,7 +55,7 @@ The runtime uses these to:
 For prompt/review tools, the model must emit review-shaped args, not final
 execution-shaped args.
 
-Example for `steward-RecommendationPatch`:
+Example for `workspace-RecordPatch`:
 
 - top-level `rows`
 - top-level read-only `intent`
@@ -84,7 +84,7 @@ Flow:
 5. backend applies `ApplyReview(...)`
 6. final executable tool args are derived from approved rows
 
-For `steward-RecommendationPatch`, this is how grouped site-list rows become the
+For `workspace-RecordPatch`, this is how grouped review rows become the
 final patch payload.
 
 ## Queue approval
@@ -95,7 +95,12 @@ Relevant code:
 
 - [service/shared/toolexec/tool_executor.go](service/shared/toolexec/tool_executor.go)
 - [sdk/embedded_queue.go](sdk/embedded_queue.go)
-- [pkg/agently/toolapprovalqueue/read/queue_rows/queue_rows.sql](pkg/agently/toolapprovalqueue/read/queue_rows/queue_rows.sql)
+- canonical queue row read contract:
+  [pkg/agently/toolapprovalqueue/read/queue_rows/queue_rows.sql](pkg/agently/toolapprovalqueue/read/queue_rows/queue_rows.sql)
+- exact queue count contract:
+  [pkg/agently/toolapprovalqueue/count/queue_total/queue_total.sql](pkg/agently/toolapprovalqueue/count/queue_total/queue_total.sql)
+- terminal outcome replay contract:
+  [pkg/agently/toolapprovalqueue/outcome/outcome_rows/outcome_rows.sql](pkg/agently/toolapprovalqueue/outcome/outcome_rows/outcome_rows.sql)
 
 Persisted queue rows carry:
 
@@ -126,6 +131,13 @@ That behavior is implemented in:
 Queue rows are persisted with the effective `queueBehavior`, not just the raw
 bundle field, so downstream readers do not need to guess.
 
+Read ownership:
+
+- `pkg/agently/toolapprovalqueue/read` is the runtime Datly source of truth
+  for queue rows
+- `pkg/agently/toolapprovalqueue/pending` is a compatibility shim and should
+  not diverge from `read`
+
 ## Model-visible tool schema
 
 Reviewed fields must be present in the actual `llm.request` tool schema before
@@ -136,7 +148,7 @@ Relevant code:
 - [service/agent/tools.go](service/agent/tools.go)
 - [service/agent/binding_tools.go](service/agent/binding_tools.go)
 
-For reviewed tools like `steward-RecommendationPatch`, the final model-visible
+For reviewed tools like `workspace-RecordPatch`, the final model-visible
 schema must include:
 
 - `Recommendation`
@@ -163,12 +175,12 @@ The UI must not:
 - guess missing rationale or labels
 - attach the wrong queue item by fuzzy matching
 
-## Verified site-list path
+## Verified review path
 
-The most fully verified reviewed tool path so far is the Steward site-list flow
+The most fully verified reviewed tool path so far is the generic review flow
 for:
 
-- `steward-RecommendationPatch`
+- `workspace-RecordPatch`
 
 Verified backend truths:
 

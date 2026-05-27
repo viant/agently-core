@@ -28,8 +28,8 @@ func TestCheckEvalCatalogAndPublicCoverage(t *testing.T) {
 
 	write(filepath.Join(prompts, "performance_analysis.yaml"), "id: performance_analysis\n")
 	write(filepath.Join(templates, "analytics_dashboard.yaml"), "id: analytics_dashboard\n")
-	write(filepath.Join(agents, "steward.yaml"), "id: steward\nprofile:\n  publish: true\nstarterTasks:\n  - id: one\n    coverageEvalIds:\n      - ok\n")
-	write(filepath.Join(evals, "01_ok.yaml"), "id: ok\ntitle: ok\nuser_prompt: hi\nexpected_routing:\n  agent: steward\n  profile: performance_analysis\nexpected_output:\n  template: analytics_dashboard\n")
+	write(filepath.Join(agents, "primary.yaml"), "id: primary\nprofile:\n  publish: true\nstarterTasks:\n  - id: one\n    coverageEvalIds:\n      - ok\n")
+	write(filepath.Join(evals, "01_ok.yaml"), "id: ok\ntitle: ok\nuser_prompt: hi\nexpected_routing:\n  agent: primary\n  profile: performance_analysis\nexpected_output:\n  template: analytics_dashboard\n")
 
 	agentIndex, err := LoadAgents(agents)
 	if err != nil {
@@ -100,8 +100,8 @@ func TestAssertBehavioralTranscript(t *testing.T) {
 								},
 								ToolSteps: []*sdkapi.ToolStepState{
 									{
-										ToolName:       "steward-AdHierarchy",
-										RequestPayload: inline(map[string]interface{}{"AdOrderId": []int{2652067}}),
+										ToolName:       "workspace-EntityHierarchy",
+										RequestPayload: inline(map[string]interface{}{"RecordId": []int{2652067}}),
 									},
 									{
 										ToolName:       "llm/agents:start",
@@ -127,7 +127,7 @@ func TestAssertBehavioralTranscript(t *testing.T) {
 	}
 	doc.ExpectedRouting.Agent = "data-analyst"
 	doc.ExpectedRouting.Profile = "diagnostic_baseline"
-	doc.ExpectedPreDelegationTools = []EvalToolExpectation{{Name: "steward-AdHierarchy"}}
+	doc.ExpectedPreDelegationTools = []EvalToolExpectation{{Name: "workspace-EntityHierarchy"}}
 	doc.ExpectedOutput.Template = "analytics_dashboard"
 
 	if err := AssertBehavioralTranscript(doc, transcript); err != nil {
@@ -136,7 +136,7 @@ func TestAssertBehavioralTranscript(t *testing.T) {
 }
 
 func TestParseConversationID(t *testing.T) {
-	output := "[workspace] /tmp/demo\n[agent] steward\nhello\n[conversation-id] conv-123\n"
+	output := "[workspace] /tmp/demo\n[agent] primary\nhello\n[conversation-id] conv-123\n"
 	if got := ParseConversationID(output); got != "conv-123" {
 		t.Fatalf("expected conv-123, got %q", got)
 	}

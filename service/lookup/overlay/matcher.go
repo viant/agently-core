@@ -108,7 +108,7 @@ func globToRegex(glob string) (*regexp.Regexp, error) {
 }
 
 // targetMatches decides whether the overlay's Target admits this context.
-// contextID is the opaque "kind:id" (e.g. "template:site_list_planner").
+// contextID is the opaque "kind:id" (e.g. "template:entity_list_planner").
 // schemaProps is used for Target.SchemaContains checks.
 //
 // Wildcard semantics:

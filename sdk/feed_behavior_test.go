@@ -25,7 +25,7 @@ import (
 	"github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	"github.com/viant/agently-core/workspace"
-	wscodec "github.com/viant/agently-core/workspace/codec"
+	"github.com/viant/forge/backend/types"
 )
 
 type feedTestRegistry struct {
@@ -1523,23 +1523,121 @@ func TestGenericBridgeHelpers(t *testing.T) {
 
 func loadBuiltinFeedSpec(t *testing.T, name string) *FeedSpec {
 	t.Helper()
-	path := filepath.Join("..", "internal", "tool", "registry", ".agently", "feeds", name+".yaml")
-	var spec FeedSpec
-	require.NoError(t, wscodec.DecodeFile(path, &spec))
-	if spec.ID == "" {
-		spec.ID = name
-	}
-	if spec.Title == "" {
-		if ui, ok := spec.UI.(map[string]interface{}); ok {
-			if title, ok := ui["title"].(string); ok && title != "" {
-				spec.Title = title
-			}
+	spec := builtinFeedSpec(name)
+	require.NotNilf(t, spec, "unknown builtin feed spec: %s", name)
+	return spec
+}
+
+func builtinFeedSpec(name string) *FeedSpec {
+	switch strings.TrimSpace(name) {
+	case "terminal":
+		return &FeedSpec{
+			ID:    "terminal",
+			Title: "Terminal",
+			Match: FeedMatch{Service: "system/exec", Method: "execute"},
+			DataSource: map[string]interface{}{
+				"output": map[string]interface{}{
+					"source":   "output",
+					"merge":    "merge_object",
+					"exposeAs": "output",
+				},
+				"commands": map[string]interface{}{
+					"dataSourceRef": "output",
+					"selectors":     &types.Selectors{Data: "commands"},
+					"root":          true,
+				},
+			},
+			UI: map[string]interface{}{"title": "Terminal"},
 		}
-		if spec.Title == "" {
-			spec.Title = name
+	case "plan":
+		return &FeedSpec{
+			ID:    "plan",
+			Title: "Plan",
+			Match: FeedMatch{Service: "orchestration", Method: "updatePlan"},
+			DataSource: map[string]interface{}{
+				"planInfo": map[string]interface{}{
+					"source":   "output",
+					"merge":    "replace_last",
+					"exposeAs": "output",
+				},
+				"planDetail": map[string]interface{}{
+					"dataSourceRef": "planInfo",
+					"selectors":     &types.Selectors{Data: "plan"},
+					"root":          true,
+					"derive": map[string]string{
+						"content": "**Status:** ${status}\n\n**Step:** ${step}",
+					},
+				},
+			},
+			UI: map[string]interface{}{"title": "Plan"},
 		}
+	case "changes":
+		return &FeedSpec{
+			ID:    "changes",
+			Title: "Changes",
+			Match: FeedMatch{Service: "system/patch", Method: "apply"},
+			Activation: FeedActivation{
+				Kind:    "tool_call",
+				Service: "system/patch",
+				Method:  "snapshot",
+			},
+			DataSource: map[string]interface{}{
+				"output": map[string]interface{}{
+					"source":   "output",
+					"merge":    "replace_last",
+					"exposeAs": "output",
+				},
+				"changes": map[string]interface{}{
+					"dataSourceRef": "output",
+					"selectors":     &types.Selectors{Data: "changes"},
+					"root":          true,
+				},
+			},
+			UI: map[string]interface{}{"title": "Changes"},
+		}
+	case "explorer":
+		return &FeedSpec{
+			ID:    "explorer",
+			Title: "Explorer",
+			Match: FeedMatch{Service: "resources", Method: "*"},
+			DataSource: map[string]interface{}{
+				"input": map[string]interface{}{
+					"source":   "input",
+					"merge":    "replace_last",
+					"exposeAs": "input",
+				},
+				"output": map[string]interface{}{
+					"source":   "output",
+					"merge":    "merge_object",
+					"exposeAs": "output",
+				},
+				"entries": map[string]interface{}{
+					"dataSourceRef": "output",
+					"selectors":     &types.Selectors{Data: "files"},
+					"root":          true,
+					"exposeAs":      "entries",
+				},
+			},
+			UI: map[string]interface{}{"title": "Explorer"},
+		}
+	case "resources":
+		return &FeedSpec{
+			ID:    "resources",
+			Title: "Resources",
+			Match: FeedMatch{Service: "resources", Method: "read"},
+			DataSource: map[string]interface{}{
+				"output": map[string]interface{}{
+					"source":   "input",
+					"merge":    "append",
+					"exposeAs": "output",
+					"root":     true,
+				},
+			},
+			UI: map[string]interface{}{"title": "Resources"},
+		}
+	default:
+		return nil
 	}
-	return &spec
 }
 
 func readEvent(t *testing.T, sub streaming.Subscription) *streaming.Event {

@@ -255,7 +255,7 @@ func TestService_ActivateForConversation_FallsBackToTurnAssistantWhenConversatio
 		t.Fatal(err)
 	}
 
-	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}, Skills: []string{"forecast"}}
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "primary"}, Skills: []string{"forecast"}}
 	conv := &apiconv.Conversation{Id: "conv-skill"}
 	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(root, "skills")}}}, &testConversationClient{conv: conv}, &testFinder{agent: agent})
 	if err := svc.Load(context.Background()); err != nil {
@@ -266,7 +266,7 @@ func TestService_ActivateForConversation_FallsBackToTurnAssistantWhenConversatio
 	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
 		ConversationID: "conv-skill",
 		TurnID:         "turn-skill",
-		Assistant:      "steward",
+		Assistant:      "primary",
 	})
 
 	body, err := svc.ActivateForConversation(ctx, "conv-skill", "forecast", "")

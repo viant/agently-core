@@ -3,13 +3,13 @@
 **Status:** Proposal
 **Author:** awitas
 **Date:** 2026-04-22
-**Scope:** agently-core (framework), agently (UI), forge (reuse), any workspace (steward_ai is the first viable use case)
+**Scope:** agently-core (framework), agently (UI), forge (reuse), any workspace (the example workspace is the first viable use case)
 
 ---
 
 ## 1. Problem
 
-Scenarios, prompts, tools, and elicitation forms often need entity references (e.g. ids for campaigns, advertisers, customers, tickets, assets — whatever domain the workspace serves). Today these are **free-text fields with dummy placeholders**; the user has to know or guess the id, and there is no name-based discovery.
+Scenarios, prompts, tools, and elicitation forms often need entity references (e.g. ids for campaigns, customers, customers, tickets, assets — whatever domain the workspace serves). Today these are **free-text fields with dummy placeholders**; the user has to know or guess the id, and there is no name-based discovery.
 
 We need a mechanism, generic for **any MCP server** exposing tabular/hierarchical data, that:
 
@@ -131,8 +131,8 @@ So for any lookup, the author writes:
 Concrete example. Note the forge Parameter semantics precisely: `From` / `To` are `[dataSourceRef]:store` sentinels (`:form`, `:query`, `:output`, `:args`, …); `Location` is the selector on the source (defaults to `Name` if omitted); `Name` is the selector on the destination. Inputs default to `from: :form, to: :query`; outputs default to `from: :output, to: :form`. Source: [backend/types/model.go:928](../../forge/backend/types/model.go), [utils/lookup.js:13](../../forge/src/utils/lookup.js), [hooks/window.js:78](../../forge/src/hooks/window.js).
 
 ```yaml
-# extension/forge/datasources/advertiser.yaml   (hybrid: forge DS + agently backend)
-id: advertiser
+# extension/forge/datasources/customer.yaml   (hybrid: forge DS + agently backend)
+id: customer
 cardinality: collection
 selectors:
   data: "results"
@@ -142,18 +142,18 @@ paging: { enabled: true, size: 50 }
 backend:
   kind: mcp_tool
   service: platform
-  method: advertiser_search
+  method: customer_search
   pinned: { limit: 50 }
 cache: { scope: user, ttl: 30m }
 ```
 
 ```yaml
-# extension/forge/dialogs/advertiserPicker.yaml   (pure forge — no agently extension)
-id: advertiserPicker
+# extension/forge/dialogs/customerPicker.yaml   (pure forge — no agently extension)
+id: customerPicker
 type: dialog
-title: "Select Advertiser"
+title: "Select Customer"
 size: { width: 720, height: 560 }
-dataSource: advertiser                       # refs forge-datasources/advertiser
+dataSource: customer                       # refs forge-datasources/customer
 view:
   type: table
   columns:
@@ -168,18 +168,18 @@ footer:
 ```
 
 ```yaml
-# extension/forge/lookups/site_list_planner.yaml   (agently overlay; uses forge Parameter syntax)
-target: { kind: template, id: site_list_planner }
+# extension/forge/lookups/entity_selector.yaml   (agently overlay; uses forge Parameter syntax)
+target: { kind: template, id: entity_selector }
 bindings:
-  - path: $.properties.advertiser_id
+  - path: $.properties.customer_id
     lookup:
-      dialogId: advertiserPicker
+      dialogId: customerPicker
       # inputs: omitted → forge default is {from: :form, to: :query, name: <Name>}.
       # outputs: required; location defaults to name if omitted.
       outputs:
-        - { location: id,   name: advertiser_id }    # :output.id   → :form.advertiser_id
-        - { location: name, name: advertiser_name }  # :output.name → :form.advertiser_name
-      display: "${advertiser_name} (#${advertiser_id})"
+        - { location: id,   name: customer_id }    # :output.id   → :form.customer_id
+        - { location: name, name: customer_name }  # :output.name → :form.customer_name
+      display: "${customer_name} (#${customer_id})"
 ```
 
 **Caveats worth knowing** (from forge source, not speculation):
@@ -206,12 +206,12 @@ Three entry paths. (b) and (c) use the same client component and the same resolu
 
 **(a) Elicitation overlay.** An overlay file maps a JSON Schema path (on a template / tool / elicitation request) to a `lookup:` block. The existing elicitation [Refiner](../service/elicitation/refiner/refiner.go) is extended to inject forge-compatible `Item.Lookup` metadata onto the property. The submitted form value is the output mapping (typically the id). Nothing else about the form changes.
 
-**(b) Inline `/name` hotkey (live).** In free-text inputs (prompt box, long-text form fields, chat composer), typing `/` (configurable) opens an autocomplete of **lookup names the current context exposes**. The user continues typing to filter (`/advertiser `), hits Tab/Enter, which pops the same lookup dialog (or an inline mini-popover for small result sets), and on selection inserts a **token** like `@{advertiser:123 "Acme Corp"}` — rendered as a chip displaying the label, stored as an id, and flattened to the id-only form for the model. This widget does **not** exist in forge today (§1 finding 3); it's the one new front-end component we build. It shares 100% of the resolution path with (a) — same datasource, same cache, same output mapping.
+**(b) Inline `/name` hotkey (live).** In free-text inputs (prompt box, long-text form fields, chat composer), typing `/` (configurable) opens an autocomplete of **lookup names the current context exposes**. The user continues typing to filter (`/customer `), hits Tab/Enter, which pops the same lookup dialog (or an inline mini-popover for small result sets), and on selection inserts a **token** like `@{customer:123 "Example Customer"}` — rendered as a chip displaying the label, stored as an id, and flattened to the id-only form for the model. This widget does **not** exist in forge today (§1 finding 3); it's the one new front-end component we build. It shares 100% of the resolution path with (a) — same datasource, same cache, same output mapping.
 
-**(c) Authored `/name` in starting prompts / templates.** A scenario or template author can write `/advertiser` directly in the prompt body. When the starting-prompt UI (scenario launcher, "starting task" form, message template) renders the body, it **parses** any `/name` occurrence where `name` resolves to a known lookup in the current context and **substitutes an inline picker widget** at that position — same component as (b) in "unresolved" state. The author controls where the picker lands by placement in the text. Examples:
+**(c) Authored `/name` in starting prompts / templates.** A scenario or template author can write `/customer` directly in the prompt body. When the starting-prompt UI (scenario launcher, "starting task" form, message template) renders the body, it **parses** any `/name` occurrence where `name` resolves to a known lookup in the current context and **substitutes an inline picker widget** at that position — same component as (b) in "unresolved" state. The author controls where the picker lands by placement in the text. Examples:
 
 ```
-Analyze performance for /advertiser over the last /window in /region.
+Analyze performance for /customer over the last /window in /region.
 ```
 
 renders as a paragraph with three inline pickers. Submission produces the text with the tokens flattened (e.g. `Analyze performance for 123 over the last 14d in NA.` or whatever `modelForm` each binding declares). Until the user fills a picker, the token is in `unresolved` state; the form blocks submission if `required` (declared per-lookup or per-binding).
@@ -230,7 +230,7 @@ A resolved lookup value has two lives:
 
 | When | Representation | Contains | Who sees it |
 |---|---|---|---|
-| **While authoring / editing / stored in form state / persisted in transcript** | **Rich token** — e.g. `@{advertiser:123 "Acme Corp"}` | id **and** label (and optionally extra fields the binding declared) | the user (as a chip), the form runtime, persistence |
+| **While authoring / editing / stored in form state / persisted in transcript** | **Rich token** — e.g. `@{customer:123 "Example Customer"}` | id **and** label (and optionally extra fields the binding declared) | the user (as a chip), the form runtime, persistence |
 | **When the message/tool-args reach the LLM** | **Flattened** via binding's `modelForm` (default: just the id) | id only | the model |
 
 Rules:
@@ -238,8 +238,8 @@ Rules:
 1. **Re-openable.** The chip stays a live picker. Clicking it reopens the same forge dialog, pre-selecting the current row (the stored id is fed to the dialog as an input; the dialog's DataSource can fetch-by-id or highlight-by-id). The user can pick a different row or clear the selection.
 2. **Send-time flattening, not storage-time.** The rich token is what gets saved (in form state, in the transcript, in conversation history). Flattening to `modelForm` happens once, at the moment a payload leaves for the LLM or a tool call. The stored representation is never downgraded.
 3. **Label comes from the token, not a re-fetch.** When a conversation is reloaded, chips rehydrate from the stored token without another MCP round-trip. Optional: a binding can set `revalidateOnMount: true` to re-fetch the label by id (useful if the entity might have been renamed).
-4. **Clearing the picker** removes the token and leaves whatever the binding declared as the empty-state text (commonly nothing; or a placeholder like `[advertiser?]`).
-5. **Dialog-mode vs. named-token mode use the same pair.** Schema-bound (§3.3a) fields also store `{id, label}` alongside each other (`advertiser_id` + `advertiser_name` via forge `Outputs`) — re-opening the picker reads both, highlights the current selection, and overwrites both on change. Only `advertiser_id` (or whatever the binding declared as the canonical value) is what the LLM ultimately sees.
+4. **Clearing the picker** removes the token and leaves whatever the binding declared as the empty-state text (commonly nothing; or a placeholder like `[customer?]`).
+5. **Dialog-mode vs. named-token mode use the same pair.** Schema-bound (§3.3a) fields also store `{id, label}` alongside each other (`customer_id` + `customer_name` via forge `Outputs`) — re-opening the picker reads both, highlights the current selection, and overwrites both on change. Only `customer_id` (or whatever the binding declared as the canonical value) is what the LLM ultimately sees.
 
 Storage format for named tokens is opaque to core — proposal: `@{<name>:<id> "<label>"}` with `<label>` shell-escaped. Alternative Markdown form `[label](lookup://name/id)` also works; core roundtrips whatever the binding emits.
 
@@ -276,11 +276,11 @@ Three new kinds, all loaded through the existing generic `Repository[T]` pattern
 └── extension/
     └── forge/
         ├── datasources/           # forge DS + MCP backend (this proposal)
-        │   └── advertiser.yaml
+        │   └── customer.yaml
         ├── dialogs/               # pure forge — no agently extension
-        │   └── advertiserPicker.yaml
+        │   └── customerPicker.yaml
         └── lookups/               # agently overlays (bindings + named tokens)
-            └── site_list_planner.yaml
+            └── entity_selector.yaml
 ```
 
 Rationale for the `extension/forge/` namespace:
@@ -370,7 +370,7 @@ bindings:
   # (b)+(c) named token — same declaration works for live hotkey AND authored prompts
   - named:
       trigger: "/"                  # char that introduces the token; default "/"
-      name: advertiser              # so "/advertiser" in text OR user typing "/ad…" matches
+      name: customer              # so "/customer" in text OR user typing "/ad…" matches
       dataSource: <datasource-id>
       queryInput: q                 # which datasource input gets the typed text (for live mode)
       required: false               # if true, authored token blocks submission until resolved
@@ -380,7 +380,7 @@ bindings:
         modelForm: "${id}"          # what the LLM sees after the text is flattened
 ```
 
-A `named` binding serves both (b) and (c) by design: it registers the name `advertiser` for the target context, so that (b) a `HotkeyLookupInput` component can autocomplete it live and (c) a prompt/template authored with literal `/advertiser` can be rendered with an inline picker at that position. The same binding drives both — one declaration, three activation paths.
+A `named` binding serves both (b) and (c) by design: it registers the name `customer` for the target context, so that (b) a `HotkeyLookupInput` component can autocomplete it live and (c) a prompt/template authored with literal `/customer` can be rendered with an inline picker at that position. The same binding drives both — one declaration, three activation paths.
 
 Nothing here names an MCP server, an op, or a domain entity. Genericity follows from the fact that everything downstream is a plain forge DataSource fetch.
 
@@ -403,7 +403,7 @@ What's genuinely new (listed so estimates are honest):
 | `protocol/lookup/overlay/` | new package | Types: `Overlay`, `Binding` (two flavours: schema-path `path`, named-token `named`), `TokenFormat`, `LookupRef`. |
 | `service/lookup/overlay/matcher.go` | new | JSONPath matcher that resolves an overlay's `path` against an incoming JSON Schema (tool input, elicitation request, template). Small, but new code. |
 | `service/lookup/overlay/translator.go` | new | For matched schema-path bindings: emit forge `Item.Lookup` metadata (dialogId, inputs, outputs defaults, display) onto the property via `x-ui-widget: lookup` + attachment block. This is the **schema → forge Lookup bridge**; it does not exist today. |
-| `service/lookup/overlay/registry.go` | new | For a given render context (`template:site_list_planner`, `chat:composer`, `tool:someTool`), compose the set of named bindings available for `/name` autocomplete. Served by `GET /v1/api/lookups/registry` (§13). |
+| `service/lookup/overlay/registry.go` | new | For a given render context (`template:entity_selector`, `chat:composer`, `tool:someTool`), compose the set of named bindings available for `/name` autocomplete. Served by `GET /v1/api/lookups/registry` (§13). |
 | `service/lookup/overlay/apply.go` | new | Public `Apply(ctx, schema, contextID) (refinedSchema, registry)` entry point called by the elicitation refiner and the template renderer. |
 | Call site in [service/elicitation/refiner/refiner.go](../service/elicitation/refiner/refiner.go) | modified | Append one call to `overlay.Apply` after the existing refinement. Pre-existing behaviour unchanged; this is the only line in the refiner that changes. |
 | Token/chip model (frontend) | new | Grammar `@{name:id "label"}`, parse/serialize, chip render, send-time flatten. Shared pure functions across web / iOS / Android. |
@@ -417,7 +417,7 @@ The Go backend side of the overlay layer is on the order of **4–6 files in a n
 
 A schema emitted by a tool / LLM / template rarely lines up 1:1 with an overlay's bindings. The three modes each overlay can pick from:
 
-1. **`mode: strict` (all-match)** — overlay applies only if **every** binding finds a matching property in the schema. Fail-fast for overlays that encode an invariant ("if this isn't a `site_list_planner` schema, don't touch it").
+1. **`mode: strict` (all-match)** — overlay applies only if **every** binding finds a matching property in the schema. Fail-fast for overlays that encode an invariant ("if this isn't a `entity_selector` schema, don't touch it").
 2. **`mode: partial` (any-match, default)** — overlay applies **each** binding that matches; unmatched bindings are silently skipped; unmatched schema properties are untouched. This is the common case ("MCP-generated schema has 5 fields; our overlay knows 3; apply the 3").
 3. **`mode: threshold` with `threshold: N`** — apply only if at least N of the overlay's bindings match; otherwise skip the whole overlay. Guards against spurious matches when a schema coincidentally has one field of the right name.
 
@@ -451,8 +451,8 @@ target:
   kind: template | tool | elicitation | prompt | chat-composer
   # One of these — or combine:
   id: <exact-id>                     # match by id
-  idGlob: "site_list_*"              # or glob
-  schemaContains: [advertiser_id]    # or: require schema to have these properties
+  idGlob: "entity_list_*"              # or glob
+  schemaContains: [customer_id]    # or: require schema to have these properties
 
 mode: strict | partial | threshold   # default: partial
 threshold: 2                         # only when mode=threshold
@@ -460,16 +460,16 @@ threshold: 2                         # only when mode=threshold
 bindings:
   - match:                           # each binding is matched independently
       # exactly one of:
-      path: "$.properties.advertiser_id"   # JSONPath, exact
+      path: "$.properties.customer_id"   # JSONPath, exact
       pathGlob: "$.properties.*_id"        # glob form
-      fieldName: "advertiser_id"           # matches any depth
+      fieldName: "customer_id"           # matches any depth
       fieldNameRegex: "^.*_id$"
       # optional constraints:
       type: integer
       format: "int64"
     lookup:
-      dataSource: advertiser
-      dialogId: advertiserPicker
+      dataSource: customer
+      dialogId: customerPicker
       outputs: [...]
 ```
 
@@ -487,8 +487,8 @@ bindings:
 
 ### 5.0.3 Typical overlay portfolios
 
-- **Library overlays (tiny, reusable, `partial` mode).** One file per concept — `overlays/fields/advertiser_id.yaml`, `overlays/fields/campaign_id.yaml`, `overlays/fields/feature_key.yaml`. Each has one binding matching by `fieldName` and/or `fieldNameRegex` + `type` constraint. These apply to **any** schema that has such a field — covers the `1-of-N × M` case automatically.
-- **Template-specific overlays (`strict` or `threshold`).** One file per template id — `overlays/templates/site_list_planner.yaml`. Uses `target.id` + `mode: strict` so it only activates on the intended schema shape.
+- **Library overlays (tiny, reusable, `partial` mode).** One file per concept — `overlays/fields/customer_id.yaml`, `overlays/fields/record_id.yaml`, `overlays/fields/feature_key.yaml`. Each has one binding matching by `fieldName` and/or `fieldNameRegex` + `type` constraint. These apply to **any** schema that has such a field — covers the `1-of-N × M` case automatically.
+- **Template-specific overlays (`strict` or `threshold`).** One file per template id — `overlays/templates/entity_selector.yaml`. Uses `target.id` + `mode: strict` so it only activates on the intended schema shape.
 - **Tool-generated schemas (`partial` + field-pattern).** For LLM-emitted / MCP-emitted tool argument schemas where field inventory varies call-to-call. Use `pathGlob` or `fieldNameRegex` to catch structural patterns without knowing the exact schema ahead of time.
 
 This gives workspace authors three recipes that compose cleanly without growing core semantics.
@@ -514,10 +514,10 @@ Behavior:
 
 1. Any text input that opts in (chat composer, long-text form field, prompt box) is wrapped with a `MentionInput` / `HotkeyLookupInput` component that watches for the trigger character.
 2. On trigger, the component asks the server: "what lookup names are registered for this context?" (context = target id + overlays matching it). It shows a small autocomplete of those names.
-3. The user finishes typing the name (`/advertiser `) and continues with the query. The component calls `Fetch(dataSource, { q: "<typed>" }, user)` on every keystroke (debounced). Results appear in a popover; small sets can be picked inline, large sets open the same forge lookup dialog.
+3. The user finishes typing the name (`/customer `) and continues with the query. The component calls `Fetch(dataSource, { q: "<typed>" }, user)` on every keystroke (debounced). Results appear in a popover; small sets can be picked inline, large sets open the same forge lookup dialog.
 4. On selection, the component inserts a **token** into the text. The token is two-faced:
-   - **On screen:** rendered as a chip showing `display` (e.g. `"Acme Corp"`).
-   - **In storage:** serialized as `@{advertiser:123 "Acme Corp"}` (format is opaque; framework just needs roundtripping).
+   - **On screen:** rendered as a chip showing `display` (e.g. `"Example Customer"`).
+   - **In storage:** serialized as `@{customer:123 "Example Customer"}` (format is opaque; framework just needs roundtripping).
    - **To the model:** flattened to `modelForm` before send (usually just the id, sometimes `id (label)` depending on binding).
 5. When the message is loaded back into the UI, tokens are re-hydrated from storage to chips.
 
@@ -612,7 +612,7 @@ Neither is a distinct primitive. Both are compositions the scheduler or a scenar
 2. Client calls `GET /v1/api/lookups/registry?context=…` (cached) to list available names.
 3. Autocomplete narrows as the user types (`/adv…`). Commit the name and keep typing → the remaining text is passed as `queryInput` on debounced `POST /v1/api/datasources/{id}/fetch` calls.
 4. Small result sets show in an inline popover; large sets open the forge dialog.
-5. On selection, a token `@{advertiser:123 "Acme Corp"}` is inserted — rendered as a chip, stored verbatim, flattened via the binding's `modelForm` before the message reaches the LLM.
+5. On selection, a token `@{customer:123 "Example Customer"}` is inserted — rendered as a chip, stored verbatim, flattened via the binding's `modelForm` before the message reaches the LLM.
 
 ### 8.3 Authored `/name` in starting prompt flow (Activation (c))
 
@@ -658,7 +658,7 @@ Workspaces contribute under `extension/forge/`:
 - `extension/forge/dialogs/*.yaml` — pure forge picker dialogs.
 - `extension/forge/lookups/*.yaml` — overlays (schema-bound + named-token bindings).
 
-Core ships zero workspace-specific datasources or overlays. steward_ai is the first viable use case; any domain (CRM, ticketing, SRE inventory, …) plugs in the same way.
+Core ships zero workspace-specific datasources or overlays. the example workspace is the first viable use case; any domain (CRM, ticketing, SRE inventory, …) plugs in the same way.
 
 ---
 
@@ -683,12 +683,12 @@ Core ships zero workspace-specific datasources or overlays. steward_ai is the fi
 ## 11. Phased Delivery
 
 **Phase 1 — DataSource layer + elicitation activation.**
-`extension/forge/datasources/` kind + `mcp_tool` backend via [registry.go:662 Execute](../internal/tool/registry/registry.go) → [proxy.go:26 CallTool](../protocol/mcp/proxy/proxy.go) + in-process user-scoped cache + `POST /v1/api/datasources/{id}/fetch` + new `service/lookup/overlay/` package (matcher/translator/registry/apply) + single new call-site in [elicitation refiner](../service/elicitation/refiner/refiner.go) + forge `Item.Lookup` wired to datasource ids. Prove it with one advertiser picker in steward_ai.
+`extension/forge/datasources/` kind + `mcp_tool` backend via [registry.go:662 Execute](../internal/tool/registry/registry.go) → [proxy.go:26 CallTool](../protocol/mcp/proxy/proxy.go) + in-process user-scoped cache + `POST /v1/api/datasources/{id}/fetch` + new `service/lookup/overlay/` package (matcher/translator/registry/apply) + single new call-site in [elicitation refiner](../service/elicitation/refiner/refiner.go) + forge `Item.Lookup` wired to datasource ids. Prove it with one customer picker in the example workspace.
 
 **Phase 1 exit gate (must pass before ship):** an end-to-end integration test that posts `/v1/api/datasources/{id}/fetch` with a real user JWT, asserts the downstream MCP server sees the expected token, and asserts `scope: user` cache isolation across two concurrent users. See §10 item 3.
 
 **Phase 2 — Named-token activation (both live hotkey and authored `/name`).**
-`NamedLookupInput` component + `/v1/api/lookups/registry` endpoint + token rendering, flattening, and roundtripping. Wire into chat composer, long-text form fields, and starting-prompt renderer (so authored `/advertiser` in a scenario body becomes an inline picker).
+`NamedLookupInput` component + `/v1/api/lookups/registry` endpoint + token rendering, flattening, and roundtripping. Wire into chat composer, long-text form fields, and starting-prompt renderer (so authored `/customer` in a scenario body becomes an inline picker).
 
 **Phase 3 — Tree dialog variant.**
 Lazy-children + breadcrumbs dialog preset. Parent-id parameterization on existing datasource. Migrate targeting taxonomy onto it.
@@ -792,7 +792,7 @@ type ListLookupRegistryInput struct {
 }
 
 type LookupRegistryEntry struct {
-    Name       string         `json:"name"`                  // e.g. "advertiser"
+    Name       string         `json:"name"`                  // e.g. "customer"
     DataSource string         `json:"dataSource"`
     Trigger    string         `json:"trigger"`               // "/" default
     Required   bool           `json:"required,omitempty"`
@@ -944,9 +944,9 @@ All 24 checks pass. The script doubles as a precise spec for anyone implementing
 
 ## 16. First viable use case (illustrative — not part of core)
 
-Bring-up happens entirely in workspace YAML under `extension/forge/`. For steward_ai we'll add:
+Bring-up happens entirely in workspace YAML under `extension/forge/`. For the example workspace we'll add:
 
-- `extension/forge/datasources/{advertiser,campaign,site_list,targeting_feature}.yaml`
+- `extension/forge/datasources/{customer,record,entity_list,feature_key}.yaml`
 - `extension/forge/dialogs/{…}Picker.yaml` (pure forge, one per lookup)
 - `extension/forge/lookups/{scenario-or-template-name}.yaml` (overlays for the templates/scenarios currently using dummy IDs)
 

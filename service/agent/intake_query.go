@@ -742,7 +742,7 @@ func extractWindowOrderIDs(win *uireg.WindowSnapshot) []string {
 		}
 	}
 	if win.Parameters != nil {
-		if raw, ok := win.Parameters["AdOrderId"]; ok {
+		if raw, ok := win.Parameters["RecordId"]; ok {
 			appendRaw(raw)
 		}
 	}
@@ -758,7 +758,7 @@ func extractWindowOrderIDs(win *uireg.WindowSnapshot) []string {
 		if raw, ok := ds.Input["order_id"]; ok {
 			appendRaw(raw)
 		}
-		if raw, ok := ds.Input["AdOrderId"]; ok {
+		if raw, ok := ds.Input["RecordId"]; ok {
 			appendRaw(raw)
 		}
 	}
@@ -1629,7 +1629,7 @@ func normalizePlannerSubmitTurnContext(input *QueryInput, tc *intakesvc.Context,
 	}
 	tc.DirectAction = intakesvc.DirectActionContext{}
 	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.Prompting.SuggestedProfileID) == "" {
-		tc.Prompting.SuggestedProfileID = "site_list_recommendation"
+		tc.Prompting.SuggestedProfileID = "entity_list_review"
 	}
 	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 		tc.Prompting.TemplateID = ""
@@ -1654,7 +1654,7 @@ func normalizePlannerSubmitTurnContext(input *QueryInput, tc *intakesvc.Context,
 		tc.Scope.Values = map[string]string{}
 	}
 	if strings.TrimSpace(tc.Scope.Values["requestType"]) == "" {
-		tc.Scope.Values["requestType"] = "site_list_submit_followup"
+		tc.Scope.Values["requestType"] = "entity_list_submit_followup"
 	}
 }
 

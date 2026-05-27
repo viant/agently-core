@@ -242,7 +242,7 @@ func TestToRequest_ModelArtifactGenerationDoesNotOverrideFunctionTools(t *testin
 			Model: "gpt-5.2",
 			Tools: []llm.Tool{{
 				Definition: llm.ToolDefinition{
-					Name: "steward-ForecastingCube",
+					Name: "workspace-ForecastCube",
 					Parameters: map[string]interface{}{
 						"type": "object",
 					},
@@ -259,7 +259,7 @@ func TestToRequest_ModelArtifactGenerationDoesNotOverrideFunctionTools(t *testin
 	assert.True(t, got.EnableCodeInterpreter)
 	assert.Equal(t, "auto", got.ToolChoice)
 	require.Len(t, got.Tools, 1)
-	assert.Equal(t, "steward-ForecastingCube", got.Tools[0].Function.Name)
+	assert.Equal(t, "workspace-ForecastCube", got.Tools[0].Function.Name)
 }
 
 func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {

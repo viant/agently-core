@@ -177,16 +177,16 @@ bindings:
       dataSource: order_lookup
       dialogId: adOrderPicker
       outputs:
-        - location: adOrderId
+        - location: orderId
           name: order_id
       display: "${adOrderName}"
     named:
       name: order
       title: Order list
       queryInput: AdOrderName
-      resolveInput: AdOrderId
+      resolveInput: OrderId
       required: true
-      store: "${adOrderId}"
+      store: "${orderId}"
       display: "${adOrderName}"
       modelForm: "${id}"
 `)); err != nil {

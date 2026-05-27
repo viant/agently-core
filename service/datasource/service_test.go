@@ -283,10 +283,10 @@ func TestFetch_InlineBackendProjectsRowsAndMetricsViaSelectors(t *testing.T) {
 					},
 					"performanceTimeline": []map[string]interface{}{
 						{
-							"advertiserTime": "2026-05-25",
-							"spend":          251.93,
-							"impressions":    184920,
-							"ctr":            0.0184,
+							"customerTime": "2026-05-25",
+							"spend":        251.93,
+							"impressions":  184920,
+							"ctr":          0.0184,
 						},
 					},
 				},
@@ -661,7 +661,7 @@ func TestFetch_ProjectsMetrics(t *testing.T) {
 		ID: "perf",
 		Backend: &dsproto.Backend{
 			Kind:    dsproto.BackendMCPTool,
-			Service: "steward",
+			Service: "primary",
 			Method:  "OrderPerformance",
 		},
 		DataSource: types.DataSource{

@@ -142,11 +142,11 @@ func TestMetadataHandler_MetadataVersionChangesWithPayload(t *testing.T) {
 	store := &metadataTestStore{items: map[string]map[string][]byte{}}
 
 	left := NewMetadataHandler(&config.Defaults{
-		Agent: "steward",
+		Agent: "primary",
 		Model: "openai_gpt-5_4",
 	}, store, "test-version")
 	right := NewMetadataHandler(&config.Defaults{
-		Agent: "steward",
+		Agent: "primary",
 		Model: "openai_gpt-5-mini",
 	}, store, "test-version")
 

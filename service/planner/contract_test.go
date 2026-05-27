@@ -30,8 +30,8 @@ func TestStaticContractSchema(t *testing.T) {
 
 func TestFileResolverLoadsSchemaNextToPlannerAgent(t *testing.T) {
 	root := t.TempDir()
-	agentPath := filepath.Join(root, "steward-planner.yaml")
-	require.NoError(t, os.WriteFile(agentPath, []byte("id: steward_planner\nname: Steward Planner\n"), 0o644))
+	agentPath := filepath.Join(root, "planner-agent.yaml")
+	require.NoError(t, os.WriteFile(agentPath, []byte("id: planner_agent\nname: Planner Agent\n"), 0o644))
 	schemaPath := filepath.Join(root, "planner.schema.json")
 	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"type":"object","properties":{"strategyFamily":{"type":"string"}}}`), 0o644))
 	rulesPath := filepath.Join(root, "planner.validation.json")

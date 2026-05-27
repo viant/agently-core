@@ -129,10 +129,10 @@ Current contract path:
 | Generic rule engine | [service/planner/validation.go](../service/planner/validation.go) |
 | Output application / guidance rendering hooks | [service/planner/application.go](../service/planner/application.go) |
 
-For Steward, the active planner-agent contract lives next to the planner agent:
+The active planner-agent contract lives next to the planner agent:
 
-- [planner.schema.json](/Users/awitas/go/src/github.vianttech.com/viant/steward_ai/deployment/steward/agents/steward-planner/planner.schema.json)
-- [planner.validation.json](/Users/awitas/go/src/github.vianttech.com/viant/steward_ai/deployment/steward/agents/steward-planner/planner.validation.json)
+- `agents/<planner-agent>/planner.schema.json`
+- `agents/<planner-agent>/planner.validation.json`
 
 ## Planner Input
 

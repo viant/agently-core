@@ -256,7 +256,7 @@ func TestService_BuildBinding_SelectedPromptProfileCanBeDisabledPerAgent(t *test
 		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
 			return []*toolbundle.Bundle{
 				{ID: "system/os", Match: []llm.Tool{{Name: "system/os/*"}}},
-				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "steward/MetricsAdCube"}}},
+				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "workspace/MetricsCube"}}},
 			}, nil
 		},
 		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
@@ -267,7 +267,7 @@ func TestService_BuildBinding_SelectedPromptProfileCanBeDisabledPerAgent(t *test
 		PromptProfileId: "repo_analysis",
 		ToolBundles:     []string{"system/os"},
 		Agent: &agentmdl.Agent{
-			Identity:       agentmdl.Identity{ID: "steward"},
+			Identity:       agentmdl.Identity{ID: "primary"},
 			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.2"},
 			Tool:           agentmdl.Tool{Bundles: []string{"system/os"}},
 			Prompts:        agentmdl.PromptAccess{InjectSelectedProfile: func() *bool { v := false; return &v }()},
@@ -318,7 +318,7 @@ func TestService_BuildBinding_SQLiteConversationPreservesParentedAssistantHistor
 	user.SetTurnID("turn-sql-history")
 	user.SetRole("user")
 	user.SetType("text")
-	user.SetContent("show my order 2667545")
+	user.SetContent("show my record 2667545")
 	require.NoError(t, convSvc.PatchMessage(ctx, user))
 
 	assistantFinal := apiconv.NewMessage()
@@ -328,17 +328,17 @@ func TestService_BuildBinding_SQLiteConversationPreservesParentedAssistantHistor
 	assistantFinal.SetRole("assistant")
 	assistantFinal.SetType("text")
 	assistantFinal.SetParentMessageID("user-sql-history")
-	assistantFinal.SetContent("The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.")
+	assistantFinal.SetContent("The details window for record 2667545 is already open. I brought that existing Details view forward.")
 	require.NoError(t, convSvc.PatchMessage(ctx, assistantFinal))
 
 	svc := &Service{conversation: convSvc}
 	binding, err := svc.BuildBinding(ctx, &QueryInput{
 		ConversationID: convID,
 		Agent: &agentmdl.Agent{
-			Identity:       agentmdl.Identity{ID: "steward"},
+			Identity:       agentmdl.Identity{ID: "primary"},
 			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.4"},
 		},
-		Query: "show my order 2667545",
+		Query: "show my record 2667545",
 	})
 	require.NoError(t, err)
 
@@ -348,7 +348,7 @@ func TestService_BuildBinding_SQLiteConversationPreservesParentedAssistantHistor
 			assistantContents = append(assistantContents, strings.TrimSpace(msg.Content))
 		}
 	}
-	require.Contains(t, assistantContents, "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.")
+	require.Contains(t, assistantContents, "The details window for record 2667545 is already open. I brought that existing Details view forward.")
 }
 
 func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSurface(t *testing.T) {
@@ -377,12 +377,12 @@ func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSu
 		conversation: store,
 		registry: &fakeRegistry{defs: []llm.ToolDefinition{
 			{Name: "system/os:getEnv"},
-			{Name: "steward/MetricsAdCube"},
+			{Name: "workspace/MetricsCube"},
 		}},
 		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
 			return []*toolbundle.Bundle{
 				{ID: "system/os", Match: []llm.Tool{{Name: "system/os/*"}}},
-				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "steward/MetricsAdCube"}}},
+				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "workspace/MetricsCube"}}},
 			}, nil
 		},
 		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
@@ -392,7 +392,7 @@ func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSu
 		ConversationID:  "conv-profile-direct-tools",
 		PromptProfileId: "repo_analysis",
 		Agent: &agentmdl.Agent{
-			Identity:       agentmdl.Identity{ID: "steward"},
+			Identity:       agentmdl.Identity{ID: "primary"},
 			ModelSelection: llm.ModelSelection{Model: "openai_gpt-5.2"},
 			Tool:           agentmdl.Tool{Bundles: []string{"system/os"}},
 		},
@@ -407,7 +407,7 @@ func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSu
 		}
 		names = append(names, sig.Name)
 	}
-	require.Contains(t, names, "steward-MetricsAdCube")
+	require.Contains(t, names, "workspace-MetricsCube")
 	require.Contains(t, names, "system_os-getEnv")
 }
 

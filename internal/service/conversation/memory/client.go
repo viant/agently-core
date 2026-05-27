@@ -17,10 +17,13 @@ import (
 	mcallw "github.com/viant/agently-core/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently-core/pkg/agently/payload/read"
 	payloadw "github.com/viant/agently-core/pkg/agently/payload/write"
+	queuecount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
+	queueoutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	toolw "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
+	hstate "github.com/viant/xdatly/handler/state"
 )
 
 // Client is an in-memory implementation of conversation.Client.
@@ -1413,6 +1416,115 @@ func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprov
 }
 
 func (c *Client) ListToolApprovalQueues(ctx context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+	return c.ListToolApprovalQueuesWithSelectors(ctx, in)
+}
+
+func (c *Client) CountToolApprovalQueues(ctx context.Context, in *queuecount.QueueTotalInput) (int, error) {
+	rows, err := c.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+		Id:             in.Id,
+		UserId:         in.UserId,
+		ConversationId: in.ConversationId,
+		TurnId:         in.TurnId,
+		MessageId:      in.MessageId,
+		ToolName:       in.ToolName,
+		QueueStatus:    in.QueueStatus,
+		Has: &queueread.QueueRowsInputHas{
+			Id:             in.Has != nil && in.Has.Id,
+			UserId:         in.Has != nil && in.Has.UserId,
+			ConversationId: in.Has != nil && in.Has.ConversationId,
+			TurnId:         in.Has != nil && in.Has.TurnId,
+			MessageId:      in.Has != nil && in.Has.MessageId,
+			ToolName:       in.Has != nil && in.Has.ToolName,
+			QueueStatus:    in.Has != nil && in.Has.QueueStatus,
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(rows), nil
+}
+
+func (c *Client) ListToolApprovalOutcomes(ctx context.Context, in *queueoutcome.OutcomeRowsInput) ([]*queueoutcome.OutcomeRowView, error) {
+	if err := enforceMemoryToolApprovalOutcomeUserScope(ctx, in); err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []*queueoutcome.OutcomeRowView
+	for _, q := range c.toolApprovals {
+		if q == nil {
+			continue
+		}
+		status := strings.ToLower(strings.TrimSpace(q.Status))
+		if status != "approved" && status != "rejected" && status != "canceled" && status != "executed" && status != "failed" && status != "timed_out" {
+			continue
+		}
+		if in != nil {
+			if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), strings.TrimSpace(q.UserId)) {
+				continue
+			}
+			if strings.TrimSpace(in.ConversationId) != "" && (q.ConversationId == nil || !strings.EqualFold(strings.TrimSpace(in.ConversationId), strings.TrimSpace(*q.ConversationId))) {
+				continue
+			}
+		}
+		transition := queueTransitionTimeForOutcome(q)
+		if !in.Since.IsZero() && (transition.IsZero() || !transition.After(in.Since)) {
+			continue
+		}
+		if !in.Until.IsZero() && (transition.IsZero() || transition.After(in.Until)) {
+			continue
+		}
+		var transitionAt *string
+		if !transition.IsZero() {
+			formatted := transition.UTC().Format(time.RFC3339Nano)
+			transitionAt = &formatted
+		}
+		row := &queueoutcome.OutcomeRowView{
+			Id:               q.Id,
+			UserId:           q.UserId,
+			ConversationId:   q.ConversationId,
+			TurnId:           q.TurnId,
+			MessageId:        q.MessageId,
+			ToolName:         q.ToolName,
+			Title:            q.Title,
+			Arguments:        append([]byte(nil), q.Arguments...),
+			Metadata:         q.Metadata,
+			Status:           q.Status,
+			Decision:         q.Decision,
+			ExpiresAt:        q.ExpiresAt,
+			TimedOutAt:       q.TimedOutAt,
+			ApprovedByUserId: q.ApprovedByUserId,
+			ApprovedAt:       q.ApprovedAt,
+			ExecutedAt:       q.ExecutedAt,
+			ErrorMessage:     q.ErrorMessage,
+			UpdatedAt:        q.UpdatedAt,
+			TransitionAt:     transitionAt,
+		}
+		if q.CreatedAt != nil {
+			row.CreatedAt = *q.CreatedAt
+		}
+		out = append(out, row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := out[i].TransitionAt
+		right := out[j].TransitionAt
+		switch {
+		case left == nil && right == nil:
+			return out[i].Id < out[j].Id
+		case left == nil:
+			return true
+		case right == nil:
+			return false
+		case *left == *right:
+			return out[i].Id < out[j].Id
+		default:
+			return *left < *right
+		}
+	})
+	return out, nil
+}
+
+func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueread.QueueRowsInput, selectors ...*hstate.NamedQuerySelector) ([]*queueread.QueueRowView, error) {
 	if err := enforceMemoryToolApprovalQueueUserScope(ctx, in); err != nil {
 		return nil, err
 	}
@@ -1473,11 +1585,40 @@ func (c *Client) ListToolApprovalQueues(ctx context.Context, in *queueread.Queue
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].Id < out[j].Id
+			return out[i].Id > out[j].Id
 		}
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
+		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
+	out = applyQueueSelector(out, selectors...)
 	return out, nil
+}
+
+func applyQueueSelector(rows []*queueread.QueueRowView, selectors ...*hstate.NamedQuerySelector) []*queueread.QueueRowView {
+	if len(rows) == 0 || len(selectors) == 0 {
+		return rows
+	}
+	var selector *hstate.NamedQuerySelector
+	for _, item := range selectors {
+		if item != nil && strings.EqualFold(strings.TrimSpace(item.Name), "queue_rows") {
+			selector = item
+			break
+		}
+	}
+	if selector == nil {
+		return rows
+	}
+	offset := selector.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(rows) {
+		return []*queueread.QueueRowView{}
+	}
+	rows = rows[offset:]
+	if selector.Limit > 0 && selector.Limit < len(rows) {
+		rows = rows[:selector.Limit]
+	}
+	return rows
 }
 
 func enforceMemoryToolApprovalQueueUserScope(ctx context.Context, in *queueread.QueueRowsInput) error {
@@ -1497,4 +1638,50 @@ func enforceMemoryToolApprovalQueueUserScope(ctx context.Context, in *queueread.
 	}
 	in.Has.UserId = true
 	return nil
+}
+
+func enforceMemoryToolApprovalOutcomeUserScope(ctx context.Context, in *queueoutcome.OutcomeRowsInput) error {
+	if in == nil {
+		return nil
+	}
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	if userID == "" {
+		return nil
+	}
+	if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
+		return errors.New("permission denied")
+	}
+	in.UserId = userID
+	if in.Has == nil {
+		in.Has = &queueoutcome.OutcomeRowsInputHas{}
+	}
+	in.Has.UserId = true
+	return nil
+}
+
+func queueTransitionTimeForOutcome(q *queuew.ToolApprovalQueue) time.Time {
+	if q == nil {
+		return time.Time{}
+	}
+	switch strings.ToLower(strings.TrimSpace(q.Status)) {
+	case "timed_out":
+		if q.TimedOutAt != nil && !q.TimedOutAt.IsZero() {
+			return *q.TimedOutAt
+		}
+	case "executed":
+		if q.ExecutedAt != nil && !q.ExecutedAt.IsZero() {
+			return *q.ExecutedAt
+		}
+	case "approved", "rejected", "canceled":
+		if q.ApprovedAt != nil && !q.ApprovedAt.IsZero() {
+			return *q.ApprovedAt
+		}
+	}
+	if q.UpdatedAt != nil && !q.UpdatedAt.IsZero() {
+		return *q.UpdatedAt
+	}
+	if q.CreatedAt != nil {
+		return *q.CreatedAt
+	}
+	return time.Time{}
 }

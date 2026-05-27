@@ -43,7 +43,7 @@ These are children of the active chat surface for a specific conversation.
 Examples:
 
 - `order`
-- `metricReportBuilder`
+- `reportBuilder`
 - future user-defined hosted workspace windows
 
 Rules:

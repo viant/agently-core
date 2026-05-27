@@ -59,7 +59,7 @@ func TestCompactWindowSnapshot_StripsDatasourcePayloads(t *testing.T) {
 	win := &uireg.WindowSnapshot{
 		WindowID:       "orderPerformance_1",
 		WindowKey:      "orderPerformance",
-		WindowTitle:    "Order Summary",
+		WindowTitle:    "Details",
 		ConversationID: "conv-1",
 		Presentation:   "hosted",
 		Region:         "chat.top",
@@ -110,8 +110,8 @@ func TestListDataSourceRefs(t *testing.T) {
 
 func TestCompactWindowParameters(t *testing.T) {
 	input := map[string]interface{}{
-		"AdOrderId": []interface{}{2637048},
-		"foo":       "bar",
+		"RecordId": []interface{}{2637048},
+		"foo":      "bar",
 	}
 	got := compactWindowParameters(input)
 	if got == nil {
@@ -120,9 +120,9 @@ func TestCompactWindowParameters(t *testing.T) {
 	if got["foo"] != "bar" {
 		t.Fatalf("expected foo parameter to survive, got %#v", got)
 	}
-	ids, ok := got["AdOrderId"].([]interface{})
+	ids, ok := got["RecordId"].([]interface{})
 	if !ok || len(ids) != 1 || ids[0] != 2637048 {
-		t.Fatalf("expected AdOrderId to survive, got %#v", got["AdOrderId"])
+		t.Fatalf("expected RecordId to survive, got %#v", got["RecordId"])
 	}
 	if len(compactWindowParameters(nil)) != 0 {
 		t.Fatalf("expected nil parameters to stay empty")
@@ -176,12 +176,12 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 		"clientId":       "client-1",
 		"conversationId": "conv-1",
 		"selected": map[string]interface{}{
-			"windowId": "metricReportBuilder__conv-1",
+			"windowId": "reportBuilder__conv-1",
 		},
 		"windows": []interface{}{
 			map[string]interface{}{
-				"windowId":       "metricReportBuilder__conv-1",
-				"windowKey":      "metricReportBuilder",
+				"windowId":       "reportBuilder__conv-1",
+				"windowKey":      "reportBuilder",
 				"windowTitle":    "Performance Metrics",
 				"conversationId": "conv-1",
 				"presentation":   "hosted",
@@ -210,7 +210,7 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		probe := &GetOutput{}
-		err := svc.get(ctx, &GetInput{WindowID: "metricReportBuilder__conv-1"}, probe)
+		err := svc.get(ctx, &GetInput{WindowID: "reportBuilder__conv-1"}, probe)
 		if err == nil && probe.Window != nil {
 			break
 		}
@@ -224,11 +224,11 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	go func() {
 		out := &CommandOutput{}
 		err := svc.setFormData(ctx, &SetFormDataInput{
-			WindowID: "metricReportBuilder__conv-1",
+			WindowID: "reportBuilder__conv-1",
 			Values: map[string]interface{}{
 				"prefill": map[string]interface{}{
-					"advertiserId": 123,
-					"dealId":       778899,
+					"customerId": 123,
+					"dealId":     778899,
 				},
 			},
 		}, out)
@@ -275,12 +275,12 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 		"clientId":       "client-1",
 		"conversationId": "conv-1",
 		"selected": map[string]interface{}{
-			"windowId": "metricReportBuilder__conv-1",
+			"windowId": "reportBuilder__conv-1",
 		},
 		"windows": []interface{}{
 			map[string]interface{}{
-				"windowId":       "metricReportBuilder__conv-1",
-				"windowKey":      "metricReportBuilder",
+				"windowId":       "reportBuilder__conv-1",
+				"windowKey":      "reportBuilder",
 				"windowTitle":    "Performance Metrics",
 				"conversationId": "conv-1",
 				"presentation":   "hosted",
@@ -288,8 +288,8 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 				"parentKey":      "chat/new",
 				"windowForm": map[string]interface{}{
 					"prefill": map[string]interface{}{
-						"advertiserId": float64(123),
-						"dealId":       float64(778899),
+						"customerId": float64(123),
+						"dealId":     float64(778899),
 					},
 				},
 				"metadata": map[string]interface{}{
@@ -323,7 +323,7 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	}
 
 	got := &GetOutput{}
-	if err := svc.get(ctx, &GetInput{WindowID: "metricReportBuilder__conv-1"}, got); err != nil {
+	if err := svc.get(ctx, &GetInput{WindowID: "reportBuilder__conv-1"}, got); err != nil {
 		t.Fatalf("get failed: %v", err)
 	}
 	if got.Window == nil {

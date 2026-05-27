@@ -30,8 +30,8 @@ type DispatchInput struct {
 	Payload map[string]interface{} `json:"payload,omitempty"`
 
 	// Context carries arbitrary key/value pairs the foreground wants to
-	// expose to the payload template. Typical keys: agencyId, advertiserId,
-	// campaignId, adOrderId, audienceId — passed from the current UI view
+	// expose to the payload template. Typical keys: agencyId, customerId,
+	// projectId, recordId, audienceId — passed from the current UI view
 	// state. Keys here are flattened into the template root and MUST NOT
 	// shadow reserved keys (eventName, conversationId, turnId, agentId,
 	// payload, selectedRows, now, today).

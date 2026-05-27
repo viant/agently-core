@@ -52,7 +52,7 @@ func TestResolveTurnRouting_PlannerCarriesWorkspaceIntakeContext(t *testing.T) {
 						Name:        "Coder",
 						Description: "Repository analysis, debugging, and code changes",
 					},
-					Intake: agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "steward_planner"},
+					Intake: agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "planner_agent"},
 				},
 			},
 		},
@@ -69,7 +69,7 @@ func TestResolveTurnRouting_PlannerCarriesWorkspaceIntakeContext(t *testing.T) {
 	require.NotNil(t, dec.WorkspaceIntakeContext)
 	require.Equal(t, intakesvc.ModePlanner, dec.WorkspaceIntakeContext.Routing.Mode)
 	require.Equal(t, "exploratory_strategy", dec.WorkspaceIntakeContext.Planner.Trigger)
-	require.Equal(t, "steward_planner", dec.WorkspaceIntakeContext.Planner.AgentID)
+	require.Equal(t, "planner_agent", dec.WorkspaceIntakeContext.Planner.AgentID)
 	require.Equal(t, intakesvc.SourceWorkspace, dec.WorkspaceIntakeContext.Routing.Source)
 	require.Equal(t, "coder", dec.WorkspaceIntakeContext.Routing.SelectedAgentID)
 }
@@ -89,7 +89,7 @@ func TestEnsureAgent_PersistsWorkspacePlannerIntakeContext(t *testing.T) {
 						Name:        "Coder",
 						Description: "Repository analysis, debugging, and code changes",
 					},
-					Intake: agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "steward_planner"},
+					Intake: agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "planner_agent"},
 				},
 			},
 		},
@@ -107,7 +107,7 @@ func TestEnsureAgent_PersistsWorkspacePlannerIntakeContext(t *testing.T) {
 	require.NotNil(t, tc)
 	require.Equal(t, intakesvc.ModePlanner, tc.Routing.Mode)
 	require.Equal(t, "exploratory_strategy", tc.Planner.Trigger)
-	require.Equal(t, "steward_planner", tc.Planner.AgentID)
+	require.Equal(t, "planner_agent", tc.Planner.AgentID)
 	require.Equal(t, intakesvc.SourceWorkspace, tc.Routing.Source)
 	require.Equal(t, "coder", tc.Routing.SelectedAgentID)
 }

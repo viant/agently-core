@@ -51,13 +51,13 @@ See [doc/streaming-events.md](streaming-events.md). Web clients subscribe via `/
 ## Example
 
 ```yaml
-id: ad-pacing
-match: { service: platform, method: pacing_report }
+id: performance-window
+match: { service: platform, method: metrics_report }
 activation: { kind: history, scope: last }
 dataSources:
-  pacing:
+  performance:
     selectors: { data: "rows" }
-    uniqueKey: [{ field: campaign_id }]
+    uniqueKey: [{ field: project_id }]
     derive:
       variance: "${actual_spend - planned_spend}"
 ```

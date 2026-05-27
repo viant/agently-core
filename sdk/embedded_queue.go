@@ -21,6 +21,8 @@ import (
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
+	queueOutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
@@ -40,6 +42,7 @@ import (
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
+	hstate "github.com/viant/xdatly/handler/state"
 	_ "modernc.org/sqlite"
 )
 
@@ -395,6 +398,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	}
 	patcher, _ := c.conv.(toolApprovalQueuePatcher)
 	in := &queueRead.QueueRowsInput{}
+	var selectors []*hstate.NamedQuerySelector
 	effectiveUserID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if input != nil {
 		if strings.TrimSpace(input.UserID) != "" {
@@ -418,6 +422,19 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 			in.QueueStatus = strings.TrimSpace(input.Status)
 			in.Has.QueueStatus = true
 		}
+		if input.Limit > 0 || input.Offset > 0 {
+			selector := &hstate.NamedQuerySelector{
+				Name: "queue_rows",
+				QuerySelector: hstate.QuerySelector{
+					OrderBy: "created_at DESC,id DESC",
+					Offset:  input.Offset,
+				},
+			}
+			if input.Limit > 0 {
+				selector.Limit = input.Limit + 1
+			}
+			selectors = append(selectors, selector)
+		}
 	}
 	if effectiveUserID != "" {
 		in.UserId = effectiveUserID
@@ -437,27 +454,28 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	// rule, even on platforms where two adjacent time.Now() calls can
 	// land in the same nanosecond.
 	outcomeBoundary := time.Now().UTC()
-	rows, err := lister.ListToolApprovalQueues(ctx, in)
+	rows, err := listToolApprovalRows(ctx, lister, selectors, in)
 	if err != nil {
 		return nil, err
 	}
-	outcomes, rows, err := expireTimedOutToolApprovals(ctx, c, patcher, lister, in, rows)
+	outcomes, rows, err := expireTimedOutToolApprovals(ctx, c, patcher, lister, selectors, in, rows)
 	if err != nil {
 		return nil, err
 	}
-	historicalOutcomes, err := collectApprovalOutcomesSince(ctx, lister, &approvalOutcomeQuery{
-		UserID:         in.UserId,
-		ConversationID: in.ConversationId,
-		Since:          strings.TrimSpace(valueOrEmptyOutcomeSince(input)),
-		Until:          time.Now().UTC(),
-	})
-	if err != nil {
-		return nil, err
+	if outcomeLister, ok := c.conv.(toolApprovalOutcomeLister); ok {
+		historicalOutcomes, err := collectApprovalOutcomesSince(ctx, outcomeLister, &approvalOutcomeQuery{
+			UserID:         in.UserId,
+			ConversationID: in.ConversationId,
+			Since:          strings.TrimSpace(valueOrEmptyOutcomeSince(input)),
+			Until:          time.Now().UTC(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(historicalOutcomes) > 0 {
+			outcomes = mergeApprovalOutcomes(outcomes, historicalOutcomes)
+		}
 	}
-	if len(historicalOutcomes) > 0 {
-		outcomes = mergeApprovalOutcomes(outcomes, historicalOutcomes)
-	}
-	rows = filterToolApprovalRowsByRequestedStatus(rows, in)
 	out := make([]*PendingToolApproval, 0, len(rows))
 	for _, row := range rows {
 		if item := pendingToolApprovalFromRow(row); item != nil {
@@ -467,36 +485,70 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	total := len(out)
 	limit := total
 	offset := 0
+	rowsPage := out
+	hasMore := false
 	if input != nil {
+		offset = input.Offset
+		if offset < 0 {
+			offset = 0
+		}
 		if input.Limit > 0 {
 			limit = input.Limit
+			if len(rowsPage) > limit {
+				hasMore = true
+				rowsPage = rowsPage[:limit]
+			}
+			if counter, ok := c.conv.(toolApprovalQueueCounter); ok {
+				countInput := &queueCount.QueueTotalInput{
+					Id:             in.Id,
+					UserId:         in.UserId,
+					ConversationId: in.ConversationId,
+					TurnId:         in.TurnId,
+					MessageId:      in.MessageId,
+					ToolName:       in.ToolName,
+					QueueStatus:    in.QueueStatus,
+					Has: &queueCount.QueueTotalInputHas{
+						Id:             in.Has != nil && in.Has.Id,
+						UserId:         in.Has != nil && in.Has.UserId,
+						ConversationId: in.Has != nil && in.Has.ConversationId,
+						TurnId:         in.Has != nil && in.Has.TurnId,
+						MessageId:      in.Has != nil && in.Has.MessageId,
+						ToolName:       in.Has != nil && in.Has.ToolName,
+						QueueStatus:    in.Has != nil && in.Has.QueueStatus,
+					},
+				}
+				if exact, err := counter.CountToolApprovalQueues(ctx, countInput); err == nil {
+					total = exact
+				} else {
+					total = offset + len(rowsPage)
+					if hasMore {
+						total++
+					}
+				}
+			} else {
+				total = offset + len(rowsPage)
+				if hasMore {
+					total++
+				}
+			}
 		}
-		if input.Offset > 0 {
-			offset = input.Offset
-		}
-	}
-	if offset > total {
-		offset = total
-	}
-	end := total
-	if limit > 0 && offset+limit < end {
-		end = offset + limit
-	}
-	rowsPage := out
-	if offset < len(out) {
-		rowsPage = out[offset:end]
-	} else {
-		rowsPage = []*PendingToolApproval{}
 	}
 	return &PendingToolApprovalPage{
 		Rows:          rowsPage,
 		Total:         total,
 		Offset:        offset,
 		Limit:         limit,
-		HasMore:       end < total,
+		HasMore:       hasMore,
 		Outcomes:      outcomes,
 		OutcomeCursor: outcomeBoundary.Add(-time.Nanosecond).Format(time.RFC3339Nano),
 	}, nil
+}
+
+func listToolApprovalRows(ctx context.Context, lister toolApprovalQueueLister, selectors []*hstate.NamedQuerySelector, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
+	if selectorLister, ok := lister.(toolApprovalQueueSelectorLister); ok && len(selectors) > 0 {
+		return selectorLister.ListToolApprovalQueuesWithSelectors(ctx, in, selectors...)
+	}
+	return lister.ListToolApprovalQueues(ctx, in)
 }
 
 func valueOrEmptyOutcomeSince(input *ListPendingToolApprovalsInput) string {
@@ -539,7 +591,7 @@ func pendingToolApprovalFromRow(row *queueRead.QueueRowView) *PendingToolApprova
 	return item
 }
 
-func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, in *queueRead.QueueRowsInput, rows []*queueRead.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*queueRead.QueueRowView, error) {
+func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, selectors []*hstate.NamedQuerySelector, in *queueRead.QueueRowsInput, rows []*queueRead.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*queueRead.QueueRowView, error) {
 	if patcher == nil || lister == nil || len(rows) == 0 {
 		return nil, rows, nil
 	}
@@ -562,28 +614,11 @@ func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher 
 	if !changed {
 		return nil, rows, nil
 	}
-	refreshed, err := lister.ListToolApprovalQueues(ctx, in)
+	refreshed, err := listToolApprovalRows(ctx, lister, selectors, in)
 	if err != nil {
 		return nil, nil, err
 	}
 	return outcomes, refreshed, nil
-}
-
-func filterToolApprovalRowsByRequestedStatus(rows []*queueRead.QueueRowView, in *queueRead.QueueRowsInput) []*queueRead.QueueRowView {
-	if in == nil || in.Has == nil || !in.Has.QueueStatus || strings.TrimSpace(in.QueueStatus) == "" {
-		return rows
-	}
-	wanted := strings.ToLower(strings.TrimSpace(in.QueueStatus))
-	filtered := make([]*queueRead.QueueRowView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		if strings.ToLower(strings.TrimSpace(row.Status)) == wanted {
-			filtered = append(filtered, row)
-		}
-	}
-	return filtered
 }
 
 type approvalOutcomeQuery struct {
@@ -593,7 +628,7 @@ type approvalOutcomeQuery struct {
 	Until          time.Time
 }
 
-func collectApprovalOutcomesSince(ctx context.Context, lister toolApprovalQueueLister, query *approvalOutcomeQuery) ([]*api.DecideToolApprovalOutcome, error) {
+func collectApprovalOutcomesSince(ctx context.Context, lister toolApprovalOutcomeLister, query *approvalOutcomeQuery) ([]*api.DecideToolApprovalOutcome, error) {
 	if lister == nil || query == nil || strings.TrimSpace(query.Since) == "" {
 		return nil, nil
 	}
@@ -601,7 +636,7 @@ func collectApprovalOutcomesSince(ctx context.Context, lister toolApprovalQueueL
 	if err != nil {
 		return nil, fmt.Errorf("invalid outcomeSince cursor: %w", err)
 	}
-	in := &queueRead.QueueRowsInput{Has: &queueRead.QueueRowsInputHas{}}
+	in := &queueOutcome.OutcomeRowsInput{Has: &queueOutcome.OutcomeRowsInputHas{}}
 	if strings.TrimSpace(query.UserID) != "" {
 		in.UserId = strings.TrimSpace(query.UserID)
 		in.Has.UserId = true
@@ -610,20 +645,17 @@ func collectApprovalOutcomesSince(ctx context.Context, lister toolApprovalQueueL
 		in.ConversationId = strings.TrimSpace(query.ConversationID)
 		in.Has.ConversationId = true
 	}
-	rows, err := lister.ListToolApprovalQueues(ctx, in)
+	in.Since = since
+	in.Has.Since = true
+	in.Until = query.Until
+	in.Has.Until = true
+	rows, err := lister.ListToolApprovalOutcomes(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	outcomes := make([]*api.DecideToolApprovalOutcome, 0)
 	for _, row := range rows {
-		if row == nil || !isTerminalApprovalStatus(row.Status) {
-			continue
-		}
-		transitionAt, ok := approvalOutcomeTransitionTime(row)
-		if !ok || !transitionAt.After(since) || transitionAt.After(query.Until) {
-			continue
-		}
-		outcome := approvalOutcomeFromRow(row)
+		outcome := approvalOutcomeFromOutcomeRow(row)
 		if outcome == nil {
 			continue
 		}
@@ -764,6 +796,74 @@ func approvalOutcomeFromRow(row *queueRead.QueueRowView) *api.DecideToolApproval
 	}
 	if row.ErrorMessage != nil {
 		outcome.ErrorMessage = strings.TrimSpace(*row.ErrorMessage)
+	}
+	return outcome
+}
+
+func approvalOutcomeFromOutcomeRow(row *queueOutcome.OutcomeRowView) *api.DecideToolApprovalOutcome {
+	if row == nil {
+		return nil
+	}
+	meta := parseToolApprovalMetadata(row.Metadata)
+	if meta.Outcome != nil {
+		cp := *meta.Outcome
+		return &cp
+	}
+	outcome := &api.DecideToolApprovalOutcome{
+		ApprovalID: row.Id,
+		ToolName:   row.ToolName,
+	}
+	if row.ConversationId != nil {
+		outcome.ConversationID = strings.TrimSpace(*row.ConversationId)
+	}
+	if row.TurnId != nil {
+		outcome.TurnID = strings.TrimSpace(*row.TurnId)
+	}
+	if row.MessageId != nil {
+		outcome.MessageID = strings.TrimSpace(*row.MessageId)
+	}
+	switch strings.ToLower(strings.TrimSpace(row.Status)) {
+	case "timed_out":
+		outcome.Action = api.ApprovalTimeoutOutcomeAction
+		outcome.Status = api.ApprovalTimeoutOutcomeStatus
+		outcome.Decision = api.ApprovalTimeoutOutcomeDecision
+		outcome.ErrorMessage = api.ApprovalTimeoutErrorMessage
+		if row.TimedOutAt != nil {
+			outcome.TimedOutAt = row.TimedOutAt
+		}
+	case "executed":
+		outcome.Action = "approve"
+		outcome.Status = "executed"
+		outcome.Decision = valueOrEmpty(row.Decision)
+	case "approved":
+		outcome.Action = "approve"
+		outcome.Status = "approved"
+		outcome.Decision = valueOrEmpty(row.Decision)
+	case "rejected":
+		outcome.Action = "reject"
+		outcome.Status = "rejected"
+		outcome.Decision = valueOrEmpty(row.Decision)
+	case "canceled":
+		outcome.Action = "cancel"
+		outcome.Status = "canceled"
+		outcome.Decision = valueOrEmpty(row.Decision)
+	case "failed":
+		outcome.Action = "approve"
+		outcome.Status = "failed"
+		outcome.Decision = valueOrEmpty(row.Decision)
+	default:
+		outcome.Action = strings.ToLower(strings.TrimSpace(valueOrEmpty(row.Decision)))
+		outcome.Status = strings.TrimSpace(row.Status)
+		outcome.Decision = valueOrEmpty(row.Decision)
+	}
+	if row.ErrorMessage != nil {
+		outcome.ErrorMessage = strings.TrimSpace(*row.ErrorMessage)
+	}
+	if row.ExpiresAt != nil {
+		outcome.ExpiresAt = row.ExpiresAt
+	}
+	if row.TimedOutAt != nil {
+		outcome.TimedOutAt = row.TimedOutAt
 	}
 	return outcome
 }

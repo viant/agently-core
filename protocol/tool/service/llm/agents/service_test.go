@@ -272,14 +272,14 @@ func TestService_Topology_ExposesCompactPlannerMetadata(t *testing.T) {
 	ctx := memory.WithRequestMode(context.Background(), "plan")
 	fake := &fakeAgentRuntime{
 		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
-			"steward": {
-				Identity:    agentmdl.Identity{ID: "steward", Name: "Steward"},
+			"primary": {
+				Identity:    agentmdl.Identity{ID: "primary", Name: "Primary"},
 				Description: "Primary execution agent",
 				Skills:      []string{"forecast/*", "inventory_diagnosis"},
-				Tool:        agentmdl.Tool{Bundles: []string{"steward-tools"}},
-				Template:    agentmdl.Template{Bundles: []string{"steward-templates"}},
+				Tool:        agentmdl.Tool{Bundles: []string{"workspace-tools"}},
+				Template:    agentmdl.Template{Bundles: []string{"workspace-templates"}},
 				Prompts:     agentmdl.PromptAccess{Bundles: []string{"selector_impact", "inventory_diagnosis"}},
-				Intake:      agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "steward_planner"},
+				Intake:      agentmdl.Intake{PlannerEnabled: true, PlannerAgentID: "planner_agent"},
 				Delegation:  &agentmdl.Delegation{Enabled: true, MaxDepth: 3},
 				Profile: &agentmdl.Profile{
 					Responsibilities: []string{"diagnosis", "forecast review"},
@@ -295,11 +295,11 @@ func TestService_Topology_ExposesCompactPlannerMetadata(t *testing.T) {
 	var out TopologyOutput
 	require.NoError(t, s.topology(ctx, &TopologyInput{}, &out))
 	require.Len(t, out.Items, 1)
-	require.Equal(t, "steward", out.Items[0].ID)
-	require.Equal(t, "steward_planner", out.Items[0].PlannerAgentID)
+	require.Equal(t, "primary", out.Items[0].ID)
+	require.Equal(t, "planner_agent", out.Items[0].PlannerAgentID)
 	require.True(t, out.Items[0].PlannerEnabled)
-	require.Equal(t, []string{"steward-tools"}, out.Items[0].ToolBundles)
-	require.Equal(t, []string{"steward-templates"}, out.Items[0].TemplateBundles)
+	require.Equal(t, []string{"workspace-tools"}, out.Items[0].ToolBundles)
+	require.Equal(t, []string{"workspace-templates"}, out.Items[0].TemplateBundles)
 	require.Equal(t, []string{"selector_impact", "inventory_diagnosis"}, out.Items[0].PromptProfiles)
 	require.True(t, out.Items[0].Delegation.Enabled)
 	require.Equal(t, 3, out.Items[0].Delegation.MaxSameAgentDepth)
@@ -2536,7 +2536,7 @@ func TestService_Start_InvalidPromptProfileDoesNotCreateChildShell(t *testing.T)
 
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "prompts"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "prompts", "creative_recommendation.yaml"), []byte("id: creative_recommendation\nname: Creative Recommendation\nmessages:\n  - role: system\n    text: test\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "prompts", "creative_review.yaml"), []byte("id: creative_review\nname: Creative Review\nmessages:\n  - role: system\n    text: test\n"), 0o644))
 
 	runCtx := memory.WithTurnMeta(
 		memory.WithConversationID(ctx, "parent-conv"),
@@ -2555,10 +2555,10 @@ func TestService_Start_InvalidPromptProfileDoesNotCreateChildShell(t *testing.T)
 	err := s.start(runCtx, &StartInput{
 		AgentID:         "worker",
 		Objective:       "work",
-		PromptProfileId: "frequency_cap_recommendation",
+		PromptProfileId: "policy_review",
 	}, &out)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `promptProfileId "frequency_cap_recommendation"`)
+	assert.Contains(t, err.Error(), `promptProfileId "policy_review"`)
 	assert.Nil(t, fake.lastInput)
 
 	items, getErr := conv.GetConversations(ctx, &convcli.Input{

@@ -27,7 +27,7 @@ Reduce example workspace complexity without losing controllability.
 - reduce prompt and tool-bundle duplication across specialists
 - make output shaping reusable across business scenarios
 - keep routing, capability boundaries, and evaluation understandable
-- lower the cost of adding new campaign-analysis scenarios
+- lower the cost of adding new project-analysis scenarios
 
 The desired end state is not fewer YAML files. It is simpler configuration, clearer ownership of behavior, and safer evolution.
 
@@ -81,7 +81,7 @@ Replace the proliferation of specialist agents with three layers:
 
 Do not encode every scenario as a separate agent. Encode most scenarios as profiles.
 
-Separate workers are only justified when the tool family, validation rules, or failure modes are fundamentally different (e.g. a detached forecasting skill path, `platform-lookup`).
+Separate workers are only justified when the tool family, validation rules, or failure modes are fundamentally different (e.g. a detached forecasting skill path, `platform-entity-lookup`).
 
 ---
 
@@ -106,21 +106,21 @@ Separate workers are only justified when the tool family, validation rules, or f
 id: performance_analysis
 name: Performance Analysis
 description: >
-  Analyze pacing, spend velocity, and KPI health.
-  Use when the user asks about campaign delivery or budget posture.
+  Analyze performance, trend velocity, and metric health.
+  Use when the user asks about project health or status drift.
 appliesTo:
   - performance
-  - pacing
+  - health
   - kpi
 messages:
   - role: system
     text: |
-      You are a performance analyst for digital advertising campaigns.
-      Focus on pacing posture, spend velocity, and KPI deviation.
+      You are a performance analyst for complex projects.
+      Focus on trend posture, change velocity, and metric deviation.
       Return actionable recommendations backed by evidence from the data.
   - role: user
     text: |
-      Analyze the campaign hierarchy provided and return the top optimization
+      Analyze the project hierarchy provided and return the top optimization
       actions with supporting evidence.
 toolBundles:
   - workspace-performance-tools
@@ -211,8 +211,8 @@ The same injection loop applies wherever profile messages are injected — wheth
     {
       "id": "performance_analysis",
       "name": "Performance Analysis",
-      "description": "Analyze pacing, spend velocity, and KPI health. Use when the user asks about campaign delivery.",
-      "appliesTo": ["performance", "pacing", "kpi"],
+      "description": "Analyze performance, trend velocity, and metric health. Use when the user asks about project health.",
+      "appliesTo": ["performance", "health", "kpi"],
       "toolBundles": ["workspace-performance-tools"],
       "template": "analytics_dashboard"
     }
@@ -226,12 +226,12 @@ The same injection loop applies wherever profile messages are injected — wheth
 {
   "id": "performance_analysis",
   "toolBundles": ["workspace-performance-tools"],
-  "preferredTools": ["workspace-MetricsAdCube", "workspace-AdHierarchy"],
+  "preferredTools": ["workspace-MetricsCube", "workspace-EntityHierarchy"],
   "template": "analytics_dashboard",
-  "resources": ["workspace-campaign-kb"],
+  "resources": ["workspace-entity-kb"],
   "messages": [
     { "role": "system", "text": "You are a performance analyst..." },
-    { "role": "user",   "text": "Analyze the campaign hierarchy..." }
+    { "role": "user",   "text": "Analyze the project hierarchy..." }
   ],
   "injected": false
 }
@@ -263,7 +263,7 @@ The agently-core MCP server's `ListPrompts` and `GetPrompt` handlers (currently 
 Do not embed tool names in prompt text:
 
 ```
-❌  "Use workspace-MetricsAdCube, workspace-SiteMetricsAdCube, workspace-AdHierarchy..."
+❌  "Use workspace-MetricsCube, workspace-EntityMetrics, workspace-EntityHierarchy..."
 ✓   toolBundles: ["workspace-performance-tools"]
 ```
 
@@ -334,7 +334,7 @@ Today a typical delegation looks like:
 ```json
 {
   "agentId": "workspace-performance",
-  "objective": "Why is campaign 4821 underpacing this week? Use workspace-MetricsAdCube and workspace-AdHierarchy to check pacing. Return a brief summary."
+  "objective": "Why is project 4821 below target this week? Use workspace-MetricsCube and workspace-EntityHierarchy to check performance. Return a brief summary."
 }
 ```
 
@@ -348,7 +348,7 @@ Everything else — tool selection, output shape, reasoning framing — is eithe
 | Scenario framing via objective text | Natural-language instructions are advisory — the worker may or may not follow them |
 | Context bloat | Tool names, format guidance, and entity context embedded in objective text inflate every call |
 | No output template pre-selection | Worker infers format from prose or produces generic output |
-| No entity extraction | Worker re-extracts campaign IDs, dates, constraints from unstructured text |
+| No entity extraction | Worker re-extracts project IDs, dates, constraints from unstructured text |
 | Specialist proliferation as the only escape valve | Different tool sets or reasoning modes require a separate agent YAML file per scenario |
 | Routing opacity | Failures are hard to attribute — routing, framing, tool access, and output format are all entangled in one objective string |
 
@@ -357,7 +357,7 @@ Everything else — tool selection, output shape, reasoning framing — is eithe
 ```json
 {
   "agentId": "data-analyst",
-  "objective": "Why is campaign 4821 underpacing this week?",
+  "objective": "Why is project 4821 below target this week?",
   "promptProfileId": "performance_analysis",
   "toolBundles": ["workspace-forecast-tools"],
   "templateId": ""
@@ -445,7 +445,7 @@ Runtime resolves instructions and expands bundles. Agent never receives raw inst
 ```json
 {
   "agentId": "data-analyst",
-  "objective": "Why is campaign 4821 underpacing this week?",
+  "objective": "Why is project 4821 below target this week?",
   "promptProfileId": "performance_analysis",
   "toolBundles": [],
   "templateId": ""
@@ -492,11 +492,11 @@ Runs before `orchestrator` does any routing. Produces intake `Context`:
 
 ```json
 {
-  "title": "Campaign 4821 Underpacing — Week of April 15",
+  "title": "Project 4821 Below Target — Week of April 15",
   "intent": "diagnosis",
   "entities": {
-    "campaignId": "4821",
-    "issue": "underpacing",
+    "projectId": "4821",
+    "issue": "below target",
     "timeframe": "this week",
     "urgency": "end-of-week"
   },
@@ -605,7 +605,7 @@ expansion:
   maxTokens: 600
 ```
 
-The sidecar receives the profile's rendered messages + the user task. It returns refined messages scoped to the specific campaign, timeframe, and decision horizon — without the worker having to infer these from a generic instruction set.
+The sidecar receives the profile's rendered messages + the user task. It returns refined messages scoped to the specific project, timeframe, and decision horizon — without the worker having to infer these from a generic instruction set.
 
 **Constraints:** no tools, no data access, no tool names in output, bounded by `maxTokens`, role structure preserved. The runtime validates output shape before injecting.
 
@@ -689,7 +689,7 @@ This is the lowest-risk, highest-value first step. It eliminates duplicated form
 
 **Optional later workers** (only if profile-based control proves too loose):
 - forecasting skill path — distinct data contracts, different reasoning pattern
-- `platform-lookup` — narrow and operationally specific
+- `platform-entity-lookup` — narrow and operationally specific
 
 **Configuration:** scenario profiles
 
@@ -701,7 +701,7 @@ This is the lowest-risk, highest-value first step. It eliminates duplicated form
 | `configuration_review` | workspace-configuration-tools |
 | `recommendation` | workspace-performance-tools |
 | `verification` | workspace-verification-tools |
-| `site_list_recommendation` | workspace-platform-tools |
+| `entity_list_review` | workspace-platform-tools |
 
 > `configuration_review` uses `workspace-configuration-tools`, not `workspace-inventory-tools`. Configuration review is a distinct concern from inventory diagnosis — the example workspace has a dedicated `workspace-configuration` specialist for a reason. If the actual example workspace does not have a `workspace-configuration-tools` bundle, the right resolution is to create one rather than collapse configuration into inventory. Collapsing them would be an example of the capability bleed this proposal is designed to prevent.
 | `forecasting` | workspace-forecast-tools |
@@ -718,7 +718,7 @@ Good collapse candidates: agents that differ mostly by wording, report shape, or
 Keep separate when the real difference is the tool family or validation logic:
 
 - **forecasting** — distinct data contracts and reasoning pattern
-- **platform lookup / site-list** — narrow, operationally specific
+- **platform lookup / entity-list** — narrow, operationally specific
 - **verification / overlap** — distinct analysis style and evidence interpretation
 
 ### Decision Rule
@@ -869,7 +869,7 @@ func (p *Profile) Render(ctx context.Context, b *binding.Binding, mgr mcpmanager
 **Verification checkpoint:**
 ```go
 // protocol/prompt/profile_test.go
-p := &Profile{Instructions: "Focus on pacing."}
+p := &Profile{Instructions: "Focus on performance."}
 msgs := p.EffectiveMessages()
 assert.Equal(t, 1, len(msgs))
 assert.Equal(t, "system", msgs[0].Role)
@@ -903,13 +903,13 @@ KindPrompt = "prompts"
 ```yaml
 id: performance_analysis
 name: Performance Analysis
-description: "Use when the user asks about pacing or KPI health."
-appliesTo: [performance, pacing, kpi]
+description: "Use when the user asks about performance or metric health."
+appliesTo: [performance, performance, kpi]
 messages:
   - role: system
     text: "You are a performance analyst."
   - role: user
-    text: "Analyze the campaign hierarchy."
+    text: "Analyze the project hierarchy."
 toolBundles:
   - workspace-performance-tools
 template: analytics_dashboard
@@ -1093,7 +1093,7 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *QueryInp
 // integration test: delegate with promptProfileId
 ri := &RunInput{
     AgentID:         "data-analyst",
-    Objective:       "Why is campaign 4821 underpacing?",
+    Objective:       "Why is project 4821 below target?",
     PromptProfileId: "performance_analysis",
 }
 // after run:
@@ -1246,8 +1246,8 @@ Output is validated: role structure must match input, total token count bounded 
 **Verification checkpoint:**
 ```go
 // test with generic profile + specific objective
-messages, err := svc.expandMessages(ctx, genericMessages, "campaign 4821 underpacing since Tuesday", cfg)
-// verify: output references "campaign 4821" and "Tuesday"
+messages, err := svc.expandMessages(ctx, genericMessages, "project 4821 below target since Tuesday", cfg)
+// verify: output references "project 4821" and "Tuesday"
 // verify: role structure unchanged (system stays system, user stays user)
 // verify: no tool names in output
 ```
@@ -1314,9 +1314,9 @@ const (
 **Verification checkpoints:**
 ```go
 // unit test: scope filtering
-tc := intake.Run(ctx, "Why is campaign 4821 underpacing?", ..., []string{"title", "entities"}, ...)
+tc := intake.Run(ctx, "Why is project 4821 below target?", ..., []string{"title", "entities"}, ...)
 assert.NotEmpty(t, tc.Title)
-assert.NotEmpty(t, tc.Entities["campaignId"])
+assert.NotEmpty(t, tc.Entities["projectId"])
 assert.Empty(t, tc.SuggestedProfileId)   // not in scope
 
 // unit test: Class B scope
@@ -1331,7 +1331,7 @@ assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 
 ---
 
-### Implementation Order Summary — ALL COMPLETE ✅
+### Implementation Details — ALL COMPLETE ✅
 
 | Phase | What | Key files | Status |
 |---|---|---|---|

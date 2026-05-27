@@ -227,7 +227,7 @@ func TestBuildToolSignatures_PromptApprovalToolExposesReviewSchemaFields(t *test
 	reg := &fakeRegistry{
 		defs: []llm.ToolDefinition{
 			{
-				Name: "steward/RecommendationPatch",
+				Name: "workspace/RecordPatch",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -247,7 +247,7 @@ func TestBuildToolSignatures_PromptApprovalToolExposesReviewSchemaFields(t *test
 					ID: "analyst-sitelist-tools",
 					Match: []llm.Tool{
 						{
-							Name: "steward-RecommendationPatch",
+							Name: "workspace-RecordPatch",
 							Approval: &llm.ApprovalConfig{
 								Mode: llm.ApprovalModePrompt,
 								Review: &llm.ApprovalReviewConfig{

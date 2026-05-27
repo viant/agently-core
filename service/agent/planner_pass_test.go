@@ -132,7 +132,7 @@ func (r *plannerControlRegistry) Execute(_ context.Context, name string, args ma
 	r.calls = append(r.calls, strings.TrimSpace(name))
 	switch strings.TrimSpace(name) {
 	case "llm/agents:topology":
-		return `{"items":[{"id":"steward","plannerAgentId":"steward_planner"}]}`, nil
+		return `{"items":[{"id":"primary","plannerAgentId":"planner_agent"}]}`, nil
 	case "llm/agents:tool_details":
 		var names []string
 		if raw, ok := args["names"].([]string); ok {
@@ -382,7 +382,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 		agentFinder: &allAgentFinder{
 			items: []*agentmdl.Agent{
 				{
-					Identity:       agentmdl.Identity{ID: "steward_planner", Name: "Steward Planner"},
+					Identity:       agentmdl.Identity{ID: "planner_agent", Name: "Planner Agent"},
 					ModelSelection: llm.ModelSelection{Model: "planner-model"},
 					Prompt:         &binding.Prompt{Text: "{{ .Task.Query }}"},
 					SystemPrompt:   &binding.Prompt{Text: "PLANNER AGENT GUIDANCE"},
@@ -417,7 +417,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 			Tool:           agentmdl.Tool{Bundles: []string{"analyst-tools"}},
 			Prompts:        agentmdl.PromptAccess{Bundles: []string{"repo_analysis"}},
 			Template:       agentmdl.Template{Bundles: []string{"analytics-templates"}},
-			Intake:         agentmdl.Intake{PlannerAgentID: "steward_planner"},
+			Intake:         agentmdl.Intake{PlannerAgentID: "planner_agent"},
 		},
 	}
 	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
@@ -435,7 +435,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 		},
 		Planner: intakesvc.PlannerContext{
 			Trigger: "exploratory_strategy",
-			AgentID: "steward_planner",
+			AgentID: "planner_agent",
 		},
 	}
 	_, _, err := svc.runPlannerPass(ctx, input, tc, mustResolveTestPlannerContract(t, testPlannerContractResolver(), input.Agent))
@@ -486,7 +486,7 @@ func TestPlannerPass_KeepsTemplateListVisibleForBootstrapWhenTemplateSelected(t 
 	write("templates/bundles/analytics.yaml", "id: analytics-templates\ntemplates:\n  - dashboard\n")
 	store := fsstore.New(root)
 	plannerAgent := &agentmdl.Agent{
-		Identity:       agentmdl.Identity{ID: "steward_planner"},
+		Identity:       agentmdl.Identity{ID: "planner_agent"},
 		ModelSelection: llm.ModelSelection{Model: "planner-model"},
 		Prompt:         &binding.Prompt{Text: "{{ .Task.Query }}"},
 		Tool:           agentmdl.Tool{Bundles: []string{"planner-visibility"}},
@@ -549,7 +549,7 @@ func TestPlannerPass_KeepsTemplateListVisibleForBootstrapWhenTemplateSelected(t 
 		},
 		Planner: intakesvc.PlannerContext{
 			Trigger: "exploratory_strategy",
-			AgentID: "steward_planner",
+			AgentID: "planner_agent",
 		},
 	}
 

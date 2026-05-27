@@ -357,9 +357,9 @@ async-narrator-prompt: |
 Example per-agent override:
 
 ```yaml
-name: steward
+name: primary
 asyncNarratorPrompt: |
-  You are steward's narrator. Keep progress updates terse and audit-friendly.
+  You are primary's narrator. Keep progress updates terse and audit-friendly.
 ```
 
 The `wsconfig` package is kept in its own subpackage to avoid an import cycle (the narrator package itself imports `protocol/async`).

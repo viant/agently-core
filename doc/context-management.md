@@ -22,7 +22,7 @@ Limits are declared per-agent in YAML and read at turn start:
 - `toolResultTokenLimit` — cap on a single tool call's output; oversized outputs are truncated with a tail marker.
 - `ageForSummarization` — tool calls older than N reactor steps become candidates for replacement by their summary.
 
-Defaults flow from workspace config ([bootstrap](../bootstrap/)) and from agent YAML. See the steward_ai workspace `config.yaml` for a reference example.
+Defaults flow from workspace config ([bootstrap](../bootstrap/)) and from agent YAML. See your active workspace `config.yaml` for a reference example.
 
 ## Overflow path
 

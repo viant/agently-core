@@ -18,7 +18,7 @@ func TestDirectActionFromContext(t *testing.T) {
 			DirectAction: intakesvc.DirectActionContext{
 				ToolName:      "ui/view:open",
 				Input:         map[string]any{"id": "order"},
-				AssistantText: "Opened the order summary window.",
+				AssistantText: "Opened the details window.",
 			},
 		},
 	}
@@ -36,7 +36,7 @@ func TestValidateDirectAction(t *testing.T) {
 		ToolName:      "ui/view:open",
 		Input:         map[string]any{"id": "order"},
 		InputJSON:     `{"id":"order"}`,
-		AssistantText: "Opened the order summary window.",
+		AssistantText: "Opened the details window.",
 	}
 	if err := validateDirectAction(ok); err != nil {
 		t.Fatalf("expected valid direct action, got %v", err)
@@ -119,14 +119,14 @@ func TestConversationMetadata_PreservesUnknownWorkspaceKeysInExtra(t *testing.T)
 func TestNormalizeInterfaceMap(t *testing.T) {
 	type payload struct {
 		Parameters struct {
-			AdOrderID []int `json:"AdOrderId"`
+			RecordID []int `json:"RecordId"`
 		} `json:"parameters"`
 	}
 	value := payload{}
-	value.Parameters.AdOrderID = []int{2656980}
+	value.Parameters.RecordID = []int{2656980}
 	got := normalizeInterfaceMap(value.Parameters)
 	require.Equal(t, map[string]interface{}{
-		"AdOrderId": []interface{}{float64(2656980)},
+		"RecordId": []interface{}{float64(2656980)},
 	}, got)
 }
 
@@ -166,13 +166,13 @@ func TestPublishDirectActionAssistantMessage_WritesCompletedStatus(t *testing.T)
 		ConversationID: "conv-1",
 		MessageID:      "turn-1",
 	}
-	err := svc.publishDirectActionAssistantMessage(context.Background(), input, "Opened the order summary window.")
+	err := svc.publishDirectActionAssistantMessage(context.Background(), input, "Opened the details window.")
 	require.NoError(t, err)
 	require.NotNil(t, recorder.lastMessage)
 	require.NotNil(t, recorder.lastMessage.Status)
 	require.Equal(t, "completed", *recorder.lastMessage.Status)
 	require.NotNil(t, recorder.lastMessage.Content)
-	require.Equal(t, "Opened the order summary window.", *recorder.lastMessage.Content)
+	require.Equal(t, "Opened the details window.", *recorder.lastMessage.Content)
 	require.True(t, recorder.lastMessageAdd)
 }
 
@@ -184,12 +184,12 @@ func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 		Context: map[string]any{
 			intakesvc.ContextKey: &intakesvc.Context{
 				Prompting: intakesvc.PromptingContext{
-					SuggestedProfileID: "workspace_ui",
+					SuggestedProfileID: "workspace_console",
 				},
 				DirectAction: intakesvc.DirectActionContext{
 					ToolName:      "ui/view:open",
 					InputJSON:     "",
-					AssistantText: "Opening Recommendation Review window.",
+					AssistantText: "Opening Review window.",
 				},
 			},
 		},
@@ -203,5 +203,5 @@ func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 	tc := intakesvc.FromContext(input.Context)
 	require.NotNil(t, tc)
 	require.Empty(t, tc.DirectAction.ToolName)
-	require.Equal(t, "workspace_ui", tc.Prompting.SuggestedProfileID)
+	require.Equal(t, "workspace_console", tc.Prompting.SuggestedProfileID)
 }

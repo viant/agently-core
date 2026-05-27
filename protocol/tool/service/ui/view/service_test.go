@@ -9,32 +9,32 @@ import (
 
 func TestExpandOpenParametersBindsOneInputToMultipleTargets(t *testing.T) {
 	specParams := []viewproto.Parameter{
-		{Name: "AdOrderId", BindTo: "order_performance_profile.parameters.AdOrderId"},
-		{Name: "AdOrderId", BindTo: "order_performance_period_today.parameters.AdOrderId"},
-		{Name: "AdOrderId", BindTo: "order_performance_period_yesterday.parameters.AdOrderId"},
-		{Name: "AdOrderId", BindTo: "order_performance_period_7d.parameters.AdOrderId"},
-		{Name: "AdOrderId", BindTo: "order_performance_period_30d.parameters.AdOrderId"},
+		{Name: "RecordId", BindTo: "order_performance_profile.parameters.RecordId"},
+		{Name: "RecordId", BindTo: "order_performance_period_today.parameters.RecordId"},
+		{Name: "RecordId", BindTo: "order_performance_period_yesterday.parameters.RecordId"},
+		{Name: "RecordId", BindTo: "order_performance_period_7d.parameters.RecordId"},
+		{Name: "RecordId", BindTo: "order_performance_period_30d.parameters.RecordId"},
 	}
 
 	actual := expandOpenParameters(specParams, map[string]interface{}{
-		"AdOrderId": []interface{}{2664124.0},
+		"RecordId": []interface{}{2664124.0},
 	})
 
-	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_profile", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_today", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_yesterday", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_7d", "parameters", "AdOrderId")
-	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_30d", "parameters", "AdOrderId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_profile", "parameters", "RecordId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_today", "parameters", "RecordId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_yesterday", "parameters", "RecordId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_7d", "parameters", "RecordId")
+	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_30d", "parameters", "RecordId")
 }
 
 func TestExpandOpenParametersPreservesUnboundParameters(t *testing.T) {
 	specParams := []viewproto.Parameter{
-		{Name: "AdOrderId", BindTo: "order_performance_profile.parameters.AdOrderId"},
+		{Name: "RecordId", BindTo: "order_performance_profile.parameters.RecordId"},
 	}
 
 	actual := expandOpenParameters(specParams, map[string]interface{}{
-		"AdOrderId": []interface{}{2664124.0},
-		"ClientID":  "client-1",
+		"RecordId": []interface{}{2664124.0},
+		"ClientID": "client-1",
 	})
 
 	if actual["ClientID"] != "client-1" {
@@ -44,34 +44,34 @@ func TestExpandOpenParametersPreservesUnboundParameters(t *testing.T) {
 
 func TestExpandOpenParametersBindsSemanticBuilderPrefill(t *testing.T) {
 	specParams := []viewproto.Parameter{
-		{Name: "advertiserId", BindTo: "prefill.advertiserId"},
+		{Name: "customerId", BindTo: "prefill.customerId"},
 		{Name: "dealId", BindTo: "prefill.dealId"},
 		{Name: "targetingIncl", BindTo: "prefill.targetingIncl"},
 	}
 
 	actual := expandOpenParameters(specParams, map[string]interface{}{
-		"advertiserId":  123.0,
+		"customerId":    123.0,
 		"dealId":        778899.0,
 		"targetingIncl": "iris:1466062,123",
 	})
 
-	assertNestedValue(t, actual, 123.0, "prefill", "advertiserId")
+	assertNestedValue(t, actual, 123.0, "prefill", "customerId")
 	assertNestedValue(t, actual, 778899.0, "prefill", "dealId")
 	assertNestedValue(t, actual, "iris:1466062,123", "prefill", "targetingIncl")
 }
 
 func TestMissingRequiredParameters(t *testing.T) {
 	specParams := []viewproto.Parameter{
-		{Name: "AdOrderId", Required: true, BindTo: "order_performance_profile.parameters.AdOrderId"},
-		{Name: "AdOrderId", Required: true, BindTo: "order_performance_period_today.parameters.AdOrderId"},
+		{Name: "RecordId", Required: true, BindTo: "order_performance_profile.parameters.RecordId"},
+		{Name: "RecordId", Required: true, BindTo: "order_performance_period_today.parameters.RecordId"},
 	}
 
-	if missing := missingRequiredParameters(specParams, nil); len(missing) != 1 || missing[0] != "AdOrderId" {
-		t.Fatalf("expected AdOrderId to be reported missing, got %#v", missing)
+	if missing := missingRequiredParameters(specParams, nil); len(missing) != 1 || missing[0] != "RecordId" {
+		t.Fatalf("expected RecordId to be reported missing, got %#v", missing)
 	}
 
 	if missing := missingRequiredParameters(specParams, map[string]interface{}{
-		"AdOrderId": []interface{}{2664124.0},
+		"RecordId": []interface{}{2664124.0},
 	}); len(missing) != 0 {
 		t.Fatalf("expected no missing required parameters, got %#v", missing)
 	}
@@ -146,7 +146,7 @@ func TestComputeWindowID_HostedViewsAreConversationScoped(t *testing.T) {
 		Region:       "chat.top",
 	}
 	parameters := map[string]interface{}{
-		"AdOrderId": []interface{}{2656980.0},
+		"RecordId": []interface{}{2656980.0},
 	}
 	got := computeWindowID("order", parameters, "conv-1", item)
 	expected := "order_" + fmt.Sprint(generateIntHash(parameters)) + "__conv-1"

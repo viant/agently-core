@@ -729,7 +729,7 @@ func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *tes
 			TurnId:    strPtr(turnID),
 			Role:      "user",
 			Type:      "text",
-			Content:   strPtr("show my order 2667545"),
+			Content:   strPtr("show my record 2667545"),
 			CreatedAt: createdAt,
 		}
 		interim := &apiconv.Message{
@@ -786,8 +786,8 @@ func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *tes
 	}
 
 	transcript := apiconv.Transcript{
-		makeTurn("turn-1", "user-1", "assistant-1", "The order summary window for ad order 2667545 is now open and in focus.", now),
-		makeTurn("turn-2", "user-2", "assistant-2", "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.", now.Add(10*time.Second)),
+		makeTurn("turn-1", "user-1", "assistant-1", "The details window for record 2667545 is now open and in focus.", now),
+		makeTurn("turn-2", "user-2", "assistant-2", "The details window for record 2667545 is already open. I brought that existing Details view forward.", now.Add(10*time.Second)),
 	}
 
 	history, err := (&Service{}).buildHistory(context.Background(), transcript)
@@ -807,10 +807,10 @@ func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *tes
 	if len(assistantContents) != 2 {
 		t.Fatalf("expected both assistant summaries in history, got %#v", assistantContents)
 	}
-	if assistantContents[0] != "The order summary window for ad order 2667545 is now open and in focus." {
+	if assistantContents[0] != "The details window for record 2667545 is now open and in focus." {
 		t.Fatalf("unexpected first assistant content: %#v", assistantContents)
 	}
-	if assistantContents[1] != "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward." {
+	if assistantContents[1] != "The details window for record 2667545 is already open. I brought that existing Details view forward." {
 		t.Fatalf("unexpected second assistant content: %#v", assistantContents)
 	}
 }
@@ -824,7 +824,7 @@ func TestBuildHistoryWithLimit_PreservesPastOrderWindowAssistantContextWithCache
 			TurnId:    strPtr(turnID),
 			Role:      "user",
 			Type:      "text",
-			Content:   strPtr("show my order 2667545"),
+			Content:   strPtr("show my record 2667545"),
 			CreatedAt: createdAt,
 		}
 		interim := &apiconv.Message{
@@ -871,9 +871,9 @@ func TestBuildHistoryWithLimit_PreservesPastOrderWindowAssistantContextWithCache
 	}
 
 	transcript := apiconv.Transcript{
-		makeTurn("turn-1", "user-1", "assistant-1", "The order summary window for ad order 2667545 is now open and in focus.", "ui/window/list", now),
-		makeTurn("turn-2", "user-2", "assistant-2", "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.", "ui/datasource/peek", now.Add(10*time.Second)),
-		makeTurn("turn-3", "user-3", "assistant-3", "I couldn’t open the order window because there’s no active UI client attached to this chat right now. If you reopen this conversation in the app/browser and ask again, I can open ad order 2667545.", "ui/view:open", now.Add(20*time.Second)),
+		makeTurn("turn-1", "user-1", "assistant-1", "The details window for record 2667545 is now open and in focus.", "ui/window/list", now),
+		makeTurn("turn-2", "user-2", "assistant-2", "The details window for record 2667545 is already open. I brought that existing Details view forward.", "ui/datasource/peek", now.Add(10*time.Second)),
+		makeTurn("turn-3", "user-3", "assistant-3", "I couldn’t open the record window because there’s no active UI client attached to this chat right now. If you reopen this conversation in the app/browser and ask again, I can open record 2667545.", "ui/view:open", now.Add(20*time.Second)),
 	}
 
 	cacheableRegistry := &fakeRegistry{defs: []llm.ToolDefinition{
@@ -891,7 +891,7 @@ func TestBuildHistoryWithLimit_PreservesPastOrderWindowAssistantContextWithCache
 
 	result, err := svc.buildHistoryWithLimit(context.Background(), transcript, &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show my order 2667545",
+		Query:          "show my record 2667545",
 	})
 	if err != nil {
 		t.Fatalf("buildHistoryWithLimit error: %v", err)
@@ -938,7 +938,7 @@ func TestBuildHistoryWithLimit_PreservesAssistantContextWhenTurnStartsWithRouter
 			TurnId:    strPtr(turnID),
 			Role:      "user",
 			Type:      "text",
-			Content:   strPtr("show my order 2667545"),
+			Content:   strPtr("show my record 2667545"),
 			CreatedAt: createdAt.Add(time.Second),
 		}
 		interim := &apiconv.Message{
@@ -986,10 +986,10 @@ func TestBuildHistoryWithLimit_PreservesAssistantContextWhenTurnStartsWithRouter
 	}
 
 	transcript := apiconv.Transcript{
-		makeTurn("turn-1", "user-1", "assistant-1", "The order summary window for ad order 2667545 is now open and in focus.", "ui/window/list", now),
-		makeTurn("turn-2", "user-2", "assistant-2", "The order summary window for ad order 2667545 is already open. I brought that existing Order Summary view forward.", "ui/datasource/peek", now.Add(10*time.Second)),
-		makeTurn("turn-3", "user-3", "assistant-3", "I couldn’t open the order window because there’s no active UI client attached to this chat right now. If you reopen this conversation in the app/browser and ask again, I can open ad order 2667545.", "ui/view:open", now.Add(20*time.Second)),
-		makeTurn("turn-4", "user-4", "assistant-4", "I can’t open the Order Summary from this chat right now because there isn’t an active UI session attached. Reopen this conversation in the app/browser, then ask again and I’ll open ad order 2667545.", "ui/window/list", now.Add(30*time.Second)),
+		makeTurn("turn-1", "user-1", "assistant-1", "The details window for record 2667545 is now open and in focus.", "ui/window/list", now),
+		makeTurn("turn-2", "user-2", "assistant-2", "The details window for record 2667545 is already open. I brought that existing Details view forward.", "ui/datasource/peek", now.Add(10*time.Second)),
+		makeTurn("turn-3", "user-3", "assistant-3", "I couldn’t open the record window because there’s no active UI client attached to this chat right now. If you reopen this conversation in the app/browser and ask again, I can open record 2667545.", "ui/view:open", now.Add(20*time.Second)),
+		makeTurn("turn-4", "user-4", "assistant-4", "I can’t open the Details from this chat right now because there isn’t an active UI session attached. Reopen this conversation in the app/browser, then ask again and I’ll open record 2667545.", "ui/window/list", now.Add(30*time.Second)),
 	}
 
 	cacheableRegistry := &fakeRegistry{defs: []llm.ToolDefinition{
@@ -1007,7 +1007,7 @@ func TestBuildHistoryWithLimit_PreservesAssistantContextWhenTurnStartsWithRouter
 
 	result, err := svc.buildHistoryWithLimit(context.Background(), transcript, &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show my order 2667545",
+		Query:          "show my record 2667545",
 	})
 	if err != nil {
 		t.Fatalf("buildHistoryWithLimit error: %v", err)

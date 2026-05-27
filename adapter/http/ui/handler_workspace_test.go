@@ -105,9 +105,9 @@ func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowWhenStaticWindowIsAbsent(t 
 
 	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order.yaml"), `
 id: order
-title: Order Summary
+title: Details
 windowKey: order
-namespace: Order Summary
+namespace: Details
 view:
   content:
     id: orderRoot
@@ -129,7 +129,7 @@ cardinality: collection
 parameters:
   - name: order_id
     in: windowForm
-    location: AdOrderId.0
+    location: RecordId.0
 `)
 
 	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
@@ -165,7 +165,7 @@ parameters:
 	if payload.Status != "ok" {
 		t.Fatalf("expected ok status, got %q", payload.Status)
 	}
-	if payload.Data.Namespace != "Order Summary" {
+	if payload.Data.Namespace != "Details" {
 		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
 	}
 	if payload.Data.View.Content.ID != "orderRoot" {
@@ -185,10 +185,10 @@ func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowWithImportedSharedContent(t
 		workspace.SetRoot(prevRoot)
 	})
 
-	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder.yaml"), `
-id: metricReportBuilder
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "reportBuilder.yaml"), `
+id: reportBuilder
 title: Metric Report Builder
-windowKey: metricReportBuilder
+windowKey: reportBuilder
 namespace: Metric Report Builder
 view:
   content:
@@ -223,14 +223,14 @@ cardinality: collection
 autoFetch: false
 backend:
   kind: mcp_tool
-  service: steward
-  method: MetricsAdCube
+  service: workspace
+  method: MetricsCube
 `)
 
 	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/window/metricReportBuilder")
+	resp, err := http.Get(server.URL + "/window/reportBuilder")
 	if err != nil {
 		t.Fatalf("window request failed: %v", err)
 	}
@@ -318,8 +318,8 @@ title: Forecasting Cube
 dataSourceRef: forecasting_cube_report
 reportBuilder:
   hooks:
-    initializeState: Forecasting Cube.stewardForecastingBuilder.initializeState
-    buildRequest: Forecasting Cube.stewardForecastingBuilder.buildRequest
+    initializeState: Forecasting Cube.workspaceForecastingBuilder.initializeState
+    buildRequest: Forecasting Cube.workspaceForecastingBuilder.buildRequest
   measures:
     - id: avails
       key: avails
@@ -340,8 +340,8 @@ cardinality: collection
 autoFetch: false
 backend:
   kind: mcp_tool
-  service: steward
-  method: ForecastingCube
+  service: workspace
+  method: ForecastCube
 `)
 
 	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
@@ -411,25 +411,25 @@ func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowCompanionJS(t *testing.T) {
 		workspace.SetRoot(prevRoot)
 	})
 
-	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder", "main.yaml"), `
-id: metricReportBuilder
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "reportBuilder", "main.yaml"), `
+id: reportBuilder
 title: Metric Report Builder
-windowKey: metricReportBuilder
+windowKey: reportBuilder
 namespace: Metric Report Builder
 view:
   content:
-    id: metricReportBuilderRoot
+    id: reportBuilderRoot
     kind: dashboard.reportBuilder
     dataSourceRef: metrics_ad_cube_report
     dashboard:
       reportBuilder:
         hooks:
-          buildRequest: stewardReportBuilder.buildRequest
+          buildRequest: workspaceReportBuilder.buildRequest
 `)
 
-	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder", "main.js"), `
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "reportBuilder", "main.js"), `
 (() => ({
-  stewardReportBuilder: {
+  workspaceReportBuilder: {
     buildRequest({ request }) {
       return {
         ...request,
@@ -446,7 +446,7 @@ view:
 	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/window/metricReportBuilder")
+	resp, err := http.Get(server.URL + "/window/reportBuilder")
 	if err != nil {
 		t.Fatalf("window request failed: %v", err)
 	}
@@ -481,7 +481,7 @@ view:
 	if payload.Data.Namespace != "Metric Report Builder" {
 		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
 	}
-	if payload.Data.View.Content.ID != "metricReportBuilderRoot" {
+	if payload.Data.View.Content.ID != "reportBuilderRoot" {
 		t.Fatalf("expected workspace content id, got %q", payload.Data.View.Content.ID)
 	}
 	if payload.Data.Actions == nil || payload.Data.Actions.Code == "" {

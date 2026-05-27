@@ -54,7 +54,7 @@ func TestBuildView_RecordCollectionEditors(t *testing.T) {
 }
 
 func TestBuildView_ApprovalSelectorsDefaultToInputRoot(t *testing.T) {
-	view := BuildView("steward/RecommendationPatch", map[string]interface{}{
+	view := BuildView("workspace/RecordPatch", map[string]interface{}{
 		"Recommendation": map[string]interface{}{
 			"change_reason": "Narrow follow-up add bundle passed forecast guardrails against baseline.",
 		},
@@ -138,7 +138,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 			"recommendation_id": 7301206001,
 			"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
 			"metadata": map[string]interface{}{
-				"source": "site_list_planner_submit",
+				"source": "entity_list_planner_submit",
 			},
 		},
 	}
@@ -175,7 +175,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 		"recommendation_id": float64(7301206001),
 		"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
 		"metadata": map[string]interface{}{
-			"source": "site_list_planner_submit",
+			"source": "entity_list_planner_submit",
 		},
 		"audience_id":        7301206,
 		"mode":               "ADD",

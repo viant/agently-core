@@ -21,7 +21,7 @@ type Callback struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 
 	// Tool is the name the registry's Execute expects (e.g.
-	// "steward-SaveRecommendation"). Required.
+	// "workspace-SaveRecord"). Required.
 	Tool string `yaml:"tool" json:"tool"`
 
 	// AllowedRoles optionally narrows who can dispatch this callback. When
@@ -44,9 +44,9 @@ type Callback struct {
 //	{{.turnId}}            from the dispatch input (optional)
 //	{{.agentId}}           from the current conversation, when known
 //	{{.agencyId}}          from conversation scope, when resolvable
-//	{{.advertiserId}}      "
-//	{{.campaignId}}        "
-//	{{.adOrderId}}         "
+//	{{.customerId}}      "
+//	{{.projectId}}        "
+//	{{.recordId}}         "
 //	{{.audienceId}}        "
 //	{{.payload.*}}         raw forge submit body (nested access supported)
 //	{{.selectedRows}}      convenience alias for .payload.selectedRows

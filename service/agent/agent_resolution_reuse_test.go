@@ -117,9 +117,9 @@ func TestTryReuseFromPriorTurn(t *testing.T) {
 	})
 
 	t.Run("never reuses helper-sidecar agents", func(t *testing.T) {
-		conv := makeReuseConv("c1", "intake_sidecar", "review weekly advertiser health")
+		conv := makeReuseConv("c1", "intake_sidecar", "review weekly customer health")
 		s := &Service{conversation: &reuseConvStub{conv: conv}}
-		got := s.tryReuseFromPriorTurn(context.Background(), conv, "review weekly advertiser health", authorized)
+		got := s.tryReuseFromPriorTurn(context.Background(), conv, "review weekly customer health", authorized)
 		assert.Nil(t, got, "helper-sidecar turns must never become continuity agents")
 	})
 
