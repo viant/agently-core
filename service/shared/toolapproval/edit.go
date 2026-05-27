@@ -60,6 +60,40 @@ func ApplyReview(args map[string]interface{}, review *llm.ApprovalReviewConfig, 
 	}
 }
 
+func ApplyDecisionPatch(args map[string]interface{}, patch map[string]interface{}) error {
+	if len(args) == 0 || len(patch) == 0 {
+		return nil
+	}
+	for key, value := range patch {
+		if err := applyDecisionPatchValue(args, strings.TrimSpace(key), value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyDecisionPatchValue(args map[string]interface{}, path string, value interface{}) error {
+	if path == "" {
+		return nil
+	}
+	if nested, ok := value.(map[string]interface{}); ok && len(nested) > 0 {
+		for key, item := range nested {
+			nextPath := key
+			if path != "" {
+				nextPath = path + "." + strings.TrimSpace(key)
+			}
+			if err := applyDecisionPatchValue(args, nextPath, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := resolver.Assign(args, path, cloneValue(value)); err != nil {
+		return fmt.Errorf("apply approval decision patch %s: %w", path, err)
+	}
+	return nil
+}
+
 func resolveEditedValue(editor *EditorView, raw interface{}) (interface{}, bool, error) {
 	if editor == nil {
 		return nil, false, nil
@@ -134,6 +168,7 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	audienceIDField := strings.TrimSpace(stringValue(xform["audienceIdField"]))
 	feature := strings.TrimSpace(stringValue(xform["feature"]))
 	writePath := strings.TrimSpace(stringValue(xform["writePath"]))
+	replaceTarget := boolValue(xform["replaceTarget"]) || boolValue(xform["resetTarget"])
 	if groupBy == "" || valueField == "" || audienceIDField == "" || feature == "" || writePath == "" {
 		return fmt.Errorf("approval review group_rows requires groupBy, valueField, audienceIdField, feature, and writePath")
 	}
@@ -212,9 +247,12 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	if len(values) == 0 {
 		return fmt.Errorf("approval review group_rows produced no values for group %q", targetGroup)
 	}
-	recommendation := cloneMapValue(existingMapValue(args[writePath]))
-	if recommendation == nil {
-		recommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+	var recommendation map[string]interface{}
+	if !replaceTarget {
+		recommendation = cloneMapValue(existingMapValue(args[writePath]))
+		if recommendation == nil {
+			recommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+		}
 	}
 	if recommendation == nil {
 		recommendation = map[string]interface{}{}
