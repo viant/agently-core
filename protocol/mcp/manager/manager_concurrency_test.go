@@ -90,7 +90,7 @@ func TestManagerGet_SingleFlightsConcurrentClientCreation(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx], errs[idx] = mgr.Get(context.Background(), "conv-1", "steward")
+			results[idx], errs[idx] = mgr.Get(context.Background(), "conv-1", "primary")
 		}(i)
 	}
 	wg.Wait()

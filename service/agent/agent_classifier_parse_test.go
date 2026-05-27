@@ -30,10 +30,10 @@ func TestParseClassifierResult_UnifiedSchema(t *testing.T) {
 	})
 
 	t.Run("route may carry directAction", func(t *testing.T) {
-		got := parseClassifierResult(mkResp(`{"action":"route","agentId":"steward","directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"Opened."}}`), "agentId")
+		got := parseClassifierResult(mkResp(`{"action":"route","agentId":"primary","directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"Opened."}}`), "agentId")
 		assert.NotNil(t, got)
 		assert.Equal(t, ClassifierActionRoute, got.Action)
-		assert.Equal(t, "steward", got.AgentID)
+		assert.Equal(t, "primary", got.AgentID)
 		if assert.NotNil(t, got.DirectAction) {
 			assert.Equal(t, "ui/view:open", got.DirectAction.ToolName)
 			assert.Equal(t, "Opened.", got.DirectAction.AssistantText)

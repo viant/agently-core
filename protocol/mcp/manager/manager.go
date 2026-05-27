@@ -313,7 +313,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if useTransportAuth {
 		clientRT = rt
 	}
-	cli, err := mcp.NewClientWithContext(ctx, h, opts.ClientOptions)
+	cli, err := mcp.NewClient(h, opts.ClientOptions)
 	if err != nil {
 		return nil, err
 	}

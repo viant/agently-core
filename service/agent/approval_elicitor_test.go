@@ -45,7 +45,7 @@ func TestBuildApprovalRequestedSchema_UsesReviewRequestedSchemaAndSeedsDefaults(
 	}
 
 	view := toolapproval.View{
-		ToolName: "steward-RecommendationPatch",
+		ToolName: "workspace-RecordPatch",
 		Title:    "Review selected recommendations",
 		Message:  "Review before patching.",
 	}
@@ -57,7 +57,7 @@ func TestBuildApprovalRequestedSchema_UsesReviewRequestedSchemaAndSeedsDefaults(
 		},
 	}
 
-	got := buildApprovalRequestedSchema("steward-RecommendationPatch", view, cfg, args, "Submit", "Decline", "Cancel")
+	got := buildApprovalRequestedSchema("workspace-RecordPatch", view, cfg, args, "Submit", "Decline", "Cancel")
 	require.Equal(t, "object", got.Type)
 	props := got.Properties
 	require.Equal(t, "tool_approval", props["_type"].(map[string]interface{})["const"])

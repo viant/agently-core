@@ -209,22 +209,22 @@ func TestService_Load_ToolBundles(t *testing.T) {
 func TestService_Load_ResolvesDeclaredAgentIDAcrossHyphenatedDirectory(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	agentDir := filepath.Join(root, "agents", "steward-planner")
+	agentDir := filepath.Join(root, "agents", "planner-agent")
 	require.NoError(t, os.MkdirAll(agentDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "steward-planner.yaml"), []byte(`
-id: steward_planner
-name: Steward Planner
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "planner-agent.yaml"), []byte(`
+id: planner_agent
+name: Planner Agent
 modelRef: openai_gpt-5_4
 prompt:
   text: "{{ .Task.Query }}"
 `), 0o644))
 
 	service := New(WithMetaService(meta.New(afs.New(), root)))
-	got, err := service.Load(ctx, "steward_planner")
+	got, err := service.Load(ctx, "planner_agent")
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "steward_planner", got.ID)
-	assert.Equal(t, "Steward Planner", got.Name)
+	assert.Equal(t, "planner_agent", got.ID)
+	assert.Equal(t, "Planner Agent", got.Name)
 }
 
 func TestService_Load_BootstrapToolCalls(t *testing.T) {
@@ -367,7 +367,7 @@ func TestService_Load_Intake_Orchestrator(t *testing.T) {
 	assert.Equal(t, 400, cfg.MaxTokens)
 	assert.InDelta(t, 0.85, cfg.ConfidenceThreshold, 0.001)
 	assert.True(t, cfg.PlannerEnabled)
-	assert.Equal(t, "steward_planner", cfg.PlannerAgentID)
+	assert.Equal(t, "planner_agent", cfg.PlannerAgentID)
 	assert.InDelta(t, 0.7, cfg.PlannerFallbackThreshold, 0.001)
 	assert.True(t, cfg.PlannerOnValidatorFailure)
 	assert.True(t, cfg.PlannerOnCreativeRequest)
@@ -386,12 +386,12 @@ func TestService_Load_Intake_Orchestrator(t *testing.T) {
 func TestService_Load_IntakePromptObject(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	agentDir := filepath.Join(root, "agents", "steward")
+	agentDir := filepath.Join(root, "agents", "primary")
 	require.NoError(t, os.MkdirAll(agentDir, 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "intake"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "steward.yaml"), []byte(`
-id: steward
-name: Steward
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "primary.yaml"), []byte(`
+id: primary
+name: Primary
 modelRef: gpt-4o
 intake:
   enabled: true
@@ -401,7 +401,7 @@ intake:
 `), 0o644))
 
 	service := New(WithMetaService(meta.New(afs.New(), root)))
-	got, err := service.Load(ctx, "steward")
+	got, err := service.Load(ctx, "primary")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "intake/intake.tmpl", got.Intake.Prompt.URI)
@@ -411,7 +411,7 @@ intake:
 func TestService_Load_IntakeActivationRules(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	agentDir := filepath.Join(root, "agents", "steward")
+	agentDir := filepath.Join(root, "agents", "primary")
 	require.NoError(t, os.MkdirAll(agentDir, 0o755))
 	intakeDir := filepath.Join(root, "intake")
 	require.NoError(t, os.MkdirAll(intakeDir, 0o755))
@@ -426,7 +426,7 @@ func TestService_Load_IntakeActivationRules(t *testing.T) {
         source: "$1"
         pattern: '\d+'
   prompting:
-    suggestedProfileId: workspace_ui
+    suggestedProfileId: workspace_console
   action:
     tool: ui/view:open
     input:
@@ -435,14 +435,14 @@ func TestService_Load_IntakeActivationRules(t *testing.T) {
     item:
       id: order
       parameters:
-        AdOrderId:
+        RecordId:
           - "$item:int"
   response:
     assistantText: The requested orders are now open.
 `), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "steward.yaml"), []byte(`
-id: steward
-name: Steward
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "primary.yaml"), []byte(`
+id: primary
+name: Primary
 modelRef: gpt-4o
 intake:
   enabled: true
@@ -450,13 +450,13 @@ intake:
 `), 0o644))
 
 	service := New(WithMetaService(meta.New(afs.New(), root)))
-	got, err := service.Load(ctx, "steward")
+	got, err := service.Load(ctx, "primary")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Len(t, got.Intake.ActivationRules, 1)
 	rule := got.Intake.ActivationRules[0]
 	assert.Equal(t, "open_order_windows", rule.ID)
-	assert.Equal(t, "workspace_ui", rule.Prompting.SuggestedProfileID)
+	assert.Equal(t, "workspace_console", rule.Prompting.SuggestedProfileID)
 	assert.Equal(t, "ui/view:open", rule.Action.Tool)
 	assert.Equal(t, "ids", rule.Action.Foreach)
 	assert.Equal(t, "The requested orders are now open.", rule.Response.AssistantText)

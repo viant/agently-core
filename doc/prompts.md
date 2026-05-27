@@ -27,7 +27,7 @@ Reduce example workspace complexity without losing controllability.
 - reduce prompt and tool-bundle duplication across specialists
 - make output shaping reusable across business scenarios
 - keep routing, capability boundaries, and evaluation understandable
-- lower the cost of adding new campaign-analysis scenarios
+- lower the cost of adding new project-analysis scenarios
 
 The desired end state is not fewer YAML files. It is simpler configuration, clearer ownership of behavior, and safer evolution.
 
@@ -81,7 +81,7 @@ Replace the proliferation of specialist agents with three layers:
 
 Do not encode every scenario as a separate agent. Encode most scenarios as profiles.
 
-Separate workers are only justified when the tool family, validation rules, or failure modes are fundamentally different (e.g. a detached forecasting skill path, `platform-lookup`).
+Separate workers are only justified when the tool family, validation rules, or failure modes are fundamentally different (e.g. a detached forecasting skill path, `platform-entity-lookup`).
 
 ---
 
@@ -106,21 +106,21 @@ Separate workers are only justified when the tool family, validation rules, or f
 id: performance_analysis
 name: Performance Analysis
 description: >
-  Analyze pacing, spend velocity, and KPI health.
-  Use when the user asks about campaign delivery or budget posture.
+  Analyze performance, trend velocity, and metric health.
+  Use when the user asks about project health or status drift.
 appliesTo:
   - performance
-  - pacing
+  - health
   - kpi
 messages:
   - role: system
     text: |
-      You are a performance analyst for digital advertising campaigns.
-      Focus on pacing posture, spend velocity, and KPI deviation.
+      You are a performance analyst for complex projects.
+      Focus on trend posture, change velocity, and metric deviation.
       Return actionable recommendations backed by evidence from the data.
   - role: user
     text: |
-      Analyze the campaign hierarchy provided and return the top optimization
+      Analyze the project hierarchy provided and return the top optimization
       actions with supporting evidence.
 toolBundles:
   - workspace-performance-tools
@@ -211,8 +211,8 @@ The same injection loop applies wherever profile messages are injected — wheth
     {
       "id": "performance_analysis",
       "name": "Performance Analysis",
-      "description": "Analyze pacing, spend velocity, and KPI health. Use when the user asks about campaign delivery.",
-      "appliesTo": ["performance", "pacing", "kpi"],
+      "description": "Analyze performance, trend velocity, and metric health. Use when the user asks about project health.",
+      "appliesTo": ["performance", "health", "kpi"],
       "toolBundles": ["workspace-performance-tools"],
       "template": "analytics_dashboard"
     }
@@ -226,12 +226,12 @@ The same injection loop applies wherever profile messages are injected — wheth
 {
   "id": "performance_analysis",
   "toolBundles": ["workspace-performance-tools"],
-  "preferredTools": ["workspace-MetricsAdCube", "workspace-AdHierarchy"],
+  "preferredTools": ["workspace-MetricsCube", "workspace-EntityHierarchy"],
   "template": "analytics_dashboard",
-  "resources": ["workspace-campaign-kb"],
+  "resources": ["workspace-entity-kb"],
   "messages": [
     { "role": "system", "text": "You are a performance analyst..." },
-    { "role": "user",   "text": "Analyze the campaign hierarchy..." }
+    { "role": "user",   "text": "Analyze the project hierarchy..." }
   ],
   "injected": false
 }
@@ -263,7 +263,7 @@ The agently-core MCP server's `ListPrompts` and `GetPrompt` handlers (currently 
 Do not embed tool names in prompt text:
 
 ```
-❌  "Use workspace-MetricsAdCube, workspace-SiteMetricsAdCube, workspace-AdHierarchy..."
+❌  "Use workspace-MetricsCube, workspace-EntityMetrics, workspace-EntityHierarchy..."
 ✓   toolBundles: ["workspace-performance-tools"]
 ```
 
@@ -311,11 +311,11 @@ Runs before `orchestrator` does any routing. Produces intake `Context`:
 
 ```json
 {
-  "title": "Campaign 4821 Underpacing — Week of April 15",
+  "title": "Project 4821 Below Target — Week of April 15",
   "intent": "diagnosis",
   "entities": {
-    "campaignId": "4821",
-    "issue": "underpacing",
+    "projectId": "4821",
+    "issue": "below target",
     "timeframe": "this week",
     "urgency": "end-of-week"
   },
@@ -424,7 +424,7 @@ expansion:
   maxTokens: 600
 ```
 
-The sidecar receives the profile's rendered messages + the user task. It returns refined messages scoped to the specific campaign, timeframe, and decision horizon — without the worker having to infer these from a generic instruction set.
+The sidecar receives the profile's rendered messages + the user task. It returns refined messages scoped to the specific project, timeframe, and decision horizon — without the worker having to infer these from a generic instruction set.
 
 **Constraints:** no tools, no data access, no tool names in output, bounded by `maxTokens`, role structure preserved. The runtime validates output shape before injecting.
 

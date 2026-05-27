@@ -7,14 +7,14 @@ appliesTo:
 evidenceContract:
   required:
     - hierarchy
-    - pacing_campaign
+    - performance_summary
   optional:
-    - audience_delivery
+    - segment_summary
   forbidden:
-    - recommendation_only
+    - action_only
   completion:
     - emit DATA:hierarchy
-    - emit at least one pacing block
+    - emit at least one performance block
 messages:
   - role: system
     text: $import(../shared/system.txt)

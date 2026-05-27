@@ -124,11 +124,12 @@ func TestHandler_MCPUI_Read_EmptyContentsReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestHandler_MCPUI_Read_OversizedHTMLReturnsNotFound(t *testing.T) {
+func TestHandler_MCPUI_Read_LargeHTMLPassesThrough(t *testing.T) {
+	largeHTML := strings.Repeat("a", 256*1024)
 	reader := MCPUIResourceReader(func(_ context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
 		contents, err := mcpuiresource.NewReadResultHTMLContents(
 			uri,
-			strings.Repeat("a", mcpuiresource.MaxHTMLBytes+1),
+			largeHTML,
 			metaui.ResourceUI{},
 		)
 		if err != nil {
@@ -142,11 +143,15 @@ func TestHandler_MCPUI_Read_OversizedHTMLReturnsNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for oversized html, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for large html payload, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "ui html exceeds max size") {
-		t.Fatalf("expected deterministic oversized html error, got body=%s", rec.Body.String())
+	var got MCPUIResourceReadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	if got.Text != largeHTML {
+		t.Fatalf("expected html payload to pass through unchanged")
 	}
 }
 

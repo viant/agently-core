@@ -76,10 +76,10 @@ The router LLM emits exactly **one** of these JSON shapes per call:
 ### 3.1 `route` — pick an authorized agent
 
 ```json
-{"action":"route","agentId":"steward"}
+{"action":"route","agentId":"primary"}
 ```
 
-The runtime resolves `steward` and runs `agent.Query()` normally. Same as
+The runtime resolves `primary` and runs `agent.Query()` normally. Same as
 today's auto-selection behavior, just produced by a configurable prompt
 instead of hardcoded markers.
 
@@ -146,7 +146,7 @@ the skip rule in `service/agent/intake_query.go:maybeRunIntakeSidecar`.
 Examples:
 
 - A UI form where the user picked the agent and provided a title — pass a
-  `Context{SelectedAgentID: "steward", Title: "Forecast", Mode: "route"}`.
+  `Context{SelectedAgentID: "primary", Title: "Forecast", Mode: "route"}`.
 - A test that needs deterministic routing — pass a fixed override.
 - A cached prior turn — pass last turn's `Context` to keep stickiness
   without trusting topic-shift heuristics.
@@ -163,8 +163,8 @@ enforced by keeping those fields out of agent-intake output handling.
 
 ```yaml
 # agent.yaml
-id: steward
-name: Steward Agent
+id: primary
+name: Primary Agent
 intake:
   enabled: true
   scope:

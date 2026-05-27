@@ -4,6 +4,11 @@
 #define($_ = $Data<?>(output/view))
 #define($_ = $Metrics<?>(output/metrics))
 
+#set($_ = $OrderBy<[]string>(query/sort).Optional().QuerySelector(queue_rows))
+#set($_ = $Page<int>(query/page).Optional().QuerySelector(queue_rows))
+#set($_ = $Limit<int>(query/limit).Optional().QuerySelector(queue_rows))
+#set($_ = $Offset<int>(query/offset).Optional().QuerySelector(queue_rows))
+
 #define($_ = $UserId<string>(query/userId).WithPredicate(0, 'equal', 'q', 'user_id'))
 #define($_ = $ConversationId<string>(query/conversationId).WithPredicate(0, 'equal', 'q', 'conversation_id'))
 #define($_ = $TurnId<string>(query/turnId).WithPredicate(0, 'equal', 'q', 'turn_id'))

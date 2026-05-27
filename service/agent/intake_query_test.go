@@ -129,14 +129,14 @@ func TestShouldRunIntake_ExplicitPromptProfileSkipsSidecar(t *testing.T) {
 
 func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *testing.T) {
 	now := time.Now()
-	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
+	intakeJSON := `{"classification":{"title":"Show record 2637048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
 				{
 					Id: "turn-1",
 					Message: []*agconv.MessageView{
-						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my order 2637048"), CreatedAt: now},
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now},
 						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
 					},
 				},
@@ -146,28 +146,28 @@ func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *te
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show my order 2637048",
+		Query:          "show my record 2637048",
 	}, cfg)
 	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when the prior turn carried a direct action")
 }
 
 func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePriorTurnDidNot(t *testing.T) {
 	now := time.Now()
-	intakeJSON := `{"classification":{"title":"Show ad order 2637048","intent":"troubleshoot_ad_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"opened"}}`
+	intakeJSON := `{"classification":{"title":"Show record 2637048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
 				{
 					Id: "turn-1",
 					Message: []*agconv.MessageView{
-						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my order 2637048"), CreatedAt: now},
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now},
 						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
 					},
 				},
 				{
 					Id: "turn-2",
 					Message: []*agconv.MessageView{
-						{Id: "msg-user-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("show my order 2637048"), CreatedAt: now.Add(time.Second)},
+						{Id: "msg-user-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now.Add(time.Second)},
 						{Id: "msg-assistant-2", TurnId: strPtr("turn-2"), Role: "assistant", Type: "text", Content: strPtr("I couldn't reopen it..."), CreatedAt: now.Add(time.Second)},
 					},
 				},
@@ -177,7 +177,7 @@ func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePrio
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show my order 2637048",
+		Query:          "show my record 2637048",
 	}, cfg)
 	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when an older matching turn carried a direct action")
 }
@@ -190,7 +190,7 @@ func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithout
 				{
 					Id: "turn-1",
 					Message: []*agconv.MessageView{
-						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show order 2656980"), CreatedAt: now},
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show record 2656980"), CreatedAt: now},
 						{Id: "msg-assistant-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr("opened"), CreatedAt: now},
 					},
 				},
@@ -200,7 +200,7 @@ func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithout
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show order 2609393",
+		Query:          "show record 2609393",
 	}, cfg)
 	require.True(t, got, "concrete order-open asks must rerun intake even when only the order id changed")
 }
@@ -230,7 +230,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 		{query: "show delivery", tabID: "deliveryTab"},
 		{query: "show hh metrics", tabID: "hhMetricsTab"},
 		{query: "show household metrics", tabID: "hhMetricsTab"},
-		{query: "show pacing", tabID: "pacingTab"},
+		{query: "show performance", tabID: "performanceTab"},
 	}
 
 	for _, testCase := range testCases {
@@ -325,7 +325,7 @@ func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmp
 				},
 				ActivationRules: []agentmdl.ActivationRule{
 					{
-						ID: "site_list_recommendation_candidates",
+						ID: "entity_list_review_candidates",
 						Match: agentmdl.ActivationMatch{
 							Patterns: []string{
 								`(?i)^recommend\s+sites?\s+for\s+audience\s+(\d+)(?:\b.*)?$`,
@@ -333,7 +333,7 @@ func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmp
 						},
 						Classification: agentmdl.ActivationClassification{Intent: "recommendation"},
 						Prompting: agentmdl.ActivationPrompting{
-							SuggestedProfileID: "site_list_recommendation",
+							SuggestedProfileID: "entity_list_review",
 						},
 						Scope: agentmdl.ActivationScope{
 							Values: map[string]string{
@@ -352,11 +352,11 @@ func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmp
 	tc := intakesvc.FromContext(input.Context)
 	require.NotNil(t, tc)
 	require.Equal(t, "recommendation", tc.Classification.Intent)
-	require.Equal(t, "site_list_recommendation", tc.Prompting.SuggestedProfileID)
+	require.Equal(t, "entity_list_review", tc.Prompting.SuggestedProfileID)
 	require.Empty(t, tc.Prompting.TemplateID, "site recommendation activation must not preselect a planner template")
 	require.Equal(t, "7301206", tc.Scope.Values["audienceId"])
 	require.Equal(t, "recommend_sites_with_candidates_and_exclusions", tc.Scope.Values["requestType"])
-	require.Equal(t, "site_list_recommendation", input.PromptProfileId)
+	require.Equal(t, "entity_list_review", input.PromptProfileId)
 	require.Empty(t, input.TemplateId, "applyTurnContext must keep template empty for site recommendation activation")
 }
 
@@ -370,7 +370,7 @@ func testOrderFollowUpRules() []agentmdl.ActivationRule {
 			Match: agentmdl.ActivationMatch{
 				Patterns: []string{`(?i)^show\s+(.+)$`},
 			},
-			Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+			Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_console"},
 			SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
 				TabAliases: map[string]string{
 					"kpi":               "kpiTab",
@@ -378,7 +378,7 @@ func testOrderFollowUpRules() []agentmdl.ActivationRule {
 					"delivery":          "deliveryTab",
 					"hh metrics":        "hhMetricsTab",
 					"household metrics": "hhMetricsTab",
-					"pacing":            "pacingTab",
+					"performance":       "performanceTab",
 				},
 			},
 			Response: agentmdl.ActivationResponse{AssistantText: "Updated the open order summary to $1."},
@@ -391,7 +391,7 @@ func testOrderFollowUpRules() []agentmdl.ActivationRule {
 			Match: agentmdl.ActivationMatch{
 				Patterns: []string{`(?i)^show\s+(.+)$`, `(?i)^switch\s+to\s+(.+)$`},
 			},
-			Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+			Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_console"},
 			SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
 				ControlAliases: map[string]agentmdl.ActivationSurfaceControlAlias{
 					"today":     {ControlID: "periodView", Value: "today", ValueLabel: "Today"},
@@ -424,7 +424,7 @@ func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previou
 				TurnId:    strPtr(turnID),
 				Role:      "assistant",
 				Type:      "text",
-				Content:   strPtr("Focused on ad order 2656980."),
+				Content:   strPtr("Focused on record 2656980."),
 				CreatedAt: now.Add(time.Second),
 				ToolMessage: []*agconv.ToolMessageView{
 					{
@@ -580,7 +580,7 @@ func TestNormalizeIntakeTurnContext_SuppressesTemplateIdsInSuggestedProfile(t *t
 	input := &QueryInput{
 		ConversationID: "conv-1",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 			Prompts: agentmdl.PromptAccess{
 				Bundles: []string{"inventory_diagnosis", "performance_analysis"},
 			},
@@ -632,7 +632,7 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 					Source:          intakesvc.SourceWorkspace,
 				},
 				Planner: intakesvc.PlannerContext{
-					AgentID: "steward_planner",
+					AgentID: "planner_agent",
 				},
 			},
 		},
@@ -653,7 +653,7 @@ func TestApplyTurnContext_PreservesWorkspaceMode(t *testing.T) {
 	require.Equal(t, intakesvc.ModePlanner, stored.Routing.Mode)
 	require.Equal(t, "coder", stored.Routing.SelectedAgentID)
 	require.Equal(t, intakesvc.SourceWorkspace, stored.Routing.Source)
-	require.Equal(t, "steward_planner", stored.Planner.AgentID)
+	require.Equal(t, "planner_agent", stored.Planner.AgentID)
 	require.Equal(t, "repo diagnosis", stored.Classification.Title)
 	require.Equal(t, "repo_analysis", stored.Prompting.SuggestedProfileID)
 }
@@ -662,7 +662,7 @@ func TestApplyTurnContext_PreservesExplicitPlannerModeFromIntake(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerOnCreativeRequest: true,
 		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
@@ -670,10 +670,10 @@ func TestApplyTurnContext_PreservesExplicitPlannerModeFromIntake(t *testing.T) {
 	}
 	input := &QueryInput{
 		ConversationID: "conv-exploratory",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "review audience targeting strategy, use exploratory strategy",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
@@ -687,7 +687,7 @@ func TestApplyTurnContext_PreservesExplicitPlannerModeFromIntake(t *testing.T) {
 		},
 		Routing: intakesvc.RoutingContext{
 			Mode:            intakesvc.ModePlanner,
-			SelectedAgentID: "steward",
+			SelectedAgentID: "primary",
 			Source:          intakesvc.SourceAgent,
 		},
 		Planner: intakesvc.PlannerContext{
@@ -706,9 +706,9 @@ func TestApplyTurnContext_PreservesExplicitPlannerModeFromIntake(t *testing.T) {
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
 	require.Equal(t, intakesvc.ModePlanner, stored.Routing.Mode)
-	require.Equal(t, "steward", stored.Routing.SelectedAgentID)
+	require.Equal(t, "primary", stored.Routing.SelectedAgentID)
 	require.Equal(t, intakesvc.SourceAgent, stored.Routing.Source)
-	require.Equal(t, "steward_planner", stored.Planner.AgentID)
+	require.Equal(t, "planner_agent", stored.Planner.AgentID)
 	require.Equal(t, "exploratory_strategy", stored.Planner.Trigger)
 	require.Equal(t, "diagnostic_baseline", input.PromptProfileId)
 	require.Equal(t, "analytics_dashboard", input.TemplateId)
@@ -723,11 +723,11 @@ func TestApplyTurnContext_ClearsDirectActionForPlannerSubmitGuidedTool(t *testin
 	input := &QueryInput{
 		Context: map[string]interface{}{
 			"plannerSubmitEvent": map[string]interface{}{
-				"eventName": "site_list_planner_submit",
+				"eventName": "entity_list_planner_submit",
 				"plannerSubmit": map[string]interface{}{
-					"domain": "site_list",
+					"domain": "entity_list",
 					"toolGuidance": map[string]interface{}{
-						"tool":       "steward-RecommendationPatch",
+						"tool":       "workspace-RecordPatch",
 						"toolBundle": "analyst-sitelist-tools",
 					},
 				},
@@ -737,7 +737,7 @@ func TestApplyTurnContext_ClearsDirectActionForPlannerSubmitGuidedTool(t *testin
 	tc := &intakesvc.Context{
 		Prompting: intakesvc.PromptingContext{
 			SuggestedProfileID: "",
-			TemplateID:         "site_list_planner",
+			TemplateID:         "entity_list_planner",
 			AppendToolBundles:  []string{"workspace-ui"},
 		},
 		DirectAction: intakesvc.DirectActionContext{
@@ -753,10 +753,10 @@ func TestApplyTurnContext_ClearsDirectActionForPlannerSubmitGuidedTool(t *testin
 	require.NotNil(t, stored)
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
-	require.Equal(t, "site_list_recommendation", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "entity_list_review", stored.Prompting.SuggestedProfileID)
 	require.Equal(t, "", stored.Prompting.TemplateID)
 	require.Equal(t, "", input.TemplateId)
-	require.Equal(t, "site_list_submit_followup", stored.Scope.Values["requestType"])
+	require.Equal(t, "entity_list_submit_followup", stored.Scope.Values["requestType"])
 	require.Contains(t, stored.Prompting.AppendToolBundles, "analyst-sitelist-tools")
 }
 
@@ -764,7 +764,7 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *tes
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerOnCreativeRequest: true,
 		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
@@ -772,16 +772,16 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *tes
 	}
 	input := &QueryInput{
 		ConversationID: "conv-troubleshoot-creative",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "troubleshoot order 2657966, use exploratory strategy",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
 		Classification: intakesvc.ClassificationContext{
-			Title:      "Troubleshoot ad order delivery",
-			Intent:     "troubleshoot_ad_order",
+			Title:      "Troubleshoot record delivery",
+			Intent:     "troubleshoot_record",
 			Confidence: 0.92,
 		},
 		Prompting: intakesvc.PromptingContext{
@@ -816,7 +816,7 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot_LowCon
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerOnCreativeRequest: true,
 		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
@@ -824,20 +824,20 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot_LowCon
 	}
 	input := &QueryInput{
 		ConversationID: "conv-troubleshoot-creative-low",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "troubleshoot order 2657966, use exploratory strategy",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
 		Classification: intakesvc.ClassificationContext{
-			Title:      "Troubleshoot ad order with exploratory strategy",
-			Intent:     "troubleshoot_ad_order",
+			Title:      "Troubleshoot record with exploratory strategy",
+			Intent:     "troubleshoot_record",
 			Confidence: 0.66,
 		},
 		Prompting: intakesvc.PromptingContext{
-			SuggestedProfileID: "creative_recommendation",
+			SuggestedProfileID: "creative_review",
 			TemplateID:         "analytics_dashboard",
 		},
 		DirectAction: intakesvc.DirectActionContext{
@@ -866,7 +866,7 @@ func TestApplyTurnContext_SkipsPlannerModeForExploratoryBoundedTopN(t *testing.T
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerOnCreativeRequest: true,
 		PlannerTriggerPhrases:    []string{"exploratory", "multi-angle"},
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
@@ -874,10 +874,10 @@ func TestApplyTurnContext_SkipsPlannerModeForExploratoryBoundedTopN(t *testing.T
 	}
 	input := &QueryInput{
 		ConversationID: "conv-topn-exploratory",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "show the most 3 impactful deal ids in the last 2 days, use exploratory strategy",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
@@ -887,7 +887,7 @@ func TestApplyTurnContext_SkipsPlannerModeForExploratoryBoundedTopN(t *testing.T
 			Confidence: 0.84,
 		},
 		Prompting: intakesvc.PromptingContext{
-			SuggestedProfileID: "supply_kpi",
+			SuggestedProfileID: "supply_metrics",
 			TemplateID:         "analytics_dashboard",
 		},
 		DirectAction: intakesvc.DirectActionContext{
@@ -912,7 +912,7 @@ func TestApplyTurnContext_SkipsPlannerModeForExploratoryBoundedTopN(t *testing.T
 	require.NotNil(t, stored)
 	require.NotEqual(t, intakesvc.ModePlanner, stored.Routing.Mode)
 	require.Empty(t, stored.Planner.Trigger)
-	require.Equal(t, "supply_kpi", input.PromptProfileId)
+	require.Equal(t, "supply_metrics", input.PromptProfileId)
 	require.Equal(t, "analytics_dashboard", input.TemplateId)
 }
 
@@ -920,7 +920,7 @@ func TestApplyTurnContext_DoesNotEnablePlannerModeForLowConfidenceDirectAgentReq
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerFallbackThreshold: 0.7,
 		PlannerOnCreativeRequest: true,
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile},
@@ -928,10 +928,10 @@ func TestApplyTurnContext_DoesNotEnablePlannerModeForLowConfidenceDirectAgentReq
 	}
 	input := &QueryInput{
 		ConversationID: "conv-low-confidence",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "run forecast for audience 7268995 with a non-standard review",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
@@ -962,7 +962,7 @@ func TestApplyTurnContext_SkipsPlannerModeForConcreteForecast_LowConfidence(t *t
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerFallbackThreshold: 0.7,
 		PlannerOnCreativeRequest: true,
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
@@ -970,10 +970,10 @@ func TestApplyTurnContext_SkipsPlannerModeForConcreteForecast_LowConfidence(t *t
 	}
 	input := &QueryInput{
 		ConversationID: "conv-forecast-low-confidence",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "forecase line 7272328",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
@@ -1009,7 +1009,7 @@ func TestApplyTurnContext_SkipsPlannerModeForClarification_LowConfidence(t *test
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,
 		PlannerEnabled:           true,
-		PlannerAgentID:           "steward_planner",
+		PlannerAgentID:           "planner_agent",
 		PlannerFallbackThreshold: 0.7,
 		PlannerOnCreativeRequest: true,
 		Scope:                    []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile},
@@ -1017,10 +1017,10 @@ func TestApplyTurnContext_SkipsPlannerModeForClarification_LowConfidence(t *test
 	}
 	input := &QueryInput{
 		ConversationID: "conv-clarification-low-confidence",
-		AgentID:        "steward",
+		AgentID:        "primary",
 		Query:          "did you listed all order ?",
 		Agent: &agentmdl.Agent{
-			Identity: agentmdl.Identity{ID: "steward"},
+			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
@@ -1345,13 +1345,13 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 								"ids": {Type: "regex_all", Source: "$1", Pattern: `\d+`},
 							},
 						},
-						Classification: agentmdl.ActivationClassification{Intent: "troubleshoot_ad_order"},
-						Prompting:      agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+						Classification: agentmdl.ActivationClassification{Intent: "troubleshoot_record"},
+						Prompting:      agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_console"},
 						Scope: agentmdl.ActivationScope{Values: map[string]string{
 							"uiTarget":    "order",
 							"workspaceUI": "activation",
 							"action":      "open",
-							"adOrderIds":  "$ids",
+							"recordIds":   "$ids",
 						}},
 						Action: agentmdl.ActivationAction{
 							Tool:    "ui/view:open",
@@ -1361,7 +1361,7 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 								"id":       "order",
 								"openMode": "append",
 								"parameters": map[string]interface{}{
-									"AdOrderId": []interface{}{"$item:int"},
+									"RecordId": []interface{}{"$item:int"},
 								},
 							},
 						},
@@ -1373,10 +1373,10 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 	}
 	override := svc.resolveWorkspaceActivationProfileOverride(input)
 	require.NotNil(t, override)
-	require.Equal(t, "workspace_ui", override.Prompting.SuggestedProfileID)
+	require.Equal(t, "workspace_console", override.Prompting.SuggestedProfileID)
 	require.Equal(t, "order", override.Scope.Values["uiTarget"])
 	require.Equal(t, "open", override.Scope.Values["action"])
-	require.Equal(t, "2656980,2609393", override.Scope.Values["adOrderIds"])
+	require.Equal(t, "2656980,2609393", override.Scope.Values["recordIds"])
 	require.Equal(t, "ui/view:open", override.DirectAction.ToolName)
 	require.Len(t, override.DirectAction.Input["items"], 2)
 }
@@ -1449,7 +1449,7 @@ func TestResolveWorkspaceUIIntentOverride_LiveTabMatch(t *testing.T) {
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{`(?i)^show\s+(.+)$`},
 					},
-					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_console"},
 					SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
 						TabAliases: map[string]string{
 							"kpi":  "kpiTab",
@@ -1514,7 +1514,7 @@ func TestResolveWorkspaceUIIntentOverride_FollowUpRuleTranscriptOrderControl(t *
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{`(?i)^show\s+(.+)$`},
 					},
-					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_console"},
 					SurfaceMatch: &agentmdl.ActivationSurfaceMatch{
 						ControlAliases: map[string]agentmdl.ActivationSurfaceControlAlias{
 							"7d": {ControlID: "periodView", Value: "7d", ValueLabel: "7D"},
@@ -1548,15 +1548,15 @@ func TestMaybeRunIntakeSidecar_AppliesWorkspaceActivationProfileOverride(t *test
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{`^open metric report builder$`},
 					},
-					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Prompting: agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_console"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
-						"uiTarget":    "metricReportBuilder",
+						"uiTarget":    "reportBuilder",
 						"workspaceUI": "activation",
 						"action":      "open",
 					}},
 					Action: agentmdl.ActivationAction{
 						Tool:  "ui/view:open",
-						Input: map[string]interface{}{"id": "metricReportBuilder", "timeoutMs": 600000},
+						Input: map[string]interface{}{"id": "reportBuilder", "timeoutMs": 600000},
 					},
 					Response: agentmdl.ActivationResponse{AssistantText: "The Performance Metrics workspace is now open."},
 				},
@@ -1566,14 +1566,14 @@ func TestMaybeRunIntakeSidecar_AppliesWorkspaceActivationProfileOverride(t *test
 
 	svc.maybeRunIntakeSidecar(context.Background(), input)
 
-	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	require.Equal(t, "workspace_console", input.PromptProfileId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "workspace_ui", stored.Prompting.SuggestedProfileID)
-	require.Equal(t, "metricReportBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "workspace_console", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "reportBuilder", stored.Scope.Values["uiTarget"])
 	require.Equal(t, "activation", stored.Scope.Values["workspaceUI"])
 	require.Equal(t, "ui/view:open", stored.DirectAction.ToolName)
-	require.Equal(t, "metricReportBuilder", stored.DirectAction.Input["id"])
+	require.Equal(t, "reportBuilder", stored.DirectAction.Input["id"])
 }
 
 func TestMaybeRunIntakeSidecar_ForecastSetLineRoutesToForecastTemplate(t *testing.T) {

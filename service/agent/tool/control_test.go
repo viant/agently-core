@@ -34,12 +34,12 @@ func TestFromAgent_IncludesSkillControlToolsWhenSkillsVisible(t *testing.T) {
 func TestMerge_DedupesCaseInsensitiveSelections(t *testing.T) {
 	actual := Merge(
 		Selection{Bundles: []string{"orchestrator", "ORCHESTRATOR"}, Tools: []string{"prompt:list"}},
-		Selection{Bundles: []string{"forecast"}, Tools: []string{"Prompt:List", "steward/ForecastingCube"}},
+		Selection{Bundles: []string{"forecast"}, Tools: []string{"Prompt:List", "workspace/ForecastCube"}},
 	)
 
 	assert.Equal(t, []string{"orchestrator", "forecast"}, actual.Bundles)
 	assert.Equal(t, []string{
 		mcpname.Canonical("prompt:list"),
-		mcpname.Canonical("steward/ForecastingCube"),
+		mcpname.Canonical("workspace/ForecastCube"),
 	}, actual.Tools)
 }

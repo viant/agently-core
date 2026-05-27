@@ -30,6 +30,7 @@ require (
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.15.0
 	github.com/viant/mcp-protocol v0.14.0
+	github.com/viant/mcp-ui v0.1.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.30.0
 	github.com/viant/velty v0.4.1-0.20260408224432-5a1c31e1bd87
@@ -148,7 +149,6 @@ require (
 	github.com/viant/godiff v0.4.1 // indirect
 	github.com/viant/govalidator v0.3.1 // indirect
 	github.com/viant/igo v0.2.0 // indirect
-	github.com/viant/mcp-ui v0.1.0 // indirect
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.0 // indirect
 	github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 // indirect

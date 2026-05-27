@@ -367,7 +367,7 @@ func TestResolveTools_ErrorsWhenRequestedBundlesResolveZeroDefinitions(t *testin
 			return []*toolbundle.Bundle{{
 				ID: "analyst-diagnostic-tools",
 				Match: []llm.Tool{
-					{Name: "steward-AdDiagnostic"},
+					{Name: "workspace-DiagnosticReport"},
 				},
 			}}, nil
 		},

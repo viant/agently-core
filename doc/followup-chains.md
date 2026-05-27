@@ -20,7 +20,7 @@ chains robust.
 ## Anatomy of a chain
 
 ```
-turn T0   user:    "help me diagnose campaign 123"
+turn T0   user:    "help me diagnose project 123"
           intake:  profile=performance_analysis, confidence=0.9
           reactor: plan → tool calls → assistant response
 turn T1   user:    "now recommend fixes"

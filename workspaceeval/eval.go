@@ -90,9 +90,8 @@ func DefaultContractTests() []string {
 		"templates/evidence_contract_profiles.test.js",
 		"templates/exploratory_strategy_contract.test.js",
 		"templates/operator_memory_contract.test.js",
-		"templates/steward_prompt_ownership_contract.test.js",
+		"templates/prompt_ownership_contract.test.js",
 		"templates/troubleshoot_guardrails_contract.test.js",
-		"/Users/awitas/go/src/github.com/viant/agently-core/cmd/steward-evals/recommendation_stage_contract.test.js",
 	}
 }
 
@@ -102,13 +101,13 @@ func DefaultRequiredEvidenceContractProfiles() []string {
 		"performance_analysis",
 		"inventory_diagnosis",
 		"selector_signal_impact",
-		"frequency_cap_recommendation",
-		"site_list_recommendation",
+		"policy_review",
+		"entity_list_review",
 		"configuration_review",
 		"verification_overlap",
-		"creative_recommendation",
-		"supply_kpi",
-		"workspace_ui",
+		"creative_review",
+		"supply_metrics",
+		"workspace_console",
 	}
 }
 
@@ -421,7 +420,7 @@ func SelectBehavioralEvals(evals map[string]EvalDoc, selected string) []string {
 func RunBehavioralEval(ctx context.Context, client sdk.Client, agentlyBin, api, token, oob string, doc EvalDoc) error {
 	entryAgent := strings.TrimSpace(doc.EntryAgent)
 	if entryAgent == "" {
-		entryAgent = "steward"
+		entryAgent = "primary"
 	}
 	conversationID, output, err := ExecuteBehavioralQuery(ctx, agentlyBin, api, token, oob, entryAgent, doc, TimeoutSeconds(ctx))
 	if err != nil {
@@ -503,7 +502,7 @@ func ExecuteBehavioralQuery(ctx context.Context, agentlyBin, api, token, oob, ag
 		"--api", strings.TrimSpace(api),
 		"--agent-id", strings.TrimSpace(agentID),
 		"--query", strings.TrimSpace(doc.UserPrompt),
-		"--user", "steward-evals",
+		"--user", "workspace-evals",
 		"--reset-logs",
 	}
 	if timeoutSec > 0 {
@@ -664,7 +663,7 @@ func Truncate(value string, size int) string {
 
 func expectedDelegations(doc EvalDoc) []delegatedExpectation {
 	var result []delegatedExpectation
-	if agentID := strings.TrimSpace(doc.ExpectedRouting.Agent); agentID != "" && agentID != "steward" {
+	if agentID := strings.TrimSpace(doc.ExpectedRouting.Agent); agentID != "" && agentID != "primary" {
 		result = append(result, delegatedExpectation{
 			AgentID:         agentID,
 			PromptProfileID: strings.TrimSpace(doc.ExpectedRouting.Profile),

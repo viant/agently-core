@@ -5,4 +5,4 @@ pipeline:
     checkError: true
     commands:
       - cd $repoPath
-      - $repoPath/e2e/bin/datly gen -o=get -u=agently/toolapprovalqueue/pending      -s='dql/agently/toolapprovalqueue/pending.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/toolapprovalqueue/list      -s='dql/agently/toolapprovalqueue/list.dql' $datlyOptions

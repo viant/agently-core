@@ -238,13 +238,13 @@ func TestBuildHistory_PreservesAssistantMessageWithEmptyType(t *testing.T) {
 					Id:        "user-1",
 					Role:      "user",
 					Type:      "text",
-					Content:   strPtr("show my order 2667545"),
+					Content:   strPtr("show my record 2667545"),
 					CreatedAt: now,
 				}),
 				(*agconv.MessageView)(&apiconv.Message{
 					Id:        "assistant-1",
 					Role:      "assistant",
-					Content:   strPtr("The order summary window for ad order 2667545 is now open and in focus."),
+					Content:   strPtr("The details window for record 2667545 is now open and in focus."),
 					CreatedAt: now.Add(time.Second),
 				}),
 			},
@@ -271,7 +271,7 @@ func TestBuildHistory_PreservesAssistantMessageWithEmptyType(t *testing.T) {
 	}
 
 	require.Equal(t, []string{"user", "assistant"}, roles)
-	require.Equal(t, []string{"show my order 2667545", "The order summary window for ad order 2667545 is now open and in focus."}, contents)
+	require.Equal(t, []string{"show my record 2667545", "The details window for record 2667545 is now open and in focus."}, contents)
 }
 
 func TestBuildTraces_SkipsRouterAssistantMessages(t *testing.T) {

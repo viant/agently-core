@@ -5,7 +5,7 @@ import "testing"
 func TestFilterSnapshotForConversation_FiltersHostedWindowsByConversation(t *testing.T) {
 	snapshot := &Snapshot{
 		ConversationID: "conv-new",
-		Selected:       SnapshotSelected{WindowID: "metricReportBuilder__conv-old"},
+		Selected:       SnapshotSelected{WindowID: "reportBuilder__conv-old"},
 		Windows: []WindowSnapshot{
 			{
 				WindowID:    "chat/new",
@@ -13,8 +13,8 @@ func TestFilterSnapshotForConversation_FiltersHostedWindowsByConversation(t *tes
 				WindowTitle: "Chat",
 			},
 			{
-				WindowID:       "metricReportBuilder__conv-old",
-				WindowKey:      "metricReportBuilder",
+				WindowID:       "reportBuilder__conv-old",
+				WindowKey:      "reportBuilder",
 				WindowTitle:    "Performance Metrics",
 				ConversationID: "conv-old",
 				Presentation:   "hosted",
@@ -23,8 +23,8 @@ func TestFilterSnapshotForConversation_FiltersHostedWindowsByConversation(t *tes
 				InTab:          true,
 			},
 			{
-				WindowID:       "metricReportBuilder__conv-new",
-				WindowKey:      "metricReportBuilder",
+				WindowID:       "reportBuilder__conv-new",
+				WindowKey:      "reportBuilder",
 				WindowTitle:    "Performance Metrics",
 				ConversationID: "conv-new",
 				Presentation:   "hosted",
@@ -42,7 +42,7 @@ func TestFilterSnapshotForConversation_FiltersHostedWindowsByConversation(t *tes
 	if len(got.Windows) != 2 {
 		t.Fatalf("expected chat + current hosted window only, got %#v", got.Windows)
 	}
-	if got.Windows[1].WindowID != "metricReportBuilder__conv-new" {
+	if got.Windows[1].WindowID != "reportBuilder__conv-new" {
 		t.Fatalf("expected current conversation hosted window, got %#v", got.Windows[1])
 	}
 	if got.Selected.WindowID != "" {

@@ -80,8 +80,8 @@ for ev := range sub.Events() {
 
 // 4. Feature: fetch rows from a datasource-backed picker.
 rows, err := client.FetchDatasource(ctx, &api.FetchDatasourceInput{
-    ID:     "advertiser",
-    Inputs: map[string]interface{}{"q": "acme"},
+    ID:     "customer",
+    Inputs: map[string]interface{}{"q": "ace"},
 })
 ```
 
@@ -115,8 +115,8 @@ for await (const ev of client.streamEvents({ conversationId: conv.id })) {
 
 // Picker-backed fetch.
 const rows = await client.fetchDatasource({
-    id: 'advertiser',
-    inputs: { q: 'acme' },
+    id: 'customer',
+    inputs: { q: 'ace' },
 });
 ```
 
@@ -151,7 +151,7 @@ Task {
 
     // Picker-backed fetch.
     let rows = try await client.fetchDatasource(
-        FetchDatasourceInput(id: "advertiser", inputs: ["q": .string("acme")])
+        FetchDatasourceInput(id: "customer", inputs: ["q": .string("ace")])
     )
 }
 ```
@@ -179,7 +179,7 @@ scope.launch {
 
     // Picker-backed fetch.
     val rows = client.fetchDatasource(
-        FetchDatasourceInput(id = "advertiser", inputs = mapOf("q" to JsonPrimitive("acme")))
+        FetchDatasourceInput(id = "customer", inputs = mapOf("q" to JsonPrimitive("ace")))
     )
 }
 ```

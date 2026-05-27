@@ -132,7 +132,7 @@ func (m *remoteDiscoveryManagerStub) Options(ctx context.Context, serverName str
 			Transport: mcp.ClientTransport{
 				Type: "streamable",
 				ClientTransportHTTP: mcp.ClientTransportHTTP{
-					URL: "https://steward.viantinc.com/mcp",
+					URL: "https://workspace.example.com/mcp",
 				},
 			},
 		},
@@ -153,7 +153,7 @@ func TestRegistryShouldWarmServer_SkipsRemoteWithoutCachedTools(t *testing.T) {
 		cache: map[string]*toolCacheEntry{},
 	}
 
-	if r.shouldWarmServer(context.Background(), "steward") {
+	if r.shouldWarmServer(context.Background(), "workspace") {
 		t.Fatalf("expected remote server without cached tools to skip background warming")
 	}
 }
@@ -162,11 +162,11 @@ func TestRegistryShouldWarmServer_WarmsCachedRemoteTools(t *testing.T) {
 	r := &Registry{
 		mgr: &remoteDiscoveryManagerStub{},
 		cache: map[string]*toolCacheEntry{
-			"steward/tool": {def: llm.ToolDefinition{Name: "steward/tool"}},
+			"workspace/tool": {def: llm.ToolDefinition{Name: "workspace/tool"}},
 		},
 	}
 
-	if !r.shouldWarmServer(context.Background(), "steward") {
+	if !r.shouldWarmServer(context.Background(), "workspace") {
 		t.Fatalf("expected cached remote server to keep background warming")
 	}
 }

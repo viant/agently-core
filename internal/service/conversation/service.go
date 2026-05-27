@@ -29,6 +29,8 @@ import (
 	modelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
 	payloadread "github.com/viant/agently-core/pkg/agently/payload/read"
 	payloadwrite "github.com/viant/agently-core/pkg/agently/payload/write"
+	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
+	queueOutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	toolread "github.com/viant/agently-core/pkg/agently/toolcall/read"
@@ -41,6 +43,7 @@ import (
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/datly"
 	"github.com/viant/datly/repository/contract"
+	hstate "github.com/viant/xdatly/handler/state"
 )
 
 type Service struct {
@@ -112,6 +115,12 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 		return err
 	}
 	if _, err := toolread.DefineComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := queueCount.DefineQueueTotalComponent(ctx, dao); err != nil {
+		return err
+	}
+	if err := queueOutcome.DefineOutcomeRowsComponent(ctx, dao); err != nil {
 		return err
 	}
 	if _, err := queueWrite.DefineComponent(ctx, dao); err != nil {
@@ -1362,6 +1371,10 @@ func (s *Service) PatchToolApprovalQueue(ctx context.Context, queue *queueWrite.
 }
 
 func (s *Service) ListToolApprovalQueues(ctx context.Context, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
+	return s.ListToolApprovalQueuesWithSelectors(ctx, in)
+}
+
+func (s *Service) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueRead.QueueRowsInput, selectors ...*hstate.NamedQuerySelector) ([]*queueRead.QueueRowView, error) {
 	if s == nil || s.dao == nil {
 		return nil, errors.New("conversation service not configured: dao is nil")
 	}
@@ -1372,7 +1385,66 @@ func (s *Service) ListToolApprovalQueues(ctx context.Context, in *queueRead.Queu
 		return nil, err
 	}
 	out := &queueRead.QueueRowsOutput{}
-	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(queueRead.QueueRowsPathURI), datly.WithInput(in)); err != nil {
+	operateOpts := []datly.OperateOption{
+		datly.WithOutput(out),
+		datly.WithURI(queueRead.QueueRowsPathURI),
+		datly.WithInput(in),
+	}
+	if len(selectors) > 0 {
+		operateOpts = append(operateOpts, datly.WithSessionOptions(datly.WithQuerySelectors(selectors...)))
+	}
+	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func (s *Service) CountToolApprovalQueues(ctx context.Context, in *queueCount.QueueTotalInput) (int, error) {
+	if s == nil || s.dao == nil {
+		return 0, errors.New("conversation service not configured: dao is nil")
+	}
+	if in == nil {
+		in = &queueCount.QueueTotalInput{}
+	}
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
+			return 0, data.ErrPermissionDenied
+		}
+		in.UserId = userID
+		if in.Has == nil {
+			in.Has = &queueCount.QueueTotalInputHas{}
+		}
+		in.Has.UserId = true
+	}
+	out := &queueCount.QueueTotalOutput{}
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(queueCount.QueueTotalPathURI), datly.WithInput(in)); err != nil {
+		return 0, err
+	}
+	if len(out.Data) == 0 || out.Data[0] == nil {
+		return 0, nil
+	}
+	return out.Data[0].TotalCount, nil
+}
+
+func (s *Service) ListToolApprovalOutcomes(ctx context.Context, in *queueOutcome.OutcomeRowsInput) ([]*queueOutcome.OutcomeRowView, error) {
+	if s == nil || s.dao == nil {
+		return nil, errors.New("conversation service not configured: dao is nil")
+	}
+	if in == nil {
+		in = &queueOutcome.OutcomeRowsInput{}
+	}
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
+			return nil, data.ErrPermissionDenied
+		}
+		in.UserId = userID
+		if in.Has == nil {
+			in.Has = &queueOutcome.OutcomeRowsInputHas{}
+		}
+		in.Has.UserId = true
+	}
+	out := &queueOutcome.OutcomeRowsOutput{}
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(queueOutcome.OutcomeRowsPathURI), datly.WithInput(in)); err != nil {
 		return nil, err
 	}
 	return out.Data, nil

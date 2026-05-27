@@ -123,6 +123,27 @@ func TestEmbeddedClient_ListPendingToolApprovals_UsesEffectiveUserScope(t *testi
 	require.Contains(t, err.Error(), "permission denied")
 }
 
+func TestEmbeddedClient_ListPendingToolApprovals_UsesExactTotalWithPaging(t *testing.T) {
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	_ = seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-page-1", "turn-page-1", "approval-page-1", "LOGNAME")
+	time.Sleep(time.Millisecond)
+	_ = seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-page-2", "turn-page-2", "approval-page-2", "HOME")
+
+	out, err := client.ListPendingToolApprovals(ctx, &ListPendingToolApprovalsInput{
+		Status: "pending",
+		Limit:  1,
+		Offset: 1,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.Len(t, out.Rows, 1)
+	require.Equal(t, 2, out.Total, "paged result should report exact total count")
+	require.Equal(t, 1, out.Limit)
+	require.Equal(t, 1, out.Offset)
+	require.False(t, out.HasMore, "second page with limit 1 out of 2 should not have more rows")
+}
+
 func TestEmbeddedClient_DecideToolApproval_DeniesCrossUserQueueAccess(t *testing.T) {
 	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-owner", "turn-owner", "approval-owner", "LOGNAME")

@@ -16,6 +16,7 @@ import (
 	"github.com/viant/xdatly/types/custom/dependency/checksum"
 )
 
+// Source of truth: dql/agently/toolapprovalqueue/list.dql
 func init() {
 	core.RegisterType("toolapprovalqueue", "QueueRowsInput", reflect.TypeOf(QueueRowsInput{}), checksum.GeneratedTime)
 	core.RegisterType("toolapprovalqueue", "QueueRowsOutput", reflect.TypeOf(QueueRowsOutput{}), checksum.GeneratedTime)

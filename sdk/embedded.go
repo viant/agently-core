@@ -23,6 +23,8 @@ import (
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrun "github.com/viant/agently-core/pkg/agently/run"
+	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
+	queueOutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
@@ -46,10 +48,23 @@ import (
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
+	hstate "github.com/viant/xdatly/handler/state"
 )
 
 type toolApprovalQueueLister interface {
 	ListToolApprovalQueues(ctx context.Context, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error)
+}
+
+type toolApprovalQueueSelectorLister interface {
+	ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueRead.QueueRowsInput, selectors ...*hstate.NamedQuerySelector) ([]*queueRead.QueueRowView, error)
+}
+
+type toolApprovalQueueCounter interface {
+	CountToolApprovalQueues(ctx context.Context, in *queueCount.QueueTotalInput) (int, error)
+}
+
+type toolApprovalOutcomeLister interface {
+	ListToolApprovalOutcomes(ctx context.Context, in *queueOutcome.OutcomeRowsInput) ([]*queueOutcome.OutcomeRowView, error)
 }
 
 type toolApprovalQueuePatcher interface {
