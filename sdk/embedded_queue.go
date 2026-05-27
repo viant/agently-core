@@ -1015,6 +1015,11 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 				return nil, err
 			}
 		}
+		if patch := decisionPatchFromMeta(meta, "approve"); len(patch) > 0 {
+			if err := toolapproval.ApplyDecisionPatch(args, patch); err != nil {
+				return nil, err
+			}
+		}
 		execCtx := ctx
 		if strings.TrimSpace(input.UserID) != "" {
 			execCtx = authctx.WithUserInfo(execCtx, &authctx.UserInfo{Subject: strings.TrimSpace(input.UserID)})
@@ -1240,6 +1245,17 @@ func approvalEditorsFromMeta(meta toolApprovalMetadata) []*toolapproval.EditorVi
 		return nil
 	}
 	return meta.Approval.Editors
+}
+
+func decisionPatchFromMeta(meta toolApprovalMetadata, action string) map[string]interface{} {
+	if meta.Approval == nil || len(meta.Approval.Decisions) == 0 {
+		return nil
+	}
+	decision := meta.Approval.Decisions[canonicalDecideAction(action)]
+	if decision == nil || len(decision.Patch) == 0 {
+		return nil
+	}
+	return decision.Patch
 }
 
 func syntheticToolStepID(opID string) string {
