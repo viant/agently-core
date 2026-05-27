@@ -1228,6 +1228,8 @@ github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbx
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
 github.com/viant/mcp v0.15.0 h1:HzrS2y4WKuwFGlmx0/BVfwkiW0b5bZcP7fsTy9LS4A8=
 github.com/viant/mcp v0.15.0/go.mod h1:mBSxAq6WvGpKRtWv3jknp+QU/oqjhov2Ab3nM9bp0F0=
+github.com/viant/mcp v0.16.0 h1:I8oeq0b6aiFqFbMKDsC1SYUFHmINzGSARWkvRamuUkk=
+github.com/viant/mcp v0.16.0/go.mod h1:aRNGBqhvtHOxyYkliBgzqvWCDNB8OD9pB+V5VmT+/HE=
 github.com/viant/mcp-protocol v0.11.0 h1:22IuTTlq0L8l08z23TYRvHM/j19gp9UPExQdzwTuxsY=
 github.com/viant/mcp-protocol v0.11.0/go.mod h1:EJPomVw6jnI+4Aa2ONYC3WTvApiF0YeQIiaaEpA54ec=
 github.com/viant/mcp-protocol v0.14.0 h1:OCUQf66MwkOwBHbMsXATwevVf05538ZgXr9N86VtFdE=
