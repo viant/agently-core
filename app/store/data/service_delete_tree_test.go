@@ -11,6 +11,8 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
 	agpayload "github.com/viant/agently-core/pkg/agently/payload"
+	"github.com/viant/datly"
+	"github.com/viant/datly/view"
 )
 
 func TestDeleteConversationTree_RemovesTreeArtifactsAndUnsharedPayloads(t *testing.T) {
@@ -120,6 +122,44 @@ func TestDeleteConversationTree_AllowsStaleActiveConversation(t *testing.T) {
 	}
 }
 
+func TestDeleteConversationTree_RemovesLegacyScheduleRunRows(t *testing.T) {
+	svc, db := newSeededServiceWithDB(t, seedForLegacyScheduleRunConversationDelete)
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
+
+	if err := svc.DeleteConversationTree(ctx, "conv-root"); err != nil {
+		t.Fatalf("DeleteConversationTree() error: %v", err)
+	}
+
+	for _, id := range []string{"sr-by-conversation", "sr-by-conversation-column"} {
+		if legacyScheduleRunExists(t, db, id) {
+			t.Fatalf("legacy schedule_run %s should be deleted", id)
+		}
+	}
+	if !legacyScheduleRunExists(t, db, "sr-other") {
+		t.Fatalf("unrelated legacy schedule_run should remain")
+	}
+}
+
+func TestDeleteConversationTree_RemovesUnsharedElicitationPayload(t *testing.T) {
+	svc := newSeededService(t, seedForElicitationPayloadConversationDelete)
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
+
+	if err := svc.DeleteConversationTree(ctx, "conv-root"); err != nil {
+		t.Fatalf("DeleteConversationTree() error: %v", err)
+	}
+
+	payloads, err := svc.ListPayloadRows(context.Background(), &agpayload.PayloadRowsInput{
+		Ids: []string{"payload-elicit", "payload-elicit-shared"},
+		Has: &agpayload.PayloadRowsInputHas{Ids: true},
+	})
+	if err != nil {
+		t.Fatalf("ListPayloadRows() error: %v", err)
+	}
+	if len(payloads) != 1 || payloads[0].Id != "payload-elicit-shared" {
+		t.Fatalf("unexpected elicitation payloads after delete: %#v", payloads)
+	}
+}
+
 func TestDeleteScheduleCascade_RemovesScheduleConversationsAndRuns(t *testing.T) {
 	svc := newSeededService(t, seedForScheduleCascadeDelete)
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
@@ -215,6 +255,39 @@ func TestConversationIDsByDepthDesc_OrdersOldestFirstWithinDepth(t *testing.T) {
 	}
 }
 
+func newSeededServiceWithDB(t *testing.T, seeds ...seedFn) (Service, *sql.DB) {
+	t.Helper()
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-core-data-service")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	for _, seed := range seeds {
+		seed(t, db)
+	}
+
+	ctx := context.Background()
+	dao, err := datly.New(ctx)
+	if err != nil {
+		t.Fatalf("datly.New() error: %v", err)
+	}
+	connector := view.NewConnector("agently", "sqlite", dbPath)
+	if err = dao.AddConnectors(ctx, connector); err != nil {
+		t.Fatalf("AddConnectors() error: %v", err)
+	}
+	if err = registerReadComponents(ctx, dao); err != nil {
+		t.Fatalf("registerReadComponents() error: %v", err)
+	}
+	return NewService(dao), db
+}
+
+func legacyScheduleRunExists(t *testing.T, db *sql.DB, id string) bool {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schedule_run WHERE id = ?`, id).Scan(&count); err != nil {
+		t.Fatalf("query schedule_run %s: %v", id, err)
+	}
+	return count > 0
+}
+
 func seedForConversationTreeDelete(t *testing.T, db *sql.DB) {
 	t.Helper()
 	items := []dbtest.ParameterizedSQL{
@@ -256,6 +329,53 @@ func seedForRecentActiveConversation(t *testing.T, db *sql.DB) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 		dbtest.ParameterizedSQL{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-active", now, now, "running", "u1"}},
+	})
+}
+
+func seedForLegacyScheduleRunConversationDelete(t *testing.T, db *sql.DB) {
+	t.Helper()
+	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+		{SQL: `CREATE TABLE IF NOT EXISTS schedule_run (
+			id TEXT PRIMARY KEY,
+			schedule_id TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME,
+			status TEXT NOT NULL DEFAULT 'pending',
+			error_message TEXT,
+			lease_owner TEXT,
+			lease_until DATETIME,
+			precondition_ran_at DATETIME,
+			precondition_passed INTEGER,
+			precondition_result TEXT,
+			conversation_id TEXT,
+			conversation_kind TEXT NOT NULL DEFAULT 'scheduled',
+			scheduled_for DATETIME,
+			started_at DATETIME,
+			completed_at DATETIME,
+			FOREIGN KEY (schedule_id) REFERENCES schedule(id) ON DELETE CASCADE,
+			FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+		)`},
+		{SQL: `INSERT INTO schedule (id, name, created_by_user_id, visibility, agent_ref, enabled, schedule_type, timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sched-legacy", "Legacy", "u1", "private", "simple", 1, "adhoc", "UTC", "2026-01-01T08:00:00Z"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id, schedule_run_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"conv-root", "2026-01-01T09:00:00Z", "2026-01-01T09:01:00Z", "succeeded", "u1", "sr-by-conversation-column"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-other", "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", "succeeded", "u1"}},
+		{SQL: `INSERT INTO schedule_run (id, schedule_id, conversation_id, status, conversation_kind, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sr-by-conversation", "sched-legacy", "conv-root", "succeeded", "scheduled", "2026-01-01T09:00:00Z", "2026-01-01T09:01:00Z", "2026-01-01T09:01:00Z"}},
+		{SQL: `INSERT INTO schedule_run (id, schedule_id, conversation_id, status, conversation_kind, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sr-by-conversation-column", "sched-legacy", nil, "succeeded", "scheduled", "2026-01-01T09:02:00Z", "2026-01-01T09:03:00Z", "2026-01-01T09:03:00Z"}},
+		{SQL: `INSERT INTO schedule_run (id, schedule_id, conversation_id, status, conversation_kind, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sr-other", "sched-legacy", "conv-other", "succeeded", "scheduled", "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", "2026-01-01T10:01:00Z"}},
+	})
+}
+
+func seedForElicitationPayloadConversationDelete(t *testing.T, db *sql.DB) {
+	t.Helper()
+	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-root", "2026-01-01T09:00:00Z", "2026-01-01T09:01:00Z", "succeeded", "u1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-other", "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", "succeeded", "u1"}},
+		{SQL: `INSERT INTO call_payload (id, kind, mime_type, size_bytes, storage, inline_body, compression, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"payload-elicit", "elicitation_response", "application/json", 2, "inline", "{}", "none", "2026-01-01T09:00:00Z"}},
+		{SQL: `INSERT INTO call_payload (id, kind, mime_type, size_bytes, storage, inline_body, compression, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"payload-elicit-shared", "elicitation_response", "application/json", 2, "inline", "{}", "none", "2026-01-01T09:00:00Z"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, queue_seq, status) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"turn-root", "conv-root", "2026-01-01T09:01:00Z", 1, "succeeded"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, queue_seq, status) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"turn-other", "conv-other", "2026-01-01T10:01:00Z", 1, "succeeded"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, elicitation_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-elicit", "conv-root", "turn-root", "2026-01-01T09:01:10Z", "user", "elicitation_response", "root", "payload-elicit"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, elicitation_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-elicit-shared-root", "conv-root", "turn-root", "2026-01-01T09:01:20Z", "user", "elicitation_response", "shared-root", "payload-elicit-shared"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, elicitation_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-elicit-shared-other", "conv-other", "turn-other", "2026-01-01T10:01:10Z", "user", "elicitation_response", "shared-other", "payload-elicit-shared"}},
 	})
 }
 
