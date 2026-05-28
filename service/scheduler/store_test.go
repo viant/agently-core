@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -267,8 +268,14 @@ func TestHandler_DeleteScheduleRemovesOwnedRow(t *testing.T) {
 	h := NewHandler(svc)
 
 	insertScheduleRowWithOwner(t, db, "sched-delete-1", "Nightly", "private", "devuser")
+	insertConversationRowWithOwner(t, db, "conv-delete-1", "private", "devuser")
+	if _, err := db.ExecContext(context.Background(), `UPDATE conversation SET schedule_id = ? WHERE id = ?`, "sched-delete-1", "conv-delete-1"); err != nil {
+		t.Fatalf("update conversation schedule_id error: %v", err)
+	}
+	insertSchedulerRunRow(t, db, "run-delete-1", "sched-delete-1", "conv-delete-1", "succeeded", time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC))
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/schedule/sched-delete-1", nil)
+	req.SetPathValue("id", "sched-delete-1")
 	req = req.WithContext(svcauth.InjectUser(req.Context(), "devuser"))
 	rec := httptest.NewRecorder()
 
@@ -278,6 +285,8 @@ func TestHandler_DeleteScheduleRemovesOwnedRow(t *testing.T) {
 	}
 
 	assertScheduleCount(t, db, "sched-delete-1", 0)
+	assertTableIDCount(t, db, "conversation", "conv-delete-1", 0)
+	assertTableIDCount(t, db, "run", "run-delete-1", 0)
 }
 
 func TestHandler_DeleteScheduleRejectsOtherUser(t *testing.T) {
@@ -288,6 +297,7 @@ func TestHandler_DeleteScheduleRejectsOtherUser(t *testing.T) {
 	insertScheduleRowWithOwner(t, db, "sched-delete-2", "Nightly", "private", "devuser")
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/schedule/sched-delete-2", nil)
+	req.SetPathValue("id", "sched-delete-2")
 	req = req.WithContext(svcauth.InjectUser(req.Context(), "otheruser"))
 	rec := httptest.NewRecorder()
 
@@ -364,12 +374,17 @@ func newTestStore(t *testing.T) (Store, *sql.DB) {
 
 func assertScheduleCount(t *testing.T, db *sql.DB, id string, expected int) {
 	t.Helper()
+	assertTableIDCount(t, db, "schedule", id, expected)
+}
+
+func assertTableIDCount(t *testing.T, db *sql.DB, table, id string, expected int) {
+	t.Helper()
 	var count int
-	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(1) FROM schedule WHERE id = ?`, id).Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), fmt.Sprintf(`SELECT COUNT(1) FROM %s WHERE id = ?`, table), id).Scan(&count); err != nil {
 		t.Fatalf("QueryRowContext() error: %v", err)
 	}
 	if count != expected {
-		t.Fatalf("expected schedule row count %d for %s, got %d", expected, id, count)
+		t.Fatalf("expected %s row count %d for %s, got %d", table, expected, id, count)
 	}
 }
 

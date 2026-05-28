@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -119,6 +120,101 @@ func TestDeleteConversationTree_AllowsStaleActiveConversation(t *testing.T) {
 	}
 }
 
+func TestDeleteScheduleCascade_RemovesScheduleConversationsAndRuns(t *testing.T) {
+	svc := newSeededService(t, seedForScheduleCascadeDelete)
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
+
+	if err := svc.DeleteScheduleCascade(ctx, "sched-delete"); err != nil {
+		t.Fatalf("DeleteScheduleCascade() error: %v", err)
+	}
+	if err := svc.DeleteScheduleCascade(ctx, "sched-delete"); !errors.Is(err, ErrScheduleNotFound) {
+		t.Fatalf("expected ErrScheduleNotFound on second delete, got %v", err)
+	}
+	for _, id := range []string{"conv-sched-old", "conv-sched-new", "conv-sched-child", "conv-sched-linked"} {
+		got, err := svc.GetConversation(context.Background(), id, nil)
+		if err != nil {
+			t.Fatalf("GetConversation(%s) error: %v", id, err)
+		}
+		if got != nil {
+			t.Fatalf("conversation %s still exists", id)
+		}
+	}
+	for _, id := range []string{"run-sched-old", "run-sched-new", "run-no-conv"} {
+		got, err := svc.GetRun(context.Background(), id, nil)
+		if err != nil {
+			t.Fatalf("GetRun(%s) error: %v", id, err)
+		}
+		if got != nil {
+			t.Fatalf("run %s still exists", id)
+		}
+	}
+	got, err := svc.GetConversation(context.Background(), "conv-unrelated", nil)
+	if err != nil {
+		t.Fatalf("GetConversation(conv-unrelated) error: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("unrelated conversation should remain")
+	}
+}
+
+func TestDeleteScheduleCascade_RequiresOwner(t *testing.T) {
+	svc := newSeededService(t, seedForScheduleCascadeDelete)
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u2"})
+
+	err := svc.DeleteScheduleCascade(ctx, "sched-delete")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied, got %v", err)
+	}
+}
+
+func TestDeleteScheduleCascade_BlocksRecentActiveRunWithoutConversation(t *testing.T) {
+	svc := newSeededService(t, seedForScheduleCascadeRecentActiveRun)
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
+
+	err := svc.DeleteScheduleCascade(ctx, "sched-active")
+	if !errors.Is(err, ErrConversationActive) {
+		t.Fatalf("expected ErrConversationActive, got %v", err)
+	}
+	got, getErr := svc.GetRun(context.Background(), "run-active-no-conv", nil)
+	if getErr != nil {
+		t.Fatalf("GetRun(run-active-no-conv) error: %v", getErr)
+	}
+	if got == nil {
+		t.Fatalf("active run should remain")
+	}
+}
+
+func TestDeleteScheduleCascade_AllowsStaleActiveRunWithoutConversation(t *testing.T) {
+	svc := newSeededService(t, seedForScheduleCascadeStaleActiveRun)
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
+
+	if err := svc.DeleteScheduleCascade(ctx, "sched-stale"); err != nil {
+		t.Fatalf("DeleteScheduleCascade() error: %v", err)
+	}
+	got, err := svc.GetRun(context.Background(), "run-stale-no-conv", nil)
+	if err != nil {
+		t.Fatalf("GetRun(run-stale-no-conv) error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("stale active run should be deleted")
+	}
+}
+
+func TestConversationIDsByDepthDesc_OrdersOldestFirstWithinDepth(t *testing.T) {
+	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	newer := old.Add(time.Minute)
+	got := conversationIDsByDepthDesc(map[string]*conversationTreeRow{
+		"parent-new": {ID: "parent-new", Depth: 0, CreatedAt: newer},
+		"parent-old": {ID: "parent-old", Depth: 0, CreatedAt: old},
+		"child-new":  {ID: "child-new", Depth: 1, CreatedAt: newer},
+		"child-old":  {ID: "child-old", Depth: 1, CreatedAt: old},
+	})
+	want := [][]string{{"child-old", "child-new"}, {"parent-old", "parent-new"}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("unexpected delete order: got %v want %v", got, want)
+	}
+}
+
 func seedForConversationTreeDelete(t *testing.T, db *sql.DB) {
 	t.Helper()
 	items := []dbtest.ParameterizedSQL{
@@ -168,5 +264,45 @@ func seedForStaleActiveConversation(t *testing.T, db *sql.DB) {
 	old := time.Now().UTC().Add(-72 * time.Hour).Format(time.RFC3339)
 	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 		dbtest.ParameterizedSQL{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-stale", old, old, "running", "u1"}},
+	})
+}
+
+func seedForScheduleCascadeDelete(t *testing.T, db *sql.DB) {
+	t.Helper()
+	items := []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO schedule (id, name, created_by_user_id, visibility, agent_ref, enabled, schedule_type, timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sched-delete", "Delete Me", "u1", "private", "simple", 1, "adhoc", "UTC", "2026-01-01T08:00:00Z"}},
+
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"conv-sched-old", "2026-01-01T09:00:00Z", "2026-01-01T09:01:00Z", "succeeded", "u1", "sched-delete"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"conv-sched-new", "2026-01-01T10:00:00Z", "2026-01-01T10:01:00Z", "succeeded", "u1", "sched-delete"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id, schedule_id, conversation_parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"conv-sched-child", "2026-01-01T10:02:00Z", "2026-01-01T10:03:00Z", "succeeded", "u1", "sched-delete", "conv-sched-new"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-sched-linked", "2026-01-01T10:04:00Z", "2026-01-01T10:05:00Z", "succeeded", "u1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-unrelated", "2026-01-01T11:00:00Z", "2026-01-01T11:01:00Z", "succeeded", "u1"}},
+
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, queue_seq, status) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"turn-sched-old", "conv-sched-old", "2026-01-01T09:01:00Z", 1, "succeeded"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, queue_seq, status) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"turn-sched-new", "conv-sched-new", "2026-01-01T10:01:00Z", 1, "succeeded"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, linked_conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-sched-new", "conv-sched-new", "turn-sched-new", "2026-01-01T10:01:10Z", "assistant", "text", "linked", "conv-sched-linked"}},
+
+		{SQL: `INSERT INTO run (id, turn_id, schedule_id, conversation_id, conversation_kind, status, created_at, updated_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-sched-old", "turn-sched-old", "sched-delete", "conv-sched-old", "scheduled", "succeeded", "2026-01-01T09:01:00Z", "2026-01-01T09:02:00Z", "2026-01-01T09:01:05Z", "2026-01-01T09:02:00Z"}},
+		{SQL: `INSERT INTO run (id, turn_id, schedule_id, conversation_id, conversation_kind, status, created_at, updated_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-sched-new", "turn-sched-new", "sched-delete", "conv-sched-new", "scheduled", "succeeded", "2026-01-01T10:01:00Z", "2026-01-01T10:02:00Z", "2026-01-01T10:01:05Z", "2026-01-01T10:02:00Z"}},
+		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, updated_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-no-conv", "sched-delete", "scheduled", "succeeded", "2026-01-01T12:01:00Z", "2026-01-01T12:02:00Z", "2026-01-01T12:01:05Z", "2026-01-01T12:02:00Z"}},
+	}
+	dbtest.ExecAll(t, db, items)
+}
+
+func seedForScheduleCascadeRecentActiveRun(t *testing.T, db *sql.DB) {
+	t.Helper()
+	now := time.Now().UTC().Format(time.RFC3339)
+	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO schedule (id, name, created_by_user_id, visibility, agent_ref, enabled, schedule_type, timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sched-active", "Active", "u1", "private", "simple", 1, "adhoc", "UTC", now}},
+		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-active-no-conv", "sched-active", "scheduled", "running", now, now, now}},
+	})
+}
+
+func seedForScheduleCascadeStaleActiveRun(t *testing.T, db *sql.DB) {
+	t.Helper()
+	stale := time.Now().UTC().Add(-72 * time.Hour).Format(time.RFC3339)
+	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO schedule (id, name, created_by_user_id, visibility, agent_ref, enabled, schedule_type, timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sched-stale", "Stale", "u1", "private", "simple", 1, "adhoc", "UTC", stale}},
+		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-stale-no-conv", "sched-stale", "scheduled", "running", stale, stale, stale}},
 	})
 }
