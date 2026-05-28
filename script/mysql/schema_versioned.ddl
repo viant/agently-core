@@ -1955,6 +1955,66 @@ BEGIN
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME = 'tool_approval_queue'
         ) THEN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'approval_mode'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    DROP COLUMN approval_mode;
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'request_payload'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    DROP COLUMN request_payload;
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'approval_payload'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    DROP COLUMN approval_payload;
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'result_payload'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    DROP COLUMN result_payload;
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'status_detail'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    DROP COLUMN status_detail;
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'tool_approval_queue'
+                  AND COLUMN_NAME = 'started_at'
+            ) THEN
+                ALTER TABLE tool_approval_queue
+                    DROP COLUMN started_at;
+            END IF;
+
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.COLUMNS
                 WHERE TABLE_SCHEMA = DATABASE()
