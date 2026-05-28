@@ -32,7 +32,7 @@ The reusable data-layer primitive is:
 DeleteConversationTree(ctx context.Context, rootConversationIDs ...string) error
 ```
 
-History-panel deletion calls this through the public endpoint. Schedule deletion should reuse this primitive directly when schedule cleanup is implemented.
+History-panel deletion calls this through the public endpoint. Schedule deletion reuses the same cleanup rules through `DeleteScheduleCascade`; see [schedule-deletion.md](schedule-deletion.md).
 
 ## Ownership
 

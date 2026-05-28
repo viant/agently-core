@@ -78,6 +78,7 @@ type Service interface {
 
 	DeleteConversations(ctx context.Context, ids ...string) error
 	DeleteConversationTree(ctx context.Context, ids ...string) error
+	DeleteScheduleCascade(ctx context.Context, id string) error
 	DeleteMessages(ctx context.Context, ids ...string) error
 	DeleteTurns(ctx context.Context, ids ...string) error
 	DeleteModelCalls(ctx context.Context, messageIDs ...string) error

@@ -262,7 +262,13 @@ func (s *datlyStore) PatchSchedule(ctx context.Context, schedule *schedwrite.Sch
 }
 
 func (s *datlyStore) DeleteSchedule(ctx context.Context, id string) error {
-	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
+	if s == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	if s.data != nil {
+		return s.data.DeleteScheduleCascade(ctx, id)
+	}
+	if s.dao == nil {
 		return nil
 	}
 	in := &scheddelete.Input{Ids: []string{id}}

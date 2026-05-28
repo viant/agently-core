@@ -219,8 +219,11 @@ func (h *Handler) handleDeleteSchedule() http.HandlerFunc {
 			switch {
 			case strings.Contains(err.Error(), "not found"):
 				httpError(w, http.StatusNotFound, err)
-			case strings.Contains(err.Error(), "only allowed for the owner"):
+			case strings.Contains(err.Error(), "only allowed for the owner"),
+				strings.Contains(err.Error(), "permission denied"):
 				httpError(w, http.StatusForbidden, err)
+			case strings.Contains(err.Error(), "still in progress"):
+				httpError(w, http.StatusConflict, err)
 			default:
 				httpError(w, http.StatusInternalServerError, err)
 			}

@@ -41,6 +41,7 @@ type conversationTreeRow struct {
 	OwnerID       string
 	Status        string
 	ScheduleRunID string
+	CreatedAt     time.Time
 	Depth         int
 }
 
@@ -220,17 +221,17 @@ func collectConversationTree(ctx context.Context, tx *sql.Tx, rootIDs []string) 
 }
 
 func loadConversationsByIDs(ctx context.Context, tx *sql.Tx, ids []string, depth int) ([]conversationTreeRow, error) {
-	query := `SELECT id, COALESCE(created_by_user_id, ''), COALESCE(status, ''), COALESCE(schedule_run_id, '') FROM conversation WHERE id IN (%s)`
+	query := `SELECT id, COALESCE(created_by_user_id, ''), COALESCE(status, ''), COALESCE(schedule_run_id, ''), CAST(created_at AS CHAR) FROM conversation WHERE id IN (%s)`
 	return queryConversationRows(ctx, tx, query, ids, depth)
 }
 
 func loadChildConversations(ctx context.Context, tx *sql.Tx, parentIDs []string, depth int) ([]conversationTreeRow, error) {
-	query := `SELECT id, COALESCE(created_by_user_id, ''), COALESCE(status, ''), COALESCE(schedule_run_id, '') FROM conversation WHERE conversation_parent_id IN (%s)`
+	query := `SELECT id, COALESCE(created_by_user_id, ''), COALESCE(status, ''), COALESCE(schedule_run_id, ''), CAST(created_at AS CHAR) FROM conversation WHERE conversation_parent_id IN (%s)`
 	return queryConversationRows(ctx, tx, query, parentIDs, depth)
 }
 
 func loadLinkedConversations(ctx context.Context, tx *sql.Tx, conversationIDs []string, depth int) ([]conversationTreeRow, error) {
-	query := `SELECT DISTINCT c.id, COALESCE(c.created_by_user_id, ''), COALESCE(c.status, ''), COALESCE(c.schedule_run_id, '')
+	query := `SELECT DISTINCT c.id, COALESCE(c.created_by_user_id, ''), COALESCE(c.status, ''), COALESCE(c.schedule_run_id, ''), CAST(c.created_at AS CHAR)
 FROM message m
 JOIN conversation c ON c.id = m.linked_conversation_id
 WHERE m.conversation_id IN (%s)
@@ -251,10 +252,14 @@ func queryConversationRows(ctx context.Context, tx *sql.Tx, queryTemplate string
 		}
 		for rows.Next() {
 			var row conversationTreeRow
+			var rawCreated sql.NullString
 			row.Depth = depth
-			if err := rows.Scan(&row.ID, &row.OwnerID, &row.Status, &row.ScheduleRunID); err != nil {
+			if err := rows.Scan(&row.ID, &row.OwnerID, &row.Status, &row.ScheduleRunID, &rawCreated); err != nil {
 				_ = rows.Close()
 				return nil, err
+			}
+			if parsed, ok := parseDBTime(rawCreated.String); ok {
+				row.CreatedAt = parsed
 			}
 			result = append(result, row)
 		}
@@ -598,7 +603,14 @@ func conversationIDsByDepthDesc(rows map[string]*conversationTreeRow) [][]string
 	result := make([][]string, 0, len(depths))
 	for _, depth := range depths {
 		ids := normalizeDeleteIDs(byDepth[depth])
-		sort.Strings(ids)
+		sort.SliceStable(ids, func(i, j int) bool {
+			left := rows[ids[i]]
+			right := rows[ids[j]]
+			if left != nil && right != nil && !left.CreatedAt.Equal(right.CreatedAt) {
+				return left.CreatedAt.Before(right.CreatedAt)
+			}
+			return ids[i] < ids[j]
+		})
 		result = append(result, ids)
 	}
 	return result
