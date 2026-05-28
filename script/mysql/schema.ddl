@@ -514,12 +514,6 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     error_message TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
-    approval_mode VARCHAR(50),
-    request_payload LONGBLOB,
-    approval_payload LONGBLOB,
-    result_payload LONGBLOB,
-    status_detail TEXT,
-    started_at DATETIME,
     completed_at DATETIME,
     expires_at DATETIME,
     timed_out_at DATETIME
