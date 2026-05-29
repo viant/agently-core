@@ -243,3 +243,67 @@ func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
 	err := ApplyReview(args, review, args)
 	assert.EqualError(t, err, "approval review group_rows requires a single selected group when no intentGroupMap resolved it")
 }
+
+func TestApplyReview_GroupRowsReplaceTargetCopiesConfiguredFields(t *testing.T) {
+	args := map[string]interface{}{
+		"rows": []interface{}{
+			map[string]interface{}{
+				"publisher_id":   37,
+				"site_id":        3945613211,
+				"publisher":      "37/3945613211",
+				"audience_id":    7301206,
+				"recommendation": "EXCLUDE",
+				"selected":       true,
+			},
+		},
+		"Recommendation": map[string]interface{}{
+			"id":                 7301206001,
+			"change_reason":      "Sparse delivery and low-value site evidence support exclusion.",
+			"change_summary":     "Exclude 1 low-value site for audience 7301206.",
+			"selector_direction": "EXCLUDE",
+			"target_field":       "exclusion",
+		},
+	}
+	review := &llm.ApprovalReviewConfig{
+		XForm: map[string]interface{}{
+			"type":            "group_rows",
+			"rowsField":       "rows",
+			"selectionField":  "selected",
+			"groupBy":         "recommendation",
+			"valueField":      "publisher",
+			"audienceIdField": "audience_id",
+			"feature":         "publisher",
+			"writePath":       "Recommendation",
+			"replaceTarget":   true,
+			"copyFields":      []interface{}{"change_reason", "change_summary"},
+			"groups": map[string]interface{}{
+				"exclude": map[string]interface{}{
+					"mode":              "ADD",
+					"selectorDirection": "EXCLUDE",
+					"targetField":       "exclusion",
+				},
+			},
+		},
+	}
+
+	err := ApplyReview(args, review, args)
+	assert.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"audience_id":        7301206,
+		"mode":               "ADD",
+		"selector_direction": "EXCLUDE",
+		"target_field":       "exclusion",
+		"change_reason":      "Sparse delivery and low-value site evidence support exclusion.",
+		"change_summary":     "Exclude 1 low-value site for audience 7301206.",
+		"proposed_value": map[string]interface{}{
+			"exclusion": map[string]interface{}{
+				"clauses": []interface{}{
+					map[string]interface{}{
+						"feature": "publisher",
+						"values":  []interface{}{"37/3945613211"},
+					},
+				},
+			},
+		},
+	}, args["Recommendation"])
+}

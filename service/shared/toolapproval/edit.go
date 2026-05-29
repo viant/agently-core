@@ -169,6 +169,7 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	feature := strings.TrimSpace(stringValue(xform["feature"]))
 	writePath := strings.TrimSpace(stringValue(xform["writePath"]))
 	replaceTarget := boolValue(xform["replaceTarget"]) || boolValue(xform["resetTarget"])
+	copyFields := stringListValue(xform["copyFields"])
 	if groupBy == "" || valueField == "" || audienceIDField == "" || feature == "" || writePath == "" {
 		return fmt.Errorf("approval review group_rows requires groupBy, valueField, audienceIdField, feature, and writePath")
 	}
@@ -247,12 +248,13 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	if len(values) == 0 {
 		return fmt.Errorf("approval review group_rows produced no values for group %q", targetGroup)
 	}
+	sourceRecommendation := cloneMapValue(existingMapValue(args[writePath]))
+	if sourceRecommendation == nil {
+		sourceRecommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+	}
 	var recommendation map[string]interface{}
 	if !replaceTarget {
-		recommendation = cloneMapValue(existingMapValue(args[writePath]))
-		if recommendation == nil {
-			recommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
-		}
+		recommendation = cloneMapValue(sourceRecommendation)
 	}
 	if recommendation == nil {
 		recommendation = map[string]interface{}{}
@@ -270,6 +272,22 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 				},
 			},
 		},
+	}
+	for _, field := range copyFields {
+		field = strings.TrimSpace(field)
+		if field == "" || sourceRecommendation == nil {
+			continue
+		}
+		value, ok := sourceRecommendation[field]
+		if !ok {
+			value = resolver.Select(field, sourceRecommendation, nil)
+		}
+		if isEmptyApprovalValue(value) {
+			continue
+		}
+		if err := resolver.Assign(recommendation, field, cloneValue(value)); err != nil {
+			return fmt.Errorf("apply approval review copy field %s: %w", field, err)
+		}
 	}
 	if err := resolver.Assign(args, writePath, recommendation); err != nil {
 		return fmt.Errorf("apply approval review group_rows: %w", err)
@@ -293,6 +311,47 @@ func cloneMapValue(value map[string]interface{}) map[string]interface{} {
 		return nil
 	}
 	return cloned
+}
+
+func stringListValue(value interface{}) []string {
+	switch actual := value.(type) {
+	case []string:
+		out := make([]string, 0, len(actual))
+		for _, item := range actual {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+		return out
+	case []interface{}:
+		out := make([]string, 0, len(actual))
+		for _, item := range actual {
+			text := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case string:
+		text := strings.TrimSpace(actual)
+		if text == "" {
+			return nil
+		}
+		return []string{text}
+	default:
+		return nil
+	}
+}
+
+func isEmptyApprovalValue(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text) == ""
+	}
+	return false
 }
 
 func stringValue(value interface{}) string {
