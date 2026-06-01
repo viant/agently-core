@@ -193,7 +193,8 @@ export type ClientElicitationStatus =
     | 'pending'
     | 'accepted'
     | 'declined'
-    | 'canceled';
+    | 'canceled'
+    | 'failed';
 
 export interface ClientElicitation extends EntityIdentity {
     elicitationId?: string;

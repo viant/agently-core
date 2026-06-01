@@ -178,6 +178,7 @@ const (
 	ElicitationStatusAccepted ElicitationStatus = "accepted"
 	ElicitationStatusDeclined ElicitationStatus = "declined"
 	ElicitationStatusCanceled ElicitationStatus = "canceled"
+	ElicitationStatusFailed   ElicitationStatus = "failed"
 )
 
 type LinkedConversationState struct {

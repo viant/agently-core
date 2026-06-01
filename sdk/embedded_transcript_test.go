@@ -939,6 +939,161 @@ func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
 	require.Equal(t, ElicitationStatusCanceled, ts.Elicitation.Status)
 }
 
+func TestBuildCanonicalState_NormalizesRawCancelElicitationStatus(t *testing.T) {
+	now := time.Date(2026, 5, 29, 20, 8, 0, 0, time.UTC)
+	cancel := "cancel"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "succeeded",
+		CreatedAt:      now,
+		Message: []*agconv.MessageView{
+			{
+				Id:            "elic-1",
+				Role:          "assistant",
+				Content:       strPtr("Need input"),
+				Status:        &cancel,
+				ElicitationId: strPtr("elicitation-1"),
+				CreatedAt:     now.Add(time.Second),
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Elicitation)
+	require.Equal(t, ElicitationStatusCanceled, state.Turns[0].Elicitation.Status)
+}
+
+func TestBuildCanonicalState_PreservesFailedElicitationStatus(t *testing.T) {
+	now := time.Date(2026, 5, 29, 20, 8, 0, 0, time.UTC)
+	failed := "failed"
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "canceled",
+		CreatedAt:      now,
+		Message: []*agconv.MessageView{
+			{
+				Id:            "elic-1",
+				Role:          "assistant",
+				Content:       strPtr("Need input"),
+				Status:        &failed,
+				ElicitationId: strPtr("elicitation-1"),
+				CreatedAt:     now.Add(time.Second),
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Elicitation)
+	require.Equal(t, ElicitationStatusFailed, state.Turns[0].Elicitation.Status)
+}
+
+func TestBuildCanonicalState_UserElicitationResponseDoesNotOverwriteAcceptedPrompt(t *testing.T) {
+	now := time.Date(2026, 6, 1, 10, 55, 0, 0, time.UTC)
+	accepted := "accepted"
+	elicID := "elicitation-1"
+	final := "Your favorite animal is a cat."
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "completed",
+		CreatedAt:      now,
+		Message: []*agconv.MessageView{
+			{
+				Id:        "user-ask",
+				Role:      "user",
+				Content:   strPtr("describe my favorite animal"),
+				CreatedAt: now.Add(time.Second),
+			},
+			{
+				Id:            "assistant-elic",
+				Role:          "assistant",
+				Content:       strPtr("Please provide favoriteAnimal for describe_favorite_animal."),
+				Status:        &accepted,
+				ElicitationId: &elicID,
+				CreatedAt:     now.Add(2 * time.Second),
+				Interim:       1,
+			},
+			{
+				Id:            "user-elic-response",
+				Role:          "user",
+				Type:          "elicitation_response",
+				Content:       strPtr(`{"favoriteAnimal":"a cat"}`),
+				ElicitationId: &elicID,
+				CreatedAt:     now.Add(3 * time.Second),
+			},
+			{
+				Id:        "assistant-final",
+				Role:      "assistant",
+				Content:   &final,
+				CreatedAt: now.Add(4 * time.Second),
+				ModelCall: &agconv.ModelCallView{
+					MessageId: "assistant-final",
+					Status:    "completed",
+				},
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+
+	ts := state.Turns[0]
+	require.NotNil(t, ts.Elicitation)
+	require.Equal(t, elicID, ts.Elicitation.ElicitationID)
+	require.Equal(t, ElicitationStatusAccepted, ts.Elicitation.Status)
+	require.Equal(t, "Please provide favoriteAnimal for describe_favorite_animal.", ts.Elicitation.Message)
+	for _, message := range ts.Messages {
+		require.NotEqual(t, `{"favoriteAnimal":"a cat"}`, message.Content)
+	}
+
+	require.NotNil(t, ts.Assistant)
+	require.NotNil(t, ts.Assistant.Final)
+	require.Equal(t, "assistant-final", ts.Assistant.Final.MessageID)
+	require.Equal(t, final, ts.Assistant.Final.Content)
+}
+
+func TestBuildCanonicalState_PreservesVisibleInnerUserMessages(t *testing.T) {
+	now := time.Date(2026, 6, 1, 11, 10, 0, 0, time.UTC)
+	turn := &agconv.TranscriptView{
+		Id:             "turn-1",
+		ConversationId: "conv-1",
+		Status:         "completed",
+		CreatedAt:      now,
+		Message: []*agconv.MessageView{
+			{
+				Id:        "user-ask",
+				Role:      "user",
+				Type:      "text",
+				Content:   strPtr("start the branch"),
+				CreatedAt: now.Add(time.Second),
+			},
+			{
+				Id:        "user-inner",
+				Role:      "user",
+				Type:      "text",
+				Content:   strPtr("continue with branch B"),
+				CreatedAt: now.Add(2 * time.Second),
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].User)
+	require.Equal(t, "start the branch", state.Turns[0].User.Content)
+	require.Len(t, state.Turns[0].Messages, 1)
+	require.Equal(t, "user-inner", state.Turns[0].Messages[0].MessageID)
+	require.Equal(t, "continue with branch B", state.Turns[0].Messages[0].Content)
+}
+
 func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T) {
 	iteration := 1
 	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
