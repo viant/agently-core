@@ -118,6 +118,16 @@ func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitati
 	if messageID == "" {
 		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
+	if (turnID == "" || messageID == "") && s.client != nil {
+		if msg, err := s.client.GetMessageByElicitation(ctx, strings.TrimSpace(convID), strings.TrimSpace(elicitationID)); err == nil && msg != nil {
+			if turnID == "" && msg.TurnId != nil {
+				turnID = strings.TrimSpace(*msg.TurnId)
+			}
+			if messageID == "" {
+				messageID = strings.TrimSpace(msg.Id)
+			}
+		}
+	}
 	event := &streaming.Event{
 		StreamID:        strings.TrimSpace(convID),
 		ConversationID:  strings.TrimSpace(convID),

@@ -49,6 +49,9 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		switch role {
 		case "user":
+			if isUserElicitationResponse(msg) {
+				break
+			}
 			content := stringValue(msg.RawContent)
 			if content == "" {
 				content = stringValue(msg.Content)
@@ -89,8 +92,9 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 				}
 			}
 		}
-		// Collect elicitation state
-		if msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
+		// Collect elicitation state from the assistant prompt. User messages with
+		// the same elicitation_id are responses and must not overwrite it.
+		if role == "assistant" && msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
 			setElicitationState(ts, buildElicitationState(msg))
 		}
 		// Collect linked conversations from messages
@@ -141,6 +145,12 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 
 func canonicalTurnStatus(turn *convstore.Turn) TurnStatus {
 	return turnStatusFromString(turn.Status, TurnStatusCompleted)
+}
+
+func isUserElicitationResponse(msg *agconv.MessageView) bool {
+	return msg != nil &&
+		strings.EqualFold(strings.TrimSpace(msg.Role), "user") &&
+		strings.EqualFold(strings.TrimSpace(msg.Type), "elicitation_response")
 }
 
 func buildElicitationState(msg *agconv.MessageView) *ElicitationState {

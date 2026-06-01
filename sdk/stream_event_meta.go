@@ -48,8 +48,10 @@ func elicitationStatusForString(status string, fallback ElicitationStatus) Elici
 		return ElicitationStatusAccepted
 	case "declined", "rejected":
 		return ElicitationStatusDeclined
-	case "canceled", "cancelled":
+	case "cancel", "canceled", "cancelled":
 		return ElicitationStatusCanceled
+	case "failed":
+		return ElicitationStatusFailed
 	default:
 		if fallback != "" {
 			return fallback
