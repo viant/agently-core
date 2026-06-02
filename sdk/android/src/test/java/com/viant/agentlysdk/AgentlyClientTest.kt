@@ -4,6 +4,7 @@ import com.viant.forgeandroid.runtime.EndpointConfig
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -97,6 +98,38 @@ class AgentlyClientTest {
         assertEquals("true", request.getHeader("X-Agently-Debug"))
         assertEquals("trace", request.getHeader("X-Agently-Debug-Level"))
         assertEquals("conversation,reactor", request.getHeader("X-Agently-Debug-Components"))
+    }
+
+    @Test
+    fun `ui bridge rpc client carries session header across calls`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Mcp-Session-Id", "session-123")
+                .setBody("""{"jsonrpc":"2.0","result":{"accepted":true}}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"jsonrpc":"2.0","result":{"ok":true}}""")
+        )
+        server.start()
+        val client = client()
+        val bridge = UIBridgeRpcClient(client)
+
+        bridge.hello("android-ui-test")
+        bridge.snapshot(
+            clientId = "android-ui-test",
+            data = buildJsonObject {
+                put("windows", buildJsonObject { })
+            }
+        )
+
+        val helloRequest: RecordedRequest = server.takeRequest()
+        assertEquals("/v1/ui/rpc", helloRequest.path)
+        assertEquals(null, helloRequest.getHeader("Mcp-Session-Id"))
+
+        val snapshotRequest: RecordedRequest = server.takeRequest()
+        assertEquals("/v1/ui/rpc", snapshotRequest.path)
+        assertEquals("session-123", snapshotRequest.getHeader("Mcp-Session-Id"))
     }
 
     @Test

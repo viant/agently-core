@@ -4,6 +4,7 @@ public enum AgentlySDKError: Error, LocalizedError, Sendable {
     case missingEndpoint(String)
     case invalidResponse
     case httpStatus(Int, String?)
+    case rpcError(Int, String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum AgentlySDKError: Error, LocalizedError, Sendable {
                 return "Request failed with status \(statusCode): \(message)"
             }
             return "Request failed with status \(statusCode)."
+        case .rpcError(let code, let message):
+            return "RPC request failed with code \(code): \(message)"
         }
     }
 }

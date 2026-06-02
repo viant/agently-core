@@ -30,10 +30,10 @@ import java.nio.charset.StandardCharsets
 
 class AgentlyClient(
     endpoints: EndpointRegistry,
-    private val endpointName: String = "appAPI",
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    internal val endpointName: String = "appAPI",
+    internal val json: Json = Json { ignoreUnknownKeys = true }
 ) {
-    private val endpointRegistry = endpoints
+    internal val endpointRegistry = endpoints
 
     constructor(
         endpoints: Map<String, EndpointConfig>,
