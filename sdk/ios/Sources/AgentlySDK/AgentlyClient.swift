@@ -40,6 +40,14 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/api/auth/me", as: AuthUser.self)
     }
 
+    public func localLogin(_ input: LocalLoginInput) async throws -> LocalLoginOutput {
+        try await post("/v1/api/auth/local/login", body: input, as: LocalLoginOutput.self)
+    }
+
+    public func logout() async throws {
+        let _: EmptyResponse = try await post("/v1/api/auth/logout", body: EmptyResponse(), as: EmptyResponse.self)
+    }
+
     public func oauthInitiate() async throws -> OAuthInitiateOutput {
         try await post("/v1/api/auth/oauth/initiate", body: EmptyResponse(), as: OAuthInitiateOutput.self)
     }
@@ -50,6 +58,18 @@ public final class AgentlyClient: Sendable {
 
     public func getOAuthConfig() async throws -> OAuthConfigOutput {
         try await get("/v1/api/auth/oauth/config", as: OAuthConfigOutput.self)
+    }
+
+    public func createAuthSession(_ input: CreateSessionInput) async throws -> CreateSessionOutput {
+        try await post("/v1/api/auth/session", body: input, as: CreateSessionOutput.self)
+    }
+
+    public func oobLogin(_ input: OOBLoginInput) async throws -> OOBLoginOutput {
+        try await post("/v1/api/auth/oob", body: input, as: OOBLoginOutput.self)
+    }
+
+    public func idpDelegate() async throws -> IDPDelegateOutput {
+        try await post("/v1/api/auth/idp/delegate", body: EmptyResponse(), as: IDPDelegateOutput.self)
     }
 
     public func getWorkspaceMetadata(_ targetContext: MetadataTargetContext? = nil) async throws -> WorkspaceMetadata {
@@ -84,8 +104,30 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/conversations", query: conversationListQueryItems(from: input), as: ConversationPage.self)
     }
 
-    public func getLiveState(conversationID: String) async throws -> ConversationStateResponse {
-        try await get("/v1/conversations/\(conversationID)/live-state", as: ConversationStateResponse.self)
+    public func getConversation(conversationID: String) async throws -> Conversation {
+        try await get("/v1/conversations/\(encodePath(conversationID))", as: Conversation.self)
+    }
+
+    public func updateConversation(conversationID: String, _ input: UpdateConversationInput) async throws -> Conversation {
+        let data = try encoder.encode(input)
+        return try await rawRequest(path: "/v1/conversations/\(encodePath(conversationID))", method: "PATCH", body: data, as: Conversation.self)
+    }
+
+    public func deleteConversation(conversationID: String) async throws {
+        let _: EmptyResponse = try await rawRequest(path: "/v1/conversations/\(encodePath(conversationID))", method: "DELETE", as: EmptyResponse.self)
+    }
+
+    public func getMessages(_ input: GetMessagesInput) async throws -> MessagePage {
+        try await get("/v1/messages", query: messageQueryItems(from: input), as: MessagePage.self)
+    }
+
+    public func listLinkedConversations(_ input: ListLinkedConversationsInput) async throws -> LinkedConversationPage {
+        try await get("/v1/conversations/linked", query: linkedConversationQueryItems(from: input), as: LinkedConversationPage.self)
+    }
+
+    public func getLiveState(conversationID: String, includeFeeds: Bool = false) async throws -> ConversationStateResponse {
+        let query = includeFeeds ? [URLQueryItem(name: "includeFeeds", value: "true")] : []
+        return try await get("/v1/conversations/\(encodePath(conversationID))/live-state", query: query, as: ConversationStateResponse.self)
     }
 
     public func getTranscript(_ input: GetTranscriptInput) async throws -> ConversationStateResponse {
@@ -135,6 +177,72 @@ public final class AgentlyClient: Sendable {
         try await post("/v1/tool-approvals/\(input.id)/decision", body: input, as: DecideToolApprovalOutput.self)
     }
 
+    public func listResources(_ input: ListResourcesInput) async throws -> ListResourcesOutput {
+        try await get(
+            "/v1/workspace/resources",
+            query: [URLQueryItem(name: "kind", value: input.kind)],
+            as: ListResourcesOutput.self
+        )
+    }
+
+    public func getResource(_ input: ResourceRef) async throws -> ResourcePayload {
+        try await get(
+            "/v1/workspace/resources/\(encodePath(input.kind))/\(encodePath(input.name))",
+            as: ResourcePayload.self
+        )
+    }
+
+    public func saveResource(_ input: SaveResourceInput) async throws {
+        let _: EmptyResponse = try await rawRequest(
+            path: "/v1/workspace/resources/\(encodePath(input.kind))/\(encodePath(input.name))",
+            method: "PUT",
+            body: Data(input.data.utf8),
+            contentType: "text/plain; charset=utf-8",
+            as: EmptyResponse.self
+        )
+    }
+
+    public func deleteResource(_ input: ResourceRef) async throws {
+        let _: EmptyResponse = try await rawRequest(
+            path: "/v1/workspace/resources/\(encodePath(input.kind))/\(encodePath(input.name))",
+            method: "DELETE",
+            as: EmptyResponse.self
+        )
+    }
+
+    public func exportResources(_ input: ExportResourcesInput) async throws -> ExportResourcesOutput {
+        try await post("/v1/workspace/resources/export", body: input, as: ExportResourcesOutput.self)
+    }
+
+    public func importResources(_ input: ImportResourcesInput) async throws -> ImportResourcesOutput {
+        try await post("/v1/workspace/resources/import", body: input, as: ImportResourcesOutput.self)
+    }
+
+    public func getSchedule(id: String) async throws -> Schedule? {
+        try await get("/v1/api/agently/scheduler/schedule/\(encodePath(id))", as: ScheduleEnvelope.self).data
+    }
+
+    public func listSchedules() async throws -> [Schedule] {
+        try await get("/v1/api/agently/scheduler/", as: ScheduleListEnvelope.self).data.schedules
+    }
+
+    public func upsertSchedules(_ schedules: [Schedule]) async throws {
+        let _: EmptyResponse = try await rawRequest(
+            path: "/v1/api/agently/scheduler/",
+            method: "PATCH",
+            body: try encoder.encode(SchedulePatchInput(schedules: schedules)),
+            as: EmptyResponse.self
+        )
+    }
+
+    public func runScheduleNow(id: String) async throws {
+        let _: EmptyResponse = try await post(
+            "/v1/api/agently/scheduler/run-now/\(encodePath(id))",
+            body: EmptyResponse(),
+            as: EmptyResponse.self
+        )
+    }
+
     public func cancelTurn(id: String) async throws {
         let _: EmptyResponse = try await post("/v1/turns/\(id)/cancel", body: EmptyResponse(), as: EmptyResponse.self)
     }
@@ -155,22 +263,86 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/files", query: queryItems(from: input), as: ListFilesOutput.self)
     }
 
+    public func getPayload(id: String, options: GetPayloadOptions = GetPayloadOptions()) async throws -> PayloadView {
+        try await get("/v1/api/payload/\(encodePath(id))", query: payloadQueryItems(from: options), as: PayloadView.self)
+    }
+
+    public func downloadPayload(id: String) async throws -> DownloadFileOutput {
+        try await downloadBinary(
+            path: "/v1/api/payload/\(encodePath(id))",
+            query: [URLQueryItem(name: "raw", value: "1")]
+        )
+    }
+
     public func listGeneratedFiles(conversationID: String) async throws -> [GeneratedFileEntry] {
-        try await get("/v1/api/conversations/\(conversationID)/generated-files", as: [GeneratedFileEntry].self)
+        try await get("/v1/api/conversations/\(encodePath(conversationID))/generated-files", as: [GeneratedFileEntry].self)
     }
 
     public func downloadGeneratedFile(id: String) async throws -> DownloadFileOutput {
-        try await downloadBinary(path: "/v1/api/generated-files/\(id)/download")
+        try await downloadBinary(path: "/v1/api/generated-files/\(encodePath(id))/download")
     }
 
     public func downloadFile(conversationID: String, fileID: String) async throws -> DownloadFileOutput {
         try await downloadBinary(
-            path: "/v1/files/\(fileID)",
+            path: "/v1/files/\(encodePath(fileID))",
             query: [
                 URLQueryItem(name: "conversationId", value: conversationID),
                 URLQueryItem(name: "raw", value: "1")
             ]
         )
+    }
+
+    public func getFeedData(feedID: String, conversationID: String) async throws -> FeedDataResponse {
+        let query = conversationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? []
+            : [URLQueryItem(name: "conversationId", value: conversationID)]
+        return try await get("/v1/feeds/\(encodePath(feedID))/data", query: query, as: FeedDataResponse.self)
+    }
+
+    public func listWorkspaceFiles(uri: String) async throws -> [WorkspaceFileEntry] {
+        let data = try await rawDataRequest(
+            path: "/v1/workspace/file-browser/list",
+            method: "GET",
+            query: [URLQueryItem(name: "uri", value: uri)]
+        )
+        if let entries = try? decoder.decode([WorkspaceFileEntry].self, from: data) {
+            return entries
+        }
+        return try decoder.decode(WorkspaceFileEntriesEnvelope.self, from: data).entries
+    }
+
+    public func downloadWorkspaceFile(uri: String) async throws -> String {
+        let data = try await rawDataRequest(
+            path: "/v1/workspace/file-browser/download",
+            method: "GET",
+            query: [URLQueryItem(name: "uri", value: uri)]
+        )
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    public func listToolDefinitions() async throws -> [ToolDefinitionInfo] {
+        try await get("/v1/tools", as: [ToolDefinitionInfo].self)
+    }
+
+    public func executeTool(name: String, args: [String: JSONValue] = [:]) async throws -> String {
+        try await post("/v1/tools/\(encodePath(name))/execute", body: args, as: ToolExecuteEnvelope.self).result ?? ""
+    }
+
+    public func getA2AAgentCard(agentID: String) async throws -> AgentCard {
+        try await get("/v1/api/a2a/agents/\(encodePath(agentID))/card", as: AgentCard.self)
+    }
+
+    public func sendA2AMessage(agentID: String, request: SendA2AMessageRequest) async throws -> SendA2AMessageResponse {
+        try await post("/v1/api/a2a/agents/\(encodePath(agentID))/message", body: request, as: SendA2AMessageResponse.self)
+    }
+
+    public func listA2AAgents(agentIDs: [String]) async throws -> [String] {
+        let ids = agentIDs.joined(separator: ",")
+        return try await get(
+            "/v1/api/a2a/agents",
+            query: [URLQueryItem(name: "ids", value: ids)],
+            as: A2AAgentsEnvelope.self
+        ).agents
     }
 
     public func streamEvents(conversationID: String) -> AsyncThrowingStream<SSEEvent, Error> {
@@ -185,6 +357,44 @@ public final class AgentlyClient: Sendable {
             conversationID: conversationID,
             session: session
         )
+    }
+
+    public func trackConversation(conversationID: String) -> AsyncThrowingStream<ConversationStreamSnapshot, Error> {
+        trackConversation(
+            conversationID: conversationID,
+            initialStateLoader: { [self] id in
+                try await getLiveState(conversationID: id, includeFeeds: true)
+            },
+            eventStream: { [self] id in
+                streamEvents(conversationID: id)
+            }
+        )
+    }
+
+    func trackConversation(
+        conversationID: String,
+        initialStateLoader: @escaping @Sendable (String) async throws -> ConversationStateResponse,
+        eventStream: @escaping @Sendable (String) -> AsyncThrowingStream<SSEEvent, Error>
+    ) -> AsyncThrowingStream<ConversationStreamSnapshot, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let tracker = ConversationStreamTracker()
+                    let initialState = try await initialStateLoader(conversationID)
+                    await tracker.hydrate(initialState)
+                    continuation.yield(await tracker.currentSnapshot())
+                    for try await event in eventStream(conversationID) {
+                        continuation.yield(await tracker.apply(event))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 
     private func endpoint() throws -> EndpointConfig {
@@ -316,6 +526,56 @@ public final class AgentlyClient: Sendable {
         return items
     }
 
+    private func messageQueryItems(from value: GetMessagesInput) -> [URLQueryItem] {
+        var items = [URLQueryItem(name: "conversationId", value: value.conversationID)]
+        if let turnID = value.turnID?.trimmingCharacters(in: .whitespacesAndNewlines), !turnID.isEmpty {
+            items.append(URLQueryItem(name: "turnId", value: turnID))
+        }
+        if !value.roles.isEmpty {
+            items.append(URLQueryItem(name: "roles", value: value.roles.joined(separator: ",")))
+        }
+        if !value.types.isEmpty {
+            items.append(URLQueryItem(name: "types", value: value.types.joined(separator: ",")))
+        }
+        appendPageItems(value.page, to: &items)
+        return items
+    }
+
+    private func linkedConversationQueryItems(from value: ListLinkedConversationsInput) -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let parentConversationID = value.parentConversationID?.trimmingCharacters(in: .whitespacesAndNewlines), !parentConversationID.isEmpty {
+            items.append(URLQueryItem(name: "parentConversationId", value: parentConversationID))
+        }
+        if let parentTurnID = value.parentTurnID?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTurnID.isEmpty {
+            items.append(URLQueryItem(name: "parentTurnId", value: parentTurnID))
+        }
+        appendPageItems(value.page, to: &items)
+        return items
+    }
+
+    private func payloadQueryItems(from value: GetPayloadOptions) -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if value.meta == true {
+            items.append(URLQueryItem(name: "meta", value: "1"))
+        }
+        if value.inline == false {
+            items.append(URLQueryItem(name: "inline", value: "0"))
+        }
+        return items
+    }
+
+    private func appendPageItems(_ page: PageInput?, to items: inout [URLQueryItem]) {
+        if let limit = page?.limit, limit > 0 {
+            items.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let cursor = page?.cursor?.trimmingCharacters(in: .whitespacesAndNewlines), !cursor.isEmpty {
+            items.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        if let direction = page?.direction?.trimmingCharacters(in: .whitespacesAndNewlines), !direction.isEmpty {
+            items.append(URLQueryItem(name: "direction", value: direction))
+        }
+    }
+
     private func conversationListQueryItems(from value: ListConversationsInput) -> [URLQueryItem] {
         var items: [URLQueryItem] = []
         if let agentID = value.agentID?.trimmingCharacters(in: .whitespacesAndNewlines), !agentID.isEmpty {
@@ -346,6 +606,10 @@ public final class AgentlyClient: Sendable {
             items.append(URLQueryItem(name: "direction", value: direction))
         }
         return items
+    }
+
+    private func encodePath(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
     }
 
     private func makeMultipartBody(input: UploadFileInput, boundary: String) -> Data {
@@ -385,4 +649,173 @@ private struct ToolApprovalsEnvelope: Codable {
     var page: PendingToolApprovalPage {
         PendingToolApprovalPage(rows: data)
     }
+}
+
+private struct WorkspaceFileEntriesEnvelope: Codable {
+    let entries: [WorkspaceFileEntry]
+}
+
+private struct ToolExecuteEnvelope: Codable {
+    let result: String?
+}
+
+private struct A2AAgentsEnvelope: Codable {
+    let agents: [String]
+}
+
+private struct ScheduleEnvelope: Codable {
+    let status: String?
+    let data: Schedule?
+}
+
+private struct ScheduleListEnvelope: Codable {
+    let status: String?
+    let data: ScheduleListEnvelopeData
+}
+
+private struct ScheduleListEnvelopeData: Codable {
+    let schedules: [Schedule]
+}
+
+private struct SchedulePatchInput: Codable {
+    let schedules: [Schedule]
+}
+
+private let uiBridgeSessionHeader = "Mcp-Session-Id"
+
+public actor UIBridgeRPCClient {
+    private let client: AgentlyClient
+    private var sessionID: String?
+
+    public init(client: AgentlyClient) {
+        self.client = client
+    }
+
+    public func resetSession() {
+        sessionID = nil
+    }
+
+    public func hello(clientID: String) async throws -> [String: JSONValue]? {
+        try await rpcObject(
+            method: "ui.hello",
+            params: [
+                "clientId": .string(clientID)
+            ],
+            includeSession: false
+        )
+    }
+
+    public func poll(clientID: String, timeoutMs: Int = 20_000) async throws -> [String: JSONValue]? {
+        try await rpcObject(
+            method: "ui.poll",
+            params: [
+                "clientId": .string(clientID),
+                "timeoutMs": .number(Double(timeoutMs))
+            ]
+        )
+    }
+
+    @discardableResult
+    public func respond(
+        commandID: String,
+        ok: Bool,
+        result: JSONValue? = nil,
+        error: String? = nil
+    ) async throws -> [String: JSONValue]? {
+        var params: [String: JSONValue] = [
+            "id": .string(commandID),
+            "ok": .bool(ok)
+        ]
+        if let result {
+            params["result"] = result
+        }
+        if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["error"] = .string(error)
+        }
+        return try await rpcObject(method: "ui.response", params: params)
+    }
+
+    @discardableResult
+    public func snapshot(clientID: String, data: JSONValue) async throws -> [String: JSONValue]? {
+        try await rpcObject(
+            method: "ui.snapshot",
+            params: [
+                "clientId": .string(clientID),
+                "data": data
+            ]
+        )
+    }
+
+    private func rpcObject(
+        method: String,
+        params: [String: JSONValue],
+        includeSession: Bool = true
+    ) async throws -> [String: JSONValue]? {
+        guard let endpoint = client.endpoints[client.endpointName] else {
+            throw AgentlySDKError.missingEndpoint(client.endpointName)
+        }
+        let builder = RequestBuilder(endpoint: endpoint, encoder: client.encoder)
+        let payload = UIBridgeRPCRequest(
+            id: UUID().uuidString,
+            method: method,
+            params: .object(params)
+        )
+        var request = try builder.makeRequest(
+            path: "/v1/ui/rpc",
+            method: "POST",
+            body: try client.encoder.encode(payload),
+            contentType: "application/json"
+        )
+        if includeSession, let sessionID, !sessionID.isEmpty {
+            request.setValue(sessionID, forHTTPHeaderField: uiBridgeSessionHeader)
+        }
+        let (data, response) = try await client.session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AgentlySDKError.invalidResponse
+        }
+        if let updatedSessionID = http.value(forHTTPHeaderField: uiBridgeSessionHeader)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !updatedSessionID.isEmpty {
+            sessionID = updatedSessionID
+        }
+        if http.statusCode == 401 || http.statusCode == 403 || http.statusCode == 404 {
+            sessionID = nil
+            return nil
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AgentlySDKError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+        }
+        guard !data.isEmpty else {
+            return nil
+        }
+        let envelope = try client.decoder.decode(UIBridgeRPCEnvelope.self, from: data)
+        if let error = envelope.error {
+            throw AgentlySDKError.rpcError(error.code, error.message)
+        }
+        switch envelope.result {
+        case .object(let value):
+            return value
+        default:
+            return nil
+        }
+    }
+}
+
+private struct UIBridgeRPCRequest: Encodable {
+    let jsonrpc = "2.0"
+    let id: String
+    let method: String
+    let params: JSONValue
+}
+
+private struct UIBridgeRPCEnvelope: Decodable {
+    let jsonrpc: String?
+    let id: JSONValue?
+    let result: JSONValue?
+    let error: UIBridgeRPCError?
+}
+
+private struct UIBridgeRPCError: Decodable {
+    let code: Int
+    let message: String
 }
