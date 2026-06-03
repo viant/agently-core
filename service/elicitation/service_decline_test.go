@@ -9,6 +9,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	memory "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/elicitation/router"
 )
 
@@ -79,6 +80,15 @@ type acceptNoPayloadAwaiter struct{}
 
 func (acceptNoPayloadAwaiter) AwaitElicitation(ctx context.Context, p *execution.Elicitation) (*execution.ElicitResult, error) {
 	return &execution.ElicitResult{Action: execution.ElicitResultActionAccept, Payload: nil}, nil
+}
+
+type capturePublisher struct {
+	event *streaming.Event
+}
+
+func (p *capturePublisher) Publish(_ context.Context, event *streaming.Event) error {
+	p.event = event
+	return nil
 }
 
 func TestWait_AcceptWithoutPayloadDoesNotMarkDeclined(t *testing.T) {
@@ -158,6 +168,33 @@ func TestResolve_CancelWithReasonAddsUserMessage(t *testing.T) {
 	assert.EqualValues(t, "cancel", fake.lastPatchedStatus)
 	assert.Contains(t, fake.lastUserContent, "cancelReason")
 	assert.Contains(t, fake.lastUserContent, "user_timeout")
+}
+
+func TestResolve_ResolvedEventIncludesMessageTurnIdentity(t *testing.T) {
+	convID := "conv-event"
+	elicID := "elic-event"
+
+	fake := newFakeConv()
+	content := "{}"
+	turnID := "turn-event"
+	msg := &apiconv.Message{Id: "msg-event", ConversationId: convID, Role: "assistant", Content: &content}
+	msg.TurnId = &turnID
+	fake.byElic[convID+"/"+elicID] = msg
+	fake.byID[msg.Id] = msg
+
+	pub := &capturePublisher{}
+	srv := New(fake, nil, router.New(), nil)
+	srv.SetStreamPublisher(pub)
+
+	err := srv.Resolve(context.Background(), convID, elicID, "cancel", nil, "")
+	assert.NoError(t, err)
+	if assert.NotNil(t, pub.event) {
+		assert.Equal(t, streaming.EventTypeElicitationResolved, pub.event.Type)
+		assert.Equal(t, convID, pub.event.ConversationID)
+		assert.Equal(t, turnID, pub.event.TurnID)
+		assert.Equal(t, "msg-event", pub.event.MessageID)
+		assert.Equal(t, "cancel", pub.event.Status)
+	}
 }
 
 func TestAddUserResponseMessageStoresRawContent(t *testing.T) {

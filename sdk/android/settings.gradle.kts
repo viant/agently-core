@@ -15,6 +15,3 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "agently-android-sdk"
-
-include(":forge-sdk")
-project(":forge-sdk").projectDir = file("../../../forge/android/sdk")

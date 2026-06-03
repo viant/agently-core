@@ -47,6 +47,10 @@ func (t *TranscriptView) normalizeMessages() {
 		if len(m.Elicitation) == 0 {
 			m.Elicitation = buildElicitationMap(m)
 		}
+		attachElicitationStatus(m)
+		if isElicitationMessage(m) {
+			continue
+		}
 		if m.ModelCall != nil {
 			m.Status = &m.ModelCall.Status
 		}
@@ -73,6 +77,21 @@ func buildElicitationMap(m *MessageView) map[string]interface{} {
 		}
 	}
 	return parseElicitationMap(valueOrEmpty(m.Content), elicitationID, valueOrEmpty(m.Content))
+}
+
+func isElicitationMessage(m *MessageView) bool {
+	return m != nil && m.ElicitationId != nil && strings.TrimSpace(*m.ElicitationId) != ""
+}
+
+func attachElicitationStatus(m *MessageView) {
+	if m == nil || len(m.Elicitation) == 0 || m.Status == nil {
+		return
+	}
+	status := strings.TrimSpace(*m.Status)
+	if status == "" {
+		return
+	}
+	m.Elicitation["status"] = status
 }
 
 func parseElicitationMap(raw, elicitationID, fallbackMessage string) map[string]interface{} {

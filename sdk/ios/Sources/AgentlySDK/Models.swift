@@ -292,6 +292,44 @@ public struct WorkspaceMetadata: Codable, Sendable {
     }
 }
 
+public struct RunView: Codable, Sendable, Equatable {
+    public let id: String
+    public let turnID: String?
+    public let conversationID: String?
+    public let model: String?
+    public let provider: String?
+    public let status: String?
+    public let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case turnID = "TurnId"
+        case conversationID = "ConversationId"
+        case model = "Model"
+        case provider = "ModelProvider"
+        case status = "Status"
+        case createdAt = "CreatedAt"
+    }
+
+    public init(
+        id: String,
+        turnID: String? = nil,
+        conversationID: String? = nil,
+        model: String? = nil,
+        provider: String? = nil,
+        status: String? = nil,
+        createdAt: String? = nil
+    ) {
+        self.id = id
+        self.turnID = turnID
+        self.conversationID = conversationID
+        self.model = model
+        self.provider = provider
+        self.status = status
+        self.createdAt = createdAt
+    }
+}
+
 public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let windowId: String
     public let conversationId: String?
@@ -302,6 +340,7 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let parentKey: String?
     public let inTab: Bool?
     public let parameters: [String: JSONValue]?
+    public let windowForm: [String: JSONValue]?
 
     public init(
         windowId: String,
@@ -312,7 +351,8 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         region: String? = nil,
         parentKey: String? = nil,
         inTab: Bool? = nil,
-        parameters: [String: JSONValue]? = nil
+        parameters: [String: JSONValue]? = nil,
+        windowForm: [String: JSONValue]? = nil
     ) {
         self.windowId = windowId
         self.conversationId = conversationId
@@ -323,6 +363,7 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         self.parentKey = parentKey
         self.inTab = inTab
         self.parameters = parameters
+        self.windowForm = windowForm
     }
 }
 
@@ -333,6 +374,139 @@ public struct HostedWorkspaceRestoreState: Codable, Sendable, Equatable {
     public init(windows: [WorkspaceWindowSnapshot] = [], selectedWindowId: String? = nil) {
         self.windows = windows
         self.selectedWindowId = selectedWindowId
+    }
+}
+
+public struct ListTemplatesInput: Codable, Sendable {
+    public init() {}
+}
+
+public struct TemplateListItem: Codable, Sendable, Equatable {
+    public let name: String
+    public let description: String?
+    public let format: String?
+
+    public init(name: String, description: String? = nil, format: String? = nil) {
+        self.name = name
+        self.description = description
+        self.format = format
+    }
+}
+
+public struct ListTemplatesOutput: Codable, Sendable {
+    public let items: [TemplateListItem]
+
+    public init(items: [TemplateListItem] = []) {
+        self.items = items
+    }
+}
+
+public struct GetTemplateInput: Codable, Sendable {
+    public let name: String
+    public let includeDocument: Bool?
+
+    public init(name: String, includeDocument: Bool? = nil) {
+        self.name = name
+        self.includeDocument = includeDocument
+    }
+}
+
+public struct GetTemplateOutput: Codable, Sendable {
+    public let name: String?
+    public let format: String?
+    public let description: String?
+    public let instructions: String?
+    public let fences: JSONValue?
+    public let schema: JSONValue?
+    public let examples: JSONValue?
+    public let includedDocument: Bool
+
+    public init(
+        name: String? = nil,
+        format: String? = nil,
+        description: String? = nil,
+        instructions: String? = nil,
+        fences: JSONValue? = nil,
+        schema: JSONValue? = nil,
+        examples: JSONValue? = nil,
+        includedDocument: Bool = false
+    ) {
+        self.name = name
+        self.format = format
+        self.description = description
+        self.instructions = instructions
+        self.fences = fences
+        self.schema = schema
+        self.examples = examples
+        self.includedDocument = includedDocument
+    }
+}
+
+public struct ListSkillsInput: Codable, Sendable {
+    public let conversationID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+    }
+
+    public init(conversationID: String? = nil) {
+        self.conversationID = conversationID
+    }
+}
+
+public struct SkillItem: Codable, Sendable, Equatable {
+    public let name: String?
+    public let description: String?
+
+    public init(name: String? = nil, description: String? = nil) {
+        self.name = name
+        self.description = description
+    }
+}
+
+public struct ListSkillsOutput: Codable, Sendable {
+    public let items: [SkillItem]
+    public let diagnostics: [String]
+
+    public init(items: [SkillItem] = [], diagnostics: [String] = []) {
+        self.items = items
+        self.diagnostics = diagnostics
+    }
+}
+
+public struct ActivateSkillInput: Codable, Sendable {
+    public let conversationID: String?
+    public let name: String?
+    public let args: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case name
+        case args
+    }
+
+    public init(conversationID: String? = nil, name: String? = nil, args: String? = nil) {
+        self.conversationID = conversationID
+        self.name = name
+        self.args = args
+    }
+}
+
+public struct ActivateSkillOutput: Codable, Sendable {
+    public let name: String?
+    public let body: String?
+
+    public init(name: String? = nil, body: String? = nil) {
+        self.name = name
+        self.body = body
+    }
+}
+
+public struct SkillDiagnosticsOutput: Codable, Sendable {
+    public let items: [String]
+
+    public init(items: [String] = []) {
+        self.items = items
     }
 }
 
@@ -624,6 +798,19 @@ public struct QueryOutput: Codable, Sendable {
         case usage
         case warnings
         case projection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        conversationID = try container.decodeIfPresent(String.self, forKey: .conversationID)
+        content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        messageID = try container.decodeIfPresent(String.self, forKey: .messageID)
+        elicitation = try container.decodeIfPresent(JSONValue.self, forKey: .elicitation)
+        plan = try container.decodeIfPresent(JSONValue.self, forKey: .plan)
+        usage = try container.decodeIfPresent(JSONValue.self, forKey: .usage)
+        warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+        projection = try container.decodeIfPresent(JSONValue.self, forKey: .projection)
     }
 
     public init(
@@ -1444,6 +1631,206 @@ public struct DecideToolApprovalOutput: Codable, Sendable {
     }
 }
 
+public struct ResourceRef: Codable, Sendable {
+    public let kind: String
+    public let name: String
+
+    public init(kind: String, name: String) {
+        self.kind = kind
+        self.name = name
+    }
+}
+
+public struct ListResourcesInput: Codable, Sendable {
+    public let kind: String
+
+    public init(kind: String) {
+        self.kind = kind
+    }
+}
+
+public struct ListResourcesOutput: Codable, Sendable {
+    public let names: [String]
+
+    public init(names: [String] = []) {
+        self.names = names
+    }
+}
+
+public struct ResourcePayload: Codable, Sendable {
+    public let kind: String
+    public let name: String
+    public let data: String?
+
+    public init(kind: String, name: String, data: String? = nil) {
+        self.kind = kind
+        self.name = name
+        self.data = data
+    }
+}
+
+public struct SaveResourceInput: Codable, Sendable {
+    public let kind: String
+    public let name: String
+    public let data: String
+
+    public init(kind: String, name: String, data: String) {
+        self.kind = kind
+        self.name = name
+        self.data = data
+    }
+}
+
+public struct ExportResourcesInput: Codable, Sendable {
+    public let kinds: [String]
+
+    public init(kinds: [String] = []) {
+        self.kinds = kinds
+    }
+}
+
+public struct ExportResourcesOutput: Codable, Sendable {
+    public let resources: [ResourcePayload]
+
+    public init(resources: [ResourcePayload] = []) {
+        self.resources = resources
+    }
+}
+
+public struct ImportResourcesInput: Codable, Sendable {
+    public let resources: [ResourcePayload]
+    public let replace: Bool
+
+    public init(resources: [ResourcePayload] = [], replace: Bool = false) {
+        self.resources = resources
+        self.replace = replace
+    }
+}
+
+public struct ImportResourcesOutput: Codable, Sendable {
+    public let imported: Int
+    public let skipped: Int
+
+    public init(imported: Int = 0, skipped: Int = 0) {
+        self.imported = imported
+        self.skipped = skipped
+    }
+}
+
+public struct Schedule: Codable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let description: String?
+    public let createdByUserID: String?
+    public let visibility: String?
+    public let agentRef: String
+    public let modelOverride: String?
+    public let userCredURL: String?
+    public let enabled: Bool
+    public let startAt: String?
+    public let endAt: String?
+    public let scheduleType: String
+    public let cronExpr: String?
+    public let intervalSeconds: Int?
+    public let timezone: String?
+    public let timeoutSeconds: Int?
+    public let taskPromptURI: String?
+    public let taskPrompt: String?
+    public let nextRunAt: String?
+    public let lastRunAt: String?
+    public let lastStatus: String?
+    public let lastError: String?
+    public let leaseOwner: String?
+    public let leaseUntil: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case createdByUserID = "createdByUserId"
+        case visibility
+        case agentRef
+        case modelOverride
+        case userCredURL = "userCredUrl"
+        case enabled
+        case startAt
+        case endAt
+        case scheduleType
+        case cronExpr
+        case intervalSeconds
+        case timezone
+        case timeoutSeconds
+        case taskPromptURI = "taskPromptUri"
+        case taskPrompt
+        case nextRunAt
+        case lastRunAt
+        case lastStatus
+        case lastError
+        case leaseOwner
+        case leaseUntil
+        case createdAt
+        case updatedAt
+    }
+
+    public init(
+        id: String,
+        name: String,
+        description: String? = nil,
+        createdByUserID: String? = nil,
+        visibility: String? = nil,
+        agentRef: String,
+        modelOverride: String? = nil,
+        userCredURL: String? = nil,
+        enabled: Bool = false,
+        startAt: String? = nil,
+        endAt: String? = nil,
+        scheduleType: String,
+        cronExpr: String? = nil,
+        intervalSeconds: Int? = nil,
+        timezone: String? = nil,
+        timeoutSeconds: Int? = nil,
+        taskPromptURI: String? = nil,
+        taskPrompt: String? = nil,
+        nextRunAt: String? = nil,
+        lastRunAt: String? = nil,
+        lastStatus: String? = nil,
+        lastError: String? = nil,
+        leaseOwner: String? = nil,
+        leaseUntil: String? = nil,
+        createdAt: String? = nil,
+        updatedAt: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.createdByUserID = createdByUserID
+        self.visibility = visibility
+        self.agentRef = agentRef
+        self.modelOverride = modelOverride
+        self.userCredURL = userCredURL
+        self.enabled = enabled
+        self.startAt = startAt
+        self.endAt = endAt
+        self.scheduleType = scheduleType
+        self.cronExpr = cronExpr
+        self.intervalSeconds = intervalSeconds
+        self.timezone = timezone
+        self.timeoutSeconds = timeoutSeconds
+        self.taskPromptURI = taskPromptURI
+        self.taskPrompt = taskPrompt
+        self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
+        self.lastStatus = lastStatus
+        self.lastError = lastError
+        self.leaseOwner = leaseOwner
+        self.leaseUntil = leaseUntil
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct ApprovalMeta: Codable, Sendable {
     public let type: String?
     public let toolName: String?
@@ -1660,6 +2047,923 @@ public struct DownloadFileOutput: Sendable {
         self.name = name
         self.contentType = contentType
         self.data = data
+    }
+}
+
+// MARK: - Phase 1 Android-parity models
+
+struct DynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+
+    init(_ stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        return nil
+    }
+}
+
+public struct LocalLoginInput: Codable, Sendable {
+    public let username: String
+
+    public init(username: String) {
+        self.username = username
+    }
+}
+
+public struct LocalLoginOutput: Codable, Sendable {
+    public let sessionID: String
+    public let username: String?
+    public let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case username
+        case provider
+    }
+
+    public init(sessionID: String, username: String? = nil, provider: String? = nil) {
+        self.sessionID = sessionID
+        self.username = username
+        self.provider = provider
+    }
+}
+
+public struct CreateSessionInput: Codable, Sendable {
+    public let username: String?
+    public let accessToken: String?
+    public let idToken: String?
+    public let refreshToken: String?
+
+    public init(
+        username: String? = nil,
+        accessToken: String? = nil,
+        idToken: String? = nil,
+        refreshToken: String? = nil
+    ) {
+        self.username = username
+        self.accessToken = accessToken
+        self.idToken = idToken
+        self.refreshToken = refreshToken
+    }
+}
+
+public struct CreateSessionOutput: Codable, Sendable {
+    public let sessionID: String
+    public let username: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case username
+    }
+
+    public init(sessionID: String, username: String? = nil) {
+        self.sessionID = sessionID
+        self.username = username
+    }
+}
+
+public struct OOBLoginInput: Codable, Sendable {
+    public let secretsURL: String?
+    public let scopes: [String]
+    public let accessToken: String?
+    public let idToken: String?
+    public let refreshToken: String?
+    public let username: String?
+
+    public init(
+        secretsURL: String? = nil,
+        scopes: [String] = [],
+        accessToken: String? = nil,
+        idToken: String? = nil,
+        refreshToken: String? = nil,
+        username: String? = nil
+    ) {
+        self.secretsURL = secretsURL
+        self.scopes = scopes
+        self.accessToken = accessToken
+        self.idToken = idToken
+        self.refreshToken = refreshToken
+        self.username = username
+    }
+}
+
+public struct OOBLoginOutput: Codable, Sendable {
+    public let sessionID: String?
+    public let status: String?
+    public let username: String?
+    public let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case status
+        case username
+        case provider
+    }
+
+    public init(sessionID: String? = nil, status: String? = nil, username: String? = nil, provider: String? = nil) {
+        self.sessionID = sessionID
+        self.status = status
+        self.username = username
+        self.provider = provider
+    }
+}
+
+public struct IDPDelegateOutput: Codable, Sendable {
+    public let mode: String?
+    public let idpLogin: String?
+    public let provider: String?
+    public let authURL: String?
+    public let state: String?
+    public let expiresIn: Int?
+    public let status: String?
+    public let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case idpLogin
+        case provider
+        case authURL = "authUrl"
+        case state
+        case expiresIn
+        case status
+        case message
+    }
+
+    public init(
+        mode: String? = nil,
+        idpLogin: String? = nil,
+        provider: String? = nil,
+        authURL: String? = nil,
+        state: String? = nil,
+        expiresIn: Int? = nil,
+        status: String? = nil,
+        message: String? = nil
+    ) {
+        self.mode = mode
+        self.idpLogin = idpLogin
+        self.provider = provider
+        self.authURL = authURL
+        self.state = state
+        self.expiresIn = expiresIn
+        self.status = status
+        self.message = message
+    }
+}
+
+public struct UpdateConversationInput: Codable, Sendable {
+    public let title: String?
+    public let visibility: String?
+    public let shareable: Bool?
+
+    public init(title: String? = nil, visibility: String? = nil, shareable: Bool? = nil) {
+        self.title = title
+        self.visibility = visibility
+        self.shareable = shareable
+    }
+}
+
+public struct SteerTurnInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String
+    public let content: String
+    public let role: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case content
+        case role
+    }
+
+    public init(
+        conversationID: String,
+        turnID: String,
+        content: String,
+        role: String? = nil
+    ) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.content = content
+        self.role = role
+    }
+}
+
+public struct SteerTurnOutput: Codable, Sendable {
+    public let messageID: String?
+    public let turnID: String?
+    public let status: String?
+    public let canceledTurnID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messageID = "messageId"
+        case turnID = "turnId"
+        case status
+        case canceledTurnID = "canceledTurnId"
+    }
+
+    public init(
+        messageID: String? = nil,
+        turnID: String? = nil,
+        status: String? = nil,
+        canceledTurnID: String? = nil
+    ) {
+        self.messageID = messageID
+        self.turnID = turnID
+        self.status = status
+        self.canceledTurnID = canceledTurnID
+    }
+}
+
+public struct MoveQueuedTurnInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String
+    public let direction: String
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case direction
+    }
+
+    public init(conversationID: String, turnID: String, direction: String) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.direction = direction
+    }
+}
+
+public struct EditQueuedTurnInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String
+    public let content: String
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case content
+    }
+
+    public init(conversationID: String, turnID: String, content: String) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.content = content
+    }
+}
+
+public struct GetMessagesInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String?
+    public let roles: [String]
+    public let types: [String]
+    public let page: PageInput?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case roles
+        case types
+        case page
+    }
+
+    public init(
+        conversationID: String,
+        turnID: String? = nil,
+        roles: [String] = [],
+        types: [String] = [],
+        page: PageInput? = nil
+    ) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.roles = roles
+        self.types = types
+        self.page = page
+    }
+}
+
+/// Canonical message row. The backend serializes message rows using Go field
+/// names (capitalized, e.g. `Id`, `ConversationId`), while the SDK contract uses
+/// camelCase. The custom decoder normalizes both shapes by lower-casing the
+/// first character of every key so either wire form decodes cleanly.
+public struct Message: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let conversationID: String?
+    public let turnID: String?
+    public let role: String?
+    public let type: String?
+    public let content: String?
+    public let rawContent: String?
+    public let status: String?
+    public let interim: Int?
+    public let iteration: Int?
+    public let narration: String?
+    public let phase: String?
+    public let mode: String?
+    public let sequence: Int?
+    public let createdAt: String?
+    public let updatedAt: String?
+    public let parentMessageID: String?
+    public let linkedConversationID: String?
+    public let toolName: String?
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode([String: JSONValue].self)
+        var norm: [String: JSONValue] = [:]
+        for (key, value) in raw {
+            if norm[key] == nil { norm[key] = value }
+            let lowered = key.prefix(1).lowercased() + key.dropFirst()
+            if norm[lowered] == nil { norm[lowered] = value }
+        }
+        func str(_ key: String) -> String? {
+            guard let value = norm[key] else { return nil }
+            if case .string(let string) = value {
+                return string
+            }
+            return nil
+        }
+        func int(_ key: String) -> Int? {
+            guard let value = norm[key] else { return nil }
+            if case .number(let number) = value {
+                return Int(number)
+            }
+            return nil
+        }
+
+        self.id = str("id") ?? ""
+        self.conversationID = str("conversationId")
+        self.turnID = str("turnId")
+        self.role = str("role")
+        self.type = str("type")
+        self.content = str("content")
+        self.rawContent = str("rawContent")
+        self.status = str("status")
+        self.interim = int("interim")
+        self.iteration = int("iteration")
+        self.narration = str("narration")
+        self.phase = str("phase")
+        self.mode = str("mode")
+        self.sequence = int("sequence")
+        self.createdAt = str("createdAt")
+        self.updatedAt = str("updatedAt")
+        self.parentMessageID = str("parentMessageId")
+        self.linkedConversationID = str("linkedConversationId")
+        self.toolName = str("toolName")
+    }
+}
+
+public struct MessagePage: Decodable, Sendable {
+    public let rows: [Message]
+    public let nextCursor: String?
+    public let prevCursor: String?
+    public let hasMore: Bool
+
+    public init(rows: [Message] = [], nextCursor: String? = nil, prevCursor: String? = nil, hasMore: Bool = false) {
+        self.rows = rows
+        self.nextCursor = nextCursor
+        self.prevCursor = prevCursor
+        self.hasMore = hasMore
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        self.rows =
+            (try? container.decodeIfPresent([Message].self, forKey: DynamicCodingKey("rows")) ?? nil) ??
+            (try? container.decodeIfPresent([Message].self, forKey: DynamicCodingKey("Rows")) ?? nil) ??
+            []
+        self.nextCursor =
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("nextCursor")) ?? nil) ??
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("NextCursor")) ?? nil)
+        self.prevCursor =
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("prevCursor")) ?? nil) ??
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("PrevCursor")) ?? nil)
+        self.hasMore =
+            ((try? container.decodeIfPresent(Bool.self, forKey: DynamicCodingKey("hasMore")) ?? nil) ??
+             (try? container.decodeIfPresent(Bool.self, forKey: DynamicCodingKey("HasMore")) ?? nil)) ?? false
+    }
+}
+
+public struct ListLinkedConversationsInput: Codable, Sendable {
+    public let parentConversationID: String?
+    public let parentTurnID: String?
+    public let page: PageInput?
+
+    enum CodingKeys: String, CodingKey {
+        case parentConversationID = "parentConversationId"
+        case parentTurnID = "parentTurnId"
+        case page
+    }
+
+    public init(parentConversationID: String? = nil, parentTurnID: String? = nil, page: PageInput? = nil) {
+        self.parentConversationID = parentConversationID
+        self.parentTurnID = parentTurnID
+        self.page = page
+    }
+}
+
+public struct LinkedConversationEntry: Codable, Sendable, Identifiable {
+    public var id: String { conversationID }
+    public let conversationID: String
+    public let parentConversationID: String?
+    public let parentTurnID: String?
+    public let agentID: String?
+    public let title: String?
+    public let status: String?
+    public let response: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case parentConversationID = "parentConversationId"
+        case parentTurnID = "parentTurnId"
+        case agentID = "agentId"
+        case title
+        case status
+        case response
+        case createdAt
+        case updatedAt
+    }
+}
+
+public struct LinkedConversationPage: Decodable, Sendable {
+    public let rows: [LinkedConversationEntry]
+    public let nextCursor: String?
+    public let prevCursor: String?
+    public let hasMore: Bool
+
+    public init(
+        rows: [LinkedConversationEntry] = [],
+        nextCursor: String? = nil,
+        prevCursor: String? = nil,
+        hasMore: Bool = false
+    ) {
+        self.rows = rows
+        self.nextCursor = nextCursor
+        self.prevCursor = prevCursor
+        self.hasMore = hasMore
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        self.rows =
+            (try? container.decodeIfPresent([LinkedConversationEntry].self, forKey: DynamicCodingKey("rows")) ?? nil) ??
+            (try? container.decodeIfPresent([LinkedConversationEntry].self, forKey: DynamicCodingKey("Rows")) ?? nil) ??
+            []
+        self.nextCursor =
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("nextCursor")) ?? nil) ??
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("NextCursor")) ?? nil)
+        self.prevCursor =
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("prevCursor")) ?? nil) ??
+            (try? container.decodeIfPresent(String.self, forKey: DynamicCodingKey("PrevCursor")) ?? nil)
+        self.hasMore =
+            ((try? container.decodeIfPresent(Bool.self, forKey: DynamicCodingKey("hasMore")) ?? nil) ??
+             (try? container.decodeIfPresent(Bool.self, forKey: DynamicCodingKey("HasMore")) ?? nil)) ?? false
+    }
+}
+
+public struct FeedDataResponse: Codable, Sendable {
+    public let feedID: String?
+    public let title: String?
+    public let data: JSONValue?
+    public let dataSources: JSONValue?
+    public let ui: JSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case feedID = "feedId"
+        case title
+        case data
+        case dataSources
+        case ui
+    }
+
+    public init(
+        feedID: String? = nil,
+        title: String? = nil,
+        data: JSONValue? = nil,
+        dataSources: JSONValue? = nil,
+        ui: JSONValue? = nil
+    ) {
+        self.feedID = feedID
+        self.title = title
+        self.data = data
+        self.dataSources = dataSources
+        self.ui = ui
+    }
+}
+
+public struct GetPayloadOptions: Sendable {
+    public let raw: Bool?
+    public let meta: Bool?
+    public let inline: Bool?
+
+    public init(raw: Bool? = nil, meta: Bool? = nil, inline: Bool? = nil) {
+        self.raw = raw
+        self.meta = meta
+        self.inline = inline
+    }
+}
+
+/// Structured payload metadata. The backend serializes the Go `Payload` struct
+/// with its capitalized field names (e.g. `Id`, `MimeType`, `URI`), so the
+/// CodingKeys map the camelCase Swift properties onto those wire keys.
+public struct PayloadView: Codable, Sendable, Identifiable {
+    public let id: String
+    public let tenantID: String?
+    public let kind: String?
+    public let subtype: String?
+    public let mimeType: String?
+    public let sizeBytes: Int64?
+    public let digest: String?
+    public let storage: String?
+    public let inlineBody: String?
+    public let uri: String?
+    public let compression: String?
+    public let encryptionKMSKeyID: String?
+    public let redactionPolicyVersion: String?
+    public let redacted: Int?
+    public let createdAt: String?
+    public let schemaRef: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case tenantID = "TenantID"
+        case kind = "Kind"
+        case subtype = "Subtype"
+        case mimeType = "MimeType"
+        case sizeBytes = "SizeBytes"
+        case digest = "Digest"
+        case storage = "Storage"
+        case inlineBody = "InlineBody"
+        case uri = "URI"
+        case compression = "Compression"
+        case encryptionKMSKeyID = "EncryptionKMSKeyID"
+        case redactionPolicyVersion = "RedactionPolicyVersion"
+        case redacted = "Redacted"
+        case createdAt = "CreatedAt"
+        case schemaRef = "SchemaRef"
+    }
+
+    public init(
+        id: String,
+        tenantID: String? = nil,
+        kind: String? = nil,
+        subtype: String? = nil,
+        mimeType: String? = nil,
+        sizeBytes: Int64? = nil,
+        digest: String? = nil,
+        storage: String? = nil,
+        inlineBody: String? = nil,
+        uri: String? = nil,
+        compression: String? = nil,
+        encryptionKMSKeyID: String? = nil,
+        redactionPolicyVersion: String? = nil,
+        redacted: Int? = nil,
+        createdAt: String? = nil,
+        schemaRef: String? = nil
+    ) {
+        self.id = id
+        self.tenantID = tenantID
+        self.kind = kind
+        self.subtype = subtype
+        self.mimeType = mimeType
+        self.sizeBytes = sizeBytes
+        self.digest = digest
+        self.storage = storage
+        self.inlineBody = inlineBody
+        self.uri = uri
+        self.compression = compression
+        self.encryptionKMSKeyID = encryptionKMSKeyID
+        self.redactionPolicyVersion = redactionPolicyVersion
+        self.redacted = redacted
+        self.createdAt = createdAt
+        self.schemaRef = schemaRef
+    }
+}
+
+public struct WorkspaceFileEntry: Codable, Sendable, Identifiable {
+    public var id: String { uri ?? url ?? name ?? UUID().uuidString }
+    public let uri: String?
+    public let url: String?
+    public let name: String?
+    public let isFolder: Bool?
+    public let size: Int64?
+    public let modifiedAt: String?
+    public let childNodes: [WorkspaceFileEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case uri
+        case url
+        case name
+        case isFolder = "isDir"
+        case size
+        case modifiedAt = "modTime"
+        case childNodes
+    }
+
+    public init(
+        uri: String? = nil,
+        url: String? = nil,
+        name: String? = nil,
+        isFolder: Bool? = nil,
+        size: Int64? = nil,
+        modifiedAt: String? = nil,
+        childNodes: [WorkspaceFileEntry] = []
+    ) {
+        self.uri = uri
+        self.url = url
+        self.name = name
+        self.isFolder = isFolder
+        self.size = size
+        self.modifiedAt = modifiedAt
+        self.childNodes = childNodes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.uri = try container.decodeIfPresent(String.self, forKey: .uri)
+        self.url = try container.decodeIfPresent(String.self, forKey: .url)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.isFolder = try container.decodeIfPresent(Bool.self, forKey: .isFolder)
+        self.size = try container.decodeIfPresent(Int64.self, forKey: .size)
+        self.modifiedAt = try container.decodeIfPresent(String.self, forKey: .modifiedAt)
+        self.childNodes = try container.decodeIfPresent([WorkspaceFileEntry].self, forKey: .childNodes) ?? []
+    }
+}
+
+public struct ToolDefinitionInfo: Codable, Sendable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let description: String?
+    public let parameters: JSONValue?
+    public let required: [String]
+    public let outputSchema: JSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case parameters
+        case required
+        case outputSchema = "output_schema"
+    }
+
+    public init(
+        name: String,
+        description: String? = nil,
+        parameters: JSONValue? = nil,
+        required: [String] = [],
+        outputSchema: JSONValue? = nil
+    ) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.required = required
+        self.outputSchema = outputSchema
+    }
+}
+
+public struct MCPUIToolCallInput: Codable, Sendable {
+    public let conversationID: String?
+    public let toolName: String
+    public let arguments: [String: JSONValue]
+    public let assistantText: String?
+    public let toolBundles: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case toolName
+        case arguments
+        case assistantText
+        case toolBundles
+    }
+
+    public init(
+        conversationID: String? = nil,
+        toolName: String,
+        arguments: [String: JSONValue] = [:],
+        assistantText: String? = nil,
+        toolBundles: [String] = []
+    ) {
+        self.conversationID = conversationID
+        self.toolName = toolName
+        self.arguments = arguments
+        self.assistantText = assistantText
+        self.toolBundles = toolBundles
+    }
+}
+
+public struct MCPUIToolCallOutput: Codable, Sendable {
+    public let conversationID: String?
+    public let turnID: String?
+    public let status: String
+    public let result: String?
+    public let source: String?
+    public let approval: PendingToolApproval?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case status
+        case result
+        case source
+        case approval
+    }
+
+    public init(
+        conversationID: String? = nil,
+        turnID: String? = nil,
+        status: String,
+        result: String? = nil,
+        source: String? = nil,
+        approval: PendingToolApproval? = nil
+    ) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.status = status
+        self.result = result
+        self.source = source
+        self.approval = approval
+    }
+}
+
+public struct AgentCard: Codable, Sendable {
+    public let name: String
+    public let title: String?
+    public let version: String?
+    public let description: String?
+    public let endpoints: [String: String]
+    public let authentication: JSONValue?
+    public let capabilities: AgentCapabilities?
+
+    public init(
+        name: String,
+        title: String? = nil,
+        version: String? = nil,
+        description: String? = nil,
+        endpoints: [String: String] = [:],
+        authentication: JSONValue? = nil,
+        capabilities: AgentCapabilities? = nil
+    ) {
+        self.name = name
+        self.title = title
+        self.version = version
+        self.description = description
+        self.endpoints = endpoints
+        self.authentication = authentication
+        self.capabilities = capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        self.name = try container.decode(String.self, forKey: DynamicCodingKey("name"))
+        self.title = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("title"))
+        self.version = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("version"))
+        self.description = try container.decodeIfPresent(String.self, forKey: DynamicCodingKey("description"))
+        self.endpoints = try container.decodeIfPresent([String: String].self, forKey: DynamicCodingKey("endpoints")) ?? [:]
+        self.authentication = try container.decodeIfPresent(JSONValue.self, forKey: DynamicCodingKey("authentication"))
+        self.capabilities = try container.decodeIfPresent(AgentCapabilities.self, forKey: DynamicCodingKey("capabilities"))
+    }
+}
+
+public struct AgentCapabilities: Codable, Sendable {
+    public let streaming: Bool?
+    public let pushNotifications: Bool?
+    public let stateTransitionHistory: Bool?
+
+    public init(
+        streaming: Bool? = nil,
+        pushNotifications: Bool? = nil,
+        stateTransitionHistory: Bool? = nil
+    ) {
+        self.streaming = streaming
+        self.pushNotifications = pushNotifications
+        self.stateTransitionHistory = stateTransitionHistory
+    }
+}
+
+public struct A2APart: Codable, Sendable {
+    public let type: String
+    public let text: String?
+    public let uri: String?
+    public let mimeType: String?
+    public let data: JSONValue?
+
+    public init(
+        type: String,
+        text: String? = nil,
+        uri: String? = nil,
+        mimeType: String? = nil,
+        data: JSONValue? = nil
+    ) {
+        self.type = type
+        self.text = text
+        self.uri = uri
+        self.mimeType = mimeType
+        self.data = data
+    }
+}
+
+public struct A2AMessage: Codable, Sendable {
+    public let role: String
+    public let parts: [A2APart]
+
+    public init(role: String, parts: [A2APart] = []) {
+        self.role = role
+        self.parts = parts
+    }
+}
+
+public struct SendA2AMessageRequest: Codable, Sendable {
+    public let messages: [A2AMessage]
+    public let message: A2AMessage?
+    public let taskID: String?
+    public let contextID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messages
+        case message
+        case taskID = "taskId"
+        case contextID = "contextId"
+    }
+
+    public init(
+        messages: [A2AMessage] = [],
+        message: A2AMessage? = nil,
+        taskID: String? = nil,
+        contextID: String? = nil
+    ) {
+        self.messages = messages
+        self.message = message
+        self.taskID = taskID
+        self.contextID = contextID
+    }
+}
+
+public struct A2ATaskStatus: Codable, Sendable {
+    public let state: String
+    public let message: A2APart?
+    public let error: String?
+    public let updatedAt: String?
+
+    public init(state: String, message: A2APart? = nil, error: String? = nil, updatedAt: String? = nil) {
+        self.state = state
+        self.message = message
+        self.error = error
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct A2AArtifact: Codable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String?
+    public let parts: [A2APart]
+
+    public init(id: String, createdAt: String? = nil, parts: [A2APart] = []) {
+        self.id = id
+        self.createdAt = createdAt
+        self.parts = parts
+    }
+}
+
+public struct A2ATask: Codable, Sendable, Identifiable {
+    public let id: String
+    public let contextID: String?
+    public let status: A2ATaskStatus
+    public let artifacts: [A2AArtifact]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case contextID = "contextId"
+        case status
+        case artifacts
+    }
+
+    public init(id: String, contextID: String? = nil, status: A2ATaskStatus, artifacts: [A2AArtifact] = []) {
+        self.id = id
+        self.contextID = contextID
+        self.status = status
+        self.artifacts = artifacts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.contextID = try container.decodeIfPresent(String.self, forKey: .contextID)
+        self.status = try container.decode(A2ATaskStatus.self, forKey: .status)
+        self.artifacts = try container.decodeIfPresent([A2AArtifact].self, forKey: .artifacts) ?? []
+    }
+}
+
+public struct SendA2AMessageResponse: Codable, Sendable {
+    public let task: A2ATask
+
+    public init(task: A2ATask) {
+        self.task = task
     }
 }
 

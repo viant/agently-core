@@ -167,6 +167,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("POST /v1/conversations/{id}/terminate", handleTerminate(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/compact", handleCompact(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/prune", handlePrune(client))
+	mux.HandleFunc("GET /v1/runs/{id}", handleGetRun(client))
 
 	mux.HandleFunc("GET /v1/messages", handleGetMessages(client))
 	mux.HandleFunc("GET /v1/elicitations", handleListPendingElicitations(client))

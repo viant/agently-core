@@ -38,4 +38,5 @@ const (
 	ElicitationStatusAccepted = api.ElicitationStatusAccepted
 	ElicitationStatusDeclined = api.ElicitationStatusDeclined
 	ElicitationStatusCanceled = api.ElicitationStatusCanceled
+	ElicitationStatusFailed   = api.ElicitationStatusFailed
 )

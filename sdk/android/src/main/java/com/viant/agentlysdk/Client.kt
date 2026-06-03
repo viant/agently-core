@@ -4,9 +4,6 @@ import com.viant.agentlysdk.stream.SSEEvent
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.ConversationStreamTracker
 import com.viant.agentlysdk.stream.openEventStream
-import com.viant.forgeandroid.runtime.EndpointConfig
-import com.viant.forgeandroid.runtime.EndpointRegistry
-import com.viant.forgeandroid.runtime.RestClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -20,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -30,10 +28,10 @@ import java.nio.charset.StandardCharsets
 
 class AgentlyClient(
     endpoints: EndpointRegistry,
-    private val endpointName: String = "appAPI",
-    private val json: Json = Json { ignoreUnknownKeys = true }
+    internal val endpointName: String = "appAPI",
+    internal val json: Json = Json { ignoreUnknownKeys = true }
 ) {
-    private val endpointRegistry = endpoints
+    internal val endpointRegistry = endpoints
 
     constructor(
         endpoints: Map<String, EndpointConfig>,
@@ -126,8 +124,56 @@ class AgentlyClient(
         get("/v1/conversations/${encodePath(conversationId)}", Conversation.serializer())
     }
 
+    suspend fun getRun(id: String): RunView = withContext(Dispatchers.IO) {
+        get("/v1/runs/${encodePath(id)}", RunView.serializer())
+    }
+
     suspend fun updateConversation(conversationId: String, input: UpdateConversationInput): Conversation = withContext(Dispatchers.IO) {
         patch("/v1/conversations/${encodePath(conversationId)}", input, Conversation.serializer())
+    }
+
+    suspend fun deleteConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
+        delete("/v1/conversations/${encodePath(conversationId)}", EmptyResponse.serializer())
+    }
+
+    suspend fun cancelTurn(turnId: String): Boolean = withContext(Dispatchers.IO) {
+        post("/v1/turns/${encodePath(turnId)}/cancel", emptyMap<String, JsonElement>(), CancelTurnEnvelope.serializer()).cancelled
+    }
+
+    suspend fun steerTurn(input: SteerTurnInput): SteerTurnOutput = withContext(Dispatchers.IO) {
+        post(
+            "/v1/conversations/${encodePath(input.conversationId)}/turns/${encodePath(input.turnId)}/steer",
+            input,
+            SteerTurnOutput.serializer()
+        )
+    }
+
+    suspend fun cancelQueuedTurn(conversationId: String, turnId: String): Unit = withContext(Dispatchers.IO) {
+        delete("/v1/conversations/${encodePath(conversationId)}/turns/${encodePath(turnId)}", EmptyResponse.serializer())
+    }
+
+    suspend fun moveQueuedTurn(input: MoveQueuedTurnInput): Unit = withContext(Dispatchers.IO) {
+        post(
+            "/v1/conversations/${encodePath(input.conversationId)}/turns/${encodePath(input.turnId)}/move",
+            input,
+            EmptyResponse.serializer()
+        )
+    }
+
+    suspend fun editQueuedTurn(input: EditQueuedTurnInput): Unit = withContext(Dispatchers.IO) {
+        patch(
+            "/v1/conversations/${encodePath(input.conversationId)}/turns/${encodePath(input.turnId)}",
+            input,
+            EmptyResponse.serializer()
+        )
+    }
+
+    suspend fun forceSteerQueuedTurn(conversationId: String, turnId: String): SteerTurnOutput = withContext(Dispatchers.IO) {
+        post(
+            "/v1/conversations/${encodePath(conversationId)}/turns/${encodePath(turnId)}/force-steer",
+            emptyMap<String, JsonElement>(),
+            SteerTurnOutput.serializer()
+        )
     }
 
     suspend fun getMessages(input: GetMessagesInput): MessagePage = withContext(Dispatchers.IO) {
@@ -171,6 +217,18 @@ class AgentlyClient(
     suspend fun resolveElicitation(input: ResolveElicitationInput): Unit = withContext(Dispatchers.IO) {
         val path = "/v1/elicitations/${encodePath(input.conversationId)}/${encodePath(input.elicitationId)}/resolve"
         post(path, input, EmptyResponse.serializer())
+    }
+
+    suspend fun terminateConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
+        post("/v1/conversations/${encodePath(conversationId)}/terminate", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
+    }
+
+    suspend fun compactConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
+        post("/v1/conversations/${encodePath(conversationId)}/compact", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
+    }
+
+    suspend fun pruneConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
+        post("/v1/conversations/${encodePath(conversationId)}/prune", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
     }
 
     suspend fun listPendingToolApprovals(input: ListPendingToolApprovalsInput = ListPendingToolApprovalsInput()): List<PendingToolApproval> = withContext(Dispatchers.IO) {
@@ -286,6 +344,22 @@ class AgentlyClient(
         get(buildPayloadPath(id, options), PayloadView.serializer())
     }
 
+    suspend fun getPayloads(ids: List<String>): Map<String, PayloadView> = withContext(Dispatchers.IO) {
+        val result = linkedMapOf<String, PayloadView>()
+        ids.forEach { rawId ->
+            val payloadId = rawId.trim()
+            if (payloadId.isEmpty() || result.containsKey(payloadId)) {
+                return@forEach
+            }
+            runCatching {
+                getPayload(payloadId)
+            }.getOrNull()?.let { payload ->
+                result[payloadId] = payload
+            }
+        }
+        result
+    }
+
     suspend fun downloadPayload(id: String): DownloadFileOutput = withContext(Dispatchers.IO) {
         downloadBinary(appendQuery("/v1/api/payload/${encodePath(id)}", linkedMapOf("raw" to "1")))
     }
@@ -319,6 +393,39 @@ class AgentlyClient(
 
     suspend fun executeTool(name: String, args: Map<String, JsonElement> = emptyMap()): String = withContext(Dispatchers.IO) {
         post("/v1/tools/${encodePath(name)}/execute", args, ToolExecuteEnvelope.serializer()).result.orEmpty()
+    }
+
+    suspend fun executeMCPUIToolCall(input: MCPUIToolCallInput): MCPUIToolCallOutput = withContext(Dispatchers.IO) {
+        post("/v1/api/mcp-ui/tools/call", input, MCPUIToolCallOutput.serializer())
+    }
+
+    suspend fun listTemplates(input: ListTemplatesInput = ListTemplatesInput()): ListTemplatesOutput = withContext(Dispatchers.IO) {
+        val raw = executeTool("template:list")
+        json.decodeFromString(ListTemplatesOutput.serializer(), raw)
+    }
+
+    suspend fun getTemplate(input: GetTemplateInput): GetTemplateOutput = withContext(Dispatchers.IO) {
+        val args = buildMap<String, JsonElement> {
+            put("name", JsonPrimitive(input.name))
+            input.includeDocument?.let { put("includeDocument", JsonPrimitive(it)) }
+        }
+        val raw = executeTool("template:get", args)
+        json.decodeFromString(GetTemplateOutput.serializer(), raw)
+    }
+
+    suspend fun listSkills(input: ListSkillsInput): ListSkillsOutput = withContext(Dispatchers.IO) {
+        val query = linkedMapOf<String, String>()
+        input.conversationId?.takeIf { it.isNotBlank() }?.let { query["conversationId"] = it }
+        get(appendQuery("/v1/skills", query), ListSkillsOutput.serializer())
+    }
+
+    suspend fun activateSkill(input: ActivateSkillInput): ActivateSkillOutput = withContext(Dispatchers.IO) {
+        val name = input.name?.takeIf { it.isNotBlank() } ?: error("Skill name is required")
+        post("/v1/skills/${encodePath(name)}/activate", input, ActivateSkillOutput.serializer())
+    }
+
+    suspend fun getSkillDiagnostics(): SkillDiagnosticsOutput = withContext(Dispatchers.IO) {
+        get("/v1/skills/diagnostics", SkillDiagnosticsOutput.serializer())
     }
 
     suspend fun getA2AAgentCard(agentId: String): AgentCard = withContext(Dispatchers.IO) {
@@ -481,6 +588,11 @@ class AgentlyClient(
         return decode(root, serializer)
     }
 
+    internal fun getJson(path: String): JsonElement {
+        val root = parseJson(restClient.get(endpointName, path) { it })
+        return root.unwrapDataEnvelope()
+    }
+
     internal fun <I, T> post(path: String, payload: I, serializer: KSerializer<T>): T {
         val request = json.encodeToString(serializerFor(payload), payload)
         val root = parseJson(restClient.post(endpointName, path, request) { it })
@@ -517,8 +629,13 @@ class AgentlyClient(
         is OOBLoginInput -> OOBLoginInput.serializer() as KSerializer<T>
         is CreateConversationInput -> CreateConversationInput.serializer() as KSerializer<T>
         is UpdateConversationInput -> UpdateConversationInput.serializer() as KSerializer<T>
+        is SteerTurnInput -> SteerTurnInput.serializer() as KSerializer<T>
+        is MoveQueuedTurnInput -> MoveQueuedTurnInput.serializer() as KSerializer<T>
+        is EditQueuedTurnInput -> EditQueuedTurnInput.serializer() as KSerializer<T>
         is ResolveElicitationInput -> ResolveElicitationInput.serializer() as KSerializer<T>
         is DecideToolApprovalInput -> DecideToolApprovalInput.serializer() as KSerializer<T>
+        is MCPUIToolCallInput -> MCPUIToolCallInput.serializer() as KSerializer<T>
+        is ActivateSkillInput -> ActivateSkillInput.serializer() as KSerializer<T>
         is ExportResourcesInput -> ExportResourcesInput.serializer() as KSerializer<T>
         is ImportResourcesInput -> ImportResourcesInput.serializer() as KSerializer<T>
         is SchedulePatchInput -> SchedulePatchInput.serializer() as KSerializer<T>
@@ -570,6 +687,11 @@ private data class ToolApprovalsEnvelope(
 @kotlinx.serialization.Serializable
 private data class ToolExecuteEnvelope(
     val result: String? = null
+)
+
+@kotlinx.serialization.Serializable
+private data class CancelTurnEnvelope(
+    val cancelled: Boolean = false
 )
 
 private object ToolDefinitionsSerializer : KSerializer<List<ToolDefinitionInfo>> by kotlinx.serialization.builtins.ListSerializer(ToolDefinitionInfo.serializer())

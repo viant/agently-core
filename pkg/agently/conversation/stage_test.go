@@ -206,6 +206,37 @@ func TestTranscriptOnRelation_PopulatesElicitationFromUserElicitationData(t *tes
 	assert.Equal(t, "Pick a color", tView.Message[0].Elicitation["message"])
 }
 
+func TestTranscriptOnRelation_PreservesElicitationStatusWithModelCall(t *testing.T) {
+	now := time.Now()
+	status := "cancel"
+	modelStatus := "completed"
+	elicID := "elic-1"
+	content := "{\"message\":\"Pick a color\"}"
+	tView := &TranscriptView{
+		CreatedAt: now,
+		Message: []*MessageView{{
+			Id:            "assistant-elic",
+			Role:          "assistant",
+			Type:          "text",
+			Status:        &status,
+			CreatedAt:     now,
+			Content:       &content,
+			ElicitationId: &elicID,
+			ModelCall: &ModelCallView{
+				MessageId: "assistant-elic",
+				Status:    modelStatus,
+			},
+		}},
+	}
+
+	tView.OnRelation(nil)
+	require.Len(t, tView.Message, 1)
+	require.NotNil(t, tView.Message[0].Status)
+	assert.Equal(t, "cancel", *tView.Message[0].Status)
+	require.NotNil(t, tView.Message[0].Elicitation)
+	assert.Equal(t, "cancel", tView.Message[0].Elicitation["status"])
+}
+
 func TestComputeTurnStage_FailedTurnStatus(t *testing.T) {
 	now := time.Now()
 

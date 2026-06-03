@@ -1,7 +1,7 @@
 package com.viant.agentlysdk.stream
 
 import com.viant.agentlysdk.applyEndpointConfig
-import com.viant.forgeandroid.runtime.EndpointConfig
+import com.viant.agentlysdk.EndpointConfig
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
