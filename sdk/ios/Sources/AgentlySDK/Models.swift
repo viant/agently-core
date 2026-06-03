@@ -302,6 +302,7 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let parentKey: String?
     public let inTab: Bool?
     public let parameters: [String: JSONValue]?
+    public let windowForm: [String: JSONValue]?
 
     public init(
         windowId: String,
@@ -312,7 +313,8 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         region: String? = nil,
         parentKey: String? = nil,
         inTab: Bool? = nil,
-        parameters: [String: JSONValue]? = nil
+        parameters: [String: JSONValue]? = nil,
+        windowForm: [String: JSONValue]? = nil
     ) {
         self.windowId = windowId
         self.conversationId = conversationId
@@ -323,6 +325,7 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         self.parentKey = parentKey
         self.inTab = inTab
         self.parameters = parameters
+        self.windowForm = windowForm
     }
 }
 
@@ -624,6 +627,19 @@ public struct QueryOutput: Codable, Sendable {
         case usage
         case warnings
         case projection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        conversationID = try container.decodeIfPresent(String.self, forKey: .conversationID)
+        content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        messageID = try container.decodeIfPresent(String.self, forKey: .messageID)
+        elicitation = try container.decodeIfPresent(JSONValue.self, forKey: .elicitation)
+        plan = try container.decodeIfPresent(JSONValue.self, forKey: .plan)
+        usage = try container.decodeIfPresent(JSONValue.self, forKey: .usage)
+        warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+        projection = try container.decodeIfPresent(JSONValue.self, forKey: .projection)
     }
 
     public init(
