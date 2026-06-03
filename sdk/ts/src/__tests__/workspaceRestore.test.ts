@@ -90,7 +90,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         });
     });
 
-    it('uses the latest turn with a usable hosted workspace state', () => {
+    it('restores hosted workspace state from the last turn only', () => {
         expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
             {
                 turnId: 'turn-1',
@@ -138,25 +138,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     ],
                 },
             } as any,
-        ])).toEqual({
-            windows: [
-                {
-                    windowId: 'order_legacy',
-                    conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
-                    presentation: 'hosted',
-                    region: 'chat.top',
-                    parentKey: 'chat/new',
-                    inTab: true,
-                    parameters: { AdOrderId: [111] },
-                },
-            ],
-            selectedWindowId: null,
-        });
+        ])).toBeNull();
     });
 
-    it('restores non-order hosted builder windows from the latest usable view-open turn', () => {
+    it('does not backfill older hosted view-open state when the last turn has no hosted workspace', () => {
         expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
             {
                 turnId: 'turn-1',
@@ -209,27 +194,81 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     ],
                 },
             } as any,
+        ])).toBeNull();
+    });
+
+    it('restores hosted ui/view/open state from tool content when the response payload is a gzip envelope', () => {
+        expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
+            {
+                turnId: 'turn-1',
+                execution: {
+                    pages: [
+                        {
+                            toolSteps: [
+                                {
+                                    toolName: 'ui/view/open',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        InlineBody: JSON.stringify({
+                                            id: 'order',
+                                            parameters: {
+                                                AdOrderId: [2673453],
+                                            },
+                                        }),
+                                        Compression: 'none',
+                                    },
+                                    responsePayload: {
+                                        InlineBody: '\u0001\u0002garbled',
+                                        Compression: 'gzip',
+                                    },
+                                    content: JSON.stringify({
+                                        conversationId: 'conv-1',
+                                        items: [
+                                            {
+                                                conversationId: 'conv-1',
+                                                parameters: {
+                                                    AdOrderId: [2673453],
+                                                },
+                                                parentKey: 'chat/new',
+                                                presentation: 'hosted',
+                                                region: 'chat.top',
+                                                windowId: 'order_2345888602__conv-1',
+                                                windowKey: 'order',
+                                                windowTitle: 'Order Summary',
+                                            },
+                                        ],
+                                        ok: true,
+                                        parentKey: 'chat/new',
+                                        presentation: 'hosted',
+                                        region: 'chat.top',
+                                        selectedWindowId: 'order_2345888602__conv-1',
+                                        windowId: 'order_2345888602__conv-1',
+                                        windowKey: 'order',
+                                        windowTitle: 'Order Summary',
+                                    }),
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as any,
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'metricReportBuilder__conv-1',
+                    windowId: 'order_2345888602__conv-1',
                     conversationId: 'conv-1',
-                    windowKey: 'metricReportBuilder',
-                    windowTitle: 'Performance Metrics',
+                    windowKey: 'order',
+                    windowTitle: 'Order Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
                     parameters: {
-                        metrics_ad_cube_report: {
-                            parameters: {
-                                filters: { channelIds: [1] },
-                            },
-                        },
+                        AdOrderId: [2673453],
                     },
                 },
             ],
-            selectedWindowId: 'metricReportBuilder__conv-1',
+            selectedWindowId: 'order_2345888602__conv-1',
         });
     });
 

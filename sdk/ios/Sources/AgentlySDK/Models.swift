@@ -292,6 +292,44 @@ public struct WorkspaceMetadata: Codable, Sendable {
     }
 }
 
+public struct RunView: Codable, Sendable, Equatable {
+    public let id: String
+    public let turnID: String?
+    public let conversationID: String?
+    public let model: String?
+    public let provider: String?
+    public let status: String?
+    public let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case turnID = "TurnId"
+        case conversationID = "ConversationId"
+        case model = "Model"
+        case provider = "ModelProvider"
+        case status = "Status"
+        case createdAt = "CreatedAt"
+    }
+
+    public init(
+        id: String,
+        turnID: String? = nil,
+        conversationID: String? = nil,
+        model: String? = nil,
+        provider: String? = nil,
+        status: String? = nil,
+        createdAt: String? = nil
+    ) {
+        self.id = id
+        self.turnID = turnID
+        self.conversationID = conversationID
+        self.model = model
+        self.provider = provider
+        self.status = status
+        self.createdAt = createdAt
+    }
+}
+
 public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let windowId: String
     public let conversationId: String?
@@ -336,6 +374,139 @@ public struct HostedWorkspaceRestoreState: Codable, Sendable, Equatable {
     public init(windows: [WorkspaceWindowSnapshot] = [], selectedWindowId: String? = nil) {
         self.windows = windows
         self.selectedWindowId = selectedWindowId
+    }
+}
+
+public struct ListTemplatesInput: Codable, Sendable {
+    public init() {}
+}
+
+public struct TemplateListItem: Codable, Sendable, Equatable {
+    public let name: String
+    public let description: String?
+    public let format: String?
+
+    public init(name: String, description: String? = nil, format: String? = nil) {
+        self.name = name
+        self.description = description
+        self.format = format
+    }
+}
+
+public struct ListTemplatesOutput: Codable, Sendable {
+    public let items: [TemplateListItem]
+
+    public init(items: [TemplateListItem] = []) {
+        self.items = items
+    }
+}
+
+public struct GetTemplateInput: Codable, Sendable {
+    public let name: String
+    public let includeDocument: Bool?
+
+    public init(name: String, includeDocument: Bool? = nil) {
+        self.name = name
+        self.includeDocument = includeDocument
+    }
+}
+
+public struct GetTemplateOutput: Codable, Sendable {
+    public let name: String?
+    public let format: String?
+    public let description: String?
+    public let instructions: String?
+    public let fences: JSONValue?
+    public let schema: JSONValue?
+    public let examples: JSONValue?
+    public let includedDocument: Bool
+
+    public init(
+        name: String? = nil,
+        format: String? = nil,
+        description: String? = nil,
+        instructions: String? = nil,
+        fences: JSONValue? = nil,
+        schema: JSONValue? = nil,
+        examples: JSONValue? = nil,
+        includedDocument: Bool = false
+    ) {
+        self.name = name
+        self.format = format
+        self.description = description
+        self.instructions = instructions
+        self.fences = fences
+        self.schema = schema
+        self.examples = examples
+        self.includedDocument = includedDocument
+    }
+}
+
+public struct ListSkillsInput: Codable, Sendable {
+    public let conversationID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+    }
+
+    public init(conversationID: String? = nil) {
+        self.conversationID = conversationID
+    }
+}
+
+public struct SkillItem: Codable, Sendable, Equatable {
+    public let name: String?
+    public let description: String?
+
+    public init(name: String? = nil, description: String? = nil) {
+        self.name = name
+        self.description = description
+    }
+}
+
+public struct ListSkillsOutput: Codable, Sendable {
+    public let items: [SkillItem]
+    public let diagnostics: [String]
+
+    public init(items: [SkillItem] = [], diagnostics: [String] = []) {
+        self.items = items
+        self.diagnostics = diagnostics
+    }
+}
+
+public struct ActivateSkillInput: Codable, Sendable {
+    public let conversationID: String?
+    public let name: String?
+    public let args: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case name
+        case args
+    }
+
+    public init(conversationID: String? = nil, name: String? = nil, args: String? = nil) {
+        self.conversationID = conversationID
+        self.name = name
+        self.args = args
+    }
+}
+
+public struct ActivateSkillOutput: Codable, Sendable {
+    public let name: String?
+    public let body: String?
+
+    public init(name: String? = nil, body: String? = nil) {
+        self.name = name
+        self.body = body
+    }
+}
+
+public struct SkillDiagnosticsOutput: Codable, Sendable {
+    public let items: [String]
+
+    public init(items: [String] = []) {
+        self.items = items
     }
 }
 
@@ -2058,6 +2229,94 @@ public struct UpdateConversationInput: Codable, Sendable {
     }
 }
 
+public struct SteerTurnInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String
+    public let content: String
+    public let role: String?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case content
+        case role
+    }
+
+    public init(
+        conversationID: String,
+        turnID: String,
+        content: String,
+        role: String? = nil
+    ) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.content = content
+        self.role = role
+    }
+}
+
+public struct SteerTurnOutput: Codable, Sendable {
+    public let messageID: String?
+    public let turnID: String?
+    public let status: String?
+    public let canceledTurnID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messageID = "messageId"
+        case turnID = "turnId"
+        case status
+        case canceledTurnID = "canceledTurnId"
+    }
+
+    public init(
+        messageID: String? = nil,
+        turnID: String? = nil,
+        status: String? = nil,
+        canceledTurnID: String? = nil
+    ) {
+        self.messageID = messageID
+        self.turnID = turnID
+        self.status = status
+        self.canceledTurnID = canceledTurnID
+    }
+}
+
+public struct MoveQueuedTurnInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String
+    public let direction: String
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case direction
+    }
+
+    public init(conversationID: String, turnID: String, direction: String) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.direction = direction
+    }
+}
+
+public struct EditQueuedTurnInput: Codable, Sendable {
+    public let conversationID: String
+    public let turnID: String
+    public let content: String
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case content
+    }
+
+    public init(conversationID: String, turnID: String, content: String) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.content = content
+    }
+}
+
 public struct GetMessagesInput: Codable, Sendable {
     public let conversationID: String
     public let turnID: String?
@@ -2465,6 +2724,70 @@ public struct ToolDefinitionInfo: Codable, Sendable, Identifiable {
         self.parameters = parameters
         self.required = required
         self.outputSchema = outputSchema
+    }
+}
+
+public struct MCPUIToolCallInput: Codable, Sendable {
+    public let conversationID: String?
+    public let toolName: String
+    public let arguments: [String: JSONValue]
+    public let assistantText: String?
+    public let toolBundles: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case toolName
+        case arguments
+        case assistantText
+        case toolBundles
+    }
+
+    public init(
+        conversationID: String? = nil,
+        toolName: String,
+        arguments: [String: JSONValue] = [:],
+        assistantText: String? = nil,
+        toolBundles: [String] = []
+    ) {
+        self.conversationID = conversationID
+        self.toolName = toolName
+        self.arguments = arguments
+        self.assistantText = assistantText
+        self.toolBundles = toolBundles
+    }
+}
+
+public struct MCPUIToolCallOutput: Codable, Sendable {
+    public let conversationID: String?
+    public let turnID: String?
+    public let status: String
+    public let result: String?
+    public let source: String?
+    public let approval: PendingToolApproval?
+
+    enum CodingKeys: String, CodingKey {
+        case conversationID = "conversationId"
+        case turnID = "turnId"
+        case status
+        case result
+        case source
+        case approval
+    }
+
+    public init(
+        conversationID: String? = nil,
+        turnID: String? = nil,
+        status: String,
+        result: String? = nil,
+        source: String? = nil,
+        approval: PendingToolApproval? = nil
+    ) {
+        self.conversationID = conversationID
+        self.turnID = turnID
+        self.status = status
+        self.result = result
+        self.source = source
+        self.approval = approval
     }
 }
 

@@ -333,8 +333,28 @@ final class AgentlySDKTests: XCTestCase {
         }
 
         let metadata = try await client.getForgeWindowMetadata(windowKey: "recommendation/review")
-
-        XCTAssertEqual(metadata.objectValue?["view"]?.objectValue?["content"]?.objectValue?["containers"]?.arrayValue?.first?.objectValue?["id"], .string("recommendationRoot"))
+        let root = try XCTUnwrap({
+            if case .object(let value) = metadata { return value }
+            return nil
+        }())
+        let view = try XCTUnwrap({
+            if case .object(let value) = root["view"] { return value }
+            return nil
+        }())
+        let content = try XCTUnwrap({
+            if case .object(let value) = view["content"] { return value }
+            return nil
+        }())
+        let containers = try XCTUnwrap({
+            if case .array(let value) = content["containers"] { return value }
+            return nil
+        }())
+        let firstContainer = try XCTUnwrap(containers.first)
+        let containerObject = try XCTUnwrap({
+            if case .object(let value) = firstContainer { return value }
+            return nil
+        }())
+        XCTAssertEqual(containerObject["id"], .string("recommendationRoot"))
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
     }
@@ -385,6 +405,34 @@ final class AgentlySDKTests: XCTestCase {
         )
 
         await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testGetRunUsesSharedRunRoute() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/v1/runs/run-1")
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let body = #"{"Id":"run-1","TurnId":"turn-1","ConversationId":"conv-1","Model":"gpt-5.5","ModelProvider":"openai","Status":"running","CreatedAt":"2026-06-03T12:00:00Z"}"#
+            return (response, body.data(using: .utf8)!)
+        }
+
+        let run = try await client.getRun(id: "run-1")
+
+        XCTAssertEqual(run.id, "run-1")
+        XCTAssertEqual(run.turnID, "turn-1")
+        XCTAssertEqual(run.conversationID, "conv-1")
+        XCTAssertEqual(run.model, "gpt-5.5")
+        XCTAssertEqual(run.provider, "openai")
+        XCTAssertEqual(run.status, "running")
         URLProtocolStub.requestHandler = nil
     }
 
@@ -878,6 +926,49 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testGetPayloadsDeduplicatesIDsAndSkipsMissingPayloads() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var seen: [String] = []
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            seen.append("\(request.httpMethod ?? "") \(url.path)")
+            switch url.path {
+            case "/v1/api/payload/p1":
+                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                    "Content-Type": "application/json"
+                ])!
+                return (response, #"{"Id":"p1","MimeType":"text/plain","SizeBytes":1,"Storage":"inline","Compression":"none"}"#.data(using: .utf8)!)
+            case "/v1/api/payload/p2":
+                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                    "Content-Type": "application/json"
+                ])!
+                return (response, #"{"Id":"p2","MimeType":"text/plain","SizeBytes":2,"Storage":"inline","Compression":"none"}"#.data(using: .utf8)!)
+            default:
+                let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: [
+                    "Content-Type": "application/json"
+                ])!
+                return (response, #"{"status":"error"}"#.data(using: .utf8)!)
+            }
+        }
+
+        let result = try await client.getPayloads(ids: ["p1", "p2", "missing", "p1", ""])
+
+        XCTAssertEqual(result.count, 2)
+        XCTAssertEqual(result["p1"]?.id, "p1")
+        XCTAssertEqual(result["p2"]?.id, "p2")
+        XCTAssertEqual(seen, [
+            "GET /v1/api/payload/p1",
+            "GET /v1/api/payload/p2",
+            "GET /v1/api/payload/missing"
+        ])
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testPhase1ResourcesAndSchedulerBackfillRoutes() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -1014,6 +1105,166 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(card.capabilities?.streaming, true)
         XCTAssertEqual(response.task.id, "task-1")
         XCTAssertEqual(agents, ["agent-1", "agent-2"])
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testTemplatesSkillsAndMCPUIToolCallRoutesMatchSharedClientContract() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var seen: [String] = []
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            seen.append("\(request.httpMethod ?? "") \(url.path)")
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let items = components.queryItems ?? []
+            func value(for name: String) -> String? {
+                items.first(where: { $0.name == name })?.value
+            }
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let body: String
+            switch (request.httpMethod ?? "", url.path) {
+            case ("POST", "/v1/tools/template%3Alist/execute"):
+                body = #"{"result":"{\"items\":[{\"name\":\"brief\",\"description\":\"Summary\",\"format\":\"markdown\"}]}"}"#
+            case ("POST", "/v1/tools/template%3Aget/execute"):
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertTrue(raw.contains(#""includeDocument":true"#))
+                body = #"{"result":"{\"name\":\"brief\",\"format\":\"markdown\",\"description\":\"Summary\",\"instructions\":\"Use bullets\",\"includedDocument\":true}"}"#
+            case ("GET", "/v1/skills"):
+                XCTAssertEqual(value(for: "conversationId"), "conv-1")
+                body = #"{"items":[{"name":"playwright-cli","description":"Automate browser"}],"diagnostics":["ok"]}"#
+            case ("POST", "/v1/skills/playwright-cli/activate"):
+                body = #"{"name":"playwright-cli","body":"Loaded skill"}"#
+            case ("GET", "/v1/skills/diagnostics"):
+                body = #"{"items":["shadowed demo"]}"#
+            case ("POST", "/v1/api/mcp-ui/tools/call"):
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertTrue(raw.contains(#""toolName":"system.exec""#))
+                body = #"{"conversationId":"conv-1","turnId":"turn-1","status":"queued","result":"","source":"approval","approval":{"id":"approval-1","toolName":"system.exec","status":"pending","createdAt":"2026-06-03T12:00:00Z","userId":"","conversationId":"conv-1"}}"#
+            default:
+                XCTFail("unexpected request \(request.httpMethod ?? "") \(url.path)")
+                body = #"{}"#
+            }
+            return (response, body.data(using: .utf8)!)
+        }
+
+        let templates = try await client.listTemplates()
+        let template = try await client.getTemplate(GetTemplateInput(name: "brief", includeDocument: true))
+        let skills = try await client.listSkills(ListSkillsInput(conversationID: "conv-1"))
+        let skill = try await client.activateSkill(ActivateSkillInput(conversationID: "conv-1", name: "playwright-cli", args: "https://example.com"))
+        let diagnostics = try await client.getSkillDiagnostics()
+        let toolCall = try await client.executeMCPUIToolCall(
+            MCPUIToolCallInput(
+                conversationID: "conv-1",
+                toolName: "system.exec",
+                arguments: ["cmd": .string("pwd")],
+                assistantText: "Running tool",
+                toolBundles: ["system/exec"]
+            )
+        )
+
+        XCTAssertEqual(templates.items.first?.name, "brief")
+        XCTAssertEqual(template.name, "brief")
+        XCTAssertEqual(skills.items.first?.name, "playwright-cli")
+        XCTAssertEqual(skill.body, "Loaded skill")
+        XCTAssertEqual(diagnostics.items, ["shadowed demo"])
+        XCTAssertEqual(toolCall.status, "queued")
+        XCTAssertEqual(toolCall.approval?.id, "approval-1")
+        XCTAssertEqual(seen, [
+            "POST /v1/tools/template%3Alist/execute",
+            "POST /v1/tools/template%3Aget/execute",
+            "GET /v1/skills",
+            "POST /v1/skills/playwright-cli/activate",
+            "GET /v1/skills/diagnostics",
+            "POST /v1/api/mcp-ui/tools/call"
+        ])
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testTurnAndConversationControlRoutesMatchSharedClientContract() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var seen: [(String, String)] = []
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            seen.append((request.httpMethod ?? "", url.path))
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let body: String
+            switch (request.httpMethod ?? "", url.path) {
+            case ("POST", "/v1/turns/turn-1/cancel"):
+                body = #"{"cancelled":true}"#
+            case ("POST", "/v1/conversations/conv-1/turns/turn-1/steer"):
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertTrue(raw.contains(#""content":"follow up""#))
+                body = #"{"messageId":"msg-1","turnId":"turn-1","status":"accepted"}"#
+            case ("DELETE", "/v1/conversations/conv-1/turns/turn-queued"):
+                body = #"{}"#
+            case ("POST", "/v1/conversations/conv-1/turns/turn-queued/move"):
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertTrue(raw.contains(#""direction":"up""#))
+                body = #"{}"#
+            case ("PATCH", "/v1/conversations/conv-1/turns/turn-queued"):
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertTrue(raw.contains(#""content":"edited""#))
+                body = #"{}"#
+            case ("POST", "/v1/conversations/conv-1/turns/turn-queued/force-steer"):
+                body = #"{"messageId":"msg-2","turnId":"turn-queued","status":"accepted"}"#
+            case ("POST", "/v1/conversations/conv-1/terminate"):
+                body = #"{}"#
+            case ("POST", "/v1/conversations/conv-1/compact"):
+                body = #"{}"#
+            case ("POST", "/v1/conversations/conv-1/prune"):
+                body = #"{}"#
+            default:
+                XCTFail("unexpected request \(request.httpMethod ?? "") \(url.path)")
+                body = #"{}"#
+            }
+            return (response, body.data(using: .utf8)!)
+        }
+
+        let cancelled = try await client.cancelTurn(turnID: "turn-1")
+        let steer = try await client.steerTurn(
+            SteerTurnInput(
+                conversationID: "conv-1",
+                turnID: "turn-1",
+                content: "follow up",
+                role: "user"
+            )
+        )
+        try await client.cancelQueuedTurn(conversationID: "conv-1", turnID: "turn-queued")
+        try await client.moveQueuedTurn(MoveQueuedTurnInput(conversationID: "conv-1", turnID: "turn-queued", direction: "up"))
+        try await client.editQueuedTurn(EditQueuedTurnInput(conversationID: "conv-1", turnID: "turn-queued", content: "edited"))
+        let forced = try await client.forceSteerQueuedTurn(conversationID: "conv-1", turnID: "turn-queued")
+        try await client.terminateConversation(conversationID: "conv-1")
+        try await client.compactConversation(conversationID: "conv-1")
+        try await client.pruneConversation(conversationID: "conv-1")
+
+        XCTAssertTrue(cancelled)
+        XCTAssertEqual(steer.messageID, "msg-1")
+        XCTAssertEqual(forced.messageID, "msg-2")
+        XCTAssertEqual(seen.map(\.0), ["POST", "POST", "DELETE", "POST", "PATCH", "POST", "POST", "POST", "POST"])
+        XCTAssertEqual(seen.map(\.1), [
+            "/v1/turns/turn-1/cancel",
+            "/v1/conversations/conv-1/turns/turn-1/steer",
+            "/v1/conversations/conv-1/turns/turn-queued",
+            "/v1/conversations/conv-1/turns/turn-queued/move",
+            "/v1/conversations/conv-1/turns/turn-queued",
+            "/v1/conversations/conv-1/turns/turn-queued/force-steer",
+            "/v1/conversations/conv-1/terminate",
+            "/v1/conversations/conv-1/compact",
+            "/v1/conversations/conv-1/prune"
+        ])
         URLProtocolStub.requestHandler = nil
     }
 
