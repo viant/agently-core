@@ -481,6 +481,11 @@ class AgentlyClient(
         return decode(root, serializer)
     }
 
+    internal fun getJson(path: String): JsonElement {
+        val root = parseJson(restClient.get(endpointName, path) { it })
+        return root.unwrapDataEnvelope()
+    }
+
     internal fun <I, T> post(path: String, payload: I, serializer: KSerializer<T>): T {
         val request = json.encodeToString(serializerFor(payload), payload)
         val root = parseJson(restClient.post(endpointName, path, request) { it })

@@ -466,7 +466,7 @@ public final class AgentlyClient: Sendable {
         return try decoder.decode(T.self, from: data)
     }
 
-    private func rawDataRequest(
+    func rawDataRequest(
         path: String,
         method: String,
         query: [URLQueryItem] = [],

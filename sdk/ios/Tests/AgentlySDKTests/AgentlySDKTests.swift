@@ -131,6 +131,24 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertTrue(decoded.conversation?.feeds.isEmpty ?? false)
     }
 
+    func testQueryOutputDefaultsMissingWarnings() throws {
+        let json = """
+        {
+          "conversationId": "conv-1",
+          "content": "done",
+          "messageId": "msg-1"
+        }
+        """
+
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let decoded = try JSONDecoder.agently().decode(QueryOutput.self, from: data)
+
+        XCTAssertEqual(decoded.conversationID, "conv-1")
+        XCTAssertEqual(decoded.content, "done")
+        XCTAssertEqual(decoded.messageID, "msg-1")
+        XCTAssertEqual(decoded.warnings, [])
+    }
+
     func testConversationStateDecodesCanonicalExecutionFields() throws {
         let json = """
         {
@@ -291,6 +309,32 @@ final class AgentlySDKTests: XCTestCase {
             )
         )
 
+        await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testGetForgeWindowMetadataUnwrapsDataEnvelope() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "forge window metadata request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/v1/api/agently/forge/window/recommendation/review")
+            expectation.fulfill()
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let data = #"{"data":{"view":{"content":{"containers":[{"id":"recommendationRoot"}]}}}}"#.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let metadata = try await client.getForgeWindowMetadata(windowKey: "recommendation/review")
+
+        XCTAssertEqual(metadata.objectValue?["view"]?.objectValue?["content"]?.objectValue?["containers"]?.arrayValue?.first?.objectValue?["id"], .string("recommendationRoot"))
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
     }

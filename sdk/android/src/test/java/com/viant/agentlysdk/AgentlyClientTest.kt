@@ -101,6 +101,40 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `fetchForgeWindowMetadata unwraps data envelope and encodes window key`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "data": {
+                    "view": {
+                      "content": {
+                        "containers": [
+                          { "id": "recommendationRoot" }
+                        ]
+                      }
+                    }
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.fetchForgeWindowMetadata("recommendation/review")
+
+        assertEquals("recommendationRoot", result.jsonObject["view"]!!
+            .jsonObject["content"]!!
+            .jsonObject["containers"]!!
+            .jsonArray.first().jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "/v1/api/agently/forge/window/recommendation%2Freview",
+            server.takeRequest().path
+        )
+    }
+
+    @Test
     fun `ui bridge rpc client carries session header across calls`() = runBlocking {
         server.enqueue(
             MockResponse()
