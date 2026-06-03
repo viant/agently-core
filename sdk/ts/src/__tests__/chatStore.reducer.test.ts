@@ -437,6 +437,94 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
             required: ['name'],
         });
     });
+
+    it('elicitation_resolved maps backend cancel status to canceled', () => {
+        let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            content: 'Please provide the environment variable name.',
+            status: 'pending',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'elicitation_resolved',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            status: 'cancel',
+        } as SSEEvent));
+
+        expect(state.turns[0].elicitation?.status).toBe('canceled');
+    });
+
+    it('elicitation_resolved maps backend rejected status to declined', () => {
+        let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            content: 'Please provide the environment variable name.',
+            status: 'pending',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'elicitation_resolved',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            status: 'rejected',
+        } as SSEEvent));
+
+        expect(state.turns[0].elicitation?.status).toBe('declined');
+    });
+
+    it('elicitation_resolved preserves backend failed status', () => {
+        let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            content: 'Please provide the environment variable name.',
+            status: 'pending',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'elicitation_resolved',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            status: 'failed',
+        } as SSEEvent));
+
+        expect(state.turns[0].elicitation?.status).toBe('failed');
+    });
+
+    it('terminal transcript can settle an event-owned pending canceled elicitation', () => {
+        let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_A',
+            elicitationId: 'elic_1',
+            content: 'Please provide the environment variable name.',
+            status: 'pending',
+        } as SSEEvent));
+
+        state = applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_A',
+                status: 'completed',
+                elicitation: {
+                    elicitationId: 'elic_1',
+                    status: 'cancel',
+                    message: 'Please provide the environment variable name.',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { name: { type: 'string' } },
+                    },
+                },
+            }],
+        } as CanonicalConversationState);
+
+        expect(state.turns[0].elicitation?.status).toBe('canceled');
+        expect(getFieldProvenance(state.turns[0].elicitation!, 'status')).toBe('transcript');
+    });
 });
 
 // ─── Merge rule ────────────────────────────────────────────────────────────────

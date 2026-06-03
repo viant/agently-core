@@ -1,9 +1,8 @@
 package com.viant.agentlysdk
-
-import com.viant.forgeandroid.runtime.EndpointConfig
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,6 +10,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -97,6 +97,72 @@ class AgentlyClientTest {
         assertEquals("true", request.getHeader("X-Agently-Debug"))
         assertEquals("trace", request.getHeader("X-Agently-Debug-Level"))
         assertEquals("conversation,reactor", request.getHeader("X-Agently-Debug-Components"))
+    }
+
+    @Test
+    fun `fetchForgeWindowMetadata unwraps data envelope and encodes window key`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "data": {
+                    "view": {
+                      "content": {
+                        "containers": [
+                          { "id": "recommendationRoot" }
+                        ]
+                      }
+                    }
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.fetchForgeWindowMetadata("recommendation/review")
+
+        assertEquals("recommendationRoot", result.jsonObject["view"]!!
+            .jsonObject["content"]!!
+            .jsonObject["containers"]!!
+            .jsonArray.first().jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "/v1/api/agently/forge/window/recommendation%2Freview",
+            server.takeRequest().path
+        )
+    }
+
+    @Test
+    fun `ui bridge rpc client carries session header across calls`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Mcp-Session-Id", "session-123")
+                .setBody("""{"jsonrpc":"2.0","result":{"accepted":true}}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"jsonrpc":"2.0","result":{"ok":true}}""")
+        )
+        server.start()
+        val client = client()
+        val bridge = UIBridgeRpcClient(client)
+
+        bridge.hello("android-ui-test")
+        bridge.snapshot(
+            clientId = "android-ui-test",
+            data = buildJsonObject {
+                put("windows", buildJsonObject { })
+            }
+        )
+
+        val helloRequest: RecordedRequest = server.takeRequest()
+        assertEquals("/v1/ui/rpc", helloRequest.path)
+        assertEquals(null, helloRequest.getHeader("Mcp-Session-Id"))
+
+        val snapshotRequest: RecordedRequest = server.takeRequest()
+        assertEquals("/v1/ui/rpc", snapshotRequest.path)
+        assertEquals("session-123", snapshotRequest.getHeader("Mcp-Session-Id"))
     }
 
     @Test
@@ -450,6 +516,156 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `templates skills and mediated mcp ui routes match shared client contract`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"result":"{\"items\":[{\"name\":\"brief\",\"description\":\"Summary\",\"format\":\"markdown\"}]}"}"""))
+        server.enqueue(MockResponse().setBody("""{"result":"{\"name\":\"brief\",\"format\":\"markdown\",\"description\":\"Summary\",\"instructions\":\"Use bullets\",\"includedDocument\":true}"}"""))
+        server.enqueue(MockResponse().setBody("""{"items":[{"name":"playwright-cli","description":"Automate browser"}],"diagnostics":["ok"]}"""))
+        server.enqueue(MockResponse().setBody("""{"name":"playwright-cli","body":"Loaded skill"}"""))
+        server.enqueue(MockResponse().setBody("""{"items":["shadowed demo"]}"""))
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "conversationId":"conv-1",
+                  "turnId":"turn-1",
+                  "status":"queued",
+                  "result":"",
+                  "source":"approval",
+                  "approval":{"id":"approval-1","toolName":"system.exec","status":"pending","createdAt":"2026-06-03T12:00:00Z","userId":"","conversationId":"conv-1"}
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val templates = client.listTemplates()
+        val template = client.getTemplate(GetTemplateInput(name = "brief", includeDocument = true))
+        val skills = client.listSkills(ListSkillsInput(conversationId = "conv-1"))
+        val skill = client.activateSkill(ActivateSkillInput(conversationId = "conv-1", name = "playwright-cli", args = "https://example.com"))
+        val diagnostics = client.getSkillDiagnostics()
+        val toolCall = client.executeMCPUIToolCall(
+            MCPUIToolCallInput(
+                conversationId = "conv-1",
+                toolName = "system.exec",
+                arguments = mapOf("cmd" to kotlinx.serialization.json.JsonPrimitive("pwd")),
+                assistantText = "Running tool",
+                toolBundles = listOf("system/exec")
+            )
+        )
+
+        assertEquals("brief", templates.items.first().name)
+        assertEquals("brief", template.name)
+        assertEquals("playwright-cli", skills.items.first().name)
+        assertEquals("Loaded skill", skill.body)
+        assertEquals("shadowed demo", diagnostics.items.first())
+        assertEquals("queued", toolCall.status)
+        assertEquals("approval-1", toolCall.approval?.id)
+
+        val r1 = server.takeRequest()
+        assertEquals("/v1/tools/template%3Alist/execute", r1.path)
+        assertEquals("POST", r1.method)
+
+        val r2 = server.takeRequest()
+        assertEquals("/v1/tools/template%3Aget/execute", r2.path)
+        assertEquals("POST", r2.method)
+        assertTrue(r2.body.readUtf8().contains("\"includeDocument\":true"))
+
+        val r3 = server.takeRequest()
+        assertEquals("/v1/skills?conversationId=conv-1", r3.path)
+        assertEquals("GET", r3.method)
+
+        val r4 = server.takeRequest()
+        assertEquals("/v1/skills/playwright-cli/activate", r4.path)
+        assertEquals("POST", r4.method)
+
+        val r5 = server.takeRequest()
+        assertEquals("/v1/skills/diagnostics", r5.path)
+        assertEquals("GET", r5.method)
+
+        val r6 = server.takeRequest()
+        assertEquals("/v1/api/mcp-ui/tools/call", r6.path)
+        assertEquals("POST", r6.method)
+        assertTrue(r6.body.readUtf8().contains("\"toolName\":\"system.exec\""))
+    }
+
+    @Test
+    fun `turn and conversation control routes match shared client contract`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"cancelled":true}"""))
+        server.enqueue(MockResponse().setBody("""{"messageId":"msg-1","turnId":"turn-1","status":"accepted"}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.enqueue(MockResponse().setBody("""{"messageId":"msg-2","turnId":"turn-queued","status":"accepted"}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.start()
+        val client = client()
+
+        val cancelled = client.cancelTurn("turn-1")
+        val steer = client.steerTurn(
+            SteerTurnInput(
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                content = "follow up",
+                role = "user"
+            )
+        )
+        client.cancelQueuedTurn("conv-1", "turn-queued")
+        client.moveQueuedTurn(MoveQueuedTurnInput("conv-1", "turn-queued", "up"))
+        client.editQueuedTurn(EditQueuedTurnInput("conv-1", "turn-queued", "edited"))
+        val forced = client.forceSteerQueuedTurn("conv-1", "turn-queued")
+        client.terminateConversation("conv-1")
+        client.compactConversation("conv-1")
+        client.pruneConversation("conv-1")
+
+        assertEquals(true, cancelled)
+        assertEquals("msg-1", steer.messageId)
+        assertEquals("accepted", steer.status)
+        assertEquals("msg-2", forced.messageId)
+
+        val r1 = server.takeRequest()
+        assertEquals("/v1/turns/turn-1/cancel", r1.path)
+        assertEquals("POST", r1.method)
+
+        val r2 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/turns/turn-1/steer", r2.path)
+        assertEquals("POST", r2.method)
+        assertTrue(r2.body.readUtf8().contains("\"content\":\"follow up\""))
+
+        val r3 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/turns/turn-queued", r3.path)
+        assertEquals("DELETE", r3.method)
+
+        val r4 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/turns/turn-queued/move", r4.path)
+        assertEquals("POST", r4.method)
+        assertTrue(r4.body.readUtf8().contains("\"direction\":\"up\""))
+
+        val r5 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/turns/turn-queued", r5.path)
+        assertEquals("PATCH", r5.method)
+        assertTrue(r5.body.readUtf8().contains("\"content\":\"edited\""))
+
+        val r6 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/turns/turn-queued/force-steer", r6.path)
+        assertEquals("POST", r6.method)
+
+        val r7 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/terminate", r7.path)
+        assertEquals("POST", r7.method)
+
+        val r8 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/compact", r8.path)
+        assertEquals("POST", r8.method)
+
+        val r9 = server.takeRequest()
+        assertEquals("/v1/conversations/conv-1/prune", r9.path)
+        assertEquals("POST", r9.method)
+    }
+
+    @Test
     fun `getFeedData keeps top level feed metadata alongside data field`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -604,6 +820,37 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `getRun uses shared run route`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "Id":"run-1",
+                  "TurnId":"turn-1",
+                  "ConversationId":"conv-1",
+                  "Model":"gpt-5.5",
+                  "ModelProvider":"openai",
+                  "Status":"running",
+                  "CreatedAt":"2026-06-03T12:00:00Z"
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.getRun("run-1")
+
+        assertEquals("run-1", result.id)
+        assertEquals("turn-1", result.turnId)
+        assertEquals("conv-1", result.conversationId)
+        assertEquals("gpt-5.5", result.model)
+        assertEquals("openai", result.provider)
+        assertEquals("running", result.status)
+        assertEquals("/v1/runs/run-1", server.takeRequest().path)
+    }
+
+    @Test
     fun `query posts payload and decodes response`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -679,6 +926,28 @@ class AgentlyClientTest {
         val request = server.takeRequest()
         assertEquals("/v1/api/generated-files/gen-1/download", request.path)
         assertEquals("GET", request.method)
+    }
+
+    @Test
+    fun `getPayloads deduplicates ids and skips missing payloads`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"id":"p1","kind":"text","mimeType":"text/plain","sizeBytes":1,"storage":"inline","compression":"none"}"""))
+        server.enqueue(MockResponse().setBody("""{"id":"p2","kind":"text","mimeType":"text/plain","sizeBytes":2,"storage":"inline","compression":"none"}"""))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"status":"error"}"""))
+        server.start()
+        val client = client()
+
+        val result = client.getPayloads(listOf("p1", "p2", "missing", "p1", ""))
+
+        assertEquals(2, result.size)
+        assertEquals("p1", result["p1"]?.id)
+        assertEquals("p2", result["p2"]?.id)
+
+        val r1 = server.takeRequest()
+        assertEquals("/v1/api/payload/p1", r1.path)
+        val r2 = server.takeRequest()
+        assertEquals("/v1/api/payload/p2", r2.path)
+        val r3 = server.takeRequest()
+        assertEquals("/v1/api/payload/missing", r3.path)
     }
 
     private fun client(): AgentlyClient {

@@ -221,6 +221,14 @@ export function setFieldProvenance(entity: object, field: string, prov: Provenan
     }
 }
 
+function normalizeElicitationStatus(status: unknown): ClientElicitation['status'] | undefined {
+    const value = String(status ?? '').trim().toLowerCase();
+    if (!value) return undefined;
+    if (value === 'cancel') return 'canceled';
+    if (value === 'rejected') return 'declined';
+    return value as ClientElicitation['status'];
+}
+
 // ─── State construction helpers ────────────────────────────────────────────────
 
 export function newConversationState(conversationId: string): ClientConversationState {
@@ -1067,7 +1075,8 @@ function onElicitation(state: ClientConversationState, event: SSEEvent): ClientC
     turn.elicitation = turn.elicitation ?? { renderKey: allocateRenderKey() };
     const e = turn.elicitation as ClientElicitation;
     if (event.elicitationId) writeField(e, 'elicitationId', event.elicitationId, 'event');
-    if (event.status) writeField(e, 'status', event.status as ClientElicitation['status'], 'event');
+    const eventStatus = normalizeElicitationStatus(event.status);
+    if (eventStatus) writeField(e, 'status', eventStatus, 'event');
     if (event.callbackUrl) writeField(e, 'callbackUrl', event.callbackUrl, 'event');
     if (typeof event.content === 'string' && event.content.trim() !== '') {
         writeField(e, 'message', event.content, 'event');
@@ -1080,7 +1089,7 @@ function onElicitation(state: ClientConversationState, event: SSEEvent): ClientC
             writeField(e, 'requestedSchema', requestedSchema, 'event');
         }
     }
-    if (event.type === 'elicitation_resolved') {
+    if (event.type === 'elicitation_resolved' && !eventStatus) {
         writeField(e, 'status', 'accepted', 'event');
     }
     return state;
@@ -1727,7 +1736,15 @@ function mergeTranscriptElicitation(
     turn.elicitation = turn.elicitation ?? { renderKey: allocateRenderKey() };
     const e = turn.elicitation as ClientElicitation;
     if (snapshot.elicitationId) writeField(e, 'elicitationId', snapshot.elicitationId, 'transcript');
-    if (snapshot.status) writeField(e, 'status', snapshot.status, 'transcript');
+    const transcriptStatus = normalizeElicitationStatus(snapshot.status);
+    if (transcriptStatus) {
+        const currentStatus = normalizeElicitationStatus(e.status);
+        if (getFieldProvenance(e, 'status') === 'event' && currentStatus === 'pending' && transcriptStatus === 'canceled') {
+            forceTranscriptRefinement(e, 'status', transcriptStatus);
+        } else {
+            writeField(e, 'status', transcriptStatus, 'transcript');
+        }
+    }
     if (snapshot.message !== undefined) writeField(e, 'message', snapshot.message, 'transcript');
     if (snapshot.requestedSchema !== undefined) writeField(e, 'requestedSchema', snapshot.requestedSchema as ClientElicitation['requestedSchema'], 'transcript');
     if (snapshot.callbackUrl) writeField(e, 'callbackUrl', snapshot.callbackUrl, 'transcript');
