@@ -203,6 +203,7 @@ type WorkspaceWindowSnapshot struct {
 	ParentKey      string                 `json:"parentKey,omitempty"`
 	InTab          bool                   `json:"inTab,omitempty"`
 	Parameters     map[string]interface{} `json:"parameters,omitempty"`
+	WindowForm     map[string]interface{} `json:"windowForm,omitempty"`
 }
 
 type HostedWorkspaceRestoreState struct {

@@ -108,6 +108,10 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/conversations/\(encodePath(conversationID))", as: Conversation.self)
     }
 
+    public func getRun(id: String) async throws -> RunView {
+        try await get("/v1/runs/\(encodePath(id))", as: RunView.self)
+    }
+
     public func updateConversation(conversationID: String, _ input: UpdateConversationInput) async throws -> Conversation {
         let data = try encoder.encode(input)
         return try await rawRequest(path: "/v1/conversations/\(encodePath(conversationID))", method: "PATCH", body: data, as: Conversation.self)
@@ -244,7 +248,76 @@ public final class AgentlyClient: Sendable {
     }
 
     public func cancelTurn(id: String) async throws {
-        let _: EmptyResponse = try await post("/v1/turns/\(id)/cancel", body: EmptyResponse(), as: EmptyResponse.self)
+        _ = try await cancelTurn(turnID: id)
+    }
+
+    public func cancelTurn(turnID: String) async throws -> Bool {
+        try await post("/v1/turns/\(encodePath(turnID))/cancel", body: EmptyResponse(), as: CancelTurnResponse.self).cancelled
+    }
+
+    public func steerTurn(_ input: SteerTurnInput) async throws -> SteerTurnOutput {
+        try await post(
+            "/v1/conversations/\(encodePath(input.conversationID))/turns/\(encodePath(input.turnID))/steer",
+            body: input,
+            as: SteerTurnOutput.self
+        )
+    }
+
+    public func cancelQueuedTurn(conversationID: String, turnID: String) async throws {
+        let _: EmptyResponse = try await rawRequest(
+            path: "/v1/conversations/\(encodePath(conversationID))/turns/\(encodePath(turnID))",
+            method: "DELETE",
+            as: EmptyResponse.self
+        )
+    }
+
+    public func moveQueuedTurn(_ input: MoveQueuedTurnInput) async throws {
+        let _: EmptyResponse = try await post(
+            "/v1/conversations/\(encodePath(input.conversationID))/turns/\(encodePath(input.turnID))/move",
+            body: input,
+            as: EmptyResponse.self
+        )
+    }
+
+    public func editQueuedTurn(_ input: EditQueuedTurnInput) async throws {
+        let _: EmptyResponse = try await rawRequest(
+            path: "/v1/conversations/\(encodePath(input.conversationID))/turns/\(encodePath(input.turnID))",
+            method: "PATCH",
+            body: try encoder.encode(input),
+            as: EmptyResponse.self
+        )
+    }
+
+    public func forceSteerQueuedTurn(conversationID: String, turnID: String) async throws -> SteerTurnOutput {
+        try await post(
+            "/v1/conversations/\(encodePath(conversationID))/turns/\(encodePath(turnID))/force-steer",
+            body: EmptyResponse(),
+            as: SteerTurnOutput.self
+        )
+    }
+
+    public func terminateConversation(conversationID: String) async throws {
+        let _: EmptyResponse = try await post(
+            "/v1/conversations/\(encodePath(conversationID))/terminate",
+            body: EmptyResponse(),
+            as: EmptyResponse.self
+        )
+    }
+
+    public func compactConversation(conversationID: String) async throws {
+        let _: EmptyResponse = try await post(
+            "/v1/conversations/\(encodePath(conversationID))/compact",
+            body: EmptyResponse(),
+            as: EmptyResponse.self
+        )
+    }
+
+    public func pruneConversation(conversationID: String) async throws {
+        let _: EmptyResponse = try await post(
+            "/v1/conversations/\(encodePath(conversationID))/prune",
+            body: EmptyResponse(),
+            as: EmptyResponse.self
+        )
     }
 
     public func uploadFile(_ input: UploadFileInput) async throws -> UploadFileOutput {
@@ -265,6 +338,20 @@ public final class AgentlyClient: Sendable {
 
     public func getPayload(id: String, options: GetPayloadOptions = GetPayloadOptions()) async throws -> PayloadView {
         try await get("/v1/api/payload/\(encodePath(id))", query: payloadQueryItems(from: options), as: PayloadView.self)
+    }
+
+    public func getPayloads(ids: [String]) async throws -> [String: PayloadView] {
+        var result: [String: PayloadView] = [:]
+        for rawID in ids {
+            let payloadID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if payloadID.isEmpty || result[payloadID] != nil {
+                continue
+            }
+            if let payload = try? await getPayload(id: payloadID) {
+                result[payloadID] = payload
+            }
+        }
+        return result
     }
 
     public func downloadPayload(id: String) async throws -> DownloadFileOutput {
@@ -326,6 +413,42 @@ public final class AgentlyClient: Sendable {
 
     public func executeTool(name: String, args: [String: JSONValue] = [:]) async throws -> String {
         try await post("/v1/tools/\(encodePath(name))/execute", body: args, as: ToolExecuteEnvelope.self).result ?? ""
+    }
+
+    public func executeMCPUIToolCall(_ input: MCPUIToolCallInput) async throws -> MCPUIToolCallOutput {
+        try await post("/v1/api/mcp-ui/tools/call", body: input, as: MCPUIToolCallOutput.self)
+    }
+
+    public func listTemplates(_ input: ListTemplatesInput = ListTemplatesInput()) async throws -> ListTemplatesOutput {
+        let raw = try await executeTool(name: "template:list")
+        let data = Data(raw.utf8)
+        return try decoder.decode(ListTemplatesOutput.self, from: data)
+    }
+
+    public func getTemplate(_ input: GetTemplateInput) async throws -> GetTemplateOutput {
+        var args: [String: JSONValue] = ["name": .string(input.name)]
+        if let includeDocument = input.includeDocument {
+            args["includeDocument"] = .bool(includeDocument)
+        }
+        let raw = try await executeTool(name: "template:get", args: args)
+        let data = Data(raw.utf8)
+        return try decoder.decode(GetTemplateOutput.self, from: data)
+    }
+
+    public func listSkills(_ input: ListSkillsInput) async throws -> ListSkillsOutput {
+        try await get("/v1/skills", query: try queryItems(from: input), as: ListSkillsOutput.self)
+    }
+
+    public func activateSkill(_ input: ActivateSkillInput) async throws -> ActivateSkillOutput {
+        let name = (input.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw AgentlySDKError.invalidResponse
+        }
+        return try await post("/v1/skills/\(encodePath(name))/activate", body: input, as: ActivateSkillOutput.self)
+    }
+
+    public func getSkillDiagnostics() async throws -> SkillDiagnosticsOutput {
+        try await get("/v1/skills/diagnostics", as: SkillDiagnosticsOutput.self)
     }
 
     public func getA2AAgentCard(agentID: String) async throws -> AgentCard {
@@ -799,6 +922,10 @@ public actor UIBridgeRPCClient {
             return nil
         }
     }
+}
+
+private struct CancelTurnResponse: Codable, Sendable {
+    let cancelled: Bool
 }
 
 private struct UIBridgeRPCRequest: Encodable {

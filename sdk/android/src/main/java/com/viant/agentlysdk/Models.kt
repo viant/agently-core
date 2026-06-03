@@ -165,6 +165,24 @@ data class WorkspaceMetadata(
 )
 
 @Serializable
+data class RunView(
+    @SerialName("Id")
+    val id: String,
+    @SerialName("TurnId")
+    val turnId: String? = null,
+    @SerialName("ConversationId")
+    val conversationId: String? = null,
+    @SerialName("Model")
+    val model: String? = null,
+    @SerialName("ModelProvider")
+    val provider: String? = null,
+    @SerialName("Status")
+    val status: String? = null,
+    @SerialName("CreatedAt")
+    val createdAt: String? = null
+)
+
+@Serializable
 data class WorkspaceWindowSnapshot(
     val windowId: String,
     val conversationId: String? = null,
@@ -174,13 +192,84 @@ data class WorkspaceWindowSnapshot(
     val region: String? = null,
     val parentKey: String? = null,
     val inTab: Boolean? = null,
-    val parameters: JsonObject? = null
+    val parameters: JsonObject? = null,
+    val windowForm: JsonObject? = null
 )
 
 @Serializable
 data class HostedWorkspaceRestoreState(
     val windows: List<WorkspaceWindowSnapshot> = emptyList(),
     val selectedWindowId: String? = null
+)
+
+@Serializable
+data class ListTemplatesInput(
+    val placeholder: String? = null
+)
+
+@Serializable
+data class TemplateListItem(
+    val name: String,
+    val description: String? = null,
+    val format: String? = null
+)
+
+@Serializable
+data class ListTemplatesOutput(
+    val items: List<TemplateListItem> = emptyList()
+)
+
+@Serializable
+data class GetTemplateInput(
+    val name: String,
+    val includeDocument: Boolean? = null
+)
+
+@Serializable
+data class GetTemplateOutput(
+    val name: String? = null,
+    val format: String? = null,
+    val description: String? = null,
+    val instructions: String? = null,
+    val fences: JsonElement? = null,
+    val schema: JsonElement? = null,
+    val examples: JsonElement? = null,
+    val includedDocument: Boolean = false
+)
+
+@Serializable
+data class ListSkillsInput(
+    val conversationId: String? = null
+)
+
+@Serializable
+data class SkillItem(
+    val name: String? = null,
+    val description: String? = null
+)
+
+@Serializable
+data class ListSkillsOutput(
+    val items: List<SkillItem> = emptyList(),
+    val diagnostics: List<String> = emptyList()
+)
+
+@Serializable
+data class ActivateSkillInput(
+    val conversationId: String? = null,
+    val name: String? = null,
+    val args: String? = null
+)
+
+@Serializable
+data class ActivateSkillOutput(
+    val name: String? = null,
+    val body: String? = null
+)
+
+@Serializable
+data class SkillDiagnosticsOutput(
+    val items: List<String> = emptyList()
 )
 
 @Serializable
@@ -291,6 +380,8 @@ data class WorkspaceAgentInfo(
     val id: String? = null,
     val name: String? = null,
     val modelRef: String? = null,
+    @SerialName("internal")
+    val internalAgent: Boolean? = null,
     val starterTasks: List<StarterTask> = emptyList()
 )
 
@@ -413,6 +504,36 @@ data class UpdateConversationInput(
     val title: String? = null,
     val visibility: String? = null,
     val shareable: Boolean? = null
+)
+
+@Serializable
+data class SteerTurnInput(
+    val conversationId: String,
+    val turnId: String,
+    val content: String,
+    val role: String? = null
+)
+
+@Serializable
+data class SteerTurnOutput(
+    val messageId: String? = null,
+    val turnId: String? = null,
+    val status: String? = null,
+    val canceledTurnId: String? = null
+)
+
+@Serializable
+data class MoveQueuedTurnInput(
+    val conversationId: String,
+    val turnId: String,
+    val direction: String
+)
+
+@Serializable
+data class EditQueuedTurnInput(
+    val conversationId: String,
+    val turnId: String,
+    val content: String
 )
 
 @Serializable
@@ -808,6 +929,25 @@ data class ToolDefinitionInfo(
 data class ExecuteToolInput(
     val name: String,
     val args: Map<String, JsonElement> = emptyMap()
+)
+
+@Serializable
+data class MCPUIToolCallInput(
+    val conversationId: String? = null,
+    val toolName: String,
+    val arguments: Map<String, JsonElement> = emptyMap(),
+    val assistantText: String? = null,
+    val toolBundles: List<String> = emptyList()
+)
+
+@Serializable
+data class MCPUIToolCallOutput(
+    val conversationId: String? = null,
+    val turnId: String? = null,
+    val status: String,
+    val result: String? = null,
+    val source: String? = null,
+    val approval: PendingToolApproval? = null
 )
 
 @Serializable

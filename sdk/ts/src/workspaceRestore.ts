@@ -10,6 +10,7 @@ export interface WorkspaceWindowSnapshot {
     parentKey?: string | null;
     inTab?: boolean;
     parameters?: Record<string, unknown>;
+    windowForm?: Record<string, unknown>;
 }
 
 export interface HostedWorkspaceRestoreState {
@@ -91,6 +92,9 @@ function normalizeHostedWorkspaceWindow(raw: any): WorkspaceWindowSnapshot | nul
     const parameters = raw.parameters && typeof raw.parameters === 'object'
         ? raw.parameters as Record<string, unknown>
         : {};
+    const windowForm = raw.windowForm && typeof raw.windowForm === 'object'
+        ? raw.windowForm as Record<string, unknown>
+        : undefined;
     return {
         windowId,
         conversationId: String(raw.conversationId || '').trim() || null,
@@ -101,6 +105,7 @@ function normalizeHostedWorkspaceWindow(raw: any): WorkspaceWindowSnapshot | nul
         parentKey,
         inTab: raw.inTab !== false,
         parameters,
+        windowForm,
     };
 }
 
@@ -160,32 +165,30 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
 
 export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn[] = []): HostedWorkspaceRestoreState | null {
     const list = Array.isArray(turns) ? turns : [];
-    for (let turnIndex = list.length - 1; turnIndex >= 0; turnIndex -= 1) {
-        const toolSteps = toolStepsForTurn(list[turnIndex]);
-        if (toolSteps.length === 0) continue;
-        for (let i = toolSteps.length - 1; i >= 0; i -= 1) {
-            const step = toolSteps[i] || {};
-            if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
-            const toolName = normalizeToolName(step?.toolName);
-            if (toolName === 'ui/window/list') {
-                const windows = hostedWorkspaceWindowsFromListPayload(firstParsedPayload(step?.responsePayload, step?.content));
-                if (windows.length === 0) continue;
-                return {
-                    windows,
-                    selectedWindowId: selectedWindowIdFromToolSteps(toolSteps, windows) || null,
-                };
-            }
-            if (toolName === 'ui/view/open') {
-                const windows = hostedWorkspaceWindowsFromViewOpenStep(step);
-                if (windows.length === 0) continue;
-                const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);
-                const selectedWindowId = String(responsePayload?.selectedWindowId || '').trim()
-                    || String(windows[windows.length - 1]?.windowId || '').trim();
-                return {
-                    windows,
-                    selectedWindowId: selectedWindowId || null,
-                };
-            }
+    const toolSteps = toolStepsForTurn(list[list.length - 1]);
+    if (toolSteps.length === 0) return null;
+    for (let i = toolSteps.length - 1; i >= 0; i -= 1) {
+        const step = toolSteps[i] || {};
+        if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
+        const toolName = normalizeToolName(step?.toolName);
+        if (toolName === 'ui/window/list') {
+            const windows = hostedWorkspaceWindowsFromListPayload(firstParsedPayload(step?.responsePayload, step?.content));
+            if (windows.length === 0) continue;
+            return {
+                windows,
+                selectedWindowId: selectedWindowIdFromToolSteps(toolSteps, windows) || null,
+            };
+        }
+        if (toolName === 'ui/view/open') {
+            const windows = hostedWorkspaceWindowsFromViewOpenStep(step);
+            if (windows.length === 0) continue;
+            const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);
+            const selectedWindowId = String(responsePayload?.selectedWindowId || '').trim()
+                || String(windows[windows.length - 1]?.windowId || '').trim();
+            return {
+                windows,
+                selectedWindowId: selectedWindowId || null,
+            };
         }
     }
     return null;

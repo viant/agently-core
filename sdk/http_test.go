@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
+	agrun "github.com/viant/agently-core/pkg/agently/run"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -60,6 +61,35 @@ func TestHTTPClient_GetConversation(t *testing.T) {
 		t.Fatalf("get conversation: %v", err)
 	}
 	if out == nil || out.Id != "c1" {
+		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
+func TestHTTPClient_GetRun(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/runs/run-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(&agrun.RunRowsView{
+			Id:             "run-1",
+			Status:         "running",
+			Model:          strPtr("gpt-5.5"),
+			ModelProvider:  strPtr("openai"),
+			ConversationId: strPtr("conv-1"),
+			TurnId:         strPtr("turn-1"),
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	out, err := c.GetRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if out == nil || out.Id != "run-1" || out.Status != "running" {
 		t.Fatalf("unexpected output: %#v", out)
 	}
 }
@@ -639,6 +669,21 @@ func (s *spyConversationDeleteClient) DeleteConversation(_ context.Context, id s
 	return s.err
 }
 
+type spyRunClient struct {
+	*HTTPClient
+	gotID string
+	run   *agrun.RunRowsView
+	err   error
+}
+
+func (s *spyRunClient) GetRun(_ context.Context, id string) (*agrun.RunRowsView, error) {
+	s.gotID = id
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.run, nil
+}
+
 func TestHandler_UpdateConversation_ErrorStatusMapping(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -689,6 +734,39 @@ func TestHandler_DeleteConversation(t *testing.T) {
 	}
 	if spy.gotID != "c1" {
 		t.Fatalf("unexpected delete id: %q", spy.gotID)
+	}
+}
+
+func TestHandler_GetRun(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyRunClient{
+		HTTPClient: base,
+		run: &agrun.RunRowsView{
+			Id:             "run-1",
+			Status:         "running",
+			Model:          strPtr("gpt-5.5"),
+			ModelProvider:  strPtr("openai"),
+			ConversationId: strPtr("conv-1"),
+			TurnId:         strPtr("turn-1"),
+		},
+	}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if spy.gotID != "run-1" {
+		t.Fatalf("unexpected run id: %q", spy.gotID)
+	}
+	if !strings.Contains(rec.Body.String(), `"Id":"run-1"`) {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }
 
