@@ -160,3 +160,67 @@ func TestServiceRunPlanAndStatus_EmptyResultIsFailedNotCanceled(t *testing.T) {
 	require.Contains(t, strings.ToLower(err.Error()), "no final content produced")
 	require.Equal(t, "failed", status)
 }
+
+func TestServiceRunPlanAndStatus_RecoversDurableFinalAssistantContent(t *testing.T) {
+	t.Parallel()
+
+	finalContent := "ui://polly/view/activity-activity-1"
+	convClient := &dedupeConvClient{
+		conversation: &apiconv.Conversation{
+			Id: "conv-recover",
+			Transcript: []*agconv.TranscriptView{
+				{
+					Id:             "turn-recover",
+					ConversationId: "conv-recover",
+					Message: []*agconv.MessageView{
+						{
+							Id:             "user-recover",
+							ConversationId: "conv-recover",
+							Role:           "user",
+							Type:           "task",
+							Content:        cancelPtr("hello"),
+							TurnId:         cancelPtr("turn-recover"),
+						},
+						{
+							Id:             "assistant-recover",
+							ConversationId: "conv-recover",
+							Role:           "assistant",
+							Type:           "text",
+							Content:        cancelPtr(finalContent),
+							TurnId:         cancelPtr("turn-recover"),
+						},
+					},
+				},
+			},
+		},
+	}
+	llmSvc := core.New(&emptyFinder{}, nil, convClient)
+	svc := &Service{
+		llm:          llmSvc,
+		conversation: convClient,
+		orchestrator: reactor.New(llmSvc, nil, convClient, nil, nil),
+		defaults:     &config.Defaults{},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-recover",
+		UserId:         "user-1",
+		Query:          "hello",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "simple"},
+			ModelSelection: llm.ModelSelection{
+				Model: "mock-model",
+			},
+			Prompt: &binding.Prompt{Text: "You are helpful."},
+		},
+	}
+	output := &QueryOutput{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID: "conv-recover",
+		TurnID:         "turn-recover",
+	})
+
+	status, err := svc.runPlanAndStatus(ctx, input, output)
+	require.NoError(t, err)
+	require.Equal(t, "succeeded", status)
+	require.Equal(t, finalContent, output.Content)
+}
