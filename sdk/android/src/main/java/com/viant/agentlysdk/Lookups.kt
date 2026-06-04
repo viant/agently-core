@@ -80,13 +80,17 @@ data class LookupParameter(
 @Serializable
 data class LookupRegistryEntry(
     val name: String,
+    val title: String? = null,
     val dataSource: String,
+    val dialogId: String? = null,
+    val windowId: String? = null,
     val trigger: String? = null,
     val required: Boolean? = null,
     val display: String? = null,
     val token: LookupTokenFormat? = null,
     val inputs: List<LookupParameter>? = null,
-    val outputs: List<LookupParameter>? = null
+    val outputs: List<LookupParameter>? = null,
+    val extra: Map<String, String>? = null
 )
 
 @Serializable
