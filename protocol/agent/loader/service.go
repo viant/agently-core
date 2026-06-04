@@ -88,13 +88,13 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 	// so we keep the same convention for agents instead of the previous
 	// nested  <kind>/<name>/<name>.yaml layout.
 	URL := nameOrLocation
-	if !strings.Contains(URL, "/") && filepath.Ext(nameOrLocation) == "" {
+	if !strings.Contains(URL, "/") && !hasConfigExtension(filepath.Ext(nameOrLocation)) {
 		URL = filepath.Join(workspace.KindAgent, nameOrLocation)
 	}
 
 	if url.IsRelative(URL) {
 		ext := ""
-		if filepath.Ext(URL) == "" {
+		if !hasConfigExtension(filepath.Ext(URL)) {
 			ext = s.defaultExtension
 		}
 		if ok, _ := s.metaService.Exists(ctx, URL+ext); ok {
@@ -200,6 +200,15 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 		s.agents.Set(id, anAgent)
 	}
 	return anAgent, nil
+}
+
+func hasConfigExtension(ext string) bool {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case ".yaml", ".yml", ".json":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) resolveSlugVariant(ctx context.Context, nameOrLocation string) (string, bool, error) {

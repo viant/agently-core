@@ -48,6 +48,7 @@ import (
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
+	mcpuiresource "github.com/viant/mcp-ui/resource"
 	hstate "github.com/viant/xdatly/handler/state"
 )
 
@@ -902,15 +903,36 @@ func (c *backendClient) ExecuteTool(ctx context.Context, name string, args map[s
 }
 
 func (c *backendClient) ReadMCPUIResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
-	if strings.TrimSpace(uri) == "" {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
 		return nil, errors.New("uri is required")
 	}
 	if result, err := uiresource.ReadWorkspaceResource(ctx, uri); err == nil && result != nil {
 		return result, nil
 	}
+	if parsed, err := mcpuiresource.ValidateUIURI(uri); err == nil {
+		if result, err := c.readMCPUIResourceByServerScope(ctx, parsed.ServerScope, uri); err == nil && result != nil {
+			return result, nil
+		}
+	}
 	if c == nil || c.mcpMgr == nil {
 		return nil, fmt.Errorf("unknown ui resource uri: %s", uri)
 	}
+	return c.readMCPUIResourceByScanningServers(ctx, uri)
+}
+
+func (c *backendClient) readMCPUIResourceByServerScope(ctx context.Context, serverScope, uri string) (*mcpschema.ReadResourceResult, error) {
+	if c == nil || c.mcpMgr == nil || strings.TrimSpace(serverScope) == "" {
+		return nil, fmt.Errorf("unknown ui resource uri: %s", uri)
+	}
+	client, err := c.mcpMgr.Get(ctx, "", strings.TrimSpace(serverScope))
+	if err != nil || client == nil {
+		return nil, fmt.Errorf("unknown ui resource uri: %s", uri)
+	}
+	return client.ReadResource(ctx, &mcpschema.ReadResourceRequestParams{Uri: uri})
+}
+
+func (c *backendClient) readMCPUIResourceByScanningServers(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
 	var repo *mcprepo.Repository
 	if c.store != nil {
 		repo = mcprepo.NewWithStore(c.store)
@@ -935,7 +957,7 @@ func (c *backendClient) ReadMCPUIResource(ctx context.Context, uri string) (*mcp
 			continue
 		}
 		for _, resource := range resources.Resources {
-			if strings.TrimSpace(resource.Uri) != strings.TrimSpace(uri) {
+			if strings.TrimSpace(resource.Uri) != uri {
 				continue
 			}
 			return client.ReadResource(ctx, &mcpschema.ReadResourceRequestParams{Uri: resource.Uri})

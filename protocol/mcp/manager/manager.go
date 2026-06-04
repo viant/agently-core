@@ -35,6 +35,13 @@ func WithHandlerFactory(newHandler func() protoclient.Handler) Option {
 	return func(m *Manager) error { m.newHandler = newHandler; return nil }
 }
 
+// WithClientFactory injects a client constructor override. It is primarily
+// useful for tests and constrained runtimes that need to provide a custom MCP
+// transport implementation without replacing the rest of the manager.
+func WithClientFactory(factory func(context.Context, string, string) (mcpclient.Interface, error)) Option {
+	return func(m *Manager) error { m.newClientFn = factory; return nil }
+}
+
 // WithCookieJar injects a host-controlled CookieJar that will be applied to
 // newly created MCP clients via ClientOptions, overriding any per-provider jar.
 func WithCookieJar(jar http.CookieJar) Option {

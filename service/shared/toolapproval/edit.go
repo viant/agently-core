@@ -3,6 +3,7 @@ package toolapproval
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -55,6 +56,8 @@ func ApplyReview(args map[string]interface{}, review *llm.ApprovalReviewConfig, 
 	switch typeName {
 	case "", "group_rows":
 		return applyGroupRowsReview(args, review.XForm, payload)
+	case "group_fields":
+		return applyGroupFieldsReview(args, review.XForm, payload)
 	default:
 		return fmt.Errorf("unsupported approval review xform type %q", typeName)
 	}
@@ -165,13 +168,12 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	}
 	groupBy := strings.TrimSpace(stringValue(xform["groupBy"]))
 	valueField := strings.TrimSpace(stringValue(xform["valueField"]))
-	audienceIDField := strings.TrimSpace(stringValue(xform["audienceIdField"]))
 	feature := strings.TrimSpace(stringValue(xform["feature"]))
 	writePath := strings.TrimSpace(stringValue(xform["writePath"]))
 	replaceTarget := boolValue(xform["replaceTarget"]) || boolValue(xform["resetTarget"])
 	copyFields := stringListValue(xform["copyFields"])
-	if groupBy == "" || valueField == "" || audienceIDField == "" || feature == "" || writePath == "" {
-		return fmt.Errorf("approval review group_rows requires groupBy, valueField, audienceIdField, feature, and writePath")
+	if groupBy == "" || valueField == "" || feature == "" || writePath == "" {
+		return fmt.Errorf("approval review group_rows requires groupBy, valueField, feature, and writePath")
 	}
 	rowsRaw, ok := payload[rowsField].([]interface{})
 	if !ok {
@@ -231,7 +233,7 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 		return fmt.Errorf("approval review group_rows group %q requires mode, selectorDirection, and targetField", targetGroup)
 	}
 	values := make([]interface{}, 0, len(selectedRows))
-	audienceID := 0
+	groupRows := make([]map[string]interface{}, 0, len(selectedRows))
 	for _, row := range selectedRows {
 		if strings.ToLower(strings.TrimSpace(stringValue(row[groupBy]))) != targetGroup {
 			continue
@@ -241,9 +243,7 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 			continue
 		}
 		values = append(values, cloneValue(value))
-		if audienceID == 0 {
-			audienceID = intValue(row[audienceIDField])
-		}
+		groupRows = append(groupRows, row)
 	}
 	if len(values) == 0 {
 		return fmt.Errorf("approval review group_rows produced no values for group %q", targetGroup)
@@ -259,7 +259,6 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	if recommendation == nil {
 		recommendation = map[string]interface{}{}
 	}
-	recommendation["audience_id"] = audienceID
 	recommendation["mode"] = mode
 	recommendation["selector_direction"] = selectorDirection
 	recommendation["target_field"] = targetField
@@ -289,12 +288,237 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 			return fmt.Errorf("apply approval review copy field %s: %w", field, err)
 		}
 	}
+	if err := applyConfiguredAssignments(recommendation, xform["assign"]); err != nil {
+		return err
+	}
+	if err := applyConfiguredRowAssignments(recommendation, xform["assignFromRow"], groupRows); err != nil {
+		return err
+	}
 	if err := resolver.Assign(args, writePath, recommendation); err != nil {
 		return fmt.Errorf("apply approval review group_rows: %w", err)
 	}
 	delete(args, rowsField)
 	delete(args, intentField)
 	return nil
+}
+
+func applyGroupFieldsReview(args map[string]interface{}, xform map[string]interface{}, payload map[string]interface{}) error {
+	rowsField := strings.TrimSpace(stringValue(xform["rowsField"]))
+	if rowsField == "" {
+		rowsField = "rows"
+	}
+	selectionField := strings.TrimSpace(stringValue(xform["selectionField"]))
+	if selectionField == "" {
+		selectionField = "selected"
+	}
+	fieldNameField := strings.TrimSpace(stringValue(xform["fieldNameField"]))
+	fieldValueField := strings.TrimSpace(stringValue(xform["fieldValueField"]))
+	writePath := strings.TrimSpace(stringValue(xform["writePath"]))
+	mode := strings.TrimSpace(stringValue(xform["mode"]))
+	selectorDirection := strings.TrimSpace(stringValue(xform["selectorDirection"]))
+	targetField := strings.TrimSpace(stringValue(xform["targetField"]))
+	replaceTarget := boolValue(xform["replaceTarget"]) || boolValue(xform["resetTarget"])
+	copyFields := stringListValue(xform["copyFields"])
+	if fieldNameField == "" || fieldValueField == "" || writePath == "" || mode == "" || selectorDirection == "" || targetField == "" {
+		return fmt.Errorf("approval review group_fields requires fieldNameField, fieldValueField, writePath, mode, selectorDirection, and targetField")
+	}
+	rowsRaw, ok := payload[rowsField].([]interface{})
+	if !ok {
+		return fmt.Errorf("approval review group_fields expected %q array payload", rowsField)
+	}
+	selectedRows := make([]map[string]interface{}, 0, len(rowsRaw))
+	for _, rowRaw := range rowsRaw {
+		row, ok := rowRaw.(map[string]interface{})
+		if !ok || row == nil {
+			continue
+		}
+		if !boolValue(row[selectionField]) {
+			continue
+		}
+		selectedRows = append(selectedRows, row)
+	}
+	if len(selectedRows) == 0 {
+		return fmt.Errorf("approval review group_fields requires at least one selected row")
+	}
+	sourceRecommendation := cloneMapValue(existingMapValue(args[writePath]))
+	if sourceRecommendation == nil {
+		sourceRecommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+	}
+	var recommendation map[string]interface{}
+	if !replaceTarget {
+		recommendation = cloneMapValue(sourceRecommendation)
+	}
+	if recommendation == nil {
+		recommendation = map[string]interface{}{}
+	}
+	fields := map[string]interface{}{}
+	for _, row := range selectedRows {
+		fieldName := strings.TrimSpace(stringValue(row[fieldNameField]))
+		if fieldName == "" {
+			return fmt.Errorf("approval review group_fields requires %q on every selected row", fieldNameField)
+		}
+		value, exists := row[fieldValueField]
+		if !exists || isUnsetApprovalValue(value) {
+			return fmt.Errorf("approval review group_fields requires %q on every selected row", fieldValueField)
+		}
+		fields[fieldName] = cloneValue(value)
+	}
+	if len(fields) == 0 {
+		return fmt.Errorf("approval review group_fields produced no field values")
+	}
+	recommendation["mode"] = mode
+	recommendation["selector_direction"] = selectorDirection
+	recommendation["target_field"] = targetField
+	recommendation["proposed_value"] = map[string]interface{}{
+		"fields": fields,
+	}
+	for _, field := range copyFields {
+		field = strings.TrimSpace(field)
+		if field == "" || sourceRecommendation == nil {
+			continue
+		}
+		value, ok := sourceRecommendation[field]
+		if !ok {
+			value = resolver.Select(field, sourceRecommendation, nil)
+		}
+		if isEmptyApprovalValue(value) {
+			continue
+		}
+		if err := resolver.Assign(recommendation, field, cloneValue(value)); err != nil {
+			return fmt.Errorf("apply approval review copy field %s: %w", field, err)
+		}
+	}
+	if err := applyConfiguredAssignments(recommendation, xform["assign"]); err != nil {
+		return err
+	}
+	if err := applyConfiguredRowAssignments(recommendation, xform["assignFromRow"], selectedRows); err != nil {
+		return err
+	}
+	if err := resolver.Assign(args, writePath, recommendation); err != nil {
+		return fmt.Errorf("apply approval review group_fields: %w", err)
+	}
+	delete(args, rowsField)
+	return nil
+}
+
+func applyConfiguredAssignments(target map[string]interface{}, config interface{}) error {
+	assignments := map[string]interface{}{}
+	collectAssignmentPaths("", config, assignments)
+	for path, value := range assignments {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if err := resolver.Assign(target, path, cloneValue(value)); err != nil {
+			return fmt.Errorf("apply approval review assignment %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func applyConfiguredRowAssignments(target map[string]interface{}, config interface{}, rows []map[string]interface{}) error {
+	assignments := map[string]string{}
+	collectStringAssignmentPaths("", config, assignments)
+	for path, sourceField := range assignments {
+		if strings.TrimSpace(path) == "" || strings.TrimSpace(sourceField) == "" {
+			continue
+		}
+		value, found, err := consensusRowValue(rows, sourceField)
+		if err != nil {
+			return fmt.Errorf("apply approval review row assignment %s: %w", path, err)
+		}
+		if !found || isEmptyApprovalValue(value) {
+			continue
+		}
+		if err := resolver.Assign(target, path, cloneValue(value)); err != nil {
+			return fmt.Errorf("apply approval review row assignment %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func collectAssignmentPaths(prefix string, value interface{}, assignments map[string]interface{}) {
+	if assignments == nil || value == nil {
+		return
+	}
+	if nested, ok := value.(map[string]interface{}); ok {
+		for key, item := range nested {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			nextPath := key
+			if prefix != "" {
+				nextPath = prefix + "." + key
+			}
+			collectAssignmentPaths(nextPath, item, assignments)
+		}
+		return
+	}
+	if prefix == "" {
+		return
+	}
+	assignments[prefix] = value
+}
+
+func collectStringAssignmentPaths(prefix string, value interface{}, assignments map[string]string) {
+	if assignments == nil || value == nil {
+		return
+	}
+	if nested, ok := value.(map[string]interface{}); ok {
+		for key, item := range nested {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			nextPath := key
+			if prefix != "" {
+				nextPath = prefix + "." + key
+			}
+			collectStringAssignmentPaths(nextPath, item, assignments)
+		}
+		return
+	}
+	if prefix == "" {
+		return
+	}
+	assignments[prefix] = strings.TrimSpace(stringValue(value))
+}
+
+func consensusRowValue(rows []map[string]interface{}, field string) (interface{}, bool, error) {
+	if len(rows) == 0 {
+		return nil, false, nil
+	}
+	var candidate interface{}
+	found := false
+	for _, row := range rows {
+		value, ok := rowFieldValue(row, field)
+		if !ok || isUnsetApprovalValue(value) {
+			return nil, false, fmt.Errorf("requires %q on every selected row", field)
+		}
+		if !found {
+			candidate = value
+			found = true
+			continue
+		}
+		if !reflect.DeepEqual(candidate, value) {
+			return nil, false, fmt.Errorf("requires a single value for %q across selected rows", field)
+		}
+	}
+	return cloneValue(candidate), found, nil
+}
+
+func rowFieldValue(row map[string]interface{}, field string) (interface{}, bool) {
+	if row == nil {
+		return nil, false
+	}
+	if value, ok := row[field]; ok {
+		return value, true
+	}
+	value := resolver.Select(field, row, nil)
+	if value == nil {
+		return nil, false
+	}
+	return value, true
 }
 
 func existingMapValue(value interface{}) map[string]interface{} {
@@ -354,7 +578,20 @@ func isEmptyApprovalValue(value interface{}) bool {
 	return false
 }
 
+func isUnsetApprovalValue(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text) == ""
+	}
+	return false
+}
+
 func stringValue(value interface{}) string {
+	if value == nil {
+		return ""
+	}
 	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 

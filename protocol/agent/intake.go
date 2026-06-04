@@ -267,8 +267,9 @@ type ActivationClassification struct {
 }
 
 type ActivationPrompting struct {
-	SuggestedProfileID string `yaml:"suggestedProfileId,omitempty" json:"suggestedProfileId,omitempty"`
-	TemplateID         string `yaml:"templateId,omitempty" json:"templateId,omitempty"`
+	SuggestedProfileID string   `yaml:"suggestedProfileId,omitempty" json:"suggestedProfileId,omitempty"`
+	AppendToolBundles  []string `yaml:"appendToolBundles,omitempty" json:"appendToolBundles,omitempty"`
+	TemplateID         string   `yaml:"templateId,omitempty" json:"templateId,omitempty"`
 }
 
 type ActivationScope struct {
