@@ -227,6 +227,27 @@ prompt:
 	assert.Equal(t, "Planner Agent", got.Name)
 }
 
+func TestService_Load_DottedAgentIDWithoutYamlExtension(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agents")
+	require.NoError(t, os.MkdirAll(agentDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "polly.orchestrator.yaml"), []byte(`
+id: polly.orchestrator
+name: Polly
+modelRef: default_reasoning
+prompt:
+  text: "{{ .Task.Query }}"
+`), 0o644))
+
+	service := New(WithMetaService(meta.New(afs.New(), root)))
+	got, err := service.Load(ctx, "polly.orchestrator")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "polly.orchestrator", got.ID)
+	assert.Equal(t, "Polly", got.Name)
+}
+
 func TestService_Load_BootstrapToolCalls(t *testing.T) {
 	ctx := context.Background()
 	service := New(WithMetaService(meta.New(afs.New(), "testdata")))
