@@ -341,6 +341,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		templateRepo := tplrepo.NewWithStore(out.Store)
 		bundleRepo := toolbundlerepo.NewWithStore(out.Store)
 		intakeSvc := intakesvc.New(out.Core,
+			intakesvc.WithConversationClient(out.Conversation),
 			intakesvc.WithProfileRepo(promptRepo),
 			intakesvc.WithTemplateRepo(templateRepo),
 			intakesvc.WithBundleRepo(bundleRepo),

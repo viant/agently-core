@@ -58,6 +58,12 @@ func TestValidateDirectAction(t *testing.T) {
 	if err := validateDirectAction(bad); err != nil {
 		t.Fatalf("expected structural validation to pass, got %v", err)
 	}
+	missingViewID := &intakesvc.DirectActionContext{
+		ToolName:      "ui/view:open",
+		Input:         map[string]any{"AdLineId": "7288336"},
+		AssistantText: "Opening forecast view.",
+	}
+	require.ErrorContains(t, validateDirectAction(missingViewID), "input.id is required")
 }
 
 func TestAuthorizeDirectAction_UsesIntakeToolItemsAndBundles(t *testing.T) {
@@ -188,7 +194,7 @@ func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 				},
 				DirectAction: intakesvc.DirectActionContext{
 					ToolName:      "ui/view:open",
-					InputJSON:     "",
+					Input:         map[string]any{"AdLineId": "7288336"},
 					AssistantText: "Opening Review window.",
 				},
 			},

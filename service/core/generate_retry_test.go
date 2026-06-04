@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
 	"github.com/viant/agently-core/protocol/binding"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func TestService_Generate_RetriesOnTransientErrorAndSucceeds(t *testing.T) {
@@ -105,6 +106,14 @@ func TestService_Generate_DoesNotRetryOnContextLimitError(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrContextLimitExceeded))
 	assert.Equal(t, 1, model.calls)
+}
+
+func TestGeneratedMessageID_FallsBackToTurnMessageID(t *testing.T) {
+	ctx := context.Background()
+	runtimerequestctx.SetTurnModelMessageID("turn-1", "model-msg-1")
+	t.Cleanup(func() { runtimerequestctx.CleanupTurn("turn-1") })
+
+	assert.Equal(t, "model-msg-1", generatedMessageID(ctx, "turn-1"))
 }
 
 func newGenerateInput() *GenerateInput {

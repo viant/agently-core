@@ -673,6 +673,35 @@ func TestNormalizeIntakeTurnContext_SuppressesTemplateIdsInSuggestedProfile(t *t
 	require.Equal(t, "spo_path_planner", tc.Prompting.TemplateID, "template choice remains valid")
 }
 
+func TestNormalizeIntakeTurnContext_SuppressesAgentSidecarDirectAction(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{
+		Enabled: true,
+		Scope:   []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-forecast",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "primary"},
+		},
+	}
+	tc := &intakesvc.Context{
+		Routing: intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName:      "ui/view:open",
+			Input:         map[string]interface{}{"AdLineId": "7288336"},
+			AssistantText: "Opening forecast view.",
+		},
+		Prompting: intakesvc.PromptingContext{TemplateID: "audience_forecast_dashboard"},
+	}
+
+	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
+
+	require.Empty(t, tc.DirectAction.ToolName)
+	require.Nil(t, tc.DirectAction.Input)
+	require.Equal(t, "audience_forecast_dashboard", tc.Prompting.TemplateID)
+}
+
 func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:             true,

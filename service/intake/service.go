@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/viant/afs"
+	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
@@ -29,6 +30,7 @@ import (
 // Service runs the intake sidecar LLM call and returns an intake Context.
 type Service struct {
 	llm          *core.Service
+	conversation apiconv.Client
 	profileRepo  *promptrepo.Repository
 	templateRepo *tplrepo.Repository
 	bundleRepo   *toolbundlerepo.Repository
@@ -83,6 +85,10 @@ func WithTemplateRepo(r *tplrepo.Repository) func(*Service) {
 
 func WithBundleRepo(r *toolbundlerepo.Repository) func(*Service) {
 	return func(s *Service) { s.bundleRepo = r }
+}
+
+func WithConversationClient(c apiconv.Client) func(*Service) {
+	return func(s *Service) { s.conversation = c }
 }
 
 // Run executes the intake sidecar for the given user message and agent config.
@@ -141,7 +147,46 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 		tc.Routing.Source = SourceAgent
 	}
 	filterByScope(tc, cfg)
+	s.patchCanonicalIntakeMessage(ctx, out.MessageID, tc)
 	return tc, nil
+}
+
+func (s *Service) patchCanonicalIntakeMessage(ctx context.Context, messageID string, tc *Context) {
+	if s == nil || s.conversation == nil || tc == nil {
+		return
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return
+	}
+	content, err := canonicalIntakeContent(tc)
+	if err != nil {
+		logx.Warnf("conversation", "intake.canonical_content error message=%q err=%v", messageID, err)
+		return
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(messageID)
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetContent(content)
+	msg.SetInterim(0)
+	if mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)); mode != "" {
+		msg.SetMode(mode)
+	} else {
+		msg.SetMode("router")
+	}
+	msg.SetPhase("intake")
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		if conversationID := strings.TrimSpace(turn.ConversationID); conversationID != "" {
+			msg.SetConversationID(conversationID)
+		}
+		if turnID := strings.TrimSpace(turn.TurnID); turnID != "" {
+			msg.SetTurnID(turnID)
+		}
+	}
+	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
+		logx.Warnf("conversation", "intake.patch_canonical_message message=%q err=%v", messageID, err)
+	}
 }
 
 func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userID string, cfg *agentmdl.Intake) *core.GenerateInput {
@@ -545,6 +590,7 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	if cfg.HasScope(agentmdl.IntakeScopeContext) {
 		b.WriteString("\n- scope (object): grouped orchestration scope with `values` containing lightweight extracted identifiers and hints")
 		b.WriteString("\n- directAction (object, optional): exact deterministic executable tool action to execute without another LLM turn when the request already fully specifies it")
+		b.WriteString("\n- directAction is only for an explicit tool/UI/control request whose required input fields are known from the current turn; for analysis, data, forecast, summary, or recommendation requests, leave directAction null even when a related UI view exists")
 		b.WriteString("\n- directAction is only for allowed tool actions; never use a prompt-profile id or route label as directAction.toolName")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) {
@@ -780,6 +826,63 @@ type contextDirectActionWire struct {
 	AssistantText string                 `json:"assistantText,omitempty"`
 }
 
+func canonicalIntakeContent(tc *Context) (string, error) {
+	if tc == nil {
+		return "{}", nil
+	}
+	out := map[string]interface{}{}
+	if tc.Classification.Title != "" || tc.Classification.Intent != "" || tc.Classification.Confidence != 0 {
+		out["classification"] = contextClassificationWire{
+			Title:      tc.Classification.Title,
+			Intent:     tc.Classification.Intent,
+			Confidence: tc.Classification.Confidence,
+		}
+	}
+	if len(tc.Scope.Values) > 0 {
+		out["scope"] = contextScopeWire{Values: tc.Scope.Values}
+	}
+	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" {
+		out["prompting"] = contextPromptingWire{
+			SuggestedProfileID: tc.Prompting.SuggestedProfileID,
+			AppendToolBundles:  tc.Prompting.AppendToolBundles,
+			TemplateID:         tc.Prompting.TemplateID,
+		}
+	}
+	if tc.Routing.SelectedAgentID != "" || tc.Routing.Mode != "" {
+		out["routing"] = contextRoutingWire{
+			SelectedAgentID: tc.Routing.SelectedAgentID,
+			Mode:            tc.Routing.Mode,
+		}
+	}
+	if tc.Planner.Trigger != "" || tc.Planner.AgentID != "" {
+		out["planner"] = contextPlannerWire{
+			Trigger: tc.Planner.Trigger,
+			AgentID: tc.Planner.AgentID,
+		}
+	}
+	out["directAction"] = nil
+	if strings.TrimSpace(tc.DirectAction.ToolName) != "" && len(tc.DirectAction.Input) > 0 {
+		inputJSON := strings.TrimSpace(tc.DirectAction.InputJSON)
+		if inputJSON == "" {
+			data, err := json.Marshal(tc.DirectAction.Input)
+			if err != nil {
+				return "", err
+			}
+			inputJSON = string(data)
+		}
+		out["directAction"] = contextDirectActionWire{
+			ToolName:      tc.DirectAction.ToolName,
+			InputJSON:     inputJSON,
+			AssistantText: tc.DirectAction.AssistantText,
+		}
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func normalizeDirectActionWire(wire *contextDirectActionWire) DirectActionContext {
 	if wire == nil {
 		return DirectActionContext{}
@@ -802,7 +905,33 @@ func normalizeDirectActionWire(wire *contextDirectActionWire) DirectActionContex
 	if len(result.Input) == 0 {
 		return DirectActionContext{}
 	}
+	if !validDirectActionInput(result) {
+		return DirectActionContext{}
+	}
 	return result
+}
+
+func validDirectActionInput(action DirectActionContext) bool {
+	toolName := strings.ToLower(strings.TrimSpace(mcpname.Display(action.ToolName)))
+	switch toolName {
+	case "ui/view/open":
+		return strings.TrimSpace(directActionString(action.Input["id"])) != ""
+	default:
+		return true
+	}
+}
+
+func directActionString(value interface{}) string {
+	switch actual := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return actual
+	case json.Number:
+		return actual.String()
+	default:
+		return strings.TrimSpace(fmt.Sprint(actual))
+	}
 }
 
 type contextRoutingWire struct {
