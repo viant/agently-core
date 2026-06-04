@@ -334,6 +334,7 @@ func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmp
 						Classification: agentmdl.ActivationClassification{Intent: "recommendation"},
 						Prompting: agentmdl.ActivationPrompting{
 							SuggestedProfileID: "entity_list_review",
+							AppendToolBundles:  []string{"site-list-review-patch"},
 						},
 						Scope: agentmdl.ActivationScope{
 							Values: map[string]string{
@@ -353,6 +354,7 @@ func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmp
 	require.NotNil(t, tc)
 	require.Equal(t, "recommendation", tc.Classification.Intent)
 	require.Equal(t, "entity_list_review", tc.Prompting.SuggestedProfileID)
+	require.Contains(t, tc.Prompting.AppendToolBundles, "site-list-review-patch")
 	require.Empty(t, tc.Prompting.TemplateID, "site recommendation activation must not preselect a planner template")
 	require.Equal(t, "7301206", tc.Scope.Values["audienceId"])
 	require.Equal(t, "recommend_sites_with_candidates_and_exclusions", tc.Scope.Values["requestType"])

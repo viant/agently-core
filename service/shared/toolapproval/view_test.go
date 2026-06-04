@@ -144,14 +144,16 @@ func TestApplyReview_GroupRows(t *testing.T) {
 	}
 	review := &llm.ApprovalReviewConfig{
 		XForm: map[string]interface{}{
-			"type":            "group_rows",
-			"rowsField":       "rows",
-			"selectionField":  "selected",
-			"groupBy":         "relationship",
-			"valueField":      "location",
-			"audienceIdField": "audience_id",
-			"feature":         "publisher",
-			"writePath":       "Recommendation",
+			"type":           "group_rows",
+			"rowsField":      "rows",
+			"selectionField": "selected",
+			"groupBy":        "relationship",
+			"valueField":     "location",
+			"feature":        "publisher",
+			"writePath":      "Recommendation",
+			"assignFromRow": map[string]interface{}{
+				"audience_id": "audience_id",
+			},
 			"groups": map[string]interface{}{
 				"target": map[string]interface{}{
 					"mode":              "ADD",
@@ -177,7 +179,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 		"metadata": map[string]interface{}{
 			"source": "entity_list_planner_submit",
 		},
-		"audience_id":        7301206,
+		"audience_id":        float64(7301206),
 		"mode":               "ADD",
 		"selector_direction": "INCLUDE",
 		"target_field":       "target",
@@ -217,14 +219,16 @@ func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
 	}
 	review := &llm.ApprovalReviewConfig{
 		XForm: map[string]interface{}{
-			"type":            "group_rows",
-			"rowsField":       "rows",
-			"selectionField":  "selected",
-			"groupBy":         "relationship",
-			"valueField":      "location",
-			"audienceIdField": "audience_id",
-			"feature":         "publisher",
-			"writePath":       "Recommendation",
+			"type":           "group_rows",
+			"rowsField":      "rows",
+			"selectionField": "selected",
+			"groupBy":        "relationship",
+			"valueField":     "location",
+			"feature":        "publisher",
+			"writePath":      "Recommendation",
+			"assignFromRow": map[string]interface{}{
+				"audience_id": "audience_id",
+			},
 			"groups": map[string]interface{}{
 				"target": map[string]interface{}{
 					"mode":              "ADD",
@@ -266,16 +270,18 @@ func TestApplyReview_GroupRowsReplaceTargetCopiesConfiguredFields(t *testing.T) 
 	}
 	review := &llm.ApprovalReviewConfig{
 		XForm: map[string]interface{}{
-			"type":            "group_rows",
-			"rowsField":       "rows",
-			"selectionField":  "selected",
-			"groupBy":         "recommendation",
-			"valueField":      "publisher",
-			"audienceIdField": "audience_id",
-			"feature":         "publisher",
-			"writePath":       "Recommendation",
-			"replaceTarget":   true,
-			"copyFields":      []interface{}{"change_reason", "change_summary"},
+			"type":           "group_rows",
+			"rowsField":      "rows",
+			"selectionField": "selected",
+			"groupBy":        "recommendation",
+			"valueField":     "publisher",
+			"feature":        "publisher",
+			"writePath":      "Recommendation",
+			"replaceTarget":  true,
+			"copyFields":     []interface{}{"change_reason", "change_summary"},
+			"assignFromRow": map[string]interface{}{
+				"audience_id": "audience_id",
+			},
 			"groups": map[string]interface{}{
 				"exclude": map[string]interface{}{
 					"mode":              "ADD",
@@ -289,7 +295,7 @@ func TestApplyReview_GroupRowsReplaceTargetCopiesConfiguredFields(t *testing.T) 
 	err := ApplyReview(args, review, args)
 	assert.NoError(t, err)
 	assert.EqualValues(t, map[string]interface{}{
-		"audience_id":        7301206,
+		"audience_id":        float64(7301206),
 		"mode":               "ADD",
 		"selector_direction": "EXCLUDE",
 		"target_field":       "exclusion",
@@ -303,6 +309,194 @@ func TestApplyReview_GroupRowsReplaceTargetCopiesConfiguredFields(t *testing.T) 
 						"values":  []interface{}{"37/3945613211"},
 					},
 				},
+			},
+		},
+	}, args["Recommendation"])
+}
+
+func TestApplyReview_GroupRowsSupportsGenericAssignments(t *testing.T) {
+	args := map[string]interface{}{
+		"rows": []interface{}{
+			map[string]interface{}{
+				"publisher":      "37/3945613211",
+				"audience_id":    7301206,
+				"recommendation": "EXCLUDE",
+				"selected":       true,
+			},
+		},
+		"Recommendation": map[string]interface{}{
+			"change_reason":  "Sparse delivery and low-value site evidence support exclusion.",
+			"change_summary": "Exclude 1 low-value site for audience 7301206.",
+		},
+	}
+	review := &llm.ApprovalReviewConfig{
+		XForm: map[string]interface{}{
+			"type":           "group_rows",
+			"rowsField":      "rows",
+			"selectionField": "selected",
+			"groupBy":        "recommendation",
+			"valueField":     "publisher",
+			"feature":        "publisher",
+			"writePath":      "Recommendation",
+			"replaceTarget":  true,
+			"copyFields":     []interface{}{"change_reason", "change_summary"},
+			"assign": map[string]interface{}{
+				"metadata.entity_kind": "CI_AUDIENCE",
+			},
+			"assignFromRow": map[string]interface{}{
+				"metadata.entity_id": "audience_id",
+			},
+			"groups": map[string]interface{}{
+				"exclude": map[string]interface{}{
+					"mode":              "ADD",
+					"selectorDirection": "EXCLUDE",
+					"targetField":       "exclusion",
+				},
+			},
+		},
+	}
+
+	err := ApplyReview(args, review, args)
+	assert.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"mode":               "ADD",
+		"selector_direction": "EXCLUDE",
+		"target_field":       "exclusion",
+		"change_reason":      "Sparse delivery and low-value site evidence support exclusion.",
+		"change_summary":     "Exclude 1 low-value site for audience 7301206.",
+		"metadata": map[string]interface{}{
+			"entity_kind": "CI_AUDIENCE",
+			"entity_id":   float64(7301206),
+		},
+		"proposed_value": map[string]interface{}{
+			"exclusion": map[string]interface{}{
+				"clauses": []interface{}{
+					map[string]interface{}{
+						"feature": "publisher",
+						"values":  []interface{}{"37/3945613211"},
+					},
+				},
+			},
+		},
+	}, args["Recommendation"])
+}
+
+func TestApplyReview_GroupFieldsBuildsGroupedScalarRecommendation(t *testing.T) {
+	args := map[string]interface{}{
+		"rows": []interface{}{
+			map[string]interface{}{
+				"ad_order_id":               2636369,
+				"field_name":                "freq_capping",
+				"current_value":             "2",
+				"recommended_value":         "3",
+				"recommended_numeric_value": 3,
+				"rationale":                 "Peer benchmark supports a higher daily cap.",
+				"selected":                  true,
+			},
+			map[string]interface{}{
+				"ad_order_id":               2636369,
+				"field_name":                "lifetime_freq_cap",
+				"current_value":             "10",
+				"recommended_value":         "12",
+				"recommended_numeric_value": 12,
+				"rationale":                 "Weekly reach can expand without concentration risk.",
+				"selected":                  true,
+			},
+		},
+		"Recommendation": map[string]interface{}{
+			"change_reason":  "Peer benchmark shows the current ad-order cap stack is tighter than comparable orders.",
+			"change_summary": "Update ad order 2636369 frequency cap settings.",
+		},
+	}
+	review := &llm.ApprovalReviewConfig{
+		XForm: map[string]interface{}{
+			"type":              "group_fields",
+			"rowsField":         "rows",
+			"selectionField":    "selected",
+			"fieldNameField":    "field_name",
+			"fieldValueField":   "recommended_numeric_value",
+			"writePath":         "Recommendation",
+			"mode":              "SET",
+			"selectorDirection": "SCALAR",
+			"targetField":       "frequency_cap",
+			"replaceTarget":     true,
+			"copyFields":        []interface{}{"change_reason", "change_summary"},
+			"assignFromRow": map[string]interface{}{
+				"ad_order_id": "ad_order_id",
+			},
+		},
+	}
+
+	err := ApplyReview(args, review, args)
+	assert.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"ad_order_id":        float64(2636369),
+		"mode":               "SET",
+		"selector_direction": "SCALAR",
+		"target_field":       "frequency_cap",
+		"change_reason":      "Peer benchmark shows the current ad-order cap stack is tighter than comparable orders.",
+		"change_summary":     "Update ad order 2636369 frequency cap settings.",
+		"proposed_value": map[string]interface{}{
+			"fields": map[string]interface{}{
+				"freq_capping":      float64(3),
+				"lifetime_freq_cap": float64(12),
+			},
+		},
+	}, args["Recommendation"])
+}
+
+func TestApplyReview_GroupFieldsSupportsGenericAssignments(t *testing.T) {
+	args := map[string]interface{}{
+		"rows": []interface{}{
+			map[string]interface{}{
+				"ad_order_id":               2636369,
+				"field_name":                "freq_capping",
+				"recommended_numeric_value": 3,
+				"selected":                  true,
+			},
+			map[string]interface{}{
+				"ad_order_id":               2636369,
+				"field_name":                "lifetime_freq_cap",
+				"recommended_numeric_value": 12,
+				"selected":                  true,
+			},
+		},
+	}
+	review := &llm.ApprovalReviewConfig{
+		XForm: map[string]interface{}{
+			"type":              "group_fields",
+			"rowsField":         "rows",
+			"selectionField":    "selected",
+			"fieldNameField":    "field_name",
+			"fieldValueField":   "recommended_numeric_value",
+			"writePath":         "Recommendation",
+			"mode":              "SET",
+			"selectorDirection": "SCALAR",
+			"targetField":       "frequency_cap",
+			"replaceTarget":     true,
+			"assign": map[string]interface{}{
+				"metadata.entity_kind": "CI_AD_ORDER",
+			},
+			"assignFromRow": map[string]interface{}{
+				"metadata.entity_id": "ad_order_id",
+			},
+		},
+	}
+
+	err := ApplyReview(args, review, args)
+	assert.NoError(t, err)
+	assert.EqualValues(t, map[string]interface{}{
+		"mode":               "SET",
+		"selector_direction": "SCALAR",
+		"target_field":       "frequency_cap",
+		"metadata": map[string]interface{}{
+			"entity_kind": "CI_AD_ORDER",
+			"entity_id":   float64(2636369),
+		},
+		"proposed_value": map[string]interface{}{
+			"fields": map[string]interface{}{
+				"freq_capping":      float64(3),
+				"lifetime_freq_cap": float64(12),
 			},
 		},
 	}, args["Recommendation"])
