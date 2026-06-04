@@ -214,6 +214,7 @@ func evaluateActivationRule(query string, rule agentmdl.ActivationRule) *intakes
 			},
 			Prompting: intakesvc.PromptingContext{
 				SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
+				AppendToolBundles:  append([]string(nil), rule.Prompting.AppendToolBundles...),
 				TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
 			},
 			Scope: intakesvc.ScopeContext{
@@ -666,6 +667,7 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 		},
 		Prompting: intakesvc.PromptingContext{
 			SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
+			AppendToolBundles:  append([]string(nil), rule.Prompting.AppendToolBundles...),
 			TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
 		},
 		Scope: intakesvc.ScopeContext{
