@@ -194,16 +194,18 @@ type WorkspaceMetadata struct {
 }
 
 type WorkspaceWindowSnapshot struct {
-	WindowID       string                 `json:"windowId,omitempty"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	WindowKey      string                 `json:"windowKey,omitempty"`
-	WindowTitle    string                 `json:"windowTitle,omitempty"`
-	Presentation   string                 `json:"presentation,omitempty"`
-	Region         string                 `json:"region,omitempty"`
-	ParentKey      string                 `json:"parentKey,omitempty"`
-	InTab          bool                   `json:"inTab,omitempty"`
-	Parameters     map[string]interface{} `json:"parameters,omitempty"`
-	WindowForm     map[string]interface{} `json:"windowForm,omitempty"`
+	WindowID           string                 `json:"windowId,omitempty"`
+	ConversationID     string                 `json:"conversationId,omitempty"`
+	WindowKey          string                 `json:"windowKey,omitempty"`
+	WindowTitle        string                 `json:"windowTitle,omitempty"`
+	Presentation       string                 `json:"presentation,omitempty"`
+	Region             string                 `json:"region,omitempty"`
+	ParentKey          string                 `json:"parentKey,omitempty"`
+	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
+	InTab              bool                   `json:"inTab,omitempty"`
+	Parameters         map[string]interface{} `json:"parameters,omitempty"`
+	WindowForm         map[string]interface{} `json:"windowForm,omitempty"`
 }
 
 type HostedWorkspaceRestoreState struct {

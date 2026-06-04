@@ -39,6 +39,7 @@ data class DatasourceCacheHints(
 data class FetchDatasourceOutput(
     val rows: List<Map<String, JsonElement>> = emptyList(),
     val dataInfo: Map<String, JsonElement>? = null,
+    val metrics: Map<String, JsonElement>? = null,
     val cache: DatasourceCacheMeta? = null
 )
 

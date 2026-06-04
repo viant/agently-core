@@ -62,30 +62,34 @@ type OpenItem struct {
 }
 
 type OpenOutput struct {
-	ClientID         string                 `json:"clientId,omitempty"`
-	WindowID         string                 `json:"windowId,omitempty"`
-	SelectedWindowID string                 `json:"selectedWindowId,omitempty"`
-	WindowKey        string                 `json:"windowKey,omitempty"`
-	WindowTitle      string                 `json:"windowTitle,omitempty"`
-	ConversationID   string                 `json:"conversationId,omitempty"`
-	Presentation     string                 `json:"presentation,omitempty"`
-	Region           string                 `json:"region,omitempty"`
-	ParentKey        string                 `json:"parentKey,omitempty"`
-	Parameters       map[string]interface{} `json:"parameters,omitempty"`
-	Items            []OpenResultItem       `json:"items,omitempty"`
-	OK               bool                   `json:"ok,omitempty"`
-	Error            string                 `json:"error,omitempty"`
+	ClientID           string                 `json:"clientId,omitempty"`
+	WindowID           string                 `json:"windowId,omitempty"`
+	SelectedWindowID   string                 `json:"selectedWindowId,omitempty"`
+	WindowKey          string                 `json:"windowKey,omitempty"`
+	WindowTitle        string                 `json:"windowTitle,omitempty"`
+	ConversationID     string                 `json:"conversationId,omitempty"`
+	Presentation       string                 `json:"presentation,omitempty"`
+	Region             string                 `json:"region,omitempty"`
+	ParentKey          string                 `json:"parentKey,omitempty"`
+	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
+	Parameters         map[string]interface{} `json:"parameters,omitempty"`
+	Items              []OpenResultItem       `json:"items,omitempty"`
+	OK                 bool                   `json:"ok,omitempty"`
+	Error              string                 `json:"error,omitempty"`
 }
 
 type OpenResultItem struct {
-	WindowID       string                 `json:"windowId,omitempty"`
-	WindowKey      string                 `json:"windowKey,omitempty"`
-	WindowTitle    string                 `json:"windowTitle,omitempty"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	Presentation   string                 `json:"presentation,omitempty"`
-	Region         string                 `json:"region,omitempty"`
-	ParentKey      string                 `json:"parentKey,omitempty"`
-	Parameters     map[string]interface{} `json:"parameters,omitempty"`
+	WindowID           string                 `json:"windowId,omitempty"`
+	WindowKey          string                 `json:"windowKey,omitempty"`
+	WindowTitle        string                 `json:"windowTitle,omitempty"`
+	ConversationID     string                 `json:"conversationId,omitempty"`
+	Presentation       string                 `json:"presentation,omitempty"`
+	Region             string                 `json:"region,omitempty"`
+	ParentKey          string                 `json:"parentKey,omitempty"`
+	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
+	Parameters         map[string]interface{} `json:"parameters,omitempty"`
 }
 
 type Service struct {
@@ -197,14 +201,16 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			return openErr
 		}
 		output.Items = append(output.Items, OpenResultItem{
-			WindowID:       resolved.WindowID,
-			WindowKey:      resolved.WindowKey,
-			WindowTitle:    resolved.WindowTitle,
-			ConversationID: resolved.ConversationID,
-			Presentation:   resolved.Presentation,
-			Region:         resolved.Region,
-			ParentKey:      resolved.ParentKey,
-			Parameters:     resolved.Parameters,
+			WindowID:           resolved.WindowID,
+			WindowKey:          resolved.WindowKey,
+			WindowTitle:        resolved.WindowTitle,
+			ConversationID:     resolved.ConversationID,
+			Presentation:       resolved.Presentation,
+			Region:             resolved.Region,
+			ParentKey:          resolved.ParentKey,
+			WorkspaceSharePct:  resolved.WorkspaceSharePct,
+			WorkspaceMinHeight: resolved.WorkspaceMinHeight,
+			Parameters:         resolved.Parameters,
 		})
 	}
 	if len(output.Items) > 0 {
@@ -217,6 +223,8 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 		output.Presentation = selected.Presentation
 		output.Region = selected.Region
 		output.ParentKey = selected.ParentKey
+		output.WorkspaceSharePct = selected.WorkspaceSharePct
+		output.WorkspaceMinHeight = selected.WorkspaceMinHeight
 		output.Parameters = selected.Parameters
 	}
 	return nil
@@ -294,16 +302,18 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 		return nil, err
 	}
 	output := &OpenOutput{
-		ClientID:       clientID,
-		WindowKey:      item.WindowKey,
-		WindowTitle:    item.Title,
-		ConversationID: conversationID,
-		Presentation:   strings.TrimSpace(item.Presentation),
-		Region:         strings.TrimSpace(item.Region),
-		ParentKey:      parentKeyForPresentation(item),
-		Parameters:     windowParameters,
-		OK:             resp.OK,
-		Error:          resp.Error,
+		ClientID:           clientID,
+		WindowKey:          item.WindowKey,
+		WindowTitle:        item.Title,
+		ConversationID:     conversationID,
+		Presentation:       strings.TrimSpace(item.Presentation),
+		Region:             strings.TrimSpace(item.Region),
+		ParentKey:          parentKeyForPresentation(item),
+		WorkspaceSharePct:  item.WorkspaceSharePct,
+		WorkspaceMinHeight: item.WorkspaceMinHeight,
+		Parameters:         windowParameters,
+		OK:                 resp.OK,
+		Error:              resp.Error,
 	}
 	if len(resp.Result) > 0 {
 		var payload map[string]interface{}

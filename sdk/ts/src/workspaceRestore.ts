@@ -8,6 +8,8 @@ export interface WorkspaceWindowSnapshot {
     presentation?: string | null;
     region?: string | null;
     parentKey?: string | null;
+    workspaceSharePct?: number | null;
+    workspaceMinHeight?: number | null;
     inTab?: boolean;
     parameters?: Record<string, unknown>;
     windowForm?: Record<string, unknown>;
@@ -103,6 +105,8 @@ function normalizeHostedWorkspaceWindow(raw: any): WorkspaceWindowSnapshot | nul
         presentation: raw.presentation || null,
         region: raw.region || null,
         parentKey,
+        workspaceSharePct: Number.isFinite(Number(raw.workspaceSharePct)) ? Number(raw.workspaceSharePct) : undefined,
+        workspaceMinHeight: Number.isFinite(Number(raw.workspaceMinHeight)) ? Number(raw.workspaceMinHeight) : undefined,
         inTab: raw.inTab !== false,
         parameters,
         windowForm,
@@ -157,8 +161,17 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
         presentation: String(responsePayload?.presentation || '').trim(),
         region: String(responsePayload?.region || '').trim(),
         parentKey: String(responsePayload?.parentKey || '').trim(),
-        inTab: true,
+        workspaceSharePct: Number.isFinite(Number(responsePayload?.workspaceSharePct))
+            ? Number(responsePayload?.workspaceSharePct)
+            : undefined,
+        workspaceMinHeight: Number.isFinite(Number(responsePayload?.workspaceMinHeight))
+            ? Number(responsePayload?.workspaceMinHeight)
+            : undefined,
+        inTab: responsePayload?.inTab !== false,
         parameters: requestPayload?.parameters && typeof requestPayload.parameters === 'object' ? requestPayload.parameters : {},
+        windowForm: responsePayload?.windowForm && typeof responsePayload.windowForm === 'object'
+            ? responsePayload.windowForm
+            : undefined,
     });
     return normalized ? [normalized] : [];
 }

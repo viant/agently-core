@@ -191,6 +191,8 @@ data class WorkspaceWindowSnapshot(
     val presentation: String? = null,
     val region: String? = null,
     val parentKey: String? = null,
+    val workspaceSharePct: Int? = null,
+    val workspaceMinHeight: Int? = null,
     val inTab: Boolean? = null,
     val parameters: JsonObject? = null,
     val windowForm: JsonObject? = null

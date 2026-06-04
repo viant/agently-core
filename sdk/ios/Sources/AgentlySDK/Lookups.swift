@@ -38,6 +38,7 @@ public struct DatasourceCacheHints: Codable, Sendable {
 public struct FetchDatasourceOutput: Codable, Sendable {
     public var rows: [[String: JSONValue]]
     public var dataInfo: [String: JSONValue]?
+    public var metrics: [String: JSONValue]?
     public var cache: DatasourceCacheMeta?
 }
 

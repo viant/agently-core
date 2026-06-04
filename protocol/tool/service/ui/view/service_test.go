@@ -1,10 +1,17 @@
 package view
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/viant/afs"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
+	"github.com/viant/agently-core/workspace"
+	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
 )
 
 func TestExpandOpenParametersBindsOneInputToMultipleTargets(t *testing.T) {
@@ -139,6 +146,53 @@ func TestBuildOpenWindowOptions_AppendOverrideDisablesReplacement(t *testing.T) 
 	}
 }
 
+func TestBuildOpenWindowOptions_PreservesWorkspaceLayoutHints(t *testing.T) {
+	item := &ListItem{
+		WindowKey:          "order",
+		Presentation:       "hosted",
+		Region:             "chat.top",
+		WorkspaceSharePct:  72,
+		WorkspaceMinHeight: 500,
+	}
+	got := buildOpenWindowOptions(item, "conv-1", "")
+	if got["workspaceSharePct"] != 72 {
+		t.Fatalf("expected workspaceSharePct=72, got %#v", got["workspaceSharePct"])
+	}
+	if got["workspaceMinHeight"] != 500 {
+		t.Fatalf("expected workspaceMinHeight=500, got %#v", got["workspaceMinHeight"])
+	}
+}
+
+func TestServiceLoadAll_PreservesWorkspaceLayoutHintsFromSpec(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "order.yaml"), `
+id: order
+title: Order Summary
+windowKey: order
+presentation: hosted
+region: chat.top
+workspaceSharePct: 72
+workspaceMinHeight: 500
+`)
+		svc := &Service{
+			repo: repo.New(afs.New()),
+		}
+		items, err := svc.loadAll(context.Background())
+		if err != nil {
+			t.Fatalf("loadAll failed: %v", err)
+		}
+		if len(items) != 1 {
+			t.Fatalf("expected one view item, got %#v", items)
+		}
+		if items[0].WorkspaceSharePct != 72 {
+			t.Fatalf("expected workspaceSharePct=72, got %#v", items[0].WorkspaceSharePct)
+		}
+		if items[0].WorkspaceMinHeight != 500 {
+			t.Fatalf("expected workspaceMinHeight=500, got %#v", items[0].WorkspaceMinHeight)
+		}
+	})
+}
+
 func TestComputeWindowID_HostedViewsAreConversationScoped(t *testing.T) {
 	item := &ListItem{
 		WindowKey:    "order",
@@ -198,5 +252,26 @@ func assertNestedValue(t *testing.T, holder map[string]interface{}, expected int
 	}
 	if fmt.Sprintf("%#v", current) != fmt.Sprintf("%#v", expected) {
 		t.Fatalf("unexpected bound value: got=%#v want=%#v", current, expected)
+	}
+}
+
+func withWorkspaceRoot(t *testing.T, body func(root string)) {
+	t.Helper()
+	prev := workspace.Root()
+	root := t.TempDir()
+	workspace.SetRoot(root)
+	t.Cleanup(func() {
+		workspace.SetRoot(prev)
+	})
+	body(root)
+}
+
+func mustWriteFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(strings.TrimLeft(contents, "\n")), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
