@@ -254,6 +254,26 @@ func TestBuildGenerateInput_UsesMinimalReasoningForJSONIntake(t *testing.T) {
 	assert.True(t, hasPrompting)
 }
 
+func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "template"}}
+
+	in := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_mini", "system", "show me the top audiences", "", cfg,
+		WithTranscript([]TranscriptMessage{
+			{Role: "user", Content: "Troubleshoot order 2664518"},
+			{Role: "assistant", Content: "Order 2664518 is underdelivering; audience 7288336 is active."},
+		}))
+	require.NotNil(t, in)
+	require.Len(t, in.Message, 2)
+
+	userText := llm.MessageText(in.Message[1])
+	assert.Contains(t, userText, "Recent transcript context")
+	assert.Contains(t, userText, "Troubleshoot order 2664518")
+	assert.Contains(t, userText, "Order 2664518 is underdelivering")
+	assert.Contains(t, userText, "Current user message:")
+	assert.Contains(t, userText, "show me the top audiences")
+}
+
 func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *testing.T) {
 	tmpDir := t.TempDir()
 	promptDir := filepath.Join(tmpDir, "prompts")

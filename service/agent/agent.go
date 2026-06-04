@@ -89,7 +89,7 @@ func (s *Service) ensureAgent(ctx context.Context, qi *QueryInput) error {
 		if agentID == "" || isAutoAgentRef(agentID) {
 			var conv *apiconv.Conversation
 			if s != nil && s.conversation != nil && strings.TrimSpace(qi.ConversationID) != "" {
-				loaded, err := s.conversation.GetConversation(ctx, qi.ConversationID)
+				loaded, err := s.conversation.GetConversation(ctx, qi.ConversationID, apiconv.WithIncludeTranscript(true))
 				if err != nil {
 					return fmt.Errorf("failed to load conversation %q: %w", strings.TrimSpace(qi.ConversationID), err)
 				}

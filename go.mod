@@ -23,10 +23,10 @@ require (
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
-	github.com/viant/forge v0.3.1
+	github.com/viant/forge v0.3.2
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
-	github.com/viant/jsonrpc v0.20.0
+	github.com/viant/jsonrpc v0.21.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.16.0
 	github.com/viant/mcp-protocol v0.14.0
@@ -202,5 +202,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-
