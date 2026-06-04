@@ -24,7 +24,8 @@ import (
 // configured for it.  It is a no-op when:
 //   - the intake service is not wired
 //   - the agent's Intake.Enabled is false
-//   - this is not the first turn and TriggerOnTopicShift is false
+//   - the turn already carries an explicit prompt profile, usually because it
+//     is a delegated child/profile run whose prompt contract is fixed
 //   - the caller already provided an intake Context via RunInput.WorkspaceIntake
 //     (skip rule §2.c — caller's value short-circuits the LLM call but the
 //     merge logic still runs through applyTurnContext)
@@ -74,11 +75,10 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if !runCfg.Enabled {
 		return
 	}
-	logx.Infof("conversation", "intake.consider convo=%q agent=%q promptProfileId=%q triggerOnTopicShift=%v",
+	logx.Infof("conversation", "intake.consider convo=%q agent=%q promptProfileId=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
 		strings.TrimSpace(input.PromptProfileId),
-		runCfg.TriggerOnTopicShift,
 	)
 	if !s.shouldRunIntake(ctx, input, &runCfg) {
 		logx.Infof("conversation", "intake.skipped.gate convo=%q agent=%q promptProfileId=%q",
@@ -1377,18 +1377,10 @@ func (s *Service) intakeTrackedContext(ctx context.Context, input *QueryInput) c
 }
 
 // shouldRunIntake decides whether the sidecar should fire for this turn.
-//
-// Behaviour:
-//   - TriggerOnTopicShift == false → always run when the sidecar is enabled
-//     (legacy default; the sidecar is cheap and every turn benefits).
-//   - TriggerOnTopicShift == true  → run on the first turn of a conversation,
-//     and on subsequent turns only when the current user message diverges
-//     from the previous one by more than TopicShiftThreshold. Divergence is
-//     measured as 1 − Jaccard(tokens(current), tokens(prev)).
-//
-// The Jaccard heuristic is cheap, deterministic, and good enough to spot the
-// usual "user pivoted to a completely different task" case without paying
-// for an embedding model. Threshold defaults to 0.65.
+// Enabled intake is a per-turn shaping pass: repeated user questions are still
+// fresh requests and must receive fresh profile/template/tool/context guidance.
+// Topic-shift settings are intentionally non-suppressing here; agent reuse is
+// handled by the agent-selection path, not by skipping intake.
 func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *agentmdl.Intake) bool {
 	if cfg == nil || !cfg.Enabled {
 		return false
@@ -1400,50 +1392,7 @@ func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *a
 		// conflicting or empty sidecar output without adding new information.
 		return false
 	}
-	if !cfg.TriggerOnTopicShift {
-		return true
-	}
-	current := strings.TrimSpace(input.Query)
-	if current == "" {
-		return true
-	}
-	if isConcreteOrderOpenAsk(current) {
-		return true
-	}
-	previous := s.previousUserMessage(ctx, input.ConversationID)
-	if previous == "" {
-		// First turn — no prior user message to compare against; run so the
-		// caller gets baseline Class A metadata.
-		return true
-	}
-	threshold := cfg.TopicShiftThreshold
-	if threshold <= 0 {
-		threshold = 0.65
-	}
-	similarity := jaccardWordSimilarity(previous, current)
-	divergence := 1.0 - similarity
-	if divergence < threshold && s.priorMatchingTurnHadDirectAction(ctx, input.ConversationID, current) {
-		return true
-	}
-	return divergence >= threshold
-}
-
-var concreteOrderOpenAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+(my\s+|ad\s+)?(order|record)\s+\d+\s*$`)
-var concreteOrderCompareAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+((me|my|ad)\s+)?orders?\b`)
-
-func isConcreteOrderOpenAsk(query string) bool {
-	return concreteOrderOpenAskPattern.MatchString(strings.TrimSpace(query))
-}
-
-func isConcreteOrderActivationAsk(query string) bool {
-	trimmed := strings.TrimSpace(query)
-	if isConcreteOrderOpenAsk(trimmed) {
-		return true
-	}
-	if !concreteOrderCompareAskPattern.MatchString(trimmed) {
-		return false
-	}
-	return len(extractOrderIDs(trimmed)) >= 2
+	return true
 }
 
 // previousUserMessage returns the trimmed content of the most recent user
@@ -1486,61 +1435,6 @@ func (s *Service) previousUserMessage(ctx context.Context, convID string) string
 		}
 	}
 	return ""
-}
-
-func (s *Service) priorMatchingTurnHadDirectAction(ctx context.Context, convID string, current string) bool {
-	if s == nil || s.conversation == nil {
-		return false
-	}
-	convID = strings.TrimSpace(convID)
-	if convID == "" {
-		return false
-	}
-	conv, err := s.conversation.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
-	if err != nil || conv == nil {
-		return false
-	}
-	turns := conv.GetTranscript()
-	current = strings.TrimSpace(current)
-	for i := len(turns) - 1; i >= 0; i-- {
-		turn := turns[i]
-		if turn == nil || len(turn.Message) == 0 {
-			continue
-		}
-		var userText string
-		var intakeDirectAction bool
-		for _, msg := range turn.Message {
-			if msg == nil {
-				continue
-			}
-			if strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
-				if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" {
-					userText = strings.TrimSpace(*msg.Content)
-				}
-			}
-			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
-				continue
-			}
-			if msg.Phase == nil || !strings.EqualFold(strings.TrimSpace(*msg.Phase), "intake") {
-				continue
-			}
-			if msg.Content == nil || strings.TrimSpace(*msg.Content) == "" {
-				continue
-			}
-			var tc intakesvc.Context
-			if err := json.Unmarshal([]byte(strings.TrimSpace(*msg.Content)), &tc); err != nil {
-				continue
-			}
-			intakeDirectAction = strings.TrimSpace(tc.DirectAction.ToolName) != ""
-		}
-		if userText == "" {
-			continue
-		}
-		if strings.EqualFold(userText, current) && intakeDirectAction {
-			return true
-		}
-	}
-	return false
 }
 
 // jaccardWordSimilarity returns |A ∩ B| / |A ∪ B| over lowercased word

@@ -106,15 +106,37 @@ func TestShouldRunIntake_Disabled(t *testing.T) {
 	require.False(t, s.shouldRunIntake(context.Background(), &QueryInput{Query: "x"}, cfg))
 }
 
-// TestShouldRunIntake_TopicShift covers the branch logic once
-// TriggerOnTopicShift is on. The conversation client is nil so
-// previousUserMessage returns "" (first-turn branch) — we're asserting the
-// decision tree, not the conversation fetch itself.
-func TestShouldRunIntake_TopicShift_FirstTurn(t *testing.T) {
+// TestShouldRunIntake_TopicShiftStillRuns verifies that TriggerOnTopicShift is
+// no longer a suppression knob for intake. Intake shapes the live turn even
+// when other routing layers may decide the same agent can continue.
+func TestShouldRunIntake_TopicShiftStillRuns(t *testing.T) {
 	s := &Service{}
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{Query: "hello"}, cfg)
-	require.True(t, got, "first turn (no previous) must run so we get baseline metadata")
+	require.True(t, got, "enabled intake should run for the live user turn")
+}
+
+func TestShouldRunIntake_RepeatedQuestionStillRunsWithTopicShift(t *testing.T) {
+	now := time.Now()
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+				{
+					Id: "turn-1",
+					Message: []*agconv.MessageView{
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show me audience that deliver the most"), CreatedAt: now},
+						{Id: "msg-assistant-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr("I can open the order summary."), CreatedAt: now.Add(time.Second)},
+					},
+				},
+			}},
+		},
+	}
+	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
+	got := s.shouldRunIntake(context.Background(), &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show me audience that deliver the most",
+	}, cfg)
+	require.True(t, got, "a repeated question is a fresh request and still needs intake guidance")
 }
 
 func TestShouldRunIntake_ExplicitPromptProfileSkipsSidecar(t *testing.T) {
