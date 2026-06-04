@@ -19,19 +19,21 @@ type ListInput struct {
 }
 
 type WindowItem struct {
-	ClientID       string                 `json:"clientId,omitempty"`
-	WindowID       string                 `json:"windowId,omitempty"`
-	WindowKey      string                 `json:"windowKey,omitempty"`
-	WindowTitle    string                 `json:"windowTitle,omitempty"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	Presentation   string                 `json:"presentation,omitempty"`
-	Region         string                 `json:"region,omitempty"`
-	ParentKey      string                 `json:"parentKey,omitempty"`
-	Parameters     map[string]interface{} `json:"parameters,omitempty"`
-	InTab          bool                   `json:"inTab,omitempty"`
-	IsModal        bool                   `json:"isModal,omitempty"`
-	IsMinimized    bool                   `json:"isMinimized,omitempty"`
-	DataSourceRefs []string               `json:"dataSourceRefs,omitempty"`
+	ClientID           string                 `json:"clientId,omitempty"`
+	WindowID           string                 `json:"windowId,omitempty"`
+	WindowKey          string                 `json:"windowKey,omitempty"`
+	WindowTitle        string                 `json:"windowTitle,omitempty"`
+	ConversationID     string                 `json:"conversationId,omitempty"`
+	Presentation       string                 `json:"presentation,omitempty"`
+	Region             string                 `json:"region,omitempty"`
+	ParentKey          string                 `json:"parentKey,omitempty"`
+	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
+	Parameters         map[string]interface{} `json:"parameters,omitempty"`
+	InTab              bool                   `json:"inTab,omitempty"`
+	IsModal            bool                   `json:"isModal,omitempty"`
+	IsMinimized        bool                   `json:"isMinimized,omitempty"`
+	DataSourceRefs     []string               `json:"dataSourceRefs,omitempty"`
 }
 
 type ListOutput struct {
@@ -194,19 +196,21 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					refs = append(refs, ref)
 				}
 				output.Items = append(output.Items, WindowItem{
-					ClientID:       item.ClientID,
-					WindowID:       win.WindowID,
-					WindowKey:      win.WindowKey,
-					WindowTitle:    win.WindowTitle,
-					ConversationID: win.ConversationID,
-					Presentation:   win.Presentation,
-					Region:         win.Region,
-					ParentKey:      win.ParentKey,
-					Parameters:     compactWindowParameters(win.Parameters),
-					InTab:          win.InTab,
-					IsModal:        win.IsModal,
-					IsMinimized:    win.IsMinimized,
-					DataSourceRefs: refs,
+					ClientID:           item.ClientID,
+					WindowID:           win.WindowID,
+					WindowKey:          win.WindowKey,
+					WindowTitle:        win.WindowTitle,
+					ConversationID:     win.ConversationID,
+					Presentation:       win.Presentation,
+					Region:             win.Region,
+					ParentKey:          win.ParentKey,
+					WorkspaceSharePct:  win.WorkspaceSharePct,
+					WorkspaceMinHeight: win.WorkspaceMinHeight,
+					Parameters:         compactWindowParameters(win.Parameters),
+					InTab:              win.InTab,
+					IsModal:            win.IsModal,
+					IsMinimized:        win.IsMinimized,
+					DataSourceRefs:     refs,
 				})
 			}
 		}

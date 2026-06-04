@@ -338,6 +338,8 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let presentation: String?
     public let region: String?
     public let parentKey: String?
+    public let workspaceSharePct: Int?
+    public let workspaceMinHeight: Int?
     public let inTab: Bool?
     public let parameters: [String: JSONValue]?
     public let windowForm: [String: JSONValue]?
@@ -350,6 +352,8 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         presentation: String? = nil,
         region: String? = nil,
         parentKey: String? = nil,
+        workspaceSharePct: Int? = nil,
+        workspaceMinHeight: Int? = nil,
         inTab: Bool? = nil,
         parameters: [String: JSONValue]? = nil,
         windowForm: [String: JSONValue]? = nil
@@ -361,6 +365,8 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         self.presentation = presentation
         self.region = region
         self.parentKey = parentKey
+        self.workspaceSharePct = workspaceSharePct
+        self.workspaceMinHeight = workspaceMinHeight
         self.inTab = inTab
         self.parameters = parameters
         self.windowForm = windowForm

@@ -235,6 +235,8 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 windowId: 'order_2345888602__conv-1',
                                                 windowKey: 'order',
                                                 windowTitle: 'Order Summary',
+                                                workspaceSharePct: 72,
+                                                workspaceMinHeight: 500,
                                             },
                                         ],
                                         ok: true,
@@ -262,6 +264,8 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
+                    workspaceSharePct: 72,
+                    workspaceMinHeight: 500,
                     inTab: true,
                     parameters: {
                         AdOrderId: [2673453],
