@@ -3,11 +3,12 @@ package sdk
 import (
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 func handleGetRun(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
+		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("run ID is required"))
 			return
