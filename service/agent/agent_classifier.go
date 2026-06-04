@@ -582,6 +582,12 @@ func recentNonInterimTurnsText(conv *apiconv.Conversation, lastN int) string {
 			if m.Mode != nil && strings.EqualFold(strings.TrimSpace(*m.Mode), "summary") {
 				continue
 			}
+			if m.Phase != nil {
+				phase := strings.ToLower(strings.TrimSpace(*m.Phase))
+				if phase != "" && phase != "final" {
+					continue
+				}
+			}
 			content := ""
 			if m.Content != nil {
 				content = strings.TrimSpace(*m.Content)

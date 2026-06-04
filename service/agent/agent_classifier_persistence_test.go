@@ -10,6 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
+	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
@@ -25,10 +26,14 @@ func (f *selectorLLMFinder) Find(context.Context, string) (llm.Model, error) {
 }
 
 type selectorLLMModel struct {
-	content string
+	content  string
+	requests *[]*llm.GenerateRequest
 }
 
 func (m selectorLLMModel) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	if m.requests != nil {
+		*m.requests = append(*m.requests, request)
+	}
 	var resp *llm.GenerateResponse
 	if observer := modelcallctx.ObserverFromContext(ctx); observer != nil {
 		startInfo := modelcallctx.Info{
@@ -174,6 +179,105 @@ func TestEnsureAgent_AutoSelectionPersistsSelectorMessageAndModelCall(t *testing
 	require.NotEqual(t, -1, messageEvent)
 	require.NotEqual(t, -1, modelCallEvent)
 	require.Less(t, messageEvent, modelCallEvent)
+}
+
+func TestEnsureAgent_AutoSelectionIncludesRecentTranscript(t *testing.T) {
+	ctx := context.Background()
+	baseClient := convmem.New()
+	client := &selectorPersistenceClient{Client: baseClient}
+
+	conv := apiconv.NewConversation()
+	conv.SetId("conv-1")
+	conv.SetDefaultModel("router-model")
+	require.NoError(t, client.PatchConversations(ctx, conv))
+
+	turn := apiconv.NewTurn()
+	turn.SetId("turn-prior")
+	turn.SetConversationID("conv-1")
+	turn.SetStatus("succeeded")
+	turn.SetCreatedAt(time.Now())
+	require.NoError(t, client.PatchTurn(ctx, turn))
+
+	user := apiconv.NewMessage()
+	user.SetId("msg-user-prior")
+	user.SetConversationID("conv-1")
+	user.SetTurnID("turn-prior")
+	user.SetRole("user")
+	user.SetType("text")
+	user.SetContent("Troubleshoot order 2664518")
+	user.SetCreatedAt(time.Now())
+	require.NoError(t, client.PatchMessage(ctx, user))
+
+	assistant := apiconv.NewMessage()
+	assistant.SetId("msg-assistant-prior")
+	assistant.SetConversationID("conv-1")
+	assistant.SetTurnID("turn-prior")
+	assistant.SetRole("assistant")
+	assistant.SetType("text")
+	assistant.SetContent("Order 2664518 is underdelivering; audience 7288336 is active.")
+	assistant.SetCreatedAt(time.Now().Add(time.Second))
+	require.NoError(t, client.PatchMessage(ctx, assistant))
+
+	var requests []*llm.GenerateRequest
+	llmSvc := core.New(&selectorLLMFinder{
+		model: selectorLLMModel{content: `{"agentId":"coder"}`, requests: &requests},
+	}, nil, client)
+	svc := &Service{
+		llm:          llmSvc,
+		conversation: client,
+		agentFinder: &allAgentFinder{
+			items: []*agentmdl.Agent{
+				{
+					Identity:    agentmdl.Identity{ID: "coder", Name: "Coder"},
+					Description: "Repository analysis, debugging, and code changes",
+					Profile: &agentmdl.Profile{
+						Publish:     true,
+						Name:        "Coder",
+						Description: "Repository analysis, debugging, and code changes",
+					},
+				},
+			},
+		},
+		defaults: &config.Defaults{},
+	}
+
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		MessageID:      "turn-current",
+		AgentID:        "auto",
+		UserId:         "user-1",
+		Query:          "show me audience that deliver the most",
+	}
+
+	require.NoError(t, svc.ensureAgent(ctx, input))
+	require.NotEmpty(t, requests)
+	require.Len(t, requests[0].Messages, 2)
+	userText := llm.MessageText(requests[0].Messages[1])
+	require.Contains(t, userText, "Recent conversation context")
+	require.Contains(t, userText, "Troubleshoot order 2664518")
+	require.Contains(t, userText, "Order 2664518 is underdelivering")
+	require.Contains(t, userText, "show me audience that deliver the most")
+}
+
+func TestRecentNonInterimTurnsTextSkipsNonFinalAssistantPhases(t *testing.T) {
+	conv := &apiconv.Conversation{
+		Transcript: []*agconv.TranscriptView{
+			{
+				Id: "turn-prior",
+				Message: []*agconv.MessageView{
+					{Role: "user", Type: "text", Content: strPtr("visible user")},
+					{Role: "assistant", Type: "text", Phase: strPtr("intake"), Content: strPtr(`{"internal":"hidden"}`)},
+					{Role: "assistant", Type: "text", Content: strPtr("visible assistant")},
+				},
+			},
+		},
+	}
+
+	got := recentNonInterimTurnsText(conv, 3)
+
+	require.Contains(t, got, "visible user")
+	require.Contains(t, got, "visible assistant")
+	require.NotContains(t, got, "hidden")
 }
 
 func eventIndex(events []string, target string) int {

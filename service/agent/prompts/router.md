@@ -45,6 +45,11 @@ Hard rules:
 
 Routing preferences (when ACTION 1 applies):
 - Prefer the most direct specialist for the task.
+- If "Recent conversation context" is present, use it to resolve elided
+  follow-up scope and continuity for the current request. Do not classify an
+  earlier transcript message as the active request.
+- When the current request conflicts with recent context, the current request
+  wins.
 - For code reading, code analysis, refactors, implementation, debugging, or
   requests mentioning local file paths/repos/packages, prefer a coding-focused
   agent (e.g. tags containing "code" or "refactor").

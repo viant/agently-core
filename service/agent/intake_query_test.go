@@ -309,6 +309,54 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 	}
 }
 
+func TestResolveWorkspaceUIIntentOverride_FollowUpRequiresSurfaceMatch(t *testing.T) {
+	now := time.Now()
+	s := &Service{
+		conversation: &stubProjectionBindingConversationClient{
+			conversation: &apiconv.Conversation{
+				Id: "conv-1",
+				Transcript: []*agconv.TranscriptView{
+					workspaceFollowUpFocusTurn(now, "turn-focus", "order_2656980", ""),
+				},
+			},
+		},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "show me audience that deliver the most",
+		Agent:          &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true, ActivationRules: testOrderFollowUpRules()}},
+	}
+
+	override := s.resolveWorkspaceUIIntentOverride(context.Background(), input)
+
+	require.Nil(t, override)
+}
+
+func TestVisibleTranscriptMessagesForIntakeKeepsOnlyPriorVisibleChat(t *testing.T) {
+	now := time.Now()
+	archived := 1
+	transcript := apiconv.Transcript{
+		&apiconv.Turn{Id: "turn-prior", Message: []*agconv.MessageView{
+			{Id: "user-prior", TurnId: strPtr("turn-prior"), Role: "user", Type: "text", Content: strPtr("Troubleshoot order 2664518"), CreatedAt: now},
+			{Id: "intake-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr(`{"scope":{"values":{"id":"internal"}}}`), Phase: strPtr("intake"), CreatedAt: now.Add(time.Second)},
+			{Id: "tool-prior", TurnId: strPtr("turn-prior"), Role: "tool", Type: "text", Content: strPtr("tool output"), CreatedAt: now.Add(2 * time.Second)},
+			{Id: "assistant-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("Order 2664518 has an active audience."), CreatedAt: now.Add(3 * time.Second)},
+			{Id: "archived-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("archived"), Archived: &archived, CreatedAt: now.Add(4 * time.Second)},
+			{Id: "interim-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("interim"), Interim: 1, CreatedAt: now.Add(5 * time.Second)},
+		}},
+		&apiconv.Turn{Id: "turn-current", Message: []*agconv.MessageView{
+			{Id: "user-current", TurnId: strPtr("turn-current"), Role: "user", Type: "text", Content: strPtr("show me audience that deliver the most"), CreatedAt: now.Add(6 * time.Second)},
+		}},
+	}
+
+	got := visibleTranscriptMessagesForIntake(transcript, "turn-current")
+
+	require.Equal(t, []intakesvc.TranscriptMessage{
+		{Role: "user", Content: "Troubleshoot order 2664518"},
+		{Role: "assistant", Content: "Order 2664518 has an active audience."},
+	}, got)
+}
+
 func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmpty(t *testing.T) {
 	s := &Service{}
 	input := &QueryInput{

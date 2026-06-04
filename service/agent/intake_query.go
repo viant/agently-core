@@ -93,7 +93,8 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		return
 	}
 	runCtx := s.intakeTrackedContext(ctx, input)
-	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId))
+	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
+		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)))
 	if tc == nil {
 		return
 	}
@@ -116,6 +117,81 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	applyTurnContext(input, tc, &runCfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
+}
+
+func (s *Service) recentVisibleTranscriptForIntake(ctx context.Context, input *QueryInput) []intakesvc.TranscriptMessage {
+	if input == nil {
+		return nil
+	}
+	transcript := input.Transcript
+	if len(transcript) == 0 && s != nil && s.conversation != nil {
+		conversationID := strings.TrimSpace(input.ConversationID)
+		if conversationID != "" {
+			if conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true)); err == nil && conv != nil {
+				transcript = conv.GetTranscript()
+			}
+		}
+	}
+	currentTurnID := strings.TrimSpace(input.MessageID)
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+		currentTurnID = strings.TrimSpace(turn.TurnID)
+	}
+	return visibleTranscriptMessagesForIntake(transcript, currentTurnID)
+}
+
+func visibleTranscriptMessagesForIntake(transcript apiconv.Transcript, currentTurnID string) []intakesvc.TranscriptMessage {
+	if len(transcript) == 0 {
+		return nil
+	}
+	var result []intakesvc.TranscriptMessage
+	for _, turn := range transcript {
+		if turn == nil || len(turn.Message) == 0 {
+			continue
+		}
+		if currentTurnID != "" && strings.EqualFold(strings.TrimSpace(turn.Id), currentTurnID) {
+			continue
+		}
+		for _, message := range turn.Message {
+			if message == nil || message.Interim != 0 {
+				continue
+			}
+			if message.Archived != nil && *message.Archived != 0 {
+				continue
+			}
+			if currentTurnID != "" && message.TurnId != nil && strings.EqualFold(strings.TrimSpace(*message.TurnId), currentTurnID) {
+				continue
+			}
+			role := strings.ToLower(strings.TrimSpace(message.Role))
+			if role != "user" && role != "assistant" {
+				continue
+			}
+			typ := strings.ToLower(strings.TrimSpace(message.Type))
+			if typ != "" && typ != "text" {
+				continue
+			}
+			if message.Mode != nil && strings.EqualFold(strings.TrimSpace(*message.Mode), "chain") {
+				continue
+			}
+			if message.Phase != nil {
+				phase := strings.ToLower(strings.TrimSpace(*message.Phase))
+				if phase != "" && phase != "final" {
+					continue
+				}
+			}
+			content := ""
+			if message.Content != nil {
+				content = strings.TrimSpace(*message.Content)
+			}
+			if content == "" && message.RawContent != nil {
+				content = strings.TrimSpace(*message.RawContent)
+			}
+			if content == "" {
+				continue
+			}
+			result = append(result, intakesvc.TranscriptMessage{Role: role, Content: content})
+		}
+	}
+	return result
 }
 
 func (s *Service) maybeInjectWorkspaceUIOverride(ctx context.Context, input *QueryInput, cfg *agentmdl.Intake) bool {
@@ -181,6 +257,9 @@ func resolveActivationRuleOverride(query string, rules []agentmdl.ActivationRule
 		return nil
 	}
 	for _, rule := range rules {
+		if strings.EqualFold(strings.TrimSpace(rule.Mode), "followup") {
+			continue
+		}
 		if override := evaluateActivationRule(query, rule); override != nil {
 			return override
 		}
@@ -1349,7 +1428,7 @@ func (s *Service) shouldRunIntake(ctx context.Context, input *QueryInput, cfg *a
 	return divergence >= threshold
 }
 
-var concreteOrderOpenAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+(my\s+|ad\s+)?order\s+\d+\s*$`)
+var concreteOrderOpenAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+(my\s+|ad\s+)?(order|record)\s+\d+\s*$`)
 var concreteOrderCompareAskPattern = regexp.MustCompile(`(?i)^\s*(show|open)\s+((me|my|ad)\s+)?orders?\b`)
 
 func isConcreteOrderOpenAsk(query string) bool {

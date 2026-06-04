@@ -34,6 +34,34 @@ type Service struct {
 	bundleRepo   *toolbundlerepo.Repository
 }
 
+// TranscriptMessage is a compact, generic transcript row provided to intake.
+// It intentionally carries only speaker role and visible text content so
+// workspace-specific state and internal execution details stay out of the
+// framework contract.
+type TranscriptMessage struct {
+	Role    string
+	Content string
+}
+
+type runOptions struct {
+	Transcript []TranscriptMessage
+}
+
+// RunOption customizes a single intake sidecar call.
+type RunOption func(*runOptions)
+
+// WithTranscript provides recent visible user/assistant transcript context for
+// the current intake call. Intake uses it to resolve elided follow-up requests
+// while still classifying the current user message as the active request.
+func WithTranscript(messages []TranscriptMessage) RunOption {
+	return func(opts *runOptions) {
+		if len(messages) == 0 {
+			return
+		}
+		opts.Transcript = append([]TranscriptMessage(nil), messages...)
+	}
+}
+
 // New creates an intake Service. llm is required; repos are optional.
 func New(llm *core.Service, opts ...func(*Service)) *Service {
 	s := &Service{llm: llm}
@@ -60,11 +88,11 @@ func WithBundleRepo(r *toolbundlerepo.Repository) func(*Service) {
 // Run executes the intake sidecar for the given user message and agent config.
 // Returns nil when the sidecar is not enabled or a non-fatal error occurs
 // (callers always proceed with the turn regardless).
-func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) *Context {
+func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string, opts ...RunOption) *Context {
 	if s == nil || s.llm == nil || cfg == nil || !cfg.Enabled || strings.TrimSpace(userMessage) == "" {
 		return nil
 	}
-	tc, err := s.run(ctx, userMessage, cfg, userID)
+	tc, err := s.run(ctx, userMessage, cfg, userID, opts...)
 	if err != nil {
 		logx.Warnf("conversation", "intake.Run error: %v", err)
 		return nil
@@ -72,7 +100,7 @@ func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	return tc
 }
 
-func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string) (*Context, error) {
+func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Intake, userID string, runOpts ...RunOption) (*Context, error) {
 	modelName := s.resolveModel(cfg)
 	if modelName == "" {
 		return nil, fmt.Errorf("intake: no model configured (set cfg.Model or cfg.ModelPreferences with a matcher available)")
@@ -87,7 +115,8 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	in := s.buildGenerateInputWithContext(ctx, modelName, systemPrompt, userMessage, userID, cfg)
+	opts := applyRunOptions(runOpts...)
+	in := s.buildGenerateInputWithContext(ctx, modelName, systemPrompt, userMessage, userID, cfg, WithTranscript(opts.Transcript))
 	if strings.TrimSpace(in.UserID) == "" {
 		in.UserID = "system"
 	}
@@ -119,7 +148,12 @@ func (s *Service) buildGenerateInput(modelName, systemPrompt, userMessage, userI
 	return s.buildGenerateInputWithContext(context.Background(), modelName, systemPrompt, userMessage, userID, cfg)
 }
 
-func (s *Service) buildGenerateInputWithContext(ctx context.Context, modelName, systemPrompt, userMessage, userID string, cfg *agentmdl.Intake) *core.GenerateInput {
+func (s *Service) buildGenerateInputWithContext(ctx context.Context, modelName, systemPrompt, userMessage, userID string, cfg *agentmdl.Intake, runOpts ...RunOption) *core.GenerateInput {
+	opts := applyRunOptions(runOpts...)
+	userContent := strings.TrimSpace(userMessage)
+	if transcript := formatTranscriptForPrompt(opts.Transcript); transcript != "" {
+		userContent = transcript + "\n\nCurrent user message:\n" + userContent
+	}
 	return &core.GenerateInput{
 		UserID: userID,
 		ModelSelection: llm.ModelSelection{
@@ -137,9 +171,50 @@ func (s *Service) buildGenerateInputWithContext(ctx context.Context, modelName, 
 		},
 		Message: []llm.Message{
 			llm.NewSystemMessage(systemPrompt),
-			llm.NewUserMessage(userMessage),
+			llm.NewUserMessage(userContent),
 		},
 	}
+}
+
+func applyRunOptions(runOpts ...RunOption) runOptions {
+	var opts runOptions
+	for _, apply := range runOpts {
+		if apply != nil {
+			apply(&opts)
+		}
+	}
+	return opts
+}
+
+func formatTranscriptForPrompt(messages []TranscriptMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	const maxMessages = 12
+	const maxContentLen = 700
+	start := 0
+	if len(messages) > maxMessages {
+		start = len(messages) - maxMessages
+	}
+	lines := make([]string, 0, len(messages)-start+2)
+	for _, message := range messages[start:] {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.Join(strings.Fields(strings.TrimSpace(message.Content)), " ")
+		if content == "" {
+			continue
+		}
+		if len(content) > maxContentLen {
+			content = strings.TrimSpace(content[:maxContentLen]) + "..."
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", role, content))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Recent transcript context (oldest to newest; use only to resolve the current message):\n" + strings.Join(lines, "\n")
 }
 
 func (s *Service) buildOutputJSONSchema(ctx context.Context, cfg *agentmdl.Intake) map[string]interface{} {
@@ -590,7 +665,13 @@ Date rule:
 Clarification rule:
 - If the message already names a concrete entity scope such as an ad order, campaign, advertiser, audience, repo, package, file path, or other directly actionable object, do not ask for clarification just because timeframe, KPI family, or symptom subtype was omitted.
 - For concrete troubleshoot / diagnose / investigate / analyze asks on a named entity, prefer routing directly so the owning agent can establish the baseline from the available tools.
-- Ask for clarification only when a missing detail truly blocks selecting any reasonable next step.`
+- Ask for clarification only when a missing detail truly blocks selecting any reasonable next step.
+
+Conversation context rule:
+- When recent transcript context is provided, use it to resolve omitted references, pronouns, continuations, and previously established scope for the current user message.
+- Classify and extract metadata for the current user message; do not treat prior transcript messages as the active request.
+- If the current message conflicts with prior transcript context, the current message wins.
+- Do not ask for clarification when the current message plus recent transcript provides a concrete actionable scope.`
 
 // parseOutput unmarshals the sidecar's JSON output into an intake Context.
 func parseOutput(raw string) (*Context, error) {
