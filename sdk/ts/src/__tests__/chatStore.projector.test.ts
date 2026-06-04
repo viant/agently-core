@@ -160,6 +160,113 @@ describe('chatStore/projector — projectConversation', () => {
         expect(uiRow.toolInput).toEqual({ title: 'hello' });
     });
 
+    it('projects final assistant ui:// responses as MCP UI rows even when no tool step carries uiResourceUri', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_polly_ui',
+                status: 'completed',
+                createdAt: '2026-06-04T16:00:00Z',
+                user: {
+                    messageId: 'msg_user_polly',
+                    content: 'generate activity',
+                },
+                execution: {
+                    pages: [{
+                        pageId: 'pg_polly_tool',
+                        assistantMessageId: 'msg_assistant_tool',
+                        status: 'completed',
+                        toolSteps: [{
+                            toolCallId: 'call_polly',
+                            toolName: 'polly/generate_activity',
+                            status: 'completed',
+                            responsePayload: {
+                                activity: { id: 'activity-1' },
+                                resourceUri: 'ui://polly/view/activity-activity-1',
+                            },
+                        }],
+                    }, {
+                        pageId: 'pg_polly_final',
+                        assistantMessageId: 'msg_assistant_final',
+                        status: 'completed',
+                        content: 'ui://polly/view/activity-activity-1',
+                        finalResponse: true,
+                    }],
+                },
+                assistant: {
+                    final: {
+                        messageId: 'msg_assistant_final',
+                        content: 'ui://polly/view/activity-activity-1',
+                    },
+                },
+            }],
+        });
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'iteration', 'mcpui']);
+        const uiRow = rows[2] as MCPUIRenderRow;
+        expect(uiRow.uri).toBe('ui://polly/view/activity-activity-1');
+        expect(uiRow.toolName).toBe('interactive_app');
+    });
+
+    it('projects assistantFinal ui:// responses as MCP UI rows on transcript-only settled turns', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_polly_assistant_final',
+                status: 'completed',
+                createdAt: '2026-06-04T16:45:00Z',
+                user: {
+                    messageId: 'msg_user_final_only',
+                    content: 'generate activity',
+                },
+                assistant: {
+                    final: {
+                        messageId: 'msg_assistant_final_only',
+                        content: 'ui://polly/view/activity-activity-2',
+                        createdAt: '2026-06-04T16:45:10Z',
+                    },
+                },
+            }],
+        });
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'iteration', 'mcpui']);
+        const uiRow = rows[2] as MCPUIRenderRow;
+        expect(uiRow.uri).toBe('ui://polly/view/activity-activity-2');
+        expect(uiRow.toolName).toBe('interactive_app');
+    });
+
+    it('projects standalone assistant ui:// messages as MCP UI rows instead of plain assistant bubbles', () => {
+        const state = fresh();
+        applyTranscript(state, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_polly_standalone',
+                status: 'completed',
+                createdAt: '2026-06-04T16:30:00Z',
+                user: {
+                    messageId: 'msg_user_standalone',
+                    content: 'generate activity',
+                },
+                messages: [{
+                    messageId: 'msg_assistant_standalone',
+                    role: 'assistant',
+                    content: 'ui://polly/view/activity-standalone',
+                    createdAt: '2026-06-04T16:30:05Z',
+                    sequence: 3,
+                }],
+                execution: {
+                    pages: [],
+                },
+            }],
+        });
+        const rows = projectConversation(state);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'iteration', 'mcpui']);
+        const uiRow = rows[2] as MCPUIRenderRow;
+        expect(uiRow.uri).toBe('ui://polly/view/activity-standalone');
+    });
+
     it('transcript-owned running turn is not marked streaming for wall-clock UI updates', () => {
         const state = fresh();
         applyTranscript(state, {

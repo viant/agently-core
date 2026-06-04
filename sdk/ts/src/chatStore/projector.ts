@@ -293,10 +293,12 @@ export function projectTurn(turn: ClientTurnState): RenderRow[] {
 
 function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
     const rows: MCPUIRenderRow[] = [];
+    const seenUris = new Set<string>();
     for (const page of Array.isArray(turn.pages) ? turn.pages : []) {
         for (const tool of Array.isArray(page.toolCalls) ? page.toolCalls : []) {
             const uri = String(tool?.uiResourceUri || '').trim();
             if (!uri) continue;
+            seenUris.add(uri);
             rows.push({
                 kind: 'mcpui',
                 renderKey: `${tool.renderKey}:mcpui`,
@@ -309,6 +311,54 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
                 sequence: typeof page.sequence === 'number' ? page.sequence : undefined,
             });
         }
+        const pageURI = String(page?.content || '').trim();
+        if (!page.finalResponse || !pageURI.startsWith('ui://') || seenUris.has(pageURI)) {
+            continue;
+        }
+        seenUris.add(pageURI);
+        rows.push({
+            kind: 'mcpui',
+            renderKey: `${page.renderKey}:mcpui`,
+            turnId: turn.turnId,
+            toolCallId: undefined,
+            toolName: 'interactive_app',
+            uri: pageURI,
+            toolInput: null,
+            createdAt: String(page.completedAt || page.startedAt || page.createdAt || '').trim() || undefined,
+            sequence: typeof page.sequence === 'number' ? page.sequence : undefined,
+        });
+    }
+    for (const message of Array.isArray(turn.messages) ? turn.messages : []) {
+        if (message.role !== 'assistant') continue;
+        const uri = String(message.content || '').trim();
+        if (!uri.startsWith('ui://') || seenUris.has(uri)) continue;
+        seenUris.add(uri);
+        rows.push({
+            kind: 'mcpui',
+            renderKey: `${message.renderKey}:mcpui`,
+            turnId: turn.turnId,
+            toolCallId: undefined,
+            toolName: 'interactive_app',
+            uri,
+            toolInput: null,
+            createdAt: message.createdAt,
+            sequence: message.sequence,
+        });
+    }
+    const assistantFinalUri = String(turn.assistantFinal?.content || '').trim();
+    if (assistantFinalUri.startsWith('ui://') && !seenUris.has(assistantFinalUri)) {
+        seenUris.add(assistantFinalUri);
+        rows.push({
+            kind: 'mcpui',
+            renderKey: `${turn.assistantFinal?.renderKey || turn.turnId}:mcpui`,
+            turnId: turn.turnId,
+            toolCallId: undefined,
+            toolName: 'interactive_app',
+            uri: assistantFinalUri,
+            toolInput: null,
+            createdAt: turn.assistantFinal?.createdAt,
+            sequence: undefined,
+        });
     }
     return rows;
 }
@@ -333,6 +383,7 @@ function projectStandaloneMessages(turn: ClientTurnState): ClientStandaloneMessa
     return (Array.isArray(turn.messages) ? turn.messages : []).filter((message) => {
         if (message.role !== 'assistant') return true;
         if (Number(message.interim ?? 0) > 0) return false;
+        if (String(message.content || '').trim().startsWith('ui://')) return false;
         const messageId = String(message.messageId || '').trim();
         if (messageId && pageOwnedIds.has(messageId)) return false;
         return true;

@@ -172,6 +172,12 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 		return "canceled", err
 	}
 	if output != nil && output.Plan != nil && output.Plan.IsEmpty() && strings.TrimSpace(output.Content) == "" {
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+			if recovered := s.findLastAssistantMessageContent(ctx, turn.ConversationID, turn.TurnID); strings.TrimSpace(recovered) != "" {
+				output.Content = strings.TrimSpace(recovered)
+				return "succeeded", nil
+			}
+		}
 		return "failed", fmt.Errorf("no final content produced")
 	}
 	return "succeeded", nil
@@ -584,6 +590,37 @@ func (s *Service) findLastAssistantMessageID(ctx context.Context, conversationID
 			}
 			if strings.TrimSpace(msg.Id) != "" {
 				return msg.Id
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+func (s *Service) findLastAssistantMessageContent(ctx context.Context, conversationID, turnID string) string {
+	if s.conversation == nil || conversationID == "" || turnID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID)
+	if err != nil || conv == nil {
+		return ""
+	}
+	transcript := conv.GetTranscript()
+	for i := len(transcript) - 1; i >= 0; i-- {
+		t := transcript[i]
+		if t == nil || strings.TrimSpace(t.Id) != turnID {
+			continue
+		}
+		for j := len(t.Message) - 1; j >= 0; j-- {
+			msg := t.Message[j]
+			if msg == nil {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+			if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" {
+				return strings.TrimSpace(*msg.Content)
 			}
 		}
 		return ""
