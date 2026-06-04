@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -43,16 +44,29 @@ func (c *backendClient) ExecuteMCPUIToolCall(ctx context.Context, input *MCPUITo
 		return nil, err
 	}
 	out := &MCPUIToolCallOutput{
-		ConversationID: guestOut.ConversationID,
-		TurnID:         guestOut.TurnID,
-		Status:         guestOut.Status,
-		Result:         guestOut.Result,
-		Source:         guestOut.Source,
+		ConversationID:    guestOut.ConversationID,
+		TurnID:            guestOut.TurnID,
+		Status:            guestOut.Status,
+		Result:            guestOut.Result,
+		StructuredContent: parseMCPUIToolStructuredContent(guestOut.Result),
+		Source:            guestOut.Source,
 	}
 	if guestOut.Status == agentsvc.GuestToolStatusQueued {
 		out.Approval = c.pendingApprovalForGuestToolCall(ctx, guestOut.ConversationID, guestOut.TurnID, guestOut.ToolName)
 	}
 	return out, nil
+}
+
+func parseMCPUIToolStructuredContent(result string) map[string]interface{} {
+	text := strings.TrimSpace(result)
+	if text == "" || !strings.HasPrefix(text, "{") {
+		return nil
+	}
+	var structured map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &structured); err != nil {
+		return nil
+	}
+	return structured
 }
 
 func (c *backendClient) pendingApprovalForGuestToolCall(ctx context.Context, conversationID, turnID, toolName string) *PendingToolApproval {

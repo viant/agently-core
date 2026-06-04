@@ -188,6 +188,35 @@ func TestHandler_MCPUI_ToolCall_ReturnsQueuedApprovalPayload(t *testing.T) {
 	}
 }
 
+func TestHandler_MCPUI_ToolCall_PreservesStructuredContentPayload(t *testing.T) {
+	caller := MCPUIToolCaller(func(_ context.Context, input *MCPUIToolCallInput) (*MCPUIToolCallOutput, error) {
+		return &MCPUIToolCallOutput{
+			ConversationID:    input.ConversationID,
+			TurnID:            "turn-structured",
+			Status:            "completed",
+			Result:            `{"activityId":"activity-1","message":"Check the first row.","wizardTitle":"Teacher walkthrough"}`,
+			StructuredContent: map[string]interface{}{"activityId": "activity-1", "message": "Check the first row.", "wizardTitle": "Teacher walkthrough"},
+			Source:            "guest_ui",
+		}, nil
+	})
+	handler := NewHandler(nil, WithMCPUIToolCaller(caller))
+
+	body := []byte(`{"conversationId":"conv-1","toolName":"polly:guide_attempt","arguments":{"activityId":"activity-1"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/mcp-ui/tools/call", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got MCPUIToolCallOutput
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	require.Equal(t, "activity-1", got.StructuredContent["activityId"])
+	require.Equal(t, "Check the first row.", got.StructuredContent["message"])
+}
+
 func TestHandler_MCPUI_ToolCall_MissingToolNameReturnsBadRequest(t *testing.T) {
 	handler := NewHandler(nil, WithMCPUIToolCaller(func(_ context.Context, _ *MCPUIToolCallInput) (*MCPUIToolCallOutput, error) {
 		t.Fatal("caller should not be invoked for invalid payload")

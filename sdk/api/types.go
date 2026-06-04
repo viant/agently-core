@@ -489,12 +489,13 @@ type MCPUIToolCallInput struct {
 }
 
 type MCPUIToolCallOutput struct {
-	ConversationID string               `json:"conversationId,omitempty"`
-	TurnID         string               `json:"turnId,omitempty"`
-	Status         string               `json:"status"`
-	Result         string               `json:"result,omitempty"`
-	Source         string               `json:"source,omitempty"`
-	Approval       *PendingToolApproval `json:"approval,omitempty"`
+	ConversationID    string                 `json:"conversationId,omitempty"`
+	TurnID            string                 `json:"turnId,omitempty"`
+	Status            string                 `json:"status"`
+	Result            string                 `json:"result,omitempty"`
+	StructuredContent map[string]interface{} `json:"structuredContent,omitempty"`
+	Source            string                 `json:"source,omitempty"`
+	Approval          *PendingToolApproval   `json:"approval,omitempty"`
 }
 
 type ResourceRef struct {
