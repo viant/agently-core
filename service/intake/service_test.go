@@ -2,12 +2,14 @@ package intake
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
@@ -48,6 +50,53 @@ func TestParseOutput_DropsMalformedDirectAction(t *testing.T) {
 	assert.Nil(t, tc.DirectAction.Input)
 	assert.Equal(t, "workspace_ui", tc.Prompting.SuggestedProfileID)
 	assert.Equal(t, "recommendation_review_dashboard", tc.Prompting.TemplateID)
+}
+
+func TestParseOutput_DropsUIViewOpenWithoutID(t *testing.T) {
+	raw := `{"classification":{"title":"Open Forecasting Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"presentation\":\"hosted\",\"windowKey\":\"forecastingCubeBuilder\",\"parameters\":{\"AdOrderId\":7288336}}","assistantText":"Opening Forecasting view."}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Empty(t, tc.DirectAction.ToolName)
+	assert.Nil(t, tc.DirectAction.Input)
+	assert.Equal(t, "workspace_ui", tc.Prompting.SuggestedProfileID)
+}
+
+func TestCanonicalIntakeContent_DropsInvalidDirectAction(t *testing.T) {
+	raw := `{"classification":{"title":"Open Forecasting Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"windowKey\":\"forecastingCubeBuilder\",\"parameters\":{\"AdOrderId\":7288336}}","assistantText":"Opening Forecasting view."}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+
+	content, err := canonicalIntakeContent(tc)
+	require.NoError(t, err)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(content), &decoded))
+	assert.Nil(t, decoded["directAction"])
+	assert.NotContains(t, content, "windowKey")
+	assert.Contains(t, content, "workspace_ui")
+}
+
+func TestPatchCanonicalIntakeMessage_UsesParsedContent(t *testing.T) {
+	rec := &recordingIntakeConversationClient{}
+	svc := &Service{conversation: rec}
+	tc := &Context{
+		Classification: ClassificationContext{Title: "Open Forecasting Builder", Intent: "ui_open", Confidence: 0.66},
+		Prompting:      PromptingContext{SuggestedProfileID: "workspace_ui"},
+	}
+	ctx := runtimerequestctx.WithRequestMode(context.Background(), "router")
+	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
+
+	svc.patchCanonicalIntakeMessage(ctx, "msg-1", tc)
+
+	require.NotNil(t, rec.message)
+	assert.Equal(t, "msg-1", rec.message.Id)
+	require.NotNil(t, rec.message.Content)
+	assert.Contains(t, *rec.message.Content, `"directAction": null`)
+	assert.Equal(t, "conv-1", rec.message.ConversationID)
+	require.NotNil(t, rec.message.TurnID)
+	assert.Equal(t, "turn-1", *rec.message.TurnID)
+	require.NotNil(t, rec.message.Phase)
+	assert.Equal(t, "intake", *rec.message.Phase)
 }
 
 func TestParseOutput_WithoutDirectAction(t *testing.T) {
@@ -154,6 +203,14 @@ func TestBuildOutputSchema_ClassAOnly(t *testing.T) {
 	assert.Contains(t, schema, "directAction")
 	assert.NotContains(t, schema, "suggestedProfileId")
 	assert.NotContains(t, schema, "appendToolBundles")
+}
+
+func TestBuildOutputSchema_ConstrainsDirectActionToExplicitToolRequests(t *testing.T) {
+	cfg := &agentmdl.Intake{Scope: []string{"context"}}
+	schema := buildOutputSchema(cfg)
+	assert.Contains(t, schema, "explicit tool/UI/control request")
+	assert.Contains(t, schema, "leave directAction null")
+	assert.Contains(t, schema, "analysis, data, forecast, summary, or recommendation")
 }
 
 func TestBuildOutputJSONSchema_DirectActionNullableAndRequired(t *testing.T) {
@@ -507,4 +564,14 @@ func TestResolveModel(t *testing.T) {
 		_ = cfg
 		_ = s
 	})
+}
+
+type recordingIntakeConversationClient struct {
+	apiconv.Client
+	message *apiconv.MutableMessage
+}
+
+func (r *recordingIntakeConversationClient) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
+	r.message = message
+	return nil
 }

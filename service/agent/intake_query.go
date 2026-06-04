@@ -1321,6 +1321,14 @@ func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryIn
 	if s == nil || input == nil || tc == nil || cfg == nil {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(tc.Routing.Source), intakesvc.SourceAgent) && strings.TrimSpace(tc.DirectAction.ToolName) != "" {
+		logx.Infof("conversation", "intake.agent_direct_action_suppressed convo=%q agent=%q tool=%q",
+			strings.TrimSpace(input.ConversationID),
+			strings.TrimSpace(input.Agent.ID),
+			strings.TrimSpace(tc.DirectAction.ToolName),
+		)
+		tc.DirectAction = intakesvc.DirectActionContext{}
+	}
 	if !cfg.HasScope(agentmdl.IntakeScopeProfile) {
 		return
 	}

@@ -158,9 +158,7 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 					}
 				}
 				output.Content = strings.TrimSpace(builder.String())
-				if msgID := runtimerequestctx.ModelMessageIDFromContext(ctx); msgID != "" {
-					output.MessageID = msgID
-				}
+				output.MessageID = generatedMessageID(ctx, turnID)
 			}
 			return nil
 		}
@@ -233,10 +231,15 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 		}
 	}
 	output.Content = strings.TrimSpace(builder.String())
-	if msgID := runtimerequestctx.ModelMessageIDFromContext(ctx); msgID != "" {
-		output.MessageID = msgID
-	}
+	output.MessageID = generatedMessageID(ctx, turnID)
 	return nil
+}
+
+func generatedMessageID(ctx context.Context, turnID string) string {
+	if msgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)); msgID != "" {
+		return msgID
+	}
+	return strings.TrimSpace(runtimerequestctx.TurnModelMessageID(strings.TrimSpace(turnID)))
 }
 
 func toolResultPreviewLimitFromMetadata(metadata map[string]interface{}) int {
