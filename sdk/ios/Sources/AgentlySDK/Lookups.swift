@@ -67,13 +67,17 @@ public struct ListLookupRegistryInput: Codable, Sendable {
 
 public struct LookupRegistryEntry: Codable, Sendable, Identifiable {
     public var name: String
+    public var title: String?
     public var dataSource: String
+    public var dialogId: String?
+    public var windowId: String?
     public var trigger: String?
     public var required: Bool?
     public var display: String?
     public var token: LookupTokenFormat?
     public var inputs: [LookupParameter]?
     public var outputs: [LookupParameter]?
+    public var extra: [String: String]?
 
     public var id: String { name }
 }
