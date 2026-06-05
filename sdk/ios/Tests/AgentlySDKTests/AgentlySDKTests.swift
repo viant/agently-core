@@ -161,6 +161,82 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(restore?.windows.first?.windowTitle, "Report Review")
     }
 
+    func testHostedWorkspaceRestoreFoldsLaterWindowFormDataIntoOpenedWindow() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-open",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "requestPayload": {
+                            "id": "reportWindow"
+                          },
+                          "responsePayload": {
+                            "windowId": "reportWindow__conv-1",
+                            "conversationId": "conv-1",
+                            "windowKey": "reportWindow",
+                            "windowTitle": "Report Review",
+                            "presentation": "hosted",
+                            "region": "chat.top",
+                            "parentKey": "chat/new",
+                            "windowForm": {
+                              "prefill": {
+                                "accountId": 7
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "toolCallId": "tool-form",
+                          "toolName": "ui/window:setFormData",
+                          "status": "completed",
+                          "requestPayload": {
+                            "windowId": "reportWindow__conv-1",
+                            "values": {
+                              "prefill": {
+                                "recordId": 123
+                              }
+                            }
+                          },
+                          "responsePayload": {
+                            "ok": true
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+
+        XCTAssertEqual(restore?.selectedWindowId, "reportWindow__conv-1")
+        guard case .object(let prefill)? = restore?.windows.first?.windowForm?["prefill"] else {
+            XCTFail("Expected restored window form prefill object")
+            return
+        }
+        XCTAssertEqual(prefill["accountId"], .number(7))
+        XCTAssertEqual(prefill["recordId"], .number(123))
+    }
+
     func testHostedWorkspaceRestoreDoesNotRequireAppPlacementFields() throws {
         let json = """
         {
