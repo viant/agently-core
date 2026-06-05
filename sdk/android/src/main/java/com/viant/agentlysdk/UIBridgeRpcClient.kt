@@ -45,7 +45,8 @@ class UIBridgeRpcClient(
         params = buildJsonObject {
             put("clientId", JsonPrimitive(clientId))
             put("timeoutMs", JsonPrimitive(timeoutMs))
-        }
+        },
+        includeSession = false
     )
 
     suspend fun respond(
@@ -60,7 +61,7 @@ class UIBridgeRpcClient(
             result?.let { put("result", it) }
             error?.takeIf { it.isNotBlank() }?.let { put("error", JsonPrimitive(it)) }
         }
-        return rpcObject(method = "ui.response", params = params)
+        return rpcObject(method = "ui.response", params = params, includeSession = false)
     }
 
     suspend fun snapshot(clientId: String, data: JsonObject): JsonObject? = rpcObject(
@@ -68,7 +69,8 @@ class UIBridgeRpcClient(
         params = buildJsonObject {
             put("clientId", JsonPrimitive(clientId))
             put("data", data)
-        }
+        },
+        includeSession = false
     )
 
     private suspend fun rpcObject(
@@ -80,6 +82,7 @@ class UIBridgeRpcClient(
             "Endpoint not found: $endpointName"
         }
         val requestBody = UIBridgeRpcRequest(
+            jsonrpc = "2.0",
             id = UUID.randomUUID().toString(),
             method = method,
             params = params
@@ -130,7 +133,7 @@ class UIBridgeRpcClient(
 
 @Serializable
 private data class UIBridgeRpcRequest(
-    val jsonrpc: String = "2.0",
+    val jsonrpc: String,
     val id: String,
     val method: String,
     val params: JsonObject

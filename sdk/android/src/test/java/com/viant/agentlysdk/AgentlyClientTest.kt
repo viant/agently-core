@@ -151,11 +151,19 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `ui bridge rpc client carries session header across calls`() = runBlocking {
+    fun `ui bridge rpc client addresses command plane by explicit client id`() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setHeader("Mcp-Session-Id", "session-123")
                 .setBody("""{"jsonrpc":"2.0","result":{"accepted":true}}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"jsonrpc":"2.0","result":{"ok":true}}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"jsonrpc":"2.0","result":null}""")
         )
         server.enqueue(
             MockResponse()
@@ -172,14 +180,34 @@ class AgentlyClientTest {
                 put("windows", buildJsonObject { })
             }
         )
+        bridge.poll("android-ui-test", timeoutMs = 10)
+        bridge.respond(commandId = "cmd-1", ok = true, result = buildJsonObject { put("ok", JsonPrimitive(true)) })
 
         val helloRequest: RecordedRequest = server.takeRequest()
         assertEquals("/v1/ui/rpc", helloRequest.path)
         assertEquals(null, helloRequest.getHeader("Mcp-Session-Id"))
+        assertTrue(helloRequest.body.readUtf8().contains("\"jsonrpc\":\"2.0\""))
 
         val snapshotRequest: RecordedRequest = server.takeRequest()
         assertEquals("/v1/ui/rpc", snapshotRequest.path)
-        assertEquals("session-123", snapshotRequest.getHeader("Mcp-Session-Id"))
+        assertEquals(null, snapshotRequest.getHeader("Mcp-Session-Id"))
+        val snapshotBody = snapshotRequest.body.readUtf8()
+        assertTrue(snapshotBody.contains("\"jsonrpc\":\"2.0\""))
+        assertTrue(snapshotBody.contains("\"clientId\":\"android-ui-test\""))
+
+        val pollRequest: RecordedRequest = server.takeRequest()
+        assertEquals("/v1/ui/rpc", pollRequest.path)
+        assertEquals(null, pollRequest.getHeader("Mcp-Session-Id"))
+        val pollBody = pollRequest.body.readUtf8()
+        assertTrue(pollBody.contains("\"jsonrpc\":\"2.0\""))
+        assertTrue(pollBody.contains("\"clientId\":\"android-ui-test\""))
+
+        val responseRequest: RecordedRequest = server.takeRequest()
+        assertEquals("/v1/ui/rpc", responseRequest.path)
+        assertEquals(null, responseRequest.getHeader("Mcp-Session-Id"))
+        val responseBody = responseRequest.body.readUtf8()
+        assertTrue(responseBody.contains("\"jsonrpc\":\"2.0\""))
+        assertTrue(responseBody.contains("\"id\":\"cmd-1\""))
     }
 
     @Test

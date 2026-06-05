@@ -308,7 +308,7 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(steps.map { $0.status ?? "" }, ["completed", "running"])
     }
 
-    func testUIBridgeRPCClientCarriesSessionHeaderAcrossCalls() async throws {
+    func testUIBridgeRPCClientOmitsSessionHeaderForExplicitCommandPlane() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
@@ -336,7 +336,7 @@ final class AgentlySDKTests: XCTestCase {
                 return (response, data)
             }
             XCTAssertTrue(body.contains("ui.snapshot"))
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Mcp-Session-Id"), "session-123")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Mcp-Session-Id"))
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
