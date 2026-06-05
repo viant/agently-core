@@ -201,6 +201,39 @@ workspaceMinHeight: 500
 	})
 }
 
+func TestServiceLoadAll_LoadsImportOnlyForgeViewSpecs(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "order.yaml"), `
+$import(order/shared/main.yaml)
+`)
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "order", "shared", "main.yaml"), `
+$import(web/main.yaml)
+`)
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "order", "shared", "web", "main.yaml"), `
+id: order
+title: Order Summary
+windowKey: order
+presentation: hosted
+region: chat.top
+workspaceSharePct: 72
+workspaceMinHeight: 500
+`)
+		svc := &Service{
+			repo: repo.New(afs.New()),
+		}
+		items, err := svc.loadAll(context.Background())
+		if err != nil {
+			t.Fatalf("loadAll failed: %v", err)
+		}
+		if len(items) != 1 {
+			t.Fatalf("expected one view item, got %#v", items)
+		}
+		if items[0].ID != "order" || items[0].WindowKey != "order" {
+			t.Fatalf("unexpected item: %#v", items[0])
+		}
+	})
+}
+
 func TestOpenReturnsWindowIdVisibleToWindowList(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "forecastingCubeBuilder.yaml"), `
