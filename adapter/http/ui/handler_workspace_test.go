@@ -176,6 +176,201 @@ parameters:
 	}
 }
 
+func TestWindowHandler_WorkspaceForgeWindowOverridesStaticWindow(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(metaRoot, "window", "order", "main.yaml"), `
+namespace: Static Order
+view:
+  content:
+    id: staticRoot
+    containers: []
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order", "web", "main.yaml"), `
+$import(shared/web/main.yaml)
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order", "shared", "web", "main.yaml"), `
+namespace: Workspace Order
+view:
+  content:
+    id: workspaceRoot
+    containers:
+      - id: summaryRail
+        layout:
+          kind: grid
+`)
+
+	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/window/order?platform=web&formFactor=desktop")
+	if err != nil {
+		t.Fatalf("window request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Namespace string `json:"namespace"`
+			View      struct {
+				Content struct {
+					ID         string `json:"id"`
+					Containers []struct {
+						ID     string `json:"id"`
+						Layout struct {
+							Kind string `json:"kind"`
+						} `json:"layout"`
+					} `json:"containers"`
+				} `json:"content"`
+			} `json:"view"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.Data.Namespace != "Workspace Order" {
+		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
+	}
+	if payload.Data.View.Content.ID != "workspaceRoot" {
+		t.Fatalf("expected workspace content id, got %q", payload.Data.View.Content.ID)
+	}
+	if len(payload.Data.View.Content.Containers) != 1 || payload.Data.View.Content.Containers[0].Layout.Kind != "grid" {
+		t.Fatalf("expected workspace grid summary container, got %#v", payload.Data.View.Content.Containers)
+	}
+}
+
+func TestWindowHandler_WorkspaceForgeWindowBranchErrorsDoNotFallBack(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(metaRoot, "window", "order", "main.yaml"), `
+namespace: Static Order
+view:
+  content:
+    id: staticRoot
+    containers: []
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order.yaml"), `
+namespace: Legacy Workspace Order
+view:
+  content:
+    id: legacyRoot
+    containers: []
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order", "web", "main.yaml"), `
+$import(shared/web/missing.yaml)
+`)
+
+	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/window/order?platform=web&formFactor=desktop")
+	if err != nil {
+		t.Fatalf("window request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected branch load failure, got %d: %s", resp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), "missing.yaml") {
+		t.Fatalf("expected missing import in response, got %s", string(body))
+	}
+}
+
+func TestWindowHandler_WorkspaceForgeWindowNoTargetUsesSharedDefault(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(metaRoot, "window", "order", "main.yaml"), `
+namespace: Static Order
+view:
+  content:
+    id: staticRoot
+    containers: []
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order", "shared", "main.yaml"), `
+$import(shared/web/main.yaml)
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "order", "shared", "web", "main.yaml"), `
+namespace: Workspace Web Default Order
+view:
+  content:
+    id: webDefaultRoot
+    containers:
+      - id: summaryRail
+        layout:
+          kind: grid
+`)
+
+	server := httptest.NewServer(newHandler("file://"+metaRoot, nil))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/window/order")
+	if err != nil {
+		t.Fatalf("window request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload struct {
+		Data struct {
+			Namespace string `json:"namespace"`
+			View      struct {
+				Content struct {
+					ID         string `json:"id"`
+					Containers []struct {
+						Layout struct {
+							Kind string `json:"kind"`
+						} `json:"layout"`
+					} `json:"containers"`
+				} `json:"content"`
+			} `json:"view"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Data.Namespace != "Workspace Web Default Order" {
+		t.Fatalf("expected shared web default namespace, got %q", payload.Data.Namespace)
+	}
+	if payload.Data.View.Content.ID != "webDefaultRoot" {
+		t.Fatalf("expected shared web default content, got %q", payload.Data.View.Content.ID)
+	}
+	if len(payload.Data.View.Content.Containers) != 1 || payload.Data.View.Content.Containers[0].Layout.Kind != "grid" {
+		t.Fatalf("expected shared web grid default, got %#v", payload.Data.View.Content.Containers)
+	}
+}
+
 func TestWindowHandler_LoadsWorkspaceOwnedForgeWindowWithImportedSharedContent(t *testing.T) {
 	metaRoot := t.TempDir()
 	workspaceRoot := t.TempDir()

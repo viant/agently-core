@@ -685,6 +685,47 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testGetForgeWindowMetadataAppendsTargetContextQueryItems() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "forge window target query request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            XCTAssertEqual(components.percentEncodedPath, "/v1/api/agently/forge/window/order")
+            let items = components.queryItems ?? []
+            func values(for name: String) -> [String] {
+                items.filter { $0.name == name }.compactMap(\.value)
+            }
+            XCTAssertEqual(values(for: "platform").first, "ios")
+            XCTAssertEqual(values(for: "formFactor").first, "tablet")
+            XCTAssertEqual(values(for: "surface").first, "app")
+            XCTAssertEqual(Set(values(for: "capabilities")), Set(["markdown", "chart"]))
+            expectation.fulfill()
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let data = #"{"data":{"view":{"content":{"containers":[]}}}}"#.data(using: .utf8)!
+            return (response, data)
+        }
+
+        _ = try await client.getForgeWindowMetadata(
+            windowKey: "order",
+            targetContext: MetadataTargetContext(
+                platform: "ios",
+                formFactor: "tablet",
+                surface: "app",
+                capabilities: ["markdown", "chart"]
+            )
+        )
+        await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testListConversationsBuildsExpectedQueryParameters() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

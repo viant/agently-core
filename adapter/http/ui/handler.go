@@ -50,14 +50,18 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 		windowKey := pathParts[0]
 		subPath := strings.Join(pathParts[1:], "/")
 		target := targetContextFromRequest(r)
-		aWindow, err := forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
-		if err != nil {
-			workspaceWindow, workspaceErr := windowloader.LoadWorkspaceWindow(r.Context(), windowKey, target)
-			if workspaceErr != nil || workspaceWindow == nil {
+		aWindow, workspaceErr := windowloader.LoadWorkspaceWindow(r.Context(), windowKey, target)
+		if workspaceErr != nil {
+			http.Error(w, workspaceErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		if aWindow == nil {
+			var err error
+			aWindow, err = forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			aWindow = workspaceWindow
 		}
 		if err := windowloader.MergeWorkspaceForgeAssets(r.Context(), aWindow); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

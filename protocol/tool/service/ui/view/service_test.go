@@ -3,16 +3,23 @@ package view
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/viant/afs"
+	windowtool "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"github.com/viant/agently-core/workspace"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
+	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
 func TestExpandOpenParametersBindsOneInputToMultipleTargets(t *testing.T) {
@@ -194,6 +201,162 @@ workspaceMinHeight: 500
 	})
 }
 
+func TestOpenReturnsWindowIdVisibleToWindowList(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "forecastingCubeBuilder.yaml"), `
+id: forecastingCubeBuilder
+title: Forecasting
+windowKey: forecastingCubeBuilder
+presentation: hosted
+region: chat.top
+`)
+		const conversationID = "conv-forecast"
+		const clientID = "web-client-1"
+
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bridge.Hub().ServeWS(w, r)
+		}))
+		defer server.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			t.Fatalf("dial ws: %v", err)
+		}
+		defer conn.Close()
+
+		if err := conn.WriteJSON(map[string]interface{}{
+			"type":     "ui.hello",
+			"clientId": clientID,
+		}); err != nil {
+			t.Fatalf("write hello: %v", err)
+		}
+		if err := conn.WriteJSON(map[string]interface{}{
+			"type":     "ui.snapshot",
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId":       clientID,
+				"conversationId": conversationID,
+				"selected": map[string]interface{}{
+					"windowId": "chat/new",
+					"tabId":    "chat/new",
+				},
+				"windows": []interface{}{
+					map[string]interface{}{
+						"windowId":       "chat/new",
+						"windowKey":      "chat/new",
+						"windowTitle":    "Chat",
+						"conversationId": conversationID,
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("write initial snapshot: %v", err)
+		}
+		waitForSnapshotEntry(t, bridge, clientID)
+
+		commandDone := make(chan error, 1)
+		go func() {
+			var request map[string]interface{}
+			if err := conn.ReadJSON(&request); err != nil {
+				commandDone <- err
+				return
+			}
+			if got := request["method"]; got != "ui.window.open" {
+				commandDone <- fmt.Errorf("expected ui.window.open command, got %#v", got)
+				return
+			}
+			params, ok := request["params"].(map[string]interface{})
+			if !ok {
+				commandDone <- fmt.Errorf("expected params map, got %#v", request["params"])
+				return
+			}
+			windowID := strings.TrimSpace(stringValue(params["windowId"]))
+			windowKey := strings.TrimSpace(stringValue(params["windowKey"]))
+			windowTitle := strings.TrimSpace(stringValue(params["windowTitle"]))
+			if windowID == "" || windowKey == "" {
+				commandDone <- fmt.Errorf("expected window id/key in params, got %#v", params)
+				return
+			}
+			if err := conn.WriteJSON(map[string]interface{}{
+				"type":     "ui.snapshot",
+				"clientId": clientID,
+				"data": map[string]interface{}{
+					"clientId": clientID,
+					"selected": map[string]interface{}{
+						"windowId": windowID,
+						"tabId":    windowID,
+					},
+					"windows": []interface{}{
+						map[string]interface{}{
+							"windowId":       "chat/new",
+							"windowKey":      "chat/new",
+							"windowTitle":    "Chat",
+							"conversationId": conversationID,
+						},
+						map[string]interface{}{
+							"windowId":       windowID,
+							"windowKey":      windowKey,
+							"windowTitle":    windowTitle,
+							"conversationId": conversationID,
+							"presentation":   "hosted",
+							"region":         "chat.top",
+							"parentKey":      "chat/new",
+						},
+					},
+				},
+			}); err != nil {
+				commandDone <- err
+				return
+			}
+			if err := conn.WriteJSON(map[string]interface{}{
+				"id": request["id"],
+				"ok": true,
+				"result": map[string]interface{}{
+					"windowId": windowID,
+				},
+			}); err != nil {
+				commandDone <- err
+				return
+			}
+			commandDone <- nil
+		}()
+
+		ctx := runtimerequestctx.WithPreferredUIClientID(
+			runtimerequestctx.WithConversationID(context.Background(), conversationID),
+			clientID,
+		)
+		viewSvc := New(repo.New(afs.New()), bridge)
+		openOut := &OpenOutput{}
+		if err := viewSvc.open(ctx, &OpenInput{ID: "forecastingCubeBuilder", TimeoutMs: 2_000}, openOut); err != nil {
+			t.Fatalf("open failed: %v", err)
+		}
+		if err := <-commandDone; err != nil {
+			t.Fatalf("bridge command handling failed: %v", err)
+		}
+		if openOut.WindowID == "" {
+			t.Fatalf("expected open to return window id")
+		}
+
+		windowSvc := windowtool.New(bridge)
+		listMethod, err := windowSvc.Method("list")
+		if err != nil {
+			t.Fatalf("resolve window list method: %v", err)
+		}
+		listOut := &windowtool.ListOutput{}
+		if err := listMethod(ctx, &windowtool.ListInput{ClientID: clientID}, listOut); err != nil {
+			t.Fatalf("window list failed: %v", err)
+		}
+		for _, item := range listOut.Items {
+			if item.WindowID == openOut.WindowID {
+				return
+			}
+		}
+		t.Fatalf("open returned %q, but list returned %#v", openOut.WindowID, listOut.Items)
+	})
+}
+
 func TestComputeWindowID_HostedViewsAreConversationScoped(t *testing.T) {
 	item := &ListItem{
 		WindowKey:    "order",
@@ -286,6 +449,22 @@ func withWorkspaceRoot(t *testing.T, body func(root string)) {
 		workspace.SetRoot(prev)
 	})
 	body(root)
+}
+
+func waitForSnapshotEntry(t *testing.T, bridge *forgeuisvc.Service, clientID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		for _, entry := range bridge.Hub().SnapshotEntries() {
+			if entry.ClientID == clientID {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("snapshot for client %q did not become visible", clientID)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func mustWriteFile(t *testing.T, path, contents string) {

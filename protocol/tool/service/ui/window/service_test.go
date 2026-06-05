@@ -39,22 +39,6 @@ func TestWindowAlreadyFocused_FalseWhenDifferent(t *testing.T) {
 	}
 }
 
-func TestResolveListSnapshots_UsesPreferredClientFallback(t *testing.T) {
-	fallback := &uireg.ClientSnapshot{ClientID: "client-1"}
-	got := resolveListSnapshots(nil, "client-1", fallback)
-	if len(got) != 1 || got[0].ClientID != "client-1" {
-		t.Fatalf("expected preferred client fallback, got %#v", got)
-	}
-}
-
-func TestResolveListSnapshots_DoesNotUseMismatchedFallback(t *testing.T) {
-	fallback := &uireg.ClientSnapshot{ClientID: "client-2"}
-	got := resolveListSnapshots(nil, "client-1", fallback)
-	if len(got) != 0 {
-		t.Fatalf("expected no fallback for mismatched client, got %#v", got)
-	}
-}
-
 func TestCompactWindowSnapshot_StripsDatasourcePayloads(t *testing.T) {
 	win := &uireg.WindowSnapshot{
 		WindowID:       "orderPerformance_1",

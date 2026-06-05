@@ -173,13 +173,6 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if preferred == "" {
 		preferred = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 	}
-	if preferred != "" && len(items) == 0 {
-		var fallback *uireg.ClientSnapshot
-		if snap, findErr := s.reg.FindClient(ctx, preferred); findErr == nil && snap != nil {
-			fallback = snap
-		}
-		items = resolveListSnapshots(items, preferred, fallback)
-	}
 	if preferred == "" && len(items) > 0 {
 		preferred = items[0].ClientID
 	}
@@ -217,13 +210,6 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		break
 	}
 	return nil
-}
-
-func resolveListSnapshots(items []uireg.ClientSnapshot, preferred string, fallback *uireg.ClientSnapshot) []uireg.ClientSnapshot {
-	if preferred != "" && len(items) == 0 && fallback != nil && strings.TrimSpace(fallback.ClientID) == strings.TrimSpace(preferred) {
-		return []uireg.ClientSnapshot{*fallback}
-	}
-	return items
 }
 
 func (s *Service) get(ctx context.Context, in, out interface{}) error {

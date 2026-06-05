@@ -2,10 +2,12 @@ package window
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/viant/afs"
+	metaURL "github.com/viant/afs/url"
 	"github.com/viant/agently-core/workspace"
 	wsmeta "github.com/viant/agently-core/workspace/service/meta"
 	forgeHandlers "github.com/viant/forge/backend/handlers"
@@ -23,7 +25,14 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 	}
 	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspace.Root(), workspace.KindForgeWindow))
 	loader := metaSvc.New(afs.New(), workspaceWindowRoot)
-	if window, err := forgeHandlers.LoadWindow(ctx, loader, workspaceWindowRoot, windowKey, "", target); err == nil && window != nil && window.View.Content != nil {
+	if _, err := loader.ResolveWindowBase(ctx, metaURL.Join(workspaceWindowRoot, windowKey, "main"), target); err == nil {
+		window, err := forgeHandlers.LoadWindow(ctx, loader, workspaceWindowRoot, windowKey, "", target)
+		if err != nil {
+			return nil, err
+		}
+		if window == nil || window.View.Content == nil {
+			return nil, fmt.Errorf("workspace forge window %q has no view content", windowKey)
+		}
 		if err := MergeWorkspaceForgeAssets(ctx, window); err != nil {
 			return nil, err
 		}
