@@ -15,7 +15,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     toolName: 'ui/window/list',
                                     status: 'completed',
                                     responsePayload: {
-                                        focusedWindowId: 'order_2609393',
+                                        focusedWindowId: 'report_2609393',
                                         items: [
                                             {
                                                 windowId: 'chat/new',
@@ -24,26 +24,26 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 inTab: true,
                                             },
                                             {
-                                                windowId: 'order_2656980',
+                                                windowId: 'report_2656980',
                                                 conversationId: 'conv-1',
-                                                windowKey: 'order',
-                                                windowTitle: 'Order Summary',
+                                                windowKey: 'report',
+                                                windowTitle: 'Report Summary',
                                                 presentation: 'hosted',
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { AdOrderId: [2656980] },
+                                                parameters: { entityId: [2656980] },
                                             },
                                             {
-                                                windowId: 'order_2609393',
+                                                windowId: 'report_2609393',
                                                 conversationId: 'conv-1',
-                                                windowKey: 'order',
-                                                windowTitle: 'Order Summary',
+                                                windowKey: 'report',
+                                                windowTitle: 'Report Summary',
                                                 presentation: 'hosted',
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { AdOrderId: [2609393] },
+                                                parameters: { entityId: [2609393] },
                                             },
                                         ],
                                     },
@@ -52,7 +52,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     toolName: 'ui/window/show',
                                     status: 'completed',
                                     requestPayload: {
-                                        windowId: 'order_2656980',
+                                        windowId: 'report_2656980',
                                     },
                                     responsePayload: { ok: true },
                                 },
@@ -64,29 +64,85 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'order_2656980',
-                    conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
-                    presentation: 'hosted',
-                    region: 'chat.top',
-                    parentKey: 'chat/new',
+                    windowId: 'chat/new',
+                    conversationId: null,
+                    windowKey: 'chat/new',
+                    windowTitle: 'Chat',
+                    presentation: null,
+                    region: null,
+                    parentKey: '',
                     inTab: true,
-                    parameters: { AdOrderId: [2656980] },
+                    parameters: {},
                 },
                 {
-                    windowId: 'order_2609393',
+                    windowId: 'report_2656980',
                     conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { AdOrderId: [2609393] },
+                    parameters: { entityId: [2656980] },
+                },
+                {
+                    windowId: 'report_2609393',
+                    conversationId: 'conv-1',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
+                    presentation: 'hosted',
+                    region: 'chat.top',
+                    parentKey: 'chat/new',
+                    inTab: true,
+                    parameters: { entityId: [2609393] },
                 },
             ],
-            selectedWindowId: 'order_2656980',
+            selectedWindowId: 'report_2656980',
+        });
+    });
+
+    it('restores generic windows without Agently placement fields', () => {
+        expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
+            {
+                turnId: 'turn-1',
+                execution: {
+                    pages: [
+                        {
+                            toolSteps: [
+                                {
+                                    toolName: 'ui/view/open',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        id: 'report-builder',
+                                        parameters: { reportId: 'summary' },
+                                    },
+                                    responsePayload: {
+                                        windowId: 'report-summary',
+                                        windowKey: 'report-builder',
+                                        windowTitle: 'Summary',
+                                        selectedWindowId: 'report-summary',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as any,
+        ])).toEqual({
+            windows: [
+                {
+                    windowId: 'report-summary',
+                    conversationId: null,
+                    windowKey: 'report-builder',
+                    windowTitle: 'Summary',
+                    presentation: null,
+                    region: null,
+                    parentKey: '',
+                    inTab: true,
+                    parameters: { reportId: 'summary' },
+                },
+            ],
+            selectedWindowId: 'report-summary',
         });
     });
 
@@ -104,15 +160,15 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     responsePayload: {
                                         items: [
                                             {
-                                                windowId: 'order_legacy',
+                                                windowId: 'report_legacy',
                                                 conversationId: 'conv-1',
-                                                windowKey: 'order',
-                                                windowTitle: 'Order Summary',
+                                                windowKey: 'report',
+                                                windowTitle: 'Report Summary',
                                                 presentation: 'hosted',
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { AdOrderId: [111] },
+                                                parameters: { entityId: [111] },
                                             },
                                         ],
                                     },
@@ -210,9 +266,9 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     status: 'completed',
                                     requestPayload: {
                                         InlineBody: JSON.stringify({
-                                            id: 'order',
+                                            id: 'report',
                                             parameters: {
-                                                AdOrderId: [2673453],
+                                                entityId: [2673453],
                                             },
                                         }),
                                         Compression: 'none',
@@ -227,14 +283,14 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                             {
                                                 conversationId: 'conv-1',
                                                 parameters: {
-                                                    AdOrderId: [2673453],
+                                                    entityId: [2673453],
                                                 },
                                                 parentKey: 'chat/new',
                                                 presentation: 'hosted',
                                                 region: 'chat.top',
-                                                windowId: 'order_2345888602__conv-1',
-                                                windowKey: 'order',
-                                                windowTitle: 'Order Summary',
+                                                windowId: 'report_2345888602__conv-1',
+                                                windowKey: 'report',
+                                                windowTitle: 'Report Summary',
                                                 workspaceSharePct: 72,
                                                 workspaceMinHeight: 500,
                                             },
@@ -243,10 +299,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                         parentKey: 'chat/new',
                                         presentation: 'hosted',
                                         region: 'chat.top',
-                                        selectedWindowId: 'order_2345888602__conv-1',
-                                        windowId: 'order_2345888602__conv-1',
-                                        windowKey: 'order',
-                                        windowTitle: 'Order Summary',
+                                        selectedWindowId: 'report_2345888602__conv-1',
+                                        windowId: 'report_2345888602__conv-1',
+                                        windowKey: 'report',
+                                        windowTitle: 'Report Summary',
                                     }),
                                 },
                             ],
@@ -257,10 +313,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'order_2345888602__conv-1',
+                    windowId: 'report_2345888602__conv-1',
                     conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
@@ -268,11 +324,11 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     workspaceMinHeight: 500,
                     inTab: true,
                     parameters: {
-                        AdOrderId: [2673453],
+                        entityId: [2673453],
                     },
                 },
             ],
-            selectedWindowId: 'order_2345888602__conv-1',
+            selectedWindowId: 'report_2345888602__conv-1',
         });
     });
 
@@ -292,29 +348,29 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                         compression: 'gzip',
                                     },
                                     content: JSON.stringify({
-                                        focusedWindowId: 'order_2609393__conv-1',
+                                        focusedWindowId: 'report_2609393__conv-1',
                                         items: [
                                             {
-                                                windowId: 'order_2656980__conv-1',
+                                                windowId: 'report_2656980__conv-1',
                                                 conversationId: 'conv-1',
-                                                windowKey: 'order',
-                                                windowTitle: 'Order Summary',
+                                                windowKey: 'report',
+                                                windowTitle: 'Report Summary',
                                                 presentation: 'hosted',
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { AdOrderId: [2656980] },
+                                                parameters: { entityId: [2656980] },
                                             },
                                             {
-                                                windowId: 'order_2609393__conv-1',
+                                                windowId: 'report_2609393__conv-1',
                                                 conversationId: 'conv-1',
-                                                windowKey: 'order',
-                                                windowTitle: 'Order Summary',
+                                                windowKey: 'report',
+                                                windowTitle: 'Report Summary',
                                                 presentation: 'hosted',
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { AdOrderId: [2609393] },
+                                                parameters: { entityId: [2609393] },
                                             },
                                         ],
                                     }),
@@ -327,29 +383,29 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'order_2656980__conv-1',
+                    windowId: 'report_2656980__conv-1',
                     conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { AdOrderId: [2656980] },
+                    parameters: { entityId: [2656980] },
                 },
                 {
-                    windowId: 'order_2609393__conv-1',
+                    windowId: 'report_2609393__conv-1',
                     conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { AdOrderId: [2609393] },
+                    parameters: { entityId: [2609393] },
                 },
             ],
-            selectedWindowId: 'order_2609393__conv-1',
+            selectedWindowId: 'report_2609393__conv-1',
         });
     });
 
@@ -366,29 +422,29 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     status: 'completed',
                                     responsePayload: {
                                         InlineBody: JSON.stringify({
-                                            focusedWindowId: 'order_2609393__conv-1',
+                                            focusedWindowId: 'report_2609393__conv-1',
                                             items: [
                                                 {
-                                                    windowId: 'order_2656980__conv-1',
+                                                    windowId: 'report_2656980__conv-1',
                                                     conversationId: 'conv-1',
-                                                    windowKey: 'order',
-                                                    windowTitle: 'Order Summary',
+                                                    windowKey: 'report',
+                                                    windowTitle: 'Report Summary',
                                                     presentation: 'hosted',
                                                     region: 'chat.top',
                                                     parentKey: 'chat/new',
                                                     inTab: true,
-                                                    parameters: { AdOrderId: [2656980] },
+                                                    parameters: { entityId: [2656980] },
                                                 },
                                                 {
-                                                    windowId: 'order_2609393__conv-1',
+                                                    windowId: 'report_2609393__conv-1',
                                                     conversationId: 'conv-1',
-                                                    windowKey: 'order',
-                                                    windowTitle: 'Order Summary',
+                                                    windowKey: 'report',
+                                                    windowTitle: 'Report Summary',
                                                     presentation: 'hosted',
                                                     region: 'chat.top',
                                                     parentKey: 'chat/new',
                                                     inTab: true,
-                                                    parameters: { AdOrderId: [2609393] },
+                                                    parameters: { entityId: [2609393] },
                                                 },
                                             ],
                                         }),
@@ -400,7 +456,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     status: 'completed',
                                     requestPayload: {
                                         InlineBody: JSON.stringify({
-                                            windowId: 'order_2656980__conv-1',
+                                            windowId: 'report_2656980__conv-1',
                                         }),
                                         Compression: 'none',
                                     },
@@ -414,29 +470,29 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'order_2656980__conv-1',
+                    windowId: 'report_2656980__conv-1',
                     conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { AdOrderId: [2656980] },
+                    parameters: { entityId: [2656980] },
                 },
                 {
-                    windowId: 'order_2609393__conv-1',
+                    windowId: 'report_2609393__conv-1',
                     conversationId: 'conv-1',
-                    windowKey: 'order',
-                    windowTitle: 'Order Summary',
+                    windowKey: 'report',
+                    windowTitle: 'Report Summary',
                     presentation: 'hosted',
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { AdOrderId: [2609393] },
+                    parameters: { entityId: [2609393] },
                 },
             ],
-            selectedWindowId: 'order_2656980__conv-1',
+            selectedWindowId: 'report_2656980__conv-1',
         });
     });
 });

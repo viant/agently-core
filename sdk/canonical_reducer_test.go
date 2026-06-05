@@ -104,7 +104,7 @@ func TestReduce_ModelCallIDRemainsDistinctFromAssistantMessageID(t *testing.T) {
 
 func TestReduce_AssistantMessagePreservesMarkdownBoundaries(t *testing.T) {
 	now := time.Date(2026, 3, 31, 20, 0, 0, 0, time.UTC)
-	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+	content := "0 report items saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
 
 	state := Reduce(nil, &streaming.Event{
 		Type:           streaming.EventTypeAssistant,

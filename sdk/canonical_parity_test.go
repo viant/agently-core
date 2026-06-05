@@ -220,7 +220,7 @@ func TestTranscriptBuild_DerivesSidecarPhaseForNonFinalToolPage(t *testing.T) {
 				Id:        "user-1",
 				Role:      "user",
 				TurnId:    strPtr("turn-1"),
-				Content:   strPtr("recommend frequency cap"),
+				Content:   strPtr("summarize threshold variance"),
 				CreatedAt: now,
 			},
 			{

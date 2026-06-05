@@ -30,6 +30,12 @@ data class FetchDatasourceInput(
 )
 
 @Serializable
+internal data class FetchDatasourceBody(
+    val inputs: Map<String, JsonElement>? = null,
+    val cache: DatasourceCacheHints? = null
+)
+
+@Serializable
 data class DatasourceCacheHints(
     val bypassCache: Boolean? = null,
     val writeThrough: Boolean? = null
@@ -113,7 +119,7 @@ suspend fun AgentlyClient.fetchDatasource(
     input: FetchDatasourceInput
 ): FetchDatasourceOutput = withContext(Dispatchers.IO) {
     val path = "/v1/api/datasources/${encodeSegment(input.id)}/fetch"
-    post(path, input, FetchDatasourceOutput.serializer())
+    post(path, FetchDatasourceBody(inputs = input.inputs, cache = input.cache), FetchDatasourceOutput.serializer())
 }
 
 suspend fun AgentlyClient.invalidateDatasourceCache(

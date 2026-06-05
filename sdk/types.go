@@ -72,6 +72,7 @@ type DownloadFileOutput = api.DownloadFileOutput
 type ListFilesInput = api.ListFilesInput
 type FileEntry = api.FileEntry
 type ListFilesOutput = api.ListFilesOutput
+type GetPayloadsInput = api.GetPayloadsInput
 type ToolDefinitionInfo = api.ToolDefinitionInfo
 type ResourceRef = api.ResourceRef
 type ListResourcesInput = api.ListResourcesInput

@@ -135,7 +135,7 @@ public final class AgentlyClient: Sendable {
     }
 
     public func getTranscript(_ input: GetTranscriptInput) async throws -> ConversationStateResponse {
-        let encodedConversationID = input.conversationID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? input.conversationID
+        let encodedConversationID = encodePath(input.conversationID)
         return try await get(
             "/v1/conversations/\(encodedConversationID)/transcript",
             query: queryItems(from: input).filter { $0.name != "conversationId" },
@@ -341,17 +341,18 @@ public final class AgentlyClient: Sendable {
     }
 
     public func getPayloads(ids: [String]) async throws -> [String: PayloadView] {
-        var result: [String: PayloadView] = [:]
-        for rawID in ids {
+        var seen = Set<String>()
+        let payloadIDs = ids.compactMap { rawID -> String? in
             let payloadID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-            if payloadID.isEmpty || result[payloadID] != nil {
-                continue
+            guard !payloadID.isEmpty, seen.insert(payloadID).inserted else {
+                return nil
             }
-            if let payload = try? await getPayload(id: payloadID) {
-                result[payloadID] = payload
-            }
+            return payloadID
         }
-        return result
+        guard !payloadIDs.isEmpty else {
+            return [:]
+        }
+        return try await post("/v1/api/payloads", body: GetPayloadsInput(ids: payloadIDs), as: [String: PayloadView].self)
     }
 
     public func downloadPayload(id: String) async throws -> DownloadFileOutput {
@@ -420,19 +421,19 @@ public final class AgentlyClient: Sendable {
     }
 
     public func listTemplates(_ input: ListTemplatesInput = ListTemplatesInput()) async throws -> ListTemplatesOutput {
-        let raw = try await executeTool(name: "template:list")
-        let data = Data(raw.utf8)
-        return try decoder.decode(ListTemplatesOutput.self, from: data)
+        _ = input
+        return try await get("/v1/templates", as: ListTemplatesOutput.self)
     }
 
     public func getTemplate(_ input: GetTemplateInput) async throws -> GetTemplateOutput {
-        var args: [String: JSONValue] = ["name": .string(input.name)]
-        if let includeDocument = input.includeDocument {
-            args["includeDocument"] = .bool(includeDocument)
+        let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw AgentlySDKError.invalidResponse
         }
-        let raw = try await executeTool(name: "template:get", args: args)
-        let data = Data(raw.utf8)
-        return try decoder.decode(GetTemplateOutput.self, from: data)
+        let query = input.includeDocument.map {
+            [URLQueryItem(name: "includeDocument", value: String($0))]
+        } ?? []
+        return try await get("/v1/templates/\(encodePath(name))", query: query, as: GetTemplateOutput.self)
     }
 
     public func listSkills(_ input: ListSkillsInput) async throws -> ListSkillsOutput {
@@ -444,7 +445,19 @@ public final class AgentlyClient: Sendable {
         guard !name.isEmpty else {
             throw AgentlySDKError.invalidResponse
         }
-        return try await post("/v1/skills/\(encodePath(name))/activate", body: input, as: ActivateSkillOutput.self)
+        let query = input.conversationID.map {
+            [URLQueryItem(name: "conversationId", value: $0)]
+        } ?? []
+        struct ActivateSkillRequest: Encodable {
+            let args: String?
+        }
+        return try await rawRequest(
+            path: "/v1/skills/\(encodePath(name))/activate",
+            method: "POST",
+            query: query,
+            body: try encoder.encode(ActivateSkillRequest(args: input.args)),
+            as: ActivateSkillOutput.self
+        )
     }
 
     public func getSkillDiagnostics() async throws -> SkillDiagnosticsOutput {
@@ -474,9 +487,12 @@ public final class AgentlyClient: Sendable {
                 continuation.finish(throwing: AgentlySDKError.missingEndpoint(endpointName))
             }
         }
+        let query = agentlyPercentEncodedQuery([
+            URLQueryItem(name: "conversationId", value: conversationID)
+        ])
         return openEventStream(
             endpoint: endpoint,
-            path: "/v1/stream?conversationId=\(conversationID)",
+            path: "/v1/stream?\(query)",
             conversationID: conversationID,
             session: session
         )
@@ -503,11 +519,12 @@ public final class AgentlyClient: Sendable {
             let task = Task {
                 do {
                     let tracker = ConversationStreamTracker()
+                    let events = eventStream(conversationID)
                     let initialState = try await initialStateLoader(conversationID)
                     await tracker.hydrate(initialState)
                     continuation.yield(await tracker.currentSnapshot())
-                    for try await event in eventStream(conversationID) {
-                        continuation.yield(await tracker.apply(event))
+                    for try await event in events {
+                        continuation.yield(await tracker.apply(event, hydrationCursor: initialState.eventCursor))
                     }
                     continuation.finish()
                 } catch {
@@ -732,7 +749,7 @@ public final class AgentlyClient: Sendable {
     }
 
     private func encodePath(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+        agentlyPercentEncodedPathSegment(value)
     }
 
     private func makeMultipartBody(input: UploadFileInput, boundary: String) -> Data {

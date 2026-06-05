@@ -119,7 +119,6 @@ export {
     conversationLifecyclePatchForStreamPhase,
     conversationStageForStreamEvent,
     conversationStatusForStreamEvent,
-    terminalStatusForType,
 } from './streamEventMeta';
 export type { ConversationLifecyclePatch } from './streamEventMeta';
 

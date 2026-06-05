@@ -337,15 +337,15 @@ describe('executionGroups', () => {
             turnId: 'turn-1',
             toolCallId: 'call-agent-1',
             linkedConversationId: 'child-conv-1',
-            linkedConversationAgentId: 'steward-forecasting',
-            linkedConversationTitle: 'Forecasting Child',
+            linkedConversationAgentId: 'analytics-agent',
+            linkedConversationTitle: 'Analytics Child',
         }));
 
         expect(live3.a1.toolSteps[0]).toMatchObject({
             toolCallId: 'call-agent-1',
             linkedConversationId: 'child-conv-1',
-            linkedConversationAgentId: 'steward-forecasting',
-            linkedConversationTitle: 'Forecasting Child',
+            linkedConversationAgentId: 'analytics-agent',
+            linkedConversationTitle: 'Analytics Child',
         });
     });
 

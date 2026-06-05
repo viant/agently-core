@@ -27,7 +27,9 @@ class UIBridgeRpcClient(
     private var sessionId: String? = null
 
     suspend fun resetSession() {
-        sessionId = null
+        rpcMutex.withLock {
+            sessionId = null
+        }
     }
 
     suspend fun hello(clientId: String): JsonObject? = rpcObject(
@@ -73,7 +75,7 @@ class UIBridgeRpcClient(
         method: String,
         params: JsonObject,
         includeSession: Boolean = true
-    ): JsonObject? = rpcMutex.withLock {
+    ): JsonObject? {
         val config = requireNotNull(client.endpointRegistry.resolve(endpointName)) {
             "Endpoint not found: $endpointName"
         }
@@ -82,39 +84,46 @@ class UIBridgeRpcClient(
             method = method,
             params = params
         )
+        val sessionForRequest = if (includeSession) {
+            rpcMutex.withLock { sessionId?.takeIf { it.isNotBlank() } }
+        } else {
+            null
+        }
         val requestBuilder = Request.Builder()
             .url("${config.baseUrl.trimEnd('/')}/v1/ui/rpc")
             .applyEndpointConfig(config)
             .header("Content-Type", "application/json")
             .post(client.json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-        if (includeSession) {
-            sessionId?.takeIf { it.isNotBlank() }?.let {
-                requestBuilder.header(UI_BRIDGE_SESSION_HEADER, it)
-            }
+        if (sessionForRequest != null) {
+            requestBuilder.header(UI_BRIDGE_SESSION_HEADER, sessionForRequest)
         }
         val response = withContext(Dispatchers.IO) {
             (config.httpClient ?: okhttp3.OkHttpClient()).newCall(requestBuilder.build()).execute()
         }
         response.use { httpResponse ->
             httpResponse.header(UI_BRIDGE_SESSION_HEADER)?.takeIf { it.isNotBlank() }?.let {
-                sessionId = it
+                rpcMutex.withLock {
+                    sessionId = it
+                }
             }
             val bodyText = httpResponse.body?.string().orEmpty()
             if (httpResponse.code == 401 || httpResponse.code == 403 || httpResponse.code == 404) {
-                sessionId = null
-                return@withLock null
+                rpcMutex.withLock {
+                    sessionId = null
+                }
+                return null
             }
             if (!httpResponse.isSuccessful) {
                 throw IllegalStateException(bodyText.ifBlank { "UI bridge request failed with HTTP ${httpResponse.code}" })
             }
             if (bodyText.isBlank()) {
-                return@withLock null
+                return null
             }
             val envelope = client.json.decodeFromString(UIBridgeRpcEnvelope.serializer(), bodyText)
             envelope.error?.let {
                 throw IllegalStateException("RPC ${it.code}: ${it.message}")
             }
-            return@withLock envelope.result as? JsonObject
+            return envelope.result as? JsonObject
         }
     }
 }

@@ -26,7 +26,7 @@ import (
 type fakeExecutor struct{}
 
 func (fakeExecutor) Execute(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
-	return `{"results":[{"id":1,"name":"Acme"}]}`, nil
+	return `{"results":[{"id":1,"name":"Sample"}]}`, nil
 }
 
 // Ensure SetDatasourceStack wires the backendClient so it satisfies both
@@ -35,9 +35,9 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 	// Build the full datasource stack.
 	dsStore := dssvc.NewMemoryStore()
 	ds := &dsproto.DataSource{
-		ID: "account",
+		ID: "entity",
 		Backend: &dsproto.Backend{
-			Kind: dsproto.BackendMCPTool, Service: "platform", Method: "account_search",
+			Kind: dsproto.BackendMCPTool, Service: "platform", Method: "entity_search",
 		},
 	}
 	ds.DataSource = types.DataSource{Selectors: &types.Selectors{Data: "results"}}
@@ -52,14 +52,14 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 		Target:   loproto.Target{Kind: "elicitation"},
 		Mode:     loproto.ModePartial,
 		Bindings: []loproto.Binding{{
-			Match: loproto.Match{FieldName: "account_id", Type: "integer"},
+			Match: loproto.Match{FieldName: "entity_id", Type: "integer"},
 			Lookup: loproto.Lookup{
-				DataSource:   "account",
-				DialogId:     "accountPicker",
+				DataSource:   "entity",
+				DialogId:     "entityPicker",
 				QueryInput:   "q",
 				ResolveInput: "id",
 				Outputs: []loproto.Parameter{
-					{Location: "id", Name: "account_id"},
+					{Location: "id", Name: "entity_id"},
 				},
 				Display: "${name}",
 			},
@@ -84,12 +84,12 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 
 	// 2) FetchDatasource returns projected rows.
 	fetchOut, err := bc.FetchDatasource(context.Background(), &api.FetchDatasourceInput{
-		ID: "account", Inputs: map[string]interface{}{"q": "x"},
+		ID: "entity", Inputs: map[string]interface{}{"q": "x"},
 	})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if len(fetchOut.Rows) != 1 || fetchOut.Rows[0]["name"] != "Acme" {
+	if len(fetchOut.Rows) != 1 || fetchOut.Rows[0]["name"] != "Sample" {
 		t.Fatalf("projection failed: %+v", fetchOut.Rows)
 	}
 
@@ -101,18 +101,18 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 	_ = regOut
 
 	// 4) The refiner hook is installed — calling refiner.Refine on a schema
-	// with account_id should gain x-ui-widget=lookup + x-ui-lookup.
+	// with entity_id should gain x-ui-widget=lookup + x-ui-lookup.
 	props := map[string]interface{}{
-		"account_id": map[string]interface{}{"type": "integer"},
+		"entity_id": map[string]interface{}{"type": "integer"},
 	}
 	rs := &mcpschema.ElicitRequestParamsRequestedSchema{Properties: props}
 	refiner.Refine(rs)
-	after, _ := rs.Properties["account_id"].(map[string]interface{})
+	after, _ := rs.Properties["entity_id"].(map[string]interface{})
 	if after["x-ui-widget"] != "lookup" {
 		t.Fatalf("overlay hook did not attach x-ui-widget: %+v", after)
 	}
 	att, _ := after["x-ui-lookup"].(map[string]interface{})
-	if att["dataSource"] != "account" {
+	if att["dataSource"] != "entity" {
 		t.Fatalf("attachment missing dataSource: %+v", att)
 	}
 	if att["queryInput"] != "q" || att["resolveInput"] != "id" {
@@ -121,8 +121,8 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 
 	// 5) HTTP dispatch reaches the same backend (handler picks up interface).
 	body := `{"inputs":{"q":"x"}}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
-	req.SetPathValue("id", "account")
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/entity/fetch", strings.NewReader(body))
+	req.SetPathValue("id", "entity")
 	w := httptest.NewRecorder()
 	handleFetchDatasource(bc)(w, req)
 	if w.Code != http.StatusOK {
@@ -132,7 +132,7 @@ func TestBackendClient_SetDatasourceStack_WiresEndToEnd(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(parsed.Rows) != 1 || parsed.Rows[0]["name"] != "Acme" {
+	if len(parsed.Rows) != 1 || parsed.Rows[0]["name"] != "Sample" {
 		t.Fatalf("HTTP projection mismatch: %+v", parsed.Rows)
 	}
 
@@ -148,11 +148,11 @@ func TestBackendClient_SetDatasourceStack_NilRevertsToUnconfigured(t *testing.T)
 
 	// Refiner hook removed — a schema should NOT gain x-ui-widget=lookup.
 	props := map[string]interface{}{
-		"account_id": map[string]interface{}{"type": "integer"},
+		"entity_id": map[string]interface{}{"type": "integer"},
 	}
 	rs := &mcpschema.ElicitRequestParamsRequestedSchema{Properties: props}
 	refiner.Refine(rs)
-	if got := props["account_id"].(map[string]interface{})["x-ui-widget"]; got == "lookup" {
+	if got := props["entity_id"].(map[string]interface{})["x-ui-widget"]; got == "lookup" {
 		t.Fatalf("hook still installed after nil reset: %v", got)
 	}
 
@@ -168,26 +168,26 @@ func TestBackendClient_LookupRegistryReloadsForgeLookupsFromWorkspaceStore(t *te
 	root := t.TempDir()
 	store := fsstore.New(root)
 
-	lookupRepo := filepath.Join(root, "extension/forge/lookups", "order_lookup.yaml")
+	lookupRepo := filepath.Join(root, "extension/forge/lookups", "entity_lookup.yaml")
 	if err := osWriteFile(lookupRepo, []byte(`
-id: order_lookup
+id: entity_lookup
 priority: 10
 bindings:
   - lookup:
-      dataSource: order_lookup
-      dialogId: adOrderPicker
+      dataSource: entity_lookup
+      dialogId: entityPicker
       outputs:
-        - location: orderId
-          name: order_id
-      display: "${adOrderName}"
+        - location: entityId
+          name: entity_id
+      display: "${entityName}"
     named:
-      name: order
-      title: Order list
-      queryInput: AdOrderName
-      resolveInput: OrderId
+      name: entity
+      title: Entity list
+      queryInput: entityName
+      resolveInput: entityId
       required: true
-      store: "${orderId}"
-      display: "${adOrderName}"
+      store: "${entityId}"
+      display: "${entityName}"
       modelForm: "${id}"
 `)); err != nil {
 		t.Fatalf("write initial lookup: %v", err)
@@ -205,32 +205,32 @@ bindings:
 	if err != nil {
 		t.Fatalf("registry 1: %v", err)
 	}
-	if len(reg1.Entries) != 1 || reg1.Entries[0].Name != "order" {
+	if len(reg1.Entries) != 1 || reg1.Entries[0].Name != "entity" {
 		t.Fatalf("unexpected initial registry: %+v", reg1.Entries)
 	}
 
-	creativeLookup := filepath.Join(root, "extension/forge/lookups", "creative_lookup.yaml")
-	if err := osWriteFile(creativeLookup, []byte(`
-id: creative_lookup
+	itemLookup := filepath.Join(root, "extension/forge/lookups", "item_lookup.yaml")
+	if err := osWriteFile(itemLookup, []byte(`
+id: item_lookup
 priority: 10
 bindings:
   - lookup:
-      dataSource: creative_lookup
-      dialogId: creativePicker
+      dataSource: item_lookup
+      dialogId: itemPicker
       outputs:
-        - location: creativeId
-          name: creative_id
-      display: "${creativeName}"
+        - location: itemId
+          name: item_id
+      display: "${itemName}"
     named:
-      name: creative
-      title: Creative list
-      queryInput: CreativeName
-      resolveInput: CreativeId
-      store: "${creativeId}"
-      display: "${creativeName}"
+      name: item
+      title: Item list
+      queryInput: itemName
+      resolveInput: itemId
+      store: "${itemId}"
+      display: "${itemName}"
       modelForm: "${id}"
 `)); err != nil {
-		t.Fatalf("write creative lookup: %v", err)
+		t.Fatalf("write item lookup: %v", err)
 	}
 
 	reg2, err := bc.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "conversation:any"})
@@ -240,14 +240,14 @@ bindings:
 	if len(reg2.Entries) != 2 {
 		t.Fatalf("want 2 entries after reload, got %+v", reg2.Entries)
 	}
-	var foundCreative bool
+	var foundItem bool
 	for _, entry := range reg2.Entries {
-		if entry.Name == "creative" && entry.DialogId == "creativePicker" && entry.DataSource == "creative_lookup" {
-			foundCreative = true
+		if entry.Name == "item" && entry.DialogId == "itemPicker" && entry.DataSource == "item_lookup" {
+			foundItem = true
 		}
 	}
-	if !foundCreative {
-		t.Fatalf("creative lookup missing after live reload: %+v", reg2.Entries)
+	if !foundItem {
+		t.Fatalf("item lookup missing after live reload: %+v", reg2.Entries)
 	}
 }
 
@@ -256,17 +256,17 @@ func TestBackendClient_FetchDatasourceReloadsForgeDatasourcesFromWorkspaceStore(
 	root := t.TempDir()
 	store := fsstore.New(root)
 
-	dsPath := filepath.Join(root, "extension/forge/datasources", "creative_lookup.yaml")
+	dsPath := filepath.Join(root, "extension/forge/datasources", "item_lookup.yaml")
 	if err := osWriteFile(dsPath, []byte(`
-id: creative_lookup
-title: Creative Lookup
+id: item_lookup
+title: Item Lookup
 cardinality: collection
 backend:
   kind: inline
   rows:
-    - creativeId: 24845598
-      creativeName: Test Creative
-      advertiserName: Acme
+    - itemId: 24845598
+      itemName: Test Item
+      groupName: Sample
 `)); err != nil {
 		t.Fatalf("write datasource: %v", err)
 	}
@@ -279,11 +279,11 @@ backend:
 	bc.datasourceSvc = dssvc.New(dssvc.Options{Store: bc.datasourceStore, Executor: fakeExecutor{}})
 	bc.overlaySvc = oversvc.New(bc.overlayStore)
 
-	out, err := bc.FetchDatasource(ctx, &api.FetchDatasourceInput{ID: "creative_lookup"})
+	out, err := bc.FetchDatasource(ctx, &api.FetchDatasourceInput{ID: "item_lookup"})
 	if err != nil {
 		t.Fatalf("fetch datasource: %v", err)
 	}
-	if len(out.Rows) != 1 || out.Rows[0]["creativeName"] != "Test Creative" {
+	if len(out.Rows) != 1 || out.Rows[0]["itemName"] != "Test Item" {
 		t.Fatalf("unexpected datasource rows: %+v", out.Rows)
 	}
 }

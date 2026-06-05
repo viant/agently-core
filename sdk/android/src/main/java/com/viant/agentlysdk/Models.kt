@@ -1,7 +1,9 @@
 package com.viant.agentlysdk
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -205,9 +207,7 @@ data class HostedWorkspaceRestoreState(
 )
 
 @Serializable
-data class ListTemplatesInput(
-    val placeholder: String? = null
-)
+class ListTemplatesInput
 
 @Serializable
 data class TemplateListItem(
@@ -282,22 +282,60 @@ data class GetPayloadOptions(
 )
 
 @Serializable
+data class GetPayloadsInput(
+    val ids: List<String>
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
 data class PayloadView(
+    @SerialName("Id")
+    @JsonNames("id")
     val id: String,
+    @SerialName("TenantID")
+    @JsonNames("tenantId")
     val tenantId: String? = null,
+    @SerialName("Kind")
+    @JsonNames("kind")
     val kind: String? = null,
+    @SerialName("Subtype")
+    @JsonNames("subtype")
     val subtype: String? = null,
+    @SerialName("MimeType")
+    @JsonNames("mimeType")
     val mimeType: String? = null,
+    @SerialName("SizeBytes")
+    @JsonNames("sizeBytes")
     val sizeBytes: Long? = null,
+    @SerialName("Digest")
+    @JsonNames("digest")
     val digest: String? = null,
+    @SerialName("Storage")
+    @JsonNames("storage")
     val storage: String? = null,
+    @SerialName("InlineBody")
+    @JsonNames("inlineBody")
     val inlineBody: String? = null,
+    @SerialName("URI")
+    @JsonNames("uri")
     val uri: String? = null,
+    @SerialName("Compression")
+    @JsonNames("compression")
     val compression: String? = null,
+    @SerialName("EncryptionKMSKeyID")
+    @JsonNames("encryptionKmsKeyId")
     val encryptionKmsKeyId: String? = null,
+    @SerialName("RedactionPolicyVersion")
+    @JsonNames("redactionPolicyVersion")
     val redactionPolicyVersion: String? = null,
+    @SerialName("Redacted")
+    @JsonNames("redacted")
     val redacted: Int? = null,
+    @SerialName("CreatedAt")
+    @JsonNames("createdAt")
     val createdAt: String? = null,
+    @SerialName("SchemaRef")
+    @JsonNames("schemaRef")
     val schemaRef: String? = null
 )
 

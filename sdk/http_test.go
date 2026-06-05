@@ -131,13 +131,14 @@ func TestHTTPClient_GetWorkspaceMetadataWithTarget_QueryParams(t *testing.T) {
 
 func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 	var gotPaths []string
+	var gotActivateBody map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPaths = append(gotPaths, r.URL.RequestURI())
 		switch {
 		case r.URL.Path == "/v1/skills/diagnostics":
 			_ = json.NewEncoder(w).Encode(&SkillDiagnosticsOutput{Items: []string{"shadowed demo"}})
 		case strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, "/activate"):
-			_ = json.NewDecoder(r.Body).Decode(&map[string]interface{}{})
+			_ = json.NewDecoder(r.Body).Decode(&gotActivateBody)
 			_ = json.NewEncoder(w).Encode(&ActivateSkillOutput{Name: "playwright-cli", Body: "Loaded skill"})
 		case r.URL.Path == "/v1/skills":
 			_ = json.NewEncoder(w).Encode(&ListSkillsOutput{Items: []SkillItem{{Name: "playwright-cli", Description: "Automate browser"}}})
@@ -158,7 +159,7 @@ func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 	if len(listOut.Items) != 1 || listOut.Items[0].Name != "playwright-cli" {
 		t.Fatalf("unexpected skills output: %#v", listOut)
 	}
-	actOut, err := c.ActivateSkill(context.Background(), &ActivateSkillInput{ConversationID: "c1", Name: "playwright-cli", Args: "https://example.com"})
+	actOut, err := c.ActivateSkill(context.Background(), &ActivateSkillInput{ConversationID: "c1", Name: "playwright-cli", Args: "  https://example.com  "})
 	if err != nil {
 		t.Fatalf("ActivateSkill: %v", err)
 	}
@@ -181,8 +182,107 @@ func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 	if gotPaths[1] != "/v1/skills/playwright-cli/activate?conversationId=c1" {
 		t.Fatalf("unexpected activate path: %q", gotPaths[1])
 	}
+	if gotActivateBody["args"] != "  https://example.com  " {
+		t.Fatalf("ActivateSkill args were not preserved: %#v", gotActivateBody)
+	}
 	if gotPaths[2] != "/v1/skills/diagnostics" {
 		t.Fatalf("unexpected diagnostics path: %q", gotPaths[2])
+	}
+}
+
+func TestHTTPClient_TemplatesUseFirstClassRoutes(t *testing.T) {
+	var gotRequests []string
+	var gotInclude string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequests = append(gotRequests, r.Method+" "+r.URL.Path)
+		switch r.URL.Path {
+		case "/v1/templates":
+			_ = json.NewEncoder(w).Encode(&ListTemplatesOutput{Items: []TemplateListItem{{
+				Name:        "brief",
+				Description: "Summary",
+				Format:      "markdown",
+			}}})
+		case "/v1/templates/brief":
+			gotInclude = r.URL.Query().Get("includeDocument")
+			_ = json.NewEncoder(w).Encode(&GetTemplateOutput{
+				Name:             "brief",
+				Format:           "markdown",
+				Instructions:     "Use bullets",
+				IncludedDocument: true,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	listOut, err := c.ListTemplates(context.Background(), &ListTemplatesInput{})
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	if len(listOut.Items) != 1 || listOut.Items[0].Name != "brief" {
+		t.Fatalf("unexpected list output: %#v", listOut)
+	}
+	includeDocument := true
+	getOut, err := c.GetTemplate(context.Background(), &GetTemplateInput{Name: "brief", IncludeDocument: &includeDocument})
+	if err != nil {
+		t.Fatalf("GetTemplate: %v", err)
+	}
+	if getOut.Name != "brief" || !getOut.IncludedDocument {
+		t.Fatalf("unexpected template output: %#v", getOut)
+	}
+	if strings.Join(gotRequests, ",") != "GET /v1/templates,GET /v1/templates/brief" {
+		t.Fatalf("unexpected requests: %#v", gotRequests)
+	}
+	if gotInclude != "true" {
+		t.Fatalf("unexpected includeDocument query: %q", gotInclude)
+	}
+}
+
+func TestHTTPClient_EncodesSlashBearingTemplateAndSkillSegments(t *testing.T) {
+	var gotRequests []string
+	var gotActivateBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequests = append(gotRequests, r.Method+" "+r.URL.RequestURI())
+		switch r.URL.Path {
+		case "/v1/templates/templates/brief":
+			_ = json.NewEncoder(w).Encode(&GetTemplateOutput{Name: "templates/brief", IncludedDocument: true})
+		case "/v1/skills/skills/playwright-cli/activate":
+			_ = json.NewDecoder(r.Body).Decode(&gotActivateBody)
+			_ = json.NewEncoder(w).Encode(&ActivateSkillOutput{Name: "skills/playwright-cli", Body: "Loaded skill"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewHTTP(srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	includeDocument := true
+	if _, err := c.GetTemplate(context.Background(), &GetTemplateInput{Name: "templates/brief", IncludeDocument: &includeDocument}); err != nil {
+		t.Fatalf("GetTemplate: %v", err)
+	}
+	if _, err := c.ActivateSkill(context.Background(), &ActivateSkillInput{ConversationID: "c1", Name: "skills/playwright-cli", Args: "args"}); err != nil {
+		t.Fatalf("ActivateSkill: %v", err)
+	}
+
+	if len(gotRequests) != 2 {
+		t.Fatalf("got requests = %#v", gotRequests)
+	}
+	if gotRequests[0] != "GET /v1/templates/templates%2Fbrief?includeDocument=true" {
+		t.Fatalf("unexpected template request: %q", gotRequests[0])
+	}
+	if gotRequests[1] != "POST /v1/skills/skills%2Fplaywright-cli/activate?conversationId=c1" {
+		t.Fatalf("unexpected skill request: %q", gotRequests[1])
+	}
+	if gotActivateBody["args"] != "args" {
+		t.Fatalf("unexpected activate body: %#v", gotActivateBody)
 	}
 }
 
@@ -212,18 +312,22 @@ func TestHTTPClient_WithSessionDebug_SendsDebugHeaders(t *testing.T) {
 	}
 }
 
-func TestHTTPClient_GetPayloads_FallbacksPerID(t *testing.T) {
-	var gotPaths []string
+func TestHTTPClient_GetPayloads_UsesBatchEndpoint(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotInput GetPayloadsInput
+	var gotRequests int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPaths = append(gotPaths, r.URL.Path)
-		switch r.URL.Path {
-		case "/v1/api/payload/p1":
-			_ = json.NewEncoder(w).Encode(&conversation.Payload{Id: "p1"})
-		case "/v1/api/payload/p2":
-			_ = json.NewEncoder(w).Encode(&conversation.Payload{Id: "p2"})
-		default:
-			http.NotFound(w, r)
+		gotRequests++
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotInput); err != nil {
+			t.Fatalf("decode request: %v", err)
 		}
+		_ = json.NewEncoder(w).Encode(map[string]*conversation.Payload{
+			"p1": &conversation.Payload{Id: "p1"},
+			"p2": &conversation.Payload{Id: "p2"},
+		})
 	}))
 	defer srv.Close()
 
@@ -243,6 +347,15 @@ func TestHTTPClient_GetPayloads_FallbacksPerID(t *testing.T) {
 	}
 	if out["p2"] == nil || out["p2"].Id != "p2" {
 		t.Fatalf("missing p2: %#v", out["p2"])
+	}
+	if gotRequests != 1 {
+		t.Fatalf("expected one request, got %d", gotRequests)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/v1/api/payloads" {
+		t.Fatalf("unexpected request: %s %s", gotMethod, gotPath)
+	}
+	if strings.Join(gotInput.IDs, ",") != "p1,p2,missing" {
+		t.Fatalf("unexpected ids: %#v", gotInput.IDs)
 	}
 }
 
@@ -997,15 +1110,27 @@ func TestHandler_SkillHandlers(t *testing.T) {
 	})
 
 	t.Run("activate", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/v1/skills/playwright-cli/activate?conversationId=c1", strings.NewReader(`{"args":"https://example.com"}`))
+		req := httptest.NewRequest(http.MethodPost, "/v1/skills/playwright-cli/activate?conversationId=c1", strings.NewReader(`{"args":"  https://example.com  "}`))
 		req.SetPathValue("name", "playwright-cli")
 		rec := httptest.NewRecorder()
 		handleActivateSkill(spy).ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 		}
-		if spy.actSkill == nil || spy.actSkill.ConversationID != "c1" || spy.actSkill.Name != "playwright-cli" || spy.actSkill.Args != "https://example.com" {
+		if spy.actSkill == nil || spy.actSkill.ConversationID != "c1" || spy.actSkill.Name != "playwright-cli" || spy.actSkill.Args != "  https://example.com  " {
 			t.Fatalf("unexpected activate input: %#v", spy.actSkill)
+		}
+	})
+
+	t.Run("activate rejects malformed json", func(t *testing.T) {
+		for _, body := range []string{`{`, `{"args":"ok"} trailing`} {
+			req := httptest.NewRequest(http.MethodPost, "/v1/skills/playwright-cli/activate?conversationId=c1", strings.NewReader(body))
+			req.SetPathValue("name", "playwright-cli")
+			rec := httptest.NewRecorder()
+			handleActivateSkill(spy).ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("body %q status = %d, want %d response=%s", body, rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
 		}
 	})
 
@@ -1021,8 +1146,10 @@ func TestHandler_SkillHandlers(t *testing.T) {
 
 type spyTranscriptClient struct {
 	*HTTPClient
-	gotInput   *GetTranscriptInput
-	gotOptions []TranscriptOption
+	gotInput      *GetTranscriptInput
+	gotOptions    []TranscriptOption
+	gotPayloadIDs []string
+	payloads      map[string]*conversation.Payload
 }
 
 func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
@@ -1032,7 +1159,18 @@ func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscr
 }
 
 func (s *spyTranscriptClient) GetPayloads(_ context.Context, ids []string) (map[string]*conversation.Payload, error) {
-	return nil, nil
+	s.gotPayloadIDs = append([]string(nil), ids...)
+	out := make(map[string]*conversation.Payload, len(ids))
+	for _, id := range ids {
+		if s.payloads != nil {
+			if payload := s.payloads[id]; payload != nil {
+				out[id] = payload
+			}
+			continue
+		}
+		out[id] = &conversation.Payload{Id: id}
+	}
+	return out, nil
 }
 
 func (s *spyTranscriptClient) GetLiveState(_ context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
@@ -1059,6 +1197,70 @@ func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {
 	}
 	if spy.gotInput.Since != "m1" || !spy.gotInput.IncludeModelCalls || !spy.gotInput.IncludeToolCalls {
 		t.Fatalf("unexpected transcript input: %#v", spy.gotInput)
+	}
+}
+
+func TestHandler_GetPayloads_NormalizesBatchIDs(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyTranscriptClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/payloads", strings.NewReader(`{"ids":["p1"," p2 ","p1",""]}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Join(spy.gotPayloadIDs, ",") != "p1,p2" {
+		t.Fatalf("unexpected backend ids: %#v", spy.gotPayloadIDs)
+	}
+	var out map[string]*conversation.Payload
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(out) != 2 || out["p1"] == nil || out["p2"] == nil {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestHandler_GetPayloads_ShapesCompressedInlinePayloads(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	body := []byte(gzipFeedPayload(t, `{"ok":true}`))
+	spy := &spyTranscriptClient{
+		HTTPClient: base,
+		payloads: map[string]*conversation.Payload{
+			"p1": &conversation.Payload{Id: "p1", MimeType: "application/json", InlineBody: &body, Compression: "gzip"},
+		},
+	}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/payloads", strings.NewReader(`{"ids":["p1"]}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var out map[string]*conversation.Payload
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	payload := out["p1"]
+	if payload == nil || payload.InlineBody == nil {
+		t.Fatalf("missing shaped payload: %#v", out)
+	}
+	if got := string(*payload.InlineBody); got != `{"ok":true}` {
+		t.Fatalf("unexpected inline body: %q", got)
+	}
+	if payload.Compression != "" {
+		t.Fatalf("expected cleared compression, got %q", payload.Compression)
 	}
 }
 
@@ -1101,6 +1303,76 @@ func (s *spyExecuteClient) ExecuteTool(ctx context.Context, name string, args ma
 		return "", err
 	}
 	return "ok", nil
+}
+
+type templateRouteClient struct {
+	*HTTPClient
+	listed  bool
+	gotName *GetTemplateInput
+}
+
+func (s *templateRouteClient) ListTemplates(_ context.Context, _ *ListTemplatesInput) (*ListTemplatesOutput, error) {
+	s.listed = true
+	return &ListTemplatesOutput{Items: []TemplateListItem{{Name: "brief", Description: "Summary", Format: "markdown"}}}, nil
+}
+
+func (s *templateRouteClient) GetTemplate(_ context.Context, input *GetTemplateInput) (*GetTemplateOutput, error) {
+	s.gotName = input
+	included := input != nil && input.IncludeDocument != nil && *input.IncludeDocument
+	return &GetTemplateOutput{Name: input.Name, Format: "markdown", Instructions: "Use bullets", IncludedDocument: included}, nil
+}
+
+func TestHandler_TemplatesUseDedicatedRoutesAndClientContract(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &templateRouteClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/templates", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected list status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var listOut ListTemplatesOutput
+	if err := json.NewDecoder(rec.Body).Decode(&listOut); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listOut.Items) != 1 || listOut.Items[0].Name != "brief" {
+		t.Fatalf("unexpected list output: %#v", listOut)
+	}
+	if !spy.listed {
+		t.Fatalf("ListTemplates was not called")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/templates/brief?includeDocument=true", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var getOut GetTemplateOutput
+	if err := json.NewDecoder(rec.Body).Decode(&getOut); err != nil {
+		t.Fatalf("decode get: %v", err)
+	}
+	if getOut.Name != "brief" || !getOut.IncludedDocument {
+		t.Fatalf("unexpected get output: %#v", getOut)
+	}
+	if spy.gotName == nil || spy.gotName.Name != "brief" || spy.gotName.IncludeDocument == nil || !*spy.gotName.IncludeDocument {
+		t.Fatalf("unexpected get input: %#v", spy.gotName)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/templates/templates%2Fbrief?includeDocument=true", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected encoded get status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.gotName == nil || spy.gotName.Name != "templates/brief" {
+		t.Fatalf("encoded template path was not decoded as one segment: %#v", spy.gotName)
+	}
 }
 
 func TestHandler_ExecuteToolByName_DefaultBestPathBlocksRisky(t *testing.T) {

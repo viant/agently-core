@@ -111,7 +111,7 @@ extension AgentlyClient {
     /// drafts silently dropped `input.cache`, producing cross-platform
     /// drift with the Go + Kotlin clients.
     public func fetchDatasource(_ input: FetchDatasourceInput) async throws -> FetchDatasourceOutput {
-        let path = "/v1/api/datasources/\(percentEncoded(input.id))/fetch"
+        let path = "/v1/api/datasources/\(agentlyPercentEncodedPathSegment(input.id))/fetch"
         struct Body: Encodable {
             let inputs: [String: JSONValue]?
             let cache: DatasourceCacheHints?
@@ -129,7 +129,7 @@ extension AgentlyClient {
         if let h = input.inputsHash, !h.isEmpty {
             q.append(URLQueryItem(name: "inputsHash", value: h))
         }
-        let path = "/v1/api/datasources/\(percentEncoded(input.id))/cache"
+        let path = "/v1/api/datasources/\(agentlyPercentEncodedPathSegment(input.id))/cache"
         _ = try await rawRequest(path: path, method: "DELETE", query: q, as: EmptyResponse.self)
     }
 
@@ -142,9 +142,6 @@ extension AgentlyClient {
         )
     }
 
-    private func percentEncoded(_ s: String) -> String {
-        s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
-    }
 }
 
 // MARK: - Pure token helpers (Activations b + c)

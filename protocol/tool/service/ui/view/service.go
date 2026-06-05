@@ -265,14 +265,27 @@ func (s *Service) resolveOpenClient(ctx context.Context, requestedClientID strin
 		clientID = clients[0].ClientID
 		namespace = clients[0].Namespace
 	} else {
-		for _, item := range clients {
-			if item.ClientID == clientID {
-				namespace = item.Namespace
-				break
+		namespace = clientNamespaceFromSnapshots(clients, clientID)
+		if namespace == "" {
+			if clientSnap, findErr := s.reg.FindClient(ctx, clientID); findErr == nil && clientSnap != nil {
+				namespace = strings.TrimSpace(clientSnap.Namespace)
 			}
 		}
 	}
 	return clientID, namespace, conversationID, nil
+}
+
+func clientNamespaceFromSnapshots(clients []uireg.ClientSnapshot, clientID string) string {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return ""
+	}
+	for _, item := range clients {
+		if strings.TrimSpace(item.ClientID) == clientID {
+			return strings.TrimSpace(item.Namespace)
+		}
+	}
+	return ""
 }
 
 func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, conversationID string, input OpenItem, timeout int) (*OpenOutput, error) {

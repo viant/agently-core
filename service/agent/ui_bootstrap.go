@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
 )
@@ -90,8 +91,8 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 	if err != nil || len(items) == 0 {
 		return nil
 	}
-	client := items[0]
-	if client.Snapshot == nil {
+	client := selectWorkspaceUIBootstrapClient(items, runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	if client == nil || client.Snapshot == nil {
 		return nil
 	}
 	var summaries []string
@@ -145,6 +146,24 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 		}
 	}
 	return summaries
+}
+
+func selectWorkspaceUIBootstrapClient(items []uireg.ClientSnapshot, preferredClientID string) *uireg.ClientSnapshot {
+	preferredClientID = strings.TrimSpace(preferredClientID)
+	if preferredClientID != "" {
+		for i := range items {
+			if strings.TrimSpace(items[i].ClientID) == preferredClientID {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+	for i := range items {
+		if items[i].Snapshot != nil {
+			return &items[i]
+		}
+	}
+	return nil
 }
 
 func compactWindowParametersForBootstrap(parameters map[string]interface{}) string {

@@ -630,7 +630,7 @@ func (c *HTTPClient) ActivateSkill(ctx context.Context, input *ActivateSkillInpu
 	}
 	path := "/v1/skills/" + url.PathEscape(strings.TrimSpace(input.Name)) + "/activate?conversationId=" + url.QueryEscape(strings.TrimSpace(input.ConversationID))
 	var out ActivateSkillOutput
-	if err := c.doJSON(ctx, http.MethodPost, path, map[string]string{"args": strings.TrimSpace(input.Args)}, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, map[string]string{"args": input.Args}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -667,11 +667,31 @@ func (c *HTTPClient) ExecuteMCPUIToolCall(ctx context.Context, input *MCPUIToolC
 }
 
 func (c *HTTPClient) ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error) {
-	return listTemplates(c, ctx, input)
+	var out ListTemplatesOutput
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/templates", nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		out.Items = []TemplateListItem{}
+	}
+	return &out, nil
 }
 
 func (c *HTTPClient) GetTemplate(ctx context.Context, input *GetTemplateInput) (*GetTemplateOutput, error) {
-	return getTemplate(c, ctx, input)
+	if input == nil || strings.TrimSpace(input.Name) == "" {
+		return nil, errors.New("template name is required")
+	}
+	path := "/v1/templates/" + url.PathEscape(strings.TrimSpace(input.Name))
+	if input.IncludeDocument != nil {
+		q := url.Values{}
+		q.Set("includeDocument", fmt.Sprintf("%t", *input.IncludeDocument))
+		path += "?" + q.Encode()
+	}
+	var out GetTemplateOutput
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *HTTPClient) UploadFile(ctx context.Context, input *UploadFileInput) (*UploadFileOutput, error) {
@@ -889,23 +909,18 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 }
 
 func (c *HTTPClient) GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error) {
-	result := make(map[string]*conversation.Payload, len(ids))
-	for _, id := range ids {
-		payloadID := strings.TrimSpace(id)
-		if payloadID == "" {
-			continue
-		}
-		if _, exists := result[payloadID]; exists {
-			continue
-		}
-		var out conversation.Payload
-		path := "/v1/api/payload/" + url.PathEscape(payloadID)
-		if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
-			continue
-		}
-		result[payloadID] = &out
+	payloadIDs := normalizePayloadIDs(ids)
+	if len(payloadIDs) == 0 {
+		return map[string]*conversation.Payload{}, nil
 	}
-	return result, nil
+	var out map[string]*conversation.Payload
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/payloads", &GetPayloadsInput{IDs: payloadIDs}, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return map[string]*conversation.Payload{}, nil
+	}
+	return out, nil
 }
 
 // GetLiveState returns the canonical state snapshot with an EventCursor by

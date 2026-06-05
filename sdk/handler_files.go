@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/viant/agently-core/app/store/conversation"
 )
 
 func handleUploadFile(client Client) http.HandlerFunc {
@@ -140,14 +142,7 @@ func handleGetPayload(client Client) http.HandlerFunc {
 		metaMode := queryBool(r, "meta", false)
 		inlineMode := queryBool(r, "inline", true)
 
-		body := payloadBytes(payload)
-		compression := strings.TrimSpace(payload.Compression)
-		if strings.EqualFold(compression, "gzip") && len(body) > 0 {
-			if inflated, ok := inflateGZIP(body); ok {
-				body = inflated
-				compression = ""
-			}
-		}
+		body, _ := payloadResponseBody(payload)
 
 		if rawMode {
 			if len(body) == 0 {
@@ -164,14 +159,68 @@ func handleGetPayload(client Client) http.HandlerFunc {
 			return
 		}
 
-		out := *payload
-		out.Compression = compression
-		if metaMode || !inlineMode {
-			out.InlineBody = nil
-		} else {
-			copied := append([]byte(nil), body...)
-			out.InlineBody = &copied
-		}
-		httpJSON(w, http.StatusOK, out)
+		httpJSON(w, http.StatusOK, payloadJSONView(payload, metaMode, inlineMode))
 	}
+}
+
+func handleGetPayloads(client Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var input GetPayloadsInput
+		if err := decodeJSON(r, &input); err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		ids := normalizePayloadIDs(input.IDs)
+		if len(ids) == 0 {
+			httpJSON(w, http.StatusOK, map[string]*conversation.Payload{})
+			return
+		}
+		out, err := client.GetPayloads(r.Context(), ids)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+		if out == nil {
+			out = map[string]*conversation.Payload{}
+		}
+		httpJSON(w, http.StatusOK, payloadJSONViewMap(out))
+	}
+}
+
+func payloadJSONViewMap(payloads map[string]*conversation.Payload) map[string]*conversation.Payload {
+	out := make(map[string]*conversation.Payload, len(payloads))
+	for id, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		out[id] = payloadJSONView(payload, false, true)
+	}
+	return out
+}
+
+func payloadJSONView(payload *conversation.Payload, metaMode, inlineMode bool) *conversation.Payload {
+	if payload == nil {
+		return nil
+	}
+	body, compression := payloadResponseBody(payload)
+	out := *payload
+	out.Compression = compression
+	if metaMode || !inlineMode {
+		out.InlineBody = nil
+		return &out
+	}
+	copied := append([]byte(nil), body...)
+	out.InlineBody = &copied
+	return &out
+}
+
+func payloadResponseBody(payload *conversation.Payload) ([]byte, string) {
+	body := payloadBytes(payload)
+	compression := strings.TrimSpace(payload.Compression)
+	if strings.EqualFold(compression, "gzip") && len(body) > 0 {
+		if inflated, ok := inflateGZIP(body); ok {
+			return inflated, ""
+		}
+	}
+	return body, compression
 }

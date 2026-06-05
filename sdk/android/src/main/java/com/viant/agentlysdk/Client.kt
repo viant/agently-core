@@ -4,10 +4,15 @@ import com.viant.agentlysdk.stream.SSEEvent
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.ConversationStreamTracker
 import com.viant.agentlysdk.stream.openEventStream
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
@@ -345,19 +350,17 @@ class AgentlyClient(
     }
 
     suspend fun getPayloads(ids: List<String>): Map<String, PayloadView> = withContext(Dispatchers.IO) {
-        val result = linkedMapOf<String, PayloadView>()
-        ids.forEach { rawId ->
-            val payloadId = rawId.trim()
-            if (payloadId.isEmpty() || result.containsKey(payloadId)) {
-                return@forEach
-            }
-            runCatching {
-                getPayload(payloadId)
-            }.getOrNull()?.let { payload ->
-                result[payloadId] = payload
-            }
+        val payloadIds = ids.map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        if (payloadIds.isEmpty()) {
+            return@withContext emptyMap()
         }
-        result
+        post(
+            "/v1/api/payloads",
+            GetPayloadsInput(payloadIds),
+            MapSerializer(String.serializer(), PayloadView.serializer())
+        )
     }
 
     suspend fun downloadPayload(id: String): DownloadFileOutput = withContext(Dispatchers.IO) {
@@ -399,18 +402,17 @@ class AgentlyClient(
         post("/v1/api/mcp-ui/tools/call", input, MCPUIToolCallOutput.serializer())
     }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun listTemplates(input: ListTemplatesInput = ListTemplatesInput()): ListTemplatesOutput = withContext(Dispatchers.IO) {
-        val raw = executeTool("template:list")
-        json.decodeFromString(ListTemplatesOutput.serializer(), raw)
+        get("/v1/templates", ListTemplatesOutput.serializer())
     }
 
     suspend fun getTemplate(input: GetTemplateInput): GetTemplateOutput = withContext(Dispatchers.IO) {
-        val args = buildMap<String, JsonElement> {
-            put("name", JsonPrimitive(input.name))
-            input.includeDocument?.let { put("includeDocument", JsonPrimitive(it)) }
-        }
-        val raw = executeTool("template:get", args)
-        json.decodeFromString(GetTemplateOutput.serializer(), raw)
+        val name = input.name.trim()
+        require(name.isNotEmpty()) { "template name is required" }
+        val query = linkedMapOf<String, String>()
+        input.includeDocument?.let { query["includeDocument"] = it.toString() }
+        get(appendQuery("/v1/templates/${encodePath(name)}", query), GetTemplateOutput.serializer())
     }
 
     suspend fun listSkills(input: ListSkillsInput): ListSkillsOutput = withContext(Dispatchers.IO) {
@@ -421,7 +423,12 @@ class AgentlyClient(
 
     suspend fun activateSkill(input: ActivateSkillInput): ActivateSkillOutput = withContext(Dispatchers.IO) {
         val name = input.name?.takeIf { it.isNotBlank() } ?: error("Skill name is required")
-        post("/v1/skills/${encodePath(name)}/activate", input, ActivateSkillOutput.serializer())
+        val query = linkedMapOf<String, String>()
+        input.conversationId?.takeIf { it.isNotBlank() }?.let { query["conversationId"] = it }
+        val body = buildMap<String, JsonElement> {
+            input.args?.let { put("args", JsonPrimitive(it)) }
+        }
+        post(appendQuery("/v1/skills/${encodePath(name)}/activate", query), body, ActivateSkillOutput.serializer())
     }
 
     suspend fun getSkillDiagnostics(): SkillDiagnosticsOutput = withContext(Dispatchers.IO) {
@@ -441,7 +448,10 @@ class AgentlyClient(
         get("/v1/api/a2a/agents?ids=${urlEncode(ids)}", A2AAgentsEnvelope.serializer()).agents
     }
 
-    fun streamEvents(conversationId: String): Flow<SSEEvent> {
+    fun streamEvents(conversationId: String): Flow<SSEEvent> =
+        streamEvents(conversationId, onOpen = null)
+
+    private fun streamEvents(conversationId: String, onOpen: (() -> Unit)?): Flow<SSEEvent> {
         val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) {
             "Endpoint not found: $endpointName"
         }
@@ -449,17 +459,60 @@ class AgentlyClient(
             endpoint = endpoint,
             path = appendQuery("/v1/stream", linkedMapOf("conversationId" to conversationId)),
             conversationId = conversationId,
-            json = json
+            json = json,
+            onOpen = onOpen
         )
     }
 
-    fun trackConversation(conversationId: String): Flow<ConversationStreamSnapshot> = flow {
+    fun trackConversation(conversationId: String): Flow<ConversationStreamSnapshot> = channelFlow {
         val tracker = ConversationStreamTracker(conversationId)
-        tracker.hydrate(getLiveState(conversationId, includeFeeds = true))
-        emit(tracker.snapshot())
-        streamEvents(conversationId).collect { event ->
-            tracker.applyEvent(event)
-            emit(tracker.snapshot())
+        while (true) {
+            val streamReady = CompletableDeferred<Unit>()
+            val events = Channel<SSEEvent>(Channel.BUFFERED)
+            val streamJob = launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    streamEvents(
+                        conversationId,
+                        onOpen = {
+                            if (!streamReady.isCompleted) {
+                                streamReady.complete(Unit)
+                            }
+                        }
+                    ).collect { event ->
+                        events.send(event)
+                    }
+                    if (!streamReady.isCompleted) {
+                        streamReady.complete(Unit)
+                    }
+                } catch (error: Throwable) {
+                    if (!streamReady.isCompleted) {
+                        streamReady.completeExceptionally(error)
+                    }
+                    events.close(error)
+                } finally {
+                    events.close()
+                }
+            }
+            var reconnect = false
+            try {
+                streamReady.await()
+                val initialState = getLiveState(conversationId, includeFeeds = true)
+                tracker.hydrate(initialState)
+                send(tracker.snapshot())
+                for (event in events) {
+                    if (event.type.trim().equals("stream_overflow", ignoreCase = true)) {
+                        reconnect = true
+                        break
+                    }
+                    tracker.applyEvent(event, hydrationCursor = initialState.eventCursor)
+                    send(tracker.snapshot())
+                }
+            } finally {
+                streamJob.cancelAndJoin()
+            }
+            if (!reconnect) {
+                break
+            }
         }
     }
 
@@ -636,11 +689,13 @@ class AgentlyClient(
         is DecideToolApprovalInput -> DecideToolApprovalInput.serializer() as KSerializer<T>
         is MCPUIToolCallInput -> MCPUIToolCallInput.serializer() as KSerializer<T>
         is ActivateSkillInput -> ActivateSkillInput.serializer() as KSerializer<T>
+        is GetPayloadsInput -> GetPayloadsInput.serializer() as KSerializer<T>
         is ExportResourcesInput -> ExportResourcesInput.serializer() as KSerializer<T>
         is ImportResourcesInput -> ImportResourcesInput.serializer() as KSerializer<T>
         is SchedulePatchInput -> SchedulePatchInput.serializer() as KSerializer<T>
         is SendA2AMessageRequest -> SendA2AMessageRequest.serializer() as KSerializer<T>
         is FetchDatasourceInput -> FetchDatasourceInput.serializer() as KSerializer<T>
+        is FetchDatasourceBody -> FetchDatasourceBody.serializer() as KSerializer<T>
         is Map<*, *> -> MapSerializer(String.serializer(), JsonElement.serializer()) as KSerializer<T>
         else -> error("Unsupported payload type: ${payload?.let { it::class.qualifiedName } ?: "null"}")
     }

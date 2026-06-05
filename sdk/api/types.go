@@ -471,6 +471,10 @@ type ListFilesOutput struct {
 	Page  *PageInput   `json:"page,omitempty"`
 }
 
+type GetPayloadsInput struct {
+	IDs []string `json:"ids"`
+}
+
 type ToolDefinitionInfo struct {
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description,omitempty"`

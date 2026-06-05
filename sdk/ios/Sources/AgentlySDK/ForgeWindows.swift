@@ -13,5 +13,5 @@ public extension AgentlyClient {
 }
 
 private func encodeForgeWindowKey(_ value: String) -> String {
-    value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+    agentlyPercentEncodedPathSegment(value)
 }

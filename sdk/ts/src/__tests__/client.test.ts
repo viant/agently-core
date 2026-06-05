@@ -1182,7 +1182,7 @@ describe('listConversations prevCursor', () => {
 
 describe('Auth', () => {
     it('getAuthProviders returns providers array', async () => {
-        const f = mockFetch(200, { providers: [{ name: 'local', type: 'local', label: 'Local User' }] });
+        const f = mockFetch(200, { providers: [{ name: 'local', type: 'local', label: 'Workspace User' }] });
         const c = client(f);
         const res = await c.getAuthProviders();
 

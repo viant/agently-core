@@ -2,10 +2,14 @@ package com.viant.agentlysdk.stream
 
 import com.viant.agentlysdk.ActiveFeedState
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.ExecutionPageState
 import com.viant.agentlysdk.Message
+import com.viant.agentlysdk.ModelStepState
 import com.viant.agentlysdk.PlannerState
+import com.viant.agentlysdk.ToolStepState
 import com.viant.agentlysdk.TurnState
 import kotlinx.serialization.json.JsonObject
+import java.time.OffsetDateTime
 
 class FeedTracker {
     private val feedsById = linkedMapOf<String, ActiveFeed>()
@@ -157,6 +161,7 @@ class PlannerTracker {
 class ConversationStreamTracker(conversationId: String = "") {
     private val messages = MessageBuffer()
     private var executionGroupsById: MutableMap<String, LiveExecutionGroup> = linkedMapOf()
+    private var maxEventSeqByTurnId: MutableMap<String, Int> = linkedMapOf()
     private val feeds = FeedTracker()
     private val elicitation = ElicitationTracker()
     private val planner = PlannerTracker()
@@ -181,13 +186,17 @@ class ConversationStreamTracker(conversationId: String = "") {
         messages.byId.clear()
         messages.activeTurnId = null
         executionGroupsById = linkedMapOf()
+        maxEventSeqByTurnId = linkedMapOf()
         feeds.clear()
         elicitation.clear()
         planner.clear()
         currentConversationId = ""
     }
 
-    fun applyEvent(event: SSEEvent): MessageUpdate? {
+    fun applyEvent(event: SSEEvent, hydrationCursor: String? = null): MessageUpdate? {
+        if (shouldSkipHydratedPayload(event, hydrationCursor)) {
+            return null
+        }
         val conversationId = resolveEventConversationId(event)
         if (conversationId.isNotBlank()) {
             currentConversationId = conversationId
@@ -196,7 +205,9 @@ class ConversationStreamTracker(conversationId: String = "") {
         feeds.applyEvent(event)
         elicitation.applyEvent(event)
         planner.applyEvent(event)
-        return applyMessageEvent(messages, event)
+        val update = applyMessageEvent(messages, event)
+        recordAppliedSequence(event)
+        return update
     }
 
     fun reconcileTranscript(turns: List<TurnState>) {
@@ -212,8 +223,38 @@ class ConversationStreamTracker(conversationId: String = "") {
         response.conversation?.conversationId?.trim()?.takeIf { it.isNotEmpty() }?.let {
             currentConversationId = it
         }
-        reconcileTranscript(response.conversation?.turns ?: emptyList())
+        val turns = response.conversation?.turns ?: emptyList()
+        reconcileTranscript(turns)
+        reconcileExecutionGroups(turns)
         hydrateFeeds(response.feeds)
+    }
+
+    private fun shouldSkipHydratedPayload(event: SSEEvent, hydrationCursor: String?): Boolean {
+        val turnId = resolveEventTurnId(event).trim()
+        val eventSeq = event.eventSeq ?: 0
+        if (turnId.isNotEmpty() && eventSeq > 0 && eventSeq <= (maxEventSeqByTurnId[turnId] ?: 0)) {
+            return true
+        }
+        val cursorInstant = parseEventInstant(hydrationCursor)
+        val eventInstant = parseEventInstant(event.createdAt)
+        return cursorInstant != null && eventInstant != null && !eventInstant.isAfter(cursorInstant)
+    }
+
+    private fun recordAppliedSequence(event: SSEEvent) {
+        val turnId = resolveEventTurnId(event).trim()
+        val eventSeq = event.eventSeq ?: 0
+        if (turnId.isEmpty() || eventSeq <= 0) {
+            return
+        }
+        maxEventSeqByTurnId[turnId] = maxOf(maxEventSeqByTurnId[turnId] ?: 0, eventSeq)
+    }
+
+    private fun reconcileExecutionGroups(turns: List<TurnState>) {
+        val hydrated = executionGroupsFromTranscript(turns).toMutableMap()
+        executionGroupsById.forEach { (assistantMessageId, group) ->
+            hydrated[assistantMessageId] = mergeExecutionGroup(hydrated[assistantMessageId], group)
+        }
+        executionGroupsById = hydrated
     }
 
     private fun hydrateFeeds(items: List<ActiveFeedState>) {
@@ -232,6 +273,102 @@ class ConversationStreamTracker(conversationId: String = "") {
         }
     }
 }
+
+private fun parseEventInstant(raw: String?): java.time.Instant? {
+    val text = firstString(raw)
+    if (text.isEmpty()) return null
+    return runCatching { OffsetDateTime.parse(text).toInstant() }
+        .recoverCatching { java.time.Instant.parse(text) }
+        .getOrNull()
+}
+
+private fun executionGroupsFromTranscript(turns: List<TurnState>): LiveExecutionGroupsById {
+    val groups = linkedMapOf<String, LiveExecutionGroup>()
+    turns.forEach { turn ->
+        turn.execution?.pages.orEmpty().forEach pageLoop@{ page ->
+            val assistantMessageId = firstString(
+                page.assistantMessageId,
+                page.finalAssistantMessageId,
+                page.pageId
+            )
+            if (assistantMessageId.isBlank()) {
+                return@pageLoop
+            }
+            val incoming = liveExecutionGroupFromTranscript(turn, page, assistantMessageId)
+            groups[assistantMessageId] = mergeExecutionGroup(groups[assistantMessageId], incoming)
+        }
+    }
+    return groups.values
+        .sortedWith(Comparator(::compareExecutionGroups))
+        .associateByTo(linkedMapOf()) { it.assistantMessageId }
+}
+
+private fun liveExecutionGroupFromTranscript(
+    turn: TurnState,
+    page: ExecutionPageState,
+    assistantMessageId: String
+): LiveExecutionGroup {
+    return LiveExecutionGroup(
+        pageId = firstString(page.pageId, assistantMessageId),
+        assistantMessageId = assistantMessageId,
+        turnId = firstString(page.turnId, turn.turnId).ifBlank { null },
+        parentMessageId = firstString(page.parentMessageId, turn.startedByMessageId).ifBlank { null },
+        sequence = firstPositiveNumber(page.sequence, turn.queueSeq).takeIf { it > 0 },
+        iteration = firstPositiveNumber(page.iteration).takeIf { it > 0 },
+        narration = firstString(page.narration).ifBlank { null },
+        content = firstString(page.content).ifBlank { null },
+        errorMessage = executionErrorMessage(page),
+        status = firstString(page.status, turn.status).ifBlank { null },
+        finalResponse = page.finalResponse,
+        modelSteps = page.modelSteps.map(::liveModelStepFromTranscript),
+        toolSteps = page.toolSteps.map(::liveToolStepFromTranscript),
+        createdAt = turn.createdAt,
+        startedAt = firstTimestamp(page.modelSteps.map { it.startedAt } + page.toolSteps.map { it.startedAt }),
+        completedAt = firstTimestamp(page.modelSteps.map { it.completedAt } + page.toolSteps.map { it.completedAt })
+    )
+}
+
+private fun liveModelStepFromTranscript(step: ModelStepState): LiveModelStepState {
+    return LiveModelStepState(
+        modelCallId = step.modelCallId,
+        assistantMessageId = firstString(step.assistantMessageId).ifBlank { null },
+        provider = firstString(step.provider).ifBlank { null },
+        model = firstString(step.model).ifBlank { null },
+        status = firstString(step.status).ifBlank { null },
+        requestPayloadId = firstString(step.requestPayloadId).ifBlank { null },
+        responsePayloadId = firstString(step.responsePayloadId).ifBlank { null },
+        providerRequestPayloadId = firstString(step.providerRequestPayloadId).ifBlank { null },
+        providerResponsePayloadId = firstString(step.providerResponsePayloadId).ifBlank { null },
+        streamPayloadId = firstString(step.streamPayloadId).ifBlank { null }
+    )
+}
+
+private fun liveToolStepFromTranscript(step: ToolStepState): LiveToolStepState {
+    return LiveToolStepState(
+        toolCallId = firstString(step.toolCallId).ifBlank { null },
+        toolMessageId = firstString(step.toolMessageId).ifBlank { null },
+        toolName = firstString(step.toolName).ifBlank { null },
+        status = firstString(step.status, step.asyncOperation?.status).ifBlank { null },
+        errorMessage = firstString(step.asyncOperation?.error).ifBlank { null },
+        requestPayloadId = firstString(step.requestPayloadId).ifBlank { null },
+        responsePayloadId = firstString(step.responsePayloadId).ifBlank { null },
+        requestPayload = step.requestPayload,
+        responsePayload = step.responsePayload ?: step.asyncOperation?.response,
+        linkedConversationId = firstString(step.linkedConversationId).ifBlank { null },
+        linkedConversationAgentId = firstString(step.linkedConversationAgentId).ifBlank { null },
+        linkedConversationTitle = firstString(step.linkedConversationTitle).ifBlank { null }
+    )
+}
+
+private fun executionErrorMessage(page: ExecutionPageState): String? {
+    return page.toolSteps
+        .asSequence()
+        .mapNotNull { firstString(it.asyncOperation?.error).ifBlank { null } }
+        .firstOrNull()
+}
+
+private fun firstTimestamp(values: List<String?>): String? =
+    values.asSequence().mapNotNull { firstString(it).ifBlank { null } }.firstOrNull()
 
 fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
     val conversationId = resolveEventConversationId(event)
@@ -337,6 +474,10 @@ fun reconcileMessages(buffer: MessageBuffer, serverMessages: List<Message>): Lis
 }
 
 fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
+    buffer.activeTurnId = turns
+        .lastOrNull { !isTerminalTurnStatus(it.status) }
+        ?.turnId
+        ?.takeIf { it.isNotBlank() }
     assistantMessagesFromTurns(turns).forEach { buffer.byId[it.id] = it }
 }
 
@@ -400,6 +541,8 @@ fun applyExecutionStreamEventToGroups(
         val updated = upsertToolStep(
             current.copy(
                 turnId = firstString(event.turnId, current.turnId).ifBlank { null },
+                sequence = eventSequenceValue(event, current.sequence ?: 1),
+                iteration = eventIterationValue(event, current.iteration ?: 1),
                 status = firstString(event.status, current.status).ifBlank { current.status }
             ),
             event
@@ -532,14 +675,25 @@ private fun upsertToolStep(current: LiveExecutionGroup, event: SSEEvent): LiveEx
     val key = firstString(event.toolCallId, event.toolMessageId, event.id, event.toolName)
     val toolSteps = current.toolSteps.toMutableList()
     val index = toolSteps.indexOfFirst { firstString(it.toolCallId, it.toolMessageId, it.toolName) == key }
+    val type = firstString(event.type).lowercase()
+    val status = firstString(
+        event.status,
+        when (type) {
+            "tool_call_completed" -> "completed"
+            "tool_call_started" -> "running"
+            else -> null
+        }
+    ).ifBlank { null }
     val newStep = LiveToolStepState(
         toolCallId = event.toolCallId,
         toolMessageId = firstString(event.toolMessageId, event.id).ifBlank { null },
         toolName = event.toolName,
-        status = event.status,
+        status = status,
         errorMessage = event.error,
         requestPayloadId = event.requestPayloadId,
         responsePayloadId = event.responsePayloadId,
+        requestPayload = event.arguments,
+        responsePayload = event.responsePayload,
         linkedConversationId = event.linkedConversationId,
         linkedConversationAgentId = event.linkedConversationAgentId,
         linkedConversationTitle = event.linkedConversationTitle
@@ -553,6 +707,8 @@ private fun upsertToolStep(current: LiveExecutionGroup, event: SSEEvent): LiveEx
             errorMessage = firstString(newStep.errorMessage, toolSteps[index].errorMessage).ifBlank { null },
             requestPayloadId = firstString(newStep.requestPayloadId, toolSteps[index].requestPayloadId).ifBlank { null },
             responsePayloadId = firstString(newStep.responsePayloadId, toolSteps[index].responsePayloadId).ifBlank { null },
+            requestPayload = newStep.requestPayload ?: toolSteps[index].requestPayload,
+            responsePayload = newStep.responsePayload ?: toolSteps[index].responsePayload,
             linkedConversationId = firstString(newStep.linkedConversationId, toolSteps[index].linkedConversationId).ifBlank { null },
             linkedConversationAgentId = firstString(newStep.linkedConversationAgentId, toolSteps[index].linkedConversationAgentId).ifBlank { null },
             linkedConversationTitle = firstString(newStep.linkedConversationTitle, toolSteps[index].linkedConversationTitle).ifBlank { null }
@@ -578,6 +734,8 @@ private fun mergeExecutionGroup(existing: LiveExecutionGroup?, incoming: LiveExe
                 errorMessage = firstString(step.errorMessage, prior.errorMessage).ifBlank { null },
                 requestPayloadId = firstString(step.requestPayloadId, prior.requestPayloadId).ifBlank { null },
                 responsePayloadId = firstString(step.responsePayloadId, prior.responsePayloadId).ifBlank { null },
+                requestPayload = step.requestPayload ?: prior.requestPayload,
+                responsePayload = step.responsePayload ?: prior.responsePayload,
                 linkedConversationId = firstString(step.linkedConversationId, prior.linkedConversationId).ifBlank { null },
                 linkedConversationAgentId = firstString(step.linkedConversationAgentId, prior.linkedConversationAgentId).ifBlank { null },
                 linkedConversationTitle = firstString(step.linkedConversationTitle, prior.linkedConversationTitle).ifBlank { null }

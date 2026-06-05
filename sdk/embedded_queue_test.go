@@ -19,7 +19,7 @@ import (
 
 func TestEmbeddedClient_DecideToolApproval_ApproveSystemOSEnvCompletesTurn(t *testing.T) {
 	ctx := context.Background()
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, ctx, client, "conv-approve", "turn-approve", "approval-approve", "LOGNAME")
 
 	out, err := client.DecideToolApproval(ctx, &DecideToolApprovalInput{
@@ -36,7 +36,7 @@ func TestEmbeddedClient_DecideToolApproval_ApproveSystemOSEnvCompletesTurn(t *te
 	require.Equal(t, "executed", out.Outcome.Status)
 	require.Equal(t, "approve", out.Outcome.Decision)
 	require.Equal(t, "system/os/getEnv", out.Outcome.ToolName)
-	require.Equal(t, `{"values":{"LOGNAME":"awitas"}}`, out.Outcome.Result)
+	require.Equal(t, `{"values":{"LOGNAME":"test-user"}}`, out.Outcome.Result)
 
 	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
 		Id:  row.Id,
@@ -57,15 +57,15 @@ func TestEmbeddedClient_DecideToolApproval_ApproveSystemOSEnvCompletesTurn(t *te
 	messages := conv.Transcript[0].Message
 	require.Len(t, messages, 5)
 	require.Equal(t, "assistant", messages[4].Role)
-	require.Equal(t, "```json\n{\"values\":{\"LOGNAME\":\"awitas\"}}\n```", queueTestStringValue(messages[4].Content))
+	require.Equal(t, "```json\n{\"values\":{\"LOGNAME\":\"test-user\"}}\n```", queueTestStringValue(messages[4].Content))
 	require.Equal(t, 0, messages[4].Interim)
 	require.Equal(t, "tool", messages[3].Role)
-	require.Equal(t, "{\"values\":{\"LOGNAME\":\"awitas\"}}", queueTestStringValue(messages[3].Content))
+	require.Equal(t, "{\"values\":{\"LOGNAME\":\"test-user\"}}", queueTestStringValue(messages[3].Content))
 }
 
 func TestEmbeddedClient_DecideToolApproval_CancelSystemOSEnvCompletesTurn(t *testing.T) {
 	ctx := context.Background()
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, ctx, client, "conv-cancel", "turn-cancel", "approval-cancel", "LOGNAME")
 
 	out, err := client.DecideToolApproval(ctx, &DecideToolApprovalInput{
@@ -110,7 +110,7 @@ func TestEmbeddedClient_DecideToolApproval_CancelSystemOSEnvCompletesTurn(t *tes
 
 func TestEmbeddedClient_ListPendingToolApprovals_UsesEffectiveUserScope(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	_ = seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-scope", "turn-scope", "approval-scope", "LOGNAME")
 
 	out, err := client.ListPendingToolApprovals(ctx, &ListPendingToolApprovalsInput{Status: "pending"})
@@ -125,7 +125,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_UsesEffectiveUserScope(t *testi
 
 func TestEmbeddedClient_ListPendingToolApprovals_UsesExactTotalWithPaging(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	_ = seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-page-1", "turn-page-1", "approval-page-1", "LOGNAME")
 	time.Sleep(time.Millisecond)
 	_ = seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-page-2", "turn-page-2", "approval-page-2", "HOME")
@@ -145,7 +145,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_UsesExactTotalWithPaging(t *tes
 }
 
 func TestEmbeddedClient_DecideToolApproval_DeniesCrossUserQueueAccess(t *testing.T) {
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-owner", "turn-owner", "approval-owner", "LOGNAME")
 
 	_, err := client.DecideToolApproval(
@@ -161,7 +161,7 @@ func TestEmbeddedClient_DecideToolApproval_DeniesCrossUserQueueAccess(t *testing
 
 func TestEmbeddedClient_ListPendingToolApprovals_ExpiresTimedOutRowsAndReturnsOutcome(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-timeout", "turn-timeout", "approval-timeout", "LOGNAME")
 	expiredAt := time.Now().UTC().Add(-1 * time.Minute)
 	queue := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
@@ -199,7 +199,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_ExpiresTimedOutRowsAndReturnsOu
 // user action.
 func TestEmbeddedClient_DecideToolApproval_ExpiredPendingRowYieldsTimeoutOutcome(t *testing.T) {
 	ctx := context.Background()
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, ctx, client, "conv-expired", "turn-expired", "approval-expired", "LOGNAME")
 	expired := time.Now().UTC().Add(-2 * time.Minute)
 	patch := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
@@ -251,7 +251,7 @@ func TestEmbeddedClient_DecideToolApproval_ExpiredPendingRowYieldsTimeoutOutcome
 // outcome propagation path.
 func TestEmbeddedClient_ListPendingToolApprovals_DurableTimeoutOutcomeViaCursor(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-cursor-timeout", "turn-cursor-timeout", "approval-cursor-timeout", "LOGNAME")
 	expiredAt := time.Now().UTC().Add(-1 * time.Minute)
 	queue := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
@@ -306,7 +306,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_DurableTimeoutOutcomeViaCursor(
 // approve/executed outcome rather than missing it.
 func TestEmbeddedClient_ListPendingToolApprovals_DurableApproveOutcomeViaCursor(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-cursor-approve", "turn-cursor-approve", "approval-cursor-approve", "LOGNAME")
 
 	first, err := client.ListPendingToolApprovals(ctx, &ListPendingToolApprovalsInput{Status: "pending"})
@@ -361,7 +361,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_DurableApproveOutcomeViaCursor(
 // in-call outcomes (none in this case) and a fresh cursor.
 func TestEmbeddedClient_ListPendingToolApprovals_BootstrapPollDoesNotReplayHistory(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "devuser"})
-	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"awitas"}}`)
+	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-bootstrap", "turn-bootstrap", "approval-bootstrap", "LOGNAME")
 	decisionTime := time.Now().UTC().Add(-1 * time.Minute)
 	patch := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
