@@ -169,20 +169,20 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	preferred := normalizeOptionalClientID(input.ClientID)
-	if preferred == "" {
-		preferred = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
-	}
-	if preferred == "" && len(items) > 0 {
-		preferred = items[0].ClientID
-	}
+	explicitClientID := normalizeOptionalClientID(input.ClientID)
+	matchedClients := 0
+	singleClientID := ""
+	singleFocusedWindowID := ""
 	for _, item := range items {
-		if preferred != "" && item.ClientID != preferred {
+		if explicitClientID != "" && item.ClientID != explicitClientID {
 			continue
 		}
-		output.ClientID = item.ClientID
 		if item.Snapshot != nil {
-			output.FocusedWindowID = strings.TrimSpace(item.Snapshot.Selected.WindowID)
+			matchedClients++
+			if matchedClients == 1 {
+				singleClientID = item.ClientID
+				singleFocusedWindowID = strings.TrimSpace(item.Snapshot.Selected.WindowID)
+			}
 			for _, win := range item.Snapshot.Windows {
 				refs := make([]string, 0, len(win.DataSources))
 				for ref := range win.DataSources {
@@ -207,7 +207,10 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				})
 			}
 		}
-		break
+	}
+	if matchedClients == 1 {
+		output.ClientID = singleClientID
+		output.FocusedWindowID = singleFocusedWindowID
 	}
 	return nil
 }

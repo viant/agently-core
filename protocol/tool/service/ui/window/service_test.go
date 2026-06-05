@@ -322,6 +322,98 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	}
 }
 
+func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFilter(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bridge.Hub().ServeWS(w, r)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	connectClient := func(clientID, windowID string) *websocket.Conn {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			t.Fatalf("dial ws for %s: %v", clientID, err)
+		}
+		if err := conn.WriteJSON(map[string]interface{}{
+			"type":     "ui.hello",
+			"clientId": clientID,
+		}); err != nil {
+			conn.Close()
+			t.Fatalf("write hello for %s: %v", clientID, err)
+		}
+		if err := conn.WriteJSON(map[string]interface{}{
+			"type":     "ui.snapshot",
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId":       clientID,
+				"conversationId": "conv-1",
+				"selected": map[string]interface{}{
+					"windowId": windowID,
+				},
+				"windows": []interface{}{
+					map[string]interface{}{
+						"windowId":       windowID,
+						"windowKey":      "forecastingCubeBuilder",
+						"windowTitle":    "Forecasting",
+						"conversationId": "conv-1",
+						"presentation":   "hosted",
+						"region":         "chat.top",
+						"parentKey":      "chat/new",
+					},
+				},
+			},
+		}); err != nil {
+			conn.Close()
+			t.Fatalf("write snapshot for %s: %v", clientID, err)
+		}
+		return conn
+	}
+
+	conn1 := connectClient("client-1", "forecastingCubeBuilder__client-1")
+	defer conn1.Close()
+	conn2 := connectClient("client-2", "forecastingCubeBuilder__client-2")
+	defer conn2.Close()
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	ctx = runtimerequestctx.WithPreferredUIClientID(ctx, "client-1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	var got ListOutput
+	for {
+		got = ListOutput{}
+		if err := svc.list(ctx, &ListInput{}, &got); err != nil {
+			t.Fatalf("list failed: %v", err)
+		}
+		if len(got.Items) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected both clients to be listed, got %#v", got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got.ClientID != "" || got.FocusedWindowID != "" {
+		t.Fatalf("expected ambiguous top-level client/focus when multiple clients match, got %#v", got)
+	}
+	seen := map[string]bool{}
+	for _, item := range got.Items {
+		seen[item.ClientID+"|"+item.WindowID] = true
+	}
+	if !seen["client-1|forecastingCubeBuilder__client-1"] || !seen["client-2|forecastingCubeBuilder__client-2"] {
+		t.Fatalf("expected both client-owned windows, got %#v", got.Items)
+	}
+
+	filtered := &ListOutput{}
+	if err := svc.list(ctx, &ListInput{ClientID: "client-1"}, filtered); err != nil {
+		t.Fatalf("filtered list failed: %v", err)
+	}
+	if filtered.ClientID != "client-1" || filtered.FocusedWindowID != "forecastingCubeBuilder__client-1" || len(filtered.Items) != 1 {
+		t.Fatalf("expected explicit client filter to return one client, got %#v", filtered)
+	}
+}
+
 func TestBuildWindowSurface(t *testing.T) {
 	win := &uireg.WindowSnapshot{
 		WindowForm: map[string]interface{}{
