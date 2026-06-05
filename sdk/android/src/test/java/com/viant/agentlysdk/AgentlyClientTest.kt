@@ -151,6 +151,30 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `fetchForgeWindowMetadata appends target context query params when provided`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"data":{"view":{"content":{"containers":[]}}}}"""))
+        server.start()
+        val client = client()
+
+        client.fetchForgeWindowMetadata(
+            "order",
+            MetadataTargetContext(
+                platform = "android",
+                formFactor = "phone",
+                surface = "app",
+                capabilities = listOf("markdown", "chart")
+            )
+        )
+
+        val path = server.takeRequest().path!!
+        assertTrue(path.startsWith("/v1/api/agently/forge/window/order?"))
+        assertTrue(path.contains("platform=android"))
+        assertTrue(path.contains("formFactor=phone"))
+        assertTrue(path.contains("surface=app"))
+        assertTrue(path.contains("capabilities=markdown%2Cchart") || path.contains("capabilities=markdown,chart"))
+    }
+
+    @Test
     fun `ui bridge rpc client addresses command plane by explicit client id`() = runBlocking {
         server.enqueue(
             MockResponse()

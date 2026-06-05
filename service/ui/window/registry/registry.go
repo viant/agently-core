@@ -190,6 +190,25 @@ func windowVisibleToConversation(win WindowSnapshot, conversationID string) bool
 	return false
 }
 
+func snapshotBelongsToConversation(snapshot *Snapshot, conversationID string) bool {
+	if snapshot == nil {
+		return false
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return true
+	}
+	if strings.TrimSpace(snapshot.ConversationID) == conversationID {
+		return true
+	}
+	for _, win := range snapshot.Windows {
+		if strings.TrimSpace(win.ConversationID) == conversationID {
+			return true
+		}
+	}
+	return false
+}
+
 func filterSnapshotForConversation(snapshot *Snapshot, conversationID string) *Snapshot {
 	if snapshot == nil {
 		return nil
@@ -247,7 +266,7 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 		if !isFreshSnapshot(item, now) {
 			continue
 		}
-		if strings.TrimSpace(item.Snapshot.ConversationID) == conversationID {
+		if snapshotBelongsToConversation(item.Snapshot, conversationID) {
 			filteredSnapshot := filterSnapshotForConversation(item.Snapshot, conversationID)
 			if filteredSnapshot == nil {
 				continue

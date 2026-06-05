@@ -2,6 +2,40 @@ package registry
 
 import "testing"
 
+func TestSnapshotBelongsToConversation_UsesWindowConversationID(t *testing.T) {
+	snapshot := &Snapshot{
+		Windows: []WindowSnapshot{
+			{
+				WindowID:       "forecastingCubeBuilder__conv-new",
+				WindowKey:      "forecastingCubeBuilder",
+				ConversationID: "conv-new",
+				Presentation:   "hosted",
+				Region:         "chat.top",
+				ParentKey:      "chat/new",
+			},
+		},
+	}
+
+	if !snapshotBelongsToConversation(snapshot, "conv-new") {
+		t.Fatalf("expected window-level conversation id to own snapshot")
+	}
+}
+
+func TestSnapshotBelongsToConversation_DoesNotMatchChatOnly(t *testing.T) {
+	snapshot := &Snapshot{
+		Windows: []WindowSnapshot{
+			{
+				WindowID:  "chat/new",
+				WindowKey: "chat/new",
+			},
+		},
+	}
+
+	if snapshotBelongsToConversation(snapshot, "conv-new") {
+		t.Fatalf("expected chat-only snapshot not to match arbitrary conversation")
+	}
+}
+
 func TestFilterSnapshotForConversation_FiltersHostedWindowsByConversation(t *testing.T) {
 	snapshot := &Snapshot{
 		ConversationID: "conv-new",
