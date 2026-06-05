@@ -636,7 +636,7 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscrip
 	iteration1 := 1
 	iteration2 := 2
 	modelNarration := "Let me check."
-	statusNarration := "Reviewing the order’s targeted and excluded site lists now."
+	statusNarration := "Reviewing the report entity list now."
 	final := "Here is the answer."
 	execMode := "exec"
 
@@ -718,7 +718,7 @@ func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *
 
 func TestBuildCanonicalState_NarratorPageInheritsCompletedTurnStatusWhenMessageStatusMissing(t *testing.T) {
 	narratorMode := "narrator"
-	narration := "The deal-filtered slice came back empty, so I'm widening the lookback."
+	narration := "The filtered sample came back empty, so I'm widening the lookback."
 
 	turn := &agconv.TranscriptView{
 		Id:     "turn-1",
@@ -1096,7 +1096,7 @@ func TestBuildCanonicalState_PreservesVisibleInnerUserMessages(t *testing.T) {
 
 func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T) {
 	iteration := 1
-	content := "0 recommendations saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
+	content := "0 report items saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
 	narration := "Working through the request.\n\n"
 
 	turn := &agconv.TranscriptView{

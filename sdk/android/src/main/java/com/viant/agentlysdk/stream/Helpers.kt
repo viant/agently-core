@@ -84,7 +84,7 @@ internal fun normalizeStreamEventIdentity(raw: SSEEvent, subscribedConversationI
 }
 
 internal fun eventSequenceValue(event: SSEEvent, fallback: Int = 1): Int =
-    firstPositiveNumber(event.pageIndex, event.iteration, event.eventSeq, fallback)
+    firstPositiveNumber(event.eventSeq, event.pageIndex, event.iteration, fallback)
 
 internal fun eventIterationValue(event: SSEEvent, fallback: Int = 0): Int =
     firstPositiveNumber(event.iteration, event.pageIndex, fallback)
@@ -95,6 +95,20 @@ internal fun terminalStatusForType(type: String): String {
         "turn_canceled" -> "canceled"
         else -> "completed"
     }
+}
+
+internal fun isTerminalTurnStatus(status: String?): Boolean {
+    return firstString(status).lowercase() in setOf(
+        "completed",
+        "done",
+        "success",
+        "succeeded",
+        "failed",
+        "error",
+        "canceled",
+        "cancelled",
+        "terminated"
+    )
 }
 
 internal fun modelStepStatusForEvent(event: SSEEvent, existingStatus: String = "", fallbackStatus: String = "running"): String {

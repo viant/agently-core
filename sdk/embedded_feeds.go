@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/viant/agently-core/app/store/conversation"
@@ -252,7 +251,7 @@ func (c *backendClient) GetPayload(ctx context.Context, id string) (*conversatio
 }
 
 // GetPayloads fetches multiple payloads by ID in one call.
-// IDs that are empty or not found are silently omitted from the result.
+// IDs that are empty or not found are omitted; fetch errors are returned.
 func (c *backendClient) GetPayloads(ctx context.Context, ids []string) (map[string]*conversation.Payload, error) {
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
@@ -268,8 +267,7 @@ func (c *backendClient) GetPayloads(ctx context.Context, ids []string) (map[stri
 		}
 		p, err := c.conv.GetPayload(ctx, id)
 		if err != nil {
-			log.Printf("[sdk] GetPayloads: failed to fetch payload %q: %v", id, err)
-			continue
+			return nil, fmt.Errorf("get payload %q: %w", id, err)
 		}
 		if p == nil {
 			continue

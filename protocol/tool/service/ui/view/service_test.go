@@ -10,6 +10,7 @@ import (
 
 	"github.com/viant/afs"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"github.com/viant/agently-core/workspace"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
 )
@@ -234,6 +235,27 @@ func TestShouldRefreshOpenedWindow(t *testing.T) {
 	}
 	if !shouldRefreshOpenedWindow(&ListItem{Presentation: "hosted", Capabilities: viewproto.Capabilities{Datasource: true}}, "win-1") {
 		t.Fatalf("expected hosted datasource view to refresh")
+	}
+}
+
+func TestClientNamespaceFromSnapshotsUsesExactClient(t *testing.T) {
+	clients := []uireg.ClientSnapshot{
+		{ClientID: "web-client", Namespace: "web-ns"},
+		{ClientID: "mobile-client", Namespace: "mobile-ns"},
+	}
+
+	if got := clientNamespaceFromSnapshots(clients, " mobile-client "); got != "mobile-ns" {
+		t.Fatalf("expected mobile namespace, got %q", got)
+	}
+}
+
+func TestClientNamespaceFromSnapshotsReturnsEmptyForMissingClient(t *testing.T) {
+	clients := []uireg.ClientSnapshot{
+		{ClientID: "web-client", Namespace: "web-ns"},
+	}
+
+	if got := clientNamespaceFromSnapshots(clients, "mobile-client"); got != "" {
+		t.Fatalf("expected no namespace for missing client, got %q", got)
 	}
 }
 

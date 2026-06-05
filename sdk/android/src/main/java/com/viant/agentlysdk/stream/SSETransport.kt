@@ -3,6 +3,7 @@ package com.viant.agentlysdk.stream
 import com.viant.agentlysdk.applyEndpointConfig
 import com.viant.agentlysdk.EndpointConfig
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
@@ -18,7 +19,8 @@ fun openEventStream(
     endpoint: EndpointConfig,
     path: String,
     conversationId: String,
-    json: Json = Json { ignoreUnknownKeys = true }
+    json: Json = Json { ignoreUnknownKeys = true },
+    onOpen: (() -> Unit)? = null
 ): Flow<SSEEvent> = callbackFlow {
     val client = endpoint.httpClient ?: OkHttpClient()
     val url = endpoint.baseUrl.trimEnd('/') + "/" + path.trimStart('/')
@@ -48,6 +50,7 @@ fun openEventStream(
                 return@thread
             }
 
+            onOpen?.invoke()
             reader = BufferedReader(InputStreamReader(currentBody.byteStream()))
             val dataLines = mutableListOf<String>()
 
@@ -59,7 +62,7 @@ fun openEventStream(
                     json.decodeFromString(SSEEvent.serializer(), payload)
                 }.getOrNull()?.let { normalizeStreamEventIdentity(it, conversationId) }
                 if (event != null) {
-                    trySend(event)
+                    trySendBlocking(event)
                 }
             }
 

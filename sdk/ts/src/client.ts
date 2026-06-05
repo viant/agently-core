@@ -806,7 +806,7 @@ export class AgentlyClient {
         }
     }
 
-    /** Login with a local username. */
+    /** Login with a workspace username. */
     async localLogin(input: LocalLoginInput): Promise<LocalLoginOutput> {
         return this.post<LocalLoginOutput>('/api/auth/local/login', input);
     }

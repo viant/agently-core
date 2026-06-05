@@ -59,13 +59,21 @@ func handleActivateSkill(client Client) http.HandlerFunc {
 		var req struct {
 			Args string `json:"args"`
 		}
-		if r.Body != nil {
-			_ = decodeJSON(r, &req)
+		if r.Body != nil && r.Body != http.NoBody {
+			decoder := json.NewDecoder(r.Body)
+			if err := decoder.Decode(&req); err != nil && err != io.EOF {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
+			if err := decoder.Decode(&struct{}{}); err != io.EOF {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
 		}
 		out, err := client.ActivateSkill(r.Context(), &ActivateSkillInput{
 			ConversationID: strings.TrimSpace(r.URL.Query().Get("conversationId")),
 			Name:           name,
-			Args:           strings.TrimSpace(req.Args),
+			Args:           req.Args,
 		})
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)

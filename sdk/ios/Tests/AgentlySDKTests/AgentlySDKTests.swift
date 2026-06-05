@@ -59,6 +59,255 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(decoded, value)
     }
 
+    func testHostedWorkspaceRestoreUsesLatestTranscriptTurnOnly() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/window/list",
+                          "status": "completed",
+                          "responsePayload": {
+                            "items": [
+                              {
+                                "windowId": "legacy__conv-1",
+                                "conversationId": "conv-1",
+                                "windowKey": "report",
+                                "presentation": "hosted",
+                                "region": "chat.top",
+                                "parentKey": "chat/new"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "turnId": "turn-2",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-2",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-2",
+                          "toolName": "message/reply",
+                          "status": "completed"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        XCTAssertNil(deriveHostedWorkspaceRestoreState(from: response))
+    }
+
+    func testHostedWorkspaceRestoreUsesLiveStreamPayloads() throws {
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            liveExecutionGroupsByID: [
+                "assistant-1": LiveExecutionGroup(
+                    pageID: "page-1",
+                    assistantMessageID: "assistant-1",
+                    turnID: "turn-1",
+                    toolSteps: [
+                        LiveToolStepState(
+                            toolCallID: "tool-1",
+                            toolName: "ui/view/open",
+                            status: "completed",
+                            requestPayload: .object([
+                                "id": .string("reportWindow")
+                            ]),
+                            responsePayload: .object([
+                                "windowId": .string("reportWindow__conv-1"),
+                                "conversationId": .string("conv-1"),
+                                "windowKey": .string("reportWindow"),
+                                "windowTitle": .string("Report Review"),
+                                "presentation": .string("hosted"),
+                                "region": .string("chat.top"),
+                                "parentKey": .string("chat/new")
+                            ])
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: snapshot)
+
+        XCTAssertEqual(restore?.selectedWindowId, "reportWindow__conv-1")
+        XCTAssertEqual(restore?.windows.first?.windowTitle, "Report Review")
+    }
+
+    func testHostedWorkspaceRestoreDoesNotRequireAppPlacementFields() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "responsePayload": {
+                            "windowId": "generic__conv-1",
+                            "windowKey": "generic-report",
+                            "windowTitle": "Generic Report"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+
+        XCTAssertEqual(restore?.selectedWindowId, "generic__conv-1")
+        XCTAssertEqual(restore?.windows.first?.windowKey, "generic-report")
+    }
+
+    func testHostedWorkspaceRestoreIgnoresLiveGroupsWithoutActiveTurn() throws {
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: nil,
+            liveExecutionGroupsByID: [
+                "assistant-old": LiveExecutionGroup(
+                    pageID: "page-old",
+                    assistantMessageID: "assistant-old",
+                    turnID: "turn-old",
+                    toolSteps: [
+                        LiveToolStepState(
+                            toolCallID: "tool-old",
+                            toolName: "ui/view/open",
+                            status: "completed",
+                            responsePayload: .object([
+                                "windowId": .string("old__conv-1"),
+                                "windowKey": .string("old-report")
+                            ])
+                        )
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertNil(deriveHostedWorkspaceRestoreState(from: snapshot))
+    }
+
+    func testConversationStreamTrackerPreservesToolResponsePayload() async throws {
+        let tracker = ConversationStreamTracker()
+        let payload = """
+        {
+          "type": "tool_call_completed",
+          "conversationId": "conv-1",
+          "turnId": "turn-1",
+          "assistantMessageId": "assistant-1",
+          "toolCallId": "tool-1",
+          "toolName": "ui/view/open",
+          "responsePayload": {
+            "windowId": "reportWindow__conv-1",
+            "conversationId": "conv-1",
+            "windowKey": "reportWindow",
+            "presentation": "hosted"
+          }
+        }
+        """
+
+        let snapshot = await tracker.apply(SSEEvent(data: payload))
+        let step = snapshot.liveExecutionGroupsByID["assistant-1"]?.toolSteps.first
+
+        XCTAssertEqual(step?.status, "completed")
+        XCTAssertEqual(
+            step?.responsePayload,
+            .object([
+                "windowId": .string("reportWindow__conv-1"),
+                "conversationId": .string("conv-1"),
+                "windowKey": .string("reportWindow"),
+                "presentation": .string("hosted")
+            ])
+        )
+    }
+
+    func testConversationStreamTrackerPreservesNonObjectToolPayloads() async throws {
+        let tracker = ConversationStreamTracker()
+        let payload = """
+        {
+          "type": "tool_call_completed",
+          "conversationId": "conv-1",
+          "turnId": "turn-1",
+          "assistantMessageId": "assistant-1",
+          "toolCallId": "tool-1",
+          "toolName": "ui/window/show",
+          "arguments": "window-1",
+          "responsePayload": ["ok", true]
+        }
+        """
+
+        let snapshot = await tracker.apply(SSEEvent(data: payload))
+        let step = snapshot.liveExecutionGroupsByID["assistant-1"]?.toolSteps.first
+
+        XCTAssertEqual(step?.requestPayload, .string("window-1"))
+        XCTAssertEqual(step?.responsePayload, .array([.string("ok"), .bool(true)]))
+    }
+
+    func testConversationStreamTrackerMergesToolTurnIDIntoExistingGroup() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"model_started","conversationId":"conv-1","assistantMessageId":"assistant-1","model":{"provider":"openai","model":"gpt-5-mini"}}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"tool_call_completed","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"assistant-1","toolCallId":"tool-1","toolName":"ui/view/open","responsePayload":{"windowId":"window-1","windowKey":"report"}}"#))
+
+        XCTAssertEqual(snapshot.liveExecutionGroupsByID["assistant-1"]?.turnID, "turn-1")
+    }
+
+    func testConversationStreamTrackerPreservesToolOrderWhenMergingUpdates() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_call_started","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"assistant-1","toolCallId":"tool-1","toolName":"first-tool"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_call_started","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"assistant-1","toolCallId":"tool-2","toolName":"second-tool"}"#))
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"tool_call_completed","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"assistant-1","toolCallId":"tool-1","toolName":"first-tool","responsePayload":{"ok":true}}"#))
+
+        let steps = try XCTUnwrap(snapshot.liveExecutionGroupsByID["assistant-1"]?.toolSteps)
+        XCTAssertEqual(steps.map { $0.toolCallID ?? "" }, ["tool-1", "tool-2"])
+        XCTAssertEqual(steps.map { $0.status ?? "" }, ["completed", "running"])
+    }
+
     func testUIBridgeRPCClientCarriesSessionHeaderAcrossCalls() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -323,16 +572,17 @@ final class AgentlySDKTests: XCTestCase {
         let expectation = expectation(description: "forge window metadata request captured")
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
-            XCTAssertEqual(url.path, "/v1/api/agently/forge/window/recommendation/review")
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            XCTAssertEqual(components.percentEncodedPath, "/v1/api/agently/forge/window/report%2Freview")
             expectation.fulfill()
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
                 "Content-Type": "application/json"
             ])!
-            let data = #"{"data":{"view":{"content":{"containers":[{"id":"recommendationRoot"}]}}}}"#.data(using: .utf8)!
+            let data = #"{"data":{"view":{"content":{"containers":[{"id":"reportRoot"}]}}}}"#.data(using: .utf8)!
             return (response, data)
         }
 
-        let metadata = try await client.getForgeWindowMetadata(windowKey: "recommendation/review")
+        let metadata = try await client.getForgeWindowMetadata(windowKey: "report/review")
         let root = try XCTUnwrap({
             if case .object(let value) = metadata { return value }
             return nil
@@ -354,7 +604,7 @@ final class AgentlySDKTests: XCTestCase {
             if case .object(let value) = firstContainer { return value }
             return nil
         }())
-        XCTAssertEqual(containerObject["id"], .string("recommendationRoot"))
+        XCTAssertEqual(containerObject["id"], .string("reportRoot"))
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
     }
@@ -718,13 +968,13 @@ final class AgentlySDKTests: XCTestCase {
             let body: String
             switch url.path {
             case "/v1/api/auth/local/login":
-                body = #"{"sessionId":"sess-local","username":"awitas","provider":"local"}"#
+                body = #"{"sessionId":"sess-local","username":"test-user","provider":"local"}"#
             case "/v1/api/auth/logout":
                 body = #"{}"#
             case "/v1/api/auth/session":
-                body = #"{"sessionId":"sess-created","username":"awitas"}"#
+                body = #"{"sessionId":"sess-created","username":"test-user"}"#
             case "/v1/api/auth/oob":
-                body = #"{"sessionId":"sess-oob","status":"ok","username":"awitas","provider":"idp"}"#
+                body = #"{"sessionId":"sess-oob","status":"ok","username":"test-user","provider":"idp"}"#
             case "/v1/api/auth/idp/delegate":
                 body = #"{"mode":"oob","idpLogin":"enabled","provider":"idp","authUrl":"https://idp.example/auth","state":"state-1","expiresIn":300}"#
             default:
@@ -734,9 +984,9 @@ final class AgentlySDKTests: XCTestCase {
             return (response, body.data(using: .utf8)!)
         }
 
-        let local = try await client.localLogin(LocalLoginInput(username: "awitas"))
+        let local = try await client.localLogin(LocalLoginInput(username: "test-user"))
         try await client.logout()
-        let sessionOutput = try await client.createAuthSession(CreateSessionInput(username: "awitas", accessToken: "token"))
+        let sessionOutput = try await client.createAuthSession(CreateSessionInput(username: "test-user", accessToken: "token"))
         let oob = try await client.oobLogin(OOBLoginInput(secretsURL: "mem://secret", scopes: ["openid"]))
         let delegate = try await client.idpDelegate()
 
@@ -926,7 +1176,7 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
-    func testGetPayloadsDeduplicatesIDsAndSkipsMissingPayloads() async throws {
+    func testGetPayloadsUsesBatchEndpointWithDeduplicatedIDs() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
@@ -934,26 +1184,18 @@ final class AgentlySDKTests: XCTestCase {
         let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
 
         var seen: [String] = []
+        var requestedIDs: [String] = []
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             seen.append("\(request.httpMethod ?? "") \(url.path)")
-            switch url.path {
-            case "/v1/api/payload/p1":
-                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
-                    "Content-Type": "application/json"
-                ])!
-                return (response, #"{"Id":"p1","MimeType":"text/plain","SizeBytes":1,"Storage":"inline","Compression":"none"}"#.data(using: .utf8)!)
-            case "/v1/api/payload/p2":
-                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
-                    "Content-Type": "application/json"
-                ])!
-                return (response, #"{"Id":"p2","MimeType":"text/plain","SizeBytes":2,"Storage":"inline","Compression":"none"}"#.data(using: .utf8)!)
-            default:
-                let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: [
-                    "Content-Type": "application/json"
-                ])!
-                return (response, #"{"status":"error"}"#.data(using: .utf8)!)
-            }
+            XCTAssertEqual(url.path, "/v1/api/payloads")
+            let body = try XCTUnwrap(self.requestBodyString(request)?.data(using: .utf8))
+            let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            requestedIDs = try XCTUnwrap(decoded["ids"] as? [String])
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            return (response, #"{"p1":{"Id":"p1","MimeType":"text/plain","SizeBytes":1,"Storage":"inline","Compression":"none"},"p2":{"Id":"p2","MimeType":"text/plain","SizeBytes":2,"Storage":"inline","Compression":"none"}}"#.data(using: .utf8)!)
         }
 
         let result = try await client.getPayloads(ids: ["p1", "p2", "missing", "p1", ""])
@@ -961,11 +1203,8 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(result.count, 2)
         XCTAssertEqual(result["p1"]?.id, "p1")
         XCTAssertEqual(result["p2"]?.id, "p2")
-        XCTAssertEqual(seen, [
-            "GET /v1/api/payload/p1",
-            "GET /v1/api/payload/p2",
-            "GET /v1/api/payload/missing"
-        ])
+        XCTAssertEqual(seen, ["POST /v1/api/payloads"])
+        XCTAssertEqual(requestedIDs, ["p1", "p2", "missing"])
         URLProtocolStub.requestHandler = nil
     }
 
@@ -979,8 +1218,8 @@ final class AgentlySDKTests: XCTestCase {
         var seen: [String] = []
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
-            seen.append("\(request.httpMethod ?? "") \(url.path)")
             let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            seen.append("\(request.httpMethod ?? "") \(components.percentEncodedPath)")
             let items = components.queryItems ?? []
             func value(for name: String) -> String? {
                 items.first(where: { $0.name == name })?.value
@@ -989,7 +1228,7 @@ final class AgentlySDKTests: XCTestCase {
                 "Content-Type": "application/json"
             ])!
             let body: String
-            switch (request.httpMethod ?? "", url.path) {
+            switch (request.httpMethod ?? "", components.percentEncodedPath) {
             case ("GET", "/v1/workspace/resources"):
                 XCTAssertEqual(value(for: "kind"), "prompt")
                 body = #"{"names":["alpha.md","beta.md"]}"#
@@ -1007,16 +1246,16 @@ final class AgentlySDKTests: XCTestCase {
                 body = #"{"imported":1,"skipped":0}"#
             case ("GET", "/v1/api/agently/scheduler/schedule/schedule-1"):
                 body = #"{"status":"ok","data":{"id":"schedule-1","name":"Daily","agentRef":"agent","enabled":true,"scheduleType":"cron","cronExpr":"0 0 * * *"}}"#
-            case ("GET", "/v1/api/agently/scheduler"), ("GET", "/v1/api/agently/scheduler/"):
+            case ("GET", "/v1/api/agently/scheduler/"):
                 body = #"{"status":"ok","data":{"schedules":[{"id":"schedule-1","name":"Daily","agentRef":"agent","enabled":true,"scheduleType":"cron","cronExpr":"0 0 * * *"}]}}"#
-            case ("PATCH", "/v1/api/agently/scheduler"), ("PATCH", "/v1/api/agently/scheduler/"):
+            case ("PATCH", "/v1/api/agently/scheduler/"):
                 let patch = self.requestBodyString(request) ?? ""
                 XCTAssertTrue(patch.contains("\"scheduleType\":\"cron\""))
                 body = #"{}"#
             case ("POST", "/v1/api/agently/scheduler/run-now/schedule-1"):
                 body = #"{}"#
             default:
-                XCTFail("unexpected request \(request.httpMethod ?? "") \(url.path)")
+                XCTFail("unexpected request \(request.httpMethod ?? "") \(components.percentEncodedPath)")
                 body = #"{}"#
             }
             return (response, body.data(using: .utf8)!)
@@ -1047,10 +1286,41 @@ final class AgentlySDKTests: XCTestCase {
             "POST /v1/workspace/resources/export",
             "POST /v1/workspace/resources/import",
             "GET /v1/api/agently/scheduler/schedule/schedule-1",
-            "GET /v1/api/agently/scheduler",
-            "PATCH /v1/api/agently/scheduler",
+            "GET /v1/api/agently/scheduler/",
+            "PATCH /v1/api/agently/scheduler/",
             "POST /v1/api/agently/scheduler/run-now/schedule-1"
         ])
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testStreamEventsEncodesConversationIDQuery() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "stream request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            XCTAssertEqual(components.percentEncodedPath, "/v1/stream")
+            XCTAssertEqual(components.percentEncodedQuery, "conversationId=conv%2B1%2Fmain")
+            expectation.fulfill()
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "text/event-stream"
+            ])!
+            let data = """
+            data: {"type":"status","conversationId":"conv+1/main"}
+
+            """.data(using: .utf8)!
+            return (response, data)
+        }
+
+        var iterator = client.streamEvents(conversationID: "conv+1/main").makeAsyncIterator()
+        _ = try await iterator.next()
+
+        await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
     }
 
@@ -1118,8 +1388,8 @@ final class AgentlySDKTests: XCTestCase {
         var seen: [String] = []
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
-            seen.append("\(request.httpMethod ?? "") \(url.path)")
             let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            seen.append("\(request.httpMethod ?? "") \(components.percentEncodedPath)")
             let items = components.queryItems ?? []
             func value(for name: String) -> String? {
                 items.first(where: { $0.name == name })?.value
@@ -1128,17 +1398,19 @@ final class AgentlySDKTests: XCTestCase {
                 "Content-Type": "application/json"
             ])!
             let body: String
-            switch (request.httpMethod ?? "", url.path) {
-            case ("POST", "/v1/tools/template%3Alist/execute"):
-                body = #"{"result":"{\"items\":[{\"name\":\"brief\",\"description\":\"Summary\",\"format\":\"markdown\"}]}"}"#
-            case ("POST", "/v1/tools/template%3Aget/execute"):
-                let raw = try XCTUnwrap(self.requestBodyString(request))
-                XCTAssertTrue(raw.contains(#""includeDocument":true"#))
-                body = #"{"result":"{\"name\":\"brief\",\"format\":\"markdown\",\"description\":\"Summary\",\"instructions\":\"Use bullets\",\"includedDocument\":true}"}"#
+            switch (request.httpMethod ?? "", components.percentEncodedPath) {
+            case ("GET", "/v1/templates"):
+                body = #"{"items":[{"name":"brief","description":"Summary","format":"markdown"}]}"#
+            case ("GET", "/v1/templates/brief"):
+                XCTAssertEqual(value(for: "includeDocument"), "true")
+                body = #"{"name":"brief","format":"markdown","description":"Summary","instructions":"Use bullets","includedDocument":true}"#
             case ("GET", "/v1/skills"):
                 XCTAssertEqual(value(for: "conversationId"), "conv-1")
                 body = #"{"items":[{"name":"playwright-cli","description":"Automate browser"}],"diagnostics":["ok"]}"#
             case ("POST", "/v1/skills/playwright-cli/activate"):
+                XCTAssertEqual(value(for: "conversationId"), "conv-1")
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertEqual(raw, #"{"args":"https:\/\/example.com"}"#)
                 body = #"{"name":"playwright-cli","body":"Loaded skill"}"#
             case ("GET", "/v1/skills/diagnostics"):
                 body = #"{"items":["shadowed demo"]}"#
@@ -1176,12 +1448,52 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(toolCall.status, "queued")
         XCTAssertEqual(toolCall.approval?.id, "approval-1")
         XCTAssertEqual(seen, [
-            "POST /v1/tools/template%3Alist/execute",
-            "POST /v1/tools/template%3Aget/execute",
+            "GET /v1/templates",
+            "GET /v1/templates/brief",
             "GET /v1/skills",
             "POST /v1/skills/playwright-cli/activate",
             "GET /v1/skills/diagnostics",
             "POST /v1/api/mcp-ui/tools/call"
+        ])
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testTemplateAndSkillTransportsEncodeSlashBearingPathSegments() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var seen: [String] = []
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            seen.append("\(request.httpMethod ?? "") \(components.percentEncodedPath)")
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            switch (request.httpMethod ?? "", components.percentEncodedPath) {
+            case ("GET", "/v1/templates/templates%2Fbrief"):
+                return (response, #"{"name":"templates/brief","includedDocument":true}"#.data(using: .utf8)!)
+            case ("POST", "/v1/skills/skills%2Fplaywright-cli/activate"):
+                let raw = try XCTUnwrap(self.requestBodyString(request))
+                XCTAssertEqual(raw, #"{"args":"args"}"#)
+                let queryItems = components.queryItems ?? []
+                XCTAssertEqual(queryItems.first(where: { $0.name == "conversationId" })?.value, "conv-1")
+                return (response, #"{"name":"skills/playwright-cli","body":"Loaded skill"}"#.data(using: .utf8)!)
+            default:
+                XCTFail("unexpected request \(request.httpMethod ?? "") \(url.path)")
+                return (response, #"{}"#.data(using: .utf8)!)
+            }
+        }
+
+        _ = try await client.getTemplate(GetTemplateInput(name: "templates/brief", includeDocument: true))
+        _ = try await client.activateSkill(ActivateSkillInput(conversationID: "conv-1", name: "skills/playwright-cli", args: "args"))
+
+        XCTAssertEqual(seen, [
+            "GET /v1/templates/templates%2Fbrief",
+            "POST /v1/skills/skills%2Fplaywright-cli/activate"
         ])
         URLProtocolStub.requestHandler = nil
     }
@@ -1268,6 +1580,50 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testDatasourceAndLookupRoutesEncodeSlashBearingIdentifiers() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var seen: [String] = []
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            seen.append("\(request.httpMethod ?? "") \(components.percentEncodedPath)?\(components.percentEncodedQuery ?? "")")
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let body: String
+            switch (request.httpMethod ?? "", components.percentEncodedPath) {
+            case ("POST", "/v1/api/datasources/sources%2Fmain/fetch"):
+                body = #"{"rows":[]}"#
+            case ("DELETE", "/v1/api/datasources/sources%2Fmain/cache"):
+                XCTAssertEqual(components.percentEncodedQuery, "inputsHash=hash%2Bone%2Ftwo")
+                body = #"{}"#
+            case ("GET", "/v1/api/lookups/registry"):
+                XCTAssertEqual(components.percentEncodedQuery, "context=dialog%3Amain%2Fform%2Bsearch")
+                body = #"{"entries":[]}"#
+            default:
+                XCTFail("unexpected request \(request.httpMethod ?? "") \(url.path)")
+                body = #"{}"#
+            }
+            return (response, body.data(using: .utf8)!)
+        }
+
+        _ = try await client.fetchDatasource(FetchDatasourceInput(id: "sources/main"))
+        try await client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id: "sources/main", inputsHash: "hash+one/two"))
+        _ = try await client.listLookupRegistry(ListLookupRegistryInput(context: "dialog:main/form+search"))
+
+        XCTAssertEqual(seen, [
+            "POST /v1/api/datasources/sources%2Fmain/fetch?",
+            "DELETE /v1/api/datasources/sources%2Fmain/cache?inputsHash=hash%2Bone%2Ftwo",
+            "GET /v1/api/lookups/registry?context=dialog%3Amain%2Fform%2Bsearch"
+        ])
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testTrackConversationHydratesThenAppliesEvents() async throws {
         let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))])
         let initial = ConversationStateResponse(
@@ -1301,6 +1657,189 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshots.first?.feeds.first?.feedID, "feed-1")
         XCTAssertEqual(snapshots.last?.activeTurnID, "turn-1")
         XCTAssertEqual(snapshots.last?.bufferedMessages.first?.content, "hello")
+    }
+
+    func testTrackConversationHydratesRunningTurnAsActiveBeforeNewEvents() async throws {
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))])
+        let initial = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [
+                    TurnState(
+                        turnID: "turn-running",
+                        status: "running",
+                        assistant: AssistantState(
+                            final: AssistantMessageState(
+                                messageID: "msg-running",
+                                content: "visible live content",
+                                createdAt: "2026-06-05T09:45:00Z"
+                            )
+                        ),
+                        createdAt: "2026-06-05T09:45:00Z"
+                    )
+                ]
+            )
+        )
+        let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+            continuation.finish()
+        }
+
+        let stream = client.trackConversation(
+            conversationID: "conv-1",
+            initialStateLoader: { id in
+                XCTAssertEqual(id, "conv-1")
+                return initial
+            },
+            eventStream: { id in
+                XCTAssertEqual(id, "conv-1")
+                return events
+            }
+        )
+
+        var snapshots: [ConversationStreamSnapshot] = []
+        for try await snapshot in stream {
+            snapshots.append(snapshot)
+        }
+
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.activeTurnID, "turn-running")
+        XCTAssertEqual(snapshots.first?.bufferedMessages.first?.content, "visible live content")
+    }
+
+    func testTrackConversationStartsStreamBeforeHydrationAndSkipsHydratedEventSequences() async throws {
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))])
+        let streamConstructed = DispatchSemaphore(value: 0)
+        let initialJSON = """
+        {
+          "eventCursor": "2026-06-05T09:45:00Z",
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-running",
+                "status": "running",
+                "createdAt": "2026-06-05T09:45:00Z",
+                "messages": [
+                  {
+                    "messageId": "msg-running",
+                    "role": "assistant",
+                    "content": "visible live content",
+                    "sequence": 7,
+                    "status": "running"
+                  }
+                ],
+                "assistant": {
+                  "final": {
+                    "messageId": "msg-running",
+                    "content": "visible live content",
+                    "createdAt": "2026-06-05T09:45:00Z"
+                  }
+                }
+              }
+            ]
+          }
+        }
+        """
+        let initial = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(initialJSON.data(using: .utf8))
+        )
+
+        let stream = client.trackConversation(
+            conversationID: "conv-1",
+            initialStateLoader: { id in
+                XCTAssertEqual(id, "conv-1")
+                XCTAssertEqual(streamConstructed.wait(timeout: .now()), .success)
+                return initial
+            },
+            eventStream: { id in
+                XCTAssertEqual(id, "conv-1")
+                streamConstructed.signal()
+                return AsyncThrowingStream<SSEEvent, Error> { continuation in
+                    continuation.yield(SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-running","assistantMessageId":"msg-running","eventSeq":7,"createdAt":"2026-06-05T09:45:01Z","content":" duplicate"}"#))
+                    continuation.finish()
+                }
+            }
+        )
+
+        var snapshots: [ConversationStreamSnapshot] = []
+        for try await snapshot in stream {
+            snapshots.append(snapshot)
+        }
+
+        XCTAssertEqual(snapshots.count, 2)
+        XCTAssertEqual(snapshots.last?.activeTurnID, "turn-running")
+        XCTAssertEqual(snapshots.last?.bufferedMessages.first?.content, "visible live content")
+    }
+
+    func testConversationStreamTrackerHydratesExecutionGroupsFromTranscriptToolPayloads() async throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-running",
+                "status": "running",
+                "createdAt": "2026-06-05T09:45:00Z",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "assistantMessageId": "assistant-1",
+                      "turnId": "turn-running",
+                      "sequence": 9,
+                      "status": "running",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "requestPayload": { "id": "reportWindow" },
+                          "responsePayload": {
+                            "windowId": "reportWindow__conv-1",
+                            "conversationId": "conv-1",
+                            "windowKey": "reportWindow",
+                            "windowTitle": "Report Review",
+                            "presentation": "hosted",
+                            "region": "chat.top",
+                            "parentKey": "chat/new"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+        let tracker = ConversationStreamTracker()
+
+        await tracker.hydrate(response)
+        let snapshot = await tracker.currentSnapshot()
+        let restore = deriveHostedWorkspaceRestoreState(from: snapshot)
+
+        XCTAssertEqual(snapshot.activeTurnID, "turn-running")
+        XCTAssertEqual(
+            snapshot.liveExecutionGroupsByID["assistant-1"]?.toolSteps.first?.responsePayload,
+            .object([
+                "windowId": .string("reportWindow__conv-1"),
+                "conversationId": .string("conv-1"),
+                "windowKey": .string("reportWindow"),
+                "windowTitle": .string("Report Review"),
+                "presentation": .string("hosted"),
+                "region": .string("chat.top"),
+                "parentKey": .string("chat/new")
+            ])
+        )
+        XCTAssertEqual(restore?.selectedWindowId, "reportWindow__conv-1")
+        XCTAssertEqual(restore?.windows.first?.windowTitle, "Report Review")
     }
 
     func testQueryInputEncodesAndroidWebParityFields() throws {

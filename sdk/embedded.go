@@ -35,6 +35,7 @@ import (
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
+	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	uiresource "github.com/viant/agently-core/protocol/ui/resource"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
@@ -47,6 +48,8 @@ import (
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
+	tplrepo "github.com/viant/agently-core/workspace/repository/template"
+	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpuiresource "github.com/viant/mcp-ui/resource"
 	hstate "github.com/viant/xdatly/handler/state"
@@ -885,7 +888,7 @@ func (c *backendClient) ActivateSkill(ctx context.Context, input *ActivateSkillI
 	if strings.TrimSpace(input.Name) == "" {
 		return nil, errors.New("skill name is required")
 	}
-	body, err := c.skills.ActivateForConversation(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Name), strings.TrimSpace(input.Args))
+	body, err := c.skills.ActivateForConversation(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Name), input.Args)
 	if err != nil {
 		return nil, err
 	}
@@ -967,10 +970,93 @@ func (c *backendClient) readMCPUIResourceByScanningServers(ctx context.Context, 
 }
 
 func (c *backendClient) ListTemplates(ctx context.Context, input *ListTemplatesInput) (*ListTemplatesOutput, error) {
-	return listTemplates(c, ctx, input)
+	svc := c.templateService()
+	exec, err := svc.Method("list")
+	if err != nil {
+		return nil, err
+	}
+	var raw templatesvc.ListOutput
+	if err := exec(ctx, &templatesvc.ListInput{}, &raw); err != nil {
+		return nil, err
+	}
+	out := &ListTemplatesOutput{Items: make([]TemplateListItem, 0, len(raw.Items))}
+	for _, item := range raw.Items {
+		out.Items = append(out.Items, TemplateListItem{
+			Name:        item.Name,
+			Description: item.Description,
+			Format:      item.Format,
+		})
+	}
+	return out, nil
 }
+
 func (c *backendClient) GetTemplate(ctx context.Context, input *GetTemplateInput) (*GetTemplateOutput, error) {
-	return getTemplate(c, ctx, input)
+	if input == nil || strings.TrimSpace(input.Name) == "" {
+		return nil, errors.New("template name is required")
+	}
+	svc := c.templateService()
+	exec, err := svc.Method("get")
+	if err != nil {
+		return nil, err
+	}
+	var raw templatesvc.GetOutput
+	if err := exec(ctx, &templatesvc.GetInput{Name: strings.TrimSpace(input.Name), IncludeDocument: input.IncludeDocument}, &raw); err != nil {
+		return nil, err
+	}
+	fences, err := templateMaps(raw.Fences)
+	if err != nil {
+		return nil, err
+	}
+	examples, err := templateMaps(raw.Examples)
+	if err != nil {
+		return nil, err
+	}
+	return &GetTemplateOutput{
+		Name:             raw.Name,
+		Format:           raw.Format,
+		Description:      raw.Description,
+		Instructions:     raw.Instructions,
+		Fences:           fences,
+		Schema:           raw.Schema,
+		Examples:         examples,
+		IncludedDocument: raw.IncludedDocument,
+	}, nil
+}
+
+func (c *backendClient) templateService() *templatesvc.Service {
+	var templates *tplrepo.Repository
+	var bundles *tplbundlerepo.Repository
+	if c != nil && c.store != nil {
+		templates = tplrepo.NewWithStore(c.store)
+		bundles = tplbundlerepo.NewWithStore(c.store)
+	} else {
+		fs := afs.New()
+		templates = tplrepo.New(fs)
+		bundles = tplbundlerepo.New(fs)
+	}
+	opts := []func(*templatesvc.Service){}
+	if c != nil && c.conv != nil {
+		opts = append(opts, templatesvc.WithConversationClient(c.conv))
+	}
+	if c != nil && c.agent != nil && c.agent.Finder() != nil {
+		opts = append(opts, templatesvc.WithAgentFinder(c.agent.Finder()))
+	}
+	return templatesvc.New(templates, bundles, opts...)
+}
+
+func templateMaps(value interface{}) ([]map[string]interface{}, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if string(data) == "null" {
+		return nil, nil
+	}
+	var out []map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func isToolApprovalQueueDuplicateErr(err error) bool {

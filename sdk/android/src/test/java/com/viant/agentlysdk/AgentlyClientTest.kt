@@ -1,8 +1,23 @@
 package com.viant.agentlysdk
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,6 +25,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -109,7 +126,7 @@ class AgentlyClientTest {
                     "view": {
                       "content": {
                         "containers": [
-                          { "id": "recommendationRoot" }
+                          { "id": "reportRoot" }
                         ]
                       }
                     }
@@ -121,14 +138,14 @@ class AgentlyClientTest {
         server.start()
         val client = client()
 
-        val result = client.fetchForgeWindowMetadata("recommendation/review")
+        val result = client.fetchForgeWindowMetadata("report/review")
 
-        assertEquals("recommendationRoot", result.jsonObject["view"]!!
+        assertEquals("reportRoot", result.jsonObject["view"]!!
             .jsonObject["content"]!!
             .jsonObject["containers"]!!
             .jsonArray.first().jsonObject["id"]!!.jsonPrimitive.content)
         assertEquals(
-            "/v1/api/agently/forge/window/recommendation%2Freview",
+            "/v1/api/agently/forge/window/report%2Freview",
             server.takeRequest().path
         )
     }
@@ -163,6 +180,266 @@ class AgentlyClientTest {
         val snapshotRequest: RecordedRequest = server.takeRequest()
         assertEquals("/v1/ui/rpc", snapshotRequest.path)
         assertEquals("session-123", snapshotRequest.getHeader("Mcp-Session-Id"))
+    }
+
+    @Test
+    fun `ui bridge long poll does not block snapshot rpc`() = runBlocking {
+        server.start()
+        val pollEntered = CountDownLatch(1)
+        val snapshotEntered = CountDownLatch(1)
+        val releasePoll = CountDownLatch(1)
+        val httpClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                val request = chain.request()
+                val body = requestBodyText(request)
+                when {
+                    body.contains("\"method\":\"ui.hello\"") -> rpcTestResponse(
+                        request = request,
+                        body = """{"jsonrpc":"2.0","result":{"accepted":true}}""",
+                        sessionId = "session-123"
+                    )
+                    body.contains("\"method\":\"ui.poll\"") -> {
+                        pollEntered.countDown()
+                        if (!snapshotEntered.await(2, TimeUnit.SECONDS)) {
+                            throw AssertionError("snapshot RPC did not enter while poll was in flight")
+                        }
+                        releasePoll.await(2, TimeUnit.SECONDS)
+                        rpcTestResponse(
+                            request = request,
+                            body = """{"jsonrpc":"2.0","result":{"commands":[]}}"""
+                        )
+                    }
+                    body.contains("\"method\":\"ui.snapshot\"") -> {
+                        snapshotEntered.countDown()
+                        releasePoll.countDown()
+                        rpcTestResponse(
+                            request = request,
+                            body = """{"jsonrpc":"2.0","result":{"ok":true}}"""
+                        )
+                    }
+                    else -> rpcTestResponse(
+                        request = request,
+                        code = 400,
+                        body = """{"jsonrpc":"2.0","error":{"code":400,"message":"unexpected method"}}"""
+                    )
+                }
+            })
+            .build()
+        val client = AgentlyClient(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(
+                    baseUrl = server.url("/").toString().trimEnd('/'),
+                    httpClient = httpClient
+                )
+            )
+        )
+        val bridge = UIBridgeRpcClient(client)
+
+        bridge.hello("android-ui-test")
+
+        val pollJob = async(start = CoroutineStart.UNDISPATCHED) { bridge.poll("android-ui-test", timeoutMs = 5_000) }
+        assertTrue(pollEntered.await(1, TimeUnit.SECONDS))
+
+        val snapshot = withTimeout(1000) {
+            bridge.snapshot(
+                clientId = "android-ui-test",
+                data = buildJsonObject {
+                    put("windows", buildJsonObject { })
+                }
+            )
+        }
+
+        assertEquals(true, snapshot?.get("ok")?.jsonPrimitive?.boolean)
+        pollJob.await()
+        Unit
+    }
+
+    @Test
+    fun `trackConversation connects stream before live state and applies post cursor event`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":2,"content":" live","createdAt":"2026-06-05T10:00:01Z"}
+
+                    """.trimIndent()
+                )
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "eventCursor": "2026-06-05T10:00:00Z",
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-1",
+                        "status": "running",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-1",
+                            "content": "Hello"
+                          }
+                        },
+                        "execution": {
+                          "pages": [
+                            {
+                              "pageId": "page-1",
+                              "assistantMessageId": "assistant-1",
+                              "turnId": "turn-1",
+                              "sequence": 1,
+                              "status": "running"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val snapshots = client.trackConversation("conv-1").take(2).toList()
+
+        val streamRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        val liveStateRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertTrue(streamRequest.path.orEmpty().startsWith("/v1/stream?"))
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", liveStateRequest.path)
+        assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
+        assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
+    }
+
+    @Test
+    fun `trackConversation buffers pre hydration SSE burst without dropping deltas`() = runBlocking {
+        val eventCount = 150
+        val sseBody = (1..eventCount).joinToString(separator = "\n\n", postfix = "\n\n") { index ->
+            """data: {"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":$index,"content":"x","createdAt":"2026-06-05T10:00:01Z"}"""
+        }
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody)
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "eventCursor": "2026-06-05T10:00:00Z",
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-1",
+                        "status": "running",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-1",
+                            "content": "Hello"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val snapshots = client.trackConversation("conv-1").take(eventCount + 1).toList()
+
+        assertEquals(eventCount + 1, snapshots.size)
+        assertEquals(
+            "Hello" + "x".repeat(eventCount),
+            snapshots.last().bufferedMessages.single { it.id == "assistant-1" }.content
+        )
+    }
+
+    @Test
+    fun `trackConversation rehydrates after stream overflow terminal event`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":1,"content":" live","createdAt":"2026-06-05T10:00:01Z"}
+
+                    data: {"type":"stream_overflow","conversationId":"conv-1","turnId":"turn-1","eventSeq":1,"status":"overflow","createdAt":"2026-06-05T10:00:02Z"}
+
+                    """.trimIndent()
+                )
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "eventCursor": "2026-06-05T10:00:00Z",
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-1",
+                        "status": "running",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-1",
+                            "content": "Hello"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("")
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "eventCursor": "2026-06-05T10:00:03Z",
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-1",
+                        "status": "running",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-1",
+                            "content": "Recovered"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val snapshots = client.trackConversation("conv-1").take(3).toList()
+
+        assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
+        assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
+        assertEquals("Recovered", snapshots[2].bufferedMessages.single { it.id == "assistant-1" }.content)
+        assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/stream?"))
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", server.takeRequest().path)
+        assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/stream?"))
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", server.takeRequest().path)
     }
 
     @Test
@@ -517,8 +794,8 @@ class AgentlyClientTest {
 
     @Test
     fun `templates skills and mediated mcp ui routes match shared client contract`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"result":"{\"items\":[{\"name\":\"brief\",\"description\":\"Summary\",\"format\":\"markdown\"}]}"}"""))
-        server.enqueue(MockResponse().setBody("""{"result":"{\"name\":\"brief\",\"format\":\"markdown\",\"description\":\"Summary\",\"instructions\":\"Use bullets\",\"includedDocument\":true}"}"""))
+        server.enqueue(MockResponse().setBody("""{"items":[{"name":"brief","description":"Summary","format":"markdown"}]}"""))
+        server.enqueue(MockResponse().setBody("""{"name":"brief","format":"markdown","description":"Summary","instructions":"Use bullets","includedDocument":true}"""))
         server.enqueue(MockResponse().setBody("""{"items":[{"name":"playwright-cli","description":"Automate browser"}],"diagnostics":["ok"]}"""))
         server.enqueue(MockResponse().setBody("""{"name":"playwright-cli","body":"Loaded skill"}"""))
         server.enqueue(MockResponse().setBody("""{"items":["shadowed demo"]}"""))
@@ -563,21 +840,21 @@ class AgentlyClientTest {
         assertEquals("approval-1", toolCall.approval?.id)
 
         val r1 = server.takeRequest()
-        assertEquals("/v1/tools/template%3Alist/execute", r1.path)
-        assertEquals("POST", r1.method)
+        assertEquals("/v1/templates", r1.path)
+        assertEquals("GET", r1.method)
 
         val r2 = server.takeRequest()
-        assertEquals("/v1/tools/template%3Aget/execute", r2.path)
-        assertEquals("POST", r2.method)
-        assertTrue(r2.body.readUtf8().contains("\"includeDocument\":true"))
+        assertEquals("/v1/templates/brief?includeDocument=true", r2.path)
+        assertEquals("GET", r2.method)
 
         val r3 = server.takeRequest()
         assertEquals("/v1/skills?conversationId=conv-1", r3.path)
         assertEquals("GET", r3.method)
 
         val r4 = server.takeRequest()
-        assertEquals("/v1/skills/playwright-cli/activate", r4.path)
+        assertEquals("/v1/skills/playwright-cli/activate?conversationId=conv-1", r4.path)
         assertEquals("POST", r4.method)
+        assertEquals("""{"args":"https://example.com"}""", r4.body.readUtf8())
 
         val r5 = server.takeRequest()
         assertEquals("/v1/skills/diagnostics", r5.path)
@@ -587,6 +864,25 @@ class AgentlyClientTest {
         assertEquals("/v1/api/mcp-ui/tools/call", r6.path)
         assertEquals("POST", r6.method)
         assertTrue(r6.body.readUtf8().contains("\"toolName\":\"system.exec\""))
+    }
+
+    @Test
+    fun `template and skill transports encode slash-bearing path segments`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"name":"templates/brief","includedDocument":true}"""))
+        server.enqueue(MockResponse().setBody("""{"name":"skills/playwright-cli","body":"Loaded skill"}"""))
+        server.start()
+        val client = client()
+
+        client.getTemplate(GetTemplateInput(name = "templates/brief", includeDocument = true))
+        client.activateSkill(ActivateSkillInput(conversationId = "conv-1", name = "skills/playwright-cli", args = "args"))
+
+        val r1 = server.takeRequest()
+        assertEquals("/v1/templates/templates%2Fbrief?includeDocument=true", r1.path)
+        assertEquals("GET", r1.method)
+        val r2 = server.takeRequest()
+        assertEquals("/v1/skills/skills%2Fplaywright-cli/activate?conversationId=conv-1", r2.path)
+        assertEquals("POST", r2.method)
+        assertEquals("""{"args":"args"}""", r2.body.readUtf8())
     }
 
     @Test
@@ -929,10 +1225,17 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `getPayloads deduplicates ids and skips missing payloads`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"id":"p1","kind":"text","mimeType":"text/plain","sizeBytes":1,"storage":"inline","compression":"none"}"""))
-        server.enqueue(MockResponse().setBody("""{"id":"p2","kind":"text","mimeType":"text/plain","sizeBytes":2,"storage":"inline","compression":"none"}"""))
-        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"status":"error"}"""))
+    fun `getPayloads uses batch endpoint with deduplicated ids`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "p1": {"Id":"p1","Kind":"text","MimeType":"text/plain","SizeBytes":1,"Storage":"inline","Compression":"none"},
+                  "p2": {"Id":"p2","Kind":"text","MimeType":"text/plain","SizeBytes":2,"Storage":"inline","Compression":"none"}
+                }
+                """.trimIndent()
+            )
+        )
         server.start()
         val client = client()
 
@@ -942,12 +1245,49 @@ class AgentlyClientTest {
         assertEquals("p1", result["p1"]?.id)
         assertEquals("p2", result["p2"]?.id)
 
-        val r1 = server.takeRequest()
-        assertEquals("/v1/api/payload/p1", r1.path)
-        val r2 = server.takeRequest()
-        assertEquals("/v1/api/payload/p2", r2.path)
-        val r3 = server.takeRequest()
-        assertEquals("/v1/api/payload/missing", r3.path)
+        val request = server.takeRequest()
+        assertEquals("/v1/api/payloads", request.path)
+        assertEquals("POST", request.method)
+        val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        val requestedIds = body["ids"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("p1", "p2", "missing"), requestedIds)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `datasource and lookup extension routes encode slash-bearing identifiers`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"rows":[]}"""))
+        server.enqueue(MockResponse().setBody("""{}"""))
+        server.enqueue(MockResponse().setBody("""{"entries":[]}"""))
+        server.start()
+        val client = client()
+
+        client.fetchDatasource(
+            FetchDatasourceInput(
+                id = "sources/main",
+                inputs = mapOf("q" to JsonPrimitive("acme")),
+                cache = DatasourceCacheHints(bypassCache = true, writeThrough = true)
+            )
+        )
+        client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id = "sources/main", inputsHash = "hash/one"))
+        client.listLookupRegistry(ListLookupRegistryInput(context = "dialog:main/form"))
+
+        val fetch = server.takeRequest()
+        assertEquals("/v1/api/datasources/sources%2Fmain/fetch", fetch.path)
+        assertEquals("POST", fetch.method)
+        val fetchBody = Json.parseToJsonElement(fetch.body.readUtf8()).jsonObject
+        assertTrue(!fetchBody.containsKey("id"))
+        assertEquals("acme", fetchBody["inputs"]!!.jsonObject["q"]!!.jsonPrimitive.content)
+        assertEquals(true, fetchBody["cache"]!!.jsonObject["bypassCache"]!!.jsonPrimitive.boolean)
+        assertEquals(true, fetchBody["cache"]!!.jsonObject["writeThrough"]!!.jsonPrimitive.boolean)
+
+        val invalidate = server.takeRequest()
+        assertEquals("/v1/api/datasources/sources%2Fmain/cache?inputsHash=hash%2Fone", invalidate.path)
+        assertEquals("DELETE", invalidate.method)
+
+        val registry = server.takeRequest()
+        assertEquals("/v1/api/lookups/registry?context=dialog%3Amain%2Fform", registry.path)
+        assertEquals("GET", registry.method)
     }
 
     private fun client(): AgentlyClient {
@@ -956,5 +1296,30 @@ class AgentlyClientTest {
                 "appAPI" to EndpointConfig(baseUrl = server.url("/").toString().trimEnd('/'))
             )
         )
+    }
+
+    private fun requestBodyText(request: Request): String {
+        val buffer = Buffer()
+        request.body?.writeTo(buffer)
+        return buffer.readUtf8()
+    }
+
+    private fun rpcTestResponse(
+        request: Request,
+        code: Int = 200,
+        body: String,
+        sessionId: String? = null
+    ): Response {
+        val mediaType = "application/json".toMediaType()
+        return Response.Builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .code(code)
+            .message(if (code in 200..299) "OK" else "Error")
+            .apply {
+                sessionId?.let { header("Mcp-Session-Id", it) }
+            }
+            .body(body.toResponseBody(mediaType))
+            .build()
     }
 }

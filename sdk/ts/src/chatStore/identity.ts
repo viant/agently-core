@@ -5,7 +5,7 @@
  * Contract references:
  *   - ui-improvement.md §3.1: renderKey is allocated once, opaque, immutable.
  *   - ui-improvement.md §3.2: per-entity-kind match order + fuzzy-match
- *     window of ± 500 ms for unresolved local-origin user entities.
+ *     window of ± 500 ms for pending user-message entities.
  *   - ui-improvement.md §3.3: bootstrap + echo resolve to the same entity.
  */
 
@@ -46,7 +46,7 @@ export function allocateRenderKey(): string {
 // ─── Content normalisation (pinned for the fuzzy match) ───────────────────────
 
 /**
- * Normalise a text value for the unresolved-local-user fuzzy match in §3.2.
+ * Normalise a text value for the pending user-message fuzzy match in §3.2.
  *
  * Normalisation steps, in order:
  *   1. Guard against non-string input (returns '' for null/undefined/object).
@@ -70,7 +70,7 @@ export function normalizeContent(value: unknown): string {
 // ─── Fuzzy match window ───────────────────────────────────────────────────────
 
 /**
- * Half-width of the fuzzy-match time window for the unresolved-local-user
+ * Half-width of the fuzzy-match time window for the pending user-message
  * match rule. Pinned at 500 ms per ui-improvement.md §3.2. A backend echo
  * whose `createdAt` is within `± FUZZY_MATCH_WINDOW_MS` of the local submit's
  * `submittedAt` may match; anything outside is treated as distinct.

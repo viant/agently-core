@@ -82,15 +82,10 @@ function toolStepsForTurn(turn: Turn | null | undefined): any[] {
 
 function normalizeHostedWorkspaceWindow(raw: any): WorkspaceWindowSnapshot | null {
     if (!raw || typeof raw !== 'object') return null;
-    const presentation = String(raw.presentation || '').trim().toLowerCase();
-    const region = String(raw.region || '').trim().toLowerCase();
     const parentKey = String(raw.parentKey || '').trim();
     const windowId = String(raw.windowId || '').trim();
     const windowKey = String(raw.windowKey || '').trim();
     if (!windowId || !windowKey) return null;
-    if (presentation !== 'hosted') return null;
-    if (region !== 'chat.top') return null;
-    if (parentKey !== 'chat/new') return null;
     const parameters = raw.parameters && typeof raw.parameters === 'object'
         ? raw.parameters as Record<string, unknown>
         : {};

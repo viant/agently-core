@@ -35,10 +35,9 @@ struct RequestBuilder {
         contentType: String = "application/json"
     ) throws -> URLRequest {
         var components = URLComponents(url: endpoint.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = endpoint.baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) .isEmpty
-            ? path
-            : endpoint.baseURL.path + path
-        components?.queryItems = queryItems.isEmpty ? nil : queryItems
+        let basePath = (components?.percentEncodedPath ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components?.percentEncodedPath = basePath.isEmpty ? path : "/\(basePath)\(path)"
+        components?.percentEncodedQuery = queryItems.isEmpty ? nil : agentlyPercentEncodedQuery(queryItems)
         guard let url = components?.url else {
             throw URLError(.badURL)
         }
@@ -49,6 +48,25 @@ struct RequestBuilder {
         endpoint.headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         return request
     }
+}
+
+func agentlyPercentEncodedPathSegment(_ value: String) -> String {
+    agentlyPercentEncode(value)
+}
+
+func agentlyPercentEncodedQuery(_ items: [URLQueryItem]) -> String {
+    items.map { item in
+        let name = agentlyPercentEncode(item.name)
+        guard let value = item.value else {
+            return name
+        }
+        return "\(name)=\(agentlyPercentEncode(value))"
+    }.joined(separator: "&")
+}
+
+private func agentlyPercentEncode(_ value: String) -> String {
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+    return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
 }
 
 public extension JSONDecoder {

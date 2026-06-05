@@ -2575,6 +2575,14 @@ public struct GetPayloadOptions: Sendable {
     }
 }
 
+public struct GetPayloadsInput: Codable, Sendable {
+    public let ids: [String]
+
+    public init(ids: [String]) {
+        self.ids = ids
+    }
+}
+
 /// Structured payload metadata. The backend serializes the Go `Payload` struct
 /// with its capitalized field names (e.g. `Id`, `MimeType`, `URI`), so the
 /// CodingKeys map the camelCase Swift properties onto those wire keys.

@@ -1,11 +1,24 @@
 package com.viant.agentlysdk.stream
 
+import com.viant.agentlysdk.AssistantMessageState
+import com.viant.agentlysdk.AssistantState
+import com.viant.agentlysdk.ConversationState
+import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.ExecutionPageState
+import com.viant.agentlysdk.ExecutionState
+import com.viant.agentlysdk.ModelStepState
 import com.viant.agentlysdk.PlannerState
+import com.viant.agentlysdk.ToolStepState
+import com.viant.agentlysdk.TurnMessageState
 import com.viant.agentlysdk.TurnState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class ConversationStreamTrackerTest {
@@ -144,6 +157,296 @@ class ConversationStreamTrackerTest {
         assertEquals(1, planner.attempt)
         assertEquals("planner-output:conv-1:turn-1", planner.outputPayloadId)
         assertEquals(true, planner.validated)
+    }
+
+    @Test
+    fun `tool completion preserves response payload in live execution group`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_call_completed",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                assistantMessageId = "assistant-1",
+                toolCallId = "tool-1",
+                toolName = "ui/view/open",
+                responsePayload = buildJsonObject {
+                    put("windowId", "reportWindow__conv-1")
+                    put("conversationId", "conv-1")
+                    put("windowKey", "reportWindow")
+                    put("presentation", "hosted")
+                }
+            )
+        )
+
+        val step = tracker.snapshot()
+            .liveExecutionGroupsById["assistant-1"]
+            ?.toolSteps
+            ?.singleOrNull()
+
+        assertNotNull(step)
+        assertEquals("completed", step.status)
+        assertEquals(
+            "reportWindow__conv-1",
+            step.responsePayload?.jsonObject?.get("windowId")?.jsonPrimitive?.content
+        )
+    }
+
+    @Test
+    fun `tool completion preserves non object request and response payloads`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_call_completed",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                assistantMessageId = "assistant-1",
+                toolCallId = "tool-1",
+                toolName = "ui/window/show",
+                arguments = JsonPrimitive("window-1"),
+                responsePayload = buildJsonArray {
+                    add(JsonPrimitive("ok"))
+                    add(JsonPrimitive(true))
+                }
+            )
+        )
+
+        val step = tracker.snapshot()
+            .liveExecutionGroupsById["assistant-1"]
+            ?.toolSteps
+            ?.singleOrNull()
+
+        assertNotNull(step)
+        assertEquals(JsonPrimitive("window-1"), step.requestPayload)
+        assertEquals("""["ok",true]""", step.responsePayload.toString())
+    }
+
+    @Test
+    fun `tool completion merges turn metadata into existing live execution group`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "model_started",
+                conversationId = "conv-1",
+                assistantMessageId = "assistant-1",
+                model = EventModel(provider = "openai", model = "gpt-5-mini")
+            )
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_call_completed",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                eventSeq = 7,
+                iteration = 3,
+                assistantMessageId = "assistant-1",
+                toolCallId = "tool-1",
+                toolName = "ui/view/open",
+                responsePayload = buildJsonObject {
+                    put("windowId", "window-1")
+                    put("windowKey", "report")
+                }
+            )
+        )
+
+        val group = tracker.snapshot().liveExecutionGroupsById["assistant-1"]
+        assertEquals("turn-1", group?.turnId)
+        assertEquals(7, group?.sequence)
+        assertEquals(3, group?.iteration)
+    }
+
+    @Test
+    fun `tool completion preserves tool order when merging updates`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_call_started",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                assistantMessageId = "assistant-1",
+                toolCallId = "tool-1",
+                toolName = "first-tool"
+            )
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_call_started",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                assistantMessageId = "assistant-1",
+                toolCallId = "tool-2",
+                toolName = "second-tool"
+            )
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_call_completed",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                assistantMessageId = "assistant-1",
+                toolCallId = "tool-1",
+                toolName = "first-tool",
+                responsePayload = buildJsonObject { put("ok", true) }
+            )
+        )
+
+        val steps = tracker.snapshot().liveExecutionGroupsById["assistant-1"]?.toolSteps.orEmpty()
+        assertEquals(listOf("tool-1", "tool-2"), steps.map { it.toolCallId.orEmpty() })
+        assertEquals(listOf("completed", "running"), steps.map { it.status.orEmpty() })
+    }
+
+    @Test
+    fun `hydrate restores transcript execution groups and active turn`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                eventCursor = "2026-06-05T10:00:00Z",
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-live",
+                            status = "running",
+                            createdAt = "2026-06-05T09:59:59Z",
+                            assistant = AssistantState(
+                                final = AssistantMessageState(
+                                    messageId = "assistant-1",
+                                    content = "Opening the workspace"
+                                )
+                            ),
+                            execution = ExecutionState(
+                                pages = listOf(
+                                    ExecutionPageState(
+                                        pageId = "page-1",
+                                        assistantMessageId = "assistant-1",
+                                        turnId = "turn-live",
+                                        parentMessageId = "user-1",
+                                        sequence = 7,
+                                        iteration = 2,
+                                        status = "running",
+                                        narration = "Working",
+                                        modelSteps = listOf(
+                                            ModelStepState(
+                                                modelCallId = "model-1",
+                                                assistantMessageId = "assistant-1",
+                                                provider = "openai",
+                                                model = "gpt-5-mini",
+                                                status = "completed"
+                                            )
+                                        ),
+                                        toolSteps = listOf(
+                                            ToolStepState(
+                                                toolCallId = "tool-1",
+                                                toolMessageId = "tool-message-1",
+                                                toolName = "ui/view/open",
+                                                status = "completed",
+                                                responsePayload = buildJsonObject {
+                                                    put("windowId", "window-1")
+                                                    put("windowKey", "report")
+                                                }
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val snapshot = tracker.snapshot()
+        assertEquals("turn-live", snapshot.activeTurnId)
+        val group = snapshot.liveExecutionGroupsById["assistant-1"]
+        assertNotNull(group)
+        assertEquals("turn-live", group.turnId)
+        assertEquals(7, group.sequence)
+        assertEquals(2, group.iteration)
+        assertEquals("Working", group.narration)
+        assertEquals("gpt-5-mini", group.modelSteps.single().model)
+        assertEquals("window-1", group.toolSteps.single().responsePayload?.jsonObject?.get("windowId")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `hydrate uses cursor not transcript message sequence when applying live delta`() {
+        val tracker = ConversationStreamTracker("conv-1")
+        val cursor = "2026-06-05T10:00:00Z"
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                eventCursor = cursor,
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-1",
+                            status = "running",
+                            messages = listOf(
+                                TurnMessageState(
+                                    messageId = "assistant-1",
+                                    role = "assistant",
+                                    content = "Hello",
+                                    sequence = 100
+                                )
+                            ),
+                            assistant = AssistantState(
+                                final = AssistantMessageState(
+                                    messageId = "assistant-1",
+                                    content = "Hello"
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
+                eventSeq = 7,
+                content = " duplicate",
+                createdAt = cursor
+            ),
+            hydrationCursor = cursor
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
+                content = " stale",
+                createdAt = cursor
+            ),
+            hydrationCursor = cursor
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
+                eventSeq = 1,
+                content = " live",
+                createdAt = "2026-06-05T10:00:01Z"
+            ),
+            hydrationCursor = cursor
+        )
+
+        val assistant = tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }
+        assertEquals("Hello live", assistant.content)
     }
 
     @Test

@@ -3,7 +3,7 @@
  *
  * Three mutation entry points, one canonical state:
  *
- *   applyLocalSubmit(state, submit)       — bootstrap a local user message
+ *   applyLocalSubmit(state, submit)       — bootstrap a pending user message
  *   applyEvent(state, event)              — live SSE event
  *   applyTranscript(state, snapshot)      — persisted api.ConversationState
  *
@@ -344,7 +344,7 @@ function dropMatchedPendingBootstrapTurn(
 // ─── applyLocalSubmit (§4.1 pending bootstrap) ────────────────────────────────
 
 /**
- * Bootstrap one local user message.
+ * Bootstrap one pending user message.
  *
  * `mode: "submit"` (default)
  *   Creates a fresh pending turn. A second normal submit while another turn
@@ -576,7 +576,7 @@ function onTurnStarted(state: ClientConversationState, event: SSEEvent): ClientC
     writeField(turn, 'lifecycle', 'running', 'event');
     if (event.createdAt) writeField(turn, 'createdAt', event.createdAt, 'event');
 
-    // Coalesce a pending local user whose clientRequestId matches the event's.
+    // Coalesce a pending user message whose clientRequestId matches the event's.
     const crid = extractClientRequestId(event);
     const userMessageId = ((event as unknown as { userMessageId?: string }).userMessageId ?? '').trim();
     if (crid || userMessageId) {

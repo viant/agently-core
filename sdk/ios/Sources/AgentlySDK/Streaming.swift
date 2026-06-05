@@ -77,6 +77,8 @@ public struct LiveToolStepState: Codable, Sendable, Equatable, Identifiable {
     public let errorMessage: String?
     public let requestPayloadID: String?
     public let responsePayloadID: String?
+    public let requestPayload: JSONValue?
+    public let responsePayload: JSONValue?
     public let linkedConversationID: String?
     public let linkedConversationAgentID: String?
     public let linkedConversationTitle: String?
@@ -89,6 +91,8 @@ public struct LiveToolStepState: Codable, Sendable, Equatable, Identifiable {
         errorMessage: String? = nil,
         requestPayloadID: String? = nil,
         responsePayloadID: String? = nil,
+        requestPayload: JSONValue? = nil,
+        responsePayload: JSONValue? = nil,
         linkedConversationID: String? = nil,
         linkedConversationAgentID: String? = nil,
         linkedConversationTitle: String? = nil
@@ -100,6 +104,8 @@ public struct LiveToolStepState: Codable, Sendable, Equatable, Identifiable {
         self.errorMessage = errorMessage
         self.requestPayloadID = requestPayloadID
         self.responsePayloadID = responsePayloadID
+        self.requestPayload = requestPayload
+        self.responsePayload = responsePayload
         self.linkedConversationID = linkedConversationID
         self.linkedConversationAgentID = linkedConversationAgentID
         self.linkedConversationTitle = linkedConversationTitle
@@ -241,11 +247,15 @@ public actor ConversationStreamTracker {
     private var messagesByID: [String: BufferedStreamMessage] = [:]
     private var feedsByID: [String: ActiveFeedState] = [:]
     private var executionGroupsByID: [String: LiveExecutionGroup] = [:]
+    private var maxEventSeqByTurnID: [String: Int] = [:]
 
     public init() {}
 
-    public func apply(_ event: SSEEvent) -> ConversationStreamSnapshot {
+    public func apply(_ event: SSEEvent, hydrationCursor: String? = nil) -> ConversationStreamSnapshot {
         guard let payload = decodePayload(from: event.data) else {
+            return snapshot
+        }
+        if shouldSkipHydratedPayload(payload, hydrationCursor: hydrationCursor) {
             return snapshot
         }
 
@@ -263,6 +273,7 @@ public actor ConversationStreamTracker {
         applyFeedEvent(payload)
         applyElicitationEvent(payload)
         applyMessageEvent(payload)
+        recordAppliedSequence(payload)
 
         snapshot.feeds = sortedFeeds()
         snapshot.liveExecutionGroupsByID = executionGroupsByID
@@ -278,7 +289,11 @@ public actor ConversationStreamTracker {
         if let conversationID = response.conversation?.conversationID.trimmedNonEmpty {
             snapshot.conversationID = conversationID
         }
-        messagesByID = reconcileMessages(from: response.conversation?.turns ?? [])
+        let turns = response.conversation?.turns ?? []
+        snapshot.activeTurnID = latestNonTerminalTurnID(from: turns)
+        messagesByID = reconcileMessages(from: turns)
+        executionGroupsByID = reconcileExecutionGroups(from: turns)
+        maxEventSeqByTurnID = maxEventSequences(from: turns)
         feedsByID.removeAll()
         for feed in response.feeds {
             if let feedID = feed.feedID?.trimmedNonEmpty {
@@ -287,6 +302,7 @@ public actor ConversationStreamTracker {
         }
         snapshot.feeds = sortedFeeds()
         snapshot.bufferedMessages = sortedBufferedMessages()
+        snapshot.liveExecutionGroupsByID = executionGroupsByID
     }
 
     public func reset(conversationID: String? = nil) {
@@ -294,6 +310,7 @@ public actor ConversationStreamTracker {
         messagesByID.removeAll()
         feedsByID.removeAll()
         executionGroupsByID.removeAll()
+        maxEventSeqByTurnID.removeAll()
     }
 }
 
@@ -321,6 +338,8 @@ private extension ConversationStreamTracker {
         let toolMessageID: String?
         let requestPayloadID: String?
         let responsePayloadID: String?
+        let arguments: JSONValue?
+        let responsePayload: JSONValue?
         let providerRequestPayloadID: String?
         let providerResponsePayloadID: String?
         let streamPayloadID: String?
@@ -374,6 +393,8 @@ private extension ConversationStreamTracker {
             case toolMessageID = "toolMessageId"
             case requestPayloadID = "requestPayloadId"
             case responsePayloadID = "responsePayloadId"
+            case arguments
+            case responsePayload
             case providerRequestPayloadID = "providerRequestPayloadId"
             case providerResponsePayloadID = "providerResponsePayloadId"
             case streamPayloadID = "streamPayloadId"
@@ -594,6 +615,76 @@ private extension ConversationStreamTracker {
         }
     }
 
+    func latestNonTerminalTurnID(from turns: [TurnState]) -> String? {
+        turns.reversed().first { turn in
+            guard turn.turnID.trimmedNonEmpty != nil,
+                  let status = turn.status?.trimmedNonEmpty?.lowercased() else {
+                return false
+            }
+            return !isTerminalTurnStatus(status)
+        }?.turnID.trimmedNonEmpty
+    }
+
+    func isTerminalTurnStatus(_ status: String) -> Bool {
+        switch status {
+        case "completed", "failed", "canceled", "cancelled":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func shouldSkipHydratedPayload(_ payload: StreamPayload, hydrationCursor: String?) -> Bool {
+        if let turnID = payload.turnID?.trimmedNonEmpty,
+           let eventSeq = payload.eventSeq,
+           eventSeq > 0,
+           let maxSeq = maxEventSeqByTurnID[turnID],
+           eventSeq <= maxSeq {
+            return true
+        }
+        guard let hydrationCursor = hydrationCursor?.trimmedNonEmpty,
+              let createdAt = payload.createdAt?.trimmedNonEmpty,
+              let cursorDate = parseEventDate(hydrationCursor),
+              let eventDate = parseEventDate(createdAt) else {
+            return false
+        }
+        return eventDate <= cursorDate
+    }
+
+    func recordAppliedSequence(_ payload: StreamPayload) {
+        guard let turnID = payload.turnID?.trimmedNonEmpty,
+              let eventSeq = payload.eventSeq,
+              eventSeq > 0 else {
+            return
+        }
+        maxEventSeqByTurnID[turnID] = max(maxEventSeqByTurnID[turnID] ?? 0, eventSeq)
+    }
+
+    func parseEventDate(_ raw: String) -> Date? {
+        if let date = ISO8601DateFormatter.agentlyInternetDateTime.date(from: raw) {
+            return date
+        }
+        return ISO8601DateFormatter.agentlyInternetDateTimeNoFraction.date(from: raw)
+    }
+
+    func maxEventSequences(from turns: [ConversationTurn]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for turn in turns {
+            guard let turnID = turn.id.trimmedNonEmpty else { continue }
+            var maxSeq = 0
+            for message in turn.messages {
+                maxSeq = max(maxSeq, message.sequence ?? 0)
+            }
+            for page in turn.execution?.pages ?? [] {
+                maxSeq = max(maxSeq, page.sequence ?? 0)
+            }
+            if maxSeq > 0 {
+                result[turnID] = maxSeq
+            }
+        }
+        return result
+    }
+
     func reconcileMessages(from turns: [ConversationTurn]) -> [String: BufferedStreamMessage] {
         var merged: [String: BufferedStreamMessage] = [:]
         for turn in turns {
@@ -627,6 +718,74 @@ private extension ConversationStreamTracker {
             }
         }
         return merged
+    }
+
+    func reconcileExecutionGroups(from turns: [ConversationTurn]) -> [String: LiveExecutionGroup] {
+        var merged: [String: LiveExecutionGroup] = [:]
+        for turn in turns {
+            for page in turn.execution?.pages ?? [] {
+                let assistantMessageID = page.assistantMessageID?.trimmedNonEmpty ?? page.pageID.trimmedNonEmpty
+                guard let assistantMessageID else { continue }
+                let group = LiveExecutionGroup(
+                    pageID: page.pageID,
+                    assistantMessageID: assistantMessageID,
+                    turnID: page.turnID?.trimmedNonEmpty ?? turn.id.trimmedNonEmpty,
+                    parentMessageID: page.parentMessageID?.trimmedNonEmpty,
+                    sequence: page.sequence,
+                    iteration: page.iteration,
+                    narration: page.narration?.trimmedNonEmpty,
+                    content: page.content?.trimmedNonEmpty,
+                    errorMessage: executionErrorMessage(from: page),
+                    status: page.status?.trimmedNonEmpty ?? turn.status?.trimmedNonEmpty,
+                    finalResponse: page.finalResponse,
+                    modelSteps: page.modelSteps.map(liveModelStep(from:)),
+                    toolSteps: page.toolSteps.map(liveToolStep(from:)),
+                    toolCallsPlanned: [],
+                    createdAt: turn.createdAt,
+                    startedAt: nil,
+                    completedAt: nil
+                )
+                merged[assistantMessageID] = mergeExecutionGroup(merged[assistantMessageID], incoming: group)
+            }
+        }
+        return merged
+    }
+
+    func liveModelStep(from step: ModelStepState) -> LiveModelStepState {
+        LiveModelStepState(
+            modelCallID: step.modelCallID,
+            assistantMessageID: step.assistantMessageID?.trimmedNonEmpty,
+            provider: step.provider?.trimmedNonEmpty,
+            model: step.model?.trimmedNonEmpty,
+            status: step.status?.trimmedNonEmpty,
+            errorMessage: nil,
+            requestPayloadID: step.requestPayloadID?.trimmedNonEmpty,
+            responsePayloadID: step.responsePayloadID?.trimmedNonEmpty,
+            providerRequestPayloadID: step.providerRequestPayloadID?.trimmedNonEmpty,
+            providerResponsePayloadID: step.providerResponsePayloadID?.trimmedNonEmpty,
+            streamPayloadID: step.streamPayloadID?.trimmedNonEmpty
+        )
+    }
+
+    func liveToolStep(from step: ToolStepState) -> LiveToolStepState {
+        LiveToolStepState(
+            toolCallID: step.toolCallID.trimmedNonEmpty,
+            toolMessageID: step.toolMessageID?.trimmedNonEmpty,
+            toolName: step.toolName.trimmedNonEmpty,
+            status: step.status?.trimmedNonEmpty,
+            errorMessage: step.asyncOperation?.error?.trimmedNonEmpty,
+            requestPayloadID: step.requestPayloadID?.trimmedNonEmpty,
+            responsePayloadID: step.responsePayloadID?.trimmedNonEmpty,
+            requestPayload: step.requestPayload,
+            responsePayload: step.responsePayload ?? step.asyncOperation?.response,
+            linkedConversationID: step.linkedConversationID?.trimmedNonEmpty,
+            linkedConversationAgentID: step.linkedConversationAgentID?.trimmedNonEmpty,
+            linkedConversationTitle: step.linkedConversationTitle?.trimmedNonEmpty
+        )
+    }
+
+    func executionErrorMessage(from page: ExecutionPageState) -> String? {
+        page.toolSteps.compactMap { $0.asyncOperation?.error?.trimmedNonEmpty }.first
     }
 
     func sortedBufferedMessages() -> [BufferedStreamMessage] {
@@ -701,7 +860,12 @@ private extension ConversationStreamTracker {
             guard let current = ensureExecutionGroup(next, assistantMessageID: assistantMessageID, payload: payload) else {
                 return next
             }
-            next[assistantMessageID] = upsertToolStep(current: current, payload: payload)
+            let updated = current.copy(
+                turnID: payload.turnID ?? current.turnID,
+                sequence: payload.eventSeq ?? current.sequence,
+                iteration: payload.iteration ?? current.iteration
+            )
+            next[assistantMessageID] = upsertToolStep(current: updated, payload: payload)
             return next
         }
         if ["turn_completed", "turn_failed", "turn_canceled"].contains(type) {
@@ -796,14 +960,26 @@ private extension ConversationStreamTracker {
         )
         guard let key else { return current }
         var toolSteps = current.toolSteps
+        let fallbackStatus: String? = {
+            switch payload.type {
+            case "tool_call_completed":
+                return "completed"
+            case "tool_call_started":
+                return "running"
+            default:
+                return nil
+            }
+        }()
         let newStep = LiveToolStepState(
             toolCallID: payload.toolCallID,
             toolMessageID: payload.toolMessageID ?? payload.id,
             toolName: payload.toolName,
-            status: payload.status,
+            status: payload.status ?? fallbackStatus,
             errorMessage: payload.error,
             requestPayloadID: payload.requestPayloadID,
             responsePayloadID: payload.responsePayloadID,
+            requestPayload: payload.arguments,
+            responsePayload: payload.responsePayload,
             linkedConversationID: payload.linkedConversationID,
             linkedConversationAgentID: payload.linkedConversationAgentID,
             linkedConversationTitle: payload.linkedConversationTitle
@@ -818,6 +994,8 @@ private extension ConversationStreamTracker {
                 errorMessage: newStep.errorMessage ?? prior.errorMessage,
                 requestPayloadID: newStep.requestPayloadID ?? prior.requestPayloadID,
                 responsePayloadID: newStep.responsePayloadID ?? prior.responsePayloadID,
+                requestPayload: newStep.requestPayload ?? prior.requestPayload,
+                responsePayload: newStep.responsePayload ?? prior.responsePayload,
                 linkedConversationID: newStep.linkedConversationID ?? prior.linkedConversationID,
                 linkedConversationAgentID: newStep.linkedConversationAgentID ?? prior.linkedConversationAgentID,
                 linkedConversationTitle: newStep.linkedConversationTitle ?? prior.linkedConversationTitle
@@ -830,11 +1008,14 @@ private extension ConversationStreamTracker {
 
     func mergeExecutionGroup(_ existing: LiveExecutionGroup?, incoming: LiveExecutionGroup) -> LiveExecutionGroup {
         guard let existing else { return incoming }
-        var mergedTools: [String: LiveToolStepState] = [:]
+        var mergedTools: [LiveToolStepState] = []
         for step in existing.toolSteps + incoming.toolSteps {
             if let key = firstNonEmpty(step.toolCallID, step.toolMessageID, step.toolName) {
-                if let prior = mergedTools[key] {
-                    mergedTools[key] = LiveToolStepState(
+                if let index = mergedTools.firstIndex(where: {
+                    firstNonEmpty($0.toolCallID, $0.toolMessageID, $0.toolName) == key
+                }) {
+                    let prior = mergedTools[index]
+                    mergedTools[index] = LiveToolStepState(
                         toolCallID: step.toolCallID ?? prior.toolCallID,
                         toolMessageID: step.toolMessageID ?? prior.toolMessageID,
                         toolName: step.toolName ?? prior.toolName,
@@ -842,12 +1023,14 @@ private extension ConversationStreamTracker {
                         errorMessage: step.errorMessage ?? prior.errorMessage,
                         requestPayloadID: step.requestPayloadID ?? prior.requestPayloadID,
                         responsePayloadID: step.responsePayloadID ?? prior.responsePayloadID,
+                        requestPayload: step.requestPayload ?? prior.requestPayload,
+                        responsePayload: step.responsePayload ?? prior.responsePayload,
                         linkedConversationID: step.linkedConversationID ?? prior.linkedConversationID,
                         linkedConversationAgentID: step.linkedConversationAgentID ?? prior.linkedConversationAgentID,
                         linkedConversationTitle: step.linkedConversationTitle ?? prior.linkedConversationTitle
                     )
                 } else {
-                    mergedTools[key] = step
+                    mergedTools.append(step)
                 }
             }
         }
@@ -862,7 +1045,7 @@ private extension ConversationStreamTracker {
             status: incoming.status ?? existing.status,
             finalResponse: incoming.finalResponse ?? existing.finalResponse,
             modelSteps: incoming.modelSteps.isEmpty ? existing.modelSteps : incoming.modelSteps,
-            toolSteps: Array(mergedTools.values),
+            toolSteps: mergedTools,
             toolCallsPlanned: incoming.toolCallsPlanned.isEmpty ? existing.toolCallsPlanned : incoming.toolCallsPlanned,
             createdAt: incoming.createdAt ?? existing.createdAt,
             startedAt: incoming.startedAt ?? existing.startedAt,
@@ -898,6 +1081,8 @@ private extension ConversationStreamTracker {
                     errorMessage: error ?? $0.errorMessage,
                     requestPayloadID: $0.requestPayloadID,
                     responsePayloadID: $0.responsePayloadID,
+                    requestPayload: $0.requestPayload,
+                    responsePayload: $0.responsePayload,
                     linkedConversationID: $0.linkedConversationID,
                     linkedConversationAgentID: $0.linkedConversationAgentID,
                     linkedConversationTitle: $0.linkedConversationTitle
@@ -989,6 +1174,20 @@ private extension LiveExecutionGroup {
             completedAt: completedAt ?? self.completedAt
         )
     }
+}
+
+private extension ISO8601DateFormatter {
+    static let agentlyInternetDateTime: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static let agentlyInternetDateTimeNoFraction: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 }
 
 private extension JSONValue {

@@ -16,7 +16,7 @@ describe('summarizeLinkedConversationTranscript', () => {
             turns: [
                 {
                     status: 'completed',
-                    agentIdUsed: 'steward-forecasting',
+                    agentIdUsed: 'analytics-agent',
                     execution: {
                         pages: [
                             {
@@ -31,7 +31,7 @@ describe('summarizeLinkedConversationTranscript', () => {
                                 assistantMessageId: 'child-2',
                                 status: 'completed',
                                 narration: 'Compiling final answer.',
-                                content: 'Forecast returned zero reach.',
+                                content: 'Analysis returned zero reach.',
                             },
                         ],
                     },
@@ -39,9 +39,9 @@ describe('summarizeLinkedConversationTranscript', () => {
             ],
         }));
 
-        expect(summary.agentId).toBe('steward-forecasting');
+        expect(summary.agentId).toBe('analytics-agent');
         expect(summary.status).toBe('completed');
-        expect(summary.response).toBe('Forecast returned zero reach.');
+        expect(summary.response).toBe('Analysis returned zero reach.');
         expect(summary.previewGroups).toHaveLength(2);
         expect(summary.previewGroups[0]).toMatchObject({
             title: 'Calling roots.',
@@ -60,14 +60,14 @@ describe('summarizeLinkedConversationTranscript', () => {
             turns: [
                 {
                     status: 'running',
-                    agentIdUsed: 'steward-forecasting',
+                    agentIdUsed: 'analytics-agent',
                     execution: {
                         pages: [
                             {
                                 assistantMessageId: 'child-1',
                                 status: 'running',
                                 toolSteps: [
-                                    { toolName: 'steward/ForecastingCube', status: 'running' },
+                                    { toolName: 'analytics/SummaryCube', status: 'running' },
                                 ],
                                 modelSteps: [
                                     { provider: 'openai', model: 'gpt-5.4', status: 'running' },
@@ -84,7 +84,7 @@ describe('summarizeLinkedConversationTranscript', () => {
         expect(summary.previewGroups[0]).toMatchObject({
             title: '',
             stepKind: 'tool',
-            stepLabel: 'steward/ForecastingCube',
+            stepLabel: 'analytics/SummaryCube',
         });
     });
 });
@@ -115,24 +115,24 @@ describe('reduceLinkedConversationPreviewEvent', () => {
         const afterTool = reduceLinkedConversationPreviewEvent(afterModelStart, event({
             type: 'tool_call_started',
             toolCallId: 'call-1',
-            toolName: 'steward/AdHierarchy',
+            toolName: 'analytics/EntityHierarchy',
             status: 'running',
         }));
         expect(afterTool.previewGroups).toHaveLength(2);
         expect(afterTool.previewGroups[1]).toMatchObject({
             title: '',
             stepKind: 'tool',
-            stepLabel: 'steward/AdHierarchy',
+            stepLabel: 'analytics/EntityHierarchy',
             status: 'running',
         });
 
         const afterFinal = reduceLinkedConversationPreviewEvent(afterTool, event({
             type: 'assistant',
-            content: 'Child forecast complete.',
+            content: 'Child analysis complete.',
             status: 'completed',
             patch: { role: 'assistant' },
         }));
-        expect(afterFinal.response).toBe('Child forecast complete.');
+        expect(afterFinal.response).toBe('Child analysis complete.');
         expect(afterFinal.status).toBe('completed');
     });
 

@@ -1045,7 +1045,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
-	t.Run("GetPayloads keeps successful payloads around errors", func(t *testing.T) {
+	t.Run("GetPayloads returns fetch errors", func(t *testing.T) {
 		client := &backendClient{conv: mixedPayloadConversationClient{
 			payloads: map[string]*conversation.Payload{
 				"ok": {Id: "ok"},
@@ -1055,9 +1055,9 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 			},
 		}}
 		got, err := client.GetPayloads(context.Background(), []string{"ok", "bad"})
-		require.NoError(t, err)
-		require.Len(t, got, 1)
-		assert.Equal(t, "ok", got["ok"].Id)
+		require.Error(t, err)
+		assert.Nil(t, got)
+		assert.Contains(t, err.Error(), `get payload "bad"`)
 	})
 
 	t.Run("findLastToolCallPayload returns empty when nothing matches", func(t *testing.T) {
@@ -1703,7 +1703,7 @@ func (p *payloadOnlyConversationClient) PatchConversations(context.Context, *con
 func (p *payloadOnlyConversationClient) GetPayload(_ context.Context, id string) (*conversation.Payload, error) {
 	payload, ok := p.payloads[id]
 	if !ok {
-		return nil, errors.New("payload not found")
+		return nil, nil
 	}
 	return payload, nil
 }
