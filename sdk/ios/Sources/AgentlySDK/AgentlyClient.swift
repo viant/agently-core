@@ -851,7 +851,8 @@ public actor UIBridgeRPCClient {
             params: [
                 "clientId": .string(clientID),
                 "timeoutMs": .number(Double(timeoutMs))
-            ]
+            ],
+            includeSession: false
         )
     }
 
@@ -872,7 +873,7 @@ public actor UIBridgeRPCClient {
         if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["error"] = .string(error)
         }
-        return try await rpcObject(method: "ui.response", params: params)
+        return try await rpcObject(method: "ui.response", params: params, includeSession: false)
     }
 
     @discardableResult
@@ -882,7 +883,8 @@ public actor UIBridgeRPCClient {
             params: [
                 "clientId": .string(clientID),
                 "data": data
-            ]
+            ],
+            includeSession: false
         )
     }
 
