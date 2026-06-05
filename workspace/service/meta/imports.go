@@ -22,6 +22,9 @@ func ResolveImports(ctx context.Context, fs afs.Service, node *yaml.Node, baseDi
 }
 
 func resolveImports(ctx context.Context, fs afs.Service, node *yaml.Node, baseDir string, options ...storage.Option) error {
+	if node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!str" && isImportDirective(node.Value) {
+		return replaceImportNode(ctx, fs, node, baseDir, options...)
+	}
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
@@ -56,28 +59,32 @@ func resolveImports(ctx context.Context, fs afs.Service, node *yaml.Node, baseDi
 
 func processImportNode(ctx context.Context, fs afs.Service, node *yaml.Node, baseDir string, options ...storage.Option) error {
 	if node.Kind == yaml.ScalarNode && node.Tag == "!!str" && isImportDirective(node.Value) {
-		importPath, err := getImportPath(node.Value)
-		if err != nil {
-			return err
-		}
-		fullPath := resolveImportPath(baseDir, importPath)
-		data, err := fs.DownloadWithURL(ctx, fullPath, options...)
-		if err != nil {
-			return err
-		}
-		imported, err := importedReplacementNode(importPath, data)
-		if err != nil {
-			return err
-		}
-		if isYAMLPath(importPath) {
-			if err := resolveImports(ctx, fs, imported, filepath.Dir(fullPath), options...); err != nil {
-				return err
-			}
-		}
-		*node = *contentNode(imported)
-		return nil
+		return replaceImportNode(ctx, fs, node, baseDir, options...)
 	}
 	return resolveImports(ctx, fs, node, baseDir, options...)
+}
+
+func replaceImportNode(ctx context.Context, fs afs.Service, node *yaml.Node, baseDir string, options ...storage.Option) error {
+	importPath, err := getImportPath(node.Value)
+	if err != nil {
+		return err
+	}
+	fullPath := resolveImportPath(baseDir, importPath)
+	data, err := fs.DownloadWithURL(ctx, fullPath, options...)
+	if err != nil {
+		return err
+	}
+	imported, err := importedReplacementNode(importPath, data)
+	if err != nil {
+		return err
+	}
+	if isYAMLPath(importPath) {
+		if err := resolveImports(ctx, fs, imported, filepath.Dir(fullPath), options...); err != nil {
+			return err
+		}
+	}
+	*node = *contentNode(imported)
+	return nil
 }
 
 func isImportDirective(value string) bool {
