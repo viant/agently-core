@@ -570,6 +570,26 @@ func (c *Client) GetMessageByElicitation(_ context.Context, conversationID, elic
 	return nil, nil
 }
 
+// GetMessageByParentAndElicitation returns a child elicitation message whose parent is the proxy message.
+func (c *Client) GetMessageByParentAndElicitation(_ context.Context, parentMessageID, elicitationID string) (*convcli.Message, error) {
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	elicitationID = strings.TrimSpace(elicitationID)
+	if parentMessageID == "" || elicitationID == "" {
+		return nil, nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, m := range c.messages {
+		if m == nil || m.ParentMessageId == nil || m.ElicitationId == nil {
+			continue
+		}
+		if strings.TrimSpace(*m.ParentMessageId) == parentMessageID && strings.TrimSpace(*m.ElicitationId) == elicitationID {
+			return toClientMessage(copyMessage(m)), nil
+		}
+	}
+	return nil, nil
+}
+
 // PatchMessage upserts a message and places it into its conversation/turn transcript.
 func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) error {
 	if in == nil || in.Has == nil || !in.Has.Id {

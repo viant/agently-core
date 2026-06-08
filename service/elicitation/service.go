@@ -36,6 +36,16 @@ type Service struct {
 	streamPub      streaming.Publisher
 }
 
+type parentElicitationMessageGetter interface {
+	GetMessageByParentAndElicitation(ctx context.Context, parentMessageID, elicitationID string) (*apiconv.Message, error)
+}
+
+type elicitationResolutionTarget struct {
+	submitted     *apiconv.Message
+	authoritative *apiconv.Message
+	proxy         *apiconv.Message
+}
+
 // New constructs the elicitation service with all collaborators.
 // The refiner is defaulted to a workspace preset implementation when nil.
 // Router and awaiter factory must be supplied by the caller to ensure proper wiring.
@@ -212,6 +222,9 @@ func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, 
 		logx.Errorf("conversation", "elicitation record error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(elic.ElicitationId), err)
 		return nil, err
 	}
+	if err := s.proxyElicitationToTopLevelConversation(ctx, turn, msg, elic); err != nil {
+		return nil, err
+	}
 	// MutableMessage return mirrors the persisted row id for downstream callers.
 	ret := apiconv.NewMessage()
 	ret.SetId(msgID)
@@ -376,28 +389,6 @@ func (s *Service) Elicit(ctx context.Context, turn *runtimerequestctx.TurnMeta, 
 		return "", "", nil, fmt.Errorf("failed to record message: %w", err)
 	}
 	logx.Infof("conversation", "elicitation Elicit start convo=%q elicitation_id=%q message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(req.ElicitationId), strings.TrimSpace(msg.Id))
-	root := s.getRootConversation(ctx, turn.ConversationID)
-	// Only duplicate into a different conversation. If getRootConversation returns
-	// the same conversation (e.g. when at the root or due to lookup quirks), skip.
-	if root != nil && strings.TrimSpace(root.Id) != "" && root.Id != turn.ConversationID {
-		rootConversationMessage := *msg
-		rootConversationMessage.SetId(uuid.New().String())
-		if root.LastTurnId != nil {
-			rootConversationMessage.SetTurnID(*root.LastTurnId)
-			rootConversationMessage.SetConversationID(root.Id)
-		}
-		rootConversationMessage.Sequence = nil
-		if err := s.client.PatchMessage(ctx, &rootConversationMessage); err != nil {
-			return "", "", nil, fmt.Errorf("failed to root record message: %w", err)
-		}
-
-		// should be (simpler but the same) msg.SetParentMessageID(rootConversationMessage.Id)
-		// 	_ = s.client.PatchMessage(ctx, cloneMsg)
-		cloneMsg := apiconv.NewMessage()
-		cloneMsg.SetId(msg.Id)
-		cloneMsg.SetParentMessageID(rootConversationMessage.Id) //parent id will not exist after paranet_id msg removal in UpdateStatus
-		_ = s.client.PatchMessage(ctx, cloneMsg)
-	}
 
 	status, payload, err := s.Wait(ctx, turn.ConversationID, req.ElicitationId)
 	if err != nil {
@@ -408,17 +399,79 @@ func (s *Service) Elicit(ctx context.Context, turn *runtimerequestctx.TurnMeta, 
 	return msg.Id, status, payload, nil
 }
 
-func (s *Service) getRootConversation(ctx context.Context, conversationId string) *apiconv.Conversation {
-	var conv *apiconv.Conversation
-	if parent, err := s.client.GetConversation(ctx, conversationId); err == nil && parent != nil {
-		if parent.ConversationParentId != nil {
-			conv = parent
-			if ret := s.getRootConversation(ctx, *conv.ConversationParentId); ret != nil {
-				return ret
-			}
-		}
+func (s *Service) proxyElicitationToTopLevelConversation(ctx context.Context, turn *runtimerequestctx.TurnMeta, msg *apiconv.MutableMessage, elic *execution.Elicitation) error {
+	if s == nil || s.client == nil || turn == nil || msg == nil {
+		return nil
 	}
-	return conv
+	root := s.getTopLevelConversation(ctx, turn.ConversationID)
+	if root == nil || strings.TrimSpace(root.Id) == "" || root.Id == turn.ConversationID {
+		return nil
+	}
+	rootTurnID := ""
+	if root.LastTurnId != nil {
+		rootTurnID = strings.TrimSpace(*root.LastTurnId)
+	}
+
+	rootConversationMessage := *msg
+	rootConversationMessage.SetId(uuid.New().String())
+	rootConversationMessage.SetConversationID(root.Id)
+	if root.LastTurnId != nil {
+		rootConversationMessage.SetTurnID(*root.LastTurnId)
+	}
+	rootConversationMessage.Sequence = nil
+	if err := s.client.PatchMessage(ctx, &rootConversationMessage); err != nil {
+		return fmt.Errorf("failed to proxy elicitation to top-level conversation: %w", err)
+	}
+
+	cloneMsg := apiconv.NewMessage()
+	cloneMsg.SetId(msg.Id)
+	cloneMsg.SetParentMessageID(rootConversationMessage.Id)
+	if err := s.client.PatchMessage(ctx, cloneMsg); err != nil {
+		return fmt.Errorf("failed to link elicitation proxy message: %w", err)
+	}
+	if elic != nil {
+		rootTurn := &runtimerequestctx.TurnMeta{
+			ConversationID: root.Id,
+			TurnID:         rootTurnID,
+			ParentMessageID: func() string {
+				if rootConversationMessage.ParentMessageID == nil {
+					return ""
+				}
+				return strings.TrimSpace(*rootConversationMessage.ParentMessageID)
+			}(),
+		}
+		s.emitElicitationRequested(ctx, rootTurn, elic, rootConversationMessage.Id)
+	}
+	return nil
+}
+
+func (s *Service) getTopLevelConversation(ctx context.Context, conversationID string) *apiconv.Conversation {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" || s == nil || s.client == nil {
+		return nil
+	}
+	var top *apiconv.Conversation
+	seen := map[string]bool{}
+	for conversationID != "" {
+		if seen[conversationID] {
+			return top
+		}
+		seen[conversationID] = true
+		conv, err := s.client.GetConversation(ctx, conversationID)
+		if err != nil || conv == nil {
+			return top
+		}
+		top = conv
+		if conv.ConversationParentId == nil {
+			return top
+		}
+		parentID := strings.TrimSpace(*conv.ConversationParentId)
+		if parentID == "" {
+			return top
+		}
+		conversationID = parentID
+	}
+	return top
 }
 
 func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, action string) error {
@@ -440,16 +493,147 @@ func (s *Service) UpdateStatus(ctx context.Context, convID, elicitationID, actio
 		logx.Errorf("conversation", "elicitation update status patch error convo=%q elicitation_id=%q err=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), err)
 		return err
 	}
-
-	// delete duplicate elicitation msg in root conversation if any (current conversation is a child)
-	root := s.getRootConversation(ctx, convID)
-	if root != nil && strings.TrimSpace(root.Id) != "" && root.Id != convID && msg.ParentMessageId != nil {
-		if dep, err := s.client.GetMessage(ctx, *msg.ParentMessageId); err == nil && dep != nil && dep.ConversationId == root.Id /* double check */ {
-			return s.client.DeleteMessage(ctx, dep.ConversationId, dep.Id)
-		}
-	}
 	logx.Infof("conversation", "elicitation update status ok convo=%q elicitation_id=%q status=%q", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(st))
 	return nil
+}
+
+func (s *Service) resolveElicitationTarget(ctx context.Context, convID, elicitationID string) (*elicitationResolutionTarget, error) {
+	msg, err := s.client.GetMessageByElicitation(ctx, convID, elicitationID)
+	if err != nil {
+		return nil, err
+	}
+	if msg == nil {
+		return nil, fmt.Errorf("elicitation message not found")
+	}
+	target := &elicitationResolutionTarget{submitted: msg, authoritative: msg}
+	if msg.ParentMessageId != nil && strings.TrimSpace(*msg.ParentMessageId) != "" {
+		parentMessageID := strings.TrimSpace(*msg.ParentMessageId)
+		parent, err := s.client.GetMessage(ctx, parentMessageID)
+		if err != nil {
+			return nil, err
+		}
+		if isMatchingProxyMessage(parent, elicitationID, msg.ConversationId) {
+			target.proxy = parent
+			return target, nil
+		}
+	}
+	getter, ok := s.client.(parentElicitationMessageGetter)
+	if !ok {
+		return target, nil
+	}
+	child, err := getter.GetMessageByParentAndElicitation(ctx, msg.Id, elicitationID)
+	if err != nil {
+		return nil, err
+	}
+	if child == nil || strings.TrimSpace(child.ConversationId) == "" || child.ConversationId == msg.ConversationId {
+		return target, nil
+	}
+	target.authoritative = child
+	target.proxy = msg
+	return target, nil
+}
+
+func isMatchingProxyMessage(msg *apiconv.Message, elicitationID, childConversationID string) bool {
+	if msg == nil || msg.ElicitationId == nil {
+		return false
+	}
+	if strings.TrimSpace(*msg.ElicitationId) != strings.TrimSpace(elicitationID) {
+		return false
+	}
+	return strings.TrimSpace(msg.ConversationId) != "" && strings.TrimSpace(msg.ConversationId) != strings.TrimSpace(childConversationID)
+}
+
+func (s *Service) deleteResolvedProxy(ctx context.Context, target *elicitationResolutionTarget) {
+	if s == nil || target == nil || target.proxy == nil || target.authoritative == nil {
+		return
+	}
+	proxyConversationID := strings.TrimSpace(target.proxy.ConversationId)
+	proxyMessageID := strings.TrimSpace(target.proxy.Id)
+	if proxyConversationID == "" || proxyMessageID == "" {
+		return
+	}
+	if proxyConversationID == strings.TrimSpace(target.authoritative.ConversationId) && proxyMessageID == strings.TrimSpace(target.authoritative.Id) {
+		return
+	}
+	if err := s.client.DeleteMessage(ctx, proxyConversationID, proxyMessageID); err != nil {
+		return
+	}
+	s.clearResolvedProxyWaitState(ctx, target.proxy)
+}
+
+func (s *Service) clearResolvedProxyWaitState(ctx context.Context, proxy *apiconv.Message) {
+	if s == nil || s.client == nil || proxy == nil {
+		return
+	}
+	proxyConversationID := strings.TrimSpace(proxy.ConversationId)
+	if proxyConversationID == "" {
+		return
+	}
+	proxyTurnID := ""
+	if proxy.TurnId != nil {
+		proxyTurnID = strings.TrimSpace(*proxy.TurnId)
+	}
+	if proxyTurnID == "" {
+		return
+	}
+	conv, err := s.client.GetConversation(ctx, proxyConversationID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return
+	}
+	var turnStatus string
+	var hasPending bool
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil || strings.TrimSpace(turn.Id) != proxyTurnID {
+			continue
+		}
+		turnStatus = strings.TrimSpace(turn.Status)
+		for _, msg := range turn.GetMessages() {
+			if msg == nil || strings.TrimSpace(msg.Id) == strings.TrimSpace(proxy.Id) {
+				continue
+			}
+			if statusAwaitingUser(stringValue(msg.Status)) {
+				hasPending = true
+				break
+			}
+		}
+		break
+	}
+	if hasPending {
+		return
+	}
+	conversationStatus := stringValue(conv.Status)
+	if !strings.EqualFold(strings.TrimSpace(turnStatus), "waiting_for_user") && !strings.EqualFold(strings.TrimSpace(conversationStatus), "waiting_for_user") {
+		return
+	}
+	turn := apiconv.NewTurn()
+	turn.SetId(proxyTurnID)
+	turn.SetConversationID(proxyConversationID)
+	turn.SetStatus("succeeded")
+	if err := s.client.PatchTurn(ctx, turn); err != nil {
+		return
+	}
+	conversation := apiconv.NewConversation()
+	conversation.SetId(proxyConversationID)
+	conversation.SetStatus("succeeded")
+	if err := s.client.PatchConversations(ctx, conversation); err != nil {
+		return
+	}
+}
+
+func statusAwaitingUser(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "queued", "pending", "waiting_for_user":
+		return true
+	default:
+		return false
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string, payload map[string]interface{}) error {
@@ -629,28 +813,44 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 		return fmt.Errorf("conversation and elicitation id required")
 	}
 	act := elact.Normalize(action)
+	status := elact.ToStatus(act)
 	logx.Infof("conversation", "[elicitation] resolve conv=%s id=%s action=%s payloadKeys=%v", convID, elicitationID, act, PayloadKeys(payload))
 	logx.Infof("conversation", "elicitation resolve convo=%q elicitation_id=%q action=%q payload_keys=%v", strings.TrimSpace(convID), strings.TrimSpace(elicitationID), strings.TrimSpace(act), PayloadKeys(payload))
-	// No logging; caller/UI can inspect status via DAO and router.
-	if err := s.UpdateStatus(ctx, convID, elicitationID, act); err != nil {
+	target, err := s.resolveElicitationTarget(ctx, strings.TrimSpace(convID), strings.TrimSpace(elicitationID))
+	if err != nil {
 		return err
 	}
-	if elact.ToStatus(act) == elact.StatusAccepted && payload != nil {
-		if err := s.StorePayload(ctx, convID, elicitationID, payload); err != nil {
+	authoritativeConvID := strings.TrimSpace(target.authoritative.ConversationId)
+	if authoritativeConvID == "" {
+		authoritativeConvID = strings.TrimSpace(convID)
+	}
+	proxyConvID := ""
+	if target.proxy != nil {
+		proxyConvID = strings.TrimSpace(target.proxy.ConversationId)
+	}
+	if err := s.UpdateStatus(ctx, authoritativeConvID, elicitationID, act); err != nil {
+		return err
+	}
+	if status == elact.StatusAccepted && payload != nil {
+		if err := s.StorePayload(ctx, authoritativeConvID, elicitationID, payload); err != nil {
 			return err
 		}
-	} else if elact.ToStatus(act) == elact.StatusRejected && strings.TrimSpace(reason) != "" {
-		if err := s.StoreDeclineReason(ctx, convID, elicitationID, reason); err != nil {
+	} else if status == elact.StatusRejected && strings.TrimSpace(reason) != "" {
+		if err := s.StoreDeclineReason(ctx, authoritativeConvID, elicitationID, reason); err != nil {
 			return err
 		}
-	} else if elact.ToStatus(act) == elact.StatusCancel && strings.TrimSpace(reason) != "" {
-		if err := s.StoreCancelReason(ctx, convID, elicitationID, reason); err != nil {
+	} else if status == elact.StatusCancel && strings.TrimSpace(reason) != "" {
+		if err := s.StoreCancelReason(ctx, authoritativeConvID, elicitationID, reason); err != nil {
 			return err
 		}
 	}
-	s.emitElicitationResolved(ctx, convID, elicitationID, elact.ToStatus(act), payload)
+	s.emitElicitationResolved(ctx, authoritativeConvID, elicitationID, status, payload)
+	if proxyConvID != "" && proxyConvID != authoritativeConvID {
+		s.emitElicitationResolved(ctx, proxyConvID, elicitationID, status, payload)
+	}
+	s.deleteResolvedProxy(ctx, target)
 	out := &schema.ElicitResult{Action: schema.ElicitResultAction(act), Content: payload}
-	s.router.AcceptByElicitation(convID, elicitationID, out)
+	s.router.AcceptByElicitation(authoritativeConvID, elicitationID, out)
 	return nil
 }
 
