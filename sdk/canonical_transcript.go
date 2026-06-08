@@ -41,6 +41,9 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 	if turn.StartedByMessageId != nil {
 		ts.StartedByMessageID = strings.TrimSpace(*turn.StartedByMessageId)
 	}
+	ts.Origin = strings.TrimSpace(stringValue(turn.Origin))
+	ts.GoalID = strings.TrimSpace(stringValue(turn.GoalID))
+	ts.StatusReason = strings.TrimSpace(stringValue(turn.StatusReason))
 	// Extract user message, assistant messages, elicitation, linked conversations
 	for _, msg := range turn.Message {
 		if msg == nil {

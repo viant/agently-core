@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	convdata "github.com/viant/agently-core/app/store/data"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 )
 
@@ -30,7 +33,20 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 			return
 		}
 		in.ID = id
-		out, err := client.FetchDatasource(r.Context(), &in)
+		ctx := r.Context()
+		convID := strings.TrimSpace(in.ConversationID)
+		if convID == "" {
+			convID = strings.TrimSpace(r.URL.Query().Get("conversationId"))
+		}
+		if convID != "" {
+			if err := authorizeDatasourceConversation(ctx, client, convID); err != nil {
+				httpError(w, statusForDatasourceConversationErr(err), err)
+				return
+			}
+			ctx = runtimerequestctx.WithConversationID(ctx, convID)
+			in.ConversationID = convID
+		}
+		out, err := client.FetchDatasource(ctx, &in)
 		if err != nil {
 			httpError(w, statusForDatasourceErr(err), err)
 			return
@@ -146,6 +162,41 @@ func datasourceDetailStatus(details []datasourceErrorDetail) int {
 
 func isAuthStatus(status int) bool {
 	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
+func authorizeDatasourceConversation(ctx context.Context, client Backend, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	conversation, err := client.GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conversation == nil {
+		return convdata.ErrConversationNotFound
+	}
+	return nil
+}
+
+func statusForDatasourceConversationErr(err error) int {
+	switch {
+	case err == nil:
+		return http.StatusOK
+	case errors.Is(err, convdata.ErrPermissionDenied):
+		return http.StatusForbidden
+	case errors.Is(err, convdata.ErrConversationNotFound):
+		return http.StatusNotFound
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	switch {
+	case strings.Contains(msg, "permission denied"), strings.Contains(msg, "forbidden"):
+		return http.StatusForbidden
+	case strings.Contains(msg, "conversation not found"), strings.Contains(msg, "not found"):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // decodeJSONBody is a small helper tolerant of empty bodies.

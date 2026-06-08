@@ -21,6 +21,7 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
+	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrun "github.com/viant/agently-core/pkg/agently/run"
 	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
@@ -267,6 +268,123 @@ func (c *backendClient) DeleteConversation(ctx context.Context, id string) error
 		return errors.New("data service not configured")
 	}
 	return c.data.DeleteConversationTree(ctx, conversationID)
+}
+
+func (c *backendClient) GetGoal(ctx context.Context, conversationID string) (*Goal, error) {
+	if c.data == nil {
+		return nil, errors.New("data service not configured")
+	}
+	view, err := c.data.GetGoal(ctx, strings.TrimSpace(conversationID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return mapGoalView(view), nil
+}
+
+func (c *backendClient) CreateGoal(ctx context.Context, input *CreateGoalInput) (*Goal, error) {
+	if c.data == nil {
+		return nil, errors.New("data service not configured")
+	}
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if strings.TrimSpace(input.Objective) == "" {
+		return nil, errors.New("objective is required")
+	}
+	current, err := c.data.GetGoal(ctx, conversationID, nil)
+	if err != nil {
+		return nil, err
+	}
+	if current != nil {
+		return nil, fmt.Errorf("goal already exists for current conversation")
+	}
+	row := aggoalwrite.NewMutableGoalView(
+		aggoalwrite.WithGoalID("goal-"+conversationID),
+		aggoalwrite.WithGoalConversationID(conversationID),
+		aggoalwrite.WithGoalObjective(strings.TrimSpace(input.Objective)),
+		aggoalwrite.WithGoalStatus("active"),
+	)
+	if input.TokenBudget != nil {
+		row.SetTokenBudget(*input.TokenBudget)
+	}
+	if spec := strings.TrimSpace(input.ControllerSpec); spec != "" {
+		row.SetControllerSpec(spec)
+	}
+	if _, err := c.data.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+		return nil, err
+	}
+	view, err := c.data.GetGoal(ctx, conversationID, nil)
+	if err != nil {
+		return nil, err
+	}
+	return mapGoalView(view), nil
+}
+
+func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) (*Goal, error) {
+	if c.data == nil {
+		return nil, errors.New("data service not configured")
+	}
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	current, err := c.data.GetGoal(ctx, conversationID, nil)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, fmt.Errorf("goal does not exist for current conversation")
+	}
+	row := aggoalwrite.NewMutableGoalView(aggoalwrite.WithGoalID(current.Id))
+	hasChange := false
+	if objective := strings.TrimSpace(input.Objective); objective != "" {
+		row.SetObjective(objective)
+		hasChange = true
+	}
+	if status := strings.TrimSpace(input.Status); status != "" {
+		row.SetStatus(status)
+		hasChange = true
+	}
+	if reason := strings.TrimSpace(input.StatusReason); reason != "" {
+		row.SetStatusReason(reason)
+		hasChange = true
+	}
+	if input.TokenBudget != nil {
+		row.SetTokenBudget(*input.TokenBudget)
+		hasChange = true
+	}
+	if !hasChange {
+		return nil, errors.New("at least one goal field is required")
+	}
+	if _, err := c.data.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+		return nil, err
+	}
+	view, err := c.data.GetGoal(ctx, conversationID, nil)
+	if err != nil {
+		return nil, err
+	}
+	return mapGoalView(view), nil
+}
+
+func (c *backendClient) ClearGoal(ctx context.Context, conversationID string) error {
+	if c.data == nil {
+		return errors.New("data service not configured")
+	}
+	view, err := c.data.GetGoal(ctx, strings.TrimSpace(conversationID), nil)
+	if err != nil {
+		return err
+	}
+	if view == nil {
+		return nil
+	}
+	return c.data.DeleteGoals(ctx, view.Id)
 }
 
 func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {

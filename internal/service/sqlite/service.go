@@ -121,6 +121,12 @@ func applyCompatibilityMigrations(ctx context.Context, db *sql.DB) error {
 	if err := ensureLegacyToolApprovalQueueColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := ensureLegacyGoalColumns(ctx, db); err != nil {
+		return err
+	}
+	if err := ensureLegacyTurnColumns(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -144,6 +150,64 @@ func ensureLegacyToolApprovalQueueColumns(ctx context.Context, db *sql.DB) error
 			continue
 		}
 		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s DATETIME", tableName, column)
+		if _, execErr := db.ExecContext(ctx, stmt); execErr != nil && !isDuplicateSQLiteColumnError(stmt, execErr) {
+			return fmt.Errorf("compatibility migration failed: %w (sql: %s)", execErr, stmt)
+		}
+	}
+	return nil
+}
+
+func ensureLegacyGoalColumns(ctx context.Context, db *sql.DB) error {
+	const tableName = "goal"
+
+	exists, err := sqliteTableExists(ctx, db, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to inspect %s table: %w", tableName, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	present, err := sqliteColumnExists(ctx, db, tableName, "status_reason")
+	if err != nil {
+		return fmt.Errorf("failed to inspect %s.%s: %w", tableName, "status_reason", err)
+	}
+	if present {
+		return nil
+	}
+
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s TEXT", tableName, "status_reason")
+	if _, execErr := db.ExecContext(ctx, stmt); execErr != nil && !isDuplicateSQLiteColumnError(stmt, execErr) {
+		return fmt.Errorf("compatibility migration failed: %w (sql: %s)", execErr, stmt)
+	}
+	return nil
+}
+
+func ensureLegacyTurnColumns(ctx context.Context, db *sql.DB) error {
+	const tableName = "turn"
+
+	exists, err := sqliteTableExists(ctx, db, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to inspect %s table: %w", tableName, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	columns := map[string]string{
+		"origin":        "TEXT",
+		"goal_id":       "TEXT",
+		"status_reason": "TEXT",
+	}
+	for column, dataType := range columns {
+		present, err := sqliteColumnExists(ctx, db, tableName, column)
+		if err != nil {
+			return fmt.Errorf("failed to inspect %s.%s: %w", tableName, column, err)
+		}
+		if present {
+			continue
+		}
+		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, column, dataType)
 		if _, execErr := db.ExecContext(ctx, stmt); execErr != nil && !isDuplicateSQLiteColumnError(stmt, execErr) {
 			return fmt.Errorf("compatibility migration failed: %w (sql: %s)", execErr, stmt)
 		}

@@ -41,6 +41,12 @@ func TestParseClassifierResult_UnifiedSchema(t *testing.T) {
 		}
 	})
 
+	t.Run("route drops campaign directAction without id", func(t *testing.T) {
+		got := parseClassifierResult(mkResp(`{"action":"route","agentId":"primary","directAction":{"toolName":"ui/view:open","inputJson":"{\"CampaignId\":\"553524\"}","assistantText":"Opened campaign."}}`), "agentId")
+		assert.NotNil(t, got)
+		assert.Nil(t, got.DirectAction)
+	})
+
 	t.Run("action=planner returns AgentID", func(t *testing.T) {
 		got := parseClassifierResult(mkResp(`{"action":"planner","agentId":"analyst"}`), "agentId")
 		assert.NotNil(t, got)

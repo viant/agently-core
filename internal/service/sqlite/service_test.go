@@ -259,3 +259,100 @@ func TestService_Ensure_UpgradesLegacyToolApprovalQueueSchema(t *testing.T) {
 		t.Fatalf("expected idx_taq_status_expires_at to reference expires_at, got %q", indexSQL)
 	}
 }
+
+func TestService_Ensure_UpgradesLegacyGoalSchema(t *testing.T) {
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "legacy-goal")
+	defer cleanup()
+
+	_, err := db.Exec(`
+		CREATE TABLE goal (
+			id TEXT PRIMARY KEY,
+			conversation_id TEXT NOT NULL,
+			objective TEXT NOT NULL,
+			status TEXT NOT NULL,
+			pause_reason TEXT,
+			controller_spec TEXT,
+			token_budget INTEGER,
+			tokens_used INTEGER NOT NULL DEFAULT 0,
+			time_used_seconds INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy goal: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	svc := New(filepath.Dir(filepath.Dir(dbPath))).WithPath(dbPath)
+	if _, err := svc.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure() should upgrade legacy goal schema: %v", err)
+	}
+
+	upgraded, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer upgraded.Close()
+
+	ok, err := sqliteColumnExists(context.Background(), upgraded, "goal", "status_reason")
+	if err != nil {
+		t.Fatalf("sqliteColumnExists(goal.status_reason) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected goal.status_reason column to exist after Ensure()")
+	}
+}
+
+func TestService_Ensure_UpgradesLegacyTurnSchema(t *testing.T) {
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "legacy-turn")
+	defer cleanup()
+
+	_, err := db.Exec(`
+		CREATE TABLE turn (
+			id TEXT PRIMARY KEY,
+			conversation_id TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			queue_seq INTEGER,
+			status TEXT NOT NULL,
+			error_message TEXT,
+			started_by_message_id TEXT,
+			retry_of TEXT,
+			agent_id_used TEXT,
+			agent_config_used_id TEXT,
+			model_override_provider TEXT,
+			model_override TEXT,
+			model_params_override TEXT,
+			run_id TEXT
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy turn: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	svc := New(filepath.Dir(filepath.Dir(dbPath))).WithPath(dbPath)
+	if _, err := svc.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure() should upgrade legacy turn schema: %v", err)
+	}
+
+	upgraded, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer upgraded.Close()
+
+	for _, column := range []string{"origin", "goal_id", "status_reason"} {
+		ok, err := sqliteColumnExists(context.Background(), upgraded, "turn", column)
+		if err != nil {
+			t.Fatalf("sqliteColumnExists(turn.%s) error = %v", column, err)
+		}
+		if !ok {
+			t.Fatalf("expected turn.%s column to exist after Ensure()", column)
+		}
+	}
+}

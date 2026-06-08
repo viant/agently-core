@@ -1482,6 +1482,37 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 	require.Len(t, override.DirectAction.Input["items"], 2)
 }
 
+func TestBuildFollowUpOverrideFromState_UsesGenericRelatedRecordIDs(t *testing.T) {
+	rule := agentmdl.ActivationRule{
+		ID: "generic_followup_compare",
+		Scope: agentmdl.ActivationScope{
+			Values: map[string]string{
+				"recordIds": "$relatedRecordIds",
+			},
+		},
+		Classification: agentmdl.ActivationClassification{Intent: "compare"},
+	}
+	state := activationFollowUpState{
+		WindowID:        "order-1",
+		WindowKey:       "order",
+		WindowRecordIDs: []string{"2656980"},
+	}
+	relatedStates := []activationFollowUpState{
+		state,
+		{
+			WindowID:        "order-2",
+			WindowKey:       "order",
+			WindowRecordIDs: []string{"2609393"},
+		},
+	}
+
+	override := buildFollowUpOverrideFromState(rule, map[string]interface{}{}, state, relatedStates, "compare them")
+	require.NotNil(t, override)
+	require.Equal(t, "2656980,2609393", override.Scope.Values["recordIds"])
+	require.Empty(t, override.Scope.Values["compareOrderIds"])
+	require.Empty(t, override.Scope.Values["windowOrderIds"])
+}
+
 func TestResolveWorkspaceUIIntentOverride_LiveTabMatch(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

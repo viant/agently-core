@@ -498,7 +498,11 @@ func parseClassifierDirectAction(raw *classifierDirectAction) *intakesvc.DirectA
 	if len(result.Input) == 0 {
 		return nil
 	}
-	return result
+	normalized := intakesvc.NormalizeClassifierDirectAction(result)
+	if strings.TrimSpace(normalized.ToolName) == "" || len(normalized.Input) == 0 {
+		return nil
+	}
+	return &normalized
 }
 
 // pickAgentIDField selects the agent-id field according to the configured

@@ -10,6 +10,8 @@ import (
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	aggoal "github.com/viant/agently-core/pkg/agently/goal"
+	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	agmessage "github.com/viant/agently-core/pkg/agently/message"
 	elicitationmsg "github.com/viant/agently-core/pkg/agently/message/elicitation"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
@@ -46,6 +48,7 @@ type Service interface {
 	Raw() *datly.Service
 
 	GetConversation(ctx context.Context, id string, in *agconv.ConversationInput, opts ...Option) (*agconv.ConversationView, error)
+	GetGoal(ctx context.Context, conversationID string, in *aggoal.GoalInput, opts ...Option) (*aggoal.GoalView, error)
 	ListConversations(ctx context.Context, in *agconvlist.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error)
 	GetMessage(ctx context.Context, id string, in *agmessage.MessageInput, opts ...Option) (*agmessage.MessageView, error)
 	GetMessagesPage(ctx context.Context, in *agmessagelist.MessageRowsInput, page *PageInput, opts ...Option) (*MessagePage, error)
@@ -69,6 +72,7 @@ type Service interface {
 	ListGeneratedFiles(ctx context.Context, conversationID string, opts ...Option) ([]*gfread.GeneratedFileView, error)
 
 	PatchConversations(ctx context.Context, rows []*agconvwrite.MutableConversationView) ([]*agconvwrite.MutableConversationView, error)
+	PatchGoals(ctx context.Context, rows []*aggoalwrite.MutableGoalView) ([]*aggoalwrite.MutableGoalView, error)
 	PatchMessages(ctx context.Context, rows []*agmessagewrite.MutableMessageView) ([]*agmessagewrite.MutableMessageView, error)
 	PatchTurns(ctx context.Context, rows []*agturnwrite.MutableTurnView) ([]*agturnwrite.MutableTurnView, error)
 	PatchModelCalls(ctx context.Context, rows []*agmodelcallwrite.MutableModelCallView) ([]*agmodelcallwrite.MutableModelCallView, error)
@@ -77,6 +81,7 @@ type Service interface {
 	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error)
 
 	DeleteConversations(ctx context.Context, ids ...string) error
+	DeleteGoals(ctx context.Context, ids ...string) error
 	DeleteConversationTree(ctx context.Context, ids ...string) error
 	DeleteScheduleCascade(ctx context.Context, id string) error
 	DeleteMessages(ctx context.Context, ids ...string) error
@@ -124,6 +129,31 @@ func (s *datlyService) GetConversation(ctx context.Context, id string, in *agcon
 	out.Data[0].OnRelation(ctx)
 	if err := authorizeConversation(out.Data[0], callOpts); err != nil {
 		return nil, err
+	}
+	return out.Data[0], nil
+}
+
+func (s *datlyService) GetGoal(ctx context.Context, conversationID string, in *aggoal.GoalInput, opts ...Option) (*aggoal.GoalView, error) {
+	input := aggoal.GoalInput{
+		ConversationID: conversationID,
+		Has:            &aggoal.GoalInputHas{ConversationID: true},
+	}
+	if in != nil {
+		input = *in
+		input.ConversationID = conversationID
+		if input.Has == nil {
+			input.Has = &aggoal.GoalInputHas{}
+		}
+		input.Has.ConversationID = true
+	}
+	out := &aggoal.GoalOutput{}
+	uri := strings.ReplaceAll(aggoal.GoalPathURI, "{conversationId}", conversationID)
+	operateOpts := append([]datly.OperateOption{datly.WithURI(uri), datly.WithInput(&input), datly.WithOutput(out)}, toOperateOptions(opts)...)
+	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		return nil, nil
 	}
 	return out.Data[0], nil
 }
@@ -451,6 +481,15 @@ func (s *datlyService) PatchConversations(ctx context.Context, rows []*agconvwri
 	return out.Data, nil
 }
 
+func (s *datlyService) PatchGoals(ctx context.Context, rows []*aggoalwrite.MutableGoalView) ([]*aggoalwrite.MutableGoalView, error) {
+	in := &aggoalwrite.Input{Goals: rows}
+	out := &aggoalwrite.Output{}
+	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", aggoalwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+		return out.Data, err
+	}
+	return out.Data, nil
+}
+
 func (s *datlyService) PatchMessages(ctx context.Context, rows []*agmessagewrite.MutableMessageView) ([]*agmessagewrite.MutableMessageView, error) {
 	in := &agmessagewrite.Input{Messages: rows}
 	out := &agmessagewrite.Output{}
@@ -527,6 +566,23 @@ func (s *datlyService) DeleteConversations(ctx context.Context, ids ...string) e
 	in := &agconvwrite.DeleteInput{Rows: rows}
 	out := &agconvwrite.DeleteOutput{}
 	_, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("DELETE", agconvwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out))
+	return err
+}
+
+func (s *datlyService) DeleteGoals(ctx context.Context, ids ...string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	rows := make([]*aggoalwrite.MutableGoalView, 0, len(ids))
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		rows = append(rows, aggoalwrite.NewMutableGoalView(aggoalwrite.WithGoalID(id)))
+	}
+	in := &aggoalwrite.DeleteInput{Rows: rows}
+	out := &aggoalwrite.DeleteOutput{}
+	_, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("DELETE", aggoalwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out))
 	return err
 }
 

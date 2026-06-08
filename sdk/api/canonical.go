@@ -32,6 +32,9 @@ type TurnState struct {
 	CreatedAt           time.Time                  `json:"createdAt,omitempty"`
 	QueueSeq            int                        `json:"queueSeq,omitempty"`
 	StartedByMessageID  string                     `json:"startedByMessageId,omitempty"`
+	Origin              string                     `json:"origin,omitempty"`
+	GoalID              string                     `json:"goalId,omitempty"`
+	StatusReason        string                     `json:"statusReason,omitempty"`
 }
 
 type TurnStatus string

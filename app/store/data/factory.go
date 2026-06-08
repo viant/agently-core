@@ -14,6 +14,8 @@ import (
 	conversationlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	conversationwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	goal "github.com/viant/agently-core/pkg/agently/goal"
+	goalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	message "github.com/viant/agently-core/pkg/agently/message"
 	elicitationmsg "github.com/viant/agently-core/pkg/agently/message/elicitation"
 	messagelist "github.com/viant/agently-core/pkg/agently/message/list"
@@ -223,6 +225,9 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 	if err := conversation.DefineConversationComponent(ctx, svc); err != nil {
 		return err
 	}
+	if err := goal.DefineGoalComponent(ctx, svc); err != nil {
+		return err
+	}
 	if err := conversationlist.DefineConversationRowsComponent(ctx, svc); err != nil {
 		return err
 	}
@@ -280,6 +285,9 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 	if _, err := conversationwrite.DefineComponent(ctx, svc); err != nil {
 		return err
 	}
+	if _, err := goalwrite.DefineComponent(ctx, svc); err != nil {
+		return err
+	}
 	if _, err := messagewrite.DefineComponent(ctx, svc); err != nil {
 		return err
 	}
@@ -299,6 +307,9 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 		return err
 	}
 	if _, err := conversationwrite.DefineDeleteComponent(ctx, svc); err != nil {
+		return err
+	}
+	if _, err := goalwrite.DefineDeleteComponent(ctx, svc); err != nil {
 		return err
 	}
 	if _, err := defineConversationTreeDeleteComponent(ctx, svc); err != nil {

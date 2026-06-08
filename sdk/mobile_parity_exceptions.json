@@ -1,0 +1,14 @@
+[
+  {
+    "surface": "mode",
+    "platform": "android",
+    "reason": "Go-only transport discriminator; mobile SDKs are concrete HTTP clients.",
+    "expires": "2026-12-31"
+  },
+  {
+    "surface": "mode",
+    "platform": "ios",
+    "reason": "Go-only transport discriminator; mobile SDKs are concrete HTTP clients.",
+    "expires": "2026-12-31"
+  }
+]

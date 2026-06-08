@@ -283,6 +283,80 @@ func (c *HTTPClient) DeleteConversation(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
 }
 
+func (c *HTTPClient) GetGoal(ctx context.Context, conversationID string) (*Goal, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	var out GoalEnvelope
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/goal"
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Goal, nil
+}
+
+func (c *HTTPClient) CreateGoal(ctx context.Context, input *CreateGoalInput) (*Goal, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/goal"
+	body := struct {
+		Objective      string `json:"objective"`
+		TokenBudget    *int64 `json:"tokenBudget,omitempty"`
+		ControllerSpec string `json:"controllerSpec,omitempty"`
+	}{
+		Objective:      strings.TrimSpace(input.Objective),
+		TokenBudget:    input.TokenBudget,
+		ControllerSpec: strings.TrimSpace(input.ControllerSpec),
+	}
+	var out Goal
+	if err := c.doJSON(ctx, http.MethodPost, path, &body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) (*Goal, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/goal"
+	body := struct {
+		Objective    string `json:"objective,omitempty"`
+		Status       string `json:"status,omitempty"`
+		StatusReason string `json:"statusReason,omitempty"`
+		TokenBudget  *int64 `json:"tokenBudget,omitempty"`
+	}{
+		Objective:    strings.TrimSpace(input.Objective),
+		Status:       strings.TrimSpace(input.Status),
+		StatusReason: strings.TrimSpace(input.StatusReason),
+		TokenBudget:  input.TokenBudget,
+	}
+	var out Goal
+	if err := c.doJSON(ctx, http.MethodPatch, path, &body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *HTTPClient) ClearGoal(ctx context.Context, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return errors.New("conversation ID is required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/goal"
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
+}
+
 func (c *HTTPClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")

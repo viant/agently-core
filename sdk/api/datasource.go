@@ -2,9 +2,10 @@ package api
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
-	ID     string                 `json:"id"`
-	Inputs map[string]interface{} `json:"inputs,omitempty"`
-	Cache  *DatasourceCacheHints  `json:"cache,omitempty"`
+	ID             string                 `json:"id"`
+	ConversationID string                 `json:"conversationId,omitempty"`
+	Inputs         map[string]interface{} `json:"inputs,omitempty"`
+	Cache          *DatasourceCacheHints  `json:"cache,omitempty"`
 }
 
 // DatasourceCacheHints carries per-call overrides on cache behaviour.

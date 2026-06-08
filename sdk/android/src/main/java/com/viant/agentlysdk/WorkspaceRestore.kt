@@ -80,7 +80,7 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                         windows = windows,
                         toolSteps = completedToolSteps.drop(index + 1)
                     )
-                    val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
+                    val response = parseHostedWorkspaceObject(step)
                     val selectedWindowId = jsonString(response?.get("selectedWindowId"))
                         .ifBlank { restoredWindows.lastOrNull()?.windowId.orEmpty() }
                     return HostedWorkspaceRestoreState(
@@ -150,7 +150,7 @@ private fun parsePayload(raw: JsonElement): JsonElement? {
             if (text.isBlank()) {
                 null
             } else {
-                runCatching { Json.parseToJsonElement(text) }.getOrNull()
+                parseJsonElementString(text)
             }
         }
         is JsonObject -> {
@@ -158,13 +158,34 @@ private fun parsePayload(raw: JsonElement): JsonElement? {
             if (inlineBody is JsonPrimitive) {
                 val text = inlineBody.contentOrNull?.trim().orEmpty()
                 if (text.isNotBlank()) {
-                    return runCatching { Json.parseToJsonElement(text) }.getOrNull() ?: raw
+                    return parseJsonElementString(text) ?: raw
                 }
             }
             raw
         }
         else -> raw
     }
+}
+
+private fun parseJsonElementString(text: String): JsonElement? {
+    runCatching { Json.parseToJsonElement(text) }.getOrNull()?.let { return it }
+
+    val objectStart = text.indexOf('{').takeIf { it >= 0 } ?: Int.MAX_VALUE
+    val arrayStart = text.indexOf('[').takeIf { it >= 0 } ?: Int.MAX_VALUE
+    val start = minOf(objectStart, arrayStart)
+    if (start == Int.MAX_VALUE) {
+        return null
+    }
+
+    val objectEnd = text.lastIndexOf('}')
+    val arrayEnd = text.lastIndexOf(']')
+    val end = maxOf(objectEnd, arrayEnd)
+    if (end <= start) {
+        return null
+    }
+
+    val candidate = text.substring(start, end + 1)
+    return runCatching { Json.parseToJsonElement(candidate) }.getOrNull()
 }
 
 private fun isPayloadEnvelope(value: JsonElement): Boolean {
@@ -184,7 +205,7 @@ private fun hostedWorkspaceWindowsFromListPayload(raw: JsonElement?): List<Works
 private fun hostedWorkspaceWindowsFromViewOpenStep(
     step: ToolStepState
 ): List<WorkspaceWindowSnapshot> {
-    val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject ?: return emptyList()
+    val response = parseHostedWorkspaceObject(step) ?: return emptyList()
     val request = firstParsedPayload(step.requestPayload, null) as? JsonObject
     val items = response["items"] as? JsonArray
     if (items != null && items.isNotEmpty()) {
@@ -209,6 +230,19 @@ private fun hostedWorkspaceWindowsFromViewOpenStep(
         )
     )
     return listOfNotNull(normalized)
+}
+
+private fun parseHostedWorkspaceObject(step: ToolStepState): JsonObject? {
+    val parsed = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
+    if (parsed != null) {
+        return parsed
+    }
+    val content = step.content?.trim().orEmpty()
+    if (content.isBlank()) {
+        return null
+    }
+    return runCatching { Json.parseToJsonElement(content) }
+        .getOrNull() as? JsonObject
 }
 
 private fun applyWindowFormDataPatches(

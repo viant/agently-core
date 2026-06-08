@@ -317,6 +317,15 @@ func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
 	if src.Has.CreatedAt && src.CreatedAt != nil {
 		dst.CreatedAt = *src.CreatedAt
 	}
+	if src.Has.Origin {
+		dst.Origin = src.Origin
+	}
+	if src.Has.GoalID {
+		dst.GoalID = src.GoalID
+	}
+	if src.Has.StatusReason {
+		dst.StatusReason = src.StatusReason
+	}
 	if src.Has.Status {
 		dst.Status = src.Status
 	}

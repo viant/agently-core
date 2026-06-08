@@ -110,6 +110,9 @@ type TranscriptView struct {
 	ConversationId        string         `sqlx:"conversation_id"`
 	CreatedAt             time.Time      `sqlx:"created_at"`
 	QueueSeq              *int           `sqlx:"queue_seq"`
+	Origin                *string        `sqlx:"origin"`
+	GoalID                *string        `sqlx:"goal_id"`
+	StatusReason          *string        `sqlx:"status_reason"`
 	Status                string         `sqlx:"status"`
 	ErrorMessage          *string        `sqlx:"error_message"`
 	StartedByMessageId    *string        `sqlx:"started_by_message_id"`

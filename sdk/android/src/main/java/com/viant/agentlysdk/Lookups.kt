@@ -26,13 +26,15 @@ import java.nio.charset.StandardCharsets
 data class FetchDatasourceInput(
     val id: String,
     val inputs: Map<String, JsonElement>? = null,
-    val cache: DatasourceCacheHints? = null
+    val cache: DatasourceCacheHints? = null,
+    val conversationId: String? = null
 )
 
 @Serializable
 internal data class FetchDatasourceBody(
     val inputs: Map<String, JsonElement>? = null,
-    val cache: DatasourceCacheHints? = null
+    val cache: DatasourceCacheHints? = null,
+    val conversationId: String? = null
 )
 
 @Serializable
@@ -119,7 +121,15 @@ suspend fun AgentlyClient.fetchDatasource(
     input: FetchDatasourceInput
 ): FetchDatasourceOutput = withContext(Dispatchers.IO) {
     val path = "/v1/api/datasources/${encodeSegment(input.id)}/fetch"
-    post(path, FetchDatasourceBody(inputs = input.inputs, cache = input.cache), FetchDatasourceOutput.serializer())
+    post(
+        path,
+        FetchDatasourceBody(
+            inputs = input.inputs,
+            cache = input.cache,
+            conversationId = input.conversationId
+        ),
+        FetchDatasourceOutput.serializer()
+    )
 }
 
 suspend fun AgentlyClient.invalidateDatasourceCache(

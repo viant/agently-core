@@ -30,11 +30,32 @@ CREATE TABLE IF NOT EXISTS conversation (
     external_task_ref TEXT
 );
 
+CREATE TABLE IF NOT EXISTS goal (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL UNIQUE,
+    objective TEXT NOT NULL,
+    status TEXT NOT NULL,
+    status_reason TEXT,
+    pause_reason TEXT,
+    controller_spec TEXT,
+    token_budget INTEGER,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    time_used_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME,
+    FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_goal_conversation ON goal(conversation_id);
+
 CREATE TABLE IF NOT EXISTS turn (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     queue_seq INTEGER,
+    origin TEXT,
+    goal_id TEXT,
+    status_reason TEXT,
     status TEXT NOT NULL,
     error_message TEXT,
     started_by_message_id TEXT,

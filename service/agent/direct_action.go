@@ -31,7 +31,10 @@ func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	switch strings.ToLower(strings.TrimSpace(mcpname.Display(toolName))) {
 	case "ui/view/open":
 		if strings.TrimSpace(stringValue(action.Input["id"])) == "" {
-			return fmt.Errorf("ui/view:open direct action input.id is required")
+			items, ok := action.Input["items"].([]interface{})
+			if !ok || len(items) == 0 {
+				return fmt.Errorf("ui/view:open direct action input.id or input.items is required")
+			}
 		}
 	}
 	return nil

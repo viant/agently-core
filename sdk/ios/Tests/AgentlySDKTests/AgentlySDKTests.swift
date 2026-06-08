@@ -621,11 +621,11 @@ final class AgentlySDKTests: XCTestCase {
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
                 "Content-Type": "application/json"
             ])!
-            let data = #"{"workspaceRoot":"/tmp/workspace","agents":[],"models":[],"agentInfos":[],"modelInfos":[]}"#.data(using: .utf8)!
+            let data = #"{"workspaceRoot":"/tmp/workspace","appName":"Steward","appIconRef":"builtin:viant","agents":[],"models":[],"agentInfos":[],"modelInfos":[]}"#.data(using: .utf8)!
             return (response, data)
         }
 
-        _ = try await client.getWorkspaceMetadata(
+        let metadata = try await client.getWorkspaceMetadata(
             MetadataTargetContext(
                 platform: "ios",
                 formFactor: "tablet",
@@ -633,6 +633,8 @@ final class AgentlySDKTests: XCTestCase {
                 capabilities: ["markdown", "chart"]
             )
         )
+        XCTAssertEqual(metadata.appName, "Steward")
+        XCTAssertEqual(metadata.appIconRef, "builtin:viant")
 
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
@@ -1464,6 +1466,17 @@ final class AgentlySDKTests: XCTestCase {
                 body = #"[{"name":"system.exec","description":"Execute","required":["cmd"],"output_schema":{"type":"string"}}]"#
             case ("POST", "/v1/tools/system.exec/execute"):
                 body = #"{"result":"ok"}"#
+            case ("POST", "/v1/tools/system%2Fgoal%3Acreate/execute"), ("POST", "/v1/tools/system/goal:create/execute"):
+                XCTAssertEqual(value(for: "conversationId"), "conv-goal-1")
+                body = #"{"result":"ok"}"#
+            case ("GET", "/v1/conversations/conv-goal-1/goal"):
+                body = #"{"goal":{"id":"goal-1","objective":"finish refactor","status":"active"}}"#
+            case ("POST", "/v1/conversations/conv-goal-1/goal"):
+                body = #"{"id":"goal-1","objective":"finish refactor","status":"active"}"#
+            case ("PATCH", "/v1/conversations/conv-goal-1/goal"):
+                body = #"{"id":"goal-1","objective":"finish refactor","status":"paused","statusReason":"user paused"}"#
+            case ("DELETE", "/v1/conversations/conv-goal-1/goal"):
+                body = #"{}"#
             case ("GET", "/v1/api/a2a/agents/agent-1/card"):
                 body = #"{"name":"agent-1","title":"Agent One","endpoints":{},"capabilities":{"streaming":true}}"#
             case ("POST", "/v1/api/a2a/agents/agent-1/message"):
@@ -1480,6 +1493,15 @@ final class AgentlySDKTests: XCTestCase {
 
         let tools = try await client.listToolDefinitions()
         let result = try await client.executeTool(name: "system.exec", args: ["cmd": .string("pwd")])
+        let goalResult = try await client.executeTool(
+            name: "system/goal:create",
+            args: ["objective": .string("finish refactor")],
+            conversationID: "conv-goal-1"
+        )
+        let goal = try await client.getGoal(conversationID: "conv-goal-1")
+        let createdGoal = try await client.createGoal(conversationID: "conv-goal-1", CreateGoalInput(objective: "finish refactor"))
+        let updatedGoal = try await client.updateGoal(conversationID: "conv-goal-1", UpdateGoalInput(status: "paused", statusReason: "user paused"))
+        try await client.clearGoal(conversationID: "conv-goal-1")
         let card = try await client.getA2AAgentCard(agentID: "agent-1")
         let response = try await client.sendA2AMessage(
             agentID: "agent-1",
@@ -1489,6 +1511,11 @@ final class AgentlySDKTests: XCTestCase {
 
         XCTAssertEqual(tools.first?.name, "system.exec")
         XCTAssertEqual(result, "ok")
+        XCTAssertEqual(goalResult, "ok")
+        XCTAssertEqual(goal?.id, "goal-1")
+        XCTAssertEqual(createdGoal.id, "goal-1")
+        XCTAssertEqual(updatedGoal.status, "paused")
+        XCTAssertEqual(updatedGoal.statusReason, "user paused")
         XCTAssertEqual(card.capabilities?.streaming, true)
         XCTAssertEqual(response.task.id, "task-1")
         XCTAssertEqual(agents, ["agent-1", "agent-2"])

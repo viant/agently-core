@@ -642,6 +642,43 @@ describe('Tools', () => {
         expect(call.url).toContain('/tools/system%2Fexec/execute');
         expect(call.body).toEqual({ command: 'ls' });
     });
+
+    it('executeTool can target a conversation-scoped tool surface', async () => {
+        const f = mockFetch(200, { result: 'done' });
+        const c = client(f);
+        await c.executeTool('system/goal:create', { objective: 'finish refactor' }, { conversationId: 'conv-goal-1' });
+
+        const call = lastCall(f);
+        expect(call.url).toContain('/tools/system%2Fgoal%3Acreate/execute?conversationId=conv-goal-1');
+        expect(call.body).toEqual({ objective: 'finish refactor' });
+    });
+});
+
+describe('Goals', () => {
+    it('getGoal reads the conversation goal envelope', async () => {
+        const f = mockFetch(200, { goal: { id: 'goal-1', objective: 'finish parser cleanup', status: 'active' } });
+        const c = client(f);
+        const goal = await c.getGoal('conv-1');
+
+        expect(goal?.id).toBe('goal-1');
+        const call = lastCall(f);
+        expect(call.url).toContain('/conversations/conv-1/goal');
+    });
+
+    it('createGoal and updateGoal use conversation goal routes', async () => {
+        const f = mockFetch(200, { id: 'goal-1', objective: 'finish parser cleanup', status: 'active' });
+        const c = client(f);
+
+        await c.createGoal('conv-1', { objective: 'finish parser cleanup' });
+        let call = lastCall(f);
+        expect(call.url).toContain('/conversations/conv-1/goal');
+        expect(call.body).toEqual({ objective: 'finish parser cleanup' });
+
+        await c.updateGoal('conv-1', { status: 'paused', statusReason: 'user paused' });
+        call = lastCall(f);
+        expect(call.url).toContain('/conversations/conv-1/goal');
+        expect(call.body).toEqual({ status: 'paused', statusReason: 'user paused' });
+    });
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────

@@ -63,7 +63,23 @@ func TestValidateDirectAction(t *testing.T) {
 		Input:         map[string]any{"AdLineId": "7288336"},
 		AssistantText: "Opening forecast view.",
 	}
-	require.ErrorContains(t, validateDirectAction(missingViewID), "input.id is required")
+	require.ErrorContains(t, validateDirectAction(missingViewID), "input.id or input.items is required")
+
+	multiOpen := &intakesvc.DirectActionContext{
+		ToolName: "ui/view:open",
+		Input: map[string]any{
+			"items": []interface{}{
+				map[string]interface{}{
+					"id": "campaign",
+					"parameters": map[string]interface{}{
+						"CampaignId": []interface{}{553524},
+					},
+				},
+			},
+		},
+		AssistantText: "Opening the requested campaign window.",
+	}
+	require.NoError(t, validateDirectAction(multiOpen))
 }
 
 func TestAuthorizeDirectAction_UsesIntakeToolItemsAndBundles(t *testing.T) {

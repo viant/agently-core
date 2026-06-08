@@ -565,13 +565,13 @@ func activationStringValue(value interface{}) string {
 }
 
 type activationFollowUpState struct {
-	Source         string
-	ClientID       string
-	WindowID       string
-	WindowKey      string
-	WindowTitle    string
-	WindowOrderIDs []string
-	LiveWindow     *uireg.WindowSnapshot
+	Source          string
+	ClientID        string
+	WindowID        string
+	WindowKey       string
+	WindowTitle     string
+	WindowRecordIDs []string
+	LiveWindow      *uireg.WindowSnapshot
 }
 
 func (s *Service) resolveWorkspaceFollowUpRuleOverride(ctx context.Context, conversationID, query string, rules []agentmdl.ActivationRule) *intakesvc.Context {
@@ -603,13 +603,13 @@ func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversat
 		if client, activeWindow := liveWindowState(s.uiRegistry, ctx, conversationID); client != nil {
 			if activeWindow != nil {
 				result = append(result, activationFollowUpState{
-					Source:         "live_window",
-					ClientID:       strings.TrimSpace(client.ClientID),
-					WindowID:       strings.TrimSpace(activeWindow.WindowID),
-					WindowKey:      strings.TrimSpace(activeWindow.WindowKey),
-					WindowTitle:    strings.TrimSpace(activeWindow.WindowTitle),
-					WindowOrderIDs: extractWindowOrderIDs(activeWindow),
-					LiveWindow:     activeWindow,
+					Source:          "live_window",
+					ClientID:        strings.TrimSpace(client.ClientID),
+					WindowID:        strings.TrimSpace(activeWindow.WindowID),
+					WindowKey:       strings.TrimSpace(activeWindow.WindowKey),
+					WindowTitle:     strings.TrimSpace(activeWindow.WindowTitle),
+					WindowRecordIDs: extractWindowRecordIDs(activeWindow),
+					LiveWindow:      activeWindow,
 				})
 			}
 			if client.Snapshot != nil {
@@ -622,13 +622,13 @@ func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversat
 						continue
 					}
 					result = append(result, activationFollowUpState{
-						Source:         "live_window",
-						ClientID:       strings.TrimSpace(client.ClientID),
-						WindowID:       strings.TrimSpace(win.WindowID),
-						WindowKey:      strings.TrimSpace(win.WindowKey),
-						WindowTitle:    strings.TrimSpace(win.WindowTitle),
-						WindowOrderIDs: extractWindowOrderIDs(win),
-						LiveWindow:     win,
+						Source:          "live_window",
+						ClientID:        strings.TrimSpace(client.ClientID),
+						WindowID:        strings.TrimSpace(win.WindowID),
+						WindowKey:       strings.TrimSpace(win.WindowKey),
+						WindowTitle:     strings.TrimSpace(win.WindowTitle),
+						WindowRecordIDs: extractWindowRecordIDs(win),
+						LiveWindow:      win,
 					})
 				}
 			}
@@ -638,11 +638,11 @@ func (s *Service) collectActivationFollowUpStates(ctx context.Context, conversat
 		if conversation, err := s.conversation.GetConversation(ctx, strings.TrimSpace(conversationID), apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true)); err == nil && conversation != nil {
 			if state := deriveWorkspaceFollowUpStateFromTranscript(conversation.GetTranscript()); state != nil && strings.TrimSpace(state.WindowID) != "" {
 				result = append(result, activationFollowUpState{
-					Source:         "transcript_window",
-					ClientID:       strings.TrimSpace(state.ClientID),
-					WindowID:       strings.TrimSpace(state.WindowID),
-					WindowKey:      strings.TrimSpace(state.WindowKey),
-					WindowOrderIDs: append([]string(nil), state.OrderIDs...),
+					Source:          "transcript_window",
+					ClientID:        strings.TrimSpace(state.ClientID),
+					WindowID:        strings.TrimSpace(state.WindowID),
+					WindowKey:       strings.TrimSpace(state.WindowKey),
+					WindowRecordIDs: append([]string(nil), state.RecordIDs...),
 				})
 			}
 		}
@@ -707,11 +707,11 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 	stateVars["windowKey"] = state.WindowKey
 	stateVars["windowTitle"] = state.WindowTitle
 	stateVars["clientId"] = state.ClientID
-	if len(state.WindowOrderIDs) > 0 {
-		stateVars["windowOrderIds"] = strings.Join(state.WindowOrderIDs, ",")
+	if len(state.WindowRecordIDs) > 0 {
+		stateVars["windowRecordIds"] = strings.Join(state.WindowRecordIDs, ",")
 	}
-	if related := collectFollowUpOrderIDs(relatedStates); len(related) > 0 {
-		stateVars["compareOrderIds"] = strings.Join(related, ",")
+	if related := collectFollowUpRecordIDs(relatedStates); len(related) > 0 {
+		stateVars["relatedRecordIds"] = strings.Join(related, ",")
 	}
 
 	var direct *workspaceFollowUpDirectAction
@@ -763,11 +763,11 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 	return override
 }
 
-func collectFollowUpOrderIDs(states []activationFollowUpState) []string {
+func collectFollowUpRecordIDs(states []activationFollowUpState) []string {
 	seen := map[string]struct{}{}
 	result := make([]string, 0)
 	for _, state := range states {
-		for _, id := range state.WindowOrderIDs {
+		for _, id := range state.WindowRecordIDs {
 			trimmed := strings.TrimSpace(id)
 			if trimmed == "" {
 				continue
@@ -782,7 +782,7 @@ func collectFollowUpOrderIDs(states []activationFollowUpState) []string {
 	return result
 }
 
-func extractWindowOrderIDs(win *uireg.WindowSnapshot) []string {
+func extractWindowRecordIDs(win *uireg.WindowSnapshot) []string {
 	if win == nil {
 		return nil
 	}
@@ -828,7 +828,7 @@ func extractWindowOrderIDs(win *uireg.WindowSnapshot) []string {
 		}
 	}
 	if win.CompareContext != nil {
-		if raw, ok := win.CompareContext["orderIds"]; ok {
+		if raw, ok := win.CompareContext["recordIds"]; ok {
 			appendRaw(raw)
 		}
 	}
@@ -844,7 +844,7 @@ func extractWindowOrderIDs(win *uireg.WindowSnapshot) []string {
 		}
 	}
 	if len(collected) == 0 {
-		for _, item := range extractOrderIDs(firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowID))) {
+		for _, item := range extractRecordIDs(firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowID))) {
 			collected = append(collected, item)
 		}
 	}
@@ -1002,7 +1002,7 @@ type workspaceFollowUpState struct {
 	WindowID  string
 	WindowKey string
 	ClientID  string
-	OrderIDs  []string
+	RecordIDs []string
 }
 
 type workspaceFollowUpDirectAction struct {
@@ -1063,10 +1063,10 @@ func matchesAny(value string, candidates ...string) bool {
 	return false
 }
 
-var orderIDPattern = regexp.MustCompile(`\b\d{4,}\b`)
+var recordIDPattern = regexp.MustCompile(`\b\d{4,}\b`)
 
-func extractOrderIDs(query string) []string {
-	found := orderIDPattern.FindAllString(query, -1)
+func extractRecordIDs(query string) []string {
+	found := recordIDPattern.FindAllString(query, -1)
 	if len(found) == 0 {
 		return nil
 	}

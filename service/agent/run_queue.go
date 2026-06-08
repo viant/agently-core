@@ -95,11 +95,11 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 		}
 	}
 	logx.Infof("conversation", "agent.Query queued convo=%q turn_id=%q active_turn=%q queue_seq=%d", conversationID, turnID, strings.TrimSpace(active.Id), queueSeq)
-	s.emitTurnQueued(ctx, conversationID, turnID, queueSeq, now, strings.TrimSpace(input.Query))
+	s.emitTurnQueued(ctx, conversationID, turnID, queueSeq, now, strings.TrimSpace(input.Query), "user", "", "")
 	return true, nil
 }
 
-func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID string, queueSeq int64, createdAt time.Time, query string) {
+func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID string, queueSeq int64, createdAt time.Time, query, origin, goalID, statusReason string) {
 	if s.streamPub == nil {
 		return
 	}
@@ -112,6 +112,9 @@ func (s *Service) emitTurnQueued(ctx context.Context, conversationID, turnID str
 		QueueSeq:           int(queueSeq),
 		StartedByMessageID: turnID,
 		UserMessageID:      turnID,
+		QueueOrigin:        strings.TrimSpace(origin),
+		GoalID:             strings.TrimSpace(goalID),
+		StatusReason:       strings.TrimSpace(statusReason),
 		CreatedAt:          createdAt,
 	}
 	event.NormalizeIdentity(conversationID, turnID)

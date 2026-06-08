@@ -19,7 +19,7 @@ export type {
     Direction, PageInput, PageOutput,
     // Conversation
     Conversation, ConversationPage, CreateConversationInput,
-    ListConversationsInput, UpdateConversationInput,
+    ListConversationsInput, UpdateConversationInput, Goal, GoalEnvelope, CreateGoalInput, UpdateGoalInput,
     // Turn / Transcript
     Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     // Execution pages (canonical)
