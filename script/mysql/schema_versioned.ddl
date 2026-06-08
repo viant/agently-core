@@ -2015,4 +2015,98 @@ END $$
 CALL schema_upgrade_23() $$
 DROP PROCEDURE schema_upgrade_23 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_24 $$
+CREATE PROCEDURE schema_upgrade_24()
+BEGIN
+    IF get_schema_version() = 24 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'goal'
+        ) THEN
+            CREATE TABLE goal
+            (
+                id                VARCHAR(255) PRIMARY KEY,
+                conversation_id   VARCHAR(255) NOT NULL UNIQUE,
+                objective         TEXT NOT NULL,
+                status            VARCHAR(255) NOT NULL,
+                status_reason     TEXT NULL,
+                pause_reason      VARCHAR(255) NULL,
+                controller_spec   TEXT NULL,
+                token_budget      BIGINT NULL,
+                tokens_used       BIGINT NOT NULL DEFAULT 0,
+                time_used_seconds BIGINT NOT NULL DEFAULT 0,
+                created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at        TIMESTAMP NULL DEFAULT NULL,
+                CONSTRAINT fk_goal_conversation
+                    FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE
+            ) ENGINE = InnoDB
+              DEFAULT CHARSET = utf8mb4
+              COLLATE = utf8mb4_0900_ai_ci;
+
+            CREATE INDEX idx_goal_conversation ON goal (conversation_id);
+        ELSE
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'goal'
+                  AND COLUMN_NAME = 'status_reason'
+            ) THEN
+                ALTER TABLE goal
+                    ADD COLUMN status_reason TEXT NULL AFTER status;
+            END IF;
+        END IF;
+
+        CALL set_schema_version(25);
+    END IF;
+END $$
+
+CALL schema_upgrade_24() $$
+DROP PROCEDURE schema_upgrade_24 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_25 $$
+CREATE PROCEDURE schema_upgrade_25()
+BEGIN
+    IF get_schema_version() = 25 THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'turn'
+        ) THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'turn'
+                  AND COLUMN_NAME = 'origin'
+            ) THEN
+                ALTER TABLE turn
+                    ADD COLUMN origin VARCHAR(64) NULL AFTER queue_seq;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'turn'
+                  AND COLUMN_NAME = 'goal_id'
+            ) THEN
+                ALTER TABLE turn
+                    ADD COLUMN goal_id VARCHAR(255) NULL AFTER origin;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'turn'
+                  AND COLUMN_NAME = 'status_reason'
+            ) THEN
+                ALTER TABLE turn
+                    ADD COLUMN status_reason TEXT NULL AFTER goal_id;
+            END IF;
+        END IF;
+
+        CALL set_schema_version(26);
+    END IF;
+END $$
+
+CALL schema_upgrade_25() $$
+DROP PROCEDURE schema_upgrade_25 $$
+
 DELIMITER ;

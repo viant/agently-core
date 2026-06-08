@@ -27,6 +27,7 @@ import (
 	"github.com/viant/agently-core/service/core"
 	elicitation "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	goalruntime "github.com/viant/agently-core/service/goal"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
 	"github.com/viant/agently-core/service/reactor"
@@ -85,6 +86,7 @@ type Service struct {
 	asyncPollers     sync.Map
 	bootstrapCache   sync.Map
 	toolSurfaceCache sync.Map
+	goalRuntime      *goalruntime.Runtime
 
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 
@@ -340,6 +342,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		})
 
 	srv.elicitation = elicitation.New(srv.conversation, nil, srv.elicRouter, srv.awaiterFactory)
+	if srv.dataService != nil {
+		srv.goalRuntime = goalruntime.NewRuntime(goalruntime.NewStore(srv.dataService))
+	}
 
 	return srv
 }

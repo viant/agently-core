@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/viant/agently-core/app/store/conversation"
+	convdata "github.com/viant/agently-core/app/store/data"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 )
 
@@ -17,18 +20,29 @@ import (
 // method call will panic (which is fine: these tests never invoke them).
 type dsStubBackend struct {
 	Backend
-	fetchCalls      int
-	invalidateCalls int
-	registryCalls   int
+	fetchCalls         int
+	invalidateCalls    int
+	registryCalls      int
+	lastConversationID string
+	getConversationErr error
+	lastConversation   string
 }
 
 func (s *dsStubBackend) FetchDatasource(ctx context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
 	s.fetchCalls++
+	s.lastConversationID = runtimerequestctx.ConversationIDFromContext(ctx)
 	return &api.FetchDatasourceOutput{
 		Rows:    []map[string]interface{}{{"id": 1, "name": "stub:" + in.ID}},
 		Metrics: map[string]interface{}{"summary": map[string]interface{}{"count": 1}},
 		Cache:   &api.DatasourceCacheMeta{Hit: false, FetchedAt: "2026-04-22T00:00:00Z"},
 	}, nil
+}
+func (s *dsStubBackend) GetConversation(_ context.Context, id string) (*conversation.Conversation, error) {
+	s.lastConversation = id
+	if s.getConversationErr != nil {
+		return nil, s.getConversationErr
+	}
+	return &conversation.Conversation{Id: id}, nil
 }
 func (s *dsStubBackend) InvalidateDatasourceCache(ctx context.Context, in *api.InvalidateDatasourceCacheInput) error {
 	s.invalidateCalls++
@@ -119,6 +133,60 @@ func TestHandleFetchDatasource_DispatchesToBackend(t *testing.T) {
 	}
 	if summary, ok := out.Metrics["summary"].(map[string]interface{}); !ok || summary["count"] != float64(1) {
 		t.Fatalf("metrics mismatch: %+v", out.Metrics)
+	}
+}
+
+func TestHandleFetchDatasource_BindsConversationIDFromRequest(t *testing.T) {
+	body := `{"conversationId":"conv-123","inputs":{"q":"acm"}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
+	req.SetPathValue("id", "account")
+	w := httptest.NewRecorder()
+
+	stub := &dsStubBackend{}
+	handleFetchDatasource(stub)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if got := stub.lastConversationID; got != "conv-123" {
+		t.Fatalf("want bound conversation id conv-123, got %q", got)
+	}
+	if got := stub.lastConversation; got != "conv-123" {
+		t.Fatalf("want access check conversation id conv-123, got %q", got)
+	}
+}
+
+func TestHandleFetchDatasource_RejectsInaccessibleConversationContext(t *testing.T) {
+	body := `{"conversationId":"conv-secret","inputs":{"q":"acm"}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
+	req.SetPathValue("id", "account")
+	w := httptest.NewRecorder()
+
+	stub := &dsStubBackend{getConversationErr: convdata.ErrPermissionDenied}
+	handleFetchDatasource(stub)(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if stub.fetchCalls != 0 {
+		t.Fatalf("want 0 fetch calls when conversation access is denied, got %d", stub.fetchCalls)
+	}
+}
+
+func TestHandleFetchDatasource_RejectsMissingConversationContext(t *testing.T) {
+	body := `{"conversationId":"conv-missing","inputs":{"q":"acm"}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
+	req.SetPathValue("id", "account")
+	w := httptest.NewRecorder()
+
+	stub := &dsStubBackend{getConversationErr: convdata.ErrConversationNotFound}
+	handleFetchDatasource(stub)(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d body=%s", w.Code, w.Body.String())
+	}
+	if stub.fetchCalls != 0 {
+		t.Fatalf("want 0 fetch calls when conversation is missing, got %d", stub.fetchCalls)
 	}
 }
 

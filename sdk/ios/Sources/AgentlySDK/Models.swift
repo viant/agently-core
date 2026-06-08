@@ -65,12 +65,16 @@ public struct OAuthConfigOutput: Codable, Sendable {
 }
 
 public struct WorkspaceDefaults: Codable, Sendable {
+    public let appName: String?
+    public let appIconRef: String?
     public let agent: String?
     public let model: String?
     public let embedder: String?
     public let autoSelectTools: Bool?
 
-    public init(agent: String? = nil, model: String? = nil, embedder: String? = nil, autoSelectTools: Bool? = nil) {
+    public init(appName: String? = nil, appIconRef: String? = nil, agent: String? = nil, model: String? = nil, embedder: String? = nil, autoSelectTools: Bool? = nil) {
+        self.appName = appName
+        self.appIconRef = appIconRef
         self.agent = agent
         self.model = model
         self.embedder = embedder
@@ -250,6 +254,8 @@ public struct WorkspaceMetadata: Codable, Sendable {
     public let workspaceRoot: String?
     public let workspaceVersion: String?
     public let metadataVersion: String?
+    public let appName: String?
+    public let appIconRef: String?
     public let defaultAgent: String?
     public let defaultModel: String?
     public let defaultEmbedder: String?
@@ -265,6 +271,8 @@ public struct WorkspaceMetadata: Codable, Sendable {
         workspaceRoot: String? = nil,
         workspaceVersion: String? = nil,
         metadataVersion: String? = nil,
+        appName: String? = nil,
+        appIconRef: String? = nil,
         defaultAgent: String? = nil,
         defaultModel: String? = nil,
         defaultEmbedder: String? = nil,
@@ -279,6 +287,8 @@ public struct WorkspaceMetadata: Codable, Sendable {
         self.workspaceRoot = workspaceRoot
         self.workspaceVersion = workspaceVersion
         self.metadataVersion = metadataVersion
+        self.appName = appName
+        self.appIconRef = appIconRef
         self.defaultAgent = defaultAgent
         self.defaultModel = defaultModel
         self.defaultEmbedder = defaultEmbedder
@@ -2232,6 +2242,67 @@ public struct UpdateConversationInput: Codable, Sendable {
         self.title = title
         self.visibility = visibility
         self.shareable = shareable
+    }
+}
+
+public struct Goal: Codable, Sendable, Identifiable {
+    public let id: String
+    public let conversationID: String?
+    public let objective: String
+    public let status: String
+    public let statusReason: String?
+    public let pauseReason: String?
+    public let controllerSpec: String?
+    public let tokenBudget: Int64?
+    public let tokensUsed: Int64?
+    public let timeUsedSeconds: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case conversationID = "conversationId"
+        case objective
+        case status
+        case statusReason
+        case pauseReason
+        case controllerSpec
+        case tokenBudget
+        case tokensUsed
+        case timeUsedSeconds
+    }
+}
+
+public struct GoalEnvelope: Codable, Sendable {
+    public let goal: Goal?
+}
+
+public struct CreateGoalInput: Codable, Sendable {
+    public let objective: String
+    public let tokenBudget: Int64?
+    public let controllerSpec: String?
+
+    public init(objective: String, tokenBudget: Int64? = nil, controllerSpec: String? = nil) {
+        self.objective = objective
+        self.tokenBudget = tokenBudget
+        self.controllerSpec = controllerSpec
+    }
+}
+
+public struct UpdateGoalInput: Codable, Sendable {
+    public let objective: String?
+    public let status: String?
+    public let statusReason: String?
+    public let tokenBudget: Int64?
+
+    public init(
+        objective: String? = nil,
+        status: String? = nil,
+        statusReason: String? = nil,
+        tokenBudget: Int64? = nil
+    ) {
+        self.objective = objective
+        self.status = status
+        self.statusReason = statusReason
+        self.tokenBudget = tokenBudget
     }
 }
 

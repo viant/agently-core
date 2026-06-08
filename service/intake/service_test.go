@@ -61,6 +61,31 @@ func TestParseOutput_DropsUIViewOpenWithoutID(t *testing.T) {
 	assert.Equal(t, "workspace_ui", tc.Prompting.SuggestedProfileID)
 }
 
+func TestParseOutput_DropsCampaignUIViewOpenWithoutID(t *testing.T) {
+	raw := `{"classification":{"title":"Open campaign view","intent":"ui_open","confidence":0.68},"scope":{"values":{"CampaignId":"553524"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"CampaignId\":\"553524\"}","assistantText":"Opening Campaign Summary for CampaignId=553524"}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Empty(t, tc.DirectAction.ToolName)
+	assert.Nil(t, tc.DirectAction.Input)
+}
+
+func TestParseOutput_DropsLineUIViewOpenWithoutID(t *testing.T) {
+	raw := `{"classification":{"title":"Open line view","intent":"ui_open","confidence":0.68},"scope":{"values":{"AudienceId":"7321890"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"AudienceId\":\"7321890\"}","assistantText":"Opening Line Summary for AudienceId=7321890"}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Empty(t, tc.DirectAction.ToolName)
+	assert.Nil(t, tc.DirectAction.Input)
+}
+
+func TestParseOutput_PreservesClassifierUIViewOpenWhenIDIsExplicit(t *testing.T) {
+	raw := `{"classification":{"title":"Open line view","intent":"ui_open","confidence":0.68},"scope":{"values":{"AudienceId":"7321890"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2674449]}}","assistantText":"Opening Line Summary for AudienceId=7321890"}}`
+	tc, err := parseOutput(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
+	require.NotNil(t, tc.DirectAction.Input)
+	assert.Equal(t, "order", tc.DirectAction.Input["id"])
+}
+
 func TestCanonicalIntakeContent_DropsInvalidDirectAction(t *testing.T) {
 	raw := `{"classification":{"title":"Open Forecasting Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"windowKey\":\"forecastingCubeBuilder\",\"parameters\":{\"AdOrderId\":7288336}}","assistantText":"Opening Forecasting view."}}`
 	tc, err := parseOutput(raw)

@@ -24,6 +24,18 @@ func WithTurnConversationID(v string) MutableTurnViewOption {
 	return func(t *MutableTurnView) { t.SetConversationID(v) }
 }
 
+func WithTurnOrigin(v string) MutableTurnViewOption {
+	return func(t *MutableTurnView) { t.SetOrigin(v) }
+}
+
+func WithTurnGoalID(v string) MutableTurnViewOption {
+	return func(t *MutableTurnView) { t.SetGoalID(v) }
+}
+
+func WithTurnStatusReason(v string) MutableTurnViewOption {
+	return func(t *MutableTurnView) { t.SetStatusReason(v) }
+}
+
 func WithTurnStatus(v string) MutableTurnViewOption {
 	return func(t *MutableTurnView) { t.SetStatus(v) }
 }

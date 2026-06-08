@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS generated_file;
 DROP TABLE IF EXISTS call_payload;
 DROP TABLE IF EXISTS `message`;
 DROP TABLE IF EXISTS turn;
+DROP TABLE IF EXISTS goal;
 DROP TABLE IF EXISTS conversation;
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -57,6 +58,28 @@ CREATE TABLE conversation
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
 
+CREATE TABLE goal
+(
+    id                VARCHAR(255) PRIMARY KEY,
+    conversation_id   VARCHAR(255) NOT NULL UNIQUE,
+    objective         TEXT NOT NULL,
+    status            VARCHAR(255) NOT NULL,
+    status_reason     TEXT NULL,
+    pause_reason      VARCHAR(255) NULL,
+    controller_spec   TEXT NULL,
+    token_budget      BIGINT NULL,
+    tokens_used       BIGINT NOT NULL DEFAULT 0,
+    time_used_seconds BIGINT NOT NULL DEFAULT 0,
+    created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP NULL DEFAULT NULL,
+    CONSTRAINT fk_goal_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE INDEX idx_goal_conversation ON goal (conversation_id);
+
 -- Optional usage breakdown table (kept for compatibility)
 CREATE TABLE turn
 (
@@ -66,6 +89,9 @@ CREATE TABLE turn
     -- queue_seq provides deterministic FIFO ordering when created_at has low resolution.
     -- It is set by the application when queueing is enabled.
     queue_seq               BIGINT NULL,
+    origin                  VARCHAR(64) NULL,
+    goal_id                 VARCHAR(255) NULL,
+    status_reason           TEXT NULL,
     status                  VARCHAR(255) NOT NULL CHECK (status IN
                                                          ('queued', 'pending', 'running', 'waiting_for_user',
                                                           'succeeded', 'failed', 'canceled')),

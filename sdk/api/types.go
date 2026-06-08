@@ -105,6 +105,38 @@ type UpdateConversationInput struct {
 	Shareable      *bool  `json:"shareable,omitempty"`
 }
 
+type Goal struct {
+	ID              string `json:"id"`
+	ConversationID  string `json:"conversationId,omitempty"`
+	Objective       string `json:"objective"`
+	Status          string `json:"status"`
+	StatusReason    string `json:"statusReason,omitempty"`
+	PauseReason     string `json:"pauseReason,omitempty"`
+	ControllerSpec  string `json:"controllerSpec,omitempty"`
+	TokenBudget     *int64 `json:"tokenBudget,omitempty"`
+	TokensUsed      int64  `json:"tokensUsed,omitempty"`
+	TimeUsedSeconds int64  `json:"timeUsedSeconds,omitempty"`
+}
+
+type GoalEnvelope struct {
+	Goal *Goal `json:"goal,omitempty"`
+}
+
+type CreateGoalInput struct {
+	ConversationID string `json:"-"`
+	Objective      string `json:"objective"`
+	TokenBudget    *int64 `json:"tokenBudget,omitempty"`
+	ControllerSpec string `json:"controllerSpec,omitempty"`
+}
+
+type UpdateGoalInput struct {
+	ConversationID string `json:"-"`
+	Objective      string `json:"objective,omitempty"`
+	Status         string `json:"status,omitempty"`
+	StatusReason   string `json:"statusReason,omitempty"`
+	TokenBudget    *int64 `json:"tokenBudget,omitempty"`
+}
+
 type StreamEventsInput struct {
 	ConversationID string
 	Filter         streaming.Filter
@@ -134,6 +166,8 @@ type PendingElicitation struct {
 }
 
 type WorkspaceDefaults struct {
+	AppName         string `json:"appName,omitempty"`
+	AppIconRef      string `json:"appIconRef,omitempty"`
 	Agent           string `json:"agent,omitempty"`
 	Model           string `json:"model,omitempty"`
 	Embedder        string `json:"embedder,omitempty"`
@@ -181,6 +215,8 @@ type WorkspaceMetadata struct {
 	WorkspaceRoot    string                `json:"workspaceRoot,omitempty"`
 	WorkspaceVersion string                `json:"workspaceVersion,omitempty"`
 	MetadataVersion  string                `json:"metadataVersion,omitempty"`
+	AppName          string                `json:"appName,omitempty"`
+	AppIconRef       string                `json:"appIconRef,omitempty"`
 	DefaultAgent     string                `json:"defaultAgent,omitempty"`
 	DefaultModel     string                `json:"defaultModel,omitempty"`
 	DefaultEmbedder  string                `json:"defaultEmbedder,omitempty"`

@@ -617,6 +617,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return fmt.Errorf("cannot get conversation: not found: %s", strings.TrimSpace(input.ConversationID))
 	}
 	output.Usage = agg
+	s.maybeContinueActiveGoal(context.WithoutCancel(ctx), input, output, turn, status)
 	if ws := warningsFrom(ctx); len(ws) > 0 {
 		output.Warnings = ws
 	}

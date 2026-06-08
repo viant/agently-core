@@ -14,11 +14,12 @@ import (
 type AsyncDefaults = wsconfig.WorkspaceConfig
 
 type Defaults struct {
-	AppName  string
-	Model    string
-	Embedder string
-	Agent    string
-	Skills   SkillsDefaults `yaml:"skills,omitempty" json:"skills,omitempty"`
+	AppName    string
+	AppIconRef string
+	Model      string
+	Embedder   string
+	Agent      string
+	Skills     SkillsDefaults `yaml:"skills,omitempty" json:"skills,omitempty"`
 	// RuntimeRoot allows separating runtime state (db, snapshots, indexes) from the workspace.
 	// Supports ${workspaceRoot}. When empty, defaults to ${workspaceRoot}.
 	RuntimeRoot string `yaml:"runtimeRoot,omitempty" json:"runtimeRoot,omitempty"`
@@ -98,6 +99,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 	type raw struct {
 		AppName     string         `yaml:"appName,omitempty"`
+		AppIconRef  string         `yaml:"appIconRef,omitempty"`
 		Model       string         `yaml:"model"`
 		Embedder    string         `yaml:"embedder"`
 		Agent       string         `yaml:"agent"`
@@ -140,6 +142,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 
 	*d = Defaults{
 		AppName:     tmp.AppName,
+		AppIconRef:  tmp.AppIconRef,
 		Model:       tmp.Model,
 		Embedder:    tmp.Embedder,
 		Agent:       tmp.Agent,

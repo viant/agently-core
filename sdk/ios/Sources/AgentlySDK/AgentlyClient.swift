@@ -121,6 +121,24 @@ public final class AgentlyClient: Sendable {
         let _: EmptyResponse = try await rawRequest(path: "/v1/conversations/\(encodePath(conversationID))", method: "DELETE", as: EmptyResponse.self)
     }
 
+    public func getGoal(conversationID: String) async throws -> Goal? {
+        let result = try await get("/v1/conversations/\(encodePath(conversationID))/goal", as: GoalEnvelope.self)
+        return result.goal
+    }
+
+    public func createGoal(conversationID: String, _ input: CreateGoalInput) async throws -> Goal {
+        try await post("/v1/conversations/\(encodePath(conversationID))/goal", body: input, as: Goal.self)
+    }
+
+    public func updateGoal(conversationID: String, _ input: UpdateGoalInput) async throws -> Goal {
+        let data = try encoder.encode(input)
+        return try await rawRequest(path: "/v1/conversations/\(encodePath(conversationID))/goal", method: "PATCH", body: data, as: Goal.self)
+    }
+
+    public func clearGoal(conversationID: String) async throws {
+        let _: EmptyResponse = try await rawRequest(path: "/v1/conversations/\(encodePath(conversationID))/goal", method: "DELETE", as: EmptyResponse.self)
+    }
+
     public func getMessages(_ input: GetMessagesInput) async throws -> MessagePage {
         try await get("/v1/messages", query: messageQueryItems(from: input), as: MessagePage.self)
     }
@@ -412,8 +430,15 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/tools", as: [ToolDefinitionInfo].self)
     }
 
-    public func executeTool(name: String, args: [String: JSONValue] = [:]) async throws -> String {
-        try await post("/v1/tools/\(encodePath(name))/execute", body: args, as: ToolExecuteEnvelope.self).result ?? ""
+    public func executeTool(
+        name: String,
+        args: [String: JSONValue] = [:],
+        conversationID: String? = nil
+    ) async throws -> String {
+        let path = "/v1/tools/\(encodePath(name))/execute"
+        let query = conversationID?.isEmpty == false ? [URLQueryItem(name: "conversationId", value: conversationID)] : []
+        let data = try encoder.encode(args)
+        return try await rawRequest(path: path, method: "POST", query: query, body: data, as: ToolExecuteEnvelope.self).result ?? ""
     }
 
     public func executeMCPUIToolCall(_ input: MCPUIToolCallInput) async throws -> MCPUIToolCallOutput {

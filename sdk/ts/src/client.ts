@@ -12,7 +12,7 @@
 
 import type {
     Conversation, ConversationPage, CreateConversationInput, ListConversationsInput,
-    UpdateConversationInput,
+    UpdateConversationInput, Goal, GoalEnvelope, CreateGoalInput, UpdateGoalInput,
     Message, MessagePage, GetMessagesInput,
     Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     QueryInput, QueryOutput,
@@ -151,6 +151,27 @@ export class AgentlyClient {
     /** Delete a conversation tree owned by the current user. */
     async deleteConversation(id: string): Promise<void> {
         await this.del(`/conversations/${enc(id)}`);
+    }
+
+    /** Get the current durable goal for a conversation. */
+    async getGoal(conversationId: string): Promise<Goal | null> {
+        const result = await this.get<GoalEnvelope>(`/conversations/${enc(conversationId)}/goal`);
+        return result?.goal ?? null;
+    }
+
+    /** Create the durable goal for a conversation. */
+    async createGoal(conversationId: string, input: CreateGoalInput): Promise<Goal> {
+        return this.post<Goal>(`/conversations/${enc(conversationId)}/goal`, input);
+    }
+
+    /** Update the durable goal for a conversation. */
+    async updateGoal(conversationId: string, input: UpdateGoalInput): Promise<Goal> {
+        return this.patch<Goal>(`/conversations/${enc(conversationId)}/goal`, input);
+    }
+
+    /** Clear the durable goal for a conversation. */
+    async clearGoal(conversationId: string): Promise<void> {
+        await this.del(`/conversations/${enc(conversationId)}/goal`);
     }
 
     // ── Messages ─────────────────────────────────────────────────────────────
@@ -503,8 +524,11 @@ export class AgentlyClient {
     // ── Tools ────────────────────────────────────────────────────────────────
 
     /** Execute a registered tool by name. */
-    async executeTool(name: string, args?: JSONObject): Promise<string> {
-        const res = await this.post<JSONValue | undefined>(`/tools/${enc(name)}/execute`, args ?? {});
+    async executeTool(name: string, args?: JSONObject, options?: { conversationId?: string }): Promise<string> {
+        const q = new URLSearchParams();
+        if (options?.conversationId) q.set('conversationId', options.conversationId);
+        const url = q.toString() ? `/tools/${enc(name)}/execute?${q.toString()}` : `/tools/${enc(name)}/execute`;
+        const res = await this.post<JSONValue | undefined>(url, args ?? {});
         return typeof res === 'string' ? res : (res?.result ?? JSON.stringify(res));
     }
 

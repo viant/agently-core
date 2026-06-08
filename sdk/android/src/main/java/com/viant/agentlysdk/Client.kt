@@ -141,6 +141,22 @@ class AgentlyClient(
         delete("/v1/conversations/${encodePath(conversationId)}", EmptyResponse.serializer())
     }
 
+    suspend fun getGoal(conversationId: String): Goal? = withContext(Dispatchers.IO) {
+        get("/v1/conversations/${encodePath(conversationId)}/goal", GoalEnvelope.serializer()).goal
+    }
+
+    suspend fun createGoal(conversationId: String, input: CreateGoalInput): Goal = withContext(Dispatchers.IO) {
+        post("/v1/conversations/${encodePath(conversationId)}/goal", input, Goal.serializer())
+    }
+
+    suspend fun updateGoal(conversationId: String, input: UpdateGoalInput): Goal = withContext(Dispatchers.IO) {
+        patch("/v1/conversations/${encodePath(conversationId)}/goal", input, Goal.serializer())
+    }
+
+    suspend fun clearGoal(conversationId: String): Unit = withContext(Dispatchers.IO) {
+        delete("/v1/conversations/${encodePath(conversationId)}/goal", EmptyResponse.serializer())
+    }
+
     suspend fun cancelTurn(turnId: String): Boolean = withContext(Dispatchers.IO) {
         post("/v1/turns/${encodePath(turnId)}/cancel", emptyMap<String, JsonElement>(), CancelTurnEnvelope.serializer()).cancelled
     }
@@ -394,8 +410,17 @@ class AgentlyClient(
         get("/v1/tools", ToolDefinitionsSerializer)
     }
 
-    suspend fun executeTool(name: String, args: Map<String, JsonElement> = emptyMap()): String = withContext(Dispatchers.IO) {
-        post("/v1/tools/${encodePath(name)}/execute", args, ToolExecuteEnvelope.serializer()).result.orEmpty()
+    suspend fun executeTool(
+        name: String,
+        args: Map<String, JsonElement> = emptyMap(),
+        conversationId: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val path = if (conversationId.isNullOrBlank()) {
+            "/v1/tools/${encodePath(name)}/execute"
+        } else {
+            appendQuery("/v1/tools/${encodePath(name)}/execute", linkedMapOf("conversationId" to conversationId))
+        }
+        post(path, args, ToolExecuteEnvelope.serializer()).result.orEmpty()
     }
 
     suspend fun executeMCPUIToolCall(input: MCPUIToolCallInput): MCPUIToolCallOutput = withContext(Dispatchers.IO) {

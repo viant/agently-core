@@ -10,6 +10,9 @@ type Turn struct {
 	ConversationID        string     `sqlx:"conversation_id" validate:"required"`
 	CreatedAt             *time.Time `sqlx:"created_at" json:",omitempty"`
 	QueueSeq              *int64     `sqlx:"queue_seq" json:",omitempty"`
+	Origin                *string    `sqlx:"origin" json:",omitempty"`
+	GoalID                *string    `sqlx:"goal_id" json:",omitempty"`
+	StatusReason          *string    `sqlx:"status_reason" json:",omitempty"`
 	Status                string     `sqlx:"status" validate:"required"`
 	StartedByMessageID    *string    `sqlx:"started_by_message_id" json:",omitempty"`
 	RetryOf               *string    `sqlx:"retry_of" json:",omitempty"`
@@ -33,6 +36,9 @@ type TurnHas struct {
 	ConversationID        bool
 	CreatedAt             bool
 	QueueSeq              bool
+	Origin                bool
+	GoalID                bool
+	StatusReason          bool
 	Status                bool
 	StartedByMessageID    bool
 	RetryOf               bool
@@ -53,7 +59,14 @@ func (t *Turn) SetConversationID(v string) {
 }
 func (t *Turn) SetCreatedAt(v time.Time) { t.CreatedAt = &v; ensureHas(&t.Has); t.Has.CreatedAt = true }
 func (t *Turn) SetQueueSeq(v int64)      { t.QueueSeq = &v; ensureHas(&t.Has); t.Has.QueueSeq = true }
-func (t *Turn) SetStatus(v string)       { t.Status = v; ensureHas(&t.Has); t.Has.Status = true }
+func (t *Turn) SetOrigin(v string)       { t.Origin = &v; ensureHas(&t.Has); t.Has.Origin = true }
+func (t *Turn) SetGoalID(v string)       { t.GoalID = &v; ensureHas(&t.Has); t.Has.GoalID = true }
+func (t *Turn) SetStatusReason(v string) {
+	t.StatusReason = &v
+	ensureHas(&t.Has)
+	t.Has.StatusReason = true
+}
+func (t *Turn) SetStatus(v string) { t.Status = v; ensureHas(&t.Has); t.Has.Status = true }
 func (t *Turn) SetStartedByMessageID(v string) {
 	t.StartedByMessageID = &v
 	ensureHas(&t.Has)

@@ -15,6 +15,7 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
+	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	agmessage "github.com/viant/agently-core/pkg/agently/message"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
@@ -400,6 +401,21 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		}
 		if _, ok := tm["ToolCall"].(map[string]interface{}); !ok {
 			t.Fatalf("expected nested toolCall object in json shape")
+		}
+	})
+}
+
+func TestDataService_GoalPredicates(t *testing.T) {
+	svc := newSeededService(t, seedForPatchBaseline)
+	ctx := context.Background()
+
+	t.Run("current goal by conversation", func(t *testing.T) {
+		got, err := svc.GetGoal(ctx, "c-base", nil)
+		if err != nil {
+			t.Fatalf("GetGoal() error: %v", err)
+		}
+		if got == nil || got.Id != "g-base" {
+			t.Fatalf("expected g-base, got %#v", got)
 		}
 	})
 }
@@ -1434,6 +1450,169 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 
 func TestDataService_Patch_DataDriven(t *testing.T) {
 	ctx := context.Background()
+
+	t.Run("goal patch", func(t *testing.T) {
+		svc := newSeededService(t, seedForPatchBaseline)
+		cases := []struct {
+			name    string
+			rows    []*aggoalwrite.MutableGoalView
+			wantErr bool
+		}{
+			{
+				name: "insert",
+				rows: []*aggoalwrite.MutableGoalView{
+					aggoalwrite.NewMutableGoalView(
+						aggoalwrite.WithGoalID("g-patch"),
+						aggoalwrite.WithGoalConversationID("c-goal-insert"),
+						aggoalwrite.WithGoalObjective("reduce p95"),
+						aggoalwrite.WithGoalStatus("active"),
+					),
+				},
+			},
+			{
+				name: "update",
+				rows: []*aggoalwrite.MutableGoalView{
+					aggoalwrite.NewMutableGoalView(
+						aggoalwrite.WithGoalID("g-base"),
+						aggoalwrite.WithGoalStatus("paused"),
+					),
+				},
+			},
+			{
+				name: "missing conversation for insert",
+				rows: []*aggoalwrite.MutableGoalView{
+					aggoalwrite.NewMutableGoalView(
+						aggoalwrite.WithGoalID("g-bad"),
+						aggoalwrite.WithGoalObjective("broken"),
+						aggoalwrite.WithGoalStatus("active"),
+					),
+				},
+				wantErr: true,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := svc.PatchGoals(ctx, tc.rows)
+				if tc.wantErr {
+					if err == nil {
+						t.Fatalf("expected error")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("PatchGoals() error: %v", err)
+				}
+			})
+		}
+		inserted, err := svc.GetGoal(ctx, "c-goal-insert", nil)
+		if err != nil {
+			t.Fatalf("GetGoal(inserted) error: %v", err)
+		}
+		if inserted == nil || inserted.Id != "g-patch" || inserted.Objective != "reduce p95" {
+			t.Fatalf("expected inserted goal, got %#v", inserted)
+		}
+		updated, err := svc.GetGoal(ctx, "c-base", nil)
+		if err != nil {
+			t.Fatalf("GetGoal() error: %v", err)
+		}
+		if updated == nil || updated.Status != "paused" {
+			t.Fatalf("expected paused goal, got %#v", updated)
+		}
+	})
+
+	t.Run("goal patch honors Has markers on update", func(t *testing.T) {
+		svc := newSeededService(t, seedForPatchBaseline)
+
+		t.Run("unmarked fields are ignored", func(t *testing.T) {
+			row := aggoalwrite.NewMutableGoalView(
+				aggoalwrite.WithGoalID("g-base"),
+			)
+			status := "paused"
+			objective := "should-not-apply"
+			row.Status = &status
+			row.Objective = &objective
+
+			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+				t.Fatalf("PatchGoals(unmarked) error: %v", err)
+			}
+			got, err := svc.GetGoal(ctx, "c-base", nil)
+			if err != nil {
+				t.Fatalf("GetGoal() error: %v", err)
+			}
+			if got == nil {
+				t.Fatalf("expected goal row")
+			}
+			if got.Status != "active" {
+				t.Fatalf("expected status to remain active, got %#v", got)
+			}
+			if got.Objective != "seed-goal" {
+				t.Fatalf("expected objective to remain seed-goal, got %#v", got)
+			}
+		})
+
+		t.Run("marked fields update while unmarked fields are ignored", func(t *testing.T) {
+			row := aggoalwrite.NewMutableGoalView(
+				aggoalwrite.WithGoalID("g-base"),
+				aggoalwrite.WithGoalStatus("paused"),
+			)
+			objective := "should-not-apply"
+			row.Objective = &objective
+
+			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+				t.Fatalf("PatchGoals(marked+unmarked) error: %v", err)
+			}
+			got, err := svc.GetGoal(ctx, "c-base", nil)
+			if err != nil {
+				t.Fatalf("GetGoal() error: %v", err)
+			}
+			if got == nil {
+				t.Fatalf("expected goal row")
+			}
+			if got.Status != "paused" {
+				t.Fatalf("expected status to update to paused, got %#v", got)
+			}
+			if got.Objective != "seed-goal" {
+				t.Fatalf("expected objective to remain seed-goal, got %#v", got)
+			}
+		})
+
+		t.Run("status reason persists when marked", func(t *testing.T) {
+			row := aggoalwrite.NewMutableGoalView(
+				aggoalwrite.WithGoalID("g-base"),
+				aggoalwrite.WithGoalStatus("blocked"),
+				aggoalwrite.WithGoalStatusReason("waiting for credentials"),
+			)
+
+			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+				t.Fatalf("PatchGoals(statusReason) error: %v", err)
+			}
+			got, err := svc.GetGoal(ctx, "c-base", nil)
+			if err != nil {
+				t.Fatalf("GetGoal() error: %v", err)
+			}
+			if got == nil {
+				t.Fatalf("expected goal row")
+			}
+			if got.Status != "blocked" {
+				t.Fatalf("expected status to update to blocked, got %#v", got)
+			}
+			if got.StatusReason == nil || *got.StatusReason != "waiting for credentials" {
+				t.Fatalf("expected status reason to persist, got %#v", got)
+			}
+		})
+
+		t.Run("second goal for same conversation is rejected by unique constraint", func(t *testing.T) {
+			row := aggoalwrite.NewMutableGoalView(
+				aggoalwrite.WithGoalID("g-duplicate"),
+				aggoalwrite.WithGoalConversationID("c-base"),
+				aggoalwrite.WithGoalObjective("duplicate"),
+				aggoalwrite.WithGoalStatus("active"),
+			)
+			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err == nil {
+				t.Fatalf("expected unique conversation goal insert to fail")
+			}
+		})
+	})
 
 	t.Run("conversation patch", func(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
@@ -2731,6 +2910,8 @@ func seedForPatchBaseline(t *testing.T, db *sql.DB) {
 	t.Helper()
 	items := []dbtest.ParameterizedSQL{
 		{SQL: `INSERT INTO conversation (id, created_at, status, visibility) VALUES (?, ?, ?, ?)`, Params: []interface{}{"c-base", "2026-01-01T09:00:00Z", "active", "private"}},
+		{SQL: `INSERT INTO conversation (id, created_at, status, visibility) VALUES (?, ?, ?, ?)`, Params: []interface{}{"c-goal-insert", "2026-01-01T09:00:10Z", "active", "private"}},
+		{SQL: `INSERT INTO goal (id, conversation_id, objective, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"g-base", "c-base", "seed-goal", "active", "2026-01-01T09:00:30Z", "2026-01-01T09:00:30Z"}},
 		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"t-base", "c-base", "2026-01-01T09:01:00Z", "queued"}},
 		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, interim) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-base", "c-base", "t-base", "2026-01-01T09:02:00Z", "assistant", "text", "seed", 0}},
 		{SQL: `INSERT INTO call_payload (id, kind, mime_type, size_bytes, storage, inline_body, compression, redacted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"p-base", "request", "application/json", 2, "inline", "{}", "none", 0, "2026-01-01T09:03:00Z"}},

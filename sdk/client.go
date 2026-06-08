@@ -52,6 +52,14 @@ type Client interface {
 	UpdateConversation(ctx context.Context, input *UpdateConversationInput) (*conversation.Conversation, error)
 	// DeleteConversation deletes a conversation tree owned by the current user.
 	DeleteConversation(ctx context.Context, id string) error
+	// GetGoal returns the current durable conversation goal, or nil when absent.
+	GetGoal(ctx context.Context, conversationID string) (*Goal, error)
+	// CreateGoal creates the current durable conversation goal.
+	CreateGoal(ctx context.Context, input *CreateGoalInput) (*Goal, error)
+	// UpdateGoal updates mutable durable goal fields for a conversation.
+	UpdateGoal(ctx context.Context, input *UpdateGoalInput) (*Goal, error)
+	// ClearGoal removes the current durable conversation goal.
+	ClearGoal(ctx context.Context, conversationID string) error
 
 	// GetRun returns the current state of a run.
 	GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error)

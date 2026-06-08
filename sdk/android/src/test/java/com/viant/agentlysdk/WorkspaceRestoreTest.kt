@@ -11,6 +11,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonPrimitive
 
 class WorkspaceRestoreTest {
 
@@ -309,5 +310,49 @@ class WorkspaceRestoreTest {
         )
 
         assertNull(deriveHostedWorkspaceRestoreState(snapshot))
+    }
+
+    @Test
+    fun `deriveHostedWorkspaceRestoreState restores hosted line window from live transcript payload envelope`() {
+        val content = """
+            {"clientId":"ios-ui-123","conversationId":"conv-1","items":[{"conversationId":"conv-1","parameters":{"AudienceId":[7289845]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","windowId":"line_3866014773__conv-1","windowKey":"line","windowTitle":"Line Summary","workspaceMinHeight":500,"workspaceSharePct":72}],"ok":true,"parameters":{"AudienceId":[7289845]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","selectedWindowId":"line_3866014773__conv-1","windowId":"line_3866014773__conv-1","windowKey":"line","windowTitle":"Line Summary","workspaceMinHeight":500,"workspaceSharePct":72}
+        """.trimIndent()
+
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        execution = ExecutionState(
+                            pages = listOf(
+                                ExecutionPageState(
+                                    pageId = "page-1",
+                                    toolSteps = listOf(
+                                        ToolStepState(
+                                            toolCallId = "tool-1",
+                                            toolName = "ui/view/open",
+                                            status = "completed",
+                                            content = content,
+                                            responsePayload = buildJsonObject {
+                                                put("Id", "payload-1")
+                                                put("InlineBody", JsonPrimitive("H4sIAAAAAAAA/opaque"))
+                                                put("Compression", "gzip")
+                                            }
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val restore = deriveHostedWorkspaceRestoreState(state)
+
+        assertEquals("line_3866014773__conv-1", restore?.selectedWindowId)
+        assertEquals("line", restore?.windows?.firstOrNull()?.windowKey)
+        assertEquals("Line Summary", restore?.windows?.firstOrNull()?.windowTitle)
     }
 }

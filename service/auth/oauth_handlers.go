@@ -239,7 +239,7 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		a.scheduleOAuthTokenPersist(r.Context(), "oauth_callback", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
-		if wantsJSON(r) {
+		if wantsJSON(r) || r.Method == http.MethodPost {
 			runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "username": username, "provider": provider})
 			return
 		}

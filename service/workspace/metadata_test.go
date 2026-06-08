@@ -58,9 +58,11 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 		},
 	}
 	handler := NewMetadataHandler(&config.Defaults{
-		Agent:    "chatter",
-		Model:    "openai_gpt4o_mini",
-		Embedder: "openai_text",
+		AppName:    "Steward",
+		AppIconRef: "builtin:viant",
+		Agent:      "chatter",
+		Model:      "openai_gpt4o_mini",
+		Embedder:   "openai_text",
 		ToolAutoSelection: config.ToolAutoSelectionDefaults{
 			Enabled: true,
 		},
@@ -81,10 +83,14 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	assert.NotEmpty(t, response.WorkspaceRoot)
 	assert.Equal(t, "0.0.0", response.WorkspaceVersion)
 	assert.NotEmpty(t, response.MetadataVersion)
+	assert.Equal(t, "Steward", response.AppName)
+	assert.Equal(t, "builtin:viant", response.AppIconRef)
 	assert.Equal(t, "chatter", response.DefaultAgent)
 	assert.Equal(t, "openai_gpt4o_mini", response.DefaultModel)
 	assert.Equal(t, "openai_text", response.DefaultEmbedder)
 	if assert.NotNil(t, response.Defaults) {
+		assert.Equal(t, "Steward", response.Defaults.AppName)
+		assert.Equal(t, "builtin:viant", response.Defaults.AppIconRef)
 		assert.Equal(t, "chatter", response.Defaults.Agent)
 		assert.Equal(t, "openai_gpt4o_mini", response.Defaults.Model)
 		assert.Equal(t, "openai_text", response.Defaults.Embedder)

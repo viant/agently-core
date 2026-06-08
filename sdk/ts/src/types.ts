@@ -77,6 +77,36 @@ export interface UpdateConversationInput {
     shareable?: boolean;
 }
 
+export interface Goal {
+    id: string;
+    conversationId?: string;
+    objective: string;
+    status: string;
+    statusReason?: string;
+    pauseReason?: string;
+    controllerSpec?: string;
+    tokenBudget?: number;
+    tokensUsed?: number;
+    timeUsedSeconds?: number;
+}
+
+export interface GoalEnvelope {
+    goal?: Goal | null;
+}
+
+export interface CreateGoalInput {
+    objective: string;
+    tokenBudget?: number;
+    controllerSpec?: string;
+}
+
+export interface UpdateGoalInput {
+    objective?: string;
+    status?: string;
+    statusReason?: string;
+    tokenBudget?: number;
+}
+
 export interface ListConversationsInput {
     agentId?: string;
     excludeScheduled?: boolean;

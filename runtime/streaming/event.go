@@ -231,6 +231,9 @@ type Event struct {
 	// Queue fields — present on turn_queued events.
 	QueueSeq           int    `json:"queueSeq,omitempty"`
 	StartedByMessageID string `json:"startedByMessageId,omitempty"`
+	QueueOrigin        string `json:"queueOrigin,omitempty"`
+	GoalID             string `json:"goalId,omitempty"`
+	StatusReason       string `json:"statusReason,omitempty"`
 	ModelCallID        string `json:"modelCallId,omitempty"`
 	Provider           string `json:"provider,omitempty"`
 	ModelName          string `json:"modelName,omitempty"`

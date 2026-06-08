@@ -154,6 +154,8 @@ data class WorkspaceMetadata(
     val workspaceRoot: String? = null,
     val workspaceVersion: String? = null,
     val metadataVersion: String? = null,
+    val appName: String? = null,
+    val appIconRef: String? = null,
     val defaultAgent: String? = null,
     val defaultModel: String? = null,
     val defaultEmbedder: String? = null,
@@ -396,6 +398,8 @@ data class GeneratedFileEntry(
 
 @Serializable
 data class WorkspaceDefaults(
+    val appName: String? = null,
+    val appIconRef: String? = null,
     val agent: String? = null,
     val model: String? = null,
     val embedder: String? = null,
@@ -544,6 +548,40 @@ data class UpdateConversationInput(
     val title: String? = null,
     val visibility: String? = null,
     val shareable: Boolean? = null
+)
+
+@Serializable
+data class Goal(
+    val id: String,
+    val conversationId: String? = null,
+    val objective: String,
+    val status: String,
+    val statusReason: String? = null,
+    val pauseReason: String? = null,
+    val controllerSpec: String? = null,
+    val tokenBudget: Long? = null,
+    val tokensUsed: Long? = null,
+    val timeUsedSeconds: Long? = null,
+)
+
+@Serializable
+data class GoalEnvelope(
+    val goal: Goal? = null,
+)
+
+@Serializable
+data class CreateGoalInput(
+    val objective: String,
+    val tokenBudget: Long? = null,
+    val controllerSpec: String? = null,
+)
+
+@Serializable
+data class UpdateGoalInput(
+    val objective: String? = null,
+    val status: String? = null,
+    val statusReason: String? = null,
+    val tokenBudget: Long? = null,
 )
 
 @Serializable

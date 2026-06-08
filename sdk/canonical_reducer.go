@@ -163,14 +163,26 @@ func reduceTurnQueued(state *ConversationState, event *streaming.Event) *Convers
 	for _, t := range state.Turns {
 		if t.TurnID == turnID {
 			markTurnQueuedIfMutable(t)
+			if t.Origin == "" {
+				t.Origin = strings.TrimSpace(event.QueueOrigin)
+			}
+			if t.GoalID == "" {
+				t.GoalID = strings.TrimSpace(event.GoalID)
+			}
+			if t.StatusReason == "" {
+				t.StatusReason = strings.TrimSpace(event.StatusReason)
+			}
 			return state
 		}
 	}
 	turn := &TurnState{
-		TurnID:    turnID,
-		Status:    TurnStatusQueued,
-		CreatedAt: event.CreatedAt,
-		QueueSeq:  event.QueueSeq,
+		TurnID:       turnID,
+		Status:       TurnStatusQueued,
+		CreatedAt:    event.CreatedAt,
+		QueueSeq:     event.QueueSeq,
+		Origin:       strings.TrimSpace(event.QueueOrigin),
+		GoalID:       strings.TrimSpace(event.GoalID),
+		StatusReason: strings.TrimSpace(event.StatusReason),
 	}
 	if event.StartedByMessageID != "" {
 		turn.StartedByMessageID = strings.TrimSpace(event.StartedByMessageID)

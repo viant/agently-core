@@ -48,7 +48,11 @@ class AgentlyClientTest {
                 {
                   "data": {
                     "workspaceRoot": "/tmp/workspace",
+                    "appName": "Steward",
+                    "appIconRef": "builtin:viant",
                     "defaults": {
+                      "appName": "Steward",
+                      "appIconRef": "builtin:viant",
                       "agent": "coder",
                       "model": "gpt-5.4",
                       "embedder": "openai_text"
@@ -64,6 +68,8 @@ class AgentlyClientTest {
         val result = client.getWorkspaceMetadata()
 
         assertEquals("/tmp/workspace", result.workspaceRoot)
+        assertEquals("Steward", result.appName)
+        assertEquals("builtin:viant", result.appIconRef)
         assertEquals("coder", result.defaultAgent)
         assertEquals("gpt-5.4", result.defaultModel)
         assertEquals("openai_text", result.defaultEmbedder)

@@ -905,33 +905,7 @@ func normalizeDirectActionWire(wire *contextDirectActionWire) DirectActionContex
 	if len(result.Input) == 0 {
 		return DirectActionContext{}
 	}
-	if !validDirectActionInput(result) {
-		return DirectActionContext{}
-	}
-	return result
-}
-
-func validDirectActionInput(action DirectActionContext) bool {
-	toolName := strings.ToLower(strings.TrimSpace(mcpname.Display(action.ToolName)))
-	switch toolName {
-	case "ui/view/open":
-		return strings.TrimSpace(directActionString(action.Input["id"])) != ""
-	default:
-		return true
-	}
-}
-
-func directActionString(value interface{}) string {
-	switch actual := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return actual
-	case json.Number:
-		return actual.String()
-	default:
-		return strings.TrimSpace(fmt.Sprint(actual))
-	}
+	return normalizeDirectActionWithScope(result, nil)
 }
 
 type contextRoutingWire struct {
@@ -990,7 +964,14 @@ func unmarshalContext(data []byte, tc *Context) error {
 		tc.Prompting.TemplateID = wire.TemplateId
 	}
 
-	tc.DirectAction = normalizeDirectActionWire(wire.DirectAction)
+	normalizedDirectAction := normalizeDirectActionWire(wire.DirectAction)
+	tc.DirectAction = normalizeDirectActionWithContext(
+		normalizedDirectAction,
+		tc.Scope.Values,
+		tc.Classification.Title,
+		wire.Title,
+		normalizedDirectAction.AssistantText,
+	)
 
 	if wire.Routing != nil {
 		tc.Routing.SelectedAgentID = wire.Routing.SelectedAgentID
