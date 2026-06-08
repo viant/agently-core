@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	"strings"
-	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
@@ -634,7 +635,11 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn runtimerequest
 	}
 	run := &agrunwrite.MutableRunView{}
 	run.SetId(turn.TurnID)
-	run.SetStatus(status)
+	runStatus := status
+	if strings.EqualFold(strings.TrimSpace(status), "waiting_for_user") {
+		runStatus = "completed"
+	}
+	run.SetStatus(runStatus)
 	run.SetCompletedAt(time.Now())
 	if strings.TrimSpace(errorMessage) != "" {
 		run.SetErrorMessage(errorMessage)
@@ -703,11 +708,15 @@ func (s *Service) turnAwaitingUserActionData(ctx context.Context, conversationID
 		return false, nil
 	}
 	for _, msg := range page.Rows {
-		if messageRowAwaitingUserAction(msg) {
+		if s.messageRowAwaitingUserAction(ctx, msg) {
 			return s.normalizeDetachedQueueWaiting(ctx, conversationID, turnID, true)
 		}
 	}
 	return false, nil
+}
+
+type proxyElicitationPairGetter interface {
+	GetMessageByParentAndElicitation(ctx context.Context, parentMessageID, elicitationID string) (*apiconv.Message, error)
 }
 
 type toolApprovalQueueLister interface {
@@ -783,6 +792,27 @@ func messageRowAwaitingUserAction(msg *agmessagelist.MessageRowsView) bool {
 		return false
 	}
 	return statusIndicatesAwaitingUser(valueOrEmpty(msg.Status))
+}
+
+func (s *Service) messageRowAwaitingUserAction(ctx context.Context, msg *agmessagelist.MessageRowsView) bool {
+	if msg == nil || !messageRowAwaitingUserAction(msg) {
+		return false
+	}
+	if strings.TrimSpace(valueOrEmpty(msg.ElicitationId)) == "" || strings.TrimSpace(msg.Id) == "" {
+		return true
+	}
+	if s == nil || s.conversation == nil {
+		return true
+	}
+	getter, ok := s.conversation.(proxyElicitationPairGetter)
+	if !ok || getter == nil {
+		return true
+	}
+	child, err := getter.GetMessageByParentAndElicitation(ctx, strings.TrimSpace(msg.Id), strings.TrimSpace(valueOrEmpty(msg.ElicitationId)))
+	if err != nil || child == nil {
+		return true
+	}
+	return strings.TrimSpace(child.ConversationId) == "" || strings.TrimSpace(child.ConversationId) == strings.TrimSpace(msg.ConversationId)
 }
 
 func statusIndicatesAwaitingUser(status string) bool {
