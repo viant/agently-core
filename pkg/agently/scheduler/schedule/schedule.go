@@ -52,7 +52,9 @@ type ScheduleView struct {
 	Description     *string    `sqlx:"description"`
 	Enabled         bool       `sqlx:"enabled"`
 	EndAt           *time.Time `sqlx:"end_at"`
+	GoalId          *string    `sqlx:"goal_id"`
 	Id              string     `sqlx:"id"`
+	Internal        bool       `sqlx:"internal"`
 	IntervalSeconds *int       `sqlx:"interval_seconds"`
 	LastError       *string    `sqlx:"last_error"`
 	LastRunAt       *time.Time `sqlx:"last_run_at"`
@@ -60,6 +62,7 @@ type ScheduleView struct {
 	LeaseOwner      *string    `sqlx:"lease_owner"`
 	LeaseUntil      *time.Time `sqlx:"lease_until"`
 	ModelOverride   *string    `sqlx:"model_override"`
+	ConversationId  *string    `sqlx:"conversation_id"`
 	UserCredURL     *string    `sqlx:"user_cred_url"`
 	Name            string     `sqlx:"name"`
 	NextRunAt       *time.Time `sqlx:"next_run_at"`

@@ -39,7 +39,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{
 			Name:        "list",
-			Description: "List non-terminal async operations for the current conversation. Optional filters: tool (start-tool name) and mode (\"wait\"|\"detach\"|\"fork\"). Returns each op's id, start tool, status tool, and the arg name to pass the id under — enough to issue a status call without guessing.",
+			Description: "List non-terminal async operations for the current conversation. Optional filters: tool (start-tool name) and mode (\"wait\"|\"detach\"). Returns each op's id, start tool, status tool, and the arg name to pass the id under — enough to issue a status call without guessing.",
 			Input:       reflect.TypeOf(&ListInput{}),
 			Output:      reflect.TypeOf(&ListOutput{}),
 		},

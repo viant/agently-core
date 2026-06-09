@@ -17,6 +17,7 @@ type Registry struct {
 }
 
 const defaultSnapshotFreshness = 15 * time.Second
+const defaultPollFreshness = 12 * time.Second
 
 func New(bridge *forgeuisvc.Service) *Registry {
 	return &Registry{bridge: bridge, state: sharedStateFor(bridge)}
@@ -69,10 +70,12 @@ type DataSourceSnapshot struct {
 }
 
 type ClientSnapshot struct {
-	ClientID  string
-	Namespace string
-	Snapshot  *Snapshot
-	UpdatedAt time.Time
+	ClientID   string
+	Namespace  string
+	Snapshot   *Snapshot
+	UpdatedAt  time.Time
+	LastPollAt time.Time
+	Transport  string
 }
 
 func (r *Registry) snapshots() ([]ClientSnapshot, error) {
@@ -94,13 +97,21 @@ func (r *Registry) snapshots() ([]ClientSnapshot, error) {
 			snap.ClientID = strings.TrimSpace(entry.ClientID)
 		}
 		result = append(result, ClientSnapshot{
-			ClientID:  strings.TrimSpace(entry.ClientID),
-			Namespace: strings.TrimSpace(entry.Namespace),
-			Snapshot:  &snap,
-			UpdatedAt: entry.UpdatedAt,
+			ClientID:   strings.TrimSpace(entry.ClientID),
+			Namespace:  strings.TrimSpace(entry.Namespace),
+			Snapshot:   &snap,
+			UpdatedAt:  entry.UpdatedAt,
+			LastPollAt: entry.LastPollAt,
+			Transport:  strings.TrimSpace(entry.Transport),
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].LastPollAt.After(result[j].LastPollAt) {
+			return true
+		}
+		if result[j].LastPollAt.After(result[i].LastPollAt) {
+			return false
+		}
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
 	return result, nil
@@ -167,6 +178,16 @@ func isFreshSnapshot(item ClientSnapshot, now time.Time) bool {
 		return false
 	}
 	return now.Sub(item.UpdatedAt) <= defaultSnapshotFreshness
+}
+
+func isServiceableClient(item ClientSnapshot, now time.Time) bool {
+	if strings.EqualFold(strings.TrimSpace(item.Transport), "ws") {
+		return true
+	}
+	if item.LastPollAt.IsZero() {
+		return false
+	}
+	return now.Sub(item.LastPollAt) <= defaultPollFreshness
 }
 
 func isMainChatWindow(win WindowSnapshot) bool {
@@ -255,7 +276,7 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 	if conversationID == "" {
 		result := make([]ClientSnapshot, 0, len(items))
 		for _, item := range items {
-			if isFreshSnapshot(item, now) {
+			if isFreshSnapshot(item, now) && isServiceableClient(item, now) {
 				result = append(result, item)
 			}
 		}
@@ -264,6 +285,9 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 	result := make([]ClientSnapshot, 0, len(items))
 	for _, item := range items {
 		if !isFreshSnapshot(item, now) {
+			continue
+		}
+		if !isServiceableClient(item, now) {
 			continue
 		}
 		if snapshotBelongsToConversation(item.Snapshot, conversationID) {
@@ -291,6 +315,9 @@ func (r *Registry) FindClient(ctx context.Context, clientID string) (*ClientSnap
 	now := time.Now()
 	for _, item := range items {
 		if !isFreshSnapshot(item, now) {
+			continue
+		}
+		if !isServiceableClient(item, now) {
 			continue
 		}
 		if item.ClientID == clientID {

@@ -39,6 +39,11 @@ func TestDecodeControllerSpec(t *testing.T) {
 			raw:     `{"continueMode":"idle_only","onTurnFinished":"evaluate","onAsyncCompleted":"evaluate","maxAutonomousTurns":-1}`,
 			wantErr: true,
 		},
+		{
+			name:    "negative wake delay",
+			raw:     `{"continueMode":"idle_only","onTurnFinished":"evaluate","onAsyncCompleted":"evaluate","wakeDelaySeconds":-1}`,
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -63,6 +68,7 @@ func TestControllerSpec_EncodeDecodeRoundTrip(t *testing.T) {
 		ContinueMode:             ContinueModeIdleOnly,
 		OnTurnFinished:           TurnPolicyEvaluate,
 		OnAsyncCompleted:         AsyncPolicyWait,
+		WakeDelaySeconds:         intPtr(90),
 		MaxAutonomousTurns:       intPtr(5),
 		MaxConsecutiveNoProgress: intPtr(2),
 	}

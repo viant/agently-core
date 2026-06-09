@@ -13,6 +13,9 @@ func statusForGoalError(err error) int {
 	if isConflictError(err) {
 		return http.StatusConflict
 	}
+	if isFeatureDisabledError(err) {
+		return http.StatusForbidden
+	}
 	if isNotFoundError(err) {
 		return http.StatusNotFound
 	}

@@ -3,19 +3,23 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	mem "github.com/viant/agently-core/app/store/data/memory"
 	iauth "github.com/viant/agently-core/internal/auth"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
+	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/workspace"
 	"github.com/viant/scy"
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/cred"
@@ -565,5 +569,473 @@ func ensureRunWriteComponent(t *testing.T, store Store) {
 	}
 	if _, err := agrunwrite.DefineComponent(context.Background(), datlyStore.dao); err != nil {
 		t.Fatalf("DefineComponent(run write) error: %v", err)
+	}
+}
+
+func TestService_ScheduleGoalWakeup_HidesInternalWakeupFromPublicList(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(2 * time.Minute),
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+
+	publicRows, err := svc.List(iauth.WithUserInfo(context.Background(), &iauth.UserInfo{Subject: "devuser"}))
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(publicRows) != 0 {
+		t.Fatalf("expected internal wakeup to stay hidden from public list, got %#v", publicRows)
+	}
+
+	internalRows, err := store.ListForRunDue(context.Background())
+	if err != nil {
+		t.Fatalf("ListForRunDue() error: %v", err)
+	}
+	if len(internalRows) != 1 || !internalRows[0].Internal {
+		t.Fatalf("expected one internal wakeup row, got %#v", internalRows)
+	}
+	if got := strings.TrimSpace(valueOrEmpty(internalRows[0].ConversationId)); got != "conv-goal" {
+		t.Fatalf("ConversationId = %q, want %q", got, "conv-goal")
+	}
+	if got := strings.TrimSpace(valueOrEmpty(internalRows[0].GoalId)); got != "goal-conv-goal" {
+		t.Fatalf("GoalId = %q, want %q", got, "goal-conv-goal")
+	}
+}
+
+func TestService_GetInternalWakeupReturnsNil(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(2 * time.Minute),
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+
+	got, err := svc.Get(context.Background(), "goal-wakeup-goal-conv-goal")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected internal wakeup to stay hidden, got %#v", got)
+	}
+}
+
+func TestService_RunNowAndDeleteRejectInternalWakeup(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(2 * time.Minute),
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+
+	if err := svc.RunNow(context.Background(), "goal-wakeup-goal-conv-goal"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("RunNow() error = %v, want not found", err)
+	}
+	if err := svc.Delete(context.Background(), "goal-wakeup-goal-conv-goal"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("Delete() error = %v, want not found", err)
+	}
+	assertScheduleCount(t, db, "goal-wakeup-goal-conv-goal", 1)
+}
+
+func TestService_UpsertRejectsInternalScheduleFields(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	err := svc.Upsert(context.Background(), &Schedule{
+		ID:             "sched-public",
+		Name:           "Public",
+		Visibility:     "private",
+		Internal:       true,
+		ConversationID: stringPtr("conv-goal"),
+		GoalID:         stringPtr("goal-conv-goal"),
+		AgentRef:       "coder",
+		Enabled:        true,
+		ScheduleType:   "adhoc",
+		Timezone:       "UTC",
+	})
+	if err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("Upsert() error = %v, want reserved-field rejection", err)
+	}
+}
+
+func TestService_CancelGoalWakeups_DisablesPendingWakeup(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(2 * time.Minute),
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+	if err := svc.CancelGoalWakeups(context.Background(), "conv-goal", "goal-conv-goal"); err != nil {
+		t.Fatalf("CancelGoalWakeups() error: %v", err)
+	}
+
+	internalRows, err := store.ListForRunDue(context.Background())
+	if err != nil {
+		t.Fatalf("ListForRunDue() error: %v", err)
+	}
+	if len(internalRows) != 1 {
+		t.Fatalf("expected one internal row, got %#v", internalRows)
+	}
+	if internalRows[0].Enabled {
+		t.Fatalf("expected wakeup to be disabled after cancel")
+	}
+	if internalRows[0].NextRunAt != nil {
+		t.Fatalf("expected NextRunAt to be cleared after cancel, got %v", internalRows[0].NextRunAt)
+	}
+}
+
+func TestService_ScheduleGoalWakeup_RespectsConversationWakeupBudget(t *testing.T) {
+	prevRoot := workspace.Root()
+	tempRoot := t.TempDir()
+	workspace.SetRoot(tempRoot)
+	defer workspace.SetRoot(prevRoot)
+	require.NoError(t, os.WriteFile(filepath.Join(tempRoot, "config.yaml"), []byte(`
+features:
+  wakeups:
+    enabled: true
+    maxConversationWakeups: 1
+`), 0o644))
+
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-1",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(10 * time.Minute),
+		Preview:        "first",
+		Payload:        "first",
+	})
+	if err != nil {
+		t.Fatalf("first ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected first wakeup to schedule")
+	}
+
+	scheduled, err = svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-2",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(20 * time.Minute),
+		Preview:        "second",
+		Payload:        "second",
+	})
+	if err != nil {
+		t.Fatalf("second ScheduleGoalWakeup() error: %v", err)
+	}
+	if scheduled {
+		t.Fatalf("expected second wakeup to be rejected by conversation budget")
+	}
+}
+
+func TestService_ScheduleGoalWakeup_RespectsGlobalWakeupBudgetWindow(t *testing.T) {
+	prevRoot := workspace.Root()
+	tempRoot := t.TempDir()
+	workspace.SetRoot(tempRoot)
+	defer workspace.SetRoot(prevRoot)
+	require.NoError(t, os.WriteFile(filepath.Join(tempRoot, "config.yaml"), []byte(`
+features:
+  wakeups:
+    enabled: true
+    maxGlobalWakeupsPerHour: 1
+`), 0o644))
+
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-a",
+		GoalID:         "goal-a",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(10 * time.Minute),
+		Preview:        "first",
+		Payload:        "first",
+	})
+	if err != nil {
+		t.Fatalf("first ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected first wakeup to schedule")
+	}
+
+	scheduled, err = svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-b",
+		GoalID:         "goal-b",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(20 * time.Minute),
+		Preview:        "second",
+		Payload:        "second",
+	})
+	if err != nil {
+		t.Fatalf("second ScheduleGoalWakeup() error: %v", err)
+	}
+	if scheduled {
+		t.Fatalf("expected second wakeup to be rejected by global budget")
+	}
+}
+
+func TestScheduleQueryInput_InternalGoalWakeupTargetsSameConversation(t *testing.T) {
+	row := &schedulepkg.ScheduleView{
+		Id:             "goal-wakeup-goal-1",
+		AgentRef:       "coder",
+		Internal:       true,
+		ConversationId: stringPtr("conv-goal"),
+		GoalId:         stringPtr("goal-conv-goal"),
+		Description:    stringPtr("Continue goal later"),
+		TaskPrompt:     stringPtr("Continue working toward the active goal."),
+	}
+
+	input := scheduleQueryInput(row, "run-1", "devuser")
+
+	if input.ConversationID != "conv-goal" {
+		t.Fatalf("ConversationID = %q, want %q", input.ConversationID, "conv-goal")
+	}
+	if input.ScheduleId != "goal-wakeup-goal-1" {
+		t.Fatalf("ScheduleId = %q, want %q", input.ScheduleId, "goal-wakeup-goal-1")
+	}
+	if input.DisplayQuery != "Continue goal later" {
+		t.Fatalf("DisplayQuery = %q, want %q", input.DisplayQuery, "Continue goal later")
+	}
+	if input.Query != "Continue working toward the active goal." {
+		t.Fatalf("Query = %q, want %q", input.Query, "Continue working toward the active goal.")
+	}
+	raw, ok := input.Context[agentsvc.AutonomousGoalWakeupContextKey()]
+	if !ok {
+		t.Fatalf("expected autonomous goal wakeup context")
+	}
+	payload, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected goal wakeup context map, got %#v", raw)
+	}
+	if payload["goalId"] != "goal-conv-goal" {
+		t.Fatalf("goalId = %#v, want %q", payload["goalId"], "goal-conv-goal")
+	}
+}
+
+func TestService_RunDue_ExecutesScheduledGoalWakeupInSameConversation(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+
+	var captured *agentsvc.QueryInput
+	svc := New(store, &agentsvc.Service{})
+	svc.execSem = make(chan struct{}, 1)
+	svc.queryRunner = func(_ context.Context, input *agentsvc.QueryInput, output *agentsvc.QueryOutput) error {
+		cp := *input
+		if input.Context != nil {
+			cp.Context = map[string]any{}
+			for k, v := range input.Context {
+				cp.Context[k] = v
+			}
+		}
+		captured = &cp
+		output.ConversationID = input.ConversationID
+		output.Content = "wakeup resumed"
+		return nil
+	}
+
+	initialWakeAt := time.Now().UTC().Add(2 * time.Minute)
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         initialWakeAt,
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+
+	pending := svc.CurrentGoalWakeup(context.Background(), "conv-goal", "goal-conv-goal")
+	if pending == nil {
+		t.Fatalf("expected pending wakeup state before RunDue")
+	}
+	if pending.Mode != "wakeup" {
+		t.Fatalf("pending.Mode = %q, want %q", pending.Mode, "wakeup")
+	}
+	if pending.Preview == nil || strings.TrimSpace(*pending.Preview) != "Continue goal later" {
+		t.Fatalf("pending.Preview = %#v, want %q", pending.Preview, "Continue goal later")
+	}
+	if pending.WakeAt == nil || pending.WakeAt.IsZero() {
+		t.Fatalf("expected pending wakeup to include wakeAt")
+	}
+	if !pending.WakeAt.UTC().Equal(initialWakeAt.UTC()) {
+		t.Fatalf("pending.WakeAt = %v, want %v", pending.WakeAt.UTC(), initialWakeAt.UTC())
+	}
+	if _, err := db.ExecContext(context.Background(), `UPDATE schedule SET next_run_at = ? WHERE id = ?`, time.Now().UTC().Add(-1*time.Minute), "goal-wakeup-goal-conv-goal"); err != nil {
+		t.Fatalf("update schedule next_run_at error: %v", err)
+	}
+
+	started, err := svc.RunDue(context.Background())
+	if err != nil {
+		t.Fatalf("RunDue() error: %v", err)
+	}
+	if started != 1 {
+		t.Fatalf("expected one scheduled wakeup run to start, got %d", started)
+	}
+
+	require.Eventually(t, func() bool {
+		return captured != nil
+	}, 3*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return len(svc.execSem) == 0
+	}, 3*time.Second, 20*time.Millisecond)
+
+	if captured.ConversationID != "conv-goal" {
+		t.Fatalf("ConversationID = %q, want %q", captured.ConversationID, "conv-goal")
+	}
+	if captured.ScheduleId != "goal-wakeup-goal-conv-goal" {
+		t.Fatalf("ScheduleId = %q, want %q", captured.ScheduleId, "goal-wakeup-goal-conv-goal")
+	}
+	if captured.DisplayQuery != "Continue goal later" {
+		t.Fatalf("DisplayQuery = %q, want %q", captured.DisplayQuery, "Continue goal later")
+	}
+	raw, ok := captured.Context[agentsvc.AutonomousGoalWakeupContextKey()]
+	if !ok {
+		t.Fatalf("expected autonomous wakeup context")
+	}
+	payload, ok := raw.(map[string]any)
+	if !ok || payload["goalId"] != "goal-conv-goal" {
+		t.Fatalf("unexpected wakeup payload %#v", raw)
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(1) FROM run WHERE schedule_id = ?`, "goal-wakeup-goal-conv-goal").Scan(&runCount); err != nil {
+		t.Fatalf("query run count error: %v", err)
+	}
+	if runCount != 1 {
+		t.Fatalf("expected one run row for scheduled wakeup, got %d", runCount)
+	}
+
+	require.Eventually(t, func() bool {
+		return svc.CurrentGoalWakeup(context.Background(), "conv-goal", "goal-conv-goal") == nil
+	}, 3*time.Second, 20*time.Millisecond)
+}
+
+func TestService_ExecuteRun_InternalGoalWakeupResumesSameConversation(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+
+	var captured *agentsvc.QueryInput
+	svc := New(store, &agentsvc.Service{})
+	svc.queryRunner = func(_ context.Context, input *agentsvc.QueryInput, output *agentsvc.QueryOutput) error {
+		cp := *input
+		if input.Context != nil {
+			cp.Context = map[string]any{}
+			for k, v := range input.Context {
+				cp.Context[k] = v
+			}
+		}
+		captured = &cp
+		output.ConversationID = input.ConversationID
+		output.Content = "wakeup resumed"
+		return nil
+	}
+
+	row := &schedulepkg.ScheduleView{
+		Id:             "goal-wakeup-goal-1",
+		Name:           "autonomous::goal-wakeup::goal-1",
+		Visibility:     "private",
+		Internal:       true,
+		ConversationId: stringPtr("conv-goal"),
+		GoalId:         stringPtr("goal-conv-goal"),
+		AgentRef:       "coder",
+		Description:    stringPtr("Continue goal later"),
+		TaskPrompt:     stringPtr("Continue working toward the active goal."),
+		ScheduleType:   "adhoc",
+		Timezone:       "UTC",
+		Enabled:        true,
+	}
+
+	svc.executeRun(context.Background(), row, "run-1", time.Now().UTC())
+
+	if captured == nil {
+		t.Fatalf("expected query runner to capture input")
+	}
+	if captured.ConversationID != "conv-goal" {
+		t.Fatalf("ConversationID = %q, want %q", captured.ConversationID, "conv-goal")
+	}
+	if captured.ScheduleId != "goal-wakeup-goal-1" {
+		t.Fatalf("ScheduleId = %q, want %q", captured.ScheduleId, "goal-wakeup-goal-1")
+	}
+	if captured.DisplayQuery != "Continue goal later" {
+		t.Fatalf("DisplayQuery = %q, want %q", captured.DisplayQuery, "Continue goal later")
+	}
+	if captured.UserId != "system" {
+		t.Fatalf("UserId = %q, want %q", captured.UserId, "system")
+	}
+	raw, ok := captured.Context[agentsvc.AutonomousGoalWakeupContextKey()]
+	if !ok {
+		t.Fatalf("expected autonomous wakeup context")
+	}
+	payload, ok := raw.(map[string]any)
+	if !ok || payload["goalId"] != "goal-conv-goal" {
+		t.Fatalf("unexpected wakeup payload %#v", raw)
+	}
+
+	var conversationID sql.NullString
+	if err := db.QueryRowContext(context.Background(), `SELECT conversation_id FROM run WHERE id = ?`, "run-1").Scan(&conversationID); err != nil {
+		t.Fatalf("query run conversation_id error: %v", err)
+	}
+	if !conversationID.Valid || strings.TrimSpace(conversationID.String) != "conv-goal" {
+		t.Fatalf("run conversation_id = %#v, want conv-goal", conversationID)
 	}
 }

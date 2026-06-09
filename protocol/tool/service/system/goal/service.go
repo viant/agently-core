@@ -5,12 +5,18 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/app/store/data"
 	aggoal "github.com/viant/agently-core/pkg/agently/goal"
 	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/streaming"
+	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
+	"github.com/viant/agently-core/service/scheduler"
+	"github.com/viant/agently-core/workspace"
+	wscfg "github.com/viant/agently-core/workspace/config"
 )
 
 const (
@@ -27,11 +33,35 @@ type Store interface {
 }
 
 type Service struct {
-	store Store
+	store     Store
+	wakeups   wakeupCanceler
+	schedules controllerScheduleReader
+}
+
+type wakeupCanceler interface {
+	CancelGoalWakeups(ctx context.Context, conversationID, goalID string) error
+}
+
+type controllerScheduleReader interface {
+	CurrentGoalWakeup(ctx context.Context, conversationID, goalID string) *scheduler.GoalControllerSchedule
 }
 
 func New(store Store) *Service {
 	return &Service{store: store}
+}
+
+func (s *Service) SetWakeupCanceler(canceler wakeupCanceler) {
+	if s == nil {
+		return
+	}
+	s.wakeups = canceler
+}
+
+func (s *Service) SetControllerScheduleReader(reader controllerScheduleReader) {
+	if s == nil {
+		return
+	}
+	s.schedules = reader
 }
 
 func (s *Service) Name() string { return Name }
@@ -101,15 +131,22 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 }
 
 type Goal struct {
-	ID              string  `json:"id"`
-	Objective       string  `json:"objective"`
-	Status          string  `json:"status"`
-	StatusReason    *string `json:"statusReason,omitempty"`
-	PauseReason     *string `json:"pauseReason,omitempty"`
-	ControllerSpec  *string `json:"controllerSpec,omitempty"`
-	TokenBudget     *int64  `json:"tokenBudget,omitempty"`
-	TokensUsed      int64   `json:"tokensUsed"`
-	TimeUsedSeconds int64   `json:"timeUsedSeconds"`
+	ID                 string              `json:"id"`
+	Objective          string              `json:"objective"`
+	Status             string              `json:"status"`
+	StatusReason       *string             `json:"statusReason,omitempty"`
+	PauseReason        *string             `json:"pauseReason,omitempty"`
+	ControllerSpec     *string             `json:"controllerSpec,omitempty"`
+	ControllerSchedule *ControllerSchedule `json:"controllerSchedule,omitempty"`
+	TokenBudget        *int64              `json:"tokenBudget,omitempty"`
+	TokensUsed         int64               `json:"tokensUsed"`
+	TimeUsedSeconds    int64               `json:"timeUsedSeconds"`
+}
+
+type ControllerSchedule struct {
+	Mode    string  `json:"mode,omitempty"`
+	Preview *string `json:"preview,omitempty"`
+	WakeAt  *string `json:"wakeAt,omitempty"`
 }
 
 type GetInput struct{}
@@ -158,6 +195,9 @@ type ClearOutput struct {
 }
 
 func (s *Service) get(ctx context.Context, in, out interface{}) error {
+	if err := ensureGoalsEnabled(); err != nil {
+		return err
+	}
 	if _, ok := in.(*GetInput); !ok {
 		return svc.NewInvalidInputError(in)
 	}
@@ -173,11 +213,14 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = projectGoal(current)
+	output.Goal = s.projectGoal(convID, current)
 	return nil
 }
 
 func (s *Service) create(ctx context.Context, in, out interface{}) error {
+	if err := ensureGoalsEnabled(); err != nil {
+		return err
+	}
 	input, ok := in.(*CreateInput)
 	if !ok {
 		return svc.NewInvalidInputError(in)
@@ -220,11 +263,15 @@ func (s *Service) create(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = projectGoal(created)
+	output.Goal = s.projectGoal(convID, created)
+	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
 
 func (s *Service) update(ctx context.Context, in, out interface{}) error {
+	if err := ensureGoalsEnabled(); err != nil {
+		return err
+	}
 	input, ok := in.(*UpdateInput)
 	if !ok {
 		return svc.NewInvalidInputError(in)
@@ -254,6 +301,7 @@ func (s *Service) update(ctx context.Context, in, out interface{}) error {
 	if current == nil {
 		return fmt.Errorf("goal does not exist for current conversation")
 	}
+	s.cancelGoalWakeups(ctx, convID, current.Id)
 	row := aggoalwrite.NewMutableGoalView(
 		aggoalwrite.WithGoalID(current.Id),
 		aggoalwrite.WithGoalStatus(status),
@@ -266,11 +314,15 @@ func (s *Service) update(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = projectGoal(updated)
+	output.Goal = s.projectGoal(convID, updated)
+	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
 
 func (s *Service) pause(ctx context.Context, in, out interface{}) error {
+	if err := ensureGoalsEnabled(); err != nil {
+		return err
+	}
 	input, ok := in.(*PauseInput)
 	if !ok {
 		return svc.NewInvalidInputError(in)
@@ -283,6 +335,7 @@ func (s *Service) pause(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	s.cancelGoalWakeups(ctx, convID, current.Id)
 	row := aggoalwrite.NewMutableGoalView(
 		aggoalwrite.WithGoalID(current.Id),
 		aggoalwrite.WithGoalStatus("paused"),
@@ -299,11 +352,15 @@ func (s *Service) pause(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = projectGoal(updated)
+	output.Goal = s.projectGoal(convID, updated)
+	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
 
 func (s *Service) resume(ctx context.Context, in, out interface{}) error {
+	if err := ensureGoalsEnabled(); err != nil {
+		return err
+	}
 	if _, ok := in.(*ResumeInput); !ok {
 		return svc.NewInvalidInputError(in)
 	}
@@ -315,6 +372,7 @@ func (s *Service) resume(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	s.cancelGoalWakeups(ctx, convID, current.Id)
 	row := aggoalwrite.NewMutableGoalView(
 		aggoalwrite.WithGoalID(current.Id),
 		aggoalwrite.WithGoalStatus(StatusActive),
@@ -330,11 +388,15 @@ func (s *Service) resume(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = projectGoal(updated)
+	output.Goal = s.projectGoal(convID, updated)
+	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
 
 func (s *Service) clear(ctx context.Context, in, out interface{}) error {
+	if err := ensureGoalsEnabled(); err != nil {
+		return err
+	}
 	if _, ok := in.(*ClearInput); !ok {
 		return svc.NewInvalidInputError(in)
 	}
@@ -349,8 +411,17 @@ func (s *Service) clear(ctx context.Context, in, out interface{}) error {
 	if err := s.store.DeleteGoals(ctx, current.Id); err != nil {
 		return err
 	}
+	s.cancelGoalWakeups(ctx, current.ConversationID, current.Id)
 	output.Cleared = true
+	s.publishGoalClearedEvent(ctx, current)
 	return nil
+}
+
+func (s *Service) cancelGoalWakeups(ctx context.Context, conversationID, goalID string) {
+	if s == nil || s.wakeups == nil {
+		return
+	}
+	_ = s.wakeups.CancelGoalWakeups(context.WithoutCancel(ctx), strings.TrimSpace(conversationID), strings.TrimSpace(goalID))
 }
 
 func conversationIDFromContext(ctx context.Context) (string, error) {
@@ -380,12 +451,116 @@ func (s *Service) currentGoal(ctx context.Context) (*aggoal.GoalView, string, er
 	return current, convID, nil
 }
 
+func ensureGoalsEnabled() error {
+	cfg, err := wscfg.Load(workspace.Root())
+	if err != nil {
+		return err
+	}
+	if cfg != nil && !cfg.GoalsEnabled() {
+		return fmt.Errorf("goals are not enabled in this workspace")
+	}
+	return nil
+}
+
 func defaultGoalID(conversationID string) string {
 	return "goal-" + strings.TrimSpace(conversationID)
 }
 
+func (s *Service) projectGoal(conversationID string, in *aggoal.GoalView) *Goal {
+	goal := projectGoal(in)
+	if s == nil || s.schedules == nil || goal == nil {
+		return goal
+	}
+	wakeup := s.schedules.CurrentGoalWakeup(context.Background(), strings.TrimSpace(conversationID), strings.TrimSpace(goal.ID))
+	if wakeup == nil {
+		return goal
+	}
+	controllerSchedule := &ControllerSchedule{
+		Mode: wakeup.Mode,
+	}
+	if wakeup.Preview != nil {
+		preview := strings.TrimSpace(*wakeup.Preview)
+		controllerSchedule.Preview = &preview
+	}
+	if wakeup.WakeAt != nil && !wakeup.WakeAt.IsZero() {
+		wakeAt := wakeup.WakeAt.UTC().Format(time.RFC3339Nano)
+		controllerSchedule.WakeAt = &wakeAt
+	}
+	goal.ControllerSchedule = controllerSchedule
+	return goal
+}
+
 func normalizeStatus(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func (s *Service) publishGoalEvent(ctx context.Context, eventType streaming.EventType, goal *Goal) {
+	pub, ok := modelcallctx.StreamPublisherFromContext(ctx)
+	if !ok || pub == nil || goal == nil {
+		return
+	}
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	convID, err := conversationIDFromContext(ctx)
+	if err != nil {
+		return
+	}
+	statusReason := ""
+	if goal.StatusReason != nil {
+		statusReason = strings.TrimSpace(*goal.StatusReason)
+	} else if goal.PauseReason != nil {
+		statusReason = strings.TrimSpace(*goal.PauseReason)
+	}
+	ev := &streaming.Event{
+		Type:           eventType,
+		ConversationID: convID,
+		StreamID:       convID,
+		TurnID:         strings.TrimSpace(turn.TurnID),
+		MessageID:      strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+		GoalID:         strings.TrimSpace(goal.ID),
+		Status:         strings.TrimSpace(goal.Status),
+		StatusReason:   statusReason,
+		Content:        strings.TrimSpace(goal.Objective),
+		Patch: map[string]interface{}{
+			"goal": goal,
+		},
+		CreatedAt: time.Now(),
+	}
+	ev.NormalizeIdentity(convID, strings.TrimSpace(turn.TurnID))
+	_ = pub.Publish(ctx, &modelcallctx.StreamEvent{
+		ConversationID: convID,
+		Event:          ev,
+	})
+}
+
+func (s *Service) publishGoalClearedEvent(ctx context.Context, current *aggoal.GoalView) {
+	pub, ok := modelcallctx.StreamPublisherFromContext(ctx)
+	if !ok || pub == nil {
+		return
+	}
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	convID, err := conversationIDFromContext(ctx)
+	if err != nil {
+		return
+	}
+	goalID := ""
+	if current != nil {
+		goalID = strings.TrimSpace(current.Id)
+	}
+	ev := &streaming.Event{
+		Type:           streaming.EventTypeGoalCleared,
+		ConversationID: convID,
+		StreamID:       convID,
+		TurnID:         strings.TrimSpace(turn.TurnID),
+		MessageID:      strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+		GoalID:         goalID,
+		Status:         "cleared",
+		CreatedAt:      time.Now(),
+	}
+	ev.NormalizeIdentity(convID, strings.TrimSpace(turn.TurnID))
+	_ = pub.Publish(ctx, &modelcallctx.StreamEvent{
+		ConversationID: convID,
+		Event:          ev,
+	})
 }
 
 func projectGoal(in *aggoal.GoalView) *Goal {

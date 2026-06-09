@@ -361,6 +361,9 @@ CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id);
 	    description           TEXT,
 	    created_by_user_id    VARCHAR(255),
 	    visibility            VARCHAR(255) NOT NULL DEFAULT 'private',
+	    internal              TINYINT      NOT NULL DEFAULT 0 CHECK (internal IN (0,1)),
+	    conversation_id       VARCHAR(255),
+	    goal_id               VARCHAR(255),
 
 	    -- Target agent / model
 	    agent_ref             VARCHAR(255) NOT NULL,
@@ -2036,6 +2039,9 @@ BEGIN
                 token_budget      BIGINT NULL,
                 tokens_used       BIGINT NOT NULL DEFAULT 0,
                 time_used_seconds BIGINT NOT NULL DEFAULT 0,
+                autonomous_turns_used BIGINT NOT NULL DEFAULT 0,
+                consecutive_no_progress BIGINT NOT NULL DEFAULT 0,
+                last_continuation_fingerprint TEXT NULL,
                 created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at        TIMESTAMP NULL DEFAULT NULL,
                 CONSTRAINT fk_goal_conversation
@@ -2108,5 +2114,95 @@ END $$
 
 CALL schema_upgrade_25() $$
 DROP PROCEDURE schema_upgrade_25 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_26 $$
+CREATE PROCEDURE schema_upgrade_26()
+BEGIN
+    IF get_schema_version() = 26 THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'goal'
+        ) THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'goal'
+                  AND COLUMN_NAME = 'autonomous_turns_used'
+            ) THEN
+                ALTER TABLE goal
+                    ADD COLUMN autonomous_turns_used BIGINT NOT NULL DEFAULT 0 AFTER time_used_seconds;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'goal'
+                  AND COLUMN_NAME = 'consecutive_no_progress'
+            ) THEN
+                ALTER TABLE goal
+                    ADD COLUMN consecutive_no_progress BIGINT NOT NULL DEFAULT 0 AFTER autonomous_turns_used;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'goal'
+                  AND COLUMN_NAME = 'last_continuation_fingerprint'
+            ) THEN
+                ALTER TABLE goal
+                    ADD COLUMN last_continuation_fingerprint TEXT NULL AFTER consecutive_no_progress;
+            END IF;
+        END IF;
+
+        CALL set_schema_version(27);
+    END IF;
+END $$
+
+CALL schema_upgrade_26() $$
+DROP PROCEDURE schema_upgrade_26 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_27 $$
+CREATE PROCEDURE schema_upgrade_27()
+BEGIN
+    IF get_schema_version() = 27 THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'schedule'
+        ) THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'schedule'
+                  AND COLUMN_NAME = 'internal'
+            ) THEN
+                ALTER TABLE schedule
+                    ADD COLUMN internal TINYINT NOT NULL DEFAULT 0 AFTER visibility;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'schedule'
+                  AND COLUMN_NAME = 'conversation_id'
+            ) THEN
+                ALTER TABLE schedule
+                    ADD COLUMN conversation_id VARCHAR(255) NULL AFTER internal;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'schedule'
+                  AND COLUMN_NAME = 'goal_id'
+            ) THEN
+                ALTER TABLE schedule
+                    ADD COLUMN goal_id VARCHAR(255) NULL AFTER conversation_id;
+            END IF;
+        END IF;
+
+        CALL set_schema_version(28);
+    END IF;
+END $$
+
+CALL schema_upgrade_27() $$
+DROP PROCEDURE schema_upgrade_27 $$
 
 DELIMITER ;

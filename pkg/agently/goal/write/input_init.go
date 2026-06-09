@@ -30,6 +30,15 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 			if !goal.Has.TimeUsedSeconds {
 				goal.SetTimeUsedSeconds(0)
 			}
+			if !goal.Has.AutonomousTurnsUsed {
+				goal.SetAutonomousTurnsUsed(0)
+			}
+			if !goal.Has.ConsecutiveNoProgress {
+				goal.SetConsecutiveNoProgress(0)
+			}
+			if !goal.Has.LastContinuationFingerprint {
+				goal.SetLastContinuationFingerprint("")
+			}
 		}
 		if !goal.Has.UpdatedAt {
 			goal.SetUpdatedAt(now)

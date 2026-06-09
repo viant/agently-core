@@ -254,3 +254,39 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username})
 	}
 }
+
+func (a *authExtension) handleAttachSession() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			runtimeError(w, http.StatusBadRequest, err)
+			return
+		}
+		sessionID := strings.TrimSpace(in.SessionID)
+		if sessionID == "" {
+			runtimeError(w, http.StatusBadRequest, fmt.Errorf("sessionId is required"))
+			return
+		}
+		if a == nil || a.sessions == nil {
+			runtimeError(w, http.StatusServiceUnavailable, fmt.Errorf("session store unavailable"))
+			return
+		}
+		sess := a.sessions.Get(r.Context(), sessionID)
+		if sess == nil {
+			runtimeError(w, http.StatusNotFound, fmt.Errorf("session not found"))
+			return
+		}
+		if a.requiresOAuthTokens() && !a.ensureSessionOAuthTokens(r.Context(), sess) {
+			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
+			return
+		}
+		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
+		runtimeJSON(w, http.StatusOK, map[string]any{
+			"status":    "ok",
+			"sessionId": sess.ID,
+			"username":  strings.TrimSpace(sess.Username),
+		})
+	}
+}

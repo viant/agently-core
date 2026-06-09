@@ -45,6 +45,7 @@ func (a *authExtension) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/api/auth/logout", a.handleLogout())
 	mux.HandleFunc("GET /v1/api/auth/providers", a.handleProviders())
 	mux.HandleFunc("POST /v1/api/auth/session", a.handleCreateSession())
+	mux.HandleFunc("POST /v1/api/auth/session/attach", a.handleAttachSession())
 	mux.HandleFunc("GET /v1/api/auth/oauth/config", a.handleOAuthConfig())
 	mux.HandleFunc("POST /v1/api/auth/oauth/initiate", a.handleOAuthInitiate())
 	mux.HandleFunc("GET /v1/api/auth/oauth/callback", a.handleOAuthCallback())

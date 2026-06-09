@@ -121,7 +121,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		a.scheduleOAuthTokenPersist(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
-		runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "username": username, "provider": provider})
+		runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": sess.ID, "username": username, "provider": provider})
 	}
 }
 

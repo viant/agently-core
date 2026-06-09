@@ -200,7 +200,17 @@ func (h *Handler) handleBatchUpdate() http.HandlerFunc {
 		}
 		for _, s := range body.Schedules {
 			if err := h.svc.Upsert(r.Context(), s); err != nil {
-				httpError(w, http.StatusInternalServerError, err)
+				switch {
+				case strings.Contains(err.Error(), "reserved"),
+					strings.Contains(err.Error(), "invalid"):
+					httpError(w, http.StatusBadRequest, err)
+				case strings.Contains(err.Error(), "not found"):
+					httpError(w, http.StatusNotFound, err)
+				case strings.Contains(err.Error(), "permission denied"):
+					httpError(w, http.StatusForbidden, err)
+				default:
+					httpError(w, http.StatusInternalServerError, err)
+				}
 				return
 			}
 		}
@@ -241,7 +251,14 @@ func (h *Handler) handleRunNow() http.HandlerFunc {
 			return
 		}
 		if err := h.svc.RunNow(r.Context(), id); err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			switch {
+			case strings.Contains(err.Error(), "not found"):
+				httpError(w, http.StatusNotFound, err)
+			case strings.Contains(err.Error(), "permission denied"):
+				httpError(w, http.StatusForbidden, err)
+			default:
+				httpError(w, http.StatusInternalServerError, err)
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

@@ -55,8 +55,9 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 	if window.View.Content == nil {
 		return nil, nil
 	}
-	if ok, _ := svc.Exists(ctx, filepath.Join(workspace.KindForgeWindow, windowKey+".js")); ok {
-		code, err := svc.Download(ctx, filepath.Join(workspace.KindForgeWindow, windowKey+".js"))
+	jsBase := metaURL.Join(workspaceWindowRoot, windowKey)
+	if resolvedJSPath, err := loader.ResolveWindowAsset(ctx, jsBase, ".js", target); err == nil {
+		code, err := loader.Download(ctx, resolvedJSPath)
 		if err != nil {
 			return nil, err
 		}

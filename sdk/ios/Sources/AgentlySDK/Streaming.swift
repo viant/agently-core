@@ -471,6 +471,58 @@ private extension ConversationStreamTracker {
                 updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
                 data: payload.feedData
             )
+        case "goal.updated":
+            let feedID = payload.feedID?.trimmedNonEmpty ?? "goal"
+            feedsByID[feedID] = ActiveFeedState(
+                feedID: feedID,
+                name: payload.feedTitle ?? "Goal",
+                title: payload.feedTitle ?? "Goal",
+                itemCount: 1,
+                conversationID: payload.conversationID?.trimmedNonEmpty,
+                turnID: payload.turnID?.trimmedNonEmpty,
+                updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
+                data: payload.patch.flatMap { $0["goal"] }
+            )
+        case "goal.cleared":
+            let feedID = payload.feedID?.trimmedNonEmpty ?? "goal"
+            feedsByID[feedID] = ActiveFeedState(
+                feedID: feedID,
+                name: payload.feedTitle ?? "Goal",
+                title: payload.feedTitle ?? "Goal",
+                itemCount: 0,
+                conversationID: payload.conversationID?.trimmedNonEmpty,
+                turnID: payload.turnID?.trimmedNonEmpty,
+                updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
+                data: nil
+            )
+        case "goal.controller_scheduled":
+            let feedID = payload.feedID?.trimmedNonEmpty ?? "goal"
+            let current = feedsByID[feedID]
+            let currentGoalData: JSONValue
+            if case .object(let object) = current?.data, let nestedGoal = object["goal"] {
+                currentGoalData = nestedGoal
+            } else {
+                currentGoalData = current?.data ?? .null
+            }
+            let scheduleData: JSONValue = .object([
+                "goal": currentGoalData,
+                "controllerSchedule": .object([
+                    "mode": .string(payload.patch?["mode"]?.stringValue ?? "queue"),
+                    "reason": payload.patch?["reason"] ?? .string(""),
+                    "preview": payload.patch?["preview"] ?? .string(""),
+                    "wakeAt": payload.patch?["wakeAt"] ?? .null,
+                ]),
+            ])
+            feedsByID[feedID] = ActiveFeedState(
+                feedID: feedID,
+                name: current?.name ?? payload.feedTitle ?? "Goal",
+                title: current?.title ?? payload.feedTitle ?? "Goal",
+                itemCount: current?.itemCount ?? 1,
+                conversationID: payload.conversationID?.trimmedNonEmpty,
+                turnID: payload.turnID?.trimmedNonEmpty,
+                updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
+                data: scheduleData
+            )
         case "tool_feed_inactive":
             guard let feedID = payload.feedID?.trimmedNonEmpty else { return }
             feedsByID.removeValue(forKey: feedID)

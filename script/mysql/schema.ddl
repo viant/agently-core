@@ -70,6 +70,9 @@ CREATE TABLE goal
     token_budget      BIGINT NULL,
     tokens_used       BIGINT NOT NULL DEFAULT 0,
     time_used_seconds BIGINT NOT NULL DEFAULT 0,
+    autonomous_turns_used BIGINT NOT NULL DEFAULT 0,
+    consecutive_no_progress BIGINT NOT NULL DEFAULT 0,
+    last_continuation_fingerprint TEXT NULL,
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP NULL DEFAULT NULL,
     CONSTRAINT fk_goal_conversation
@@ -356,6 +359,9 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         description           TEXT,
                                         created_by_user_id    VARCHAR(255),
                                         visibility            VARCHAR(255) NOT NULL DEFAULT 'private',
+                                        internal              TINYINT      NOT NULL DEFAULT 0 CHECK (internal IN (0,1)),
+                                        conversation_id       VARCHAR(255),
+                                        goal_id               VARCHAR(255),
 
     -- Target agent / model
                                         agent_ref             VARCHAR(255) NOT NULL,

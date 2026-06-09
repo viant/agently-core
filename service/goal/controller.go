@@ -42,13 +42,14 @@ type Snapshot struct {
 type ActionKind string
 
 const (
-	ActionNone          ActionKind = "none"
-	ActionQueueTurn     ActionKind = "queue_turn"
-	ActionPauseGoal     ActionKind = "pause_goal"
-	ActionBlockGoal     ActionKind = "block_goal"
-	ActionCompleteGoal  ActionKind = "complete_goal"
-	ActionBudgetLimited ActionKind = "budget_limited"
-	ActionUsageLimited  ActionKind = "usage_limited"
+	ActionNone           ActionKind = "none"
+	ActionQueueTurn      ActionKind = "queue_turn"
+	ActionPauseGoal      ActionKind = "pause_goal"
+	ActionBlockGoal      ActionKind = "block_goal"
+	ActionCompleteGoal   ActionKind = "complete_goal"
+	ActionBudgetLimited  ActionKind = "budget_limited"
+	ActionUsageLimited   ActionKind = "usage_limited"
+	ActionScheduleWakeup ActionKind = "schedule_wakeup"
 )
 
 // Action is the controller's single explicit decision.
@@ -64,6 +65,8 @@ type Action struct {
 	// Continuation is set only for ActionQueueTurn and carries the hint that
 	// justified continuation.
 	Continuation *ContinuationHint
+	// WakeDelaySeconds is set only for ActionScheduleWakeup.
+	WakeDelaySeconds int
 }
 
 // Controller is the autonomy policy engine. It is stateless; all inputs arrive
@@ -145,6 +148,14 @@ func (c *Controller) Evaluate(s *Snapshot) Action {
 	}
 	if spec.OnTurnFinished == TurnPolicyWait {
 		return Action{Kind: ActionNone, Reason: "turn policy is wait"}
+	}
+	if spec.WakeDelaySeconds != nil && *spec.WakeDelaySeconds > 0 {
+		return Action{
+			Kind:             ActionScheduleWakeup,
+			Reason:           "delay active goal continuation",
+			Continuation:     s.Continuation,
+			WakeDelaySeconds: *spec.WakeDelaySeconds,
+		}
 	}
 
 	return Action{Kind: ActionQueueTurn, Reason: "continue active goal", Continuation: s.Continuation}

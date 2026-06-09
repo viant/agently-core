@@ -9,6 +9,9 @@ import com.viant.agentlysdk.PlannerState
 import com.viant.agentlysdk.ToolStepState
 import com.viant.agentlysdk.TurnState
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.time.OffsetDateTime
 
 class FeedTracker {
@@ -33,6 +36,56 @@ class FeedTracker {
                     turnId = resolveEventTurnId(event).ifBlank { null },
                     updatedAt = System.currentTimeMillis(),
                     data = event.feedData
+                )
+            }
+            event.type == "goal.updated" -> {
+                val feedId = event.feedId?.trim().takeUnless { it.isNullOrEmpty() } ?: "goal"
+                feedsById[feedId] = ActiveFeed(
+                    feedId = feedId,
+                    title = firstString(event.feedTitle, "Goal"),
+                    itemCount = 1,
+                    conversationId = resolveEventConversationId(event).ifBlank { null },
+                    turnId = resolveEventTurnId(event).ifBlank { null },
+                    updatedAt = System.currentTimeMillis(),
+                    data = event.patch?.get("goal")
+                )
+            }
+            event.type == "goal.cleared" -> {
+                val feedId = event.feedId?.trim().takeUnless { it.isNullOrEmpty() } ?: "goal"
+                feedsById[feedId] = ActiveFeed(
+                    feedId = feedId,
+                    title = firstString(event.feedTitle, "Goal"),
+                    itemCount = 0,
+                    conversationId = resolveEventConversationId(event).ifBlank { null },
+                    turnId = resolveEventTurnId(event).ifBlank { null },
+                    updatedAt = System.currentTimeMillis(),
+                    data = null
+                )
+            }
+            event.type == "goal.controller_scheduled" -> {
+                val feedId = event.feedId?.trim().takeUnless { it.isNullOrEmpty() } ?: "goal"
+                val existing = feedsById[feedId]
+                val existingGoal = when (val currentData = existing?.data) {
+                    is JsonObject -> currentData["goal"] ?: currentData
+                    else -> currentData ?: JsonNull
+                }
+                feedsById[feedId] = ActiveFeed(
+                    feedId = feedId,
+                    title = firstString(existing?.title, event.feedTitle, "Goal"),
+                    itemCount = existing?.itemCount ?: 1,
+                    conversationId = resolveEventConversationId(event).ifBlank { null },
+                    turnId = resolveEventTurnId(event).ifBlank { null },
+                    updatedAt = System.currentTimeMillis(),
+                    data = buildJsonObject {
+                        put("goal", existingGoal)
+                        put("controllerSchedule", buildJsonObject {
+                            val modeValue = (event.patch?.get("mode") as? JsonPrimitive)?.content ?: "queue"
+                            put("mode", JsonPrimitive(modeValue))
+                            put("reason", event.patch?.get("reason") ?: JsonPrimitive(""))
+                            put("preview", event.patch?.get("preview") ?: JsonPrimitive(""))
+                            put("wakeAt", event.patch?.get("wakeAt") ?: JsonNull)
+                        })
+                    }
                 )
             }
             event.type == "tool_feed_inactive" && !event.feedId.isNullOrBlank() -> {

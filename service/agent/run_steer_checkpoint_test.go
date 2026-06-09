@@ -10,6 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
+	goalsys "github.com/viant/agently-core/service/goal"
 )
 
 func TestService_latestTurnTaskCheckpoint(t *testing.T) {
@@ -271,20 +272,22 @@ func TestShouldContinueAfterAsyncChange(t *testing.T) {
 		hasActiveWaitOps     bool
 		changedOpsCount      int
 		terminalContentReady bool
+		policy               goalsys.AsyncPolicy
 		want                 bool
 	}{
-		{name: "no changed ops", planEmpty: false, hasActiveWaitOps: true, changedOpsCount: 0, want: false},
-		{name: "non terminal plan reruns on changed ops", planEmpty: false, hasActiveWaitOps: false, changedOpsCount: 1, want: true},
-		{name: "active wait reruns on changed ops", planEmpty: true, hasActiveWaitOps: true, changedOpsCount: 1, want: true},
-		{name: "terminal child completion still reruns once when no final content yet", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, terminalContentReady: false, want: true},
-		{name: "terminal content answer does not rerun on residual completed change", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, terminalContentReady: true, want: false},
+		{name: "no changed ops", planEmpty: false, hasActiveWaitOps: true, changedOpsCount: 0, policy: goalsys.AsyncPolicyEvaluate, want: false},
+		{name: "non terminal plan reruns on changed ops", planEmpty: false, hasActiveWaitOps: false, changedOpsCount: 1, policy: goalsys.AsyncPolicyEvaluate, want: true},
+		{name: "active wait reruns on changed ops", planEmpty: true, hasActiveWaitOps: true, changedOpsCount: 1, policy: goalsys.AsyncPolicyEvaluate, want: true},
+		{name: "terminal child completion still reruns once when no final content yet", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, terminalContentReady: false, policy: goalsys.AsyncPolicyEvaluate, want: true},
+		{name: "terminal content answer does not rerun on residual completed change", planEmpty: true, hasActiveWaitOps: false, changedOpsCount: 1, terminalContentReady: true, policy: goalsys.AsyncPolicyEvaluate, want: false},
+		{name: "async policy wait suppresses rerun after completion", planEmpty: false, hasActiveWaitOps: false, changedOpsCount: 1, policy: goalsys.AsyncPolicyWait, want: false},
 	}
 
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := shouldContinueAfterAsyncChange(tc.planEmpty, tc.hasActiveWaitOps, tc.changedOpsCount, tc.terminalContentReady)
+			got := shouldContinueAfterAsyncChange(tc.planEmpty, tc.hasActiveWaitOps, tc.changedOpsCount, tc.terminalContentReady, tc.policy)
 			assert.Equal(t, tc.want, got)
 		})
 	}

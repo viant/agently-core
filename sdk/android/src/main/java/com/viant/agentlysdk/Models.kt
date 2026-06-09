@@ -411,6 +411,7 @@ data class WorkspaceCapabilities(
     val agentAutoSelection: Boolean? = null,
     val modelAutoSelection: Boolean? = null,
     val toolAutoSelection: Boolean? = null,
+    val goals: Boolean? = null,
     val compactConversation: Boolean? = null,
     val pruneConversation: Boolean? = null,
     val anonymousSession: Boolean? = null,
@@ -559,14 +560,42 @@ data class Goal(
     val statusReason: String? = null,
     val pauseReason: String? = null,
     val controllerSpec: String? = null,
+    val controllerSchedule: GoalControllerSchedule? = null,
     val tokenBudget: Long? = null,
     val tokensUsed: Long? = null,
     val timeUsedSeconds: Long? = null,
 )
 
 @Serializable
+data class GoalControllerSchedule(
+    val mode: String? = null,
+    val preview: String? = null,
+    val wakeAt: String? = null,
+)
+
+@Serializable
 data class GoalEnvelope(
     val goal: Goal? = null,
+)
+
+@Serializable
+data class AsyncOperation(
+    val operationId: String,
+    val tool: String,
+    val statusTool: String? = null,
+    val operationIdArg: String? = null,
+    val sameToolRecall: Boolean? = null,
+    val statusArgs: Map<String, JsonElement>? = null,
+    val executionMode: String? = null,
+    val state: String? = null,
+    val intent: String? = null,
+    val summary: String? = null,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class ListAsyncOperationsOutput(
+    val ops: List<AsyncOperation> = emptyList(),
 )
 
 @Serializable

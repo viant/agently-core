@@ -21,6 +21,9 @@ func toPublicSchedule(row *schedulepkg.ScheduleView) *Schedule {
 		Description:     row.Description,
 		CreatedByUserID: row.CreatedByUserId,
 		Visibility:      row.Visibility,
+		Internal:        row.Internal,
+		ConversationID:  row.ConversationId,
+		GoalID:          row.GoalId,
 		AgentRef:        row.AgentRef,
 		ModelOverride:   row.ModelOverride,
 		UserCredURL:     row.UserCredURL,
@@ -62,6 +65,13 @@ func toMutableSchedule(schedule *Schedule, isUpdate bool) *schedwrite.Schedule {
 	}
 	if visibility := strings.TrimSpace(schedule.Visibility); visibility != "" {
 		mut.SetVisibility(visibility)
+	}
+	mut.SetInternal(schedule.Internal)
+	if schedule.ConversationID != nil && strings.TrimSpace(*schedule.ConversationID) != "" {
+		mut.SetConversationID(strings.TrimSpace(*schedule.ConversationID))
+	}
+	if schedule.GoalID != nil && strings.TrimSpace(*schedule.GoalID) != "" {
+		mut.SetGoalID(strings.TrimSpace(*schedule.GoalID))
 	}
 	if agentRef := strings.TrimSpace(schedule.AgentRef); agentRef != "" {
 		mut.SetAgentRef(agentRef)

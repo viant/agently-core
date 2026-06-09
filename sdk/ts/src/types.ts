@@ -85,13 +85,38 @@ export interface Goal {
     statusReason?: string;
     pauseReason?: string;
     controllerSpec?: string;
+    controllerSchedule?: GoalControllerSchedule;
     tokenBudget?: number;
     tokensUsed?: number;
     timeUsedSeconds?: number;
 }
 
+export interface GoalControllerSchedule {
+    mode?: string;
+    preview?: string;
+    wakeAt?: string;
+}
+
 export interface GoalEnvelope {
     goal?: Goal | null;
+}
+
+export interface AsyncOperation {
+    operationId: string;
+    tool: string;
+    statusTool?: string;
+    operationIdArg?: string;
+    sameToolRecall?: boolean;
+    statusArgs?: Record<string, unknown>;
+    executionMode?: string;
+    state?: string;
+    intent?: string;
+    summary?: string;
+    updatedAt?: string;
+}
+
+export interface ListAsyncOperationsOutput {
+    ops: AsyncOperation[];
 }
 
 export interface CreateGoalInput {
@@ -397,6 +422,10 @@ export type SSEEventType =
     // Tool feed lifecycle
     | 'tool_feed_active'
     | 'tool_feed_inactive'
+    // Goal lifecycle
+    | 'goal.updated'
+    | 'goal.cleared'
+    | 'goal.controller_scheduled'
     // Planner lifecycle
     | 'planner.selected'
     | 'planner.output'
@@ -792,6 +821,7 @@ export interface WorkspaceCapabilities {
     agentAutoSelection?: boolean;
     modelAutoSelection?: boolean;
     toolAutoSelection?: boolean;
+    goals?: boolean;
     compactConversation?: boolean;
     pruneConversation?: boolean;
     anonymousSession?: boolean;

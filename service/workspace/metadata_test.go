@@ -260,6 +260,138 @@ func TestMetadataHandler_IncludesInternalFlagForAgents(t *testing.T) {
 	assert.ElementsMatch(t, []string{"public-agent", "internal-agent"}, response.Agents)
 }
 
+func TestMetadataHandler_SetsGoalsCapabilityWhenGoalToolsAreExposed(t *testing.T) {
+	prevRoot := ws.Root()
+	tempRoot := t.TempDir()
+	ws.SetRoot(tempRoot)
+	defer ws.SetRoot(prevRoot)
+
+	store := &metadataTestStore{items: map[string]map[string][]byte{
+		ws.KindAgent: {
+			"coder": []byte(`
+id: coder
+tool:
+  bundles:
+    - system/goal
+`),
+		},
+	}}
+	err := os.WriteFile(filepath.Join(tempRoot, "config.yaml"), []byte(`
+features:
+  goals:
+    enabled: true
+`), 0o644)
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	handler := NewMetadataHandler(&config.Defaults{}, store, "test-version")
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload MetadataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Capabilities.Goals {
+		t.Fatalf("expected goals capability to be true")
+	}
+}
+
+func TestMetadataHandler_ClearsGoalsCapabilityWhenWorkspaceDisablesGoals(t *testing.T) {
+	prevRoot := ws.Root()
+	tempRoot := t.TempDir()
+	ws.SetRoot(tempRoot)
+	defer ws.SetRoot(prevRoot)
+
+	store := &metadataTestStore{items: map[string]map[string][]byte{
+		ws.KindAgent: {
+			"coder": []byte(`
+id: coder
+tool:
+  bundles:
+    - system/goal
+`),
+		},
+	}}
+	err := os.WriteFile(filepath.Join(tempRoot, "config.yaml"), []byte(`
+features:
+  goals:
+    enabled: false
+`), 0o644)
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	handler := NewMetadataHandler(&config.Defaults{}, store, "test-version")
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload MetadataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Capabilities.Goals {
+		t.Fatalf("expected goals capability to be false when workspace disables goals")
+	}
+}
+
+func TestMetadataHandler_ClearsGoalsCapabilityWhenGoalServiceIsNotEnabled(t *testing.T) {
+	prevRoot := ws.Root()
+	tempRoot := t.TempDir()
+	ws.SetRoot(tempRoot)
+	defer ws.SetRoot(prevRoot)
+
+	store := &metadataTestStore{items: map[string]map[string][]byte{
+		ws.KindAgent: {
+			"coder": []byte(`
+id: coder
+tool:
+  bundles:
+    - system/goal
+`),
+		},
+	}}
+	err := os.WriteFile(filepath.Join(tempRoot, "config.yaml"), []byte(`
+features:
+  goals:
+    enabled: true
+internalMCP:
+  services:
+    - system/exec
+`), 0o644)
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	handler := NewMetadataHandler(&config.Defaults{}, store, "test-version")
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload MetadataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Capabilities.Goals {
+		t.Fatalf("expected goals capability to be false when system/goal service is not enabled")
+	}
+}
+
 func TestMetadataHandler_SortsAgentAndModelInfosByLabel(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{

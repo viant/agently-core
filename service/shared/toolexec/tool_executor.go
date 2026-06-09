@@ -288,7 +288,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	span.SetEnd(time.Now())
 
 	if !activatedStatusPolling {
-		_ = maybeHandleAsyncTool(ctx, reg, step, toolResult, execErr)
+		if rec := maybeHandleAsyncTool(ctx, reg, step, toolResult, execErr); rec != nil {
+			if observer, ok := AsyncCompletionObserverFromContext(ctx); ok && observer != nil {
+				observer(ctx, rec)
+			}
+		}
 	}
 	parkedStatus := false
 	if execErr == nil && !activatedStatusPolling {

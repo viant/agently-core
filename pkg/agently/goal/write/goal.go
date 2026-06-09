@@ -5,19 +5,22 @@ import "time"
 var PackageName = "goal/write"
 
 type Goal struct {
-	Id              string     `sqlx:"id,primaryKey" validate:"required"`
-	ConversationID  *string    `sqlx:"conversation_id" json:",omitempty"`
-	Objective       *string    `sqlx:"objective" json:",omitempty"`
-	Status          *string    `sqlx:"status" json:",omitempty"`
-	StatusReason    *string    `sqlx:"status_reason" json:",omitempty"`
-	PauseReason     *string    `sqlx:"pause_reason" json:",omitempty"`
-	ControllerSpec  *string    `sqlx:"controller_spec" json:",omitempty"`
-	TokenBudget     *int64     `sqlx:"token_budget" json:",omitempty"`
-	TokensUsed      *int64     `sqlx:"tokens_used" json:",omitempty"`
-	TimeUsedSeconds *int64     `sqlx:"time_used_seconds" json:",omitempty"`
-	CreatedAt       *time.Time `sqlx:"created_at" json:",omitempty"`
-	UpdatedAt       *time.Time `sqlx:"updated_at" json:",omitempty"`
-	Has             *GoalHas   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	Id                          string     `sqlx:"id,primaryKey" validate:"required"`
+	ConversationID              *string    `sqlx:"conversation_id" json:",omitempty"`
+	Objective                   *string    `sqlx:"objective" json:",omitempty"`
+	Status                      *string    `sqlx:"status" json:",omitempty"`
+	StatusReason                *string    `sqlx:"status_reason" json:",omitempty"`
+	PauseReason                 *string    `sqlx:"pause_reason" json:",omitempty"`
+	ControllerSpec              *string    `sqlx:"controller_spec" json:",omitempty"`
+	TokenBudget                 *int64     `sqlx:"token_budget" json:",omitempty"`
+	TokensUsed                  *int64     `sqlx:"tokens_used" json:",omitempty"`
+	TimeUsedSeconds             *int64     `sqlx:"time_used_seconds" json:",omitempty"`
+	AutonomousTurnsUsed         *int64     `sqlx:"autonomous_turns_used" json:",omitempty"`
+	ConsecutiveNoProgress       *int64     `sqlx:"consecutive_no_progress" json:",omitempty"`
+	LastContinuationFingerprint *string    `sqlx:"last_continuation_fingerprint" json:",omitempty"`
+	CreatedAt                   *time.Time `sqlx:"created_at" json:",omitempty"`
+	UpdatedAt                   *time.Time `sqlx:"updated_at" json:",omitempty"`
+	Has                         *GoalHas   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type MutableGoalView = Goal
@@ -27,18 +30,21 @@ type MutableGoalViews struct {
 }
 
 type GoalHas struct {
-	Id              bool
-	ConversationID  bool
-	Objective       bool
-	Status          bool
-	StatusReason    bool
-	PauseReason     bool
-	ControllerSpec  bool
-	TokenBudget     bool
-	TokensUsed      bool
-	TimeUsedSeconds bool
-	CreatedAt       bool
-	UpdatedAt       bool
+	Id                          bool
+	ConversationID              bool
+	Objective                   bool
+	Status                      bool
+	StatusReason                bool
+	PauseReason                 bool
+	ControllerSpec              bool
+	TokenBudget                 bool
+	TokensUsed                  bool
+	TimeUsedSeconds             bool
+	AutonomousTurnsUsed         bool
+	ConsecutiveNoProgress       bool
+	LastContinuationFingerprint bool
+	CreatedAt                   bool
+	UpdatedAt                   bool
 }
 
 func ensureHas(h **GoalHas) {
@@ -92,6 +98,21 @@ func (g *Goal) SetTimeUsedSeconds(v int64) {
 	g.TimeUsedSeconds = &v
 	ensureHas(&g.Has)
 	g.Has.TimeUsedSeconds = true
+}
+func (g *Goal) SetAutonomousTurnsUsed(v int64) {
+	g.AutonomousTurnsUsed = &v
+	ensureHas(&g.Has)
+	g.Has.AutonomousTurnsUsed = true
+}
+func (g *Goal) SetConsecutiveNoProgress(v int64) {
+	g.ConsecutiveNoProgress = &v
+	ensureHas(&g.Has)
+	g.Has.ConsecutiveNoProgress = true
+}
+func (g *Goal) SetLastContinuationFingerprint(v string) {
+	g.LastContinuationFingerprint = &v
+	ensureHas(&g.Has)
+	g.Has.LastContinuationFingerprint = true
 }
 func (g *Goal) SetCreatedAt(v time.Time) {
 	g.CreatedAt = &v

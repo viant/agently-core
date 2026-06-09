@@ -10,6 +10,9 @@ type Schedule struct {
 	Description     *string      `sqlx:"description" json:",omitempty"`
 	CreatedByUserID *string      `sqlx:"created_by_user_id" json:",omitempty"`
 	Visibility      string       `sqlx:"visibility"`
+	Internal        *bool        `sqlx:"internal" json:",omitempty"`
+	ConversationID  *string      `sqlx:"conversation_id" json:",omitempty"`
+	GoalID          *string      `sqlx:"goal_id" json:",omitempty"`
 	AgentRef        string       `sqlx:"agent_ref" validate:"required"`
 	ModelOverride   *string      `sqlx:"model_override" json:",omitempty"`
 	UserCredURL     *string      `sqlx:"user_cred_url" json:",omitempty"`
@@ -44,6 +47,9 @@ type ScheduleHas struct {
 	Description     bool
 	CreatedByUserID bool
 	Visibility      bool
+	Internal        bool
+	ConversationID  bool
+	GoalID          bool
 	AgentRef        bool
 	ModelOverride   bool
 	UserCredURL     bool
@@ -88,6 +94,21 @@ func (m *Schedule) SetVisibility(v string) {
 	m.Visibility = v
 	m.ensureHas()
 	m.Has.Visibility = true
+}
+func (m *Schedule) SetInternal(v bool) {
+	m.Internal = &v
+	m.ensureHas()
+	m.Has.Internal = true
+}
+func (m *Schedule) SetConversationID(v string) {
+	m.ConversationID = &v
+	m.ensureHas()
+	m.Has.ConversationID = true
+}
+func (m *Schedule) SetGoalID(v string) {
+	m.GoalID = &v
+	m.ensureHas()
+	m.Has.GoalID = true
 }
 func (m *Schedule) SetAgentRef(v string) { m.AgentRef = v; m.ensureHas(); m.Has.AgentRef = true }
 func (m *Schedule) SetModelOverride(v string) {

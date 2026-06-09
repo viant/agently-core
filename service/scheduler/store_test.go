@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/viant/agently-core/internal/testutil/dbtest"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/datly"
 	"github.com/viant/datly/view"
@@ -307,6 +309,84 @@ func TestHandler_DeleteScheduleRejectsOtherUser(t *testing.T) {
 	}
 
 	assertScheduleCount(t, db, "sched-delete-2", 1)
+}
+
+func TestHandler_GetInternalScheduleReturnsNotFound(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+	h := NewHandler(svc)
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(2 * time.Minute),
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/schedule/goal-wakeup-goal-conv-goal", nil)
+	req.SetPathValue("id", "goal-wakeup-goal-conv-goal")
+	rec := httptest.NewRecorder()
+
+	h.handleGetSchedule()(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_RunNowInternalScheduleReturnsNotFound(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+	h := NewHandler(svc)
+
+	scheduled, err := svc.ScheduleGoalWakeup(context.Background(), agentsvc.GoalWakeupRequest{
+		ConversationID: "conv-goal",
+		GoalID:         "goal-conv-goal",
+		UserID:         "devuser",
+		AgentID:        "coder",
+		WakeAt:         time.Now().UTC().Add(2 * time.Minute),
+		Preview:        "Continue goal later",
+		Payload:        "Continue working toward the active goal.",
+	})
+	if err != nil {
+		t.Fatalf("ScheduleGoalWakeup() error: %v", err)
+	}
+	if !scheduled {
+		t.Fatalf("expected wakeup to schedule")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/agently/scheduler/run-now/goal-wakeup-goal-conv-goal", nil)
+	req.SetPathValue("id", "goal-wakeup-goal-conv-goal")
+	rec := httptest.NewRecorder()
+
+	h.handleRunNow()(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_BatchUpdateRejectsReservedInternalScheduleFields(t *testing.T) {
+	store, _ := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+	h := NewHandler(svc)
+
+	body := `{"schedules":[{"id":"sched-public","name":"Public","visibility":"private","internal":true,"conversationId":"conv-goal","goalId":"goal-conv-goal","agentRef":"coder","enabled":true,"scheduleType":"adhoc","timezone":"UTC"}]}`
+	req := httptest.NewRequest(http.MethodPatch, "/v1/api/agently/scheduler/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.handleBatchUpdate()(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHandler_ListSchedulesSupportsPagination(t *testing.T) {

@@ -133,6 +133,7 @@ public struct WorkspaceCapabilities: Codable, Sendable {
     public let agentAutoSelection: Bool?
     public let modelAutoSelection: Bool?
     public let toolAutoSelection: Bool?
+    public let goals: Bool?
     public let compactConversation: Bool?
     public let pruneConversation: Bool?
     public let anonymousSession: Bool?
@@ -144,6 +145,7 @@ public struct WorkspaceCapabilities: Codable, Sendable {
         agentAutoSelection: Bool? = nil,
         modelAutoSelection: Bool? = nil,
         toolAutoSelection: Bool? = nil,
+        goals: Bool? = nil,
         compactConversation: Bool? = nil,
         pruneConversation: Bool? = nil,
         anonymousSession: Bool? = nil,
@@ -154,6 +156,7 @@ public struct WorkspaceCapabilities: Codable, Sendable {
         self.agentAutoSelection = agentAutoSelection
         self.modelAutoSelection = modelAutoSelection
         self.toolAutoSelection = toolAutoSelection
+        self.goals = goals
         self.compactConversation = compactConversation
         self.pruneConversation = pruneConversation
         self.anonymousSession = anonymousSession
@@ -575,6 +578,44 @@ public struct Conversation: Codable, Sendable, Identifiable {
         case completionTokens = "UsageOutputTokens"
         case totalTokens = "UsageEmbeddingTokens"
         case cost
+    }
+
+    public init(
+        id: String,
+        lastTurnID: String? = nil,
+        agentID: String? = nil,
+        title: String? = nil,
+        summary: String? = nil,
+        stage: String? = nil,
+        visibility: String? = nil,
+        shareable: Int? = nil,
+        conversationParentID: String? = nil,
+        conversationParentTurnID: String? = nil,
+        createdAt: String? = nil,
+        lastActivity: String? = nil,
+        createdByUserID: String? = nil,
+        promptTokens: Int? = nil,
+        completionTokens: Int? = nil,
+        totalTokens: Int? = nil,
+        cost: Double? = nil
+    ) {
+        self.id = id
+        self.lastTurnID = lastTurnID
+        self.agentID = agentID
+        self.title = title
+        self.summary = summary
+        self.stage = stage
+        self.visibility = visibility
+        self.shareable = shareable
+        self.conversationParentID = conversationParentID
+        self.conversationParentTurnID = conversationParentTurnID
+        self.createdAt = createdAt
+        self.lastActivity = lastActivity
+        self.createdByUserID = createdByUserID
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalTokens = totalTokens
+        self.cost = cost
     }
 }
 
@@ -1008,6 +1049,11 @@ public struct UserMessageState: Codable, Sendable {
         case messageID = "messageId"
         case content
     }
+
+    public init(messageID: String, content: String? = nil) {
+        self.messageID = messageID
+        self.content = content
+    }
 }
 
 public struct TurnMessageState: Codable, Sendable {
@@ -1070,6 +1116,12 @@ public struct AssistantMessageState: Codable, Sendable {
         case messageID = "messageId"
         case content
         case createdAt
+    }
+
+    public init(messageID: String, content: String? = nil, createdAt: String? = nil) {
+        self.messageID = messageID
+        self.content = content
+        self.createdAt = createdAt
     }
 }
 
@@ -2253,6 +2305,7 @@ public struct Goal: Codable, Sendable, Identifiable {
     public let statusReason: String?
     public let pauseReason: String?
     public let controllerSpec: String?
+    public let controllerSchedule: GoalControllerSchedule?
     public let tokenBudget: Int64?
     public let tokensUsed: Int64?
     public let timeUsedSeconds: Int64?
@@ -2265,14 +2318,63 @@ public struct Goal: Codable, Sendable, Identifiable {
         case statusReason
         case pauseReason
         case controllerSpec
+        case controllerSchedule
         case tokenBudget
         case tokensUsed
         case timeUsedSeconds
     }
 }
 
+public struct GoalControllerSchedule: Codable, Sendable {
+    public let mode: String?
+    public let preview: String?
+    public let wakeAt: String?
+
+    public init(mode: String? = nil, preview: String? = nil, wakeAt: String? = nil) {
+        self.mode = mode
+        self.preview = preview
+        self.wakeAt = wakeAt
+    }
+}
+
 public struct GoalEnvelope: Codable, Sendable {
     public let goal: Goal?
+}
+
+public struct AsyncOperation: Codable, Sendable {
+    public let operationID: String
+    public let tool: String
+    public let statusTool: String?
+    public let operationIDArg: String?
+    public let sameToolRecall: Bool?
+    public let statusArgs: [String: JSONValue]?
+    public let executionMode: String?
+    public let state: String?
+    public let intent: String?
+    public let summary: String?
+    public let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case operationID = "operationId"
+        case tool
+        case statusTool
+        case operationIDArg = "operationIdArg"
+        case sameToolRecall
+        case statusArgs
+        case executionMode
+        case state
+        case intent
+        case summary
+        case updatedAt
+    }
+}
+
+public struct ListAsyncOperationsOutput: Codable, Sendable {
+    public let ops: [AsyncOperation]
+
+    public init(ops: [AsyncOperation] = []) {
+        self.ops = ops
+    }
 }
 
 public struct CreateGoalInput: Codable, Sendable {

@@ -37,6 +37,80 @@ type Root struct {
 	Raw         map[string]interface{}  `yaml:",inline"`
 }
 
+// GoalsEnabled reports whether workspace goal features are enabled by policy.
+// Missing config defaults to true so existing workspaces retain behavior until
+// they explicitly opt out.
+func (r *Root) GoalsEnabled() bool {
+	if r == nil || r.Raw == nil {
+		return true
+	}
+	features := mapLookup(r.Raw, "features")
+	if len(features) == 0 {
+		return true
+	}
+	goals := mapLookup(features, "goals")
+	if len(goals) == 0 {
+		return true
+	}
+	value, ok := boolLookup(goals, "enabled")
+	if !ok {
+		return true
+	}
+	return value
+}
+
+// GoalWakeupsEnabled reports whether scheduler-backed goal wakeups are enabled
+// by workspace policy. Missing config defaults to true so existing workspaces
+// keep current behavior until they explicitly opt out.
+func (r *Root) GoalWakeupsEnabled() bool {
+	if r == nil || r.Raw == nil {
+		return true
+	}
+	features := mapLookup(r.Raw, "features")
+	if len(features) == 0 {
+		return true
+	}
+	wakeups := mapLookup(features, "wakeups")
+	if len(wakeups) == 0 {
+		return true
+	}
+	value, ok := boolLookup(wakeups, "enabled")
+	if !ok {
+		return true
+	}
+	return value
+}
+
+// GoalWakeupMinDelaySeconds returns the effective minimum delay for autonomous
+// goal wakeups. Missing config defaults to 60 seconds.
+func (r *Root) GoalWakeupMinDelaySeconds() int {
+	return intLookupDefault(r, "wakeups", "minWakeDelaySeconds", 60)
+}
+
+// GoalWakeupMaxDelaySeconds returns the effective maximum delay for autonomous
+// goal wakeups. Missing config defaults to 3600 seconds.
+func (r *Root) GoalWakeupMaxDelaySeconds() int {
+	return intLookupDefault(r, "wakeups", "maxWakeDelaySeconds", 3600)
+}
+
+// GoalWakeupMaxGlobalWakeupsPerHour returns the effective global wakeup budget
+// window. Missing config defaults to 5.
+func (r *Root) GoalWakeupMaxGlobalWakeupsPerHour() int {
+	return intLookupDefault(r, "wakeups", "maxGlobalWakeupsPerHour", 5)
+}
+
+// GoalWakeupMaxConversationWakeups returns the effective per-conversation
+// pending wakeup budget. Missing config defaults to 3.
+func (r *Root) GoalWakeupMaxConversationWakeups() int {
+	return intLookupDefault(r, "wakeups", "maxConversationWakeups", 3)
+}
+
+// GoalWakeupMaxGoalWakeups returns the effective per-goal pending wakeup
+// budget. Missing config defaults to 2.
+func (r *Root) GoalWakeupMaxGoalWakeups() int {
+	return intLookupDefault(r, "wakeups", "maxGoalWakeups", 2)
+}
+
 // Load reads the workspace config.yaml. Missing config returns (nil, nil).
 func Load(root string) (*Root, error) {
 	root = strings.TrimSpace(root)
@@ -172,6 +246,66 @@ func ApplyPathDefaults(defaults *execconfig.Defaults) {
 		}
 		_ = os.Setenv("AGENTLY_DB_PATH", dbPath)
 	}
+}
+
+func boolLookup(values map[string]interface{}, key string) (bool, bool) {
+	if len(values) == 0 {
+		return false, false
+	}
+	for actualKey, actualValue := range values {
+		if !strings.EqualFold(strings.TrimSpace(actualKey), strings.TrimSpace(key)) {
+			continue
+		}
+		switch typed := actualValue.(type) {
+		case bool:
+			return typed, true
+		case string:
+			switch strings.ToLower(strings.TrimSpace(typed)) {
+			case "true", "1", "yes", "y", "on":
+				return true, true
+			case "false", "0", "no", "n", "off":
+				return false, true
+			}
+		}
+	}
+	return false, false
+}
+
+func intLookupDefault(r *Root, featureKey, fieldKey string, fallback int) int {
+	if r == nil || r.Raw == nil {
+		return fallback
+	}
+	features := mapLookup(r.Raw, "features")
+	if len(features) == 0 {
+		return fallback
+	}
+	section := mapLookup(features, featureKey)
+	if len(section) == 0 {
+		return fallback
+	}
+	for actualKey, actualValue := range section {
+		if !strings.EqualFold(strings.TrimSpace(actualKey), strings.TrimSpace(fieldKey)) {
+			continue
+		}
+		switch typed := actualValue.(type) {
+		case int:
+			return typed
+		case int64:
+			return int(typed)
+		case float64:
+			return int(typed)
+		case string:
+			typed = strings.TrimSpace(typed)
+			if typed == "" {
+				return fallback
+			}
+			var parsed int
+			if _, err := fmt.Sscanf(typed, "%d", &parsed); err == nil {
+				return parsed
+			}
+		}
+	}
+	return fallback
 }
 
 func mergeDefaults(dst, src *execconfig.Defaults) {

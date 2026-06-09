@@ -246,6 +246,9 @@ func (s *datlyStore) PatchSchedule(ctx context.Context, schedule *schedwrite.Sch
 	if s == nil || s.dao == nil || schedule == nil {
 		return nil
 	}
+	if schedule.Internal == nil {
+		schedule.SetInternal(false)
+	}
 	in := &schedwrite.Input{Schedules: []*schedwrite.Schedule{schedule}}
 	out := &schedwrite.Output{}
 	if _, err := s.dao.Operate(ctx,

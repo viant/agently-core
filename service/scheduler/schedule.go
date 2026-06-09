@@ -9,6 +9,9 @@ type Schedule struct {
 	Description     *string    `json:"description,omitempty"`
 	CreatedByUserID *string    `json:"createdByUserId,omitempty"`
 	Visibility      string     `json:"visibility,omitempty"`
+	Internal        bool       `json:"internal,omitempty"`
+	ConversationID  *string    `json:"conversationId,omitempty"`
+	GoalID          *string    `json:"goalId,omitempty"`
 	AgentRef        string     `json:"agentRef"`
 	ModelOverride   *string    `json:"modelOverride,omitempty"`
 	UserCredURL     *string    `json:"userCredUrl,omitempty"`

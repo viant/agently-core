@@ -84,9 +84,11 @@ type Service struct {
 
 	asyncManager     *asynccfg.Manager
 	asyncPollers     sync.Map
+	asyncGoalWatches sync.Map
 	bootstrapCache   sync.Map
 	toolSurfaceCache sync.Map
 	goalRuntime      *goalruntime.Runtime
+	goalWakeups      goalWakeupScheduler
 
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 
@@ -137,6 +139,21 @@ func (s *Service) SetUIBridge(bridge *forgeuisvc.Service) {
 	s.uiBridge = bridge
 	if bridge != nil {
 		s.uiRegistry = uireg.New(bridge)
+	}
+}
+
+func (s *Service) SetGoalWakeupScheduler(scheduler goalWakeupScheduler) {
+	if s == nil {
+		return
+	}
+	s.goalWakeups = scheduler
+	if s.goalRuntime != nil {
+		s.goalRuntime.SetDeactivateHook(func(ctx context.Context, conversationID, goalID string) {
+			if s.goalWakeups == nil {
+				return
+			}
+			_ = s.goalWakeups.CancelGoalWakeups(context.WithoutCancel(ctx), strings.TrimSpace(conversationID), strings.TrimSpace(goalID))
+		})
 	}
 }
 

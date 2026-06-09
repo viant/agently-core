@@ -54,6 +54,8 @@ type Client interface {
 	DeleteConversation(ctx context.Context, id string) error
 	// GetGoal returns the current durable conversation goal, or nil when absent.
 	GetGoal(ctx context.Context, conversationID string) (*Goal, error)
+	// ListAsyncOperations returns non-terminal async operations for a conversation.
+	ListAsyncOperations(ctx context.Context, input *ListAsyncOperationsInput) (*ListAsyncOperationsOutput, error)
 	// CreateGoal creates the current durable conversation goal.
 	CreateGoal(ctx context.Context, input *CreateGoalInput) (*Goal, error)
 	// UpdateGoal updates mutable durable goal fields for a conversation.

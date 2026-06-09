@@ -75,3 +75,102 @@ default:
 		t.Fatalf("expected ElicitationTimeoutSec 90, got %d", got.ElicitationTimeoutSec)
 	}
 }
+
+func TestGoalsEnabled(t *testing.T) {
+	testCases := []struct {
+		name     string
+		yamlText string
+		want     bool
+	}{
+		{
+			name:     "missing features defaults true",
+			yamlText: "default:\n  agent: chatter\n",
+			want:     true,
+		},
+		{
+			name: "explicit true",
+			yamlText: `
+features:
+  goals:
+    enabled: true
+`,
+			want: true,
+		},
+		{
+			name: "explicit false",
+			yamlText: `
+features:
+  goals:
+    enabled: false
+`,
+			want: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := &Root{}
+			if err := yaml.Unmarshal([]byte(testCase.yamlText), root); err != nil {
+				t.Fatalf("yaml.Unmarshal() error = %v", err)
+			}
+			if got := root.GoalsEnabled(); got != testCase.want {
+				t.Fatalf("GoalsEnabled() = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestGoalWakeupsPolicy(t *testing.T) {
+	root := &Root{}
+	const yamlConfig = `
+features:
+  wakeups:
+    enabled: false
+    minWakeDelaySeconds: 300
+    maxWakeDelaySeconds: 900
+`
+	if err := yaml.Unmarshal([]byte(yamlConfig), root); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	if got := root.GoalWakeupsEnabled(); got != false {
+		t.Fatalf("GoalWakeupsEnabled() = %v, want false", got)
+	}
+	if got := root.GoalWakeupMinDelaySeconds(); got != 300 {
+		t.Fatalf("GoalWakeupMinDelaySeconds() = %d, want 300", got)
+	}
+	if got := root.GoalWakeupMaxDelaySeconds(); got != 900 {
+		t.Fatalf("GoalWakeupMaxDelaySeconds() = %d, want 900", got)
+	}
+	if got := root.GoalWakeupMaxGlobalWakeupsPerHour(); got != 5 {
+		t.Fatalf("GoalWakeupMaxGlobalWakeupsPerHour() = %d, want 5", got)
+	}
+	if got := root.GoalWakeupMaxConversationWakeups(); got != 3 {
+		t.Fatalf("GoalWakeupMaxConversationWakeups() = %d, want 3", got)
+	}
+	if got := root.GoalWakeupMaxGoalWakeups(); got != 2 {
+		t.Fatalf("GoalWakeupMaxGoalWakeups() = %d, want 2", got)
+	}
+}
+
+func TestGoalWakeupsPolicyDefaults(t *testing.T) {
+	root := &Root{}
+	if got := root.GoalWakeupsEnabled(); got != true {
+		t.Fatalf("GoalWakeupsEnabled() = %v, want true", got)
+	}
+	if got := root.GoalWakeupMinDelaySeconds(); got != 60 {
+		t.Fatalf("GoalWakeupMinDelaySeconds() = %d, want 60", got)
+	}
+	if got := root.GoalWakeupMaxDelaySeconds(); got != 3600 {
+		t.Fatalf("GoalWakeupMaxDelaySeconds() = %d, want 3600", got)
+	}
+	if got := root.GoalWakeupMaxGlobalWakeupsPerHour(); got != 5 {
+		t.Fatalf("GoalWakeupMaxGlobalWakeupsPerHour() = %d, want 5", got)
+	}
+	if got := root.GoalWakeupMaxConversationWakeups(); got != 3 {
+		t.Fatalf("GoalWakeupMaxConversationWakeups() = %d, want 3", got)
+	}
+	if got := root.GoalWakeupMaxGoalWakeups(); got != 2 {
+		t.Fatalf("GoalWakeupMaxGoalWakeups() = %d, want 2", got)
+	}
+}
