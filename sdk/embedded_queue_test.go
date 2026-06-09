@@ -63,6 +63,39 @@ func TestEmbeddedClient_DecideToolApproval_ApproveSystemOSEnvCompletesTurn(t *te
 	require.Equal(t, "{\"values\":{\"LOGNAME\":\"test-user\"}}", queueTestStringValue(messages[3].Content))
 }
 
+func TestEmbeddedClient_DecideToolApproval_ApproveFailureKeepsQueuePending(t *testing.T) {
+	ctx := context.Background()
+	client := newQueueApprovalTestClientWithError(t, "", io.ErrUnexpectedEOF)
+	row := seedPendingSystemOSEnvApproval(t, ctx, client, "conv-approve-fail", "turn-approve-fail", "approval-approve-fail", "LOGNAME")
+
+	out, err := client.DecideToolApproval(ctx, &DecideToolApprovalInput{
+		ID:     row.Id,
+		Action: "approve",
+		UserID: "devuser",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.Equal(t, "ok", out.Status)
+	require.NotNil(t, out.Outcome)
+	require.Equal(t, row.Id, out.Outcome.ApprovalID)
+	require.Equal(t, "approve", out.Outcome.Action)
+	require.Equal(t, "failed", out.Outcome.Status)
+	require.Equal(t, io.ErrUnexpectedEOF.Error(), out.Outcome.ErrorMessage)
+
+	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+		Id:  row.Id,
+		Has: &queueRead.QueueRowsInputHas{Id: true},
+	})
+	require.NoError(t, err)
+	require.Len(t, gotRows, 1)
+	require.Equal(t, "pending", gotRows[0].Status)
+	require.Nil(t, gotRows[0].Decision)
+	require.Nil(t, gotRows[0].ApprovedByUserId)
+	require.Nil(t, gotRows[0].ApprovedAt)
+	require.Nil(t, gotRows[0].ExecutedAt)
+	require.Equal(t, io.ErrUnexpectedEOF.Error(), queueTestStringValue(gotRows[0].ErrorMessage))
+}
+
 func TestEmbeddedClient_DecideToolApproval_CancelSystemOSEnvCompletesTurn(t *testing.T) {
 	ctx := context.Background()
 	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
@@ -396,6 +429,20 @@ func newQueueApprovalTestClient(t *testing.T, toolResult string) *backendClient 
 	}
 }
 
+func newQueueApprovalTestClientWithError(t *testing.T, toolResult string, execErr error) *backendClient {
+	t.Helper()
+
+	convClient := convmem.New()
+
+	return &backendClient{
+		conv: convClient,
+		registry: &stubRegistry{
+			result: toolResult,
+			err:    execErr,
+		},
+	}
+}
+
 func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *backendClient, conversationID, turnID, approvalID, envName string) *queueWrite.ToolApprovalQueue {
 	t.Helper()
 
@@ -467,6 +514,7 @@ func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *b
 
 type stubRegistry struct {
 	result string
+	err    error
 }
 
 func (s *stubRegistry) Definitions() []llm.ToolDefinition                     { return nil }
@@ -474,7 +522,7 @@ func (s *stubRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition  { 
 func (s *stubRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) { return nil, false }
 func (s *stubRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error)   { return nil, nil }
 func (s *stubRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-	return s.result, nil
+	return s.result, s.err
 }
 func (s *stubRegistry) SetDebugLogger(w io.Writer)     {}
 func (s *stubRegistry) Initialize(ctx context.Context) {}

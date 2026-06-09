@@ -1056,24 +1056,38 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		done.SetArguments(row.Arguments)
 		done.SetUpdatedAt(time.Now().UTC())
 		if execErr != nil {
-			done.SetStatus("failed")
+			done.SetStatus("pending")
+			done.Decision = nil
+			done.Has.Decision = true
+			done.ApprovedByUserId = nil
+			done.Has.ApprovedByUserId = true
+			done.ApprovedAt = nil
+			done.Has.ApprovedAt = true
+			done.ExecutedAt = nil
+			done.Has.ExecutedAt = true
 			done.SetErrorMessage(execErr.Error())
 		} else {
 			done.SetStatus("executed")
 			done.SetExecutedAt(time.Now().UTC())
+			done.ErrorMessage = nil
+			done.Has.ErrorMessage = true
 		}
 		if err := patcher.PatchToolApprovalQueue(ctx, done); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 			return nil, err
 		}
 		finalStatus := "executed"
 		fallbackFields := map[string]interface{}{
-			"status":      "executed",
-			"executed_at": time.Now().UTC(),
-			"updated_at":  time.Now().UTC(),
+			"status":        "executed",
+			"executed_at":   time.Now().UTC(),
+			"error_message": nil,
+			"updated_at":    time.Now().UTC(),
 		}
 		if execErr != nil {
-			finalStatus = "failed"
-			fallbackFields["status"] = "failed"
+			finalStatus = "pending"
+			fallbackFields["status"] = "pending"
+			fallbackFields["decision"] = nil
+			fallbackFields["approved_by_user_id"] = nil
+			fallbackFields["approved_at"] = nil
 			fallbackFields["error_message"] = execErr.Error()
 			delete(fallbackFields, "executed_at")
 		}

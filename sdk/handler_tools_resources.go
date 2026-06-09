@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -209,6 +210,14 @@ func handleDecideToolApproval(client Client) http.HandlerFunc {
 		out, err := client.DecideToolApproval(r.Context(), &body)
 		if err != nil {
 			httpError(w, statusForToolApprovalErr(err), err)
+			return
+		}
+		if out != nil && out.Outcome != nil && strings.EqualFold(strings.TrimSpace(out.Outcome.Status), "failed") {
+			message := strings.TrimSpace(out.Outcome.ErrorMessage)
+			if message == "" {
+				message = "tool approval execution failed"
+			}
+			httpError(w, http.StatusConflict, errors.New(message))
 			return
 		}
 		httpJSON(w, http.StatusOK, out)

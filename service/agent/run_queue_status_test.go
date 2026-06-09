@@ -446,6 +446,92 @@ func TestService_TurnAwaitingUserAction_UsesDataService(t *testing.T) {
 	require.True(t, waiting)
 }
 
+func TestService_TurnAwaitingUserAction_IgnoresRootProxyElicitation(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+
+	root := apiconv.NewConversation()
+	root.SetId("c-root")
+	require.NoError(t, client.PatchConversations(ctx, root))
+
+	rootTurn := apiconv.NewTurn()
+	rootTurn.SetId("t-root")
+	rootTurn.SetConversationID("c-root")
+	rootTurn.SetStatus("running")
+	require.NoError(t, client.PatchTurn(ctx, rootTurn))
+
+	childConv := apiconv.NewConversation()
+	childConv.SetId("c-child")
+	require.NoError(t, client.PatchConversations(ctx, childConv))
+
+	childTurn := apiconv.NewTurn()
+	childTurn.SetId("t-child")
+	childTurn.SetConversationID("c-child")
+	childTurn.SetStatus("running")
+	require.NoError(t, client.PatchTurn(ctx, childTurn))
+
+	proxy := apiconv.NewMessage()
+	proxy.SetId("m-proxy")
+	proxy.SetConversationID("c-root")
+	proxy.SetTurnID("t-root")
+	proxy.SetRole("assistant")
+	proxy.SetType("text")
+	proxy.SetStatus("pending")
+	proxy.SetElicitationID("elic-1")
+	require.NoError(t, client.PatchMessage(ctx, proxy))
+
+	child := apiconv.NewMessage()
+	child.SetId("m-child")
+	child.SetConversationID("c-child")
+	child.SetTurnID("t-child")
+	child.SetRole("assistant")
+	child.SetType("text")
+	child.SetStatus("pending")
+	child.SetElicitationID("elic-1")
+	child.SetParentMessageID("m-proxy")
+	require.NoError(t, client.PatchMessage(ctx, child))
+
+	svc := &Service{
+		conversation: client,
+		dataService: &awaitingUserDataService{
+			page: &data.MessagePage{Rows: []*agmessagelist.MessageRowsView{{
+				Id:             "m-proxy",
+				ConversationId: "c-root",
+				TurnId:         strPtrAwaiting("t-root"),
+				Role:           "assistant",
+				Type:           "text",
+				Status:         strPtrAwaiting("pending"),
+				ElicitationId:  strPtrAwaiting("elic-1"),
+			}}},
+		},
+	}
+
+	waiting, err := svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-root",
+		TurnID:         "t-root",
+	})
+	require.NoError(t, err)
+	require.False(t, waiting)
+
+	svc.dataService = &awaitingUserDataService{
+		page: &data.MessagePage{Rows: []*agmessagelist.MessageRowsView{{
+			Id:             "m-real",
+			ConversationId: "c-root",
+			TurnId:         strPtrAwaiting("t-root"),
+			Role:           "assistant",
+			Type:           "text",
+			Status:         strPtrAwaiting("pending"),
+			ElicitationId:  strPtrAwaiting("elic-real"),
+		}}},
+	}
+	waiting, err = svc.turnAwaitingUserAction(ctx, memory.TurnMeta{
+		ConversationID: "c-root",
+		TurnID:         "t-root",
+	})
+	require.NoError(t, err)
+	require.True(t, waiting)
+}
+
 func TestService_FinalizeTurn_PatchesConversationBeforeTurnTerminalEvent(t *testing.T) {
 	ctx := context.Background()
 	rec := &orderingConvClient{}
