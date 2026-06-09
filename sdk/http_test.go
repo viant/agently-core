@@ -19,6 +19,7 @@ import (
 	agrun "github.com/viant/agently-core/pkg/agently/run"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
+	api "github.com/viant/agently-core/sdk/api"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/scheduler"
@@ -653,6 +654,8 @@ type spyToolApprovalClient struct {
 	*HTTPClient
 	gotListInput   *ListPendingToolApprovalsInput
 	gotDecideInput *DecideToolApprovalInput
+	decideOutput   *DecideToolApprovalOutput
+	decideErr      error
 }
 
 func (s *spyToolApprovalClient) ListPendingToolApprovals(_ context.Context, input *ListPendingToolApprovalsInput) (*PendingToolApprovalPage, error) {
@@ -662,6 +665,12 @@ func (s *spyToolApprovalClient) ListPendingToolApprovals(_ context.Context, inpu
 
 func (s *spyToolApprovalClient) DecideToolApproval(_ context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
 	s.gotDecideInput = input
+	if s.decideErr != nil {
+		return nil, s.decideErr
+	}
+	if s.decideOutput != nil {
+		return s.decideOutput, nil
+	}
 	return &DecideToolApprovalOutput{Status: "ok"}, nil
 }
 
@@ -2002,5 +2011,42 @@ func TestHandler_DecideToolApproval_UsesContextUserScope(t *testing.T) {
 	}
 	if spy.gotDecideInput.UserID != "testuser" {
 		t.Fatalf("expected userId=testuser, got %q", spy.gotDecideInput.UserID)
+	}
+}
+
+func TestHandler_DecideToolApproval_ReturnsConflictWhenApprovedExecutionFails(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyToolApprovalClient{
+		HTTPClient: base,
+		decideOutput: &DecideToolApprovalOutput{
+			Status: "ok",
+			Outcome: &api.DecideToolApprovalOutcome{
+				ApprovalID:   "approval-1",
+				Action:       "approve",
+				Status:       "failed",
+				ErrorMessage: "platform patch failed",
+			},
+		},
+	}
+	handler, err := NewHandlerWithContext(context.Background(), spy)
+	if err != nil {
+		t.Fatalf("NewHandlerWithContext: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/tool-approvals/approval-1/decision", bytes.NewReader([]byte(`{"action":"approve","userId":"devuser"}`)))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "platform patch failed") {
+		t.Fatalf("expected error body to include tool error, got %s", rec.Body.String())
+	}
+	if spy.gotDecideInput == nil {
+		t.Fatal("expected DecideToolApproval to be called")
 	}
 }
