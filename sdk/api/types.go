@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/store/data"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -106,20 +107,37 @@ type UpdateConversationInput struct {
 }
 
 type Goal struct {
-	ID              string `json:"id"`
-	ConversationID  string `json:"conversationId,omitempty"`
-	Objective       string `json:"objective"`
-	Status          string `json:"status"`
-	StatusReason    string `json:"statusReason,omitempty"`
-	PauseReason     string `json:"pauseReason,omitempty"`
-	ControllerSpec  string `json:"controllerSpec,omitempty"`
-	TokenBudget     *int64 `json:"tokenBudget,omitempty"`
-	TokensUsed      int64  `json:"tokensUsed,omitempty"`
-	TimeUsedSeconds int64  `json:"timeUsedSeconds,omitempty"`
+	ID                 string                  `json:"id"`
+	ConversationID     string                  `json:"conversationId,omitempty"`
+	Objective          string                  `json:"objective"`
+	Status             string                  `json:"status"`
+	StatusReason       string                  `json:"statusReason,omitempty"`
+	PauseReason        string                  `json:"pauseReason,omitempty"`
+	ControllerSpec     string                  `json:"controllerSpec,omitempty"`
+	ControllerSchedule *GoalControllerSchedule `json:"controllerSchedule,omitempty"`
+	TokenBudget        *int64                  `json:"tokenBudget,omitempty"`
+	TokensUsed         int64                   `json:"tokensUsed,omitempty"`
+	TimeUsedSeconds    int64                   `json:"timeUsedSeconds,omitempty"`
+}
+
+type GoalControllerSchedule struct {
+	Mode    string `json:"mode,omitempty"`
+	Preview string `json:"preview,omitempty"`
+	WakeAt  string `json:"wakeAt,omitempty"`
 }
 
 type GoalEnvelope struct {
 	Goal *Goal `json:"goal,omitempty"`
+}
+
+type ListAsyncOperationsInput struct {
+	ConversationID string `json:"-"`
+	Tool           string `json:"tool,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+}
+
+type ListAsyncOperationsOutput struct {
+	Ops []asynccfg.PendingOp `json:"ops,omitempty"`
 }
 
 type CreateGoalInput struct {
@@ -182,6 +200,7 @@ type WorkspaceCapabilities struct {
 	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
 	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
 	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
+	Goals                 bool `json:"goals,omitempty"`
 	CompactConversation   bool `json:"compactConversation,omitempty"`
 	PruneConversation     bool `json:"pruneConversation,omitempty"`
 	AnonymousSession      bool `json:"anonymousSession,omitempty"`

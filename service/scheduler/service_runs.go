@@ -67,17 +67,14 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		stopHeartbeat = s.startRunLeaseHeartbeat(runCtx, runID)
 	}
 
-	input := &agentsvc.QueryInput{
-		MessageID:     runID,
-		AgentID:       strings.TrimSpace(row.AgentRef),
-		UserId:        userID,
-		Query:         schedulePrompt(row),
-		ModelOverride: strings.TrimSpace(valueOrEmpty(row.ModelOverride)),
-		ScheduleId:    strings.TrimSpace(row.Id),
-	}
+	input := scheduleQueryInput(row, runID, userID)
 	output := &agentsvc.QueryOutput{}
 	queryCtx, queryCancel := context.WithTimeout(runCtx, scheduleExecutionTimeout(row))
-	err := s.agent.Query(queryCtx, input, output)
+	runQuery := s.queryRunner
+	if runQuery == nil {
+		runQuery = s.agent.Query
+	}
+	err := runQuery(queryCtx, input, output)
 	queryCancel()
 
 	runPatch := &agrunwrite.MutableRunView{}
@@ -123,6 +120,34 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if patchErr := s.patchScheduleResult(cleanupCtx, row, status, errMsg, timePtrUTC(time.Now().UTC()), false, time.Now().UTC()); patchErr != nil {
 		log.Printf("scheduler: patch schedule result schedule=%s run=%s: %v", row.Id, runID, patchErr)
 	}
+}
+
+func scheduleQueryInput(row *schedulepkg.ScheduleView, runID, userID string) *agentsvc.QueryInput {
+	input := &agentsvc.QueryInput{
+		MessageID:     runID,
+		AgentID:       strings.TrimSpace(row.AgentRef),
+		UserId:        strings.TrimSpace(userID),
+		Query:         schedulePrompt(row),
+		ModelOverride: strings.TrimSpace(valueOrEmpty(row.ModelOverride)),
+		ScheduleId:    strings.TrimSpace(row.Id),
+	}
+	if row == nil || !row.Internal {
+		return input
+	}
+	if conversationID := strings.TrimSpace(valueOrEmpty(row.ConversationId)); conversationID != "" {
+		input.ConversationID = conversationID
+	}
+	if preview := strings.TrimSpace(valueOrEmpty(row.Description)); preview != "" {
+		input.DisplayQuery = preview
+	}
+	if goalID := strings.TrimSpace(valueOrEmpty(row.GoalId)); goalID != "" {
+		input.Context = map[string]any{
+			agentsvc.AutonomousGoalWakeupContextKey(): map[string]any{
+				"goalId": goalID,
+			},
+		}
+	}
+	return input
 }
 
 func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, scheduledFor time.Time, includeScheduledSlot bool) ([]*schrun.RunView, error) {

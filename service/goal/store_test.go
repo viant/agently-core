@@ -139,3 +139,22 @@ func TestStore_PatchErrorPropagates(t *testing.T) {
 	err := NewStore(access).Transition(context.Background(), "goal-c1", StatusBlocked, "needs creds")
 	require.Error(t, err)
 }
+
+func TestStore_UpdateControllerState(t *testing.T) {
+	access := &fakeAccess{}
+	err := NewStore(access).UpdateControllerState(context.Background(), "goal-c1", 4, 2, "abc123")
+	require.NoError(t, err)
+
+	require.Len(t, access.patched, 1)
+	row := access.patched[0]
+	require.Equal(t, "goal-c1", row.Id)
+	require.True(t, row.Has.AutonomousTurnsUsed)
+	require.True(t, row.Has.ConsecutiveNoProgress)
+	require.True(t, row.Has.LastContinuationFingerprint)
+	require.NotNil(t, row.AutonomousTurnsUsed)
+	require.Equal(t, int64(4), *row.AutonomousTurnsUsed)
+	require.NotNil(t, row.ConsecutiveNoProgress)
+	require.Equal(t, int64(2), *row.ConsecutiveNoProgress)
+	require.NotNil(t, row.LastContinuationFingerprint)
+	require.Equal(t, "abc123", *row.LastContinuationFingerprint)
+}

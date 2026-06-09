@@ -679,6 +679,24 @@ describe('Goals', () => {
         expect(call.url).toContain('/conversations/conv-1/goal');
         expect(call.body).toEqual({ status: 'paused', statusReason: 'user paused' });
     });
+
+    it('listAsyncOperations uses the conversation async route with filters', async () => {
+        const f = mockFetch(200, {
+            ops: [
+                { operationId: 'op-1', tool: 'system/exec:execute', executionMode: 'detach', state: 'running' },
+            ],
+        });
+        const c = client(f);
+
+        const out = await c.listAsyncOperations('conv-1', { tool: 'system/exec:execute', mode: 'detach' });
+
+        expect(out.ops).toHaveLength(1);
+        expect(out.ops[0]?.operationId).toBe('op-1');
+        const call = lastCall(f);
+        expect(call.url).toContain('/conversations/conv-1/async');
+        expect(call.url).toContain('tool=system%2Fexec%3Aexecute');
+        expect(call.url).toContain('mode=detach');
+    });
 });
 
 // ─── Error Handling ────────────────────────────────────────────────────────────

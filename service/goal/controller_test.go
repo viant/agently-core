@@ -154,6 +154,19 @@ func TestController_Evaluate(t *testing.T) {
 			snapshot: &Snapshot{Goal: activeGoal(idleSpec()), Continuation: hint()},
 			expect:   ActionQueueTurn,
 		},
+		{
+			name: "wake delay schedules a wakeup instead of queueing immediately",
+			snapshot: &Snapshot{
+				Goal: activeGoal(&ControllerSpec{
+					ContinueMode:     ContinueModeIdleOnly,
+					OnTurnFinished:   TurnPolicyEvaluate,
+					OnAsyncCompleted: AsyncPolicyEvaluate,
+					WakeDelaySeconds: intPtr(90),
+				}),
+				Continuation: hint(),
+			},
+			expect: ActionScheduleWakeup,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -169,6 +182,22 @@ func TestController_QueueTurnCarriesContinuation(t *testing.T) {
 	action := NewController().Evaluate(&Snapshot{Goal: activeGoal(idleSpec()), Continuation: h})
 	require.Equal(t, ActionQueueTurn, action.Kind)
 	require.Same(t, h, action.Continuation)
+}
+
+func TestController_ScheduleWakeupCarriesContinuationAndDelay(t *testing.T) {
+	h := hint()
+	action := NewController().Evaluate(&Snapshot{
+		Goal: activeGoal(&ControllerSpec{
+			ContinueMode:     ContinueModeIdleOnly,
+			OnTurnFinished:   TurnPolicyEvaluate,
+			OnAsyncCompleted: AsyncPolicyEvaluate,
+			WakeDelaySeconds: intPtr(120),
+		}),
+		Continuation: h,
+	})
+	require.Equal(t, ActionScheduleWakeup, action.Kind)
+	require.Same(t, h, action.Continuation)
+	require.Equal(t, 120, action.WakeDelaySeconds)
 }
 
 func TestController_TransitionActionsCarryStatus(t *testing.T) {

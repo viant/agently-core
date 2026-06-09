@@ -296,6 +296,32 @@ func (c *HTTPClient) GetGoal(ctx context.Context, conversationID string) (*Goal,
 	return out.Goal, nil
 }
 
+func (c *HTTPClient) ListAsyncOperations(ctx context.Context, input *ListAsyncOperationsInput) (*ListAsyncOperationsOutput, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/async"
+	query := url.Values{}
+	if value := strings.TrimSpace(input.Tool); value != "" {
+		query.Set("tool", value)
+	}
+	if value := strings.TrimSpace(input.Mode); value != "" {
+		query.Set("mode", value)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out ListAsyncOperationsOutput
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *HTTPClient) CreateGoal(ctx context.Context, input *CreateGoalInput) (*Goal, error) {
 	if input == nil {
 		return nil, errors.New("input is required")

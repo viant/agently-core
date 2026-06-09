@@ -30,6 +30,18 @@ describe('ConversationStreamTracker', () => {
         expect(tracker.feeds[0]).toMatchObject({ feedId: 'plan', conversationId: 'conv-1', turnId: 'turn-1' });
 
         tracker.applyEvent({
+            type: 'goal.updated',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+        } as SSEEvent);
+        expect(tracker.feeds.find((feed) => feed.feedId === 'goal')).toMatchObject({
+            feedId: 'goal',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            itemCount: 1,
+        });
+
+        tracker.applyEvent({
             type: 'elicitation_requested',
             elicitationId: 'elic-1',
             conversationId: 'conv-1',
@@ -63,6 +75,52 @@ describe('ConversationStreamTracker', () => {
             liveExecutionGroupsById: {
                 'msg-1': expect.objectContaining({
                     assistantMessageId: 'msg-1',
+                }),
+            },
+        });
+
+        tracker.applyEvent({
+            type: 'goal.cleared',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+        } as SSEEvent);
+        expect(tracker.feeds.find((feed) => feed.feedId === 'goal')).toMatchObject({
+            itemCount: 0,
+        });
+
+        tracker.applyEvent({
+            type: 'goal.updated',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            patch: {
+                goal: {
+                    id: 'goal-1',
+                    objective: 'Ship release',
+                    status: 'active',
+                },
+            },
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'goal.controller_scheduled',
+            conversationId: 'conv-1',
+            patch: {
+                mode: 'wakeup',
+                reason: 'delay active goal continuation',
+                preview: 'Continue later',
+                wakeAt: '2026-06-08T19:30:00Z',
+            },
+        } as SSEEvent);
+        expect(tracker.feeds.find((feed) => feed.feedId === 'goal')).toMatchObject({
+            data: {
+                goal: expect.objectContaining({
+                    id: 'goal-1',
+                    objective: 'Ship release',
+                }),
+                controllerSchedule: expect.objectContaining({
+                    mode: 'wakeup',
+                    reason: 'delay active goal continuation',
+                    preview: 'Continue later',
+                    wakeAt: '2026-06-08T19:30:00Z',
                 }),
             },
         });

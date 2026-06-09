@@ -55,3 +55,15 @@ func WithGoalTokensUsed(v int64) MutableGoalViewOption {
 func WithGoalTimeUsedSeconds(v int64) MutableGoalViewOption {
 	return func(g *MutableGoalView) { g.SetTimeUsedSeconds(v) }
 }
+
+func WithGoalAutonomousTurnsUsed(v int64) MutableGoalViewOption {
+	return func(g *MutableGoalView) { g.SetAutonomousTurnsUsed(v) }
+}
+
+func WithGoalConsecutiveNoProgress(v int64) MutableGoalViewOption {
+	return func(g *MutableGoalView) { g.SetConsecutiveNoProgress(v) }
+}
+
+func WithGoalLastContinuationFingerprint(v string) MutableGoalViewOption {
+	return func(g *MutableGoalView) { g.SetLastContinuationFingerprint(v) }
+}

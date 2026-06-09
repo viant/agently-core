@@ -33,6 +33,7 @@ import (
 	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
 	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	"github.com/viant/agently-core/pkg/mcpname"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
@@ -48,6 +49,7 @@ import (
 	"github.com/viant/agently-core/service/scheduler"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
+	wscfg "github.com/viant/agently-core/workspace/config"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
@@ -98,6 +100,7 @@ type backendClient struct {
 	store          workspace.Store
 	a2aSvc         *a2a.Service
 	schedulerSvc   *scheduler.Service
+	asyncManager   *asynccfg.Manager
 	feeds          *FeedRegistry
 	skills         skillBackend
 	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
@@ -163,6 +166,9 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	c.elicSvc = rt.Elicitation
 	c.streaming = rt.Streaming
 	c.store = rt.Store
+	if rt.Agent != nil {
+		c.asyncManager = rt.Agent.AsyncManager()
+	}
 	if rt.Defaults != nil {
 		mode := tool.NormalizeMode(rt.Defaults.ToolApproval.Mode)
 		if mode != "" && (mode != tool.ModeAuto || len(rt.Defaults.ToolApproval.AllowList) > 0 || len(rt.Defaults.ToolApproval.BlockList) > 0) {
@@ -270,7 +276,21 @@ func (c *backendClient) DeleteConversation(ctx context.Context, id string) error
 	return c.data.DeleteConversationTree(ctx, conversationID)
 }
 
+func ensureGoalsFeatureEnabled() error {
+	cfg, err := wscfg.Load(workspace.Root())
+	if err != nil {
+		return err
+	}
+	if cfg != nil && !cfg.GoalsEnabled() {
+		return newFeatureDisabledError("goals are not enabled in this workspace")
+	}
+	return nil
+}
+
 func (c *backendClient) GetGoal(ctx context.Context, conversationID string) (*Goal, error) {
+	if err := ensureGoalsFeatureEnabled(); err != nil {
+		return nil, err
+	}
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -278,10 +298,49 @@ func (c *backendClient) GetGoal(ctx context.Context, conversationID string) (*Go
 	if err != nil {
 		return nil, err
 	}
-	return mapGoalView(view), nil
+	return c.attachGoalControllerSchedule(ctx, mapGoalView(view), strings.TrimSpace(conversationID)), nil
+}
+
+func (c *backendClient) ListAsyncOperations(ctx context.Context, input *ListAsyncOperationsInput) (*ListAsyncOperationsOutput, error) {
+	if input == nil {
+		return nil, errors.New("input is required")
+	}
+	conversationID := strings.TrimSpace(input.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if c.conv != nil {
+		got, err := c.conv.GetConversation(ctx, conversationID)
+		if err != nil {
+			return nil, err
+		}
+		if got == nil {
+			return nil, fmt.Errorf("conversation not found")
+		}
+	} else if c.data != nil {
+		got, err := c.data.GetConversation(ctx, conversationID, nil)
+		if err != nil {
+			return nil, err
+		}
+		if got == nil {
+			return nil, fmt.Errorf("conversation not found")
+		}
+	}
+	if c.asyncManager == nil {
+		return &ListAsyncOperationsOutput{}, nil
+	}
+	filter := asynccfg.Filter{
+		ConversationID: conversationID,
+		Tool:           strings.TrimSpace(input.Tool),
+		ExecutionMode:  strings.TrimSpace(input.Mode),
+	}
+	return &ListAsyncOperationsOutput{Ops: c.asyncManager.ListOperations(filter)}, nil
 }
 
 func (c *backendClient) CreateGoal(ctx context.Context, input *CreateGoalInput) (*Goal, error) {
+	if err := ensureGoalsFeatureEnabled(); err != nil {
+		return nil, err
+	}
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -321,10 +380,13 @@ func (c *backendClient) CreateGoal(ctx context.Context, input *CreateGoalInput) 
 	if err != nil {
 		return nil, err
 	}
-	return mapGoalView(view), nil
+	return c.attachGoalControllerSchedule(ctx, mapGoalView(view), conversationID), nil
 }
 
 func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) (*Goal, error) {
+	if err := ensureGoalsFeatureEnabled(); err != nil {
+		return nil, err
+	}
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -346,6 +408,9 @@ func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) 
 	hasChange := false
 	if objective := strings.TrimSpace(input.Objective); objective != "" {
 		row.SetObjective(objective)
+		row.SetAutonomousTurnsUsed(0)
+		row.SetConsecutiveNoProgress(0)
+		row.SetLastContinuationFingerprint("")
 		hasChange = true
 	}
 	if status := strings.TrimSpace(input.Status); status != "" {
@@ -363,6 +428,7 @@ func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) 
 	if !hasChange {
 		return nil, errors.New("at least one goal field is required")
 	}
+	c.cancelGoalWakeups(ctx, conversationID, current.Id)
 	if _, err := c.data.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
 		return nil, err
 	}
@@ -370,10 +436,13 @@ func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) 
 	if err != nil {
 		return nil, err
 	}
-	return mapGoalView(view), nil
+	return c.attachGoalControllerSchedule(ctx, mapGoalView(view), conversationID), nil
 }
 
 func (c *backendClient) ClearGoal(ctx context.Context, conversationID string) error {
+	if err := ensureGoalsFeatureEnabled(); err != nil {
+		return err
+	}
 	if c.data == nil {
 		return errors.New("data service not configured")
 	}
@@ -384,7 +453,36 @@ func (c *backendClient) ClearGoal(ctx context.Context, conversationID string) er
 	if view == nil {
 		return nil
 	}
+	c.cancelGoalWakeups(ctx, strings.TrimSpace(conversationID), view.Id)
 	return c.data.DeleteGoals(ctx, view.Id)
+}
+
+func (c *backendClient) cancelGoalWakeups(ctx context.Context, conversationID, goalID string) {
+	if c == nil || c.schedulerSvc == nil {
+		return
+	}
+	_ = c.schedulerSvc.CancelGoalWakeups(context.WithoutCancel(ctx), strings.TrimSpace(conversationID), strings.TrimSpace(goalID))
+}
+
+func (c *backendClient) attachGoalControllerSchedule(ctx context.Context, goal *Goal, conversationID string) *Goal {
+	if c == nil || c.schedulerSvc == nil || goal == nil {
+		return goal
+	}
+	wakeup := c.schedulerSvc.CurrentGoalWakeup(context.WithoutCancel(ctx), strings.TrimSpace(conversationID), strings.TrimSpace(goal.ID))
+	if wakeup == nil {
+		return goal
+	}
+	controllerSchedule := &GoalControllerSchedule{
+		Mode: wakeup.Mode,
+	}
+	if wakeup.Preview != nil {
+		controllerSchedule.Preview = strings.TrimSpace(*wakeup.Preview)
+	}
+	if wakeup.WakeAt != nil && !wakeup.WakeAt.IsZero() {
+		controllerSchedule.WakeAt = wakeup.WakeAt.UTC().Format(time.RFC3339Nano)
+	}
+	goal.ControllerSchedule = controllerSchedule
+	return goal
 }
 
 func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error) {

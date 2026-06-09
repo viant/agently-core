@@ -42,18 +42,21 @@ type GoalOutput struct {
 }
 
 type GoalView struct {
-	Id              string     `sqlx:"id"`
-	ConversationID  string     `sqlx:"conversation_id"`
-	Objective       string     `sqlx:"objective"`
-	Status          string     `sqlx:"status"`
-	StatusReason    *string    `sqlx:"status_reason"`
-	PauseReason     *string    `sqlx:"pause_reason"`
-	ControllerSpec  *string    `sqlx:"controller_spec"`
-	TokenBudget     *int64     `sqlx:"token_budget"`
-	TokensUsed      int64      `sqlx:"tokens_used"`
-	TimeUsedSeconds int64      `sqlx:"time_used_seconds"`
-	CreatedAt       time.Time  `sqlx:"created_at"`
-	UpdatedAt       *time.Time `sqlx:"updated_at"`
+	Id                          string     `sqlx:"id"`
+	ConversationID              string     `sqlx:"conversation_id"`
+	Objective                   string     `sqlx:"objective"`
+	Status                      string     `sqlx:"status"`
+	StatusReason                *string    `sqlx:"status_reason"`
+	PauseReason                 *string    `sqlx:"pause_reason"`
+	ControllerSpec              *string    `sqlx:"controller_spec"`
+	TokenBudget                 *int64     `sqlx:"token_budget"`
+	TokensUsed                  int64      `sqlx:"tokens_used"`
+	TimeUsedSeconds             int64      `sqlx:"time_used_seconds"`
+	AutonomousTurnsUsed         int64      `sqlx:"autonomous_turns_used"`
+	ConsecutiveNoProgress       int64      `sqlx:"consecutive_no_progress"`
+	LastContinuationFingerprint *string    `sqlx:"last_continuation_fingerprint"`
+	CreatedAt                   time.Time  `sqlx:"created_at"`
+	UpdatedAt                   *time.Time `sqlx:"updated_at"`
 }
 
 var GoalPathURI = "/v1/api/agently/goal/{conversationId}"

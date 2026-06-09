@@ -13,6 +13,7 @@
 import type {
     Conversation, ConversationPage, CreateConversationInput, ListConversationsInput,
     UpdateConversationInput, Goal, GoalEnvelope, CreateGoalInput, UpdateGoalInput,
+    ListAsyncOperationsOutput,
     Message, MessagePage, GetMessagesInput,
     Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     QueryInput, QueryOutput,
@@ -157,6 +158,17 @@ export class AgentlyClient {
     async getGoal(conversationId: string): Promise<Goal | null> {
         const result = await this.get<GoalEnvelope>(`/conversations/${enc(conversationId)}/goal`);
         return result?.goal ?? null;
+    }
+
+    /** List non-terminal async operations for a conversation. */
+    async listAsyncOperations(conversationId: string, input: { tool?: string; mode?: string } = {}): Promise<ListAsyncOperationsOutput> {
+        const q = new URLSearchParams();
+        if (input.tool) q.set('tool', input.tool);
+        if (input.mode) q.set('mode', input.mode);
+        const out = await this.get<ListAsyncOperationsOutput>(`/conversations/${enc(conversationId)}/async`, q);
+        return {
+            ops: Array.isArray(out?.ops) ? out.ops : [],
+        };
     }
 
     /** Create the durable goal for a conversation. */

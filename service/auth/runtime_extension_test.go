@@ -316,6 +316,48 @@ func TestRuntimeHandleCreateSession_RejectsNonPOST(t *testing.T) {
 	}
 }
 
+func TestRuntimeHandleAttachSession_SetsCookieForExistingSession(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+		},
+		sessions: NewManager(time.Hour, nil),
+	}
+
+	sess := &Session{
+		ID:        "sess-attach",
+		Username:  "awitas",
+		Subject:   "awitas",
+		Provider:  "oauth",
+		CreatedAt: time.Now(),
+	}
+	ext.sessions.Put(context.Background(), sess)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session/attach", strings.NewReader(`{"sessionId":"sess-attach"}`))
+	rec := httptest.NewRecorder()
+
+	ext.handleAttachSession().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	resp := rec.Result()
+	defer resp.Body.Close()
+	var sessionCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "agently_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("expected agently_session cookie to be set")
+	}
+	if got := strings.TrimSpace(sessionCookie.Value); got != "sess-attach" {
+		t.Fatalf("cookie value = %q, want %q", got, "sess-attach")
+	}
+}
+
 func TestRuntimeHandleMe_AllowsLocalSessionWhenOAuthBFFAlsoConfigured(t *testing.T) {
 	ext := &authExtension{
 		cfg: &Config{

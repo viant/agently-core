@@ -145,6 +145,20 @@ class AgentlyClient(
         get("/v1/conversations/${encodePath(conversationId)}/goal", GoalEnvelope.serializer()).goal
     }
 
+    suspend fun listAsyncOperations(conversationId: String, tool: String? = null, mode: String? = null): ListAsyncOperationsOutput = withContext(Dispatchers.IO) {
+        val query = linkedMapOf<String, String>()
+        if (!tool.isNullOrBlank()) {
+            query["tool"] = tool
+        }
+        if (!mode.isNullOrBlank()) {
+            query["mode"] = mode
+        }
+        get(
+            appendQuery("/v1/conversations/${encodePath(conversationId)}/async", query),
+            ListAsyncOperationsOutput.serializer()
+        )
+    }
+
     suspend fun createGoal(conversationId: String, input: CreateGoalInput): Goal = withContext(Dispatchers.IO) {
         post("/v1/conversations/${encodePath(conversationId)}/goal", input, Goal.serializer())
     }

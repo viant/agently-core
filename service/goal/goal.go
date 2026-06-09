@@ -13,24 +13,32 @@
 // not autonomous.
 package goal
 
-import "time"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+	"time"
+)
 
 // Goal is the runtime-owned view of a durable conversation objective. It is
 // distinct from the persistence GoalView and from the tool-facing projection;
 // the store boundary translates between them.
 type Goal struct {
-	ID              string
-	ConversationID  string
-	Objective       string
-	Status          Status
-	StatusReason    string
-	PauseReason     PauseReason
-	Controller      *ControllerSpec
-	TokenBudget     *int64
-	TokensUsed      int64
-	TimeUsedSeconds int64
-	CreatedAt       time.Time
-	UpdatedAt       *time.Time
+	ID                          string
+	ConversationID              string
+	Objective                   string
+	Status                      Status
+	StatusReason                string
+	PauseReason                 PauseReason
+	Controller                  *ControllerSpec
+	TokenBudget                 *int64
+	TokensUsed                  int64
+	TimeUsedSeconds             int64
+	AutonomousTurnsUsed         int64
+	ConsecutiveNoProgress       int64
+	LastContinuationFingerprint string
+	CreatedAt                   time.Time
+	UpdatedAt                   *time.Time
 }
 
 // BudgetExceeded reports whether a token budget is set and has been reached.
@@ -41,4 +49,16 @@ func (g *Goal) BudgetExceeded() bool {
 // Autonomous reports whether the goal opted into idle-time continuation.
 func (g *Goal) Autonomous() bool {
 	return g != nil && g.Controller != nil && g.Controller.ContinueMode == ContinueModeIdleOnly
+}
+
+func ContinuationFingerprint(h *ContinuationHint) string {
+	if h == nil {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(
+		strings.TrimSpace(h.Reason) + "\n" +
+			strings.TrimSpace(h.Preview) + "\n" +
+			strings.TrimSpace(h.Payload),
+	))
+	return hex.EncodeToString(sum[:])
 }

@@ -28,6 +28,7 @@ If you're new, read in this order:
 | [planner.md](planner.md) | Light planner fallback over static profiles |
 | [context-management.md](context-management.md) | Token budgets, pruning, overflow recovery |
 | [followup-chains.md](followup-chains.md) | Multi-turn chains inside a conversation |
+| [autonomous.md](autonomous.md) | Durable goals + controller-owned continuation |
 | [async.md](async.md) | Long-running operations (shell, child agents, external services) |
 
 ## Tools & services

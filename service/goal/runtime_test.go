@@ -46,6 +46,15 @@ func (s *runtimeStore) Pause(_ context.Context, goalID string, reason PauseReaso
 	return nil
 }
 
+func (s *runtimeStore) UpdateControllerState(_ context.Context, goalID string, autonomousTurnsUsed, consecutiveNoProgress int64, fingerprint string) error {
+	if s.current != nil && s.current.ID == goalID {
+		s.current.AutonomousTurnsUsed = autonomousTurnsUsed
+		s.current.ConsecutiveNoProgress = consecutiveNoProgress
+		s.current.LastContinuationFingerprint = fingerprint
+	}
+	return nil
+}
+
 func TestRuntime_AfterTurnQueuesContinuationAndAccountsUsage(t *testing.T) {
 	store := &runtimeStore{
 		current: &Goal{
@@ -119,4 +128,142 @@ func TestRuntime_AfterTurnNoQueueWhenQueuedUserWorkExists(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, ActionNone, action.Kind)
+}
+
+func TestRuntime_AfterTurnPersistsProjectedControllerStateOnQueue(t *testing.T) {
+	store := &runtimeStore{
+		current: &Goal{
+			ID:             "goal-1",
+			ConversationID: "conv-1",
+			Objective:      "finish the refactor",
+			Status:         StatusActive,
+			Controller:     idleSpec(),
+		},
+	}
+	rt := NewRuntime(store)
+
+	action, goal, err := rt.AfterTurn(context.Background(), &AfterTurnInput{
+		ConversationID: "conv-1",
+		TurnStatus:     "succeeded",
+	})
+	require.NoError(t, err)
+	require.Equal(t, ActionQueueTurn, action.Kind)
+	require.Equal(t, int64(1), goal.AutonomousTurnsUsed)
+	require.Equal(t, int64(0), goal.ConsecutiveNoProgress)
+	require.NotEmpty(t, goal.LastContinuationFingerprint)
+}
+
+func TestRuntime_AfterTurnSchedulesWakeupAndPersistsProjectedControllerState(t *testing.T) {
+	store := &runtimeStore{
+		current: &Goal{
+			ID:             "goal-1",
+			ConversationID: "conv-1",
+			Objective:      "finish the refactor",
+			Status:         StatusActive,
+			Controller: &ControllerSpec{
+				ContinueMode:     ContinueModeIdleOnly,
+				OnTurnFinished:   TurnPolicyEvaluate,
+				OnAsyncCompleted: AsyncPolicyEvaluate,
+				WakeDelaySeconds: intPtr(90),
+			},
+		},
+	}
+	rt := NewRuntime(store)
+
+	action, goal, err := rt.AfterTurn(context.Background(), &AfterTurnInput{
+		ConversationID: "conv-1",
+		TurnStatus:     "succeeded",
+	})
+	require.NoError(t, err)
+	require.Equal(t, ActionScheduleWakeup, action.Kind)
+	require.Equal(t, 90, action.WakeDelaySeconds)
+	require.Equal(t, int64(1), goal.AutonomousTurnsUsed)
+	require.Equal(t, int64(0), goal.ConsecutiveNoProgress)
+	require.NotEmpty(t, goal.LastContinuationFingerprint)
+}
+
+func TestRuntime_AfterTurnCallsDeactivateHookOnPauseAndBlock(t *testing.T) {
+	store := &runtimeStore{
+		current: &Goal{
+			ID:             "goal-1",
+			ConversationID: "conv-1",
+			Objective:      "finish the refactor",
+			Status:         StatusActive,
+			Controller: &ControllerSpec{
+				ContinueMode:       ContinueModeIdleOnly,
+				OnTurnFinished:     TurnPolicyEvaluate,
+				OnAsyncCompleted:   AsyncPolicyEvaluate,
+				MaxAutonomousTurns: intPtr(1),
+			},
+		},
+	}
+	rt := NewRuntime(store)
+	var calls []string
+	rt.SetDeactivateHook(func(_ context.Context, conversationID, goalID string) {
+		calls = append(calls, conversationID+":"+goalID)
+	})
+
+	action, _, err := rt.AfterTurn(context.Background(), &AfterTurnInput{
+		ConversationID:      "conv-1",
+		TurnStatus:          "succeeded",
+		AutonomousTurnsUsed: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, ActionPauseGoal, action.Kind)
+	require.Equal(t, []string{"conv-1:goal-1"}, calls)
+
+	store.current.Status = StatusActive
+	repeat := &ContinuationHint{Reason: "continue", Preview: "continue", Payload: "continue"}
+	store.current.Controller = &ControllerSpec{
+		ContinueMode:             ContinueModeIdleOnly,
+		OnTurnFinished:           TurnPolicyEvaluate,
+		OnAsyncCompleted:         AsyncPolicyEvaluate,
+		MaxConsecutiveNoProgress: intPtr(1),
+	}
+	store.current.ConsecutiveNoProgress = 1
+	store.current.LastContinuationFingerprint = ContinuationFingerprint(repeat)
+	action, _, err = rt.AfterTurn(context.Background(), &AfterTurnInput{
+		ConversationID: "conv-1",
+		TurnStatus:     "succeeded",
+		Continuation:   repeat,
+	})
+	require.NoError(t, err)
+	require.Equal(t, ActionBlockGoal, action.Kind)
+	require.Equal(t, []string{"conv-1:goal-1", "conv-1:goal-1"}, calls)
+}
+
+func TestRuntime_AfterTurnIncrementsConsecutiveNoProgressForRepeatedContinuation(t *testing.T) {
+	hint := &ContinuationHint{
+		Reason:  "continue active goal",
+		Preview: "Continue goal: finish the refactor",
+		Payload: "Continue working toward the active goal.\nGoal: finish the refactor",
+	}
+	store := &runtimeStore{
+		current: &Goal{
+			ID:             "goal-1",
+			ConversationID: "conv-1",
+			Objective:      "finish the refactor",
+			Status:         StatusActive,
+			Controller: &ControllerSpec{
+				ContinueMode:             ContinueModeIdleOnly,
+				OnTurnFinished:           TurnPolicyEvaluate,
+				OnAsyncCompleted:         AsyncPolicyEvaluate,
+				MaxConsecutiveNoProgress: intPtr(2),
+			},
+			AutonomousTurnsUsed:         1,
+			ConsecutiveNoProgress:       1,
+			LastContinuationFingerprint: ContinuationFingerprint(hint),
+		},
+	}
+	rt := NewRuntime(store)
+
+	action, goal, err := rt.AfterTurn(context.Background(), &AfterTurnInput{
+		ConversationID: "conv-1",
+		TurnStatus:     "succeeded",
+		Continuation:   hint,
+	})
+	require.NoError(t, err)
+	require.Equal(t, ActionBlockGoal, action.Kind)
+	require.Equal(t, StatusBlocked, goal.Status)
+	require.Equal(t, int64(2), goal.ConsecutiveNoProgress)
 }

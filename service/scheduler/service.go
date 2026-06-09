@@ -3,11 +3,13 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/data"
 	token "github.com/viant/agently-core/internal/auth/token"
 	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -25,6 +27,7 @@ type oauthAuthorizer interface {
 type Service struct {
 	store           Store
 	agent           *agentsvc.Service
+	queryRunner     func(ctx context.Context, input *agentsvc.QueryInput, output *agentsvc.QueryOutput) error
 	conversation    convcli.Client
 	interval        time.Duration
 	tokenProvider   token.Provider
@@ -133,6 +136,9 @@ func (s *Service) Get(ctx context.Context, id string) (*Schedule, error) {
 	if err != nil || row == nil {
 		return nil, err
 	}
+	if row.Internal {
+		return nil, nil
+	}
 	return toPublicSchedule(row), nil
 }
 
@@ -157,11 +163,17 @@ func (s *Service) Upsert(ctx context.Context, schedule *Schedule) error {
 	if schedule == nil {
 		return errors.New("schedule is required")
 	}
+	if schedule.Internal || nonEmptyScheduleString(schedule.ConversationID) != "" || nonEmptyScheduleString(schedule.GoalID) != "" {
+		return errors.New("internal schedule fields are reserved")
+	}
 	var existing *schedulepkg.ScheduleView
 	if id := strings.TrimSpace(schedule.ID); id != "" {
 		row, err := s.store.Get(ctx, id)
 		if err != nil {
 			return err
+		}
+		if row != nil && row.Internal {
+			return fmt.Errorf("schedule %s not found", id)
 		}
 		existing = row
 	}
@@ -175,6 +187,22 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("schedule ID is required")
 	}
+	row, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		if hidden := s.findScheduleByIDAll(ctx, id); hidden != nil {
+			if hidden.Internal {
+				return fmt.Errorf("schedule %s not found", id)
+			}
+			return data.ErrPermissionDenied
+		}
+		return fmt.Errorf("schedule %s not found", id)
+	}
+	if row != nil && row.Internal {
+		return fmt.Errorf("schedule %s not found", id)
+	}
 	return s.store.DeleteSchedule(ctx, id)
 }
 
@@ -187,5 +215,34 @@ func (s *Service) RunNow(ctx context.Context, id string) error {
 	if row == nil {
 		return errors.New("schedule " + id + " not found")
 	}
+	if row.Internal {
+		return errors.New("schedule " + id + " not found")
+	}
 	return s.enqueueAndLaunch(ctx, row, time.Now().UTC(), false)
+}
+
+func nonEmptyScheduleString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func (s *Service) findScheduleByIDAll(ctx context.Context, id string) *schedulepkg.ScheduleView {
+	if s == nil || s.store == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	rows, err := s.store.ListForRunDue(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		if strings.TrimSpace(row.Id) == strings.TrimSpace(id) {
+			return row
+		}
+	}
+	return nil
 }

@@ -16,6 +16,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	ws "github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
+	wscfg "github.com/viant/agently-core/workspace/config"
 )
 
 // MetadataResponse is the response for the workspace metadata endpoint.
@@ -57,6 +58,7 @@ type Capabilities struct {
 	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
 	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
 	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
+	Goals                 bool `json:"goals,omitempty"`
 	CompactConversation   bool `json:"compactConversation,omitempty"`
 	PruneConversation     bool `json:"pruneConversation,omitempty"`
 	AnonymousSession      bool `json:"anonymousSession,omitempty"`
@@ -161,6 +163,7 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 				resp.Models = modelInfoIDs(resp.ModelInfos)
 			}
 		}
+		resp.Capabilities.Goals = goalsCapabilityEnabled(resp.AgentInfos)
 		resp.MetadataVersion = resolveMetadataVersion(resp)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -192,6 +195,32 @@ func resolveWorkspaceVersion(root string) string {
 		return "0.0.0"
 	}
 	return version
+}
+
+func goalsCapabilityEnabled(entries []AgentInfo) bool {
+	if !hasGoalCapability(entries) {
+		return false
+	}
+	cfg, err := wscfg.Load(ws.Root())
+	if err != nil {
+		return false
+	}
+	if cfg == nil {
+		return true
+	}
+	if !cfg.GoalsEnabled() {
+		return false
+	}
+	if services, ok := cfg.InternalServiceList(); ok && len(services) > 0 {
+		for _, service := range services {
+			normalized := strings.ToLower(strings.TrimSpace(service))
+			if normalized == "system/goal" || normalized == "system:goal" {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []AgentInfo {
@@ -320,6 +349,18 @@ func agentInfoIDs(entries []AgentInfo) []string {
 		result = append(result, id)
 	}
 	return result
+}
+
+func hasGoalCapability(entries []AgentInfo) bool {
+	for _, entry := range entries {
+		for _, toolName := range entry.Tools {
+			normalized := strings.TrimSpace(toolName)
+			if normalized == "system/goal" || normalized == "system/goal:*" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (h *MetadataHandler) loadModelInfos(ctx context.Context, names []string) []ModelInfo {

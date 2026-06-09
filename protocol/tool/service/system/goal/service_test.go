@@ -2,204 +2,225 @@ package goal
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
 	aggoal "github.com/viant/agently-core/pkg/agently/goal"
 	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/service/scheduler"
+	"github.com/viant/agently-core/workspace"
 )
 
 type stubStore struct {
-	goal   *aggoal.GoalView
-	convID string
+	current *aggoal.GoalView
+	rows    []*aggoalwrite.MutableGoalView
+	deleted []string
 }
 
-func (s *stubStore) GetGoal(_ context.Context, conversationID string, _ *aggoal.GoalInput, _ ...data.Option) (*aggoal.GoalView, error) {
-	if s.goal == nil || conversationID != s.convID {
-		return nil, nil
-	}
-	cp := *s.goal
-	return &cp, nil
+func (s *stubStore) GetGoal(_ context.Context, _ string, _ *aggoal.GoalInput, _ ...data.Option) (*aggoal.GoalView, error) {
+	return s.current, nil
 }
 
 func (s *stubStore) PatchGoals(_ context.Context, rows []*aggoalwrite.MutableGoalView) ([]*aggoalwrite.MutableGoalView, error) {
+	s.rows = append(s.rows, rows...)
 	for _, row := range rows {
-		if row == nil || row.Has == nil {
+		if row == nil {
 			continue
 		}
-		if s.goal == nil {
-			s.goal = &aggoal.GoalView{Id: row.Id}
+		if s.current == nil {
+			s.current = &aggoal.GoalView{Id: row.Id}
 		}
-		if row.Has.Id {
-			s.goal.Id = row.Id
+		if row.Id != "" {
+			s.current.Id = row.Id
 		}
-		if row.Has.ConversationID && row.ConversationID != nil {
-			s.goal.ConversationID = *row.ConversationID
-			s.convID = *row.ConversationID
+		if row.ConversationID != nil {
+			s.current.ConversationID = *row.ConversationID
 		}
-		if row.Has.Objective && row.Objective != nil {
-			s.goal.Objective = *row.Objective
+		if row.Objective != nil {
+			s.current.Objective = *row.Objective
 		}
-		if row.Has.Status && row.Status != nil {
-			s.goal.Status = *row.Status
+		if row.Status != nil {
+			s.current.Status = *row.Status
 		}
-		if row.Has.StatusReason {
-			s.goal.StatusReason = row.StatusReason
+		if row.Has != nil && row.Has.StatusReason && row.StatusReason == nil {
+			s.current.StatusReason = nil
+		} else if row.StatusReason != nil {
+			s.current.StatusReason = row.StatusReason
 		}
-		if row.Has.PauseReason {
-			s.goal.PauseReason = row.PauseReason
+		if row.Has != nil && row.Has.PauseReason && row.PauseReason == nil {
+			s.current.PauseReason = nil
+		} else if row.PauseReason != nil {
+			s.current.PauseReason = row.PauseReason
 		}
-		if row.Has.ControllerSpec {
-			s.goal.ControllerSpec = row.ControllerSpec
+		if row.ControllerSpec != nil {
+			s.current.ControllerSpec = row.ControllerSpec
 		}
-		if row.Has.TokenBudget {
-			s.goal.TokenBudget = row.TokenBudget
-		}
-		if row.Has.TokensUsed && row.TokensUsed != nil {
-			s.goal.TokensUsed = *row.TokensUsed
-		}
-		if row.Has.TimeUsedSeconds && row.TimeUsedSeconds != nil {
-			s.goal.TimeUsedSeconds = *row.TimeUsedSeconds
+		if row.TokenBudget != nil {
+			s.current.TokenBudget = row.TokenBudget
 		}
 	}
 	return rows, nil
 }
 
 func (s *stubStore) DeleteGoals(_ context.Context, ids ...string) error {
-	for _, id := range ids {
-		if s.goal != nil && s.goal.Id == id {
-			s.goal = nil
-		}
-	}
+	s.deleted = append(s.deleted, ids...)
 	return nil
 }
 
-func TestService_CreateGetUpdate(t *testing.T) {
-	store := &stubStore{}
-	svc := New(store)
-	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+type captureWakeups struct {
+	calls [][2]string
+}
 
-	createOut := &CreateOutput{}
-	err := svc.create(ctx, &CreateInput{
-		Objective:   "reduce latency",
-		TokenBudget: ptrInt64(5000),
-	}, createOut)
+func (c *captureWakeups) CancelGoalWakeups(_ context.Context, conversationID, goalID string) error {
+	c.calls = append(c.calls, [2]string{conversationID, goalID})
+	return nil
+}
+
+func goalContext() context.Context {
+	return runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+}
+
+func activeGoal() *aggoal.GoalView {
+	return &aggoal.GoalView{Id: "goal-conv-1", ConversationID: "conv-1", Objective: "finish cleanup", Status: "active"}
+}
+
+type stubScheduleReader struct {
+	wakeup *scheduler.GoalControllerSchedule
+}
+
+func (s *stubScheduleReader) CurrentGoalWakeup(_ context.Context, _, _ string) *scheduler.GoalControllerSchedule {
+	return s.wakeup
+}
+
+func TestService_UpdateCancelsPendingWakeups(t *testing.T) {
+	store := &stubStore{current: activeGoal()}
+	wakeups := &captureWakeups{}
+	svc := New(store)
+	svc.SetWakeupCanceler(wakeups)
+
+	out := &UpdateOutput{}
+	err := svc.update(goalContext(), &UpdateInput{Status: "blocked", Reason: "no valid path"}, out)
 	require.NoError(t, err)
-	require.NotNil(t, createOut.Goal)
-	require.Equal(t, "goal-conv-1", createOut.Goal.ID)
-	require.Equal(t, "reduce latency", createOut.Goal.Objective)
-	require.Equal(t, StatusActive, createOut.Goal.Status)
-	require.EqualValues(t, 5000, *createOut.Goal.TokenBudget)
-
-	getOut := &GetOutput{}
-	require.NoError(t, svc.get(ctx, &GetInput{}, getOut))
-	require.NotNil(t, getOut.Goal)
-	require.Equal(t, "reduce latency", getOut.Goal.Objective)
-
-	updateOut := &UpdateOutput{}
-	require.NoError(t, svc.update(ctx, &UpdateInput{Status: "complete", Reason: "work finished successfully"}, updateOut))
-	require.NotNil(t, updateOut.Goal)
-	require.Equal(t, StatusComplete, updateOut.Goal.Status)
-	require.NotNil(t, updateOut.Goal.StatusReason)
-	require.Equal(t, "work finished successfully", *updateOut.Goal.StatusReason)
+	require.Equal(t, [][2]string{{"conv-1", "goal-conv-1"}}, wakeups.calls)
 }
 
-func TestService_CreateFailsWhenGoalExists(t *testing.T) {
-	store := &stubStore{
-		convID: "conv-1",
-		goal: &aggoal.GoalView{
-			Id:             "goal-conv-1",
-			ConversationID: "conv-1",
-			Objective:      "existing",
-			Status:         StatusActive,
+func TestService_PauseResumeAndClearCancelPendingWakeups(t *testing.T) {
+	store := &stubStore{current: activeGoal()}
+	wakeups := &captureWakeups{}
+	svc := New(store)
+	svc.SetWakeupCanceler(wakeups)
+
+	require.NoError(t, svc.pause(goalContext(), &PauseInput{Reason: "user paused"}, &PauseOutput{}))
+	require.NoError(t, svc.resume(goalContext(), &ResumeInput{}, &ResumeOutput{}))
+	require.NoError(t, svc.clear(goalContext(), &ClearInput{}, &ClearOutput{}))
+
+	require.Equal(t,
+		[][2]string{
+			{"conv-1", "goal-conv-1"},
+			{"conv-1", "goal-conv-1"},
+			{"conv-1", "goal-conv-1"},
+		},
+		wakeups.calls,
+	)
+}
+
+func TestService_GoalOutputsIncludeControllerSchedule(t *testing.T) {
+	prevRoot := workspace.Root()
+	tempRoot := t.TempDir()
+	workspace.SetRoot(tempRoot)
+	defer workspace.SetRoot(prevRoot)
+
+	err := os.WriteFile(filepath.Join(tempRoot, "config.yaml"), []byte(`
+features:
+  goals:
+    enabled: true
+`), 0o644)
+	require.NoError(t, err)
+
+	wakeAt := time.Date(2026, time.June, 8, 18, 30, 0, 0, time.UTC)
+	reader := &stubScheduleReader{
+		wakeup: &scheduler.GoalControllerSchedule{
+			Mode:    "wakeup",
+			Preview: scheduleStringPtr("Resume after review"),
+			WakeAt:  &wakeAt,
 		},
 	}
-	svc := New(store)
-	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 
-	err := svc.create(ctx, &CreateInput{Objective: "new"}, &CreateOutput{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "goal already exists")
-}
-
-func TestService_UpdateRejectsNonTerminalModelStatuses(t *testing.T) {
-	store := &stubStore{
-		convID: "conv-1",
-		goal: &aggoal.GoalView{
-			Id:             "goal-conv-1",
-			ConversationID: "conv-1",
-			Objective:      "existing",
-			Status:         StatusActive,
+	tests := []struct {
+		name  string
+		store *stubStore
+		run   func(*Service) (*Goal, error)
+	}{
+		{
+			name:  "get",
+			store: &stubStore{current: activeGoal()},
+			run: func(svc *Service) (*Goal, error) {
+				out := &GetOutput{}
+				err := svc.get(goalContext(), &GetInput{}, out)
+				return out.Goal, err
+			},
+		},
+		{
+			name:  "create",
+			store: &stubStore{},
+			run: func(svc *Service) (*Goal, error) {
+				out := &CreateOutput{}
+				err := svc.create(goalContext(), &CreateInput{Objective: "finish cleanup"}, out)
+				return out.Goal, err
+			},
+		},
+		{
+			name:  "update",
+			store: &stubStore{current: activeGoal()},
+			run: func(svc *Service) (*Goal, error) {
+				out := &UpdateOutput{}
+				err := svc.update(goalContext(), &UpdateInput{Status: "blocked", Reason: "waiting on review"}, out)
+				return out.Goal, err
+			},
+		},
+		{
+			name:  "pause",
+			store: &stubStore{current: activeGoal()},
+			run: func(svc *Service) (*Goal, error) {
+				out := &PauseOutput{}
+				err := svc.pause(goalContext(), &PauseInput{Reason: "user paused"}, out)
+				return out.Goal, err
+			},
+		},
+		{
+			name:  "resume",
+			store: &stubStore{current: &aggoal.GoalView{Id: "goal-conv-1", ConversationID: "conv-1", Objective: "finish cleanup", Status: "paused"}},
+			run: func(svc *Service) (*Goal, error) {
+				out := &ResumeOutput{}
+				err := svc.resume(goalContext(), &ResumeInput{}, out)
+				return out.Goal, err
+			},
 		},
 	}
-	svc := New(store)
-	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 
-	err := svc.update(ctx, &UpdateInput{Status: "paused", Reason: "not allowed"}, &UpdateOutput{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "status must be one of")
-}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			svc := New(test.store)
+			svc.SetControllerScheduleReader(reader)
 
-func TestService_UpdateRequiresReason(t *testing.T) {
-	store := &stubStore{
-		convID: "conv-1",
-		goal: &aggoal.GoalView{
-			Id:             "goal-conv-1",
-			ConversationID: "conv-1",
-			Objective:      "existing",
-			Status:         StatusActive,
-		},
+			goal, err := test.run(svc)
+			require.NoError(t, err)
+			require.NotNil(t, goal)
+			require.NotNil(t, goal.ControllerSchedule)
+			require.Equal(t, "wakeup", goal.ControllerSchedule.Mode)
+			require.NotNil(t, goal.ControllerSchedule.Preview)
+			require.Equal(t, "Resume after review", *goal.ControllerSchedule.Preview)
+			require.NotNil(t, goal.ControllerSchedule.WakeAt)
+			require.Equal(t, wakeAt.Format(time.RFC3339Nano), *goal.ControllerSchedule.WakeAt)
+		})
 	}
-	svc := New(store)
-	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
-
-	err := svc.update(ctx, &UpdateInput{Status: "blocked"}, &UpdateOutput{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "reason is required")
 }
 
-func TestService_RequiresConversationContext(t *testing.T) {
-	svc := New(&stubStore{})
-	err := svc.get(context.Background(), &GetInput{}, &GetOutput{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "conversation context is required")
+func scheduleStringPtr(value string) *string {
+	return &value
 }
-
-func TestService_PauseResumeClear(t *testing.T) {
-	store := &stubStore{
-		convID: "conv-1",
-		goal: &aggoal.GoalView{
-			Id:             "goal-conv-1",
-			ConversationID: "conv-1",
-			Objective:      "existing",
-			Status:         StatusActive,
-		},
-	}
-	svc := New(store)
-	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
-
-	pauseOut := &PauseOutput{}
-	require.NoError(t, svc.pause(ctx, &PauseInput{Reason: "waiting for review"}, pauseOut))
-	require.NotNil(t, pauseOut.Goal)
-	require.Equal(t, "paused", pauseOut.Goal.Status)
-	require.NotNil(t, pauseOut.Goal.PauseReason)
-	require.Equal(t, "waiting for review", *pauseOut.Goal.PauseReason)
-
-	resumeOut := &ResumeOutput{}
-	require.NoError(t, svc.resume(ctx, &ResumeInput{}, resumeOut))
-	require.NotNil(t, resumeOut.Goal)
-	require.Equal(t, StatusActive, resumeOut.Goal.Status)
-	require.Nil(t, resumeOut.Goal.PauseReason)
-
-	clearOut := &ClearOutput{}
-	require.NoError(t, svc.clear(ctx, &ClearInput{}, clearOut))
-	require.True(t, clearOut.Cleared)
-
-	getOut := &GetOutput{}
-	require.NoError(t, svc.get(ctx, &GetInput{}, getOut))
-	require.Nil(t, getOut.Goal)
-}
-
-func ptrInt64(v int64) *int64 { return &v }

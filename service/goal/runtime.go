@@ -12,9 +12,17 @@ import (
 // It owns the side effects that happen around a completed turn:
 // usage accounting, state transitions, and continuation decisions.
 type Runtime struct {
-	store      Store
-	controller *Controller
-	now        func() time.Time
+	store        Store
+	controller   *Controller
+	now          func() time.Time
+	onDeactivate func(ctx context.Context, conversationID, goalID string)
+}
+
+type projectedControllerState struct {
+	autonomousTurnsUsed   int64
+	consecutiveNoProgress int64
+	fingerprint           string
+	ready                 bool
 }
 
 type AfterTurnInput struct {
@@ -33,6 +41,7 @@ type AfterTurnInput struct {
 	ConsecutiveNoProgress int
 	AutonomousTurnsUsed   int
 	Continuation          *ContinuationHint
+	ProgressFingerprint   string
 }
 
 func NewRuntime(store Store) *Runtime {
@@ -41,6 +50,13 @@ func NewRuntime(store Store) *Runtime {
 		controller: NewController(),
 		now:        time.Now,
 	}
+}
+
+func (r *Runtime) SetDeactivateHook(fn func(ctx context.Context, conversationID, goalID string)) {
+	if r == nil {
+		return
+	}
+	r.onDeactivate = fn
 }
 
 func (r *Runtime) AfterTurn(ctx context.Context, in *AfterTurnInput) (Action, *Goal, error) {
@@ -86,6 +102,7 @@ func (r *Runtime) AfterTurn(ctx context.Context, in *AfterTurnInput) (Action, *G
 	if continuation == nil && strings.EqualFold(strings.TrimSpace(in.TurnStatus), "succeeded") && goal.Autonomous() {
 		continuation = defaultContinuationHint(goal)
 	}
+	projected := projectControllerState(goal, continuation, strings.TrimSpace(in.ProgressFingerprint))
 
 	action := r.controller.Evaluate(&Snapshot{
 		Goal:                  goal,
@@ -95,22 +112,52 @@ func (r *Runtime) AfterTurn(ctx context.Context, in *AfterTurnInput) (Action, *G
 		PendingApproval:       in.PendingApproval,
 		PendingAsync:          in.PendingAsync,
 		UsageLimited:          in.UsageLimited,
-		ConsecutiveNoProgress: in.ConsecutiveNoProgress,
-		AutonomousTurnsUsed:   in.AutonomousTurnsUsed,
+		ConsecutiveNoProgress: projectedOrFallback(projected.ready, projected.consecutiveNoProgress, int64(in.ConsecutiveNoProgress)),
+		AutonomousTurnsUsed:   projectedOrFallback(projected.ready, projected.autonomousTurnsUsed, int64(in.AutonomousTurnsUsed)),
 		Continuation:          continuation,
 	})
 
 	switch action.Kind {
 	case ActionPauseGoal:
+		if projected.ready {
+			if err := r.store.UpdateControllerState(ctx, goal.ID, projected.autonomousTurnsUsed, projected.consecutiveNoProgress, projected.fingerprint); err != nil {
+				return action, goal, err
+			}
+		}
 		if err := r.store.Pause(ctx, goal.ID, action.PauseReason); err != nil {
 			return action, goal, err
 		}
+		if r.onDeactivate != nil {
+			r.onDeactivate(ctx, conversationID, goal.ID)
+		}
 		goal, _ = r.store.Current(ctx, conversationID)
 	case ActionBlockGoal, ActionCompleteGoal, ActionBudgetLimited, ActionUsageLimited:
+		if projected.ready && (action.Kind == ActionBlockGoal || action.Kind == ActionCompleteGoal) {
+			if err := r.store.UpdateControllerState(ctx, goal.ID, projected.autonomousTurnsUsed, projected.consecutiveNoProgress, projected.fingerprint); err != nil {
+				return action, goal, err
+			}
+		}
 		if err := r.store.Transition(ctx, goal.ID, action.Status, action.Reason); err != nil {
 			return action, goal, err
 		}
+		if r.onDeactivate != nil {
+			r.onDeactivate(ctx, conversationID, goal.ID)
+		}
 		goal, _ = r.store.Current(ctx, conversationID)
+	case ActionQueueTurn:
+		if projected.ready {
+			if err := r.store.UpdateControllerState(ctx, goal.ID, projected.autonomousTurnsUsed, projected.consecutiveNoProgress, projected.fingerprint); err != nil {
+				return action, goal, err
+			}
+			goal, _ = r.store.Current(ctx, conversationID)
+		}
+	case ActionScheduleWakeup:
+		if projected.ready {
+			if err := r.store.UpdateControllerState(ctx, goal.ID, projected.autonomousTurnsUsed, projected.consecutiveNoProgress, projected.fingerprint); err != nil {
+				return action, goal, err
+			}
+			goal, _ = r.store.Current(ctx, conversationID)
+		}
 	}
 	return action, goal, nil
 }
@@ -136,4 +183,31 @@ func defaultContinuationHint(goal *Goal) *ContinuationHint {
 		Preview: preview,
 		Payload: "Continue working toward the active goal.\nGoal: " + objective + "\nUse the existing conversation context and take the next concrete step.",
 	}
+}
+
+func projectControllerState(goal *Goal, continuation *ContinuationHint, progressFingerprint string) projectedControllerState {
+	if goal == nil || continuation == nil || !goal.Autonomous() {
+		return projectedControllerState{}
+	}
+	fingerprint := strings.TrimSpace(progressFingerprint)
+	if fingerprint == "" {
+		fingerprint = ContinuationFingerprint(continuation)
+	}
+	consecutive := int64(0)
+	if goal.LastContinuationFingerprint != "" && goal.LastContinuationFingerprint == fingerprint {
+		consecutive = goal.ConsecutiveNoProgress + 1
+	}
+	return projectedControllerState{
+		autonomousTurnsUsed:   goal.AutonomousTurnsUsed + 1,
+		consecutiveNoProgress: consecutive,
+		fingerprint:           fingerprint,
+		ready:                 true,
+	}
+}
+
+func projectedOrFallback(hasProjected bool, projected int64, fallback int64) int {
+	if hasProjected {
+		return int(projected)
+	}
+	return int(fallback)
 }

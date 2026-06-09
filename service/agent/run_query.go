@@ -38,6 +38,7 @@ import (
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elact "github.com/viant/agently-core/service/elicitation/action"
+	goalsys "github.com/viant/agently-core/service/goal"
 	"github.com/viant/agently-core/service/shared/asyncwait"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -327,6 +328,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 				"agent.Query preset persist error convo=%q kind=%q err=%v",
 				strings.TrimSpace(input.ConversationID), presetKind, err)
 		}
+		return nil
+	}
+	if input != nil && strings.TrimSpace(input.ScheduleId) == "" {
+		s.cancelPendingGoalWakeups(ctx, strings.TrimSpace(input.ConversationID))
+	}
+	if s.shouldSkipAutonomousGoalWakeup(ctx, input) {
 		return nil
 	}
 
@@ -645,14 +652,34 @@ func resolveUserAsk(input *QueryInput, displayQuery string) string {
 	return strings.TrimSpace(displayQuery)
 }
 
-func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, changedOpsCount int, terminalContentReady bool) bool {
+func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, changedOpsCount int, terminalContentReady bool, policy goalsys.AsyncPolicy) bool {
 	if changedOpsCount <= 0 {
 		return false
 	}
-	if !planEmpty || hasActiveWaitOps {
+	if hasActiveWaitOps {
+		return true
+	}
+	if policy == goalsys.AsyncPolicyWait {
+		return false
+	}
+	if !planEmpty {
 		return true
 	}
 	return !terminalContentReady
+}
+
+func (s *Service) currentGoalAsyncPolicy(ctx context.Context, conversationID string) goalsys.AsyncPolicy {
+	if s == nil || s.dataService == nil || strings.TrimSpace(conversationID) == "" {
+		return goalsys.AsyncPolicyEvaluate
+	}
+	current, err := goalsys.NewStore(s.dataService).Current(ctx, strings.TrimSpace(conversationID))
+	if err != nil || current == nil || current.Controller == nil {
+		return goalsys.AsyncPolicyEvaluate
+	}
+	if current.Controller.OnAsyncCompleted == goalsys.AsyncPolicyWait {
+		return goalsys.AsyncPolicyWait
+	}
+	return goalsys.AsyncPolicyEvaluate
 }
 
 func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
@@ -734,6 +761,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		}
 	}
 	ctx = runtimerecovery.WithMode(ctx, mode)
+	ctx = toolexec.WithAsyncCompletionObserver(ctx, s.observeDetachedAsyncGoalCompletion)
 
 	input.RequestTime = time.Now()
 	for {
@@ -1179,7 +1207,8 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			changedOps := s.asyncManager.ConsumeChanged(turn.ConversationID, turn.TurnID)
 			hasActiveWaitOps := s.asyncManager.HasActiveWaitOps(ctx, turn.ConversationID, turn.TurnID)
 			terminalContentReady := aPlan.IsEmpty() && !hasActiveWaitOps && strings.TrimSpace(genOutput.Content) != ""
-			if shouldContinueAfterAsyncChange(aPlan.IsEmpty(), hasActiveWaitOps, len(changedOps), terminalContentReady) {
+			asyncPolicy := s.currentGoalAsyncPolicy(ctx, turn.ConversationID)
+			if shouldContinueAfterAsyncChange(aPlan.IsEmpty(), hasActiveWaitOps, len(changedOps), terminalContentReady, asyncPolicy) {
 				s.markAssistantMessageInterim(ctx, &turn, genOutput)
 				if !hasActiveWaitOps {
 					logx.Infof("conversation", "agent.runPlan async-rerun-after-status convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)

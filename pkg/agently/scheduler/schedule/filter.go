@@ -27,12 +27,12 @@ func (f *Filter) Compute(ctx context.Context, _ interface{}) (*codec.Criteria, e
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if userID == "" {
 		return &codec.Criteria{
-			Expression:   "COALESCE(t.visibility, '') <> ?",
+			Expression:   "COALESCE(t.internal, 0) = 0 AND COALESCE(t.visibility, '') <> ?",
 			Placeholders: []interface{}{"private"},
 		}, nil
 	}
 	return &codec.Criteria{
-		Expression:   "(COALESCE(t.visibility, '') <> ? OR t.created_by_user_id = ?)",
+		Expression:   "COALESCE(t.internal, 0) = 0 AND (COALESCE(t.visibility, '') <> ? OR t.created_by_user_id = ?)",
 		Placeholders: []interface{}{"private", userID},
 	}, nil
 }

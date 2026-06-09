@@ -304,6 +304,15 @@ func TestService_Ensure_UpgradesLegacyGoalSchema(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected goal.status_reason column to exist after Ensure()")
 	}
+	for _, column := range []string{"autonomous_turns_used", "consecutive_no_progress", "last_continuation_fingerprint"} {
+		ok, err = sqliteColumnExists(context.Background(), upgraded, "goal", column)
+		if err != nil {
+			t.Fatalf("sqliteColumnExists(goal.%s) error = %v", column, err)
+		}
+		if !ok {
+			t.Fatalf("expected goal.%s column to exist after Ensure()", column)
+		}
+	}
 }
 
 func TestService_Ensure_UpgradesLegacyTurnSchema(t *testing.T) {
@@ -353,6 +362,69 @@ func TestService_Ensure_UpgradesLegacyTurnSchema(t *testing.T) {
 		}
 		if !ok {
 			t.Fatalf("expected turn.%s column to exist after Ensure()", column)
+		}
+	}
+}
+
+func TestService_Ensure_UpgradesLegacyScheduleSchema(t *testing.T) {
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "legacy-schedule")
+	defer cleanup()
+
+	_, err := db.Exec(`
+		CREATE TABLE schedule (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT,
+			created_by_user_id TEXT,
+			visibility TEXT NOT NULL DEFAULT 'private',
+			agent_ref TEXT NOT NULL,
+			model_override TEXT,
+			user_cred_url TEXT,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			start_at DATETIME,
+			end_at DATETIME,
+			schedule_type TEXT NOT NULL DEFAULT 'cron',
+			cron_expr TEXT,
+			interval_seconds INTEGER,
+			timezone TEXT NOT NULL DEFAULT 'UTC',
+			timeout_seconds INTEGER NOT NULL DEFAULT 0,
+			task_prompt_uri TEXT,
+			task_prompt TEXT,
+			next_run_at DATETIME,
+			last_run_at DATETIME,
+			last_status TEXT,
+			last_error TEXT,
+			lease_owner TEXT,
+			lease_until DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy schedule: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	svc := New(filepath.Dir(filepath.Dir(dbPath))).WithPath(dbPath)
+	if _, err := svc.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure() should upgrade legacy schedule schema: %v", err)
+	}
+
+	upgraded, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer upgraded.Close()
+
+	for _, column := range []string{"internal", "conversation_id", "goal_id"} {
+		ok, err := sqliteColumnExists(context.Background(), upgraded, "schedule", column)
+		if err != nil {
+			t.Fatalf("sqliteColumnExists(schedule.%s) error = %v", column, err)
+		}
+		if !ok {
+			t.Fatalf("expected schedule.%s column to exist after Ensure()", column)
 		}
 	}
 }

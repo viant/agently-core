@@ -21,7 +21,7 @@ This document is the canonical reference for both the design and the current imp
 - No full selector DSL. Dot-path extraction (`OperationIDPath`, `IntentPath`, `StatusPath`, etc.) is enough for every payload shape encountered in internal services, skills, and external MCP tools. Complexity is not worth it.
 - No "reinforcement" loop. The earlier design re-prompted the main LLM every N seconds during a wait. That path is deleted — the barrier replaces it.
 - No per-tool branching in the async mechanism itself. Tool-specific behavior lives on the tool, not on the async runtime.
-- No real detach-with-completion-routing yet. The current `detach` mode is a gating bypass; full child-conversation ownership / result resurfacing is future work.
+- No generic detach completion router in the async core itself. The shared async layer handles registration, polling, wait barriers, narration, and listing. Tool families may still implement their own detached completion resurfacing on top of it (for example `llm/agents` emits linked-conversation attachment when detached child work finishes).
 - No barrier completion policies (first-wins, quorum). All referenced ops must reach terminal-class or one must go idle for the barrier to release.
 
 ---
@@ -94,7 +94,7 @@ while parked:
   → narrator subscribes to Manager.Subscribe(opIDs), produces preambles
   → each preamble upserts a single interim assistant message
      (one per parked status call, updated in place)
-  → EventTypeAssistantPreamble SSE event drives UI
+  → `narration` SSE events drive live UI updates
 
 barrier releases when:
   → all referenced ops terminal-class, OR
@@ -107,7 +107,7 @@ barrier releases when:
 ```
 main LLM calls Run.Tool with executionMode: detach
   → tool executes; returns start response
-  → register op; no poller, no TimeoutAt, no barrier path
+  → register op; no poller, no barrier path
   → response returns to main LLM as a normal tool_result
 
 later in the conversation:
@@ -116,7 +116,7 @@ later in the conversation:
   → GC eventually prunes the record after DefaultGCMaxAge idle
 ```
 
-**Rationale (lazy poller).** Starting a background poller at `Register` time would burn status-tool calls (and external API cost) on ops the LLM may never park on. Starting on the first status call — the moment the LLM commits to waiting — matches observed usage and saves work. The tradeoff: a wait-mode op that the LLM never polls is not hard-terminated by `TimeoutMs` (see §10 known properties).
+**Rationale (lazy poller).** Starting a background poller at `Register` time would burn status-tool calls (and external API cost) on ops the LLM may never park on. Starting on the first status call — the moment the LLM commits to waiting — matches observed usage and saves work. The tradeoff: a wait-mode op that the LLM never polls is not hard-terminated by the poller path itself via `TimeoutMs` (see §10 known properties). Activated status-tool flows can still enforce timeout using the stored `TimeoutAt`.
 
 ---
 
@@ -170,7 +170,7 @@ Fallback ladder (when template empty / LLM absent): `user_ask → intent → sum
 ### UI surface: one interim assistant message per parked status call
 
 - First change event on a parked status call creates an assistant message with `Interim = 1` and the preamble/progress text.
-- Subsequent change events update the **same** message id in place (via `PatchMessage`) and re-emit `EventTypeAssistantPreamble` with the unchanged `assistantMessageId`.
+- Subsequent change events update the **same** message id in place (via `PatchMessage`) and re-emit the `narration` event with the unchanged `assistantMessageId`.
 - The pairing `parkedToolCallId → assistantMessageId` is held in `toolstatus.PreamblePairing` for the barrier's lifetime and dropped on release. Multiple parked status calls in the same parent turn may intentionally resolve to the **same** interim assistant message id when the turn already owns a transient narration slot.
 - The `Interim = 1` flag is already respected by every prompt-rebuild path ([`binding_history.go:598`](../service/agent/binding_history.go:598), [`summary.go:44`](../service/agent/summary.go:44), [`relevance.go:199`](../service/agent/relevance.go:199), [`agent_classifier.go:278`](../service/agent/agent_classifier.go:278)), so narration never re-inflates into the main LLM's context.
 - This is a **single transient bubble slot per parked status call**. Narration
@@ -377,6 +377,57 @@ Subscription-referenced ops are preserved because pruning them would strand a wa
 
 New universal tool at [`protocol/tool/service/system/async`](../protocol/tool/service/system/async). Exposes the outstanding async ops in the current conversation so the LLM can discover and act on them without guessing identifiers.
 
+### Default app exposure
+
+In the sibling `agently` app repo, the default bootstrap now exposes
+`system/async` through the same internal-service and bundle path as other
+system tools:
+
+- internal MCP service enabled in `bootstrap/defaults/config.yaml`
+- runtime service factory registration in `runtime/tool_plugins.go`
+- default bundle `bootstrap/defaults/tools/bundles/system_async.yaml`
+- default `coder` / `chatter` bundle assignment
+
+This means async discovery is available in the default workspace without any
+special-case runtime path.
+
+### Public conversation API
+
+Async discovery is now also exposed through the normal conversation HTTP
+contract and SDK clients:
+
+- `GET /v1/conversations/{id}/async`
+
+Optional query parameters:
+
+- `tool`
+- `mode`
+
+The response shape mirrors `system/async:list`:
+
+```json
+{
+  "ops": [
+    {
+      "operationId": "sess-123",
+      "tool": "system/exec:execute",
+      "statusTool": "system/exec:execute",
+      "sameToolRecall": true,
+      "statusArgs": { "sessionId": "sess-123", "action": "status" },
+      "executionMode": "detach",
+      "state": "running",
+      "updatedAt": "2026-04-22T13:10:02Z"
+    }
+  ]
+}
+```
+
+Unlike the internal tool path, the conversation id comes from the trusted HTTP
+route parameter. The backend still validates that the conversation exists in
+the caller-visible store before enumerating ops, then applies the same
+conversation-scoped `Manager.ListOperations(Filter{ConversationID: ...})`
+selection logic as `system/async:list`.
+
 ### Input schema (LLM-facing)
 
 ```json
@@ -470,7 +521,7 @@ When `IdleTimeoutMs` fires, the barrier releases and the parked status call retu
 
 ### 10.6 Detach ops are bounded by GC age, not by `TimeoutMs`
 
-By design. Runtime does not own the work lifetime of a detached op — that belongs to the external system or child conversation. Runtime bounds its own memory via GC: a detach record is reclaimed ~1 h after its last `UpdatedAt`.
+By design. Runtime does not own the work lifetime of a detached op — that belongs to the external system or child conversation. Runtime bounds its own memory via GC: a detach record is reclaimed after its `UpdatedAt` ages past the configured GC window. Some tool families may also layer their own detached completion resurfacing on top of the generic async core.
 
 ### 10.7 Any `Update` call extends the GC window
 
@@ -496,7 +547,7 @@ By design. Runtime does not own the work lifetime of a detached op — that belo
 
 These are real open items that are explicitly **not** blockers for the current implementation:
 
-- **Real detach implementation.** The current `detach` mode is a gating bypass — it prevents the barrier from engaging. A full detach feature (child-conversation ownership, detached result routing, completion resurfacing via inbox / notification) is a separate design.
+- **Generic detach completion routing.** The shared async core still does not own a universal detached completion router (for inboxes, notifications, or generic resurfacing). Specialized tool families can layer that behavior themselves.
 - **Barrier completion policies.** First-event-wins, quorum-of-N, explicit cancel-on-any-failure — all deferred. Current semantics: release when all terminal or any idle fires.
 - **Cancellation on user interrupt.** Mid-park teardown of barrier + narrator + ops when the user sends a new message requires explicit plumbing that doesn't exist yet.
 - **Restart rehydration.** Parked status calls do not survive process bounces. Implementing this requires durable operation records plus a startup scan that reconnects barriers to their parked callers.
@@ -526,6 +577,7 @@ These are real open items that are explicitly **not** blockers for the current i
 | SSE event type | [`runtime/streaming/event.go:36`](../runtime/streaming/event.go:36) |
 | TS reducer for preamble | [`sdk/ts/src/chatStore/reducer.ts:727`](../sdk/ts/src/chatStore/reducer.ts:727) |
 | `system/async:list` tool | [`protocol/tool/service/system/async/`](../protocol/tool/service/system/async/) |
+| Public conversation async route | [`sdk/handler_async.go`](../sdk/handler_async.go), [`sdk/http.go`](../sdk/http.go) |
 | Tool registration in bootstrap | [`internal/tool/registry/registry.go`](../internal/tool/registry/registry.go) (search `system/async`) |
 
 ---

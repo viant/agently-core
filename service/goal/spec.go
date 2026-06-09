@@ -41,6 +41,7 @@ type ControllerSpec struct {
 	ContinueMode             ContinueMode `json:"continueMode"`
 	OnTurnFinished           TurnPolicy   `json:"onTurnFinished"`
 	OnAsyncCompleted         AsyncPolicy  `json:"onAsyncCompleted"`
+	WakeDelaySeconds         *int         `json:"wakeDelaySeconds,omitempty"`
 	MaxAutonomousTurns       *int         `json:"maxAutonomousTurns,omitempty"`
 	MaxConsecutiveNoProgress *int         `json:"maxConsecutiveNoProgress,omitempty"`
 }
@@ -65,6 +66,9 @@ func (s *ControllerSpec) Validate() error {
 	}
 	if s.MaxAutonomousTurns != nil && *s.MaxAutonomousTurns < 0 {
 		return fmt.Errorf("maxAutonomousTurns must not be negative")
+	}
+	if s.WakeDelaySeconds != nil && *s.WakeDelaySeconds < 0 {
+		return fmt.Errorf("wakeDelaySeconds must not be negative")
 	}
 	if s.MaxConsecutiveNoProgress != nil && *s.MaxConsecutiveNoProgress < 0 {
 		return fmt.Errorf("maxConsecutiveNoProgress must not be negative")

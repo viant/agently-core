@@ -17,7 +17,7 @@ commonly the HTTP Server-Sent Events endpoint that keeps the UI live.
 |---|---|
 | Reactor loop | `turn_started`, `message_appended`, `plan_step`, `final_response`, `turn_completed` |
 | Tool executor | `tool_started`, `tool_completed`, `tool_feed_active`, `tool_feed_inactive` |
-| Async operation manager | `async_op_started`, `async_op_updated`, `async_op_completed` (see [doc/async.md](async.md)) |
+| Async operation manager | async wait/progress is surfaced through `narration` events plus updates to tool-step canonical state, not through a dedicated `async_op_*` event family (see [doc/async.md](async.md)) |
 | Elicitation | `elicitation_requested`, `elicitation_resolved` |
 | Skill lifecycle | `skill_started`, `skill_completed` |
 

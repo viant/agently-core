@@ -14,6 +14,7 @@ import (
 	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	agmessage "github.com/viant/agently-core/pkg/agently/message"
 	elicitationmsg "github.com/viant/agently-core/pkg/agently/message/elicitation"
+	agelicitationcount "github.com/viant/agently-core/pkg/agently/message/elicitationCount"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
 	agmodelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
@@ -24,10 +25,12 @@ import (
 	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	agapprovalcount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/pendingCount"
 	agtoolcall "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
 	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	agturnctrlcount "github.com/viant/agently-core/pkg/agently/turn/controllerCount"
 	agturnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
 	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
@@ -405,6 +408,72 @@ func (s *datlyService) CountQueuedTurns(ctx context.Context, in *agturncount.Que
 		return 0, nil
 	}
 	return out.Data[0].QueuedCount, nil
+}
+
+// CountControllerTurns returns the number of controller-owned (autonomous)
+// turns created for a conversation. It backs the AutonomousTurnsUsed guard.
+func (s *datlyService) CountControllerTurns(ctx context.Context, conversationID string, opts ...Option) (int, error) {
+	callOpts := collectOptions(opts)
+	if callOpts.principal != "" && !callOpts.isAdmin && strings.TrimSpace(conversationID) == "" {
+		return 0, ErrPermissionDenied
+	}
+	input := &agturnctrlcount.ControllerTotalInput{
+		ConversationID: conversationID,
+		Has:            &agturnctrlcount.ControllerTotalInputHas{ConversationID: true},
+	}
+	out := &agturnctrlcount.ControllerTotalOutput{}
+	operateOpts := append([]datly.OperateOption{datly.WithURI(agturnctrlcount.ControllerTotalPathURI), datly.WithInput(input), datly.WithOutput(out)}, toOperateOptions(opts)...)
+	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+		return 0, err
+	}
+	if len(out.Data) == 0 {
+		return 0, nil
+	}
+	return out.Data[0].ControllerCount, nil
+}
+
+// CountPendingApprovals returns the number of pending tool approvals for a
+// conversation. It backs the PendingApproval guard.
+func (s *datlyService) CountPendingApprovals(ctx context.Context, conversationID string, opts ...Option) (int, error) {
+	callOpts := collectOptions(opts)
+	if callOpts.principal != "" && !callOpts.isAdmin && strings.TrimSpace(conversationID) == "" {
+		return 0, ErrPermissionDenied
+	}
+	input := &agapprovalcount.PendingTotalInput{
+		ConversationID: conversationID,
+		Has:            &agapprovalcount.PendingTotalInputHas{ConversationID: true},
+	}
+	out := &agapprovalcount.PendingTotalOutput{}
+	operateOpts := append([]datly.OperateOption{datly.WithURI(agapprovalcount.PendingTotalPathURI), datly.WithInput(input), datly.WithOutput(out)}, toOperateOptions(opts)...)
+	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+		return 0, err
+	}
+	if len(out.Data) == 0 {
+		return 0, nil
+	}
+	return out.Data[0].PendingCount, nil
+}
+
+// CountPendingElicitations returns the number of unresolved elicitation
+// requests for a conversation. It backs the PendingElicitation guard.
+func (s *datlyService) CountPendingElicitations(ctx context.Context, conversationID string, opts ...Option) (int, error) {
+	callOpts := collectOptions(opts)
+	if callOpts.principal != "" && !callOpts.isAdmin && strings.TrimSpace(conversationID) == "" {
+		return 0, ErrPermissionDenied
+	}
+	input := &agelicitationcount.ElicitationPendingInput{
+		ConversationID: conversationID,
+		Has:            &agelicitationcount.ElicitationPendingInputHas{ConversationID: true},
+	}
+	out := &agelicitationcount.ElicitationPendingOutput{}
+	operateOpts := append([]datly.OperateOption{datly.WithURI(agelicitationcount.ElicitationPendingPathURI), datly.WithInput(input), datly.WithOutput(out)}, toOperateOptions(opts)...)
+	if _, err := s.dao.Operate(ctx, operateOpts...); err != nil {
+		return 0, err
+	}
+	if len(out.Data) == 0 {
+		return 0, nil
+	}
+	return out.Data[0].PendingCount, nil
 }
 
 func (s *datlyService) ListTurnQueueRows(ctx context.Context, in *turnqueueread.QueueRowsInput, opts ...Option) ([]*turnqueueread.QueueRowView, error) {

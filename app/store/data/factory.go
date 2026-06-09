@@ -18,6 +18,7 @@ import (
 	goalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	message "github.com/viant/agently-core/pkg/agently/message"
 	elicitationmsg "github.com/viant/agently-core/pkg/agently/message/elicitation"
+	elicitationcount "github.com/viant/agently-core/pkg/agently/message/elicitationCount"
 	messagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	messagewrite "github.com/viant/agently-core/pkg/agently/message/write"
 	modelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
@@ -28,10 +29,12 @@ import (
 	runstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	runsteps "github.com/viant/agently-core/pkg/agently/run/steps"
 	runwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	approvalcount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/pendingCount"
 	toolcallbyop "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
 	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turn "github.com/viant/agently-core/pkg/agently/turn/active"
 	turnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	turnctrlcount "github.com/viant/agently-core/pkg/agently/turn/controllerCount"
 	turnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
 	turnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
 	turncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
@@ -256,6 +259,15 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 		return err
 	}
 	if err := turncount.DefineQueuedTotalComponent(ctx, svc); err != nil {
+		return err
+	}
+	if err := turnctrlcount.DefineControllerTotalComponent(ctx, svc); err != nil {
+		return err
+	}
+	if err := approvalcount.DefinePendingTotalComponent(ctx, svc); err != nil {
+		return err
+	}
+	if err := elicitationcount.DefineElicitationPendingComponent(ctx, svc); err != nil {
 		return err
 	}
 	if err := turnqueueread.DefineQueueRowsComponent(ctx, svc); err != nil {

@@ -32,3 +32,23 @@ func isNotFoundError(err error) bool {
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(msg, "not found") || strings.Contains(msg, "no rows")
 }
+
+type featureDisabledError struct {
+	msg string
+}
+
+func (e *featureDisabledError) Error() string {
+	if e == nil || strings.TrimSpace(e.msg) == "" {
+		return "feature disabled"
+	}
+	return e.msg
+}
+
+func newFeatureDisabledError(msg string) error {
+	return &featureDisabledError{msg: msg}
+}
+
+func isFeatureDisabledError(err error) bool {
+	var target *featureDisabledError
+	return errors.As(err, &target)
+}

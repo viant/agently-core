@@ -132,6 +132,11 @@ const (
 	// without polling. Patch contains only the changed fields.
 	EventTypeConversationMetaUpdated EventType = "conversation_meta_updated"
 
+	// Goal lifecycle.
+	EventTypeGoalUpdated             EventType = "goal.updated"
+	EventTypeGoalCleared             EventType = "goal.cleared"
+	EventTypeGoalControllerScheduled EventType = "goal.controller_scheduled"
+
 	// Stream terminated by the bus because the subscriber's buffer filled
 	// up. This is a control event injected by SSE handlers (not a regular
 	// bus event) to signal clients that one or more events may have been

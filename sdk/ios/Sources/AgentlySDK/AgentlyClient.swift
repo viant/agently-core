@@ -126,6 +126,17 @@ public final class AgentlyClient: Sendable {
         return result.goal
     }
 
+    public func listAsyncOperations(conversationID: String, tool: String? = nil, mode: String? = nil) async throws -> ListAsyncOperationsOutput {
+        var query: [URLQueryItem] = []
+        if let tool, !tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            query.append(URLQueryItem(name: "tool", value: tool))
+        }
+        if let mode, !mode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            query.append(URLQueryItem(name: "mode", value: mode))
+        }
+        return try await get("/v1/conversations/\(encodePath(conversationID))/async", query: query, as: ListAsyncOperationsOutput.self)
+    }
+
     public func createGoal(conversationID: String, _ input: CreateGoalInput) async throws -> Goal {
         try await post("/v1/conversations/\(encodePath(conversationID))/goal", body: input, as: Goal.self)
     }

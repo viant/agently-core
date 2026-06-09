@@ -68,6 +68,48 @@ export class FeedTracker {
                 turnId: resolveEventTurnId(event),
                 updatedAt: Date.now(),
             });
+        } else if (event.type === 'goal.updated') {
+            const conversationId = resolveEventConversationId(event);
+            this.setActive({
+                feedId: event.feedId || 'goal',
+                title: event.feedTitle || 'Goal',
+                itemCount: 1,
+                conversationId,
+                turnId: resolveEventTurnId(event),
+                updatedAt: Date.now(),
+                data: event.patch?.goal ?? null,
+            });
+        } else if (event.type === 'goal.cleared') {
+            const feedId = event.feedId || 'goal';
+            this.setActive({
+                feedId,
+                title: event.feedTitle || 'Goal',
+                itemCount: 0,
+                conversationId: resolveEventConversationId(event),
+                turnId: resolveEventTurnId(event),
+                updatedAt: Date.now(),
+                data: null,
+            });
+        } else if (event.type === 'goal.controller_scheduled') {
+            const feedId = event.feedId || 'goal';
+            const existing = this.get(feedId);
+            this.setActive({
+                feedId,
+                title: existing?.title || event.feedTitle || 'Goal',
+                itemCount: existing?.itemCount ?? 1,
+                conversationId: resolveEventConversationId(event),
+                turnId: resolveEventTurnId(event),
+                updatedAt: Date.now(),
+                data: {
+                    goal: existing?.data?.goal ?? existing?.data ?? null,
+                    controllerSchedule: {
+                        mode: String(event.patch?.mode || '').trim() || 'queue',
+                        reason: String(event.patch?.reason || '').trim(),
+                        preview: String(event.patch?.preview || '').trim(),
+                        wakeAt: String(event.patch?.wakeAt || '').trim() || null,
+                    },
+                },
+            });
         } else if (event.type === 'tool_feed_inactive' && event.feedId) {
             this.setInactive(event.feedId);
         }

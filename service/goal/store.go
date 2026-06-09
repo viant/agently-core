@@ -30,6 +30,9 @@ type Store interface {
 	Transition(ctx context.Context, goalID string, status Status, reason string) error
 	// Pause persists a paused status with a dedicated pause reason.
 	Pause(ctx context.Context, goalID string, reason PauseReason) error
+	// UpdateControllerState persists autonomous controller counters and
+	// the latest continuation fingerprint.
+	UpdateControllerState(ctx context.Context, goalID string, autonomousTurnsUsed, consecutiveNoProgress int64, fingerprint string) error
 }
 
 type dataStore struct {
@@ -83,6 +86,16 @@ func (s *dataStore) Pause(ctx context.Context, goalID string, reason PauseReason
 	return s.patch(ctx, row)
 }
 
+func (s *dataStore) UpdateControllerState(ctx context.Context, goalID string, autonomousTurnsUsed, consecutiveNoProgress int64, fingerprint string) error {
+	row := aggoalwrite.NewMutableGoalView(
+		aggoalwrite.WithGoalID(goalID),
+		aggoalwrite.WithGoalAutonomousTurnsUsed(autonomousTurnsUsed),
+		aggoalwrite.WithGoalConsecutiveNoProgress(consecutiveNoProgress),
+	)
+	row.SetLastContinuationFingerprint(fingerprint)
+	return s.patch(ctx, row)
+}
+
 func (s *dataStore) patch(ctx context.Context, row *aggoalwrite.MutableGoalView) error {
 	_, err := s.access.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row})
 	return err
@@ -103,22 +116,27 @@ func toDomain(view *aggoal.GoalView) (*Goal, error) {
 		}
 	}
 	g := &Goal{
-		ID:              view.Id,
-		ConversationID:  view.ConversationID,
-		Objective:       view.Objective,
-		Status:          status,
-		Controller:      spec,
-		TokenBudget:     view.TokenBudget,
-		TokensUsed:      view.TokensUsed,
-		TimeUsedSeconds: view.TimeUsedSeconds,
-		CreatedAt:       view.CreatedAt,
-		UpdatedAt:       view.UpdatedAt,
+		ID:                    view.Id,
+		ConversationID:        view.ConversationID,
+		Objective:             view.Objective,
+		Status:                status,
+		Controller:            spec,
+		TokenBudget:           view.TokenBudget,
+		TokensUsed:            view.TokensUsed,
+		TimeUsedSeconds:       view.TimeUsedSeconds,
+		AutonomousTurnsUsed:   view.AutonomousTurnsUsed,
+		ConsecutiveNoProgress: view.ConsecutiveNoProgress,
+		CreatedAt:             view.CreatedAt,
+		UpdatedAt:             view.UpdatedAt,
 	}
 	if view.StatusReason != nil {
 		g.StatusReason = *view.StatusReason
 	}
 	if view.PauseReason != nil {
 		g.PauseReason = PauseReason(*view.PauseReason)
+	}
+	if view.LastContinuationFingerprint != nil {
+		g.LastContinuationFingerprint = *view.LastContinuationFingerprint
 	}
 	return g, nil
 }

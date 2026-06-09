@@ -61,6 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/api/auth/oob", h.handleOOB())
 	mux.HandleFunc("GET /v1/api/auth/oauth/config", h.handleOAuthConfig())
 	mux.HandleFunc("POST /v1/api/auth/session", h.handleCreateSession())
+	mux.HandleFunc("POST /v1/api/auth/session/attach", h.handleAttachSession())
 }
 
 func (h *Handler) handleLocalLogin() http.HandlerFunc {
@@ -341,6 +342,47 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 			})
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"sessionId": sess.ID})
+	}
+}
+
+func (h *Handler) handleAttachSession() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		sessionID := strings.TrimSpace(body.SessionID)
+		if sessionID == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("sessionId is required"))
+			return
+		}
+		if h.sessions == nil {
+			httpError(w, http.StatusServiceUnavailable, fmt.Errorf("session store unavailable"))
+			return
+		}
+		sess := h.sessions.Get(r.Context(), sessionID)
+		if sess == nil {
+			httpError(w, http.StatusNotFound, fmt.Errorf("session not found"))
+			return
+		}
+		if h.cfg != nil && h.cfg.CookieName != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     h.cfg.CookieName,
+				Value:    sess.ID,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   int(h.sessions.ttl.Seconds()),
+			})
+		}
+		httpJSON(w, http.StatusOK, map[string]string{
+			"status":    "ok",
+			"sessionId": sess.ID,
+			"username":  strings.TrimSpace(sess.Username),
+		})
 	}
 }
 
