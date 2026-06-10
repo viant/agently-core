@@ -18,6 +18,7 @@ import (
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	goalsys "github.com/viant/agently-core/service/goal"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
 )
@@ -249,6 +250,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		}
 		b.SkillsPrompt = ""
 	}
+	if s.appendActiveGoalSystemDocument(ctx, convoID, b) {
+		b.History.LastResponse = nil
+	}
 	b.Context = input.Context
 
 	// Expose tool availability flags for templates (dynamic tool selection).
@@ -278,6 +282,71 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		})
 	}
 	return b, nil
+}
+
+type activeGoalReader interface {
+	Current(ctx context.Context, conversationID string) (*goalsys.Goal, error)
+}
+
+func (s *Service) appendActiveGoalSystemDocument(ctx context.Context, conversationID string, b *binding.Binding) bool {
+	return appendActiveGoalSystemDocumentFromReader(ctx, strings.TrimSpace(conversationID), b, s.activeGoalReader())
+}
+
+func appendActiveGoalSystemDocumentFromReader(ctx context.Context, conversationID string, b *binding.Binding, reader activeGoalReader) bool {
+	if b == nil {
+		return false
+	}
+	if reader == nil {
+		return false
+	}
+	goal, err := reader.Current(ctx, strings.TrimSpace(conversationID))
+	if err != nil || goal == nil || goal.Status != goalsys.StatusActive {
+		return false
+	}
+	doc := buildActiveGoalSystemDocument(goal)
+	if doc == nil {
+		return false
+	}
+	if !hasDocumentURI(b.SystemDocuments.Items, doc.SourceURI) {
+		b.SystemDocuments.Items = append(b.SystemDocuments.Items, doc)
+	}
+	return true
+}
+
+func (s *Service) activeGoalReader() activeGoalReader {
+	if s == nil || s.dataService == nil {
+		return nil
+	}
+	return goalsys.NewStore(s.dataService)
+}
+
+func buildActiveGoalSystemDocument(goal *goalsys.Goal) *binding.Document {
+	if goal == nil {
+		return nil
+	}
+	objective := strings.TrimSpace(goal.Objective)
+	if objective == "" {
+		return nil
+	}
+	goalID := strings.TrimSpace(goal.ID)
+	sourceURI := "goal://active"
+	if goalID != "" {
+		sourceURI = "goal://" + goalID
+	}
+	return &binding.Document{
+		Title: "Active Goal",
+		PageContent: "Active conversation goal:\n" + objective + "\n\n" +
+			"Treat this as the durable objective for subsequent turns in this conversation.\n" +
+			"Stay focused on it across turns. If the user asks for unrelated work, briefly redirect back to the goal instead of following the unrelated request.\n" +
+			"Preserve higher-priority system and developer instructions while working toward this goal.",
+		SourceURI: sourceURI,
+		MimeType:  "text/markdown",
+		Metadata: map[string]string{
+			"kind":   "active_goal",
+			"goalId": goalID,
+			"status": string(goal.Status),
+		},
+	}
 }
 
 func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryInput, b *binding.Binding) error {
