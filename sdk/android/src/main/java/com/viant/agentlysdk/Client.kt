@@ -721,6 +721,8 @@ class AgentlyClient(
         is OOBLoginInput -> OOBLoginInput.serializer() as KSerializer<T>
         is CreateConversationInput -> CreateConversationInput.serializer() as KSerializer<T>
         is UpdateConversationInput -> UpdateConversationInput.serializer() as KSerializer<T>
+        is CreateGoalInput -> CreateGoalInput.serializer() as KSerializer<T>
+        is UpdateGoalInput -> UpdateGoalInput.serializer() as KSerializer<T>
         is SteerTurnInput -> SteerTurnInput.serializer() as KSerializer<T>
         is MoveQueuedTurnInput -> MoveQueuedTurnInput.serializer() as KSerializer<T>
         is EditQueuedTurnInput -> EditQueuedTurnInput.serializer() as KSerializer<T>
