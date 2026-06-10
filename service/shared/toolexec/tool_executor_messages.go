@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/logx"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -140,17 +141,63 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 		updTC.Has.ResponsePayloadID = true
 	}
 	if errMsg != "" {
-		updTC.ErrorMessage = &errMsg
-		updTC.Has.ErrorMessage = true
+		updTC.SetErrorMessage(errMsg)
 	}
 	if err := conv.PatchToolCall(ctx, updTC); err != nil {
-		return err
+		if retryErr := retryTerminalToolCallPatch(ctx, conv, updTC, err); retryErr != nil {
+			return fmt.Errorf("patch terminal tool call: %w; retry failed: %v", err, retryErr)
+		}
 	}
 	msgStatus := status
 	if status == "waiting_for_user" {
 		msgStatus = "pending"
 	}
 	return updateToolMessageStatus(ctx, conv, toolMsgID, msgStatus)
+}
+
+func retryTerminalToolCallPatch(ctx context.Context, conv apiconv.Client, original *apiconv.MutableToolCall, patchErr error) error {
+	if conv == nil || original == nil || patchErr == nil {
+		return patchErr
+	}
+	retry := apiconv.NewToolCall()
+	retry.SetMessageID(original.MessageID)
+	if strings.TrimSpace(original.OpID) != "" {
+		retry.SetOpID(original.OpID)
+	}
+	if strings.TrimSpace(original.ToolName) != "" {
+		retry.SetToolName(original.ToolName)
+	}
+	if original.TurnID != nil && strings.TrimSpace(*original.TurnID) != "" {
+		retry.SetTurnID(*original.TurnID)
+	}
+	if strings.TrimSpace(original.Status) != "" {
+		retry.SetStatus(original.Status)
+	}
+	if original.CompletedAt != nil {
+		done := *original.CompletedAt
+		retry.CompletedAt = &done
+		retry.Has.CompletedAt = true
+	}
+	if original.ResponsePayloadID != nil && strings.TrimSpace(*original.ResponsePayloadID) != "" {
+		respPayloadID := *original.ResponsePayloadID
+		retry.ResponsePayloadID = &respPayloadID
+		retry.Has.ResponsePayloadID = true
+	}
+	retry.SetErrorMessage(fmt.Sprintf(
+		"tool call terminal patch recovery: previous PatchToolCall failed while writing terminal status %q: %v\nrich tool error could not be persisted in tool_call.error_message",
+		strings.TrimSpace(original.Status),
+		patchErr,
+	))
+	if err := conv.PatchToolCall(ctx, retry); err != nil {
+		return err
+	}
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if turnID == "" && original.TurnID != nil {
+		turnID = strings.TrimSpace(*original.TurnID)
+	}
+	logx.WarnCtxf(ctx, "conversation", "tool terminal patch recovered convo=%q turn=%q message_id=%q op_id=%q tool=%q status=%q previous_err=%v", strings.TrimSpace(turn.ConversationID), turnID, strings.TrimSpace(original.MessageID), strings.TrimSpace(original.OpID), strings.TrimSpace(original.ToolName), strings.TrimSpace(original.Status), patchErr)
+	return nil
 }
 
 func updateAsyncToolCallState(ctx context.Context, conv apiconv.Client, toolMsgID, opID, toolName, status, respPayloadID, errMsg string) error {
@@ -174,8 +221,7 @@ func updateAsyncToolCallState(ctx context.Context, conv apiconv.Client, toolMsgI
 		updTC.Has.ResponsePayloadID = true
 	}
 	if errMsg != "" {
-		updTC.ErrorMessage = &errMsg
-		updTC.Has.ErrorMessage = true
+		updTC.SetErrorMessage(errMsg)
 	}
 	if err := conv.PatchToolCall(ctx, updTC); err != nil {
 		return err
