@@ -163,6 +163,7 @@ export interface IterationRenderRow {
     turnStartedAt?: string;
     rounds: RoundRenderView[];
     elicitation?: ElicitationRenderView | null;
+    elicitations?: ElicitationRenderView[];
     linkedConversations: LinkedConversationRenderView[];
     /** Fully-derived header for the card. */
     header: HeaderState;
@@ -443,6 +444,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         turnStartedAt: turn.createdAt,
         rounds,
         elicitation: projectElicitation(turn.elicitation),
+        elicitations: projectElicitations(turn),
         linkedConversations: (turn.linkedConversations ?? []).map(projectLinkedConversation),
         header,
         isStreaming,
@@ -581,6 +583,15 @@ function projectLifecycleEntry(entry: ClientLifecycleEntry): LifecycleEntryRende
         status: entry.status,
         errorMessage: entry.errorMessage,
     };
+}
+
+function projectElicitations(turn: ClientTurnState): ElicitationRenderView[] {
+    const source = Array.isArray(turn.elicitations) && turn.elicitations.length > 0
+        ? turn.elicitations
+        : (turn.elicitation ? [turn.elicitation] : []);
+    return source
+        .map((elicitation) => projectElicitation(elicitation))
+        .filter((elicitation): elicitation is ElicitationRenderView => !!elicitation);
 }
 
 function projectElicitation(elicitation: ClientElicitation | null | undefined): ElicitationRenderView | null {

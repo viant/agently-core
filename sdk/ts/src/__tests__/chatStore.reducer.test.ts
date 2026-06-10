@@ -438,6 +438,40 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
         });
     });
 
+    it('keeps concurrent elicitations on one turn and resolves them by id', () => {
+        let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_A',
+            elicitationId: 'elic_A3',
+            content: 'A3 critical dependency',
+            status: 'pending',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_A',
+            elicitationId: 'elic_B3',
+            content: 'B3 critical dependency',
+            status: 'pending',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'elicitation_resolved',
+            turnId: 'tn_A',
+            elicitationId: 'elic_A3',
+            status: 'accepted',
+        } as SSEEvent));
+
+        expect(state.turns[0].elicitations?.map((elicitation) => ({
+            elicitationId: elicitation.elicitationId,
+            status: elicitation.status,
+            message: elicitation.message,
+        }))).toEqual([
+            { elicitationId: 'elic_A3', status: 'accepted', message: 'A3 critical dependency' },
+            { elicitationId: 'elic_B3', status: 'pending', message: 'B3 critical dependency' },
+        ]);
+        expect(state.turns[0].elicitation?.elicitationId).toBe('elic_A3');
+    });
+
     it('elicitation_resolved maps backend cancel status to canceled', () => {
         let state = applyEvent(fresh(), sse({ type: 'turn_started', turnId: 'tn_A', createdAt: '2025-01-01T00:00:00.000Z' }));
         state = applyEvent(state, sse({
