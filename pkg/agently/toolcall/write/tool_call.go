@@ -84,6 +84,7 @@ func (t *ToolCall) SetToolName(v string)  { t.ToolName = v; t.ensureHas(); t.Has
 func (t *ToolCall) SetToolKind(v string)  { t.ToolKind = v; t.ensureHas(); t.Has.ToolKind = true }
 func (t *ToolCall) SetStatus(v string)    { t.Status = v; t.ensureHas(); t.Has.Status = true }
 func (t *ToolCall) SetErrorMessage(v string) {
+	v = SanitizeErrorMessage(v)
 	t.ErrorMessage = &v
 	t.ensureHas()
 	t.Has.ErrorMessage = true

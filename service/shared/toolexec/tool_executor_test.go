@@ -192,10 +192,10 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 
 func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) {
 	cases := []struct {
-		name           string
-		script         []scriptedResult
-		expectedStatus string
-		errContains    string
+		name                string
+		script              []scriptedResult
+		expectedStatus      string
+		expectedReturnError bool
 	}{
 		{
 			name: "completed fallback",
@@ -210,15 +210,16 @@ func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) 
 				{err: context.Canceled},
 				{err: context.Canceled},
 			},
-			expectedStatus: "canceled",
+			expectedStatus:      "canceled",
+			expectedReturnError: true,
 		},
 		{
 			name: "failed fallback carries return error",
 			script: []scriptedResult{
 				{err: fmt.Errorf("invalid request")},
 			},
-			expectedStatus: "failed",
-			errContains:    "execute tool",
+			expectedStatus:      "failed",
+			expectedReturnError: true,
 		},
 	}
 
@@ -241,18 +242,21 @@ func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) 
 			reg := &scriptedRegistry{script: tc.script}
 
 			_, _, err := ExecuteToolStep(ctx, reg, step, conv)
-			require.Error(t, err)
-			require.GreaterOrEqual(t, conv.patchToolCallCount, 3)
+			if tc.expectedReturnError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.GreaterOrEqual(t, conv.patchToolCallCount, 4)
 			require.NotEmpty(t, conv.patchedToolCalls)
 
 			last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
 			require.NotNil(t, last)
 			assert.EqualValues(t, tc.expectedStatus, strings.ToLower(strings.TrimSpace(last.Status)))
 			require.NotNil(t, last.CompletedAt)
-			if tc.errContains != "" {
-				require.NotNil(t, last.ErrorMessage)
-				assert.Contains(t, strings.ToLower(strings.TrimSpace(*last.ErrorMessage)), strings.ToLower(strings.TrimSpace(tc.errContains)))
-			}
+			require.NotNil(t, last.ErrorMessage)
+			assert.Contains(t, *last.ErrorMessage, "previous PatchToolCall failed")
+			assert.Contains(t, *last.ErrorMessage, "simulated terminal write failure")
 		})
 	}
 }
