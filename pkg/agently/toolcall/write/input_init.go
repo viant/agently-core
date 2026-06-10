@@ -19,6 +19,10 @@ func (i *Input) Init(ctx context.Context, sess handler.Session, _ *Output) error
 		if tc.Has == nil {
 			tc.Has = &ToolCallHas{}
 		}
+		if tc.Has.ErrorMessage && tc.ErrorMessage != nil {
+			sanitized := SanitizeErrorMessage(*tc.ErrorMessage)
+			tc.ErrorMessage = &sanitized
+		}
 		if _, ok := i.CurByID[tc.MessageID]; !ok {
 			if !tc.Has.Attempt {
 				tc.Attempt = 1

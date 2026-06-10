@@ -590,6 +590,13 @@ func (s *datlyService) PatchModelCalls(ctx context.Context, rows []*agmodelcallw
 
 func (s *datlyService) PatchToolCalls(ctx context.Context, rows []*agtoolcallwrite.MutableToolCallView) ([]*agtoolcallwrite.MutableToolCallView, error) {
 	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agtoolcallwrite.MutableToolCallView, error) {
+		for _, row := range rows {
+			if row == nil || row.Has == nil || !row.Has.ErrorMessage || row.ErrorMessage == nil {
+				continue
+			}
+			sanitized := agtoolcallwrite.SanitizeErrorMessage(*row.ErrorMessage)
+			row.ErrorMessage = &sanitized
+		}
 		in := &agtoolcallwrite.Input{ToolCalls: rows}
 		out := &agtoolcallwrite.Output{}
 		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agtoolcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {

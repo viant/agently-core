@@ -1381,6 +1381,7 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	if toolCall == nil {
 		return errors.New("invalid toolCall: nil")
 	}
+	sanitizeMutableToolCallErrorMessage(toolCall)
 	logx.Infof("conversation", "PatchToolCall start message_id=%q op_id=%q tool=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.OpID), strings.TrimSpace(toolCall.ToolName), strings.TrimSpace(toolCall.Status))
 	err := s.withWriteGate(ctx, func() error {
 		tc := (*toolcallwrite.ToolCall)(toolCall)
@@ -1409,6 +1410,14 @@ func (s *Service) PatchToolCall(ctx context.Context, toolCall *convcli.MutableTo
 	}
 	logx.Infof("conversation", "PatchToolCall ok message_id=%q status=%q", strings.TrimSpace(toolCall.MessageID), strings.TrimSpace(toolCall.Status))
 	return nil
+}
+
+func sanitizeMutableToolCallErrorMessage(toolCall *convcli.MutableToolCall) {
+	if toolCall == nil || toolCall.Has == nil || !toolCall.Has.ErrorMessage || toolCall.ErrorMessage == nil {
+		return
+	}
+	sanitized := toolcallwrite.SanitizeErrorMessage(*toolCall.ErrorMessage)
+	toolCall.ErrorMessage = &sanitized
 }
 
 func (s *Service) PatchToolApprovalQueue(ctx context.Context, queue *queueWrite.ToolApprovalQueue) error {
