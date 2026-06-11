@@ -229,6 +229,53 @@ function normalizeElicitationStatus(status: unknown): ClientElicitation['status'
     return value as ClientElicitation['status'];
 }
 
+function findElicitation(
+    turn: ClientTurnState,
+    elicitationId: string,
+): ClientElicitation | null {
+    const list = Array.isArray(turn.elicitations) ? turn.elicitations : [];
+    if (elicitationId) {
+        const match = list.find((item) => String(item?.elicitationId ?? '').trim() === elicitationId);
+        if (match) return match;
+        if (turn.elicitation && String(turn.elicitation.elicitationId ?? '').trim() === elicitationId) {
+            return turn.elicitation;
+        }
+    }
+    return turn.elicitation ?? list[0] ?? null;
+}
+
+function ensureElicitation(
+    turn: ClientTurnState,
+    source: WriteSource,
+    elicitationId?: string,
+): ClientElicitation {
+    const id = String(elicitationId ?? '').trim();
+    const existing = findElicitation(turn, id);
+    if (existing && (!id || String(existing.elicitationId ?? '').trim() === id)) {
+        return existing;
+    }
+    const created: ClientElicitation = { renderKey: allocateRenderKey() };
+    if (id) writeField(created, 'elicitationId', id, source);
+    if (!Array.isArray(turn.elicitations)) {
+        const initial = turn.elicitation ? [turn.elicitation] : [];
+        writeField(turn, 'elicitations', initial, source);
+    }
+    turn.elicitations!.push(created);
+    if (!turn.elicitation) {
+        writeField(turn, 'elicitation', created, source);
+    }
+    return created;
+}
+
+function syncPrimaryElicitation(turn: ClientTurnState, source: WriteSource): void {
+    const primary = Array.isArray(turn.elicitations) && turn.elicitations.length > 0
+        ? turn.elicitations[0]
+        : turn.elicitation ?? null;
+    if (primary && turn.elicitation !== primary) {
+        writeField(turn, 'elicitation', primary, source);
+    }
+}
+
 // ─── State construction helpers ────────────────────────────────────────────────
 
 export function newConversationState(conversationId: string): ClientConversationState {
@@ -1072,8 +1119,7 @@ function onToolCallDelta(state: ClientConversationState, event: SSEEvent): Clien
 function onElicitation(state: ClientConversationState, event: SSEEvent): ClientConversationState {
     const turn = resolveEventTurn(state, event);
     if (!turn) return state;
-    turn.elicitation = turn.elicitation ?? { renderKey: allocateRenderKey() };
-    const e = turn.elicitation as ClientElicitation;
+    const e = ensureElicitation(turn, 'event', event.elicitationId);
     if (event.elicitationId) writeField(e, 'elicitationId', event.elicitationId, 'event');
     const eventStatus = normalizeElicitationStatus(event.status);
     if (eventStatus) writeField(e, 'status', eventStatus, 'event');
@@ -1092,6 +1138,7 @@ function onElicitation(state: ClientConversationState, event: SSEEvent): ClientC
     if (event.type === 'elicitation_resolved' && !eventStatus) {
         writeField(e, 'status', 'accepted', 'event');
     }
+    syncPrimaryElicitation(turn, 'event');
     return state;
 }
 
@@ -1733,8 +1780,7 @@ function mergeTranscriptElicitation(
     turn: ClientTurnState,
     snapshot: NonNullable<CanonicalTurnState['elicitation']>,
 ): void {
-    turn.elicitation = turn.elicitation ?? { renderKey: allocateRenderKey() };
-    const e = turn.elicitation as ClientElicitation;
+    const e = ensureElicitation(turn, 'transcript', snapshot.elicitationId);
     if (snapshot.elicitationId) writeField(e, 'elicitationId', snapshot.elicitationId, 'transcript');
     const transcriptStatus = normalizeElicitationStatus(snapshot.status);
     if (transcriptStatus) {
@@ -1749,6 +1795,7 @@ function mergeTranscriptElicitation(
     if (snapshot.requestedSchema !== undefined) writeField(e, 'requestedSchema', snapshot.requestedSchema as ClientElicitation['requestedSchema'], 'transcript');
     if (snapshot.callbackUrl) writeField(e, 'callbackUrl', snapshot.callbackUrl, 'transcript');
     if (snapshot.responsePayload !== undefined) writeField(e, 'responsePayload', snapshot.responsePayload as ClientElicitation['responsePayload'], 'transcript');
+    syncPrimaryElicitation(turn, 'transcript');
 }
 
 function mergeTranscriptLinkedConversation(

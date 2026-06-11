@@ -120,6 +120,33 @@ describe('chatStore/projector — projectConversation', () => {
         expect(it.isStreaming).toBe(true);
     });
 
+    it('projects every concurrent elicitation on an iteration row', () => {
+        let state = applyEvent(fresh(), sse({
+            type: 'turn_started',
+            turnId: 'tn_elicit',
+            createdAt: '2025-01-01T00:00:00Z',
+        }));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_elicit',
+            elicitationId: 'elic_A3',
+            content: 'A3 critical dependency',
+            status: 'pending',
+        } as SSEEvent));
+        state = applyEvent(state, sse({
+            type: 'elicitation_requested',
+            turnId: 'tn_elicit',
+            elicitationId: 'elic_B3',
+            content: 'B3 critical dependency',
+            status: 'pending',
+        } as SSEEvent));
+
+        const rows = projectConversation(state);
+        const it = rows[0] as IterationRenderRow;
+        expect(it.elicitation?.elicitationId).toBe('elic_A3');
+        expect(it.elicitations?.map((elicitation) => elicitation.elicitationId)).toEqual(['elic_A3', 'elic_B3']);
+    });
+
     it('projects tool UI resources as separate MCP UI rows after the iteration row', () => {
         let state = applyEvent(fresh(), sse({
             type: 'turn_started',
