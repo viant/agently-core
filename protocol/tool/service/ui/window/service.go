@@ -114,6 +114,13 @@ type CommandOutput struct {
 	Error    string `json:"error,omitempty"`
 }
 
+type resolvedWindowTarget struct {
+	ClientID  string
+	Namespace string
+	Snapshot  *uireg.Snapshot
+	Window    *uireg.WindowSnapshot
+}
+
 type Service struct {
 	bridge *forgeuisvc.Service
 	reg    *uireg.Registry
@@ -244,6 +251,54 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
+func (s *Service) resolveWindowTarget(ctx context.Context, requestedClientID, windowID, windowKey string) (*resolvedWindowTarget, error) {
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	preferredClientID := normalizeOptionalClientID(requestedClientID)
+	if preferredClientID == "" {
+		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	}
+	clientID, namespace, snap, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, windowID, windowKey)
+	if err == nil {
+		return &resolvedWindowTarget{
+			ClientID:  clientID,
+			Namespace: namespace,
+			Snapshot:  snap,
+			Window:    win,
+		}, nil
+	}
+	if strings.TrimSpace(windowID) == "" {
+		return nil, err
+	}
+	clientTargetID := strings.TrimSpace(preferredClientID)
+	namespace = ""
+	if clientTargetID != "" {
+		clientSnap, findErr := s.reg.FindClient(ctx, clientTargetID)
+		if findErr != nil || clientSnap == nil {
+			return nil, err
+		}
+		namespace = strings.TrimSpace(clientSnap.Namespace)
+	} else {
+		items, listErr := s.reg.ListByConversation(ctx, conversationID)
+		if listErr != nil || len(items) != 1 {
+			return nil, err
+		}
+		clientTargetID = strings.TrimSpace(items[0].ClientID)
+		namespace = strings.TrimSpace(items[0].Namespace)
+	}
+	if clientTargetID == "" || namespace == "" {
+		return nil, err
+	}
+	return &resolvedWindowTarget{
+		ClientID:  clientTargetID,
+		Namespace: namespace,
+		Window: &uireg.WindowSnapshot{
+			WindowID:       strings.TrimSpace(windowID),
+			WindowKey:      strings.TrimSpace(windowKey),
+			ConversationID: conversationID,
+		},
+	}, nil
+}
+
 func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*ActivateInput)
 	if !ok {
@@ -253,17 +308,12 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	preferredClientID := normalizeOptionalClientID(input.ClientID)
-	if preferredClientID == "" {
-		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
-	}
-	clientID, namespace, snap, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, "")
+	target, err := s.resolveWindowTarget(ctx, input.ClientID, input.WindowID, "")
 	if err != nil {
 		return err
 	}
-	if windowAlreadyFocused(snap, win) {
-		output.ClientID = clientID
+	if windowAlreadyFocused(target.Snapshot, target.Window) {
+		output.ClientID = target.ClientID
 		output.OK = true
 		return nil
 	}
@@ -271,22 +321,22 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("ui bridge not configured")
 	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID:  clientID,
-		Namespace: namespace,
+		ClientID:  target.ClientID,
+		Namespace: target.Namespace,
 		Method:    "ui.window.activate",
 		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
 	})
 	if err != nil {
 		return err
 	}
-	output.ClientID = clientID
+	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
-		ConversationID: strings.TrimSpace(win.ConversationID),
-		ClientID:       clientID,
-		WindowID:       strings.TrimSpace(win.WindowID),
-		WindowKey:      strings.TrimSpace(win.WindowKey),
+	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(target.Window.ConversationID),
+		ClientID:       target.ClientID,
+		WindowID:       strings.TrimSpace(target.Window.WindowID),
+		WindowKey:      strings.TrimSpace(target.Window.WindowKey),
 		Kind:           "window.show",
 		Actor:          "agent",
 	})
@@ -308,19 +358,14 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 	if len(input.Values) == 0 {
 		return fmt.Errorf("values are required")
 	}
-	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	preferredClientID := normalizeOptionalClientID(input.ClientID)
-	if preferredClientID == "" {
-		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
-	}
-	clientID, namespace, _, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
+	target, err := s.resolveWindowTarget(ctx, input.ClientID, input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
-	targetWindowID := strings.TrimSpace(win.WindowID)
+	targetWindowID := strings.TrimSpace(target.Window.WindowID)
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID:  clientID,
-		Namespace: namespace,
+		ClientID:  target.ClientID,
+		Namespace: target.Namespace,
 		Method:    "ui.window.setFormData",
 		Params: map[string]interface{}{
 			"windowId": targetWindowID,
@@ -331,14 +376,14 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.ClientID = clientID
+	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
-		ConversationID: strings.TrimSpace(win.ConversationID),
-		ClientID:       clientID,
-		WindowID:       strings.TrimSpace(win.WindowID),
-		WindowKey:      strings.TrimSpace(win.WindowKey),
+	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(target.Window.ConversationID),
+		ClientID:       target.ClientID,
+		WindowID:       strings.TrimSpace(target.Window.WindowID),
+		WindowKey:      strings.TrimSpace(target.Window.WindowKey),
 		Kind:           "window.set_form_data",
 		Actor:          "agent",
 		Detail: map[string]interface{}{
@@ -368,32 +413,27 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	if s.bridge == nil {
 		return fmt.Errorf("ui bridge not configured")
 	}
-	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	preferredClientID := normalizeOptionalClientID(input.ClientID)
-	if preferredClientID == "" {
-		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
-	}
-	clientID, namespace, _, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, "")
+	target, err := s.resolveWindowTarget(ctx, input.ClientID, input.WindowID, "")
 	if err != nil {
 		return err
 	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID:  clientID,
-		Namespace: namespace,
+		ClientID:  target.ClientID,
+		Namespace: target.Namespace,
 		Method:    "ui.window.close",
 		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
 	})
 	if err != nil {
 		return err
 	}
-	output.ClientID = clientID
+	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
-		ConversationID: strings.TrimSpace(win.ConversationID),
-		ClientID:       clientID,
-		WindowID:       strings.TrimSpace(win.WindowID),
-		WindowKey:      strings.TrimSpace(win.WindowKey),
+	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(target.Window.ConversationID),
+		ClientID:       target.ClientID,
+		WindowID:       strings.TrimSpace(target.Window.WindowID),
+		WindowKey:      strings.TrimSpace(target.Window.WindowKey),
 		Kind:           "window.hide",
 		Actor:          "agent",
 	})
@@ -421,17 +461,13 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("tabId is required")
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	preferredClientID := normalizeOptionalClientID(input.ClientID)
-	if preferredClientID == "" {
-		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
-	}
-	clientID, namespace, _, _, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, windowID, "")
+	target, err := s.resolveWindowTarget(ctx, input.ClientID, windowID, "")
 	if err != nil {
 		return err
 	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
-		ClientID:  clientID,
-		Namespace: namespace,
+		ClientID:  target.ClientID,
+		Namespace: target.Namespace,
 		Method:    "ui.window.selectTab",
 		Params: map[string]interface{}{
 			"windowId": windowID,
@@ -441,12 +477,12 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.ClientID = clientID
+	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: conversationID,
-		ClientID:       clientID,
+		ClientID:       target.ClientID,
 		WindowID:       windowID,
 		Kind:           "tab.selected",
 		Actor:          "agent",
