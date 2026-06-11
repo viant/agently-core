@@ -279,8 +279,10 @@ export interface ClientTurnState extends EntityIdentity {
     assistantNarration?: ClientAssistantNarration | null;
     /** Optional planner lifecycle aggregate for this turn. */
     planner?: ClientPlannerState | null;
-    /** Pending turn-level elicitation (ui-improvement.md §6.3 renderable). */
+    /** Pending turn-level elicitation compatibility alias. Prefer `elicitations`. */
     elicitation?: ClientElicitation | null;
+    /** Turn-level elicitations, including concurrent root/proxy requests. */
+    elicitations?: ClientElicitation[];
     /** Linked conversations attached to this turn. */
     linkedConversations: ClientLinkedConversation[];
     /** Optional queue sequence for queued turns. */
