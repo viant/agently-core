@@ -322,6 +322,238 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	}
 }
 
+func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bridge.Hub().ServeWS(w, r)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]interface{}{
+		"type":     "ui.hello",
+		"clientId": "client-1",
+	}); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]interface{}{
+		"type":     "ui.snapshot",
+		"clientId": "client-1",
+		"data": map[string]interface{}{
+			"clientId":       "client-1",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "chat/new",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"windowTitle":    "Chat",
+					"conversationId": "conv-1",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		listOut := &ListOutput{}
+		if err := svc.list(ctx, &ListInput{}, listOut); err == nil && len(listOut.Items) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("client snapshot did not become visible to registry")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		out := &CommandOutput{}
+		err := svc.setFormData(ctx, &SetFormDataInput{
+			ClientID:  "client-1",
+			WindowID:  "forecastingCubeBuilder__conv-1",
+			WindowKey: "forecastingCubeBuilder",
+			Values: map[string]interface{}{
+				"prefill": map[string]interface{}{
+					"audienceIds": []interface{}{7288336},
+				},
+			},
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "client-1" {
+			done <- fmt.Errorf("unexpected output: %#v", out)
+			return
+		}
+		done <- nil
+	}()
+
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var request map[string]interface{}
+	if err := conn.ReadJSON(&request); err != nil {
+		select {
+		case callErr := <-done:
+			t.Fatalf("setFormData returned before command read: %v", callErr)
+		default:
+		}
+		t.Fatalf("read command: %v", err)
+	}
+	if got := request["method"]; got != "ui.window.setFormData" {
+		t.Fatalf("expected ui.window.setFormData command, got %#v", got)
+	}
+	params, ok := request["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected params map, got %#v", request["params"])
+	}
+	if got := params["windowId"]; got != "forecastingCubeBuilder__conv-1" {
+		t.Fatalf("expected fresh target window id, got %#v", got)
+	}
+
+	if err := conn.WriteJSON(map[string]interface{}{
+		"id": request["id"],
+		"ok": true,
+		"result": map[string]interface{}{
+			"ok": true,
+		},
+	}); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("setFormData failed: %v", err)
+	}
+}
+
+func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bridge.Hub().ServeWS(w, r)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]interface{}{
+		"type":     "ui.hello",
+		"clientId": "client-1",
+	}); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]interface{}{
+		"type":     "ui.snapshot",
+		"clientId": "client-1",
+		"data": map[string]interface{}{
+			"clientId":       "client-1",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "chat/new",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"windowTitle":    "Chat",
+					"conversationId": "conv-1",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		listOut := &ListOutput{}
+		if err := svc.list(ctx, &ListInput{}, listOut); err == nil && len(listOut.Items) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("client snapshot did not become visible to registry")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		out := &CommandOutput{}
+		err := svc.show(ctx, &ActivateInput{
+			ClientID: "client-1",
+			WindowID: "forecastingCubeBuilder__conv-1",
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "client-1" {
+			done <- fmt.Errorf("unexpected output: %#v", out)
+			return
+		}
+		done <- nil
+	}()
+
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var request map[string]interface{}
+	if err := conn.ReadJSON(&request); err != nil {
+		select {
+		case callErr := <-done:
+			t.Fatalf("show returned before command read: %v", callErr)
+		default:
+		}
+		t.Fatalf("read command: %v", err)
+	}
+	if got := request["method"]; got != "ui.window.activate" {
+		t.Fatalf("expected ui.window.activate command, got %#v", got)
+	}
+	params, ok := request["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected params map, got %#v", request["params"])
+	}
+	if got := params["windowId"]; got != "forecastingCubeBuilder__conv-1" {
+		t.Fatalf("expected fresh target window id, got %#v", got)
+	}
+
+	if err := conn.WriteJSON(map[string]interface{}{
+		"id": request["id"],
+		"ok": true,
+		"result": map[string]interface{}{
+			"ok": true,
+		},
+	}); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("show failed: %v", err)
+	}
+}
+
 func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFilter(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
