@@ -128,7 +128,7 @@ CREATE TABLE call_payload
                                                           ('model_request', 'model_response', 'provider_request',
                                                            'provider_response', 'model_stream', 'tool_request',
                                                            'tool_response', 'elicitation_request',
-                                                           'elicitation_response')),
+                                                           'elicitation_response', 'attachment')),
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
@@ -2204,5 +2204,38 @@ END $$
 
 CALL schema_upgrade_27() $$
 DROP PROCEDURE schema_upgrade_27 $$
+
+
+DROP PROCEDURE IF EXISTS schema_upgrade_28 $$
+CREATE PROCEDURE schema_upgrade_28()
+BEGIN
+    DECLARE has_constraint INT DEFAULT 0;
+
+    IF get_schema_version() = 28 THEN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'call_payload'
+        ) THEN
+            SELECT COUNT(*) INTO has_constraint
+            FROM information_schema.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'call_payload'
+              AND CONSTRAINT_NAME = 'call_payload_chk_1'
+              AND CONSTRAINT_TYPE = 'CHECK';
+            IF has_constraint > 0 THEN
+                ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
+            END IF;
+
+            ALTER TABLE call_payload
+                ADD CONSTRAINT call_payload_chk_1 CHECK ((kind IN ('model_request', 'model_response', 'provider_request', 'provider_response', 'model_stream', 'tool_request', 'tool_response', 'elicitation_request', 'elicitation_response', 'attachment')));
+        END IF;
+
+        CALL set_schema_version(29);
+    END IF;
+END $$
+
+CALL schema_upgrade_28() $$
+DROP PROCEDURE schema_upgrade_28 $$
 
 DELIMITER ;

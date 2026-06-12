@@ -10,10 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	"github.com/viant/agently-core/protocol/binding"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type stubConversationClient struct {
-	payloads map[string]*apiconv.Payload
+	payloads       map[string]*apiconv.Payload
+	generatedFiles []*gfread.GeneratedFileView
+	payloadWrites  []*apiconv.MutablePayload
+	messageWrites  []*apiconv.MutableMessage
 }
 
 func (s *stubConversationClient) GetPayload(ctx context.Context, id string) (*apiconv.Payload, error) {
@@ -33,10 +39,12 @@ func (s *stubConversationClient) PatchConversations(ctx context.Context, convers
 	return fmt.Errorf("not implemented")
 }
 func (s *stubConversationClient) PatchPayload(ctx context.Context, payload *apiconv.MutablePayload) error {
-	return fmt.Errorf("not implemented")
+	s.payloadWrites = append(s.payloadWrites, payload)
+	return nil
 }
 func (s *stubConversationClient) PatchMessage(ctx context.Context, message *apiconv.MutableMessage) error {
-	return fmt.Errorf("not implemented")
+	s.messageWrites = append(s.messageWrites, message)
+	return nil
 }
 func (s *stubConversationClient) GetMessage(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Message, error) {
 	return nil, fmt.Errorf("not implemented")
@@ -58,6 +66,99 @@ func (s *stubConversationClient) DeleteConversation(ctx context.Context, id stri
 }
 func (s *stubConversationClient) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
 	return fmt.Errorf("not implemented")
+}
+func (s *stubConversationClient) GetGeneratedFiles(ctx context.Context, input *gfread.Input) ([]*gfread.GeneratedFileView, error) {
+	var out []*gfread.GeneratedFileView
+	for _, file := range s.generatedFiles {
+		if file == nil {
+			continue
+		}
+		if input != nil && input.Has != nil {
+			if input.Has.ConversationID && file.ConversationID != input.ConversationID {
+				continue
+			}
+			if input.Has.ID && file.ID != input.ID {
+				continue
+			}
+		}
+		out = append(out, file)
+	}
+	return out, nil
+}
+func (s *stubConversationClient) PatchGeneratedFile(ctx context.Context, generatedFile *apiconv.MutableGeneratedFile) error {
+	return fmt.Errorf("not implemented")
+}
+
+func TestParseUploadedAttachmentURI(t *testing.T) {
+	fileID, conversationID := parseUploadedAttachmentURI("/v1/files/file-1?conversationId=conv-1")
+	assert.Equal(t, "file-1", fileID)
+	assert.Equal(t, "conv-1", conversationID)
+
+	fileID, conversationID = parseUploadedAttachmentURI("http://localhost:8080/v1/files/file-2?conversationId=conv-2")
+	assert.Equal(t, "file-2", fileID)
+	assert.Equal(t, "conv-2", conversationID)
+
+	fileID, conversationID = parseUploadedAttachmentURI("https://example.com/image.png")
+	assert.Empty(t, fileID)
+	assert.Empty(t, conversationID)
+}
+
+func TestResolveUploadedAttachmentLoadsGeneratedFilePayload(t *testing.T) {
+	payloadID := "payload-upload"
+	payloadBytes := []byte{0x89, 0x50, 0x4e, 0x47}
+	svc := &Service{
+		conversation: &stubConversationClient{
+			payloads: map[string]*apiconv.Payload{
+				payloadID: {
+					Id:         payloadID,
+					MimeType:   "image/png",
+					InlineBody: &payloadBytes,
+				},
+			},
+			generatedFiles: []*gfread.GeneratedFileView{{
+				ID:             "file-upload",
+				ConversationID: "conv-upload",
+				PayloadID:      strPtr(payloadID),
+				Filename:       strPtr("cat.png"),
+				MimeType:       strPtr("image/png"),
+			}},
+		},
+	}
+
+	att := &binding.Attachment{
+		URI: "/v1/files/file-upload?conversationId=conv-upload",
+	}
+	err := svc.resolveUploadedAttachment(context.Background(), runtimerequestctx.TurnMeta{
+		ConversationID: "conv-upload",
+	}, att)
+	require.NoError(t, err)
+	assert.Equal(t, "cat.png", att.Name)
+	assert.Equal(t, "image/png", att.Mime)
+	assert.Equal(t, payloadBytes, att.Data)
+	assert.Equal(t, payloadID, att.PayloadID)
+}
+
+func TestAddAttachmentReusesResolvedUploadPayload(t *testing.T) {
+	payloadID := "payload-upload"
+	client := &stubConversationClient{}
+	svc := &Service{conversation: client}
+
+	err := svc.addAttachment(context.Background(), runtimerequestctx.TurnMeta{
+		ConversationID:  "conv-upload",
+		TurnID:          "turn-upload",
+		ParentMessageID: "msg-user",
+	}, &binding.Attachment{
+		Name:      "cat.png",
+		URI:       "/v1/files/file-upload?conversationId=conv-upload",
+		Mime:      "image/png",
+		Data:      []byte{0x89, 0x50, 0x4e, 0x47},
+		PayloadID: payloadID,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, client.payloadWrites)
+	require.Len(t, client.messageWrites, 1)
+	require.NotNil(t, client.messageWrites[0].AttachmentPayloadID)
+	assert.Equal(t, payloadID, *client.messageWrites[0].AttachmentPayloadID)
 }
 
 func TestHistoryAttachmentCarriers_DataDriven(t *testing.T) {
