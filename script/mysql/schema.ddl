@@ -125,7 +125,7 @@ CREATE TABLE call_payload
                                                           ('model_request', 'model_response', 'provider_request',
                                                            'provider_response', 'model_stream', 'tool_request',
                                                            'tool_response', 'elicitation_request',
-                                                           'elicitation_response')),
+                                                           'elicitation_response', 'attachment')),
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,

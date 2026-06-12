@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -18,9 +20,11 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 )
@@ -121,7 +125,15 @@ func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx
 	used := s.llm.AttachmentUsage(turn.ConversationID)
 	var appended int64
 	for _, att := range input.Attachments {
-		if att == nil || len(att.Data) == 0 {
+		if att == nil {
+			continue
+		}
+		if len(att.Data) == 0 {
+			if err := s.resolveUploadedAttachment(ctx, turn, att); err != nil {
+				return err
+			}
+		}
+		if len(att.Data) == 0 {
 			continue
 		}
 		if limit > 0 {
@@ -148,6 +160,91 @@ func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx
 		_ = s.updateAttachmentUsageMetadata(ctx, turn.ConversationID, used+appended)
 	}
 	return nil
+}
+
+func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimerequestctx.TurnMeta, att *binding.Attachment) error {
+	if s == nil || s.conversation == nil || att == nil || len(att.Data) > 0 {
+		return nil
+	}
+	fileID, conversationID := parseUploadedAttachmentURI(att.URI)
+	if fileID == "" {
+		return nil
+	}
+	if conversationID == "" {
+		conversationID = strings.TrimSpace(turn.ConversationID)
+	}
+	if conversationID == "" {
+		return nil
+	}
+	gfc, ok := s.conversation.(apiconv.GeneratedFileClient)
+	if !ok {
+		return nil
+	}
+	files, err := gfc.GetGeneratedFiles(ctx, &gfread.Input{
+		ConversationID: conversationID,
+		ID:             fileID,
+		Has: &gfread.Has{
+			ConversationID: true,
+			ID:             true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("resolve uploaded attachment %s: %w", fileID, err)
+	}
+	for _, file := range files {
+		if file == nil || strings.TrimSpace(file.ID) != fileID || file.PayloadID == nil {
+			continue
+		}
+		payloadID := strings.TrimSpace(*file.PayloadID)
+		if payloadID == "" {
+			continue
+		}
+		payload, err := s.conversation.GetPayload(ctx, payloadID)
+		if err != nil {
+			return fmt.Errorf("load uploaded attachment payload %s: %w", payloadID, err)
+		}
+		if payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
+			continue
+		}
+		att.Data = append([]byte(nil), (*payload.InlineBody)...)
+		att.PayloadID = payloadID
+		if strings.TrimSpace(att.Name) == "" && file.Filename != nil {
+			att.Name = strings.TrimSpace(*file.Filename)
+		}
+		if strings.TrimSpace(att.Mime) == "" {
+			if file.MimeType != nil && strings.TrimSpace(*file.MimeType) != "" {
+				att.Mime = strings.TrimSpace(*file.MimeType)
+			} else if strings.TrimSpace(payload.MimeType) != "" {
+				att.Mime = strings.TrimSpace(payload.MimeType)
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
+func parseUploadedAttachmentURI(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", ""
+	}
+	uriPath := strings.TrimSpace(parsed.Path)
+	if uriPath == "" {
+		return "", ""
+	}
+	if !strings.HasPrefix(uriPath, "/v1/files/") {
+		return "", ""
+	}
+	fileID := strings.TrimSpace(path.Base(uriPath))
+	if fileID == "" || fileID == "." || fileID == "/" {
+		return "", ""
+	}
+	conversationID := strings.TrimSpace(parsed.Query().Get("conversationId"))
+	return fileID, conversationID
 }
 
 func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, output *QueryOutput) (string, error) {
