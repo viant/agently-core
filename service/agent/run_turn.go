@@ -303,6 +303,10 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if conversationPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
+	attachmentMessageErr := s.persistAttachmentCapabilityFailureMessage(patchCtx, turn, status, runErr)
+	if attachmentMessageErr != nil {
+		logx.Errorf("conversation", "agent.finalizeTurn attachment failure message failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), attachmentMessageErr)
+	}
 	// Patch the turn last. PatchTurn emits the terminal SSE event, so this ordering
 	// ensures transcript-level state (conversation + run) is already durable when
 	// the client observes turn_completed/turn_failed/turn_canceled.
@@ -328,6 +332,9 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if conversationPatchErr != nil {
 		errs = append(errs, fmt.Errorf("failed to update conversation: %w", conversationPatchErr))
 	}
+	if attachmentMessageErr != nil {
+		errs = append(errs, fmt.Errorf("failed to persist attachment failure message: %w", attachmentMessageErr))
+	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -336,6 +343,42 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	runtimerequestctx.CleanupTurn(turn.TurnID)
 	s.triggerQueueDrain(turn.ConversationID)
 	return nil
+}
+
+func (s *Service) persistAttachmentCapabilityFailureMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, status string, runErr error) error {
+	if s == nil || s.conversation == nil || runErr == nil {
+		return nil
+	}
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if normalizedStatus != "failed" && normalizedStatus != "error" {
+		return nil
+	}
+	content, ok := llm.AttachmentCapabilityUserMessage(runErr)
+	if !ok || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if conversationID == "" || turnID == "" {
+		return nil
+	}
+	messageID := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(turnID))
+	if messageID == "" {
+		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	}
+	if messageID == "" {
+		messageID = uuid.NewString()
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(messageID)
+	msg.SetConversationID(conversationID)
+	msg.SetTurnID(turnID)
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetContent(strings.TrimSpace(content))
+	msg.SetStatus("failed")
+	msg.SetInterim(0)
+	return s.conversation.PatchMessage(runtimerequestctx.WithMessageAddEvent(ctx), msg)
 }
 
 func (s *Service) patchConversationStatus(ctx context.Context, conversationID, status string) error {
