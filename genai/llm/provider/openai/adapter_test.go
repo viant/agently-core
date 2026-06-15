@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -418,6 +419,12 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		_, err := client.ToRequest(newReq("inline", "application/octet-stream"))
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), "unsupported inline binary content item mime type")
+			var capabilityErr *llm.AttachmentCapabilityError
+			assert.True(t, errors.As(err, &capabilityErr))
+			if assert.NotNil(t, capabilityErr) {
+				assert.Equal(t, "application/octet-stream", capabilityErr.MIMEType)
+				assert.Equal(t, "inline", capabilityErr.Mode)
+			}
 		}
 	})
 
@@ -453,6 +460,12 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		_, err := client.ToRequest(newReq("upload", "application/octet-stream"))
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), "unsupported uploaded binary content item mime type")
+			var capabilityErr *llm.AttachmentCapabilityError
+			assert.True(t, errors.As(err, &capabilityErr))
+			if assert.NotNil(t, capabilityErr) {
+				assert.Equal(t, "application/octet-stream", capabilityErr.MIMEType)
+				assert.Equal(t, "upload", capabilityErr.Mode)
+			}
 		}
 	})
 }

@@ -427,7 +427,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 						} else if strings.EqualFold(item.MimeType, "application/pdf") && item.Data != "" {
 							text, err := extractPDFContentItemText(item.Data, item.Name)
 							if err != nil {
-								return nil, fmt.Errorf("failed to extract PDF content item: %w", err)
+								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to extract PDF content item: %w", err))
 							}
 							if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
 								preview := text
@@ -442,13 +442,13 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 							}
 							contentItem.Text = text
 						} else {
-							return nil, fmt.Errorf("unsupported inline binary content item mime type: %q", item.MimeType)
+							return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("unsupported inline binary content item mime type: %q", item.MimeType))
 						}
 					} else {
 						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
 							fileID, err := c.uploadInputFileAndGetID(context.Background(), item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeVision)
 							if err != nil {
-								return nil, fmt.Errorf("failed to upload image content item: %w", err)
+								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to upload image content item: %w", err))
 							}
 							if _, ok := ToolCallIdToReplaceContent[msg.ToolCallId]; msg.Role == "tool" && ok {
 								msg.Content = fmt.Sprintf(`{"status":"ok","file_id":"%s","filename":"%s","bytes":%d}`, fileID, item.Name, len(item.Data))
@@ -460,7 +460,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) {
 							fileID, err := c.uploadInputFileAndGetID(context.Background(), item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeUserData)
 							if err != nil {
-								return nil, fmt.Errorf("failed to upload file content item: %w", err)
+								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to upload file content item: %w", err))
 							}
 							if _, ok := ToolCallIdToReplaceContent[msg.ToolCallId]; msg.Role == "tool" && ok {
 								msg.Content = fmt.Sprintf(`{"status":"ok","file_id":"%s","filename":"%s","bytes":%d}`, fileID, item.Name, len(item.Data))
@@ -470,7 +470,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 								contentItem.File = &File{FileID: fileID}
 							}
 						} else {
-							return nil, fmt.Errorf("unsupported uploaded binary content item mime type: %q", item.MimeType)
+							return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("unsupported uploaded binary content item mime type: %q", item.MimeType))
 						}
 					}
 				}
