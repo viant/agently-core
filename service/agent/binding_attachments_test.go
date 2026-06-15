@@ -266,3 +266,173 @@ func TestHistoryAttachmentCarriers_DataDriven(t *testing.T) {
 		})
 	}
 }
+
+func TestHistoryAttachmentCarrierDoesNotDuplicateExpandedParentView(t *testing.T) {
+	now := time.Now().UTC()
+	payloadID := "payload-1"
+	payloadBytes := []byte{0x25, 0x50, 0x44, 0x46}
+	viewBytes := append([]byte(nil), payloadBytes...)
+	payloadURI := "file:///tmp/story.pdf"
+
+	svc := &Service{
+		conversation: &stubConversationClient{
+			payloads: map[string]*apiconv.Payload{
+				payloadID: {
+					Id:         payloadID,
+					MimeType:   "application/pdf",
+					InlineBody: &payloadBytes,
+					URI:        strPtr(payloadURI),
+				},
+			},
+		},
+	}
+
+	parent := &apiconv.Message{
+		Id:        "msg-user",
+		Role:      "user",
+		Type:      "text",
+		Content:   strPtr("what's in this file?"),
+		CreatedAt: now,
+		Attachment: []*agconv.AttachmentView{
+			{
+				InlineBody:      &viewBytes,
+				MimeType:        "application/pdf",
+				ParentMessageId: strPtr("msg-user"),
+			},
+		},
+	}
+	carrier := &apiconv.Message{
+		Id:                  "msg-att",
+		Role:                "user",
+		Type:                "control",
+		Content:             strPtr("story.pdf"),
+		CreatedAt:           now.Add(time.Millisecond),
+		ParentMessageId:     strPtr(parent.Id),
+		AttachmentPayloadId: strPtr(payloadID),
+	}
+	turn := &apiconv.Turn{
+		Id:      "turn-1",
+		Message: []*agconv.MessageView{(*agconv.MessageView)(parent), (*agconv.MessageView)(carrier)},
+	}
+
+	hist, err := svc.buildHistory(context.Background(), apiconv.Transcript{turn})
+	require.NoError(t, err)
+	require.Len(t, hist.Past, 1)
+	require.Len(t, hist.Past[0].Messages, 1)
+
+	got := hist.Past[0].Messages[0]
+	require.NotNil(t, got)
+	require.Len(t, got.Attachment, 1)
+	assert.Equal(t, "story.pdf", got.Attachment[0].Name)
+	assert.Equal(t, payloadURI, got.Attachment[0].URI)
+	assert.Equal(t, "application/pdf", got.Attachment[0].Mime)
+	assert.Equal(t, payloadBytes, got.Attachment[0].Data)
+}
+
+func TestHistoryAttachmentViewOnlyParentStillWorks(t *testing.T) {
+	now := time.Now().UTC()
+	viewBytes := []byte{0x89, 0x50, 0x4e, 0x47}
+	parent := &apiconv.Message{
+		Id:        "msg-user",
+		Role:      "user",
+		Type:      "text",
+		Content:   strPtr("analyze this"),
+		CreatedAt: now,
+		Attachment: []*agconv.AttachmentView{
+			{
+				InlineBody:      &viewBytes,
+				Uri:             strPtr("file:///tmp/view-only.png"),
+				MimeType:        "image/png",
+				ParentMessageId: strPtr("msg-user"),
+			},
+		},
+	}
+	turn := &apiconv.Turn{
+		Id:      "turn-1",
+		Message: []*agconv.MessageView{(*agconv.MessageView)(parent)},
+	}
+
+	hist, err := (&Service{}).buildHistory(context.Background(), apiconv.Transcript{turn})
+	require.NoError(t, err)
+	require.Len(t, hist.Past, 1)
+	require.Len(t, hist.Past[0].Messages, 1)
+
+	got := hist.Past[0].Messages[0]
+	require.NotNil(t, got)
+	require.Len(t, got.Attachment, 1)
+	assert.Equal(t, "view-only.png", got.Attachment[0].Name)
+	assert.Equal(t, "file:///tmp/view-only.png", got.Attachment[0].URI)
+	assert.Equal(t, "image/png", got.Attachment[0].Mime)
+	assert.Equal(t, viewBytes, got.Attachment[0].Data)
+}
+
+func TestHistoryMultipleAttachmentCarriersDoNotDuplicateExpandedParentView(t *testing.T) {
+	now := time.Now().UTC()
+	firstPayload := []byte{0x01}
+	secondPayload := []byte{0x02}
+	firstView := append([]byte(nil), firstPayload...)
+	secondView := append([]byte(nil), secondPayload...)
+	svc := &Service{
+		conversation: &stubConversationClient{
+			payloads: map[string]*apiconv.Payload{
+				"payload-1": {
+					Id:         "payload-1",
+					MimeType:   "image/png",
+					InlineBody: &firstPayload,
+					URI:        strPtr("file:///tmp/one.png"),
+				},
+				"payload-2": {
+					Id:         "payload-2",
+					MimeType:   "image/png",
+					InlineBody: &secondPayload,
+					URI:        strPtr("file:///tmp/two.png"),
+				},
+			},
+		},
+	}
+
+	parent := &apiconv.Message{
+		Id:        "msg-user",
+		Role:      "user",
+		Type:      "text",
+		Content:   strPtr("compare these"),
+		CreatedAt: now,
+		Attachment: []*agconv.AttachmentView{
+			{InlineBody: &firstView, MimeType: "image/png", ParentMessageId: strPtr("msg-user")},
+			{InlineBody: &secondView, MimeType: "image/png", ParentMessageId: strPtr("msg-user")},
+		},
+	}
+	firstCarrier := &apiconv.Message{
+		Id:                  "msg-att-1",
+		Role:                "user",
+		Type:                "control",
+		Content:             strPtr("one.png"),
+		CreatedAt:           now.Add(time.Millisecond),
+		ParentMessageId:     strPtr(parent.Id),
+		AttachmentPayloadId: strPtr("payload-1"),
+	}
+	secondCarrier := &apiconv.Message{
+		Id:                  "msg-att-2",
+		Role:                "user",
+		Type:                "control",
+		Content:             strPtr("two.png"),
+		CreatedAt:           now.Add(2 * time.Millisecond),
+		ParentMessageId:     strPtr(parent.Id),
+		AttachmentPayloadId: strPtr("payload-2"),
+	}
+	turn := &apiconv.Turn{
+		Id:      "turn-1",
+		Message: []*agconv.MessageView{(*agconv.MessageView)(parent), (*agconv.MessageView)(firstCarrier), (*agconv.MessageView)(secondCarrier)},
+	}
+
+	hist, err := svc.buildHistory(context.Background(), apiconv.Transcript{turn})
+	require.NoError(t, err)
+	require.Len(t, hist.Past, 1)
+	require.Len(t, hist.Past[0].Messages, 1)
+
+	got := hist.Past[0].Messages[0]
+	require.NotNil(t, got)
+	require.Len(t, got.Attachment, 2)
+	assert.Equal(t, "one.png", got.Attachment[0].Name)
+	assert.Equal(t, "two.png", got.Attachment[1].Name)
+}
