@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -18,7 +16,6 @@ import (
 	"github.com/viant/agently-core/internal/shared"
 	overwrap "github.com/viant/agently-core/protocol/tool/overflow"
 
-	pdf "github.com/ledongthuc/pdf"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -371,7 +368,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		message := Message{
 			Role: string(msg.Role),
 		}
-		isAssistant := msg.Role == llm.RoleAssistant
 		// Propagate speaker name only for user/assistant roles
 		if msg.Role == llm.RoleUser || msg.Role == llm.RoleAssistant {
 			message.Name = msg.Name
@@ -419,28 +415,16 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 					}
 				case llm.ContentTypeBinary:
 					if attachMode == "inline" {
-						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
+						if isOpenAIInlineImageSupported(item.MimeType, item.Name) && item.Data != "" {
 							// For images, inline as data URL to support vision (OpenAI expects image_url)
 							contentItem.Type = "image_url"
-							dataURL := "data:" + item.MimeType + ";base64," + item.Data
-							contentItem.ImageURL = &ImageURL{URL: dataURL}
-						} else if strings.EqualFold(item.MimeType, "application/pdf") && item.Data != "" {
-							text, err := extractPDFContentItemText(item.Data, item.Name)
-							if err != nil {
-								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to extract PDF content item: %w", err))
+							contentItem.ImageURL = &ImageURL{URL: dataURLForBase64(openAIInlineImageMimeType(item.MimeType, item.Name), item.Data)}
+						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) && item.Data != "" {
+							contentItem.Type = "file"
+							contentItem.File = &File{
+								FileName: defaultInputFileName(item.Name, item.MimeType),
+								FileData: dataURLForBase64(item.MimeType, item.Data),
 							}
-							if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
-								preview := text
-								if len(preview) > 120 {
-									preview = preview[:120]
-								}
-								_, _ = fmt.Fprintf(os.Stderr, "[pdf-inline-convert] type=%q preview=%q\n", contentItem.Type, preview)
-							}
-							contentItem.Type = "input_text"
-							if isAssistant {
-								contentItem.Type = "output_text"
-							}
-							contentItem.Text = text
 						} else {
 							return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("unsupported inline binary content item mime type: %q", item.MimeType))
 						}
@@ -555,49 +539,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	return req, nil
 }
 
-func extractPDFContentItemText(base64Data string, name string) (string, error) {
-	raw := strings.TrimSpace(base64Data)
-	data, err := base64.StdEncoding.DecodeString(raw)
-	if err != nil || !bytes.HasPrefix(data, []byte("%PDF-")) {
-		data = []byte(raw)
-	}
-	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
-		decodedPrefix := ""
-		if len(data) > 0 {
-			end := len(data)
-			if end > 16 {
-				end = 16
-			}
-			decodedPrefix = fmt.Sprintf("%q", string(data[:end]))
-		}
-		_, _ = fmt.Fprintf(os.Stderr, "[pdf-extract] name=%q raw_len=%d decoded_len=%d prefix=%s\n", name, len(raw), len(data), decodedPrefix)
-	}
-	if !bytes.HasPrefix(data, []byte("%PDF-")) {
-		return "", fmt.Errorf("not a PDF file: invalid header")
-	}
-	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return "", err
-	}
-	plain, err := reader.GetPlainText()
-	if err != nil {
-		return "", err
-	}
-	body, err := io.ReadAll(plain)
-	if err != nil {
-		return "", err
-	}
-	text := strings.TrimSpace(string(body))
-	if text == "" {
-		return "", fmt.Errorf("pdf text content was empty")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "attachment.pdf"
-	}
-	return fmt.Sprintf("PDF attachment %s:\n%s", name, text), nil
-}
-
 // ToRequest is a convenience wrapper retained for backward-compatible tests.
 // It constructs a default client and adapts an llm.GenerateRequest to provider Request.
 // Errors are ignored in this wrapper; callers requiring error handling should use Client.ToRequest.
@@ -620,6 +561,55 @@ func isOpenAIInputFileSupported(mimeType, name string) bool {
 		return true
 	}
 	return false
+}
+
+func isOpenAIInlineImageSupported(mimeType, name string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	ext := strings.ToLower(path.Ext(strings.TrimSpace(name)))
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif":
+		return true
+	}
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+		return true
+	}
+	return false
+}
+
+func openAIInlineImageMimeType(mimeType, name string) string {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif":
+		if mimeType == "image/jpg" {
+			return "image/jpeg"
+		}
+		return mimeType
+	}
+	switch strings.ToLower(path.Ext(strings.TrimSpace(name))) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return mimeType
+	}
+}
+
+func dataURLForBase64(mimeType, base64Data string) string {
+	mimeType = strings.TrimSpace(mimeType)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	data := strings.TrimSpace(base64Data)
+	if strings.HasPrefix(data, "data:") {
+		return data
+	}
+	return "data:" + mimeType + ";base64," + data
 }
 
 var supportedOpenAIInputFileExt = map[string]bool{

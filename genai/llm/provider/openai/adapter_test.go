@@ -365,6 +365,21 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		if mime == "application/pdf" {
 			data = minimalPDFBase64
 		}
+		name := "sample.bin"
+		switch mime {
+		case "application/pdf":
+			name = "sample.pdf"
+		case "text/plain":
+			name = "sample.txt"
+		case "text/csv":
+			name = "sample.csv"
+		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+			name = "sample.docx"
+		case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+			name = "sample.xlsx"
+		case "image/avif":
+			name = "sample.avif"
+		}
 		return &llm.GenerateRequest{
 			Messages: []llm.Message{
 				{
@@ -374,7 +389,7 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 							Type:     llm.ContentTypeBinary,
 							MimeType: mime,
 							Data:     data,
-							Name:     "sample.bin",
+							Name:     name,
 						},
 					},
 				},
@@ -403,15 +418,81 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("inline supports image by extension when mime is empty", func(t *testing.T) {
+		req := newReq("inline", "")
+		req.Messages[0].Items[0].Name = "sample.jpeg"
+		got, err := client.ToRequest(req)
+		assert.NoError(t, err)
+		assert.Len(t, got.Messages, 1)
+		items, ok := got.Messages[0].Content.([]ContentItem)
+		if assert.True(t, ok) && assert.Len(t, items, 1) {
+			assert.Equal(t, "image_url", items[0].Type)
+			if assert.NotNil(t, items[0].ImageURL) {
+				assert.Contains(t, items[0].ImageURL.URL, "data:image/jpeg;base64,")
+			}
+		}
+	})
+
 	t.Run("inline supports pdf", func(t *testing.T) {
 		got, err := client.ToRequest(newReq("inline", "application/pdf"))
 		assert.NoError(t, err)
 		assert.Len(t, got.Messages, 1)
 		items, ok := got.Messages[0].Content.([]ContentItem)
 		if assert.True(t, ok) && assert.Len(t, items, 1) {
-			assert.Equal(t, "input_text", items[0].Type)
-			assert.Contains(t, items[0].Text, "PDF attachment sample.bin:")
-			assert.Contains(t, items[0].Text, "Hello PDF")
+			assert.Equal(t, "file", items[0].Type)
+			if assert.NotNil(t, items[0].File) {
+				assert.Equal(t, "sample.pdf", items[0].File.FileName)
+				assert.Contains(t, items[0].File.FileData, "data:application/pdf;base64,")
+			}
+		}
+
+		responseItems := toResponsesContentItems(got.Messages[0].Content, false)
+		if assert.Len(t, responseItems, 1) {
+			assert.Equal(t, "input_file", responseItems[0].Type)
+			assert.Equal(t, "sample.pdf", responseItems[0].FileName)
+			assert.Contains(t, responseItems[0].FileData, "data:application/pdf;base64,")
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		mime string
+	}{
+		{name: "text", mime: "text/plain"},
+		{name: "csv", mime: "text/csv"},
+		{name: "docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		{name: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+	} {
+		t.Run("inline supports "+tc.name, func(t *testing.T) {
+			got, err := client.ToRequest(newReq("inline", tc.mime))
+			assert.NoError(t, err)
+			assert.Len(t, got.Messages, 1)
+			items, ok := got.Messages[0].Content.([]ContentItem)
+			if assert.True(t, ok) && assert.Len(t, items, 1) {
+				assert.Equal(t, "file", items[0].Type)
+				if assert.NotNil(t, items[0].File) {
+					assert.Contains(t, items[0].File.FileData, "data:"+tc.mime+";base64,")
+				}
+			}
+
+			responseItems := toResponsesContentItems(got.Messages[0].Content, false)
+			if assert.Len(t, responseItems, 1) {
+				assert.Equal(t, "input_file", responseItems[0].Type)
+				assert.Contains(t, responseItems[0].FileData, "data:"+tc.mime+";base64,")
+			}
+		})
+	}
+
+	t.Run("inline rejects unsupported image mime", func(t *testing.T) {
+		_, err := client.ToRequest(newReq("inline", "image/avif"))
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "unsupported inline binary content item mime type")
+			var capabilityErr *llm.AttachmentCapabilityError
+			assert.True(t, errors.As(err, &capabilityErr))
+			if assert.NotNil(t, capabilityErr) {
+				assert.Equal(t, "image/avif", capabilityErr.MIMEType)
+				assert.Equal(t, "inline", capabilityErr.Mode)
+			}
 		}
 	})
 
@@ -491,6 +572,29 @@ func TestOpenAIInputFileSupport(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name+" "+tc.mime, func(t *testing.T) {
 			assert.Equal(t, tc.want, isOpenAIInputFileSupported(tc.mime, tc.name))
+		})
+	}
+}
+
+func TestOpenAIInlineImageSupport(t *testing.T) {
+	cases := []struct {
+		name string
+		mime string
+		want bool
+	}{
+		{name: "photo.png", mime: "image/png", want: true},
+		{name: "photo.jpg", mime: "image/jpeg", want: true},
+		{name: "photo.jpeg", mime: "", want: true},
+		{name: "photo.webp", mime: "image/webp", want: true},
+		{name: "photo.gif", mime: "image/gif", want: true},
+		{name: "photo.avif", mime: "image/avif", want: false},
+		{name: "vector.svg", mime: "image/svg+xml", want: false},
+		{name: "archive.zip", mime: "application/zip", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name+" "+tc.mime, func(t *testing.T) {
+			assert.Equal(t, tc.want, isOpenAIInlineImageSupported(tc.mime, tc.name))
 		})
 	}
 }
