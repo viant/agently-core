@@ -76,3 +76,13 @@ func TestRelevanceProjection_Defaults(t *testing.T) {
 	require.Equal(t, 1, relevance.ProtectedTurns())
 	require.Equal(t, 20000, relevance.Threshold())
 }
+
+func TestDefaultsUnmarshalYAMLReporting(t *testing.T) {
+	input := `
+reporting:
+  enabled: true
+`
+	var got Defaults
+	require.NoError(t, yaml.Unmarshal([]byte(input), &got))
+	require.True(t, got.Reporting.Enabled)
+}

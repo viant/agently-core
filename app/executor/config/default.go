@@ -19,7 +19,8 @@ type Defaults struct {
 	Model      string
 	Embedder   string
 	Agent      string
-	Skills     SkillsDefaults `yaml:"skills,omitempty" json:"skills,omitempty"`
+	Skills     SkillsDefaults    `yaml:"skills,omitempty" json:"skills,omitempty"`
+	Reporting  ReportingDefaults `yaml:"reporting,omitempty" json:"reporting,omitempty"`
 	// RuntimeRoot allows separating runtime state (db, snapshots, indexes) from the workspace.
 	// Supports ${workspaceRoot}. When empty, defaults to ${workspaceRoot}.
 	RuntimeRoot string `yaml:"runtimeRoot,omitempty" json:"runtimeRoot,omitempty"`
@@ -98,15 +99,16 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	type raw struct {
-		AppName     string         `yaml:"appName,omitempty"`
-		AppIconRef  string         `yaml:"appIconRef,omitempty"`
-		Model       string         `yaml:"model"`
-		Embedder    string         `yaml:"embedder"`
-		Agent       string         `yaml:"agent"`
-		Skills      SkillsDefaults `yaml:"skills,omitempty"`
-		RuntimeRoot string         `yaml:"runtimeRoot,omitempty"`
-		StatePath   string         `yaml:"statePath,omitempty"`
-		DBPath      string         `yaml:"dbPath,omitempty"`
+		AppName     string            `yaml:"appName,omitempty"`
+		AppIconRef  string            `yaml:"appIconRef,omitempty"`
+		Model       string            `yaml:"model"`
+		Embedder    string            `yaml:"embedder"`
+		Agent       string            `yaml:"agent"`
+		Skills      SkillsDefaults    `yaml:"skills,omitempty"`
+		Reporting   ReportingDefaults `yaml:"reporting,omitempty"`
+		RuntimeRoot string            `yaml:"runtimeRoot,omitempty"`
+		StatePath   string            `yaml:"statePath,omitempty"`
+		DBPath      string            `yaml:"dbPath,omitempty"`
 
 		AgentAutoSelection AgentAutoSelectionDefaults `yaml:"agentAutoSelection,omitempty"`
 		ToolAutoSelection  ToolAutoSelectionDefaults  `yaml:"toolAutoSelection,omitempty"`
@@ -147,6 +149,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		Embedder:    tmp.Embedder,
 		Agent:       tmp.Agent,
 		Skills:      tmp.Skills,
+		Reporting:   tmp.Reporting,
 		RuntimeRoot: tmp.RuntimeRoot,
 		StatePath:   tmp.StatePath,
 		DBPath:      tmp.DBPath,
@@ -191,6 +194,10 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 type SkillsDefaults struct {
 	Roots []string `yaml:"roots,omitempty" json:"roots,omitempty"`
 	Model string   `yaml:"model,omitempty" json:"model,omitempty"`
+}
+
+type ReportingDefaults struct {
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 }
 
 // ToolApprovalDefaults defines global tool approval behavior.

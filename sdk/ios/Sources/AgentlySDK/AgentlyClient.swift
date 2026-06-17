@@ -48,12 +48,20 @@ public final class AgentlyClient: Sendable {
         let _: EmptyResponse = try await post("/v1/api/auth/logout", body: EmptyResponse(), as: EmptyResponse.self)
     }
 
-    public func oauthInitiate() async throws -> OAuthInitiateOutput {
-        try await post("/v1/api/auth/oauth/initiate", body: EmptyResponse(), as: OAuthInitiateOutput.self)
+    public func oauthInitiate(_ input: OAuthInitiateInput = OAuthInitiateInput()) async throws -> OAuthInitiateOutput {
+        try await post("/v1/api/auth/oauth/initiate", body: input, as: OAuthInitiateOutput.self)
+    }
+
+    public func oauthMobileInitiate(_ input: OAuthInitiateInput) async throws -> OAuthInitiateOutput {
+        try await post("/v1/api/auth/oauth/mobile/initiate", body: input, as: OAuthInitiateOutput.self)
     }
 
     public func oauthCallback(_ input: OAuthCallbackInput) async throws -> OAuthCallbackOutput {
         try await post("/v1/api/auth/oauth/callback", body: input, as: OAuthCallbackOutput.self)
+    }
+
+    public func oauthMobileCallback(_ input: OAuthCallbackInput) async throws -> OAuthCallbackOutput {
+        try await post("/v1/api/auth/oauth/mobile/callback", body: input, as: OAuthCallbackOutput.self)
     }
 
     public func getOAuthConfig() async throws -> OAuthConfigOutput {
@@ -62,6 +70,10 @@ public final class AgentlyClient: Sendable {
 
     public func createAuthSession(_ input: CreateSessionInput) async throws -> CreateSessionOutput {
         try await post("/v1/api/auth/session", body: input, as: CreateSessionOutput.self)
+    }
+
+    public func attachAuthSession(_ input: AttachSessionInput) async throws -> AttachSessionOutput {
+        try await post("/v1/api/auth/session/attach", body: input, as: AttachSessionOutput.self)
     }
 
     public func oobLogin(_ input: OOBLoginInput) async throws -> OOBLoginOutput {

@@ -18,13 +18,15 @@ import (
 )
 
 type oauthInitiateResponse struct {
-	AuthURL string
-	State   string
+	AuthURL     string
+	State       string
+	RedirectURI string
 }
 
 type oauthStatePayload struct {
 	CodeVerifier string `json:"codeVerifier"`
 	ReturnURL    string `json:"returnURL,omitempty"`
+	RedirectURI  string `json:"redirectURI,omitempty"`
 }
 
 func callbackURL(r *http.Request, configuredPath string) string {

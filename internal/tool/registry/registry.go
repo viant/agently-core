@@ -711,6 +711,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	}
 	convID := runtimerequestctx.ConversationIDFromContext(ctx)
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 
 	// virtual tool?
 	r.mu.RLock()
@@ -785,7 +786,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Deduplicate rapid identical calls per conversation (memoization)
 	// Key uses fully qualified tool name and a stable JSON for args.
 	keyArgs, _ := json.Marshal(callArgs)
-	recentKey := baseName + "|" + string(keyArgs)
+	recentKey := userID + "|" + baseName + "|" + string(keyArgs)
 	if r.recentTTL > 0 {
 		r.recentMu.Lock()
 		if m := r.recentResults[convID]; m != nil {

@@ -495,4 +495,180 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
             selectedWindowId: 'report_2656980__conv-1',
         });
     });
+
+    it('merges completed ui/window:setFormData values into the opened hosted window form', () => {
+        expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
+            {
+                turnId: 'turn-1',
+                execution: {
+                    pages: [
+                        {
+                            toolSteps: [
+                                {
+                                    toolName: 'ui/view/open',
+                                    status: 'completed',
+                                    responsePayload: {
+                                        windowId: 'reportBuilder__conv-1',
+                                        conversationId: 'conv-1',
+                                        windowKey: 'reportBuilder',
+                                        windowTitle: 'Report Builder',
+                                        presentation: 'hosted',
+                                        region: 'chat.top',
+                                        parentKey: 'chat/new',
+                                        selectedWindowId: 'reportBuilder__conv-1',
+                                        windowForm: {
+                                            prefill: {
+                                                accountId: 7,
+                                            },
+                                        },
+                                    },
+                                },
+                                {
+                                    toolName: 'ui/window:setFormData',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        windowId: 'reportBuilder__conv-1',
+                                        values: {
+                                            prefill: {
+                                                recordId: 123,
+                                            },
+                                        },
+                                    },
+                                    responsePayload: {
+                                        ok: true,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as any,
+        ])).toEqual({
+            windows: [
+                {
+                    windowId: 'reportBuilder__conv-1',
+                    conversationId: 'conv-1',
+                    windowKey: 'reportBuilder',
+                    windowTitle: 'Report Builder',
+                    presentation: 'hosted',
+                    region: 'chat.top',
+                    parentKey: 'chat/new',
+                    inTab: true,
+                    parameters: {},
+                    windowForm: {
+                        prefill: {
+                            accountId: 7,
+                            recordId: 123,
+                        },
+                    },
+                },
+            ],
+            selectedWindowId: 'reportBuilder__conv-1',
+        });
+    });
+
+    it('supports inline-body ui/window/setFormData payloads and replace mode', () => {
+        expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
+            {
+                turnId: 'turn-1',
+                execution: {
+                    pages: [
+                        {
+                            toolSteps: [
+                                {
+                                    toolName: 'ui/view/open',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        InlineBody: JSON.stringify({
+                                            id: 'reportBuilder',
+                                            parameters: {},
+                                        }),
+                                        Compression: 'none',
+                                    },
+                                    responsePayload: {
+                                        InlineBody: JSON.stringify({
+                                            conversationId: 'conv-1',
+                                            items: [
+                                                {
+                                                    conversationId: 'conv-1',
+                                                    parentKey: 'chat/new',
+                                                    presentation: 'hosted',
+                                                    region: 'chat.top',
+                                                    windowId: 'reportBuilder__conv-1',
+                                                    windowKey: 'reportBuilder',
+                                                    windowTitle: 'Report Builder',
+                                                    windowForm: {
+                                                        reportBuilder: {
+                                                            reportDocumentTitle: 'Saved title',
+                                                        },
+                                                    },
+                                                },
+                                            ],
+                                            selectedWindowId: 'reportBuilder__conv-1',
+                                        }),
+                                        Compression: 'none',
+                                    },
+                                },
+                                {
+                                    toolName: 'ui/window/setFormData',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        InlineBody: JSON.stringify({
+                                            windowId: 'reportBuilder__conv-1',
+                                            values: {
+                                                prefill: {
+                                                    country: ['US'],
+                                                    recordIds: [123],
+                                                },
+                                            },
+                                        }),
+                                        Compression: 'none',
+                                    },
+                                    responsePayload: {
+                                        ok: true,
+                                    },
+                                },
+                                {
+                                    toolName: 'ui/window/setFormData',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        windowId: 'reportBuilder__conv-1',
+                                        values: {
+                                            reportBuilder: {
+                                                reportDocumentTitle: 'Replaced title',
+                                            },
+                                        },
+                                        replace: true,
+                                    },
+                                    responsePayload: {
+                                        ok: true,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as any,
+        ])).toEqual({
+            windows: [
+                {
+                    windowId: 'reportBuilder__conv-1',
+                    conversationId: 'conv-1',
+                    windowKey: 'reportBuilder',
+                    windowTitle: 'Report Builder',
+                    presentation: 'hosted',
+                    region: 'chat.top',
+                    parentKey: 'chat/new',
+                    inTab: true,
+                    parameters: {},
+                    windowForm: {
+                        reportBuilder: {
+                            reportDocumentTitle: 'Replaced title',
+                        },
+                    },
+                },
+            ],
+            selectedWindowId: 'reportBuilder__conv-1',
+        });
+    });
 });

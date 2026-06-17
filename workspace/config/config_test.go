@@ -12,6 +12,9 @@ func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 		Model:    "fallback-model",
 		Embedder: "fallback-embedder",
 		Agent:    "fallback-agent",
+		Reporting: execconfig.ReportingDefaults{
+			Enabled: false,
+		},
 		PreviewSettings: execconfig.PreviewSettings{
 			Limit:           1000,
 			AgedLimit:       200,
@@ -27,6 +30,8 @@ func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 	const yamlConfig = `
 default:
   model: openai_gpt-5_4
+  reporting:
+    enabled: true
   skills:
     model: openai_gpt-5.4-mini
   previewSettings:
@@ -49,6 +54,9 @@ default:
 
 	if got.Model != "openai_gpt-5_4" {
 		t.Fatalf("expected merged model, got %q", got.Model)
+	}
+	if !got.Reporting.Enabled {
+		t.Fatalf("expected reporting enabled to merge from workspace defaults")
 	}
 	if got.Skills.Model != "openai_gpt-5.4-mini" {
 		t.Fatalf("expected merged skills model, got %q", got.Skills.Model)

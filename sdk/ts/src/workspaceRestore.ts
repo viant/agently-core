@@ -116,6 +116,27 @@ function hostedWorkspaceWindowsFromListPayload(raw: unknown): WorkspaceWindowSna
         .filter((item): item is WorkspaceWindowSnapshot => !!item);
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneValue<T>(value: T): T {
+    return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function mergeWindowFormValue(base: unknown, patch: unknown): unknown {
+    if (patch === undefined) return cloneValue(base);
+    if (base === undefined) return cloneValue(patch);
+    if (Array.isArray(base) || Array.isArray(patch)) return cloneValue(patch);
+    if (!isPlainObject(base) || !isPlainObject(patch)) return cloneValue(patch);
+    const merged: Record<string, unknown> = { ...base };
+    const keys = new Set([...Object.keys(base), ...Object.keys(patch)]);
+    keys.forEach((key) => {
+        merged[key] = mergeWindowFormValue(base[key], patch[key]);
+    });
+    return merged;
+}
+
 function selectedWindowIdFromToolSteps(toolSteps: any[], windows: WorkspaceWindowSnapshot[]): string {
     const windowIds = new Set(windows.map((window) => String(window.windowId || '').trim()).filter(Boolean));
     if (windowIds.size === 0) return '';
@@ -171,6 +192,46 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
     return normalized ? [normalized] : [];
 }
 
+function targetHostedWorkspaceWindows(windows: WorkspaceWindowSnapshot[], requestPayload: any): WorkspaceWindowSnapshot[] {
+    const targetWindowId = String(requestPayload?.windowId || '').trim();
+    if (targetWindowId) {
+        return windows.filter((window) => String(window?.windowId || '').trim() === targetWindowId);
+    }
+    const targetWindowKey = String(requestPayload?.windowKey || '').trim();
+    if (!targetWindowKey) {
+        return [];
+    }
+    const matches = windows.filter((window) => String(window?.windowKey || '').trim() === targetWindowKey);
+    return matches.length === 1 ? matches : [];
+}
+
+function applySetFormDataSteps(toolSteps: any[], windows: WorkspaceWindowSnapshot[], baseIndex: number): WorkspaceWindowSnapshot[] {
+    const resolved = windows.map((window) => ({
+        ...window,
+        ...(window.windowForm && isPlainObject(window.windowForm)
+            ? { windowForm: cloneValue(window.windowForm) as Record<string, unknown> }
+            : {}),
+    }));
+    for (let index = Math.max(baseIndex + 1, 0); index < toolSteps.length; index += 1) {
+        const step = toolSteps[index] || {};
+        if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
+        const toolName = normalizeToolName(step?.toolName);
+        if (toolName !== 'ui/window/setformdata') continue;
+        const requestPayload = firstParsedPayload(step?.requestPayload);
+        const values = requestPayload?.values;
+        if (!isPlainObject(values)) continue;
+        const replace = requestPayload?.replace === true;
+        const targets = targetHostedWorkspaceWindows(resolved, requestPayload);
+        if (targets.length === 0) continue;
+        targets.forEach((window) => {
+            window.windowForm = replace
+                ? cloneValue(values) as Record<string, unknown>
+                : mergeWindowFormValue(window.windowForm, values) as Record<string, unknown>;
+        });
+    }
+    return resolved;
+}
+
 export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn[] = []): HostedWorkspaceRestoreState | null {
     const list = Array.isArray(turns) ? turns : [];
     const toolSteps = toolStepsForTurn(list[list.length - 1]);
@@ -180,7 +241,11 @@ export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn
         if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
         const toolName = normalizeToolName(step?.toolName);
         if (toolName === 'ui/window/list') {
-            const windows = hostedWorkspaceWindowsFromListPayload(firstParsedPayload(step?.responsePayload, step?.content));
+            const windows = applySetFormDataSteps(
+                toolSteps,
+                hostedWorkspaceWindowsFromListPayload(firstParsedPayload(step?.responsePayload, step?.content)),
+                i,
+            );
             if (windows.length === 0) continue;
             return {
                 windows,
@@ -188,7 +253,7 @@ export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn
             };
         }
         if (toolName === 'ui/view/open') {
-            const windows = hostedWorkspaceWindowsFromViewOpenStep(step);
+            const windows = applySetFormDataSteps(toolSteps, hostedWorkspaceWindowsFromViewOpenStep(step), i);
             if (windows.length === 0) continue;
             const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);
             const selectedWindowId = String(responsePayload?.selectedWindowId || '').trim()

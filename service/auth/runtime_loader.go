@@ -2,9 +2,13 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -16,6 +20,7 @@ import (
 	"github.com/viant/datly"
 	"github.com/viant/scy"
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
+	authmeta "github.com/viant/scy/auth/metadata"
 )
 
 func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (*Runtime, error) {
@@ -94,6 +99,16 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 		jwtService = NewJWTService(cfg.JWT)
 		if err := jwtService.Init(ctx); err != nil {
 			return nil, fmt.Errorf("unable to initialize jwt service: %w", err)
+		}
+	} else if verifyCfg, err := oauthVerifierConfig(ctx, cfg); err != nil {
+		log.Printf("[auth-oauth] warning: unable to derive oauth jwt verifier: %v", err)
+	} else if verifyCfg != nil {
+		v := vcfg.New(verifyCfg)
+		if err := v.Init(ctx); err != nil {
+			log.Printf("[auth-oauth] warning: oauth jwt verifier init failed: %v", err)
+		} else {
+			jwtVerifier = v
+			log.Printf("[auth-oauth] jwt verifier enabled from oauth metadata cert_url=%q", strings.TrimSpace(verifyCfg.CertURL))
 		}
 	}
 
@@ -179,6 +194,9 @@ func expandAuthEnvTemplates(cfg *Config) {
 			cfg.OAuth.Client.DiscoveryURL = expandAuthEnvString(cfg.OAuth.Client.DiscoveryURL)
 			cfg.OAuth.Client.JWKSURL = expandAuthEnvString(cfg.OAuth.Client.JWKSURL)
 			cfg.OAuth.Client.RedirectURI = expandAuthEnvString(cfg.OAuth.Client.RedirectURI)
+			for i := range cfg.OAuth.Client.RedirectURIs {
+				cfg.OAuth.Client.RedirectURIs[i] = expandAuthEnvString(cfg.OAuth.Client.RedirectURIs[i])
+			}
 			cfg.OAuth.Client.ClientID = expandAuthEnvString(cfg.OAuth.Client.ClientID)
 			cfg.OAuth.Client.Issuer = expandAuthEnvString(cfg.OAuth.Client.Issuer)
 			for i := range cfg.OAuth.Client.Scopes {
@@ -238,4 +256,109 @@ func (c *Config) tokenRefreshLead() time.Duration {
 		return 30 * time.Minute
 	}
 	return time.Duration(c.TokenRefreshLeadMinutes) * time.Minute
+}
+
+func oauthVerifierConfig(ctx context.Context, cfg *Config) (*vcfg.Config, error) {
+	if cfg == nil || cfg.OAuth == nil || cfg.OAuth.Client == nil {
+		return nil, nil
+	}
+	client := cfg.OAuth.Client
+	if certURL := strings.TrimSpace(client.JWKSURL); certURL != "" {
+		return &vcfg.Config{CertURL: certURL}, nil
+	}
+	if discoveryURL := strings.TrimSpace(client.DiscoveryURL); discoveryURL != "" {
+		jwksURL, err := fetchOpenIDJWKSURL(ctx, discoveryURL)
+		if err != nil {
+			return nil, err
+		}
+		return &vcfg.Config{CertURL: jwksURL}, nil
+	}
+	if issuer := strings.TrimSpace(client.Issuer); issuer != "" {
+		jwksURL, err := fetchIssuerJWKSURL(ctx, issuer)
+		if err != nil {
+			return nil, err
+		}
+		return &vcfg.Config{CertURL: jwksURL}, nil
+	}
+	if configURL := strings.TrimSpace(client.ConfigURL); configURL != "" {
+		oauthCfg, err := loadOAuthClientConfig(ctx, configURL)
+		if err != nil {
+			return nil, err
+		}
+		if issuer := issuerFromAuthURL(oauthCfg.Endpoint.AuthURL); issuer != "" {
+			jwksURL, err := fetchIssuerJWKSURL(ctx, issuer)
+			if err != nil {
+				return nil, err
+			}
+			return &vcfg.Config{CertURL: jwksURL}, nil
+		}
+	}
+	return nil, nil
+}
+
+func fetchIssuerJWKSURL(ctx context.Context, issuer string) (string, error) {
+	if meta, err := authmeta.FetchAuthorizationServerMetadata(ctx, issuer, nil); err == nil && meta != nil && strings.TrimSpace(meta.JSONWebKeySetURI) != "" {
+		return strings.TrimSpace(meta.JSONWebKeySetURI), nil
+	}
+	discoveryURL, err := openIDDiscoveryURL(issuer)
+	if err != nil {
+		return "", err
+	}
+	return fetchOpenIDJWKSURL(ctx, discoveryURL)
+}
+
+func fetchOpenIDJWKSURL(ctx context.Context, discoveryURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(discoveryURL), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("openid discovery returned status %d", resp.StatusCode)
+	}
+	var payload authmeta.OpenIDConfiguration
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+	jwksURL := strings.TrimSpace(payload.JwksURI)
+	if jwksURL == "" {
+		return "", fmt.Errorf("openid discovery missing jwks_uri")
+	}
+	return jwksURL, nil
+}
+
+func issuerFromAuthURL(authURL string) string {
+	authURL = strings.TrimSpace(authURL)
+	if authURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(authURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	dir := path.Dir(parsed.Path)
+	switch dir {
+	case ".", "/":
+		parsed.Path = ""
+	default:
+		parsed.Path = dir
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/")
+}
+
+func openIDDiscoveryURL(issuer string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(issuer))
+	if err != nil {
+		return "", err
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/.well-known/openid-configuration"
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
 }

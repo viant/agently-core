@@ -40,6 +40,17 @@ public struct AuthUser: Codable, Sendable {
 public struct OAuthInitiateOutput: Codable, Sendable {
     public let authURL: String?
     public let authUrl: String?
+    public let redirectURI: String?
+}
+
+public struct OAuthInitiateInput: Codable, Sendable {
+    public let redirectURI: String?
+    public let returnURL: String?
+
+    public init(redirectURI: String? = nil, returnURL: String? = nil) {
+        self.redirectURI = redirectURI
+        self.returnURL = returnURL
+    }
 }
 
 public struct OAuthCallbackInput: Codable, Sendable {
@@ -54,13 +65,38 @@ public struct OAuthCallbackInput: Codable, Sendable {
 
 public struct OAuthCallbackOutput: Codable, Sendable {
     public let success: Bool?
+    public let status: String?
+    public let sessionID: String?
+    public let username: String?
+    public let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case status
+        case sessionID = "sessionId"
+        case username
+        case provider
+    }
 }
 
 public struct OAuthConfigOutput: Codable, Sendable {
     public let scopes: [String]
+    public let redirectURIs: [String]
 
-    public init(scopes: [String] = []) {
+    public init(scopes: [String] = [], redirectURIs: [String] = []) {
         self.scopes = scopes
+        self.redirectURIs = redirectURIs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case scopes
+        case redirectURIs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scopes = try container.decodeIfPresent([String].self, forKey: .scopes) ?? []
+        redirectURIs = try container.decodeIfPresent([String].self, forKey: .redirectURIs) ?? []
     }
 }
 
@@ -2192,6 +2228,36 @@ public struct CreateSessionOutput: Codable, Sendable {
     }
 
     public init(sessionID: String, username: String? = nil) {
+        self.sessionID = sessionID
+        self.username = username
+    }
+}
+
+public struct AttachSessionInput: Codable, Sendable {
+    public let sessionID: String
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+    }
+
+    public init(sessionID: String) {
+        self.sessionID = sessionID
+    }
+}
+
+public struct AttachSessionOutput: Codable, Sendable {
+    public let status: String?
+    public let sessionID: String?
+    public let username: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case sessionID = "sessionId"
+        case username
+    }
+
+    public init(status: String? = nil, sessionID: String? = nil, username: String? = nil) {
+        self.status = status
         self.sessionID = sessionID
         self.username = username
     }

@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
+	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
 	"github.com/viant/agently-core/genai/embedder"
 	"github.com/viant/agently-core/genai/llm"
 	token "github.com/viant/agently-core/internal/auth/token"
@@ -33,6 +34,7 @@ import (
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	reportingsvc "github.com/viant/agently-core/service/reporting"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/hotswap"
@@ -65,6 +67,7 @@ type Runtime struct {
 	Skills            *skillsvc.Service
 	SkillWatcher      *skillsvc.Watcher
 	CallbackDispatch  *callbacksvc.Service
+	Reporting         *reportingsvc.Service
 	Store             workspace.Store
 	KnowledgeStore    workspace.KnowledgeStore
 	StateStore        workspace.StateStore
@@ -106,6 +109,7 @@ type Builder struct {
 	knowledgeStore    workspace.KnowledgeStore
 	stateStore        workspace.StateStore
 	tokenProvider     token.Provider
+	reportingService  *reportingsvc.Service
 }
 
 func NewBuilder() *Builder { return &Builder{} }
@@ -171,6 +175,10 @@ func (b *Builder) WithStateStore(v workspace.StateStore) *Builder {
 }
 func (b *Builder) WithTokenProvider(v token.Provider) *Builder {
 	b.tokenProvider = v
+	return b
+}
+func (b *Builder) WithReportingService(v *reportingsvc.Service) *Builder {
+	b.reportingService = v
 	return b
 }
 
@@ -363,6 +371,20 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	if out.Skills != nil {
 		if err := tool.AddInternalService(out.Registry, out.Skills); err != nil {
+			return nil, err
+		}
+	}
+	if out.Reporting == nil && b.reportingService != nil {
+		out.Reporting = b.reportingService
+	}
+	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
+		out.Reporting = reportingsvc.New(reportingsvc.Options{
+			Compiler: reportingsvc.NewReportSpecCompiler(nil),
+			Store:    reportingsvc.NewStoreAdapter(reportfs.New(b.stateStore)),
+		})
+	}
+	if out.Registry != nil && out.Reporting != nil {
+		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
 			return nil, err
 		}
 	}

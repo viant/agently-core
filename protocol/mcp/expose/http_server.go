@@ -25,8 +25,8 @@ func NewHTTPServer(ctx context.Context, exec Executor, cfg *ServerConfig) (*http
 		return nil, fmt.Errorf("mcp server: invalid port %d", cfg.Port)
 	}
 	patterns := cfg.ToolPatterns()
-	if cfg.Port != 0 && len(patterns) == 0 {
-		return nil, fmt.Errorf("mcp server: tool.items patterns required when port is set")
+	if cfg.Enabled() && len(patterns) == 0 {
+		return nil, fmt.Errorf("mcp server: tool.items patterns required when MCP server is enabled")
 	}
 
 	h := NewToolHandler(exec, patterns)
@@ -41,6 +41,9 @@ func NewHTTPServer(ctx context.Context, exec Executor, cfg *ServerConfig) (*http
 	}
 	srv.UseStreamableHTTP(true)
 
-	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+	addr := cfg.ListenAddr()
+	if addr == "" {
+		return nil, fmt.Errorf("mcp server: listen address is empty")
+	}
 	return srv.HTTP(ctx, addr), nil
 }
