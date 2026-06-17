@@ -79,7 +79,7 @@ func toMutableSchedule(schedule *Schedule, isUpdate bool) *schedwrite.Schedule {
 	if schedule.ModelOverride != nil && strings.TrimSpace(*schedule.ModelOverride) != "" {
 		mut.SetModelOverride(strings.TrimSpace(*schedule.ModelOverride))
 	}
-	if schedule.UserCredURL != nil && strings.TrimSpace(*schedule.UserCredURL) != "" {
+	if schedule.UserCredURL != nil && (isUpdate || strings.TrimSpace(*schedule.UserCredURL) != "") {
 		mut.SetUserCredURL(strings.TrimSpace(*schedule.UserCredURL))
 	}
 	if isUpdate || schedule.Enabled {
@@ -106,7 +106,7 @@ func toMutableSchedule(schedule *Schedule, isUpdate bool) *schedwrite.Schedule {
 	if isUpdate || schedule.TimeoutSeconds > 0 {
 		mut.SetTimeoutSeconds(schedule.TimeoutSeconds)
 	}
-	if schedule.TaskPromptURI != nil && strings.TrimSpace(*schedule.TaskPromptURI) != "" {
+	if schedule.TaskPromptURI != nil && (isUpdate || strings.TrimSpace(*schedule.TaskPromptURI) != "") {
 		mut.SetTaskPromptUri(strings.TrimSpace(*schedule.TaskPromptURI))
 	}
 	if schedule.TaskPrompt != nil && strings.TrimSpace(*schedule.TaskPrompt) != "" {
