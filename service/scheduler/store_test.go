@@ -264,6 +264,117 @@ func TestHandler_BatchUpdateUpdatesDescriptionAndTaskPrompt(t *testing.T) {
 	assertScheduleTextFields(t, db, "sched-http-update-1", "after", "goodbye")
 }
 
+func TestHandler_BatchUpdateDescriptionPreservesNextRunAt(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	nextRunAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO schedule (
+			id, name, description, visibility, agent_ref, enabled, schedule_type, cron_expr, timezone,
+			next_run_at, timeout_seconds, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "sched-description-preserve", "Description Preserve", "before", "public", "simple", 1, "cron", "0 9 * * *", "UTC", nextRunAt, 0, createdAt, createdAt); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+
+	body, err := json.Marshal(map[string]interface{}{
+		"schedules": []map[string]interface{}{
+			{
+				"id":           "sched-description-preserve",
+				"name":         "Description Preserve",
+				"description":  "after",
+				"visibility":   "public",
+				"agentRef":     "simple",
+				"enabled":      true,
+				"scheduleType": "cron",
+				"cronExpr":     "0 9 * * *",
+				"timezone":     "UTC",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/v1/api/agently/scheduler/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.handleBatchUpdate()(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("update unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var description string
+	var gotNextRunAt time.Time
+	if err := db.QueryRowContext(context.Background(), `SELECT description, next_run_at FROM schedule WHERE id = ?`, "sched-description-preserve").Scan(&description, &gotNextRunAt); err != nil {
+		t.Fatalf("query schedule error: %v", err)
+	}
+	if description != "after" {
+		t.Fatalf("description = %q, want after", description)
+	}
+	if !gotNextRunAt.Equal(nextRunAt) {
+		t.Fatalf("next_run_at = %s, want %s", gotNextRunAt, nextRunAt)
+	}
+}
+
+func TestHandler_BatchUpdateEnableClearsNextRunAt(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	nextRunAt := time.Date(2026, 5, 9, 9, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO schedule (
+			id, name, visibility, agent_ref, enabled, schedule_type, cron_expr, timezone,
+			next_run_at, timeout_seconds, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "sched-enable-clear", "Enable Clear", "public", "simple", 0, "cron", "0 9 * * *", "UTC", nextRunAt, 0, createdAt, createdAt); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+
+	body, err := json.Marshal(map[string]interface{}{
+		"schedules": []map[string]interface{}{
+			{
+				"id":           "sched-enable-clear",
+				"name":         "Enable Clear",
+				"visibility":   "public",
+				"agentRef":     "simple",
+				"enabled":      true,
+				"scheduleType": "cron",
+				"cronExpr":     "0 9 * * *",
+				"timezone":     "UTC",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/v1/api/agently/scheduler/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.handleBatchUpdate()(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("update unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var enabled bool
+	var gotNextRunAt sql.NullTime
+	if err := db.QueryRowContext(context.Background(), `SELECT enabled, next_run_at FROM schedule WHERE id = ?`, "sched-enable-clear").Scan(&enabled, &gotNextRunAt); err != nil {
+		t.Fatalf("query schedule error: %v", err)
+	}
+	if !enabled {
+		t.Fatalf("expected schedule to be enabled")
+	}
+	if gotNextRunAt.Valid {
+		t.Fatalf("expected next_run_at to be cleared, got %s", gotNextRunAt.Time)
+	}
+}
+
 func TestHandler_DeleteScheduleRemovesOwnedRow(t *testing.T) {
 	store, db := newTestStore(t)
 	svc := New(store, nil)

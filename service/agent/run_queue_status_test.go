@@ -141,6 +141,74 @@ func TestService_FinalizeTurn_UpdatesStarterMessageStatus(t *testing.T) {
 	}
 }
 
+func TestService_FinalizeTurn_PersistsAttachmentCapabilityFailureMessage(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	svc := &Service{conversation: client}
+	seedTurnState(t, ctx, client, "c1", "t1", "m1", "pending")
+
+	turn := memory.TurnMeta{
+		ConversationID:  "c1",
+		TurnID:          "t1",
+		ParentMessageID: "m1",
+	}
+	runErr := llm.NewAttachmentCapabilityError(
+		"sample.mp3",
+		"audio/mpeg",
+		"openai_gpt-5.5",
+		"ref",
+		errors.New("unsupported uploaded binary content item mime type: \"audio/mpeg\""),
+	)
+	gotErr := svc.finalizeTurn(ctx, turn, "failed", runErr)
+	require.ErrorIs(t, gotErr, runErr)
+
+	gotConv, err := client.GetConversation(ctx, "c1")
+	require.NoError(t, err)
+	require.NotNil(t, gotConv)
+	require.Len(t, gotConv.Transcript, 1)
+
+	var failureContent string
+	var failureStatus *string
+	for _, msg := range gotConv.Transcript[0].Message {
+		if msg == nil || msg.Role != "assistant" {
+			continue
+		}
+		failureContent = valueOrEmpty(msg.Content)
+		failureStatus = msg.Status
+		break
+	}
+	require.NotEmpty(t, failureContent)
+	require.Contains(t, failureContent, "This attachment cannot be processed by the selected model or attachment mode.")
+	require.Contains(t, failureContent, "sample.mp3")
+	require.Contains(t, failureContent, "audio/mpeg")
+	require.NotNil(t, failureStatus)
+	require.Equal(t, "failed", *failureStatus)
+}
+
+func TestService_FinalizeTurn_DoesNotPersistGenericFailureMessage(t *testing.T) {
+	ctx := context.Background()
+	client := memconv.New()
+	svc := &Service{conversation: client}
+	seedTurnState(t, ctx, client, "c1", "t1", "m1", "pending")
+
+	turn := memory.TurnMeta{
+		ConversationID:  "c1",
+		TurnID:          "t1",
+		ParentMessageID: "m1",
+	}
+	runErr := errors.New("plain model failure")
+	gotErr := svc.finalizeTurn(ctx, turn, "failed", runErr)
+	require.ErrorIs(t, gotErr, runErr)
+
+	gotConv, err := client.GetConversation(ctx, "c1")
+	require.NoError(t, err)
+	require.NotNil(t, gotConv)
+	require.Len(t, gotConv.Transcript, 1)
+	for _, msg := range gotConv.Transcript[0].Message {
+		require.False(t, msg != nil && msg.Role == "assistant", "generic failures should keep existing transcript behavior")
+	}
+}
+
 func TestService_RegisterTurnCancel_UpdatesStarterMessageStatus(t *testing.T) {
 	ctx := context.Background()
 	client := memconv.New()

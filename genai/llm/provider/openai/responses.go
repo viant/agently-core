@@ -379,6 +379,10 @@ func toResponsesContentItems(content interface{}, isAssistant bool) []ResponsesC
 					url = it.ImageURL.URL
 				}
 				items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
+			case "image_file":
+				if it.File != nil && it.File.FileID != "" {
+					items = append(items, ResponsesContentItem{Type: "input_image", FileID: it.File.FileID})
+				}
 			case "file":
 				if it.File != nil && it.File.FileID != "" {
 					items = append(items, ResponsesContentItem{Type: "input_file", FileID: it.File.FileID})
@@ -420,6 +424,12 @@ func toResponsesContentItems(content interface{}, isAssistant bool) []ResponsesC
 					}
 					if url != "" {
 						items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
+					}
+				case "image_file":
+					if f, ok := mp["file"].(map[string]interface{}); ok {
+						if id, _ := f["file_id"].(string); id != "" {
+							items = append(items, ResponsesContentItem{Type: "input_image", FileID: id})
+						}
 					}
 				}
 			}

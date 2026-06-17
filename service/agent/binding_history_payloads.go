@@ -216,11 +216,14 @@ func isAttachmentCarrier(msg *apiconv.Message) bool {
 	return len(msg.Attachment) > 0
 }
 
-func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Message, cache map[string]*binding.Attachment) ([]*binding.Attachment, error) {
+func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Message, cache map[string]*binding.Attachment, includeView bool) ([]*binding.Attachment, error) {
 	if msg == nil {
 		return nil, nil
 	}
-	attachments := attachmentsFromMessageView(msg)
+	var attachments []*binding.Attachment
+	if includeView {
+		attachments = attachmentsFromMessageView(msg)
+	}
 
 	if msg.AttachmentPayloadId == nil || strings.TrimSpace(*msg.AttachmentPayloadId) == "" {
 		return attachments, nil

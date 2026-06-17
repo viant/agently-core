@@ -54,6 +54,22 @@ type normalizedMsg struct {
 	msg     *apiconv.Message
 }
 
+func parentMessageIDsWithAttachmentCarriers(messages []normalizedMsg) map[string]bool {
+	result := map[string]bool{}
+	for _, item := range messages {
+		msg := item.msg
+		if msg == nil || !isAttachmentCarrier(msg) || msg.ParentMessageId == nil {
+			continue
+		}
+		parentID := strings.TrimSpace(*msg.ParentMessageId)
+		if parentID == "" {
+			continue
+		}
+		result[parentID] = true
+	}
+	return result
+}
+
 // buildHistoryWithLimit maps transcript into prompt history applying overflow
 // preview to user/assistant text messages and collecting current-turn
 // elicitation messages separately.
@@ -222,6 +238,8 @@ func (s *Service) buildChronologicalHistory(
 		}
 	}
 
+	parentsWithAttachmentCarrier := parentMessageIDsWithAttachmentCarriers(normalized)
+
 	overflow := false
 	maxOverflowBytes := 0
 	turns := make([]*binding.Turn, len(transcript))
@@ -257,7 +275,11 @@ func (s *Service) buildChronologicalHistory(
 			}
 		}
 
-		attachments, err := s.attachmentsFromMessage(ctx, msg, payloadAttachmentCache)
+		includeAttachmentView := true
+		if parentsWithAttachmentCarrier[strings.TrimSpace(msg.Id)] {
+			includeAttachmentView = false
+		}
+		attachments, err := s.attachmentsFromMessage(ctx, msg, payloadAttachmentCache, includeAttachmentView)
 		if err != nil {
 			return nil, err
 		}

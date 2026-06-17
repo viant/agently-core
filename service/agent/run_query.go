@@ -497,11 +497,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}()
 	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q parent_message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(turn.ParentMessageID))
 
+	//???
 	// Intake sidecar: runs after the turn is active so turn_started is the
-	// first execution lifecycle event, but before tool selection so its output
-	// still informs bundle/routing decisions.
+	// first execution lifecycle event, but after the visible user rows exist so
+	// live/history views do not temporarily replace optimistic rows with blanks.
 	s.maybeRunIntakeSidecar(ctx, input)
-
+	//???
 	if input.SkipInitialUserMessage {
 		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	} else {
@@ -511,6 +512,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
+
+	if err := s.processAttachments(ctx, turn, input); err != nil {
+		return err
+	}
+	logx.Infof("conversation", "agent.Query processAttachments ok convo=%q turn_id=%q count=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(input.Attachments))
 
 	if handled, err := s.maybeRunDirectAction(ctx, input, output); handled {
 		if err != nil {
@@ -548,11 +554,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	logx.Infof("conversation", "agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
 	logx.Infof("conversation", "agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
-
-	if err := s.processAttachments(ctx, turn, input); err != nil {
-		return err
-	}
-	logx.Infof("conversation", "agent.Query processAttachments ok convo=%q turn_id=%q count=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(input.Attachments))
 
 	if s.defaults != nil && s.defaults.ToolCallTimeoutSec > 0 {
 		d := time.Duration(s.defaults.ToolCallTimeoutSec) * time.Second
@@ -703,19 +704,22 @@ func (s *Service) resolveToolPolicy(input *QueryInput) *tool.Policy {
 }
 
 func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.TurnMeta, att *bindpkg.Attachment) error {
-	pid := uuid.New().String()
-	payload := apiconv.NewPayload()
-	payload.SetId(pid)
-	payload.SetKind("model_request")
-	payload.SetMimeType(att.MIMEType())
-	payload.SetSizeBytes(len(att.Data))
-	payload.SetStorage("inline")
-	payload.SetInlineBody(att.Data)
-	if strings.TrimSpace(att.URI) != "" {
-		payload.SetURI(att.URI)
-	}
-	if err := s.conversation.PatchPayload(ctx, payload); err != nil {
-		return fmt.Errorf("failed to persist attachment payload: %w", err)
+	pid := strings.TrimSpace(att.PayloadID)
+	if pid == "" {
+		pid = uuid.New().String()
+		payload := apiconv.NewPayload()
+		payload.SetId(pid)
+		payload.SetKind("model_request")
+		payload.SetMimeType(att.MIMEType())
+		payload.SetSizeBytes(len(att.Data))
+		payload.SetStorage("inline")
+		payload.SetInlineBody(att.Data)
+		if strings.TrimSpace(att.URI) != "" {
+			payload.SetURI(att.URI)
+		}
+		if err := s.conversation.PatchPayload(ctx, payload); err != nil {
+			return fmt.Errorf("failed to persist attachment payload: %w", err)
+		}
 	}
 
 	parentMsgID := strings.TrimSpace(turn.ParentMessageID)

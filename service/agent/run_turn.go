@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -18,9 +20,11 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
+	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 )
@@ -121,7 +125,15 @@ func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx
 	used := s.llm.AttachmentUsage(turn.ConversationID)
 	var appended int64
 	for _, att := range input.Attachments {
-		if att == nil || len(att.Data) == 0 {
+		if att == nil {
+			continue
+		}
+		if len(att.Data) == 0 {
+			if err := s.resolveUploadedAttachment(ctx, turn, att); err != nil {
+				return err
+			}
+		}
+		if len(att.Data) == 0 {
 			continue
 		}
 		if limit > 0 {
@@ -148,6 +160,91 @@ func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx
 		_ = s.updateAttachmentUsageMetadata(ctx, turn.ConversationID, used+appended)
 	}
 	return nil
+}
+
+func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimerequestctx.TurnMeta, att *binding.Attachment) error {
+	if s == nil || s.conversation == nil || att == nil || len(att.Data) > 0 {
+		return nil
+	}
+	fileID, conversationID := parseUploadedAttachmentURI(att.URI)
+	if fileID == "" {
+		return nil
+	}
+	if conversationID == "" {
+		conversationID = strings.TrimSpace(turn.ConversationID)
+	}
+	if conversationID == "" {
+		return nil
+	}
+	gfc, ok := s.conversation.(apiconv.GeneratedFileClient)
+	if !ok {
+		return nil
+	}
+	files, err := gfc.GetGeneratedFiles(ctx, &gfread.Input{
+		ConversationID: conversationID,
+		ID:             fileID,
+		Has: &gfread.Has{
+			ConversationID: true,
+			ID:             true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("resolve uploaded attachment %s: %w", fileID, err)
+	}
+	for _, file := range files {
+		if file == nil || strings.TrimSpace(file.ID) != fileID || file.PayloadID == nil {
+			continue
+		}
+		payloadID := strings.TrimSpace(*file.PayloadID)
+		if payloadID == "" {
+			continue
+		}
+		payload, err := s.conversation.GetPayload(ctx, payloadID)
+		if err != nil {
+			return fmt.Errorf("load uploaded attachment payload %s: %w", payloadID, err)
+		}
+		if payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
+			continue
+		}
+		att.Data = append([]byte(nil), (*payload.InlineBody)...)
+		att.PayloadID = payloadID
+		if strings.TrimSpace(att.Name) == "" && file.Filename != nil {
+			att.Name = strings.TrimSpace(*file.Filename)
+		}
+		if strings.TrimSpace(att.Mime) == "" {
+			if file.MimeType != nil && strings.TrimSpace(*file.MimeType) != "" {
+				att.Mime = strings.TrimSpace(*file.MimeType)
+			} else if strings.TrimSpace(payload.MimeType) != "" {
+				att.Mime = strings.TrimSpace(payload.MimeType)
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
+func parseUploadedAttachmentURI(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", ""
+	}
+	uriPath := strings.TrimSpace(parsed.Path)
+	if uriPath == "" {
+		return "", ""
+	}
+	if !strings.HasPrefix(uriPath, "/v1/files/") {
+		return "", ""
+	}
+	fileID := strings.TrimSpace(path.Base(uriPath))
+	if fileID == "" || fileID == "." || fileID == "/" {
+		return "", ""
+	}
+	conversationID := strings.TrimSpace(parsed.Query().Get("conversationId"))
+	return fileID, conversationID
 }
 
 func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, output *QueryOutput) (string, error) {
@@ -206,6 +303,10 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if conversationPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
+	attachmentMessageErr := s.persistAttachmentCapabilityFailureMessage(patchCtx, turn, status, runErr)
+	if attachmentMessageErr != nil {
+		logx.Errorf("conversation", "agent.finalizeTurn attachment failure message failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), attachmentMessageErr)
+	}
 	// Patch the turn last. PatchTurn emits the terminal SSE event, so this ordering
 	// ensures transcript-level state (conversation + run) is already durable when
 	// the client observes turn_completed/turn_failed/turn_canceled.
@@ -231,6 +332,9 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if conversationPatchErr != nil {
 		errs = append(errs, fmt.Errorf("failed to update conversation: %w", conversationPatchErr))
 	}
+	if attachmentMessageErr != nil {
+		errs = append(errs, fmt.Errorf("failed to persist attachment failure message: %w", attachmentMessageErr))
+	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -239,6 +343,42 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	runtimerequestctx.CleanupTurn(turn.TurnID)
 	s.triggerQueueDrain(turn.ConversationID)
 	return nil
+}
+
+func (s *Service) persistAttachmentCapabilityFailureMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, status string, runErr error) error {
+	if s == nil || s.conversation == nil || runErr == nil {
+		return nil
+	}
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if normalizedStatus != "failed" && normalizedStatus != "error" {
+		return nil
+	}
+	content, ok := llm.AttachmentCapabilityUserMessage(runErr)
+	if !ok || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	conversationID := strings.TrimSpace(turn.ConversationID)
+	turnID := strings.TrimSpace(turn.TurnID)
+	if conversationID == "" || turnID == "" {
+		return nil
+	}
+	messageID := strings.TrimSpace(runtimerequestctx.TurnModelMessageID(turnID))
+	if messageID == "" {
+		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+	}
+	if messageID == "" {
+		messageID = uuid.NewString()
+	}
+	msg := apiconv.NewMessage()
+	msg.SetId(messageID)
+	msg.SetConversationID(conversationID)
+	msg.SetTurnID(turnID)
+	msg.SetRole("assistant")
+	msg.SetType("text")
+	msg.SetContent(strings.TrimSpace(content))
+	msg.SetStatus("failed")
+	msg.SetInterim(0)
+	return s.conversation.PatchMessage(runtimerequestctx.WithMessageAddEvent(ctx), msg)
 }
 
 func (s *Service) patchConversationStatus(ctx context.Context, conversationID, status string) error {
