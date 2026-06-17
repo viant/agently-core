@@ -59,6 +59,122 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(decoded, value)
     }
 
+    func testOAuthConfigDecodesNullScopesAsEmpty() throws {
+        let json = """
+        {
+          "clientID": "",
+          "configURL": "idp_viant.enc|blowfish://default",
+          "discoveryURL": "",
+          "mode": "bff",
+          "redirectSameTab": true,
+          "redirectURI": "",
+          "scopes": null,
+          "usePopupLogin": false
+        }
+        """
+
+        let output = try JSONDecoder.agently().decode(
+            OAuthConfigOutput.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        XCTAssertEqual(output.scopes, [])
+    }
+
+    func testOAuthInitiatePostsMobileRedirectURIWhenProvided() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let client = AgentlyClient(
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9191")))],
+            session: session
+        )
+        URLProtocolStub.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/api/auth/oauth/initiate")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(self.requestBodyString(request))
+            XCTAssertTrue(body.contains(#""redirectURI":"agently-ios:\/\/oauth\/callback""#))
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [:]
+            )!
+            let data = #"{"authURL":"https://idp.example.test/authorize","redirectURI":"agently-ios://oauth/callback"}"#.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let output = try await client.oauthInitiate(
+            OAuthInitiateInput(redirectURI: "agently-ios://oauth/callback")
+        )
+
+        XCTAssertEqual(output.redirectURI, "agently-ios://oauth/callback")
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testOAuthMobileInitiatePostsMobileEndpoint() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let client = AgentlyClient(
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9191")))],
+            session: session
+        )
+        URLProtocolStub.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/api/auth/oauth/mobile/initiate")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(self.requestBodyString(request))
+            XCTAssertTrue(body.contains(#""redirectURI":"agently-ios:\/\/oauth\/callback""#))
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [:]
+            )!
+            let data = #"{"authURL":"https://idp.example.test/authorize","redirectURI":"agently-ios://oauth/callback","pkce":true,"mobile":true}"#.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let output = try await client.oauthMobileInitiate(
+            OAuthInitiateInput(redirectURI: "agently-ios://oauth/callback")
+        )
+
+        XCTAssertEqual(output.redirectURI, "agently-ios://oauth/callback")
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testOAuthMobileCallbackPostsMobileEndpoint() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let client = AgentlyClient(
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9191")))],
+            session: session
+        )
+        URLProtocolStub.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/api/auth/oauth/mobile/callback")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(self.requestBodyString(request))
+            XCTAssertTrue(body.contains(#""code":"code-1""#))
+            XCTAssertTrue(body.contains(#""state":"state-1""#))
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [:]
+            )!
+            let data = #"{"status":"ok","sessionId":"session-1"}"#.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let output = try await client.oauthMobileCallback(
+            OAuthCallbackInput(code: "code-1", state: "state-1")
+        )
+
+        XCTAssertEqual(output.sessionID, "session-1")
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testHostedWorkspaceRestoreUsesLatestTranscriptTurnOnly() throws {
         let json = """
         {
@@ -235,6 +351,62 @@ final class AgentlySDKTests: XCTestCase {
         }
         XCTAssertEqual(prefill["accountId"], .number(7))
         XCTAssertEqual(prefill["recordId"], .number(123))
+    }
+
+    func testHostedWorkspaceRestoreFoldsInlineBodyWindowFormDataIntoOpenedWindow() throws {
+        let openRequest = #"{"clientId":"ios-ui","id":"reportBuilder","openMode":"show","parameters":{}}"#
+        let openResponse = #"{"clientId":"ios-ui","conversationId":"conv-1","items":[{"conversationId":"conv-1","parentKey":"chat/new","presentation":"hosted","region":"chat.top","windowId":"reportBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Report Builder","workspaceMinHeight":500,"workspaceSharePct":72}],"ok":true,"selectedWindowId":"reportBuilder__conv-1","windowId":"reportBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Report Builder"}"#
+        let formRequest = #"{"clientId":"ios-ui","values":{"prefill":{"country":["US"],"recordIds":[123],"scope":{"workspaceIds":[456]}}},"windowId":"reportBuilder__conv-1"}"#
+        let formResponse = #"{"clientId":"ios-ui","ok":true}"#
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-open",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "requestPayload": { "Id": "open-req", "InlineBody": \(String(reflecting: openRequest)), "Compression": "" },
+                          "responsePayload": { "Id": "open-res", "InlineBody": \(String(reflecting: openResponse)), "Compression": "" }
+                        },
+                        {
+                          "toolCallId": "tool-form",
+                          "toolName": "ui/window/setFormData",
+                          "status": "completed",
+                          "requestPayload": { "Id": "form-req", "InlineBody": \(String(reflecting: formRequest)), "Compression": "" },
+                          "responsePayload": { "Id": "form-res", "InlineBody": \(String(reflecting: formResponse)), "Compression": "" }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+
+        XCTAssertEqual(restore?.selectedWindowId, "reportBuilder__conv-1")
+        guard case .object(let prefill)? = restore?.windows.first?.windowForm?["prefill"] else {
+            XCTFail("Expected restored report builder prefill object")
+            return
+        }
+        XCTAssertEqual(prefill["country"], .array([.string("US")]))
+        XCTAssertEqual(prefill["recordIds"], .array([.number(123)]))
     }
 
     func testHostedWorkspaceRestoreDoesNotRequireAppPlacementFields() throws {
@@ -621,7 +793,7 @@ final class AgentlySDKTests: XCTestCase {
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
                 "Content-Type": "application/json"
             ])!
-            let data = #"{"workspaceRoot":"/tmp/workspace","appName":"Steward","appIconRef":"builtin:viant","agents":[],"models":[],"agentInfos":[],"modelInfos":[]}"#.data(using: .utf8)!
+            let data = #"{"workspaceRoot":"/tmp/workspace","appName":"Workspace","appIconRef":"builtin:viant","agents":[],"models":[],"agentInfos":[],"modelInfos":[]}"#.data(using: .utf8)!
             return (response, data)
         }
 
@@ -633,7 +805,7 @@ final class AgentlySDKTests: XCTestCase {
                 capabilities: ["markdown", "chart"]
             )
         )
-        XCTAssertEqual(metadata.appName, "Steward")
+        XCTAssertEqual(metadata.appName, "Workspace")
         XCTAssertEqual(metadata.appIconRef, "builtin:viant")
 
         await fulfillment(of: [expectation], timeout: 2.0)
@@ -1092,6 +1264,8 @@ final class AgentlySDKTests: XCTestCase {
                 body = #"{}"#
             case "/v1/api/auth/session":
                 body = #"{"sessionId":"sess-created","username":"test-user"}"#
+            case "/v1/api/auth/session/attach":
+                body = #"{"status":"ok","sessionId":"sess-attached","username":"test-user"}"#
             case "/v1/api/auth/oob":
                 body = #"{"sessionId":"sess-oob","status":"ok","username":"test-user","provider":"idp"}"#
             case "/v1/api/auth/idp/delegate":
@@ -1106,17 +1280,20 @@ final class AgentlySDKTests: XCTestCase {
         let local = try await client.localLogin(LocalLoginInput(username: "test-user"))
         try await client.logout()
         let sessionOutput = try await client.createAuthSession(CreateSessionInput(username: "test-user", accessToken: "token"))
+        let attachedSession = try await client.attachAuthSession(AttachSessionInput(sessionID: "sess-created"))
         let oob = try await client.oobLogin(OOBLoginInput(secretsURL: "mem://secret", scopes: ["openid"]))
         let delegate = try await client.idpDelegate()
 
         XCTAssertEqual(local.sessionID, "sess-local")
         XCTAssertEqual(sessionOutput.sessionID, "sess-created")
+        XCTAssertEqual(attachedSession.sessionID, "sess-attached")
         XCTAssertEqual(oob.sessionID, "sess-oob")
         XCTAssertEqual(delegate.authURL, "https://idp.example/auth")
         XCTAssertEqual(seen, [
             "POST /v1/api/auth/local/login",
             "POST /v1/api/auth/logout",
             "POST /v1/api/auth/session",
+            "POST /v1/api/auth/session/attach",
             "POST /v1/api/auth/oob",
             "POST /v1/api/auth/idp/delegate"
         ])

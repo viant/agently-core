@@ -39,6 +39,9 @@ func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	if got := payload["configURL"]; got != "idp_viant.enc|blowfish://default" {
 		t.Fatalf("configURL = %#v, want encrypted config URL", got)
 	}
+	if got, ok := payload["scopes"].([]any); !ok || len(got) != 0 {
+		t.Fatalf("scopes = %#v, want empty array", payload["scopes"])
+	}
 }
 
 func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
@@ -75,5 +78,8 @@ func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	}
 	if got := payload["configURL"]; got != "idp_viant.enc|blowfish://default" {
 		t.Fatalf("configURL = %#v, want encrypted config URL", got)
+	}
+	if got, ok := payload["scopes"].([]any); !ok || len(got) != 0 {
+		t.Fatalf("scopes = %#v, want empty array", payload["scopes"])
 	}
 }

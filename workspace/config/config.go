@@ -366,6 +366,9 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if src.ToolAutoSelection.Enabled {
 		dst.ToolAutoSelection.Enabled = true
 	}
+	if src.Reporting.Enabled {
+		dst.Reporting.Enabled = true
+	}
 	if strings.TrimSpace(src.ToolAutoSelection.Model) != "" {
 		dst.ToolAutoSelection.Model = strings.TrimSpace(src.ToolAutoSelection.Model)
 	}

@@ -35,6 +35,7 @@ type OAuthClient struct {
 	DiscoveryURL string   `yaml:"discoveryURL" json:"discoveryURL"`
 	JWKSURL      string   `yaml:"jwksURL" json:"jwksURL"`
 	RedirectURI  string   `yaml:"redirectURI" json:"redirectURI"`
+	RedirectURIs []string `yaml:"redirectURIs" json:"redirectURIs"`
 	ClientID     string   `yaml:"clientID" json:"clientID"`
 	Scopes       []string `yaml:"scopes" json:"scopes"`
 	Issuer       string   `yaml:"issuer" json:"issuer"`

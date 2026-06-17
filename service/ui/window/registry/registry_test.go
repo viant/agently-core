@@ -6,8 +6,8 @@ func TestSnapshotBelongsToConversation_UsesWindowConversationID(t *testing.T) {
 	snapshot := &Snapshot{
 		Windows: []WindowSnapshot{
 			{
-				WindowID:       "forecastingCubeBuilder__conv-new",
-				WindowKey:      "forecastingCubeBuilder",
+				WindowID:       "reportBuilder__conv-new",
+				WindowKey:      "reportBuilder",
 				ConversationID: "conv-new",
 				Presentation:   "hosted",
 				Region:         "chat.top",

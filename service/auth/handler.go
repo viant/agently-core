@@ -274,19 +274,23 @@ func (h *Handler) handleOAuthConfig() http.HandlerFunc {
 			return
 		}
 		c := h.cfg.OAuth.Client
+		scopes := append([]string{}, c.Scopes...)
 		resp := map[string]interface{}{
 			"mode":            h.cfg.OAuth.Mode,
 			"configURL":       c.ConfigURL,
 			"clientId":        c.ClientID,
 			"usePopupLogin":   h.cfg.OAuth.UsePopupLogin,
 			"redirectSameTab": !h.cfg.OAuth.UsePopupLogin,
-			"scopes":          c.Scopes,
+			"scopes":          scopes,
 		}
 		if c.DiscoveryURL != "" {
 			resp["discoveryUrl"] = c.DiscoveryURL
 		}
 		if c.RedirectURI != "" {
 			resp["redirectUri"] = c.RedirectURI
+		}
+		if len(c.RedirectURIs) > 0 {
+			resp["redirectURIs"] = append([]string(nil), c.RedirectURIs...)
 		}
 		httpJSON(w, http.StatusOK, resp)
 	}

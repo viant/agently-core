@@ -43,7 +43,36 @@ func (a *authExtension) handleOAuthInitiate() http.HandlerFunc {
 			runtimeError(w, http.StatusBadRequest, err)
 			return
 		}
-		runtimeJSON(w, http.StatusOK, map[string]any{"authURL": resp.AuthURL, "state": resp.State, "provider": a.oauthProviderName(), "delegated": true})
+		runtimeJSON(w, http.StatusOK, map[string]any{"authURL": resp.AuthURL, "state": resp.State, "provider": a.oauthProviderName(), "redirectURI": resp.RedirectURI, "delegated": true, "pkce": true, "responseType": "code"})
+	}
+}
+
+func (a *authExtension) handleOAuthMobileInitiate() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initiation, err := decodeOAuthInitiateRequest(r)
+		if err != nil {
+			runtimeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if strings.TrimSpace(initiation.RedirectURI) == "" {
+			runtimeError(w, http.StatusBadRequest, fmt.Errorf("redirectURI is required for mobile oauth"))
+			return
+		}
+		resp, err := a.buildOAuthInitiateResponseFor(r, initiation)
+		if err != nil {
+			runtimeError(w, http.StatusBadRequest, err)
+			return
+		}
+		runtimeJSON(w, http.StatusOK, map[string]any{
+			"authURL":      resp.AuthURL,
+			"state":        resp.State,
+			"provider":     a.oauthProviderName(),
+			"redirectURI":  resp.RedirectURI,
+			"delegated":    true,
+			"mobile":       true,
+			"pkce":         true,
+			"responseType": "code",
+		})
 	}
 }
 
@@ -126,6 +155,14 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 }
 
 func (a *authExtension) buildOAuthInitiateResponse(r *http.Request) (*oauthInitiateResponse, error) {
+	initiation, err := decodeOAuthInitiateRequest(r)
+	if err != nil {
+		return nil, err
+	}
+	return a.buildOAuthInitiateResponseFor(r, initiation)
+}
+
+func (a *authExtension) buildOAuthInitiateResponseFor(r *http.Request, initiation oauthInitiateRequest) (*oauthInitiateResponse, error) {
 	if a.cfg == nil || a.cfg.OAuth == nil || a.cfg.OAuth.Client == nil {
 		return nil, fmt.Errorf("oauth client not configured")
 	}
@@ -138,9 +175,15 @@ func (a *authExtension) buildOAuthInitiateResponse(r *http.Request) (*oauthIniti
 		return nil, fmt.Errorf("unable to load oauth config: %w", err)
 	}
 	redirectURI := callbackURL(r, a.cfg.RedirectPath)
+	if requestedRedirectURI := strings.TrimSpace(initiation.RedirectURI); requestedRedirectURI != "" {
+		if !a.isAllowedOAuthRedirectURI(requestedRedirectURI, redirectURI) {
+			return nil, fmt.Errorf("oauth redirectURI is not allowed")
+		}
+		redirectURI = requestedRedirectURI
+	}
 	codeVerifier := flow.GenerateCodeVerifier()
-	returnURL := strings.TrimSpace(r.URL.Query().Get("returnURL"))
-	state, err := encryptOAuthState(r.Context(), configURL, oauthStatePayload{CodeVerifier: codeVerifier, ReturnURL: returnURL})
+	returnURL := strings.TrimSpace(firstNonEmpty(initiation.ReturnURL, r.URL.Query().Get("returnURL")))
+	state, err := encryptOAuthState(r.Context(), configURL, oauthStatePayload{CodeVerifier: codeVerifier, ReturnURL: returnURL, RedirectURI: redirectURI})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create oauth state: %w", err)
 	}
@@ -159,10 +202,70 @@ func (a *authExtension) buildOAuthInitiateResponse(r *http.Request) (*oauthIniti
 	if err != nil {
 		return nil, fmt.Errorf("unable to build oauth authorize url: %w", err)
 	}
-	return &oauthInitiateResponse{AuthURL: authURL, State: state}, nil
+	return &oauthInitiateResponse{AuthURL: authURL, State: state, RedirectURI: redirectURI}, nil
+}
+
+type oauthInitiateRequest struct {
+	RedirectURI string `json:"redirectURI"`
+	RedirectUri string `json:"redirectUri"`
+	ReturnURL   string `json:"returnURL"`
+	ReturnUrl   string `json:"returnUrl"`
+}
+
+func decodeOAuthInitiateRequest(r *http.Request) (oauthInitiateRequest, error) {
+	var ret oauthInitiateRequest
+	if r == nil {
+		return ret, nil
+	}
+	ret.RedirectURI = strings.TrimSpace(firstNonEmpty(r.URL.Query().Get("redirectURI"), r.URL.Query().Get("redirectUri")))
+	ret.ReturnURL = strings.TrimSpace(firstNonEmpty(r.URL.Query().Get("returnURL"), r.URL.Query().Get("returnUrl")))
+	if r.Body == nil || r.ContentLength == 0 {
+		return ret, nil
+	}
+	var body oauthInitiateRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return ret, fmt.Errorf("invalid oauth initiate request: %w", err)
+	}
+	if value := strings.TrimSpace(firstNonEmpty(body.RedirectURI, body.RedirectUri)); value != "" {
+		ret.RedirectURI = value
+	}
+	if value := strings.TrimSpace(firstNonEmpty(body.ReturnURL, body.ReturnUrl)); value != "" {
+		ret.ReturnURL = value
+	}
+	return ret, nil
+}
+
+func (a *authExtension) isAllowedOAuthRedirectURI(candidate, serverCallbackURI string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	if candidate == strings.TrimSpace(serverCallbackURI) {
+		return true
+	}
+	if a == nil || a.cfg == nil || a.cfg.OAuth == nil || a.cfg.OAuth.Client == nil {
+		return false
+	}
+	if candidate == strings.TrimSpace(a.cfg.OAuth.Client.RedirectURI) {
+		return true
+	}
+	for _, item := range a.cfg.OAuth.Client.RedirectURIs {
+		if candidate == strings.TrimSpace(item) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
+	return a.handleOAuthCallbackForSource("oauth_callback")
+}
+
+func (a *authExtension) handleOAuthMobileCallback() http.HandlerFunc {
+	return a.handleOAuthCallbackForSource("oauth_mobile_callback")
+}
+
+func (a *authExtension) handleOAuthCallbackForSource(source string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg == nil || a.cfg.OAuth == nil || a.cfg.OAuth.Client == nil {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("oauth client not configured"))
@@ -208,7 +311,10 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("invalid oauth state: missing code verifier"))
 			return
 		}
-		redirectURI := callbackURL(r, a.cfg.RedirectPath)
+		redirectURI := strings.TrimSpace(statePayload.RedirectURI)
+		if redirectURI == "" {
+			redirectURI = callbackURL(r, a.cfg.RedirectPath)
+		}
 		token, err := flow.Exchange(r.Context(), oauthCfg, code, flow.WithRedirectURI(redirectURI), flow.WithPKCE(true), flow.WithCodeVerifier(codeVerifier))
 		if err != nil {
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth exchange failed: %w", err))
@@ -238,9 +344,9 @@ func (a *authExtension) handleOAuthCallback() http.HandlerFunc {
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
-		a.scheduleOAuthTokenPersist(r.Context(), "oauth_callback", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
+		a.scheduleOAuthTokenPersist(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
 		if wantsJSON(r) || r.Method == http.MethodPost {
-			runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "username": username, "provider": provider})
+			runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": sess.ID, "username": username, "provider": provider})
 			return
 		}
 		returnTo := strings.TrimSpace(statePayload.ReturnURL)

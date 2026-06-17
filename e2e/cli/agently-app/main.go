@@ -110,6 +110,7 @@ func serve(args []string) {
 	}
 	schedHandler := scheduler.NewHandler(schedSvc)
 	metadataHandler := svcworkspace.NewMetadataHandler(rt.Defaults, rt.Store, "agently-core-e2e")
+	metadataHandler.SetReportingCapabilityEnabled(rt.Reporting != nil)
 
 	handlerOpts := []sdk.HandlerOption{
 		sdk.WithMetadataHandler(metadataHandler),

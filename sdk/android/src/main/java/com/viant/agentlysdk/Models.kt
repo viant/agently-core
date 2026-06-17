@@ -2,10 +2,37 @@ package com.viant.agentlysdk
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+
+object NullAsEmptyStringListSerializer : KSerializer<List<String>> {
+    private val delegate = ListSerializer(String.serializer())
+    override val descriptor: SerialDescriptor = delegate.descriptor
+
+    override fun deserialize(decoder: Decoder): List<String> {
+        val jsonDecoder = decoder as? JsonDecoder ?: return delegate.deserialize(decoder)
+        val element = jsonDecoder.decodeJsonElement()
+        if (element is JsonNull) {
+            return emptyList()
+        }
+        return jsonDecoder.json.decodeFromJsonElement(delegate, element)
+    }
+
+    override fun serialize(encoder: Encoder, value: List<String>) {
+        delegate.serialize(encoder, value)
+    }
+}
 
 @Serializable
 data class AuthProvider(
@@ -16,6 +43,7 @@ data class AuthProvider(
     val clientID: String? = null,
     val discoveryURL: String? = null,
     val redirectURI: String? = null,
+    @Serializable(with = NullAsEmptyStringListSerializer::class)
     val scopes: List<String> = emptyList(),
     val mode: String? = null
 )
@@ -72,11 +100,18 @@ data class LocalLoginOutput(
 data class OAuthInitiateOutput(
     val authURL: String? = null,
     val authUrl: String? = null,
+    val redirectURI: String? = null,
     val state: String? = null,
     val provider: String? = null,
     val delegated: Boolean? = null,
     val status: String? = null,
     val message: String? = null
+)
+
+@Serializable
+data class OAuthInitiateInput(
+    val redirectURI: String? = null,
+    val returnURL: String? = null
 )
 
 @Serializable
@@ -88,6 +123,7 @@ data class OAuthCallbackInput(
 @Serializable
 data class OAuthCallbackOutput(
     val status: String,
+    val sessionId: String? = null,
     val username: String? = null,
     val provider: String? = null
 )
@@ -102,6 +138,8 @@ data class OAuthConfigOutput(
     val clientId: String? = null,
     val discoveryUrl: String? = null,
     val redirectUri: String? = null,
+    val redirectURIs: List<String> = emptyList(),
+    @Serializable(with = NullAsEmptyStringListSerializer::class)
     val scopes: List<String> = emptyList()
 )
 
@@ -116,6 +154,18 @@ data class CreateSessionInput(
 @Serializable
 data class CreateSessionOutput(
     val sessionId: String,
+    val username: String? = null
+)
+
+@Serializable
+data class AttachSessionInput(
+    val sessionId: String
+)
+
+@Serializable
+data class AttachSessionOutput(
+    val status: String? = null,
+    val sessionId: String? = null,
     val username: String? = null
 )
 

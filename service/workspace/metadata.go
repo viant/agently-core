@@ -59,6 +59,7 @@ type Capabilities struct {
 	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
 	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
 	Goals                 bool `json:"goals,omitempty"`
+	Reporting             bool `json:"reporting,omitempty"`
 	CompactConversation   bool `json:"compactConversation,omitempty"`
 	PruneConversation     bool `json:"pruneConversation,omitempty"`
 	AnonymousSession      bool `json:"anonymousSession,omitempty"`
@@ -99,9 +100,10 @@ type ModelInfo struct {
 
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
-	defaults *config.Defaults
-	store    ws.Store
-	version  string
+	defaults          *config.Defaults
+	store             ws.Store
+	version           string
+	reportingOverride *bool
 }
 
 // NewMetadataHandler creates a metadata handler.
@@ -111,6 +113,16 @@ func NewMetadataHandler(defaults *config.Defaults, store ws.Store, version strin
 		store:    store,
 		version:  version,
 	}
+}
+
+// SetReportingCapabilityEnabled overrides reporting capability signaling with
+// the effective runtime registration state when available.
+func (h *MetadataHandler) SetReportingCapabilityEnabled(enabled bool) {
+	if h == nil {
+		return
+	}
+	value := enabled
+	h.reportingOverride = &value
 }
 
 // Register mounts the metadata endpoint.
@@ -152,6 +164,10 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 				AutoSelectTools:       h.defaults.ToolAutoSelection.Enabled,
 				ElicitationTimeoutSec: h.defaults.ElicitationTimeoutSec,
 			}
+			resp.Capabilities.Reporting = h.defaults.Reporting.Enabled
+		}
+		if h.reportingOverride != nil {
+			resp.Capabilities.Reporting = *h.reportingOverride
 		}
 		if h.store != nil {
 			if agents, err := h.store.List(ctx, ws.KindAgent); err == nil {

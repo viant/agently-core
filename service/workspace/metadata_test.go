@@ -303,6 +303,51 @@ features:
 	}
 }
 
+func TestMetadataHandler_SetsReportingCapabilityFromDefaults(t *testing.T) {
+	handler := NewMetadataHandler(&config.Defaults{
+		Reporting: config.ReportingDefaults{Enabled: true},
+	}, &metadataTestStore{items: map[string]map[string][]byte{}}, "test-version")
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload MetadataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Capabilities.Reporting {
+		t.Fatalf("expected reporting capability to be true")
+	}
+}
+
+func TestMetadataHandler_ReportingCapabilityOverrideWins(t *testing.T) {
+	handler := NewMetadataHandler(&config.Defaults{
+		Reporting: config.ReportingDefaults{Enabled: false},
+	}, &metadataTestStore{items: map[string]map[string][]byte{}}, "test-version")
+	handler.SetReportingCapabilityEnabled(true)
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload MetadataResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Capabilities.Reporting {
+		t.Fatalf("expected reporting capability override to be true")
+	}
+}
+
 func TestMetadataHandler_ClearsGoalsCapabilityWhenWorkspaceDisablesGoals(t *testing.T) {
 	prevRoot := ws.Root()
 	tempRoot := t.TempDir()

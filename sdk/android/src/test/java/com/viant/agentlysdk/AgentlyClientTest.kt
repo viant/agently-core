@@ -851,6 +851,147 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `oauthInitiate posts redirect uri when provided`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "authURL": "https://idp.example.test/authorize",
+                  "redirectURI": "agently-ios://oauth/callback"
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.oauthInitiate(
+            OAuthInitiateInput(redirectURI = "agently-ios://oauth/callback")
+        )
+
+        assertEquals("agently-ios://oauth/callback", result.redirectURI)
+        val request = server.takeRequest()
+        assertEquals("/v1/api/auth/oauth/initiate", request.path)
+        assertEquals("POST", request.method)
+        val body = request.body.readUtf8()
+        assertTrue(body.contains(""""redirectURI":"agently-ios://oauth/callback""""))
+    }
+
+    @Test
+    fun `oauthMobileInitiate posts mobile endpoint`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "authURL": "https://idp.example.test/authorize",
+                  "redirectURI": "agently-android://oauth/callback",
+                  "pkce": true,
+                  "mobile": true
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.oauthMobileInitiate(
+            OAuthInitiateInput(redirectURI = "agently-android://oauth/callback")
+        )
+
+        assertEquals("agently-android://oauth/callback", result.redirectURI)
+        val request = server.takeRequest()
+        assertEquals("/v1/api/auth/oauth/mobile/initiate", request.path)
+        assertEquals("POST", request.method)
+        val body = request.body.readUtf8()
+        assertTrue(body.contains(""""redirectURI":"agently-android://oauth/callback""""))
+    }
+
+    @Test
+    fun `oauthMobileCallback posts mobile endpoint`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "status": "ok",
+                  "sessionId": "session-1"
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.oauthMobileCallback(
+            OAuthCallbackInput(code = "code-1", state = "state-1")
+        )
+
+        assertEquals("session-1", result.sessionId)
+        val request = server.takeRequest()
+        assertEquals("/v1/api/auth/oauth/mobile/callback", request.path)
+        assertEquals("POST", request.method)
+        val body = request.body.readUtf8()
+        assertTrue(body.contains(""""code":"code-1""""))
+        assertTrue(body.contains(""""state":"state-1""""))
+    }
+
+    @Test
+    fun `attachAuthSession posts attach endpoint`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "status": "ok",
+                  "sessionId": "session-1",
+                  "username": "test-user"
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.attachAuthSession(AttachSessionInput(sessionId = "session-1"))
+
+        assertEquals("ok", result.status)
+        assertEquals("session-1", result.sessionId)
+        assertEquals("test-user", result.username)
+        val request = server.takeRequest()
+        assertEquals("/v1/api/auth/session/attach", request.path)
+        assertEquals("POST", request.method)
+        val body = request.body.readUtf8()
+        assertTrue(body.contains(""""sessionId":"session-1""""))
+    }
+
+    @Test
+    fun `getOAuthConfig decodes null scopes as empty`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "clientID": "",
+                  "configURL": "idp_viant.enc|blowfish://default",
+                  "discoveryURL": "",
+                  "mode": "bff",
+                  "redirectSameTab": true,
+                  "redirectURI": "",
+                  "scopes": null,
+                  "usePopupLogin": false
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.getOAuthConfig()
+
+        assertEquals(emptyList(), result.scopes)
+        val request = server.takeRequest()
+        assertEquals("/v1/api/auth/oauth/config", request.path)
+        assertEquals("GET", request.method)
+    }
+
+    @Test
     fun `templates skills and mediated mcp ui routes match shared client contract`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"items":[{"name":"brief","description":"Summary","format":"markdown"}]}"""))
         server.enqueue(MockResponse().setBody("""{"name":"brief","format":"markdown","description":"Summary","instructions":"Use bullets","includedDocument":true}"""))

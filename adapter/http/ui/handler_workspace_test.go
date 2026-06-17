@@ -512,6 +512,24 @@ id: forecastingCubeBuilder
 title: Forecasting Cube
 dataSourceRef: forecasting_cube_report
 reportBuilder:
+  drillMetadata:
+    hierarchies:
+      - id: forecast_inventory
+        levels:
+          - field: channelV2
+            label: Channel
+          - field: publisherId
+            label: Publisher
+          - field: siteType
+            label: Site Type
+      - id: forecast_location
+        levels:
+          - field: country
+            label: Country
+          - field: region
+            label: Region
+          - field: metrocode
+            label: Metro Code
   hooks:
     initializeState: Forecasting Cube.workspaceForecastingBuilder.initializeState
     buildRequest: Forecasting Cube.workspaceForecastingBuilder.buildRequest
@@ -592,8 +610,83 @@ backend:
 	if payload.Data.View.Content.Dashboard.ReportBuilder == nil {
 		t.Fatalf("expected imported reportBuilder config")
 	}
+	drillMetadata, ok := payload.Data.View.Content.Dashboard.ReportBuilder["drillMetadata"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected reportBuilder drillMetadata, got %#v", payload.Data.View.Content.Dashboard.ReportBuilder["drillMetadata"])
+	}
+	hierarchies, ok := drillMetadata["hierarchies"].([]interface{})
+	if !ok || len(hierarchies) != 2 {
+		t.Fatalf("expected 2 drill hierarchies, got %#v", drillMetadata["hierarchies"])
+	}
+	inventoryHierarchy, ok := hierarchies[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected inventory hierarchy object, got %#v", hierarchies[0])
+	}
+	if inventoryHierarchy["id"] != "forecast_inventory" {
+		t.Fatalf("expected forecast_inventory hierarchy id, got %#v", inventoryHierarchy["id"])
+	}
+	inventoryLevels, ok := inventoryHierarchy["levels"].([]interface{})
+	if !ok || len(inventoryLevels) != 3 {
+		t.Fatalf("expected 3 inventory drill levels, got %#v", inventoryHierarchy["levels"])
+	}
+	inventoryFields := make([]string, 0, len(inventoryLevels))
+	for _, level := range inventoryLevels {
+		levelMap, ok := level.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected inventory level object, got %#v", level)
+		}
+		field, ok := levelMap["field"].(string)
+		if !ok {
+			t.Fatalf("expected inventory level field string, got %#v", levelMap["field"])
+		}
+		inventoryFields = append(inventoryFields, field)
+	}
+	expectedInventoryFields := []string{"channelV2", "publisherId", "siteType"}
+	if len(inventoryFields) != len(expectedInventoryFields) {
+		t.Fatalf("expected inventory drill fields %v, got %v", expectedInventoryFields, inventoryFields)
+	}
+	for index, expected := range expectedInventoryFields {
+		if inventoryFields[index] != expected {
+			t.Fatalf("expected inventory drill field %d to be %q, got %q", index, expected, inventoryFields[index])
+		}
+	}
+	locationHierarchy, ok := hierarchies[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected location hierarchy object, got %#v", hierarchies[1])
+	}
+	if locationHierarchy["id"] != "forecast_location" {
+		t.Fatalf("expected forecast_location hierarchy id, got %#v", locationHierarchy["id"])
+	}
+	locationLevels, ok := locationHierarchy["levels"].([]interface{})
+	if !ok || len(locationLevels) != 3 {
+		t.Fatalf("expected 3 location drill levels, got %#v", locationHierarchy["levels"])
+	}
+	locationFields := make([]string, 0, len(locationLevels))
+	for _, level := range locationLevels {
+		levelMap, ok := level.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected location level object, got %#v", level)
+		}
+		field, ok := levelMap["field"].(string)
+		if !ok {
+			t.Fatalf("expected location level field string, got %#v", levelMap["field"])
+		}
+		locationFields = append(locationFields, field)
+	}
+	expectedLocationFields := []string{"country", "region", "metrocode"}
+	if len(locationFields) != len(expectedLocationFields) {
+		t.Fatalf("expected location drill fields %v, got %v", expectedLocationFields, locationFields)
+	}
+	for index, expected := range expectedLocationFields {
+		if locationFields[index] != expected {
+			t.Fatalf("expected location drill field %d to be %q, got %q", index, expected, locationFields[index])
+		}
+	}
 	if _, ok := payload.Data.DataSource["forecasting_cube_report"]; !ok {
 		t.Fatalf("expected merged forecasting datasource")
+	}
+	if payload.Data.DataSource["forecasting_cube_report"]["autoFetch"] != false {
+		t.Fatalf("expected forecasting datasource autoFetch=false, got %#v", payload.Data.DataSource["forecasting_cube_report"]["autoFetch"])
 	}
 }
 

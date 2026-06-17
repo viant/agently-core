@@ -256,6 +256,16 @@ func statusForToolExecuteError(err error) int {
 	if status, ok := upstreamAuthStatusFromError(err); ok {
 		return status
 	}
+	msg := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
+	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
+		return http.StatusForbidden
+	}
+	if strings.Contains(msg, "not found") {
+		return http.StatusNotFound
+	}
+	if strings.Contains(msg, "required") || strings.Contains(msg, "invalid") {
+		return http.StatusBadRequest
+	}
 	return http.StatusInternalServerError
 }
 

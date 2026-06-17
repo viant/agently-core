@@ -68,12 +68,20 @@ class AgentlyClient(
         post("/v1/api/auth/logout", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
     }
 
-    suspend fun oauthInitiate(): OAuthInitiateOutput = withContext(Dispatchers.IO) {
-        post("/v1/api/auth/oauth/initiate", emptyMap<String, JsonElement>(), OAuthInitiateOutput.serializer())
+    suspend fun oauthInitiate(input: OAuthInitiateInput = OAuthInitiateInput()): OAuthInitiateOutput = withContext(Dispatchers.IO) {
+        post("/v1/api/auth/oauth/initiate", input, OAuthInitiateOutput.serializer())
+    }
+
+    suspend fun oauthMobileInitiate(input: OAuthInitiateInput): OAuthInitiateOutput = withContext(Dispatchers.IO) {
+        post("/v1/api/auth/oauth/mobile/initiate", input, OAuthInitiateOutput.serializer())
     }
 
     suspend fun oauthCallback(input: OAuthCallbackInput): OAuthCallbackOutput = withContext(Dispatchers.IO) {
         post("/v1/api/auth/oauth/callback", input, OAuthCallbackOutput.serializer())
+    }
+
+    suspend fun oauthMobileCallback(input: OAuthCallbackInput): OAuthCallbackOutput = withContext(Dispatchers.IO) {
+        post("/v1/api/auth/oauth/mobile/callback", input, OAuthCallbackOutput.serializer())
     }
 
     suspend fun getOAuthConfig(): OAuthConfigOutput = withContext(Dispatchers.IO) {
@@ -82,6 +90,10 @@ class AgentlyClient(
 
     suspend fun createAuthSession(input: CreateSessionInput): CreateSessionOutput = withContext(Dispatchers.IO) {
         post("/v1/api/auth/session", input, CreateSessionOutput.serializer())
+    }
+
+    suspend fun attachAuthSession(input: AttachSessionInput): AttachSessionOutput = withContext(Dispatchers.IO) {
+        post("/v1/api/auth/session/attach", input, AttachSessionOutput.serializer())
     }
 
     suspend fun oobLogin(input: OOBLoginInput): OOBLoginOutput = withContext(Dispatchers.IO) {
@@ -716,8 +728,10 @@ class AgentlyClient(
     private fun <T> serializerFor(payload: T): KSerializer<T> = when (payload) {
         is QueryInput -> QueryInput.serializer() as KSerializer<T>
         is LocalLoginInput -> LocalLoginInput.serializer() as KSerializer<T>
+        is OAuthInitiateInput -> OAuthInitiateInput.serializer() as KSerializer<T>
         is OAuthCallbackInput -> OAuthCallbackInput.serializer() as KSerializer<T>
         is CreateSessionInput -> CreateSessionInput.serializer() as KSerializer<T>
+        is AttachSessionInput -> AttachSessionInput.serializer() as KSerializer<T>
         is OOBLoginInput -> OOBLoginInput.serializer() as KSerializer<T>
         is CreateConversationInput -> CreateConversationInput.serializer() as KSerializer<T>
         is UpdateConversationInput -> UpdateConversationInput.serializer() as KSerializer<T>
