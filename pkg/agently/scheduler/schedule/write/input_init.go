@@ -98,6 +98,9 @@ func clearNextRunAtOnScheduleChange(rec *Schedule, cur *Schedule) {
 	if rec.Has.ScheduleType && strings.TrimSpace(rec.ScheduleType) != strings.TrimSpace(cur.ScheduleType) {
 		changed = true
 	}
+	if rec.Has.Enabled && rec.Enabled && !cur.Enabled {
+		changed = true
+	}
 
 	if !changed {
 		return

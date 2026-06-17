@@ -84,23 +84,15 @@ func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now 
 		if err != nil {
 			return false, now, fmt.Errorf("invalid cron expr for schedule %s: %w", row.Id, err)
 		}
-		base := now.In(loc)
-		if row.LastRunAt != nil {
-			base = row.LastRunAt.In(loc)
-		} else if !row.CreatedAt.IsZero() {
-			base = row.CreatedAt.In(loc)
-		}
-		computedNext := cronNext(spec, base).UTC()
 		if row.NextRunAt == nil || row.NextRunAt.IsZero() {
-			if now.Before(computedNext) {
-				mut := &schedwrite.Schedule{}
-				mut.SetId(row.Id)
-				mut.SetNextRunAt(computedNext)
-				if err := s.store.PatchSchedule(ctx, mut); err != nil {
-					return false, now, err
-				}
+			computedNext := nextCronAfter(spec, scheduleRecomputeBase(row).In(loc), now.In(loc)).UTC()
+			mut := &schedwrite.Schedule{}
+			mut.SetId(row.Id)
+			mut.SetNextRunAt(computedNext)
+			if err := s.store.PatchSchedule(ctx, mut); err != nil {
+				return false, now, err
 			}
-			return !now.Before(computedNext), computedNext, nil
+			return false, computedNext, nil
 		}
 		return !now.Before(row.NextRunAt.UTC()), row.NextRunAt.UTC(), nil
 	}
@@ -108,14 +100,64 @@ func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now 
 		return !now.Before(row.NextRunAt.UTC()), row.NextRunAt.UTC(), nil
 	}
 	if row.IntervalSeconds != nil {
-		base := row.CreatedAt.UTC()
-		if row.LastRunAt != nil {
-			base = row.LastRunAt.UTC()
+		interval := time.Duration(*row.IntervalSeconds) * time.Second
+		if interval <= 0 {
+			return false, now, nil
 		}
-		next := base.Add(time.Duration(*row.IntervalSeconds) * time.Second)
-		return !now.Before(next), next, nil
+		next := nextIntervalAfter(scheduleRecomputeBase(row), interval, now)
+		mut := &schedwrite.Schedule{}
+		mut.SetId(row.Id)
+		mut.SetNextRunAt(next)
+		if err := s.store.PatchSchedule(ctx, mut); err != nil {
+			return false, now, err
+		}
+		return false, next, nil
 	}
 	return false, now, nil
+}
+
+func scheduleRecomputeBase(row *schedulepkg.ScheduleView) time.Time {
+	if row == nil {
+		return time.Now().UTC()
+	}
+	if row.LastRunAt != nil && !row.LastRunAt.IsZero() {
+		return row.LastRunAt.UTC()
+	}
+	if row.UpdatedAt != nil && !row.UpdatedAt.IsZero() {
+		return row.UpdatedAt.UTC()
+	}
+	if !row.CreatedAt.IsZero() {
+		return row.CreatedAt.UTC()
+	}
+	return time.Now().UTC()
+}
+
+func nextCronAfter(spec *cronSpec, base, now time.Time) time.Time {
+	next := cronNext(spec, truncateToMinute(base))
+	if next.After(now) {
+		return next
+	}
+	return cronNext(spec, truncateToMinute(now))
+}
+
+func nextIntervalAfter(base time.Time, interval time.Duration, now time.Time) time.Time {
+	base = base.UTC()
+	now = now.UTC()
+	next := base.Add(interval)
+	if next.After(now) {
+		return next
+	}
+	elapsed := now.Sub(base)
+	steps := int64(elapsed/interval) + 1
+	next = base.Add(time.Duration(steps) * interval)
+	if !next.After(now) {
+		next = next.Add(interval)
+	}
+	return next
+}
+
+func truncateToMinute(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location())
 }
 
 func (s *Service) cleanupStaleRuns(ctx context.Context, row *schedulepkg.ScheduleView, runs []*schrun.RunView, now time.Time) ([]*schrun.RunView, error) {

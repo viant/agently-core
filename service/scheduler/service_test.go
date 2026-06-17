@@ -319,6 +319,123 @@ func TestService_RunDue_DoesNotFailLongRunningRunWhenLeaseIsFresh(t *testing.T) 
 	}
 }
 
+func TestService_IsDue_RecomputesMissingCronNextRunInFuture(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	now := time.Date(2026, 6, 17, 15, 10, 53, 0, time.UTC)
+	createdAt := time.Date(2026, 5, 8, 10, 51, 49, 0, time.UTC)
+	updatedAt := now
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO schedule (
+			id, name, visibility, agent_ref, enabled, schedule_type, cron_expr, timezone,
+			timeout_seconds, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "sched-cron-recompute", "Cron Recompute", "public", "simple", 1, "cron", "0 9 * * *", "UTC", 0, createdAt, updatedAt); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+	row, err := store.Get(context.Background(), "sched-cron-recompute")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	due, scheduledFor, err := svc.isDue(context.Background(), row, now)
+	if err != nil {
+		t.Fatalf("isDue() error: %v", err)
+	}
+	if due {
+		t.Fatalf("expected recomputed cron schedule not to be due")
+	}
+	want := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	if !scheduledFor.Equal(want) {
+		t.Fatalf("scheduledFor = %s, want %s", scheduledFor, want)
+	}
+	var nextRunAt time.Time
+	if err := db.QueryRowContext(context.Background(), `SELECT next_run_at FROM schedule WHERE id = ?`, "sched-cron-recompute").Scan(&nextRunAt); err != nil {
+		t.Fatalf("query next_run_at error: %v", err)
+	}
+	if !nextRunAt.Equal(want) {
+		t.Fatalf("next_run_at = %s, want %s", nextRunAt, want)
+	}
+}
+
+func TestService_IsDue_RecomputesMissingIntervalNextRunInFuture(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	now := time.Date(2026, 6, 17, 15, 10, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC)
+	updatedAt := now
+	lastRunAt := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	intervalSeconds := 2 * 60 * 60
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO schedule (
+			id, name, visibility, agent_ref, enabled, schedule_type, interval_seconds, timezone,
+			last_run_at, timeout_seconds, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "sched-interval-recompute", "Interval Recompute", "public", "simple", 1, "interval", intervalSeconds, "UTC", lastRunAt, 0, createdAt, updatedAt); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+	row, err := store.Get(context.Background(), "sched-interval-recompute")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	due, scheduledFor, err := svc.isDue(context.Background(), row, now)
+	if err != nil {
+		t.Fatalf("isDue() error: %v", err)
+	}
+	if due {
+		t.Fatalf("expected recomputed interval schedule not to be due")
+	}
+	want := nextIntervalAfter(lastRunAt, 2*time.Hour, now)
+	if !scheduledFor.Equal(want) {
+		t.Fatalf("scheduledFor = %s, want %s", scheduledFor, want)
+	}
+	if !scheduledFor.After(now) {
+		t.Fatalf("expected scheduledFor to be in the future, got %s <= %s", scheduledFor, now)
+	}
+	var nextRunAt time.Time
+	if err := db.QueryRowContext(context.Background(), `SELECT next_run_at FROM schedule WHERE id = ?`, "sched-interval-recompute").Scan(&nextRunAt); err != nil {
+		t.Fatalf("query next_run_at error: %v", err)
+	}
+	if !nextRunAt.Equal(want) {
+		t.Fatalf("next_run_at = %s, want %s", nextRunAt, want)
+	}
+}
+
+func TestService_IsDue_ExistingPastNextRunRemainsDue(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+
+	now := time.Date(2026, 6, 17, 15, 10, 0, 0, time.UTC)
+	nextRunAt := now.Add(-1 * time.Minute)
+	createdAt := now.Add(-24 * time.Hour)
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO schedule (
+			id, name, visibility, agent_ref, enabled, schedule_type, cron_expr, timezone,
+			next_run_at, timeout_seconds, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "sched-past-next", "Past Next", "public", "simple", 1, "cron", "0 9 * * *", "UTC", nextRunAt, 0, createdAt, createdAt); err != nil {
+		t.Fatalf("insert schedule error: %v", err)
+	}
+	row, err := store.Get(context.Background(), "sched-past-next")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	due, scheduledFor, err := svc.isDue(context.Background(), row, now)
+	if err != nil {
+		t.Fatalf("isDue() error: %v", err)
+	}
+	if !due {
+		t.Fatalf("expected existing past next_run_at to remain due")
+	}
+	if !scheduledFor.Equal(nextRunAt) {
+		t.Fatalf("scheduledFor = %s, want %s", scheduledFor, nextRunAt)
+	}
+}
+
 func TestService_tryClaimRunLeaseAndRelease(t *testing.T) {
 	store, db := newTestStore(t)
 	svc := New(store, &agentsvc.Service{})
