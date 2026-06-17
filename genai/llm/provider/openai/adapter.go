@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -18,7 +16,6 @@ import (
 	"github.com/viant/agently-core/internal/shared"
 	overwrap "github.com/viant/agently-core/protocol/tool/overflow"
 
-	pdf "github.com/ledongthuc/pdf"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -292,9 +289,30 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 
 	// Attachment preferences and limits
 	attachMode := "upload" // prefer upload for tool-result PDFs
+	agentID := ""
+	var ttlSec int64
 	if request != nil && request.Options != nil && request.Options.Metadata != nil {
 		if v, ok := request.Options.Metadata["attachMode"].(string); ok && strings.TrimSpace(v) != "" {
 			attachMode = strings.ToLower(strings.TrimSpace(v))
+		}
+		if v, ok := request.Options.Metadata["agentId"].(string); ok {
+			agentID = strings.TrimSpace(v)
+		}
+		switch v := request.Options.Metadata["attachmentTTLSec"].(type) {
+		case int:
+			ttlSec = int64(v)
+		case int64:
+			ttlSec = v
+		case float64:
+			ttlSec = int64(v)
+		case json.Number:
+			if parsed, err := v.Int64(); err == nil {
+				ttlSec = parsed
+			}
+		case string:
+			if parsed, err := json.Number(strings.TrimSpace(v)).Int64(); err == nil {
+				ttlSec = parsed
+			}
 		}
 		if v, ok := request.Options.Metadata["forceCodeInterpreter"].(bool); ok && v {
 			req.EnableCodeInterpreter = true
@@ -350,7 +368,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 		message := Message{
 			Role: string(msg.Role),
 		}
-		isAssistant := msg.Role == llm.RoleAssistant
 		// Propagate speaker name only for user/assistant roles
 		if msg.Role == llm.RoleUser || msg.Role == llm.RoleAssistant {
 			message.Name = msg.Name
@@ -398,56 +415,46 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 					}
 				case llm.ContentTypeBinary:
 					if attachMode == "inline" {
-						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
+						if isOpenAIInlineImageSupported(item.MimeType, item.Name) && item.Data != "" {
 							// For images, inline as data URL to support vision (OpenAI expects image_url)
 							contentItem.Type = "image_url"
-							dataURL := "data:" + item.MimeType + ";base64," + item.Data
-							contentItem.ImageURL = &ImageURL{URL: dataURL}
-						} else if strings.EqualFold(item.MimeType, "application/pdf") && item.Data != "" {
-							text, err := extractPDFContentItemText(item.Data, item.Name)
-							if err != nil {
-								return nil, fmt.Errorf("failed to extract PDF content item: %w", err)
+							contentItem.ImageURL = &ImageURL{URL: dataURLForBase64(openAIInlineImageMimeType(item.MimeType, item.Name), item.Data)}
+						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) && item.Data != "" {
+							contentItem.Type = "file"
+							contentItem.File = &File{
+								FileName: defaultInputFileName(item.Name, item.MimeType),
+								FileData: dataURLForBase64(item.MimeType, item.Data),
 							}
-							if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
-								preview := text
-								if len(preview) > 120 {
-									preview = preview[:120]
-								}
-								_, _ = fmt.Fprintf(os.Stderr, "[pdf-inline-convert] type=%q preview=%q\n", contentItem.Type, preview)
-							}
-							contentItem.Type = "input_text"
-							if isAssistant {
-								contentItem.Type = "output_text"
-							}
-							contentItem.Text = text
 						} else {
-							return nil, fmt.Errorf("unsupported inline binary content item mime type: %q", item.MimeType)
+							return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("unsupported inline binary content item mime type: %q", item.MimeType))
 						}
 					} else {
 						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
-							// For images, inline as data URL to support vision (OpenAI expects image_url)
-							contentItem.Type = "image_url"
-							dataURL := "data:" + item.MimeType + ";base64," + item.Data
-							contentItem.ImageURL = &ImageURL{URL: dataURL}
-						} else if strings.EqualFold(item.MimeType, "application/pdf") {
-							text, err := extractPDFContentItemText(item.Data, item.Name)
+							fileID, err := c.uploadInputFileAndGetID(context.Background(), item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeVision)
 							if err != nil {
-								return nil, fmt.Errorf("failed to extract PDF content item: %w", err)
+								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to upload image content item: %w", err))
 							}
-							if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
-								preview := text
-								if len(preview) > 120 {
-									preview = preview[:120]
-								}
-								_, _ = fmt.Fprintf(os.Stderr, "[pdf-ref-convert] type=%q preview=%q\n", contentItem.Type, preview)
+							if _, ok := ToolCallIdToReplaceContent[msg.ToolCallId]; msg.Role == "tool" && ok {
+								msg.Content = fmt.Sprintf(`{"status":"ok","file_id":"%s","filename":"%s","bytes":%d}`, fileID, item.Name, len(item.Data))
+								msg.Items = []llm.ContentItem{}
+							} else {
+								contentItem.Type = "image_file"
+								contentItem.File = &File{FileID: fileID}
 							}
-							contentItem.Type = "input_text"
-							if isAssistant {
-								contentItem.Type = "output_text"
+						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) {
+							fileID, err := c.uploadInputFileAndGetID(context.Background(), item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeUserData)
+							if err != nil {
+								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to upload file content item: %w", err))
 							}
-							contentItem.Text = text
+							if _, ok := ToolCallIdToReplaceContent[msg.ToolCallId]; msg.Role == "tool" && ok {
+								msg.Content = fmt.Sprintf(`{"status":"ok","file_id":"%s","filename":"%s","bytes":%d}`, fileID, item.Name, len(item.Data))
+								msg.Items = []llm.ContentItem{}
+							} else {
+								contentItem.Type = "file"
+								contentItem.File = &File{FileID: fileID}
+							}
 						} else {
-							return nil, fmt.Errorf("unsupported uploaded binary content item mime type: %q", item.MimeType)
+							return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("unsupported uploaded binary content item mime type: %q", item.MimeType))
 						}
 					}
 				}
@@ -532,49 +539,6 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	return req, nil
 }
 
-func extractPDFContentItemText(base64Data string, name string) (string, error) {
-	raw := strings.TrimSpace(base64Data)
-	data, err := base64.StdEncoding.DecodeString(raw)
-	if err != nil || !bytes.HasPrefix(data, []byte("%PDF-")) {
-		data = []byte(raw)
-	}
-	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_PDF_UPLOAD")) == "1" {
-		decodedPrefix := ""
-		if len(data) > 0 {
-			end := len(data)
-			if end > 16 {
-				end = 16
-			}
-			decodedPrefix = fmt.Sprintf("%q", string(data[:end]))
-		}
-		_, _ = fmt.Fprintf(os.Stderr, "[pdf-extract] name=%q raw_len=%d decoded_len=%d prefix=%s\n", name, len(raw), len(data), decodedPrefix)
-	}
-	if !bytes.HasPrefix(data, []byte("%PDF-")) {
-		return "", fmt.Errorf("not a PDF file: invalid header")
-	}
-	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return "", err
-	}
-	plain, err := reader.GetPlainText()
-	if err != nil {
-		return "", err
-	}
-	body, err := io.ReadAll(plain)
-	if err != nil {
-		return "", err
-	}
-	text := strings.TrimSpace(string(body))
-	if text == "" {
-		return "", fmt.Errorf("pdf text content was empty")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "attachment.pdf"
-	}
-	return fmt.Sprintf("PDF attachment %s:\n%s", name, text), nil
-}
-
 // ToRequest is a convenience wrapper retained for backward-compatible tests.
 // It constructs a default client and adapts an llm.GenerateRequest to provider Request.
 // Errors are ignored in this wrapper; callers requiring error handling should use Client.ToRequest.
@@ -584,8 +548,168 @@ func ToRequest(request *llm.GenerateRequest) *Request {
 	return out
 }
 
-// uploadFiledAndGetID uploads a base64-encoded PDF to OpenAI assets and returns its file_id.
-func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, name string, agentID string, ttlSec int64) (string, error) {
+func isOpenAIInputFileSupported(mimeType, name string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	ext := strings.ToLower(path.Ext(strings.TrimSpace(name)))
+	if strings.HasPrefix(mimeType, "image/") {
+		return false
+	}
+	if supportedOpenAIInputFileExt[ext] {
+		return true
+	}
+	if strings.HasPrefix(mimeType, "text/") || supportedOpenAIInputFileMime[mimeType] {
+		return true
+	}
+	return false
+}
+
+func isOpenAIInlineImageSupported(mimeType, name string) bool {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	ext := strings.ToLower(path.Ext(strings.TrimSpace(name)))
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif":
+		return true
+	}
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+		return true
+	}
+	return false
+}
+
+func openAIInlineImageMimeType(mimeType, name string) string {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif":
+		if mimeType == "image/jpg" {
+			return "image/jpeg"
+		}
+		return mimeType
+	}
+	switch strings.ToLower(path.Ext(strings.TrimSpace(name))) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return mimeType
+	}
+}
+
+func dataURLForBase64(mimeType, base64Data string) string {
+	mimeType = strings.TrimSpace(mimeType)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	data := strings.TrimSpace(base64Data)
+	if strings.HasPrefix(data, "data:") {
+		return data
+	}
+	return "data:" + mimeType + ";base64," + data
+}
+
+var supportedOpenAIInputFileExt = map[string]bool{
+	".asm": true, ".bat": true, ".c": true, ".cc": true, ".conf": true,
+	".cpp": true, ".css": true, ".csv": true, ".cxx": true, ".def": true,
+	".dic": true, ".doc": true, ".docx": true, ".dot": true, ".eml": true,
+	".go": true, ".h": true, ".hh": true, ".htm": true, ".html": true,
+	".ics": true, ".ifb": true, ".iif": true, ".in": true, ".js": true,
+	".json": true, ".key": true, ".ksh": true, ".list": true, ".log": true,
+	".markdown": true, ".md": true, ".mht": true, ".mhtml": true, ".mime": true,
+	".mjs": true, ".odt": true, ".pages": true, ".pdf": true, ".pl": true,
+	".pot": true, ".ppa": true, ".pps": true, ".ppt": true, ".pptx": true,
+	".pwz": true, ".py": true, ".rst": true, ".rtf": true, ".s": true,
+	".sql": true, ".srt": true, ".text": true, ".tsv": true, ".txt": true,
+	".vcf": true, ".vtt": true, ".wiz": true, ".xla": true, ".xlb": true,
+	".xlc": true, ".xlm": true, ".xls": true, ".xlsx": true, ".xlt": true,
+	".xlw": true, ".xml": true,
+}
+
+var supportedOpenAIInputFileMime = map[string]bool{
+	"application/csv": true, "application/graphql": true, "application/javascript": true,
+	"application/json": true, "application/json5": true, "application/msword": true,
+	"application/pdf": true, "application/rtf": true, "application/toml": true,
+	"application/typescript": true, "application/vnd.apple.iwork": true,
+	"application/vnd.apple.keynote": true, "application/vnd.apple.pages": true,
+	"application/vnd.google-apps.document": true, "application/vnd.google-apps.presentation": true,
+	"application/vnd.google-apps.spreadsheet": true, "application/vnd.ms-excel": true,
+	"application/vnd.ms-powerpoint": true, "application/vnd.oasis.opendocument.text": true,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
+	"application/x-awk": true, "application/x-bash": true, "application/x-graphql": true,
+	"application/x-httpd-php": true, "application/x-httpd-php-source": true,
+	"application/x-iif": true, "application/x-json5": true, "application/x-patch": true,
+	"application/x-php": true, "application/x-protobuf": true, "application/x-sql": true,
+	"application/x-subrip": true, "application/x-terraform": true, "application/x-toml": true,
+	"application/x-yaml": true, "application/yaml": true, "message/rfc822": true,
+	"text/markdown": true, "text/rtf": true, "text/tsv": true, "text/vbscript": true,
+	"text/xml": true, "text/x-iif": true,
+}
+
+func defaultInputFileName(name, mimeType string) string {
+	baseName := path.Base(strings.TrimSpace(name))
+	if baseName != "" && baseName != "." && baseName != "/" {
+		return baseName
+	}
+	if ext := defaultOpenAIInputFileExt(strings.ToLower(strings.TrimSpace(mimeType))); ext != "" {
+		return "attachment" + ext
+	}
+	return "attachment.txt"
+}
+
+func defaultOpenAIInputFileExt(mimeType string) string {
+	switch mimeType {
+	case "application/pdf":
+		return ".pdf"
+	case "application/json":
+		return ".json"
+	case "text/csv", "application/csv":
+		return ".csv"
+	case "text/tsv":
+		return ".tsv"
+	case "text/markdown":
+		return ".md"
+	case "text/html":
+		return ".html"
+	case "text/xml", "application/xml":
+		return ".xml"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return ".docx"
+	case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return ".pptx"
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return ".xlsx"
+	case "application/msword":
+		return ".doc"
+	case "application/vnd.ms-powerpoint":
+		return ".ppt"
+	case "application/vnd.ms-excel":
+		return ".xls"
+	case "application/rtf", "text/rtf":
+		return ".rtf"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		if strings.HasPrefix(mimeType, "text/") {
+			return ".txt"
+		}
+		return ""
+	}
+}
+
+// uploadInputFileAndGetID uploads a base64-encoded input file to OpenAI assets and returns its file_id.
+func (c *Client) uploadInputFileAndGetID(ctx context.Context, base64Data string, name string, mimeType string, agentID string, ttlSec int64, purpose openai.FilePurpose) (string, error) {
 	var attachmentTTLSec int64 = ttlSec
 	// Apply provider default TTL (86400 sec = 1 day) when not specified
 	if attachmentTTLSec <= 0 {
@@ -613,10 +737,7 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 		return "", fmt.Errorf("failed to determine host ip prefix: %w", err)
 	}
 
-	baseName := path.Base(strings.TrimSpace(name))
-	if baseName == "" || baseName == "." || baseName == "/" || !strings.HasSuffix(strings.ToLower(baseName), ".pdf") {
-		baseName = "attachment.pdf"
-	}
+	baseName := defaultInputFileName(name, mimeType)
 	sanitize := strings.NewReplacer("/", "_", "\\", "_", " ", "_", ":", "_")
 	filename := fmt.Sprintf("agently_%s_%s_%s_%s",
 		sanitize.Replace(strings.TrimSpace(user)),
@@ -630,7 +751,10 @@ func (c *Client) uploadFiledAndGetID(ctx context.Context, base64Data string, nam
 	}
 	// Build options with optional TTL
 	var opts []storage.Option
-	opts = append(opts, &content.Meta{Values: map[string]string{"purpose": string(openai.FilePurposeUserData)}})
+	if purpose == "" {
+		purpose = openai.FilePurposeUserData
+	}
+	opts = append(opts, &content.Meta{Values: map[string]string{"purpose": string(purpose)}})
 	// Always include TTL (provider default baked above)
 	opts = append(opts, &openai.FileNewParamsExpiresAfter{Seconds: attachmentTTLSec})
 

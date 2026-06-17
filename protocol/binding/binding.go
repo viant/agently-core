@@ -75,6 +75,7 @@ type (
 		Mime          string `yaml:"mime,omitempty" json:"mime,omitempty"`
 		Content       string `yaml:"content,omitempty" json:"content,omitempty"`
 		Data          []byte `yaml:"data,omitempty" json:"data,omitempty"`
+		PayloadID     string `yaml:"-" json:"-"`
 	}
 
 	Turn struct {

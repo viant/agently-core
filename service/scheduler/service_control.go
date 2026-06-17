@@ -197,7 +197,7 @@ func (s *Service) setNextRunAt(row *schedulepkg.ScheduleView, mut *schedwrite.Sc
 		if err != nil {
 			return fmt.Errorf("invalid cron expr for schedule %s: %w", row.Id, err)
 		}
-		mut.SetNextRunAt(cronNext(spec, now.In(loc)).UTC())
+		mut.SetNextRunAt(nextCronAfter(spec, now.In(loc), now.In(loc)).UTC())
 	case row.IntervalSeconds != nil:
 		mut.SetNextRunAt(now.Add(time.Duration(*row.IntervalSeconds) * time.Second).UTC())
 	case strings.EqualFold(strings.TrimSpace(row.ScheduleType), "adhoc"):

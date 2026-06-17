@@ -127,6 +127,9 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 	if cfg.schedulerOpts != nil && cfg.schedulerOpts.EnableWatchdog && cfg.schedulerSvc != nil {
 		go cfg.schedulerSvc.StartWatchdog(ctx)
 	}
+	if err := cleanupStagedUploads(stagedUploadRoot(), stagedUploadTTL); err != nil {
+		log.Printf("[sdk] staged upload cleanup failed: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	registerCoreRoutes(mux, client, cfg)
@@ -153,6 +156,7 @@ func withDebugHeaders(next http.Handler) http.Handler {
 func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) {
 	mux.HandleFunc("GET /healthz", handleHealth())
 	mux.HandleFunc("GET /health", handleHealth())
+	mux.HandleFunc("POST /upload", handleStagedUpload())
 
 	mux.HandleFunc("POST /v1/agent/query", handleQuery(client, cfg.authCfg))
 

@@ -7,7 +7,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestHTTPClient_UploadFile(t *testing.T) {
@@ -146,5 +150,83 @@ func TestHandler_UploadFile(t *testing.T) {
 	}
 	if out.URI == "" {
 		t.Fatalf("expected synthesized URI")
+	}
+}
+
+func TestHandler_StagedUploadDoesNotRequireConversation(t *testing.T) {
+	handler := NewHandler(nil)
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	if err := w.WriteField("contentType", "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	part, err := w.CreateFormFile("file", "note.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	var out UploadFileOutput
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out.URI, stagedUploadRootName+"/") {
+		t.Fatalf("unexpected uri %q", out.URI)
+	}
+	if out.Name != "note.txt" || out.Size != int64(len("hello")) || out.MimeType != "text/plain" {
+		t.Fatalf("unexpected output %+v", out)
+	}
+	parts := strings.Split(out.URI, "/")
+	if len(parts) < 3 {
+		t.Fatalf("unexpected uri %q", out.URI)
+	}
+	target := filepath.Join(stagedUploadRoot(), parts[1], parts[2])
+	defer os.RemoveAll(filepath.Dir(target))
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read staged file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("unexpected staged body %q", string(data))
+	}
+}
+
+func TestCleanupStagedUploadsRemovesOnlyExpiredChildren(t *testing.T) {
+	root := t.TempDir()
+	oldDir := filepath.Join(root, "old")
+	newDir := filepath.Join(root, "new")
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(oldDir, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cleanupStagedUploads(root, 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatalf("old dir still exists or unexpected error: %v", err)
+	}
+	if _, err := os.Stat(newDir); err != nil {
+		t.Fatalf("new dir missing: %v", err)
 	}
 }

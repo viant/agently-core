@@ -1,11 +1,23 @@
 package openai
 
 import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"path"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/viant/afs/file"
+	"github.com/viant/afs/object"
+	"github.com/viant/afs/option/content"
+	"github.com/viant/afs/storage"
+	"github.com/viant/afsc/openai/assets"
 	"github.com/viant/agently-core/genai/llm"
 	basecfg "github.com/viant/agently-core/genai/llm/provider/base"
 )
@@ -23,6 +35,61 @@ func messageTextContent(content interface{}) string {
 	default:
 		return ""
 	}
+}
+
+type fakeOpenAIAssetManager struct {
+	uploadedName string
+	uploadedBody []byte
+	purpose      string
+	fileID       string
+}
+
+func (m *fakeOpenAIAssetManager) List(context.Context, string, ...storage.Option) ([]storage.Object, error) {
+	info := file.NewInfo(m.uploadedName, int64(len(m.uploadedBody)), 0644, time.Now(), false, assets.File{
+		ID:       m.fileID,
+		Filename: m.uploadedName,
+		Purpose:  m.purpose,
+	})
+	return []storage.Object{object.New("openai://assets/"+m.uploadedName, info, nil)}, nil
+}
+
+func (m *fakeOpenAIAssetManager) Open(context.Context, storage.Object, ...storage.Option) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (m *fakeOpenAIAssetManager) OpenURL(context.Context, string, ...storage.Option) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (m *fakeOpenAIAssetManager) Upload(_ context.Context, URL string, _ os.FileMode, reader io.Reader, options ...storage.Option) error {
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	m.uploadedName = path.Base(URL)
+	m.uploadedBody = body
+	for _, opt := range options {
+		if meta, ok := opt.(*content.Meta); ok {
+			m.purpose = meta.Values["purpose"]
+		}
+	}
+	return nil
+}
+
+func (m *fakeOpenAIAssetManager) Delete(context.Context, string, ...storage.Option) error {
+	return nil
+}
+
+func (m *fakeOpenAIAssetManager) Create(context.Context, string, os.FileMode, bool, ...storage.Option) error {
+	return nil
+}
+
+func (m *fakeOpenAIAssetManager) Close() error {
+	return nil
+}
+
+func (m *fakeOpenAIAssetManager) Scheme() string {
+	return "openai"
 }
 
 func TestToRequest_StreamFlag(t *testing.T) {
@@ -298,6 +365,21 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		if mime == "application/pdf" {
 			data = minimalPDFBase64
 		}
+		name := "sample.bin"
+		switch mime {
+		case "application/pdf":
+			name = "sample.pdf"
+		case "text/plain":
+			name = "sample.txt"
+		case "text/csv":
+			name = "sample.csv"
+		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+			name = "sample.docx"
+		case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+			name = "sample.xlsx"
+		case "image/avif":
+			name = "sample.avif"
+		}
 		return &llm.GenerateRequest{
 			Messages: []llm.Message{
 				{
@@ -307,7 +389,7 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 							Type:     llm.ContentTypeBinary,
 							MimeType: mime,
 							Data:     data,
-							Name:     "sample.bin",
+							Name:     name,
 						},
 					},
 				},
@@ -336,27 +418,10 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("inline supports pdf", func(t *testing.T) {
-		got, err := client.ToRequest(newReq("inline", "application/pdf"))
-		assert.NoError(t, err)
-		assert.Len(t, got.Messages, 1)
-		items, ok := got.Messages[0].Content.([]ContentItem)
-		if assert.True(t, ok) && assert.Len(t, items, 1) {
-			assert.Equal(t, "input_text", items[0].Type)
-			assert.Contains(t, items[0].Text, "PDF attachment sample.bin:")
-			assert.Contains(t, items[0].Text, "Hello PDF")
-		}
-	})
-
-	t.Run("inline rejects unsupported mime", func(t *testing.T) {
-		_, err := client.ToRequest(newReq("inline", "application/octet-stream"))
-		if assert.Error(t, err) {
-			assert.Contains(t, err.Error(), "unsupported inline binary content item mime type")
-		}
-	})
-
-	t.Run("upload supports image", func(t *testing.T) {
-		got, err := client.ToRequest(newReq("upload", "image/jpeg"))
+	t.Run("inline supports image by extension when mime is empty", func(t *testing.T) {
+		req := newReq("inline", "")
+		req.Messages[0].Items[0].Name = "sample.jpeg"
+		got, err := client.ToRequest(req)
 		assert.NoError(t, err)
 		assert.Len(t, got.Messages, 1)
 		items, ok := got.Messages[0].Content.([]ContentItem)
@@ -368,12 +433,170 @@ func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("upload rejects unsupported mime", func(t *testing.T) {
-		_, err := client.ToRequest(newReq("upload", "text/plain"))
-		if assert.Error(t, err) {
-			assert.Contains(t, err.Error(), "unsupported uploaded binary content item mime type")
+	t.Run("inline supports pdf", func(t *testing.T) {
+		got, err := client.ToRequest(newReq("inline", "application/pdf"))
+		assert.NoError(t, err)
+		assert.Len(t, got.Messages, 1)
+		items, ok := got.Messages[0].Content.([]ContentItem)
+		if assert.True(t, ok) && assert.Len(t, items, 1) {
+			assert.Equal(t, "file", items[0].Type)
+			if assert.NotNil(t, items[0].File) {
+				assert.Equal(t, "sample.pdf", items[0].File.FileName)
+				assert.Contains(t, items[0].File.FileData, "data:application/pdf;base64,")
+			}
+		}
+
+		responseItems := toResponsesContentItems(got.Messages[0].Content, false)
+		if assert.Len(t, responseItems, 1) {
+			assert.Equal(t, "input_file", responseItems[0].Type)
+			assert.Equal(t, "sample.pdf", responseItems[0].FileName)
+			assert.Contains(t, responseItems[0].FileData, "data:application/pdf;base64,")
 		}
 	})
+
+	for _, tc := range []struct {
+		name string
+		mime string
+	}{
+		{name: "text", mime: "text/plain"},
+		{name: "csv", mime: "text/csv"},
+		{name: "docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		{name: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+	} {
+		t.Run("inline supports "+tc.name, func(t *testing.T) {
+			got, err := client.ToRequest(newReq("inline", tc.mime))
+			assert.NoError(t, err)
+			assert.Len(t, got.Messages, 1)
+			items, ok := got.Messages[0].Content.([]ContentItem)
+			if assert.True(t, ok) && assert.Len(t, items, 1) {
+				assert.Equal(t, "file", items[0].Type)
+				if assert.NotNil(t, items[0].File) {
+					assert.Contains(t, items[0].File.FileData, "data:"+tc.mime+";base64,")
+				}
+			}
+
+			responseItems := toResponsesContentItems(got.Messages[0].Content, false)
+			if assert.Len(t, responseItems, 1) {
+				assert.Equal(t, "input_file", responseItems[0].Type)
+				assert.Contains(t, responseItems[0].FileData, "data:"+tc.mime+";base64,")
+			}
+		})
+	}
+
+	t.Run("inline rejects unsupported image mime", func(t *testing.T) {
+		_, err := client.ToRequest(newReq("inline", "image/avif"))
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "unsupported inline binary content item mime type")
+			var capabilityErr *llm.AttachmentCapabilityError
+			assert.True(t, errors.As(err, &capabilityErr))
+			if assert.NotNil(t, capabilityErr) {
+				assert.Equal(t, "image/avif", capabilityErr.MIMEType)
+				assert.Equal(t, "inline", capabilityErr.Mode)
+			}
+		}
+	})
+
+	t.Run("inline rejects unsupported mime", func(t *testing.T) {
+		_, err := client.ToRequest(newReq("inline", "application/octet-stream"))
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "unsupported inline binary content item mime type")
+			var capabilityErr *llm.AttachmentCapabilityError
+			assert.True(t, errors.As(err, &capabilityErr))
+			if assert.NotNil(t, capabilityErr) {
+				assert.Equal(t, "application/octet-stream", capabilityErr.MIMEType)
+				assert.Equal(t, "inline", capabilityErr.Mode)
+			}
+		}
+	})
+
+	t.Run("upload supports image", func(t *testing.T) {
+		storageMgr := &fakeOpenAIAssetManager{fileID: "file_vision_123"}
+		client := &Client{
+			APIKey:           "test-key",
+			storageMgrAPIKey: "test-key",
+			storageMgr:       storageMgr,
+		}
+		got, err := client.ToRequest(newReq("upload", "image/jpeg"))
+		assert.NoError(t, err)
+		assert.Len(t, got.Messages, 1)
+		items, ok := got.Messages[0].Content.([]ContentItem)
+		if assert.True(t, ok) && assert.Len(t, items, 1) {
+			assert.Equal(t, "image_file", items[0].Type)
+			if assert.NotNil(t, items[0].File) {
+				assert.Equal(t, "file_vision_123", items[0].File.FileID)
+			}
+		}
+		assert.Equal(t, string(openai.FilePurposeVision), storageMgr.purpose)
+		assert.Equal(t, []byte{0}, storageMgr.uploadedBody)
+
+		responseItems := toResponsesContentItems(got.Messages[0].Content, false)
+		if assert.Len(t, responseItems, 1) {
+			assert.Equal(t, "input_image", responseItems[0].Type)
+			assert.Equal(t, "file_vision_123", responseItems[0].FileID)
+			assert.Empty(t, responseItems[0].ImageURL)
+		}
+	})
+
+	t.Run("upload rejects unsupported mime", func(t *testing.T) {
+		_, err := client.ToRequest(newReq("upload", "application/octet-stream"))
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "unsupported uploaded binary content item mime type")
+			var capabilityErr *llm.AttachmentCapabilityError
+			assert.True(t, errors.As(err, &capabilityErr))
+			if assert.NotNil(t, capabilityErr) {
+				assert.Equal(t, "application/octet-stream", capabilityErr.MIMEType)
+				assert.Equal(t, "upload", capabilityErr.Mode)
+			}
+		}
+	})
+}
+
+func TestOpenAIInputFileSupport(t *testing.T) {
+	cases := []struct {
+		name string
+		mime string
+		want bool
+	}{
+		{name: "report.pdf", mime: "application/pdf", want: true},
+		{name: "notes.txt", mime: "text/plain", want: true},
+		{name: "data.json", mime: "application/json", want: true},
+		{name: "sheet.xlsx", mime: "application/octet-stream", want: true},
+		{name: "slides.pptx", mime: "", want: true},
+		{name: "document.docx", mime: "", want: true},
+		{name: "main.go", mime: "", want: true},
+		{name: "photo.png", mime: "image/png", want: false},
+		{name: "archive.zip", mime: "application/zip", want: false},
+		{name: "blob.bin", mime: "application/octet-stream", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name+" "+tc.mime, func(t *testing.T) {
+			assert.Equal(t, tc.want, isOpenAIInputFileSupported(tc.mime, tc.name))
+		})
+	}
+}
+
+func TestOpenAIInlineImageSupport(t *testing.T) {
+	cases := []struct {
+		name string
+		mime string
+		want bool
+	}{
+		{name: "photo.png", mime: "image/png", want: true},
+		{name: "photo.jpg", mime: "image/jpeg", want: true},
+		{name: "photo.jpeg", mime: "", want: true},
+		{name: "photo.webp", mime: "image/webp", want: true},
+		{name: "photo.gif", mime: "image/gif", want: true},
+		{name: "photo.avif", mime: "image/avif", want: false},
+		{name: "vector.svg", mime: "image/svg+xml", want: false},
+		{name: "archive.zip", mime: "application/zip", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name+" "+tc.mime, func(t *testing.T) {
+			assert.Equal(t, tc.want, isOpenAIInlineImageSupported(tc.mime, tc.name))
+		})
+	}
 }
 
 func TestToRequest_DoesNotRewriteLargeToolResultReplay(t *testing.T) {
