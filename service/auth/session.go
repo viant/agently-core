@@ -160,7 +160,9 @@ func (m *Manager) Get(ctx context.Context, id string) *Session {
 	}
 	sess := recordToSession(rec)
 	if sess.IsExpired() {
-		_ = m.store.Delete(ctx, id)
+		storeCtx, cancel := authStoreContext(ctx)
+		_ = m.store.Delete(storeCtx, id)
+		cancel()
 		return nil
 	}
 	m.mu.Lock()
@@ -202,7 +204,9 @@ func (m *Manager) Put(ctx context.Context, s *Session) {
 	m.mem[s.ID] = s
 	m.mu.Unlock()
 	if m.store != nil {
-		_ = m.store.Upsert(ctx, sessionToRecord(s))
+		storeCtx, cancel := authStoreContext(ctx)
+		_ = m.store.Upsert(storeCtx, sessionToRecord(s))
+		cancel()
 	}
 }
 
@@ -254,7 +258,9 @@ func (m *Manager) Delete(ctx context.Context, id string) {
 	delete(m.mem, id)
 	m.mu.Unlock()
 	if m.store != nil {
-		_ = m.store.Delete(ctx, id)
+		storeCtx, cancel := authStoreContext(ctx)
+		_ = m.store.Delete(storeCtx, id)
+		cancel()
 	}
 }
 

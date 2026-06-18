@@ -285,10 +285,10 @@ func oauthVerifierConfig(ctx context.Context, cfg *Config) (*vcfg.Config, error)
 		if err != nil {
 			return nil, err
 		}
-		if issuer := issuerFromAuthURL(oauthCfg.Endpoint.AuthURL); issuer != "" {
+		for _, issuer := range issuerCandidatesFromAuthURL(oauthCfg.Endpoint.AuthURL) {
 			jwksURL, err := fetchIssuerJWKSURL(ctx, issuer)
 			if err != nil {
-				return nil, err
+				continue
 			}
 			return &vcfg.Config{CertURL: jwksURL}, nil
 		}
@@ -331,25 +331,45 @@ func fetchOpenIDJWKSURL(ctx context.Context, discoveryURL string) (string, error
 	return jwksURL, nil
 }
 
-func issuerFromAuthURL(authURL string) string {
+func issuerCandidatesFromAuthURL(authURL string) []string {
 	authURL = strings.TrimSpace(authURL)
 	if authURL == "" {
-		return ""
+		return nil
 	}
 	parsed, err := url.Parse(authURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return ""
+		return nil
 	}
+	base := *parsed
+	base.Path = ""
+	base.RawQuery = ""
+	base.Fragment = ""
+	root := strings.TrimRight(base.String(), "/")
 	dir := path.Dir(parsed.Path)
+	var candidates []string
+	appendUnique := func(value string) {
+		value = strings.TrimRight(strings.TrimSpace(value), "/")
+		if value == "" {
+			return
+		}
+		for _, candidate := range candidates {
+			if candidate == value {
+				return
+			}
+		}
+		candidates = append(candidates, value)
+	}
+	appendUnique(root)
 	switch dir {
 	case ".", "/":
-		parsed.Path = ""
+		appendUnique(root)
 	default:
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
 		parsed.Path = dir
+		appendUnique(parsed.String())
 	}
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return strings.TrimRight(parsed.String(), "/")
+	return candidates
 }
 
 func openIDDiscoveryURL(issuer string) (string, error) {
