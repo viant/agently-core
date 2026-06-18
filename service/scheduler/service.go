@@ -206,7 +206,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.store.DeleteSchedule(ctx, id)
 }
 
-// RunNow enqueues and starts an immediate execution for a schedule.
+// RunNow starts an immediate on-demand execution for a schedule.
 func (s *Service) RunNow(ctx context.Context, id string) error {
 	row, err := s.store.Get(ctx, id)
 	if err != nil {
@@ -218,7 +218,7 @@ func (s *Service) RunNow(ctx context.Context, id string) error {
 	if row.Internal {
 		return errors.New("schedule " + id + " not found")
 	}
-	return s.enqueueAndLaunch(ctx, row, time.Now().UTC(), false)
+	return s.runNowOnDemand(ctx, row)
 }
 
 func nonEmptyScheduleString(value *string) string {

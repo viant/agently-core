@@ -484,6 +484,32 @@ func TestHandler_RunNowInternalScheduleReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestHandler_RunNowRateLimitReturnsTooManyRequests(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, &agentsvc.Service{})
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-rate-limit", "Run Now Rate Limit")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO run (id, schedule_id, conversation_kind, status, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, "run-recent-manual", "sched-rate-limit", "scheduled", "pending", time.Now().UTC()); err != nil {
+		t.Fatalf("insert recent manual run error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/agently/scheduler/run-now/sched-rate-limit", nil)
+	req.SetPathValue("id", "sched-rate-limit")
+	rec := httptest.NewRecorder()
+
+	h.handleRunNow()(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), ErrRunNowRateLimited.Error()) {
+		t.Fatalf("expected rate-limit message in body, got %s", rec.Body.String())
+	}
+}
+
 func TestHandler_BatchUpdateRejectsReservedInternalScheduleFields(t *testing.T) {
 	store, _ := newTestStore(t)
 	svc := New(store, &agentsvc.Service{})
@@ -539,6 +565,117 @@ func TestHandler_ListSchedulesSupportsPagination(t *testing.T) {
 	if len(payload.Data.Schedules) != 1 {
 		t.Fatalf("expected one schedule on page 2, got %d", len(payload.Data.Schedules))
 	}
+}
+
+func TestHandler_ListSchedulesFiltersByNameBeforePagination(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "test5101")
+	insertScheduleRow(t, db, "sched-2", "nightly")
+	insertScheduleRow(t, db, "sched-3", "TEST5102")
+	insertScheduleRow(t, db, "sched-4", "test34")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/?name=51&page=1&size=1", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListSchedules()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeScheduleListPayload(t, rec)
+	if payload.Info.PageCount != 2 || payload.Info.TotalCount != 2 {
+		t.Fatalf("unexpected filtered paging info: %+v", payload.Info)
+	}
+	if len(payload.Data.Schedules) != 1 {
+		t.Fatalf("expected one filtered schedule on page 1, got %d", len(payload.Data.Schedules))
+	}
+	if got := payload.Data.Schedules[0]["name"]; got != "test5101" {
+		t.Fatalf("unexpected first filtered schedule name: %v", got)
+	}
+}
+
+func TestHandler_ListSchedulesSupportsQueryAliasAndBlankName(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Alpha")
+	insertScheduleRow(t, db, "sched-2", "Beta")
+	insertScheduleRow(t, db, "sched-3", "alphabet")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/?name=%20%20&query=alp&page=1&size=10", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListSchedules()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeScheduleListPayload(t, rec)
+	if payload.Info.PageCount != 1 || payload.Info.TotalCount != 2 {
+		t.Fatalf("unexpected query filtered paging info: %+v", payload.Info)
+	}
+	if len(payload.Data.Schedules) != 2 {
+		t.Fatalf("expected two query-filtered schedules, got %d", len(payload.Data.Schedules))
+	}
+}
+
+func TestHandler_ListSchedulesReturnsEmptyForNoFilterMatches(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Alpha")
+	insertScheduleRow(t, db, "sched-2", "Beta")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/?name=missing", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListSchedules()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeScheduleListPayload(t, rec)
+	if payload.Info.PageCount != 1 || payload.Info.TotalCount != 0 {
+		t.Fatalf("unexpected empty filtered paging info: %+v", payload.Info)
+	}
+	if len(payload.Data.Schedules) != 0 {
+		t.Fatalf("expected no filtered schedules, got %d", len(payload.Data.Schedules))
+	}
+}
+
+func decodeScheduleListPayload(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	Status string `json:"status"`
+	Data   struct {
+		Schedules []map[string]interface{} `json:"schedules"`
+	} `json:"data"`
+	Info struct {
+		PageCount  int `json:"pageCount"`
+		TotalCount int `json:"totalCount"`
+	} `json:"info"`
+} {
+	t.Helper()
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Schedules []map[string]interface{} `json:"schedules"`
+		} `json:"data"`
+		Info struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	return payload
 }
 
 func newTestStore(t *testing.T) (Store, *sql.DB) {
@@ -993,6 +1130,98 @@ func TestHandler_ListRunsSupportsPathScheduleID(t *testing.T) {
 	}
 }
 
+func TestHandler_ListRunsFiltersByStatusConversationAndError(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertConversationRow(t, db, "conv-alpha-001", "public")
+	insertConversationRow(t, db, "conv-alpha-002", "public")
+	insertConversationRow(t, db, "conv-beta-001", "public")
+	insertConversationRow(t, db, "conv-alpha-003", "public")
+	startedAt := time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC)
+	insertSchedulerRunRowWithError(t, db, "run-match", "sched-1", "conv-alpha-001", "succeeded", "worker died, resumed as abc", startedAt)
+	insertSchedulerRunRowWithError(t, db, "run-status-miss", "sched-1", "conv-alpha-002", "failed", "worker died, resumed as def", startedAt.Add(time.Hour))
+	insertSchedulerRunRowWithError(t, db, "run-conversation-miss", "sched-1", "conv-beta-001", "succeeded", "worker died, resumed as ghi", startedAt.Add(2*time.Hour))
+	insertSchedulerRunRowWithError(t, db, "run-error-miss", "sched-1", "conv-alpha-003", "succeeded", "network timeout", startedAt.Add(3*time.Hour))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run?status=SUCC&conversationId=ALPHA&errorMessage=RESUMED&page=1&size=1", nil)
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodeRunListPayload(t, rec)
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if payload.Info.PageCount != 1 || payload.Info.TotalCount != 1 {
+		t.Fatalf("unexpected paging info: %+v", payload.Info)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-match" {
+		t.Fatalf("expected matching run only, got %#v", payload.Data)
+	}
+}
+
+func TestHandler_ListRunsFiltersKeepScheduleScopeAndIgnoreBlankValues(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRow(t, db, "sched-1", "Nightly")
+	insertScheduleRow(t, db, "sched-2", "Hourly")
+	insertConversationRow(t, db, "conv-alpha-001", "public")
+	insertConversationRow(t, db, "conv-beta-001", "public")
+	startedAt := time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC)
+	insertSchedulerRunRowWithError(t, db, "run-sched-1-alpha", "sched-1", "conv-alpha-001", "succeeded", "worker died, resumed as abc", startedAt)
+	insertSchedulerRunRowWithError(t, db, "run-sched-2-alpha", "sched-2", "conv-alpha-001", "succeeded", "worker died, resumed as def", startedAt.Add(time.Hour))
+	insertSchedulerRunRowWithError(t, db, "run-sched-1-beta", "sched-1", "conv-beta-001", "failed", "network timeout", startedAt.Add(2*time.Hour))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api/agently/scheduler/run/sched-1?status=%20&conversationId=alpha&errorMessage=%20&page=1&size=10", nil)
+	req.SetPathValue("id", "sched-1")
+	rec := httptest.NewRecorder()
+
+	h.handleListRuns()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodeRunListPayload(t, rec)
+	if payload.Status != "ok" {
+		t.Fatalf("expected status ok, got %q", payload.Status)
+	}
+	if payload.Info.PageCount != 1 || payload.Info.TotalCount != 1 {
+		t.Fatalf("unexpected paging info: %+v", payload.Info)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].Id != "run-sched-1-alpha" {
+		t.Fatalf("expected schedule-scoped filtered run, got %#v", payload.Data)
+	}
+}
+
+func decodeRunListPayload(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	Status string            `json:"status"`
+	Data   []*schrun.RunView `json:"data"`
+	Info   struct {
+		PageCount  int `json:"pageCount"`
+		TotalCount int `json:"totalCount"`
+	} `json:"info"`
+} {
+	t.Helper()
+	var payload struct {
+		Status string            `json:"status"`
+		Data   []*schrun.RunView `json:"data"`
+		Info   struct {
+			PageCount  int `json:"pageCount"`
+			TotalCount int `json:"totalCount"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v", err)
+	}
+	return payload
+}
+
 func insertScheduleRow(t *testing.T, db *sql.DB, id, name string) {
 	t.Helper()
 	insertScheduleRowWithOwner(t, db, id, name, "public", "")
@@ -1021,9 +1250,14 @@ func insertConversationRowWithOwner(t *testing.T, db *sql.DB, id, visibility, ow
 
 func insertSchedulerRunRow(t *testing.T, db *sql.DB, id, scheduleID, conversationID, status string, startedAt time.Time) {
 	t.Helper()
+	insertSchedulerRunRowWithError(t, db, id, scheduleID, conversationID, status, "", startedAt)
+}
+
+func insertSchedulerRunRowWithError(t *testing.T, db *sql.DB, id, scheduleID, conversationID, status, errorMessage string, startedAt time.Time) {
+	t.Helper()
 	createdAt := startedAt.Add(-1 * time.Minute)
 	completedAt := startedAt.Add(30 * time.Second)
-	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, scheduleID, conversationID, "scheduled", status, createdAt, startedAt, completedAt); err != nil {
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, error_message, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, scheduleID, conversationID, "scheduled", status, nullableString(errorMessage), createdAt, startedAt, completedAt); err != nil {
 		t.Fatalf("insert run error: %v", err)
 	}
 }

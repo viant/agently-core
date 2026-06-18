@@ -216,6 +216,18 @@ func cloneRunInputs(ctx context.Context, in *schrun.RunListInput, page, size int
 			totalInput.RunStatus = status
 			totalInput.Has.RunStatus = true
 		}
+		if conversationID := strings.TrimSpace(in.ConversationId); conversationID != "" {
+			listInput.ConversationId = conversationID
+			listInput.Has.ConversationId = true
+			totalInput.ConversationId = conversationID
+			totalInput.Has.ConversationId = true
+		}
+		if errorMessage := strings.TrimSpace(in.ErrorMessage); errorMessage != "" {
+			listInput.ErrorMessage = errorMessage
+			listInput.Has.ErrorMessage = true
+			totalInput.ErrorMessage = errorMessage
+			totalInput.Has.ErrorMessage = true
+		}
 	}
 	return listInput, totalInput
 }

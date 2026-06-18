@@ -26,7 +26,9 @@ var RunTotalFS embed.FS
 type RunTotalInput struct {
 	EffectiveUserID string            `parameter:",kind=query,in=effectiveUserId"`
 	ScheduleId      string            `parameter:",kind=query,in=scheduleId" predicate:"expr,group=0,t.schedule_id = ?"`
-	RunStatus       string            `parameter:",kind=query,in=status" predicate:"equal,group=0,t,status"`
+	RunStatus       string            `parameter:",kind=query,in=status" predicate:"expr,group=0,LOWER(CASE WHEN t.status IS NULL THEN '' ELSE t.status END) LIKE '%' || LOWER(?) || '%'"`
+	ConversationId  string            `parameter:",kind=query,in=conversationId" predicate:"expr,group=0,LOWER(CASE WHEN t.conversation_id IS NULL THEN '' ELSE t.conversation_id END) LIKE '%' || LOWER(?) || '%'"`
+	ErrorMessage    string            `parameter:",kind=query,in=errorMessage" predicate:"expr,group=0,LOWER(CASE WHEN t.error_message IS NULL THEN '' ELSE t.error_message END) LIKE '%' || LOWER(?) || '%'"`
 	Has             *RunTotalInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
@@ -34,6 +36,8 @@ type RunTotalInputHas struct {
 	EffectiveUserID bool
 	ScheduleId      bool
 	RunStatus       bool
+	ConversationId  bool
+	ErrorMessage    bool
 }
 
 type RunTotalOutput struct {

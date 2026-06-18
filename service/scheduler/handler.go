@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -76,11 +77,12 @@ func (h *Handler) handleListSchedules() http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		totalCount := len(list)
+		filtered := filterSchedulesByName(list, scheduleListFilter(r))
+		totalCount := len(filtered)
 		httpJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "ok",
 			"data": map[string]interface{}{
-				"schedules": paginateSchedules(list, page, size),
+				"schedules": paginateSchedules(filtered, page, size),
 			},
 			"info": map[string]interface{}{
 				"pageCount":  pageCount(totalCount, size),
@@ -96,8 +98,11 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 		if scheduleID == "" {
 			scheduleID = strings.TrimSpace(r.URL.Query().Get("scheduleId"))
 		}
-		status := strings.TrimSpace(r.URL.Query().Get("status"))
-		requireScheduleID := isTruthy(r.URL.Query().Get("requireScheduleId"))
+		query := r.URL.Query()
+		status := strings.TrimSpace(query.Get("status"))
+		conversationID := strings.TrimSpace(query.Get("conversationId"))
+		errorMessage := strings.TrimSpace(query.Get("errorMessage"))
+		requireScheduleID := isTruthy(query.Get("requireScheduleId"))
 		page, size := parsePaging(r, 10)
 		if requireScheduleID && scheduleID == "" {
 			httpJSON(w, http.StatusOK, map[string]interface{}{
@@ -122,6 +127,14 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 		if status != "" {
 			input.RunStatus = status
 			input.Has.RunStatus = true
+		}
+		if conversationID != "" {
+			input.ConversationId = conversationID
+			input.Has.ConversationId = true
+		}
+		if errorMessage != "" {
+			input.ErrorMessage = errorMessage
+			input.Has.ErrorMessage = true
 		}
 		result, err := h.svc.store.ListRuns(r.Context(), input, page, size)
 		if err != nil {
@@ -178,6 +191,34 @@ func paginateSchedules(schedules []*Schedule, page, size int) []*Schedule {
 		end = len(schedules)
 	}
 	return schedules[start:end]
+}
+
+func scheduleListFilter(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return ""
+	}
+	query := r.URL.Query()
+	if value := strings.TrimSpace(query.Get("name")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(query.Get("query"))
+}
+
+func filterSchedulesByName(schedules []*Schedule, filter string) []*Schedule {
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	if filter == "" {
+		return schedules
+	}
+	result := make([]*Schedule, 0, len(schedules))
+	for _, schedule := range schedules {
+		if schedule == nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(schedule.Name), filter) {
+			result = append(result, schedule)
+		}
+	}
+	return result
 }
 
 func isTruthy(value string) bool {
@@ -252,6 +293,8 @@ func (h *Handler) handleRunNow() http.HandlerFunc {
 		}
 		if err := h.svc.RunNow(r.Context(), id); err != nil {
 			switch {
+			case errors.Is(err, ErrRunNowRateLimited):
+				httpError(w, http.StatusTooManyRequests, err)
 			case strings.Contains(err.Error(), "not found"):
 				httpError(w, http.StatusNotFound, err)
 			case strings.Contains(err.Error(), "permission denied"):
