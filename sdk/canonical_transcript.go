@@ -142,6 +142,14 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		}
 		ts.Assistant.Narration = latestNarration
 	}
+	if latestFinal := latestTranscriptAssistantFinal(turn.Message); latestFinal != nil {
+		if ts.Assistant == nil {
+			ts.Assistant = &AssistantState{}
+		}
+		if ts.Assistant.Final == nil {
+			ts.Assistant.Final = latestFinal
+		}
+	}
 
 	return ts
 }
@@ -835,6 +843,28 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 		return nil
 	}
 	return as
+}
+
+func latestTranscriptAssistantFinal(messages []*agconv.MessageView) *AssistantMessageState {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg == nil {
+			continue
+		}
+		if !isPrimaryAssistantFinalMessage(msg) {
+			continue
+		}
+		content := visibleContentOrEmpty(msg.Content)
+		if content == "" {
+			continue
+		}
+		return &AssistantMessageState{
+			MessageID: strings.TrimSpace(msg.Id),
+			Content:   content,
+			CreatedAt: msg.CreatedAt,
+		}
+	}
+	return nil
 }
 
 func latestTranscriptAssistantNarration(messages []*agconv.MessageView) *AssistantMessageState {

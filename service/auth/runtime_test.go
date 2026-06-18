@@ -2,18 +2,27 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	iauth "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/scy"
 	scyauth "github.com/viant/scy/auth"
+	"github.com/viant/scy/auth/jwt/signer"
 	"golang.org/x/oauth2"
 )
 
@@ -202,7 +211,49 @@ func TestRuntimeProtect_KeepsSubjectForRequestOwnership(t *testing.T) {
 	}
 }
 
+func TestRuntimeProtectAll_JWTBearer_PopulatesIDToken(t *testing.T) {
+	keyDir := t.TempDir()
+	privPath, pubPath := generateRSAKeyPair(t, keyDir)
+
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "test-ip-hash-key",
+			OAuth:      &OAuth{Mode: "bff"},
+			JWT: &JWT{
+				Enabled: true,
+				RSA:     []string{pubPath},
+			},
+		},
+		sessions: NewManager(0, nil),
+	}
+	jwtSvc := NewJWTService(rt.cfg.JWT)
+	require.NoError(t, jwtSvc.Init(context.Background()))
+	rt.jwtService = jwtSvc
+	rt.jwtVerifier = jwtSvc.verifier
+
+	token := signTestJWT(t, privPath, map[string]interface{}{
+		"sub":   "jwt-idtoken-user",
+		"email": "jwt-idtoken@example.com",
+	}, 1*time.Hour)
+
+	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(iauth.IDToken(r.Context())))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, token, strings.TrimSpace(rec.Body.String()))
+}
+
 func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T) {
+	store := &sessionStoreContextProbe{}
 	rt := &Runtime{
 		cfg: &Config{
 			Enabled:    true,
@@ -210,7 +261,7 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 			IpHashKey:  "dev-hmac-salt",
 			OAuth:      &OAuth{Mode: "bff"},
 		},
-		sessions: NewManager(0, nil),
+		sessions: NewManager(0, store),
 		ext: &authExtension{
 			cfg: &Config{
 				Enabled:    true,
@@ -253,6 +304,154 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 	} else if got.TransientRefreshRetryAt.IsZero() {
 		t.Fatalf("expected preserved session to carry transient refresh cooldown")
 	}
+	if last := store.lastUpsertErr(); last != nil {
+		t.Fatalf("expected transient refresh retry persistence to use live context, got %v", last)
+	}
+	if got := store.upsertCount(); got < 2 {
+		t.Fatalf("expected initial session put and retry persistence, got %d upserts", got)
+	}
+}
+
+func TestRuntimeProtect_TransientRefreshFailurePersistsWithCanceledRequestContext(t *testing.T) {
+	store := &sessionStoreContextProbe{}
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			IpHashKey:  "dev-hmac-salt",
+			OAuth:      &OAuth{Mode: "bff"},
+		},
+		sessions: NewManager(0, store),
+		ext: &authExtension{
+			cfg: &Config{
+				Enabled:    true,
+				CookieName: "agently_session",
+				OAuth:      &OAuth{Mode: "bff"},
+			},
+		},
+	}
+
+	tokens := &scyauth.Token{}
+	tokens.Token.AccessToken = "expired-access"
+	tokens.Token.RefreshToken = "refresh-token"
+	tokens.Token.Expiry = time.Now().Add(-1 * time.Minute)
+
+	rt.sessions.Put(context.Background(), &Session{
+		ID:       "sess-expired-canceled",
+		Username: "awitas_viant_devtest",
+		Subject:  "awitas_viant_devtest",
+		Provider: "oauth",
+		Tokens:   tokens,
+	})
+
+	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-expired-canceled"})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rt.sessions.Get(context.Background(), "sess-expired-canceled"); got == nil {
+		t.Fatalf("expected session to be preserved after transient refresh failure")
+	} else if got.TransientRefreshRetryAt.IsZero() {
+		t.Fatalf("expected preserved session to carry transient refresh cooldown")
+	}
+	if last := store.lastUpsertErr(); last != nil {
+		t.Fatalf("expected retry persistence to ignore canceled request context, got %v", last)
+	}
+	if got := store.upsertCount(); got < 2 {
+		t.Fatalf("expected initial session put and retry persistence, got %d upserts", got)
+	}
+}
+
+type sessionStoreContextProbe struct {
+	mu         sync.Mutex
+	upsertErrs []error
+	deleteErrs []error
+}
+
+func (s *sessionStoreContextProbe) Get(_ context.Context, _ string) (*SessionRecord, error) {
+	return nil, nil
+}
+
+func (s *sessionStoreContextProbe) Upsert(ctx context.Context, _ *SessionRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx == nil {
+		s.upsertErrs = append(s.upsertErrs, nil)
+		return nil
+	}
+	s.upsertErrs = append(s.upsertErrs, ctx.Err())
+	return nil
+}
+
+func (s *sessionStoreContextProbe) Delete(ctx context.Context, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx == nil {
+		s.deleteErrs = append(s.deleteErrs, nil)
+		return nil
+	}
+	s.deleteErrs = append(s.deleteErrs, ctx.Err())
+	return nil
+}
+
+func (s *sessionStoreContextProbe) lastUpsertErr() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.upsertErrs) == 0 {
+		return nil
+	}
+	return s.upsertErrs[len(s.upsertErrs)-1]
+}
+
+func (s *sessionStoreContextProbe) upsertCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.upsertErrs)
+}
+
+func generateRSAKeyPair(t *testing.T, dir string) (privPath, pubPath string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	require.NoError(t, err)
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubDER,
+	})
+
+	privPath = filepath.Join(dir, "private.pem")
+	pubPath = filepath.Join(dir, "public.pem")
+	require.NoError(t, os.WriteFile(privPath, privPEM, 0o600))
+	require.NoError(t, os.WriteFile(pubPath, pubPEM, 0o644))
+	return
+}
+
+func signTestJWT(t *testing.T, privPath string, claims map[string]interface{}, ttl time.Duration) string {
+	t.Helper()
+	cfg := &signer.Config{
+		RSA: scy.NewResource("", privPath, ""),
+	}
+	s := signer.New(cfg)
+	require.NoError(t, s.Init(context.Background()))
+	token, err := s.Create(ttl, claims)
+	require.NoError(t, err)
+	return token
 }
 
 func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *testing.T) {

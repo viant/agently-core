@@ -632,6 +632,48 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	require.Equal(t, final, ts.Assistant.Final.Content)
 }
 
+func TestBuildCanonicalState_ExtractsStandaloneAssistantFinal(t *testing.T) {
+	now := time.Date(2026, 6, 18, 7, 57, 0, 0, time.UTC)
+	user := "Show mobile dashboard backward compatibility proof"
+	final := "Mobile dashboard verification\n\n```forge-data id=\"summary_metrics\"\n[{\"label\":\"Line 7288336\",\"value\":42}]\n```\n\n```forge-ui\n{\"blocks\":[{\"kind\":\"dashboard.summary\"},{\"kind\":\"dashboard.table\"}]}\n```"
+
+	turn := &agconv.TranscriptView{
+		Id:        "turn-standalone-final",
+		Status:    "succeeded",
+		CreatedAt: now,
+		Message: []*agconv.MessageView{
+			{
+				Id:        "user-message",
+				Role:      "user",
+				Interim:   0,
+				Content:   &user,
+				CreatedAt: now,
+			},
+			{
+				Id:        "assistant-final",
+				Role:      "assistant",
+				Interim:   0,
+				Content:   &final,
+				CreatedAt: now.Add(time.Second),
+			},
+		},
+	}
+
+	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	ts := state.Turns[0]
+	require.NotNil(t, ts.User)
+	require.Equal(t, user, ts.User.Content)
+	require.NotNil(t, ts.Assistant)
+	require.NotNil(t, ts.Assistant.Final)
+	require.Equal(t, "assistant-final", ts.Assistant.Final.MessageID)
+	require.Equal(t, final, ts.Assistant.Final.Content)
+	require.Len(t, ts.Messages, 1)
+	require.Equal(t, "assistant", ts.Messages[0].Role)
+	require.Equal(t, final, ts.Messages[0].Content)
+}
+
 func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscript(t *testing.T) {
 	iteration1 := 1
 	iteration2 := 2

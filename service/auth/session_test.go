@@ -65,8 +65,10 @@ func TestSessionManagerGet_DedupesConcurrentStoreLoads(t *testing.T) {
 }
 
 type contextAwareSessionStore struct {
-	called atomic.Int32
-	record *SessionRecord
+	called         atomic.Int32
+	upsertCanceled atomic.Bool
+	deleteCanceled atomic.Bool
+	record         *SessionRecord
 }
 
 func (c *contextAwareSessionStore) Get(ctx context.Context, _ string) (*SessionRecord, error) {
@@ -77,8 +79,15 @@ func (c *contextAwareSessionStore) Get(ctx context.Context, _ string) (*SessionR
 	return c.record, nil
 }
 
-func (c *contextAwareSessionStore) Upsert(_ context.Context, _ *SessionRecord) error { return nil }
-func (c *contextAwareSessionStore) Delete(_ context.Context, _ string) error         { return nil }
+func (c *contextAwareSessionStore) Upsert(ctx context.Context, _ *SessionRecord) error {
+	c.upsertCanceled.Store(ctx.Err() != nil)
+	return nil
+}
+
+func (c *contextAwareSessionStore) Delete(ctx context.Context, _ string) error {
+	c.deleteCanceled.Store(ctx.Err() != nil)
+	return nil
+}
 
 func TestSessionManagerGet_LoadsFromStoreEvenWhenCallerContextIsCanceled(t *testing.T) {
 	store := &contextAwareSessionStore{
@@ -105,5 +114,29 @@ func TestSessionManagerGet_LoadsFromStoreEvenWhenCallerContextIsCanceled(t *test
 	}
 	if sess.ID != "sess-canceled" {
 		t.Fatalf("sess.ID = %q, want %q", sess.ID, "sess-canceled")
+	}
+}
+
+func TestSessionManagerPutDelete_StoreIgnoresCanceledCallerContext(t *testing.T) {
+	store := &contextAwareSessionStore{}
+	manager := NewManager(time.Hour, store)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	manager.Put(ctx, &Session{
+		ID:        "sess-canceled-write",
+		UserID:    "user-1",
+		Username:  "awitas",
+		Provider:  "oauth",
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if store.upsertCanceled.Load() {
+		t.Fatalf("store.Upsert received canceled context")
+	}
+
+	manager.Delete(ctx, "sess-canceled-write")
+	if store.deleteCanceled.Load() {
+		t.Fatalf("store.Delete received canceled context")
 	}
 }

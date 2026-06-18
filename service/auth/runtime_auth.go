@@ -85,6 +85,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 			if claims, err := r.jwtVerifier.VerifyClaims(req.Context(), token); err == nil && claims != nil {
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
+				tok.IDToken = token
 				return &runtimeAuthUser{
 					EffectiveUserID: strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
 					Subject:         strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
@@ -102,7 +103,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 				if r.requiresOAuthTokens() && !r.ensureSessionOAuthTokens(req.Context(), sess) {
 					log.Printf("[auth] session missing usable oauth tokens, invalidating session user=%q", sess.Subject)
 					r.clearRefreshRetryAt(sess)
-					r.sessions.Delete(req.Context(), strings.TrimSpace(c.Value))
+					r.deleteSessionDurable(req.Context(), strings.TrimSpace(c.Value))
 					return nil
 				}
 				if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !sess.Tokens.Valid() {
@@ -130,13 +131,13 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 						if sess.Tokens == nil {
 							log.Printf("[auth] token expired and refresh failed permanently, invalidating session user=%q", sess.Subject)
 							r.clearRefreshRetryAt(sess)
-							r.sessions.Delete(refreshCtx, c.Value)
+							r.deleteSessionDurable(req.Context(), c.Value)
 						} else {
 							retryAt := r.loadRefreshRetryAt(sess)
 							if retryAt.IsZero() {
 								retryAt = time.Now().Add(transientRefreshRetryWindow)
 								r.storeRefreshRetryAt(sess, retryAt)
-								r.sessions.Put(refreshCtx, sess)
+								r.putSessionDurable(req.Context(), sess)
 							}
 							if r.shouldLogRefreshRetry(sess, retryAt) {
 								log.Printf("[auth] token expired and refresh failed transiently, preserving authenticated session user=%q retry_at=%q", sess.Subject, retryAt.UTC().Format(time.RFC3339))

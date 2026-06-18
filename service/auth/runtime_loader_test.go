@@ -123,19 +123,20 @@ func TestOAuthVerifierConfig_UsesDiscoveryURL(t *testing.T) {
 	}
 }
 
-func TestIssuerFromAuthURL(t *testing.T) {
+func TestIssuerCandidatesFromAuthURL(t *testing.T) {
 	testCases := []struct {
 		authURL string
-		want    string
+		want    []string
 	}{
-		{authURL: "https://idp.example.test/authorize", want: "https://idp.example.test"},
-		{authURL: "https://idp.example.test/oauth/authorize", want: "https://idp.example.test/oauth"},
-		{authURL: "https://idp.example.test/oauth2/v1/authorize?client_id=abc", want: "https://idp.example.test/oauth2/v1"},
+		{authURL: "https://idp.example.test/authorize", want: []string{"https://idp.example.test"}},
+		{authURL: "https://idp.example.test/oauth/authorize", want: []string{"https://idp.example.test", "https://idp.example.test/oauth"}},
+		{authURL: "https://idp.example.test/oauth2/v1/authorize?client_id=abc", want: []string{"https://idp.example.test", "https://idp.example.test/oauth2/v1"}},
 	}
 
 	for _, testCase := range testCases {
-		if got := issuerFromAuthURL(testCase.authURL); got != testCase.want {
-			t.Fatalf("issuerFromAuthURL(%q) = %q, want %q", testCase.authURL, got, testCase.want)
+		got := issuerCandidatesFromAuthURL(testCase.authURL)
+		if strings.Join(got, ",") != strings.Join(testCase.want, ",") {
+			t.Fatalf("issuerCandidatesFromAuthURL(%q) = %v, want %v", testCase.authURL, got, testCase.want)
 		}
 	}
 }

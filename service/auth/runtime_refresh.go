@@ -28,7 +28,28 @@ const transientRefreshRetryWindow = 30 * time.Second
 const runtimeAuthStoreTimeout = 5 * time.Second
 
 func authStoreContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return context.WithTimeout(context.WithoutCancel(ctx), runtimeAuthStoreTimeout)
+}
+
+func (r *Runtime) putSessionDurable(ctx context.Context, sess *Session) {
+	if r == nil || r.sessions == nil || sess == nil {
+		return
+	}
+	storeCtx, cancel := authStoreContext(ctx)
+	defer cancel()
+	r.sessions.Put(storeCtx, sess)
+}
+
+func (r *Runtime) deleteSessionDurable(ctx context.Context, id string) {
+	if r == nil || r.sessions == nil || strings.TrimSpace(id) == "" {
+		return
+	}
+	storeCtx, cancel := authStoreContext(ctx)
+	defer cancel()
+	r.sessions.Delete(storeCtx, strings.TrimSpace(id))
 }
 
 func (r *Runtime) ensureSessionOAuthTokens(ctx context.Context, sess *Session) bool {
@@ -86,7 +107,7 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 	}
 	sess.Tokens = result
 	sess.Provider = provider
-	r.sessions.Put(ctx, sess)
+	r.putSessionDurable(ctx, sess)
 	logx.Debugf("token-refresh", "loaded fresh token from DB user=%q provider=%q expiry=%v", username, provider, dbTok.ExpiresAt.Format(time.RFC3339))
 	return result
 }
@@ -147,7 +168,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 		}
 		logx.Warnf("token-refresh", "transient refresh failure user=%q err=%v", username, err)
 		r.storeRefreshRetryAt(sess, time.Now().Add(transientRefreshRetryWindow))
-		r.sessions.Put(ctx, sess)
+		r.putSessionDurable(ctx, sess)
 		return nil
 	}
 	if refreshed.RefreshToken == "" {
@@ -159,7 +180,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	sess.Tokens = result
 	r.clearRefreshRetryAt(sess)
 	sess.Provider = provider
-	r.sessions.Put(ctx, sess)
+	r.putSessionDurable(ctx, sess)
 	if tokenStore != nil {
 		storeCtx, cancel := authStoreContext(ctx)
 		defer cancel()
@@ -251,9 +272,7 @@ func isPermanentRefreshError(err error) bool {
 func (r *Runtime) invalidateSessionTokens(ctx context.Context, sess *Session, username, provider string) {
 	if sess != nil {
 		sess.Tokens = nil
-		if r != nil && r.sessions != nil {
-			r.sessions.Put(ctx, sess)
-		}
+		r.putSessionDurable(ctx, sess)
 	}
 	if r == nil || r.ext == nil || r.ext.tokenStore == nil {
 		return
@@ -261,7 +280,9 @@ func (r *Runtime) invalidateSessionTokens(ctx context.Context, sess *Session, us
 	if username == "" || provider == "" {
 		return
 	}
-	if err := r.ext.tokenStore.Delete(ctx, username, provider); err != nil {
+	storeCtx, cancel := authStoreContext(ctx)
+	defer cancel()
+	if err := r.ext.tokenStore.Delete(storeCtx, username, provider); err != nil {
 		logx.Warnf("token-refresh", "delete stale token user=%q provider=%q err=%v", username, provider, err)
 	}
 }
