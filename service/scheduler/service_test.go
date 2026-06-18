@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -689,6 +690,54 @@ func ensureRunWriteComponent(t *testing.T, store Store) {
 	}
 }
 
+func scheduleRunCount(t *testing.T, db *sql.DB, scheduleID string) int {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(1)
+		FROM run
+		WHERE schedule_id = ?
+	`, scheduleID).Scan(&count); err != nil {
+		t.Fatalf("schedule run count error: %v", err)
+	}
+	return count
+}
+
+func scheduledForRunCount(t *testing.T, db *sql.DB, scheduleID string) int {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(1)
+		FROM run
+		WHERE schedule_id = ?
+		  AND scheduled_for IS NOT NULL
+	`, scheduleID).Scan(&count); err != nil {
+		t.Fatalf("scheduled_for run count error: %v", err)
+	}
+	return count
+}
+
+func scheduleLastRunSet(t *testing.T, db *sql.DB, scheduleID string) bool {
+	t.Helper()
+	var lastRunAt sql.NullTime
+	if err := db.QueryRowContext(context.Background(), `SELECT last_run_at FROM schedule WHERE id = ?`, scheduleID).Scan(&lastRunAt); err != nil {
+		t.Fatalf("schedule last_run_at query error: %v", err)
+	}
+	return lastRunAt.Valid
+}
+
+func assertScheduleNextRunAt(t *testing.T, db *sql.DB, scheduleID string, want time.Time) {
+	t.Helper()
+	var got sql.NullTime
+	if err := db.QueryRowContext(context.Background(), `SELECT next_run_at FROM schedule WHERE id = ?`, scheduleID).Scan(&got); err != nil {
+		t.Fatalf("schedule next_run_at query error: %v", err)
+	}
+	if !got.Valid {
+		t.Fatalf("next_run_at is NULL, want %s", want)
+	}
+	require.WithinDuration(t, want.UTC(), got.Time.UTC(), time.Second)
+}
+
 func TestService_ScheduleGoalWakeup_HidesInternalWakeupFromPublicList(t *testing.T) {
 	store, _ := newTestStore(t)
 	svc := New(store, &agentsvc.Service{})
@@ -788,6 +837,119 @@ func TestService_RunNowAndDeleteRejectInternalWakeup(t *testing.T) {
 		t.Fatalf("Delete() error = %v, want not found", err)
 	}
 	assertScheduleCount(t, db, "goal-wakeup-goal-conv-goal", 1)
+}
+
+func TestService_RunNowOnDemandReturnsBeforeQueryCompletes(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+	insertScheduleRow(t, db, "sched-run-now-async", "Run Now Async")
+	nextRunAt := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Second)
+	if _, err := db.ExecContext(context.Background(), `UPDATE schedule SET next_run_at = ? WHERE id = ?`, nextRunAt, "sched-run-now-async"); err != nil {
+		t.Fatalf("set next_run_at error: %v", err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	svc := New(store, &agentsvc.Service{})
+	svc.queryRunner = func(_ context.Context, _ *agentsvc.QueryInput, _ *agentsvc.QueryOutput) error {
+		close(started)
+		<-release
+		return nil
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.RunNow(context.Background(), "sched-run-now-async")
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunNow() error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunNow() did not return while query was blocked")
+	}
+	require.Eventually(t, func() bool {
+		return scheduleRunCount(t, db, "sched-run-now-async") == 1 &&
+			scheduledForRunCount(t, db, "sched-run-now-async") == 1
+	}, 3*time.Second, 20*time.Millisecond)
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected Run Now query to start")
+	}
+	close(release)
+	require.Eventually(t, func() bool {
+		return scheduleLastRunSet(t, db, "sched-run-now-async")
+	}, 3*time.Second, 20*time.Millisecond)
+	assertScheduleNextRunAt(t, db, "sched-run-now-async", nextRunAt)
+}
+
+func TestService_RunNowRateLimitsManualRunsPerMinute(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+	insertScheduleRow(t, db, "sched-run-now-limit", "Run Now Limit")
+
+	release := make(chan struct{})
+	svc := New(store, &agentsvc.Service{})
+	svc.queryRunner = func(context.Context, *agentsvc.QueryInput, *agentsvc.QueryOutput) error {
+		<-release
+		return nil
+	}
+	if err := svc.RunNow(context.Background(), "sched-run-now-limit"); err != nil {
+		t.Fatalf("first RunNow() error: %v", err)
+	}
+	require.Eventually(t, func() bool {
+		return scheduleRunCount(t, db, "sched-run-now-limit") == 1 &&
+			scheduledForRunCount(t, db, "sched-run-now-limit") == 1
+	}, 3*time.Second, 20*time.Millisecond)
+
+	err := svc.RunNow(context.Background(), "sched-run-now-limit")
+	if !errors.Is(err, ErrRunNowRateLimited) {
+		t.Fatalf("second RunNow() error = %v, want ErrRunNowRateLimited", err)
+	}
+	close(release)
+	require.Eventually(t, func() bool {
+		return scheduleLastRunSet(t, db, "sched-run-now-limit")
+	}, 3*time.Second, 20*time.Millisecond)
+}
+
+func TestService_RunNowAllowsSecondManualRunAfterRateLimitWindow(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+	insertScheduleRow(t, db, "sched-run-now-repeat", "Run Now Repeat")
+
+	release := make(chan struct{})
+	svc := New(store, &agentsvc.Service{})
+	svc.queryRunner = func(context.Context, *agentsvc.QueryInput, *agentsvc.QueryOutput) error {
+		<-release
+		return nil
+	}
+
+	if err := svc.RunNow(context.Background(), "sched-run-now-repeat"); err != nil {
+		t.Fatalf("first RunNow() error: %v", err)
+	}
+	require.Eventually(t, func() bool {
+		return scheduleRunCount(t, db, "sched-run-now-repeat") == 1 &&
+			scheduledForRunCount(t, db, "sched-run-now-repeat") == 1
+	}, 3*time.Second, 20*time.Millisecond)
+
+	oldCreatedAt := time.Now().UTC().Add(-2 * time.Minute)
+	if _, err := db.ExecContext(context.Background(), `UPDATE run SET created_at = ?, scheduled_for = ? WHERE schedule_id = ?`, oldCreatedAt, oldCreatedAt, "sched-run-now-repeat"); err != nil {
+		t.Fatalf("age first run error: %v", err)
+	}
+
+	if err := svc.RunNow(context.Background(), "sched-run-now-repeat"); err != nil {
+		t.Fatalf("second RunNow() after window error: %v", err)
+	}
+	require.Eventually(t, func() bool {
+		return scheduleRunCount(t, db, "sched-run-now-repeat") == 2 &&
+			scheduledForRunCount(t, db, "sched-run-now-repeat") == 2
+	}, 3*time.Second, 20*time.Millisecond)
+	close(release)
+	require.Eventually(t, func() bool {
+		return scheduleLastRunSet(t, db, "sched-run-now-repeat")
+	}, 3*time.Second, 20*time.Millisecond)
 }
 
 func TestService_UpsertRejectsInternalScheduleFields(t *testing.T) {
