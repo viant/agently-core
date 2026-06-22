@@ -211,18 +211,21 @@ func cloneRunInputs(ctx context.Context, in *schrun.RunListInput, page, size int
 			totalInput.Has.ScheduleId = true
 		}
 		if status := strings.TrimSpace(in.RunStatus); status != "" {
+			status = containsPattern(status)
 			listInput.RunStatus = status
 			listInput.Has.RunStatus = true
 			totalInput.RunStatus = status
 			totalInput.Has.RunStatus = true
 		}
 		if conversationID := strings.TrimSpace(in.ConversationId); conversationID != "" {
+			conversationID = containsPattern(conversationID)
 			listInput.ConversationId = conversationID
 			listInput.Has.ConversationId = true
 			totalInput.ConversationId = conversationID
 			totalInput.Has.ConversationId = true
 		}
 		if errorMessage := strings.TrimSpace(in.ErrorMessage); errorMessage != "" {
+			errorMessage = containsPattern(errorMessage)
 			listInput.ErrorMessage = errorMessage
 			listInput.Has.ErrorMessage = true
 			totalInput.ErrorMessage = errorMessage
@@ -230,6 +233,10 @@ func cloneRunInputs(ctx context.Context, in *schrun.RunListInput, page, size int
 		}
 	}
 	return listInput, totalInput
+}
+
+func containsPattern(value string) string {
+	return "%" + strings.TrimSpace(value) + "%"
 }
 
 func computePageCount(totalCount, size int) int {
