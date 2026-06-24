@@ -51,10 +51,16 @@ export type {
     // Scheduler
     Schedule, ScheduleListOutput,
     // Workspace Metadata
-    WorkspaceMetadata, AgentInfo, ModelInfo, StarterTask,
+    WorkspaceMetadata, MetadataTargetContext, AgentInfo, ModelInfo, StarterTask,
     WorkspaceCapabilities, WorkspaceDefaults,
     // Payload
     PayloadView, GetPayloadOptions,
+    // Datasources + Lookups
+    DatasourceCacheHints, DatasourceCacheMeta, FetchDatasourceInput, FetchDatasourceOutput,
+    InvalidateDatasourceCacheInput, ListLookupRegistryInput, ListLookupRegistryOutput,
+    LookupRegistryEntry, LookupTokenFormat, LookupParameter,
+    // UI Events
+    UIEvent, ListUIEventsInput, ListUIEventsOutput,
     // Linked Conversations
     ListLinkedConversationsInput, LinkedConversationEntry, LinkedConversationPage,
     // Auth

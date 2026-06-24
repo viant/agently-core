@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/app/store/conversation"
@@ -68,6 +69,7 @@ type Runtime struct {
 	SkillWatcher      *skillsvc.Watcher
 	CallbackDispatch  *callbacksvc.Service
 	Reporting         *reportingsvc.Service
+	ReportingWorker   *reportingsvc.Worker
 	Store             workspace.Store
 	KnowledgeStore    workspace.KnowledgeStore
 	StateStore        workspace.StateStore
@@ -263,7 +265,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	out.MCPManager = b.mcpManager
 	if out.MCPManager == nil {
-		mgr, err := b.newDefaultMCPManager(out.Conversation, out.Elicitation)
+		mgr, err := b.newDefaultMCPManager(out.Conversation, out.Elicitation, out.Defaults)
 		if err != nil {
 			return nil, err
 		}
@@ -380,11 +382,22 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
 		out.Reporting = reportingsvc.New(reportingsvc.Options{
 			Compiler: reportingsvc.NewReportSpecCompiler(nil),
+			Exporter: reportingsvc.NewForgeExporter(nil),
 			Store:    reportingsvc.NewStoreAdapter(reportfs.New(b.stateStore)),
+			Audit:    reportfs.NewAuditSink(b.stateStore),
 		})
 	}
 	if out.Registry != nil && out.Reporting != nil {
 		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
+			return nil, err
+		}
+	}
+	if out.Reporting != nil && out.Defaults != nil && out.Defaults.Reporting.Enabled && out.Defaults.Reporting.QueueIntervalMs > 0 {
+		out.ReportingWorker = reportingsvc.NewWorker(out.Reporting, reportingsvc.WorkerOptions{
+			Interval:   time.Duration(out.Defaults.Reporting.QueueIntervalMs) * time.Millisecond,
+			BatchLimit: out.Defaults.Reporting.QueueBatchLimit,
+		})
+		if err := out.ReportingWorker.Start(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -460,13 +473,27 @@ func shouldSkipRegistryInitialize() bool {
 	return false
 }
 
-func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *elicsvc.Service) (*mcpmgr.Manager, error) {
+func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *elicsvc.Service, defaults *config.Defaults) (*mcpmgr.Manager, error) {
 	if conv == nil || elicitation == nil {
 		return nil, fmt.Errorf("executor builder requires conversation and elicitation service for default MCP manager")
 	}
+	defaultModel := ""
+	if defaults != nil {
+		defaultModel = strings.TrimSpace(defaults.Model)
+		if samplingModel := strings.TrimSpace(defaults.AgentAutoSelection.Model); samplingModel != "" {
+			defaultModel = samplingModel
+		}
+	}
 	opts := []mcpmgr.Option{
 		mcpmgr.WithHandlerFactory(func() protoclient.Handler {
-			return mcpclienthandler.New(elicitation, conv)
+			handlerOptions := []mcpclienthandler.Option{}
+			if b.modelFinder != nil {
+				handlerOptions = append(handlerOptions, mcpclienthandler.WithModelFinder(b.modelFinder))
+			}
+			if defaultModel != "" {
+				handlerOptions = append(handlerOptions, mcpclienthandler.WithDefaultModel(defaultModel))
+			}
+			return mcpclienthandler.New(elicitation, conv, handlerOptions...)
 		}),
 	}
 	if b.mcpAuthRTProvider != nil {

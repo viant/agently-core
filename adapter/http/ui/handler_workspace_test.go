@@ -253,6 +253,126 @@ view:
 	}
 }
 
+func TestWindowHandler_WorkspaceForgeWindowAppliesTargetBranchToSharedImports(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(metaRoot, "window", "order", "main.yaml"), `
+namespace: Static Order
+view:
+  content:
+    id: staticRoot
+    containers: []
+`)
+	base := filepath.Join(workspaceRoot, "extension", "forge", "windows", "order")
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "shared", "main.yaml"), `
+namespace: Workspace Order
+presentation: hosted
+region: chat.top
+view:
+  content:
+    $import(content.yaml)
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "shared", "content.yaml"), `
+kind: dashboard.reportBuilder
+id: sharedDefault
+title: Shared default
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "mobile", "phone", "main.yaml"), `
+$import('../../shared/main.yaml')
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "mobile", "phone", "content.yaml"), `
+kind: dashboard.reportBuilder
+id: phoneTarget
+title: Phone target
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "ios", "phone", "main.yaml"), `
+$import('../../shared/main.yaml')
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "ios", "phone", "content.yaml"), `
+kind: dashboard.reportBuilder
+id: iosPhoneTarget
+title: iOS phone target
+`)
+	mustWriteWorkspaceUIFile(t, filepath.Join(base, "content.yaml"), `
+kind: dashboard.reportBuilder
+id: legacyRoot
+title: Legacy root
+`)
+
+	handler := newHandler("file://"+metaRoot, nil)
+
+	testCases := []struct {
+		name          string
+		query         string
+		expectedID    string
+		expectedTitle string
+	}{
+		{
+			name:          "ios phone exact branch",
+			query:         "/window/order?platform=ios&formFactor=phone&surface=app",
+			expectedID:    "iosPhoneTarget",
+			expectedTitle: "iOS phone target",
+		},
+		{
+			name:          "android phone mobile branch",
+			query:         "/window/order?platform=android&formFactor=phone&surface=app",
+			expectedID:    "phoneTarget",
+			expectedTitle: "Phone target",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.query, nil)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+
+			var payload struct {
+				Status string `json:"status"`
+				Data   struct {
+					Namespace    string `json:"namespace"`
+					Presentation string `json:"presentation"`
+					Region       string `json:"region"`
+					View         struct {
+						Content struct {
+							ID    string `json:"id"`
+							Kind  string `json:"kind"`
+							Title string `json:"title"`
+						} `json:"content"`
+					} `json:"view"`
+				} `json:"data"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+
+			if payload.Status != "ok" {
+				t.Fatalf("expected ok status, got %q", payload.Status)
+			}
+			if payload.Data.Namespace != "Workspace Order" || payload.Data.Presentation != "hosted" || payload.Data.Region != "chat.top" {
+				t.Fatalf("unexpected workspace window shell: %#v", payload.Data)
+			}
+			if payload.Data.View.Content.ID != testCase.expectedID {
+				t.Fatalf("expected target content %q to win, got %#v", testCase.expectedID, payload.Data.View.Content)
+			}
+			if payload.Data.View.Content.Kind != "dashboard.reportBuilder" || payload.Data.View.Content.Title != testCase.expectedTitle {
+				t.Fatalf("unexpected target content: %#v", payload.Data.View.Content)
+			}
+		})
+	}
+}
+
 func TestWindowHandler_WorkspaceForgeWindowBranchErrorsDoNotFallBack(t *testing.T) {
 	metaRoot := t.TempDir()
 	workspaceRoot := t.TempDir()

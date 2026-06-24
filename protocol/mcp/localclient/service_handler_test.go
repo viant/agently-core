@@ -72,12 +72,17 @@ type testService struct{}
 func (t *testService) Name() string { return "test/service" }
 func (t *testService) Methods() svc.Signatures {
 	return svc.Signatures{
-		{Name: "list", Description: "public", Input: reflect.TypeOf(&struct{}{}), Output: reflect.TypeOf(&struct{}{})},
-		{Name: "topology", Description: "planner-only", Internal: true, Input: reflect.TypeOf(&struct{}{}), Output: reflect.TypeOf(&struct{}{})},
+		{Name: "list", Description: "public", Input: reflect.TypeOf(&struct{}{}), Output: reflect.TypeOf(&map[string]string{})},
+		{Name: "topology", Description: "planner-only", Internal: true, Input: reflect.TypeOf(&struct{}{}), Output: reflect.TypeOf(&map[string]string{})},
 	}
 }
 func (t *testService) Method(name string) (svc.Executable, error) {
-	return func(ctx context.Context, input, output interface{}) error { return nil }, nil
+	return func(ctx context.Context, input, output interface{}) error {
+		if out, ok := output.(*map[string]string); ok {
+			*out = map[string]string{"method": name}
+		}
+		return nil
+	}, nil
 }
 
 type testMCPUIFixtureService struct{}
@@ -162,6 +167,43 @@ func TestServiceHandler_ListResources_And_ReadResource_ForFixtureService(t *test
 	require.NotNil(t, read.Contents[0].MimeType)
 	require.Equal(t, "text/html;profile=mcp-app", *read.Contents[0].MimeType)
 	require.NotEmpty(t, read.Contents[0].Text)
+}
+
+func TestServiceHandler_CallTool_BlocksInternalMethodsOutsidePlanMode(t *testing.T) {
+	h := &serviceHandler{service: &testService{}}
+	h.init()
+
+	req := &jsonrpc.TypedRequest[*mcpschema.CallToolRequest]{
+		Request: &mcpschema.CallToolRequest{
+			Params: mcpschema.CallToolRequestParams{
+				Name: "topology",
+			},
+		},
+	}
+
+	result, jerr := h.CallTool(context.Background(), req)
+	require.Nil(t, result)
+	require.NotNil(t, jerr)
+	require.Contains(t, jerr.Message, "Unknown tool")
+}
+
+func TestServiceHandler_CallTool_AllowsInternalMethodsInPlanMode(t *testing.T) {
+	h := &serviceHandler{service: &testService{}}
+	h.init()
+
+	req := &jsonrpc.TypedRequest[*mcpschema.CallToolRequest]{
+		Request: &mcpschema.CallToolRequest{
+			Params: mcpschema.CallToolRequestParams{
+				Name: "test/service:topology",
+			},
+		},
+	}
+
+	result, jerr := h.CallTool(runtimerequestctx.WithRequestMode(context.Background(), "plan"), req)
+	require.Nil(t, jerr)
+	require.NotNil(t, result)
+	require.NotNil(t, result.StructuredContent)
+	require.Equal(t, "topology", result.StructuredContent["method"])
 }
 
 func TestServiceHandler_CallTool_EmbedsFallbackOnlyWithoutUICapability(t *testing.T) {

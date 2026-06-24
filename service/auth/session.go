@@ -40,7 +40,8 @@ type Session struct {
 	Provider string         `json:"provider,omitempty"`
 	Tokens   *scyauth.Token `json:"-"`
 	// TransientRefreshRetryAt suppresses repeated refresh attempts/log spam
-	// after a temporary token-endpoint failure. In-memory only.
+	// after a temporary token-endpoint failure. Runtime auth code persists the
+	// cooldown through session metadata when a durable store is configured.
 	TransientRefreshRetryAt time.Time `json:"-"`
 	CreatedAt               time.Time `json:"createdAt"`
 	ExpiresAt               time.Time `json:"expiresAt"`
@@ -73,17 +74,18 @@ func (s *Session) IsExpired() bool {
 
 // SessionRecord is the persistent form of a session for external stores.
 type SessionRecord struct {
-	ID           string    `json:"id"`
-	UserID       string    `json:"userId,omitempty"`
-	Username     string    `json:"username"`
-	Email        string    `json:"email,omitempty"`
-	Subject      string    `json:"subject,omitempty"`
-	Provider     string    `json:"provider,omitempty"`
-	AccessToken  string    `json:"accessToken,omitempty"`
-	IDToken      string    `json:"idToken,omitempty"`
-	RefreshToken string    `json:"refreshToken,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	ExpiresAt    time.Time `json:"expiresAt"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"userId,omitempty"`
+	Username       string    `json:"username"`
+	Email          string    `json:"email,omitempty"`
+	Subject        string    `json:"subject,omitempty"`
+	Provider       string    `json:"provider,omitempty"`
+	AccessToken    string    `json:"accessToken,omitempty"`
+	IDToken        string    `json:"idToken,omitempty"`
+	RefreshToken   string    `json:"refreshToken,omitempty"`
+	TokenExpiresAt time.Time `json:"tokenExpiresAt,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	ExpiresAt      time.Time `json:"expiresAt"`
 }
 
 // SessionStore is a pluggable backend for persistent session storage.
@@ -280,6 +282,7 @@ func recordToSession(r *SessionRecord) *Session {
 			Token: oauth2.Token{
 				AccessToken:  r.AccessToken,
 				RefreshToken: r.RefreshToken,
+				Expiry:       r.TokenExpiresAt,
 			},
 			IDToken: r.IDToken,
 		}
@@ -302,6 +305,7 @@ func sessionToRecord(s *Session) *SessionRecord {
 		r.AccessToken = s.Tokens.AccessToken
 		r.IDToken = s.Tokens.IDToken
 		r.RefreshToken = s.Tokens.RefreshToken
+		r.TokenExpiresAt = s.Tokens.Expiry
 	}
 	return r
 }

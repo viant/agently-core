@@ -98,7 +98,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, win, err := s.reg.FindWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
+	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, win, err := s.reg.FindWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
+	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,10 @@
 package view
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/viant/afs"
 	windowtool "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
@@ -105,6 +107,85 @@ func TestAvailableViewIDs(t *testing.T) {
 	if got[0] != "approvals" || got[1] != "orderPerformance" {
 		t.Fatalf("unexpected ids: %#v", got)
 	}
+}
+
+func TestLoadOneReturnsTypedNotFoundWithAvailableIDs(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "analytics.yaml"), `
+id: analytics
+title: Analytics
+windowKey: analytics
+`)
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "orders.yaml"), `
+id: orders
+title: Orders
+windowKey: orders
+`)
+		svc := &Service{repo: repo.New(afs.New())}
+		_, err := svc.loadOne(context.Background(), "legacyAlias")
+		var notFound *viewNotFoundError
+		if !errors.As(err, &notFound) {
+			t.Fatalf("expected viewNotFoundError, got %T %v", err, err)
+		}
+		if notFound.id != "legacyAlias" {
+			t.Fatalf("unexpected missing id: %q", notFound.id)
+		}
+		if got := strings.Join(notFound.available, ","); got != "analytics,orders" {
+			t.Fatalf("unexpected available ids: %#v", notFound.available)
+		}
+	})
+}
+
+func TestOpenResolvedItemRecordsInvalidWorkspaceIDEvent(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "orders.yaml"), `
+id: orders
+title: Orders
+windowKey: orders
+presentation: hosted
+region: chat.top
+`)
+		const conversationID = "conv-invalid-view"
+		const clientID = "mobile-client-1"
+
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		viewSvc := New(repo.New(afs.New()), bridge)
+		_, err := viewSvc.openResolvedItem(
+			context.Background(),
+			clientID,
+			"",
+			conversationID,
+			OpenItem{ID: "legacyAlias"},
+			1,
+		)
+		var notFound *viewNotFoundError
+		if !errors.As(err, &notFound) {
+			t.Fatalf("expected viewNotFoundError, got %T %v", err, err)
+		}
+
+		events := viewSvc.reg.ListEvents(conversationID, clientID, "", "", 10, 0)
+		if len(events) != 1 {
+			t.Fatalf("expected one event, got %#v", events)
+		}
+		event := events[0]
+		if event.Kind != "error" {
+			t.Fatalf("expected error event, got %#v", event)
+		}
+		payload, ok := event.Detail["payload"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected payload map, got %#v", event.Detail)
+		}
+		if payload["invalidWorkspaceId"] != "legacyAlias" {
+			t.Fatalf("expected invalidWorkspaceId, got %#v", payload)
+		}
+		available, ok := payload["availableWorkspaceIds"].([]string)
+		if !ok {
+			t.Fatalf("expected availableWorkspaceIds, got %#v", payload["availableWorkspaceIds"])
+		}
+		if got := strings.Join(available, ","); got != "orders" {
+			t.Fatalf("unexpected available ids: %#v", available)
+		}
+	})
 }
 
 func TestBuildOpenWindowOptions_HostedViewsAttachToChatRootAndReplaceRegion(t *testing.T) {
@@ -247,26 +328,8 @@ region: chat.top
 		const clientID = "web-client-1"
 
 		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bridge.Hub().ServeWS(w, r)
-		}))
-		defer server.Close()
-
-		wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-		if err != nil {
-			t.Fatalf("dial ws: %v", err)
-		}
-		defer conn.Close()
-
-		if err := conn.WriteJSON(map[string]interface{}{
-			"type":     "ui.hello",
-			"clientId": clientID,
-		}); err != nil {
-			t.Fatalf("write hello: %v", err)
-		}
-		if err := conn.WriteJSON(map[string]interface{}{
-			"type":     "ui.snapshot",
+		postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": clientID})
+		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 			"clientId": clientID,
 			"data": map[string]interface{}{
 				"clientId":       clientID,
@@ -284,16 +347,15 @@ region: chat.top
 					},
 				},
 			},
-		}); err != nil {
-			t.Fatalf("write initial snapshot: %v", err)
-		}
+		})
 		waitForSnapshotEntry(t, bridge, clientID)
 
 		commandDone := make(chan error, 1)
 		go func() {
-			var request map[string]interface{}
-			if err := conn.ReadJSON(&request); err != nil {
-				commandDone <- err
+			result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": clientID, "timeoutMs": 1000})
+			request, ok := result["params"].(map[string]interface{})
+			if !ok {
+				commandDone <- fmt.Errorf("expected command params, got %#v", result["params"])
 				return
 			}
 			if got := request["method"]; got != "ui.window.open" {
@@ -312,8 +374,7 @@ region: chat.top
 				commandDone <- fmt.Errorf("expected window id/key in params, got %#v", params)
 				return
 			}
-			if err := conn.WriteJSON(map[string]interface{}{
-				"type":     "ui.snapshot",
+			postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 				"clientId": clientID,
 				"data": map[string]interface{}{
 					"clientId": clientID,
@@ -339,20 +400,14 @@ region: chat.top
 						},
 					},
 				},
-			}); err != nil {
-				commandDone <- err
-				return
-			}
-			if err := conn.WriteJSON(map[string]interface{}{
+			})
+			postUIRPC(t, bridge, "ui.response", map[string]interface{}{
 				"id": request["id"],
 				"ok": true,
 				"result": map[string]interface{}{
 					"windowId": windowID,
 				},
-			}); err != nil {
-				commandDone <- err
-				return
-			}
+			})
 			commandDone <- nil
 		}()
 
@@ -498,6 +553,37 @@ func waitForSnapshotEntry(t *testing.T, bridge *forgeuisvc.Service, clientID str
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "test-" + method,
+		"method":  method,
+		"params":  params,
+	})
+	if err != nil {
+		t.Fatalf("marshal rpc request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	bridge.Hub().ServeHTTPRPC(rec, req)
+	resp := rec.Result()
+	defer resp.Body.Close()
+	var envelope map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode %s response: %v", method, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		t.Fatalf("%s returned HTTP %d: %#v", method, resp.StatusCode, envelope)
+	}
+	if errValue := envelope["error"]; errValue != nil {
+		t.Fatalf("%s returned RPC error: %#v", method, errValue)
+	}
+	result, _ := envelope["result"].(map[string]interface{})
+	return result
 }
 
 func mustWriteFile(t *testing.T, path, contents string) {

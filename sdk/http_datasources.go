@@ -19,12 +19,13 @@ func (c *HTTPClient) FetchDatasource(ctx context.Context, in *api.FetchDatasourc
 	if id == "" {
 		return nil, errors.New("datasource id is required")
 	}
+	conversationID := strings.TrimSpace(in.ConversationID)
 	// Wire body: the server reads id from the URL; carry the rest verbatim.
 	body := struct {
 		ConversationID string                    `json:"conversationId,omitempty"`
 		Inputs         map[string]interface{}    `json:"inputs,omitempty"`
 		Cache          *api.DatasourceCacheHints `json:"cache,omitempty"`
-	}{ConversationID: in.ConversationID, Inputs: in.Inputs, Cache: in.Cache}
+	}{ConversationID: conversationID, Inputs: in.Inputs, Cache: in.Cache}
 	var out api.FetchDatasourceOutput
 	path := "/v1/api/datasources/" + url.PathEscape(id) + "/fetch"
 	if err := c.doJSON(ctx, http.MethodPost, path, body, &out); err != nil {

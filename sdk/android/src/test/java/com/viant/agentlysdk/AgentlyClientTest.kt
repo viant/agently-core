@@ -21,10 +21,12 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
@@ -48,10 +50,10 @@ class AgentlyClientTest {
                 {
                   "data": {
                     "workspaceRoot": "/tmp/workspace",
-                    "appName": "Steward",
+                    "appName": "Workspace",
                     "appIconRef": "builtin:viant",
                     "defaults": {
-                      "appName": "Steward",
+                      "appName": "Workspace",
                       "appIconRef": "builtin:viant",
                       "agent": "coder",
                       "model": "gpt-5.4",
@@ -68,7 +70,7 @@ class AgentlyClientTest {
         val result = client.getWorkspaceMetadata()
 
         assertEquals("/tmp/workspace", result.workspaceRoot)
-        assertEquals("Steward", result.appName)
+        assertEquals("Workspace", result.appName)
         assertEquals("builtin:viant", result.appIconRef)
         assertEquals("coder", result.defaultAgent)
         assertEquals("gpt-5.4", result.defaultModel)
@@ -84,19 +86,20 @@ class AgentlyClientTest {
 
         client.getWorkspaceMetadata(
             MetadataTargetContext(
-                platform = "android",
-                formFactor = "tablet",
-                surface = "app",
-                capabilities = listOf("markdown", "chart")
+                platform = " android ",
+                formFactor = " tablet ",
+                surface = " app ",
+                capabilities = listOf(" markdown ", "", "chart")
             )
         )
 
-        val path = server.takeRequest().path!!
+        val request = server.takeRequest()
+        val path = request.path!!
         assertTrue(path.startsWith("/v1/workspace/metadata?"))
         assertTrue(path.contains("platform=android"))
         assertTrue(path.contains("formFactor=tablet"))
         assertTrue(path.contains("surface=app"))
-        assertTrue(path.contains("capabilities=markdown%2Cchart") || path.contains("capabilities=markdown,chart"))
+        assertEquals(listOf("markdown", "chart"), request.requestUrl!!.queryParameterValues("capabilities"))
     }
 
     @Test
@@ -144,7 +147,7 @@ class AgentlyClientTest {
         server.start()
         val client = client()
 
-        val result = client.fetchForgeWindowMetadata("report/review")
+        val result = client.fetchForgeWindowMetadata(" report/review ")
 
         assertEquals("reportRoot", result.jsonObject["view"]!!
             .jsonObject["content"]!!
@@ -157,6 +160,17 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `fetchForgeWindowMetadata rejects blank window keys before dispatch`() = runBlocking {
+        server.start()
+        val client = client()
+
+        assertFailsWith<IllegalArgumentException> {
+            client.fetchForgeWindowMetadata("   ")
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun `fetchForgeWindowMetadata appends target context query params when provided`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"data":{"view":{"content":{"containers":[]}}}}"""))
         server.start()
@@ -165,19 +179,45 @@ class AgentlyClientTest {
         client.fetchForgeWindowMetadata(
             "order",
             MetadataTargetContext(
-                platform = "android",
-                formFactor = "phone",
-                surface = "app",
-                capabilities = listOf("markdown", "chart")
+                platform = " android ",
+                formFactor = " phone ",
+                surface = " app ",
+                capabilities = listOf(" markdown ", " ", "chart")
             )
         )
 
-        val path = server.takeRequest().path!!
+        val request = server.takeRequest()
+        val path = request.path!!
         assertTrue(path.startsWith("/v1/api/agently/forge/window/order?"))
         assertTrue(path.contains("platform=android"))
         assertTrue(path.contains("formFactor=phone"))
         assertTrue(path.contains("surface=app"))
-        assertTrue(path.contains("capabilities=markdown%2Cchart") || path.contains("capabilities=markdown,chart"))
+        assertEquals(listOf("markdown", "chart"), request.requestUrl!!.queryParameterValues("capabilities"))
+    }
+
+    @Test
+    fun `getForgeWindowMetadata aliases fetch helper for cross sdk naming parity`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"data":{"view":{"content":{"containers":[]}}}}"""))
+        server.start()
+        val client = client()
+
+        client.getForgeWindowMetadata(
+            "order",
+            MetadataTargetContext(
+                platform = " android ",
+                formFactor = " tablet ",
+                surface = " app ",
+                capabilities = listOf(" markdown ", "", "chart")
+            )
+        )
+
+        val request = server.takeRequest()
+        val path = request.path!!
+        assertTrue(path.startsWith("/v1/api/agently/forge/window/order?"))
+        assertTrue(path.contains("platform=android"))
+        assertTrue(path.contains("formFactor=tablet"))
+        assertTrue(path.contains("surface=app"))
+        assertEquals(listOf("markdown", "chart"), request.requestUrl!!.queryParameterValues("capabilities"))
     }
 
     @Test
@@ -370,6 +410,54 @@ class AgentlyClientTest {
         assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", liveStateRequest.path)
         assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
+    }
+
+    @Test
+    fun `trackConversation skips pre cursor event and applies later live event`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":1,"content":" stale","createdAt":"2026-06-05T10:00:00Z"}
+
+                    data: {"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":2,"content":" live","createdAt":"2026-06-05T10:00:01Z"}
+
+                    """.trimIndent()
+                )
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "eventCursor": "2026-06-05T10:00:00Z",
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-1",
+                        "status": "running",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-1",
+                            "content": "Hello"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val snapshots = client.trackConversation("conv-1").take(3).toList()
+
+        assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
+        assertEquals("Hello", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
+        assertEquals("Hello live", snapshots[2].bufferedMessages.single { it.id == "assistant-1" }.content)
     }
 
     @Test
@@ -724,6 +812,47 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `approval callback result decodes current edited fields and action contract`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val payload = """
+            {
+              "editedFields": {
+                "names": ["prod"]
+              },
+              "action": "decline"
+            }
+        """.trimIndent()
+
+        val decoded = json.decodeFromString(ApprovalCallbackResult.serializer(), payload)
+
+        assertEquals("decline", decoded.action)
+        assertEquals("prod", decoded.editedFields?.jsonObject?.get("names")?.jsonArray?.first()?.jsonPrimitive?.content)
+        assertEquals(emptyMap<String, JsonElement>(), decoded.payload)
+    }
+
+    @Test
+    fun `approval callback payload decodes action contract`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val payload = """
+            {
+              "action": "approve",
+              "editedFields": {
+                "names": ["prod"]
+              },
+              "originalArgs": {
+                "names": ["dev", "prod"]
+              }
+            }
+        """.trimIndent()
+
+        val decoded = json.decodeFromString(ApprovalCallbackPayload.serializer(), payload)
+
+        assertEquals("approve", decoded.action)
+        assertEquals("prod", decoded.editedFields?.jsonObject?.get("names")?.jsonArray?.first()?.jsonPrimitive?.content)
+        assertEquals("dev", decoded.originalArgs?.jsonObject?.get("names")?.jsonArray?.first()?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `uploadFile sends multipart form data`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -969,7 +1098,7 @@ class AgentlyClientTest {
                 """
                 {
                   "clientID": "",
-                  "configURL": "idp_viant.enc|blowfish://default",
+                  "configURL": "workspace-oauth-config",
                   "discoveryURL": "",
                   "mode": "bff",
                   "redirectSameTab": true,
@@ -1063,6 +1192,46 @@ class AgentlyClientTest {
         assertEquals("/v1/api/mcp-ui/tools/call", r6.path)
         assertEquals("POST", r6.method)
         assertTrue(r6.body.readUtf8().contains("\"toolName\":\"system.exec\""))
+    }
+
+    @Test
+    fun `listUIEvents executes scoped ui events tool and decodes structured details`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "result": "{\"conversationId\":\"conv-ui-1\",\"clientId\":\"mobile-client-1\",\"events\":[{\"seq\":7,\"kind\":\"error\",\"actor\":\"agent\",\"detail\":{\"payload\":{\"invalidWorkspaceId\":\"legacyAlias\",\"availableWorkspaceIds\":[\"orders\"]}}}]}"
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val client = client()
+
+        val result = client.listUIEvents(
+            ListUIEventsInput(
+                conversationId = "conv-ui-1",
+                clientId = "mobile-client-1",
+                kinds = listOf("error"),
+                limit = 20
+            )
+        )
+
+        assertEquals("conv-ui-1", result.conversationId)
+        assertEquals("mobile-client-1", result.clientId)
+        val event = result.events.single()
+        assertEquals(7, event.seq)
+        assertEquals("error", event.kind)
+        val payload = event.detail?.get("payload")?.jsonObject
+        assertEquals("legacyAlias", payload?.get("invalidWorkspaceId")?.jsonPrimitive?.content)
+        assertEquals("orders", payload?.get("availableWorkspaceIds")?.jsonArray?.first()?.jsonPrimitive?.content)
+
+        val request = server.takeRequest()
+        assertEquals("/v1/tools/ui%2Fevents%3Alist/execute?conversationId=conv-ui-1", request.path)
+        assertEquals(
+            """{"clientId":"mobile-client-1","kinds":["error"],"limit":20}""",
+            request.body.readUtf8()
+        )
     }
 
     @Test
@@ -1463,19 +1632,21 @@ class AgentlyClientTest {
 
         client.fetchDatasource(
             FetchDatasourceInput(
-                id = "sources/main",
+                id = " sources/main ",
                 inputs = mapOf("q" to JsonPrimitive("acme")),
-                cache = DatasourceCacheHints(bypassCache = true, writeThrough = true)
+                cache = DatasourceCacheHints(bypassCache = true, writeThrough = true),
+                conversationId = " conv-1 "
             )
         )
-        client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id = "sources/main", inputsHash = "hash/one"))
-        client.listLookupRegistry(ListLookupRegistryInput(context = "dialog:main/form"))
+        client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id = " sources/main ", inputsHash = " hash/one "))
+        client.listLookupRegistry(ListLookupRegistryInput(context = " dialog:main/form "))
 
         val fetch = server.takeRequest()
         assertEquals("/v1/api/datasources/sources%2Fmain/fetch", fetch.path)
         assertEquals("POST", fetch.method)
         val fetchBody = Json.parseToJsonElement(fetch.body.readUtf8()).jsonObject
         assertTrue(!fetchBody.containsKey("id"))
+        assertEquals("conv-1", fetchBody["conversationId"]!!.jsonPrimitive.content)
         assertEquals("acme", fetchBody["inputs"]!!.jsonObject["q"]!!.jsonPrimitive.content)
         assertEquals(true, fetchBody["cache"]!!.jsonObject["bypassCache"]!!.jsonPrimitive.boolean)
         assertEquals(true, fetchBody["cache"]!!.jsonObject["writeThrough"]!!.jsonPrimitive.boolean)
@@ -1487,6 +1658,23 @@ class AgentlyClientTest {
         val registry = server.takeRequest()
         assertEquals("/v1/api/lookups/registry?context=dialog%3Amain%2Fform", registry.path)
         assertEquals("GET", registry.method)
+    }
+
+    @Test
+    fun `datasource and lookup extensions reject blank identifiers before dispatch`() = runBlocking {
+        server.start()
+        val client = client()
+
+        assertFailsWith<IllegalArgumentException> {
+            client.fetchDatasource(FetchDatasourceInput(id = "   "))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id = "   "))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            client.listLookupRegistry(ListLookupRegistryInput(context = "   "))
+        }
+        assertEquals(0, server.requestCount)
     }
 
     private fun client(): AgentlyClient {

@@ -197,7 +197,9 @@ type SkillsDefaults struct {
 }
 
 type ReportingDefaults struct {
-	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Enabled         bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	QueueIntervalMs int  `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
+	QueueBatchLimit int  `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
 }
 
 // ToolApprovalDefaults defines global tool approval behavior.

@@ -37,6 +37,9 @@ func TestIsPermanentRefreshError(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"plain error", errors.New("network issue"), false},
+		{"context canceled", context.Canceled, false},
+		{"context deadline exceeded", context.DeadlineExceeded, false},
+		{"wrapped context canceled", errors.Join(errors.New("token endpoint"), context.Canceled), false},
 		{"invalid_grant code", &oauth2.RetrieveError{ErrorCode: "invalid_grant"}, true},
 		{"invalid_token code (upper)", &oauth2.RetrieveError{ErrorCode: "INVALID_TOKEN"}, true},
 		{"unauthorized_client", &oauth2.RetrieveError{ErrorCode: "unauthorized_client"}, true},

@@ -12,6 +12,17 @@ import {
 import { resolveEventConversationId } from './streamIdentity';
 import type { ActiveFeed, JSONObject, LiveExecutionGroup, LiveExecutionGroupsById, Message, SSEEvent, Turn } from './types';
 
+export interface PlannerStreamState {
+    status?: string;
+    trigger?: string;
+    staticProfile?: string;
+    strategyFamily?: string;
+    attempt?: number;
+    secondPolicy?: string;
+    outputPayloadId?: string;
+    validated?: boolean;
+}
+
 export interface ProjectedConversationTurn extends Partial<Turn> {
     turnId: string;
     conversationId: string;
@@ -61,6 +72,7 @@ export interface ConversationStreamSnapshot {
     pendingElicitation: TrackedElicitation | null;
     bufferedMessages: Partial<Message>[];
     liveExecutionGroupsById: LiveExecutionGroupsById;
+    plannerByTurnId?: Record<string, PlannerStreamState>;
 }
 
 export type CanonicalConversationSnapshot = ConversationStreamSnapshot;
@@ -153,6 +165,30 @@ function cloneExecutionGroups(groupsById: LiveExecutionGroupsById = {}): LiveExe
     return { ...groupsById };
 }
 
+function hasBufferedMessagesForTurn(buffer: MessageBuffer, turnId: string): boolean {
+    if (!turnId) return false;
+    for (const entry of buffer.byId.values()) {
+        if (String(entry?.turnId || '').trim() === turnId) return true;
+    }
+    return false;
+}
+
+function hasExecutionGroupsForTurn(groupsById: LiveExecutionGroupsById, turnId: string): boolean {
+    if (!turnId) return false;
+    return Object.values(groupsById || {}).some((group) => String(group?.turnId || '').trim() === turnId);
+}
+
+function isNonTerminalTurnStatus(status: unknown): boolean {
+    const normalized = String(status || '').trim().toLowerCase();
+    return ['running', 'waiting_for_user', 'in_progress', 'streaming', 'thinking', 'processing'].includes(normalized);
+}
+
+function clonePlannerState(plannerByTurnId: Record<string, PlannerStreamState> = {}): Record<string, PlannerStreamState> {
+    return Object.fromEntries(
+        Object.entries(plannerByTurnId).map(([turnId, planner]) => [turnId, { ...planner }]),
+    );
+}
+
 function buildSnapshot(
     conversationId: string,
     activeTurnId: string | null,
@@ -160,6 +196,7 @@ function buildSnapshot(
     pendingElicitation: TrackedElicitation | null,
     bufferedMessages: Partial<Message>[],
     executionGroupsById: LiveExecutionGroupsById,
+    plannerByTurnId: Record<string, PlannerStreamState> = {},
 ): ConversationStreamSnapshot {
     return {
         conversationId,
@@ -168,7 +205,83 @@ function buildSnapshot(
         pendingElicitation,
         bufferedMessages,
         liveExecutionGroupsById: cloneExecutionGroups(executionGroupsById),
+        plannerByTurnId: clonePlannerState(plannerByTurnId),
     };
+}
+
+function plannerStatusForEventType(type = ''): string | undefined {
+    switch (String(type || '').trim().toLowerCase()) {
+        case 'planner.selected':
+            return 'selected';
+        case 'planner.output':
+            return 'output';
+        case 'planner.validated':
+            return 'validated';
+        case 'planner.failed':
+            return 'failed';
+        default:
+            return undefined;
+    }
+}
+
+function isPlannerEvent(event: SSEEvent): boolean {
+    if (plannerStatusForEventType(event?.type)) return true;
+    return event?.plannerTrigger !== undefined
+        || event?.plannerStaticProfile !== undefined
+        || event?.plannerStrategyFamily !== undefined
+        || event?.plannerAttempt !== undefined
+        || event?.plannerSecondPolicy !== undefined
+        || event?.plannerOutputPayloadId !== undefined
+        || event?.plannerValidated !== undefined;
+}
+
+function mergePlannerState(current: PlannerStreamState | undefined, incoming: PlannerStreamState): PlannerStreamState {
+    return {
+        status: firstString(incoming.status, current?.status) || undefined,
+        trigger: firstString(incoming.trigger, current?.trigger) || undefined,
+        staticProfile: firstString(incoming.staticProfile, current?.staticProfile) || undefined,
+        strategyFamily: firstString(incoming.strategyFamily, current?.strategyFamily) || undefined,
+        attempt: typeof incoming.attempt === 'number' ? incoming.attempt : current?.attempt,
+        secondPolicy: firstString(incoming.secondPolicy, current?.secondPolicy) || undefined,
+        outputPayloadId: firstString(incoming.outputPayloadId, current?.outputPayloadId) || undefined,
+        validated: typeof incoming.validated === 'boolean' ? incoming.validated : current?.validated,
+    };
+}
+
+function applyPlannerEvent(plannerByTurnId: Record<string, PlannerStreamState>, event: SSEEvent): void {
+    if (!isPlannerEvent(event)) return;
+    const turnId = String(event?.turnId || '').trim();
+    if (!turnId) return;
+    plannerByTurnId[turnId] = mergePlannerState(plannerByTurnId[turnId], {
+        status: plannerStatusForEventType(event.type),
+        trigger: event.plannerTrigger,
+        staticProfile: event.plannerStaticProfile,
+        strategyFamily: event.plannerStrategyFamily,
+        attempt: event.plannerAttempt,
+        secondPolicy: event.plannerSecondPolicy,
+        outputPayloadId: event.plannerOutputPayloadId,
+        validated: event.plannerValidated,
+    });
+}
+
+function reconcilePlannerState(
+    current: Record<string, PlannerStreamState>,
+    turns: Turn[] = [],
+    activeTurnId: string | null = null,
+): Record<string, PlannerStreamState> {
+    const next: Record<string, PlannerStreamState> = {};
+    const active = String(activeTurnId || '').trim();
+    if (active && current[active]) {
+        next[active] = { ...current[active] };
+    }
+    for (const turn of Array.isArray(turns) ? turns : []) {
+        const turnId = String(turn?.id || turn?.turnId || '').trim();
+        const planner = (turn as any)?.planner as PlannerStreamState | undefined;
+        if (!turnId || !planner) continue;
+        if (turnId === active && next[turnId]) continue;
+        next[turnId] = { ...planner };
+    }
+    return next;
 }
 
 function collectLiveAssistantMessageIds(
@@ -448,6 +561,7 @@ export class ConversationStreamTracker {
     private _executionGroupsById: LiveExecutionGroupsById;
     private readonly _feeds: FeedTracker;
     private readonly _elicitation: ElicitationTracker;
+    private _plannerByTurnId: Record<string, PlannerStreamState>;
     private _conversationId = '';
 
     constructor(conversationId = '') {
@@ -455,6 +569,7 @@ export class ConversationStreamTracker {
         this._executionGroupsById = {};
         this._feeds = new FeedTracker();
         this._elicitation = new ElicitationTracker();
+        this._plannerByTurnId = {};
         this._conversationId = String(conversationId || '').trim();
     }
 
@@ -499,6 +614,7 @@ export class ConversationStreamTracker {
             this.pendingElicitation,
             this.bufferedMessages,
             this._executionGroupsById,
+            this._plannerByTurnId,
         );
     }
 
@@ -516,6 +632,7 @@ export class ConversationStreamTracker {
         this._executionGroupsById = {};
         this._feeds.clear();
         this._elicitation.clear();
+        this._plannerByTurnId = {};
         this._conversationId = '';
     }
 
@@ -531,6 +648,7 @@ export class ConversationStreamTracker {
         this._executionGroupsById = applyExecutionStreamEventToGroups(this._executionGroupsById, event);
         this._feeds.applyEvent(event);
         this._elicitation.applyEvent(event);
+        applyPlannerEvent(this._plannerByTurnId, event);
         return applyMessageEvent(this._messages, event);
     }
 
@@ -545,18 +663,28 @@ export class ConversationStreamTracker {
             : [];
         if (transcriptGroups.length > 0) {
             const nextGroups: LiveExecutionGroupsById = { ...this._executionGroupsById };
+            const activeTurnId = String(this._messages.activeTurnId || '').trim();
+            const activeTranscriptTurn = Array.isArray(turns)
+                ? turns.find((turn: any) => String(turn?.turnId || turn?.id || '').trim() === activeTurnId)
+                : null;
+            const preserveLiveActiveTurn = activeTurnId !== '' &&
+                isNonTerminalTurnStatus((activeTranscriptTurn as any)?.status) &&
+                (hasBufferedMessagesForTurn(this._messages, activeTurnId) || hasExecutionGroupsForTurn(this._executionGroupsById, activeTurnId));
             for (const page of transcriptGroups) {
                 const key = String(page?.assistantMessageId || page?.pageId || '').trim();
                 if (!key) continue;
+                const pageTurnId = String(page?.turnId || nextGroups[key]?.turnId || '').trim();
+                if (preserveLiveActiveTurn && pageTurnId === activeTurnId) continue;
                 nextGroups[key] = {
                     ...(nextGroups[key] || {}),
                     ...page,
                     assistantMessageId: String(page?.assistantMessageId || page?.pageId || '').trim(),
-                    turnId: String(page?.turnId || nextGroups[key]?.turnId || '').trim(),
+                    turnId: pageTurnId,
                 };
             }
             this._executionGroupsById = nextGroups;
         }
+        this._plannerByTurnId = reconcilePlannerState(this._plannerByTurnId, turns, this._messages.activeTurnId);
     }
 
     applyTranscript(turns: Turn[]): void {

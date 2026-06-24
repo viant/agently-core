@@ -652,6 +652,45 @@ describe('Tools', () => {
         expect(call.url).toContain('/tools/system%2Fgoal%3Acreate/execute?conversationId=conv-goal-1');
         expect(call.body).toEqual({ objective: 'finish refactor' });
     });
+
+    it('listUIEvents executes the scoped ui events tool and parses structured results', async () => {
+        const f = mockFetch(200, {
+            result: JSON.stringify({
+                conversationId: 'conv-ui-1',
+                clientId: 'mobile-client-1',
+                events: [{
+                    seq: 7,
+                    kind: 'error',
+                    actor: 'agent',
+                    detail: {
+                        payload: {
+                            invalidWorkspaceId: 'legacyAlias',
+                            availableWorkspaceIds: ['orders'],
+                        },
+                    },
+                }],
+            }),
+        });
+        const c = client(f);
+        const result = await c.listUIEvents({
+            conversationId: 'conv-ui-1',
+            clientId: 'mobile-client-1',
+            kinds: ['error'],
+            limit: 20,
+        });
+
+        expect(result.events[0]?.detail?.payload).toEqual({
+            invalidWorkspaceId: 'legacyAlias',
+            availableWorkspaceIds: ['orders'],
+        });
+        const call = lastCall(f);
+        expect(call.url).toContain('/tools/ui%2Fevents%3Alist/execute?conversationId=conv-ui-1');
+        expect(call.body).toEqual({
+            clientId: 'mobile-client-1',
+            kinds: ['error'],
+            limit: 20,
+        });
+    });
 });
 
 describe('Goals', () => {
@@ -912,15 +951,38 @@ describe('Workspace Metadata', () => {
         expect(call.url).toBe('http://localhost:8585/v1/workspace/metadata');
     });
 
+    it('getWorkspaceMetadata unwraps data envelope and applies default fallbacks', async () => {
+        const f = mockFetch(200, {
+            data: {
+                workspaceRoot: '/tmp/workspace',
+                defaults: {
+                    agent: 'coder',
+                    model: 'gpt-5.4',
+                    embedder: 'openai_text',
+                },
+                agents: [],
+                models: [],
+            },
+        });
+        const c = client(f);
+
+        const res = await c.getWorkspaceMetadata();
+
+        expect(res.workspaceRoot).toBe('/tmp/workspace');
+        expect(res.defaultAgent).toBe('coder');
+        expect(res.defaultModel).toBe('gpt-5.4');
+        expect(res.defaultEmbedder).toBe('openai_text');
+    });
+
     it('getWorkspaceMetadata appends shared target context query params when provided', async () => {
         const f = mockFetch(200, { defaultAgent: 'coder' });
         const c = client(f);
 
         await c.getWorkspaceMetadata({
-            platform: 'web',
-            formFactor: 'desktop',
-            surface: 'browser',
-            capabilities: ['markdown', 'chart'],
+            platform: ' web ',
+            formFactor: ' desktop ',
+            surface: ' browser ',
+            capabilities: [' markdown ', '', 'chart'],
         });
 
         const call = lastCall(f);
@@ -952,6 +1014,133 @@ describe('Workspace Metadata', () => {
         expect(call.headers?.['X-Agently-Debug']).toBe('true');
         expect(call.headers?.['X-Agently-Debug-Level']).toBe('trace');
         expect(call.headers?.['X-Agently-Debug-Components']).toBe('conversation,reactor');
+    });
+});
+
+// ─── Forge Window Metadata ────────────────────────────────────────────────────
+
+describe('Forge Window Metadata', () => {
+    it('getForgeWindowMetadata appends shared target context query params and unwraps data', async () => {
+        const f = mockFetch(200, {
+            data: {
+                key: 'order',
+                view: { type: 'container' },
+            },
+        });
+        const c = client(f);
+
+        const metadata = await c.getForgeWindowMetadata('order', {
+            platform: ' ios ',
+            formFactor: ' tablet ',
+            surface: ' app ',
+            capabilities: [' markdown ', '', 'chart'],
+        });
+
+        expect(metadata).toEqual({
+            key: 'order',
+            view: { type: 'container' },
+        });
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toContain('/v1/api/agently/forge/window/order?');
+        expect(call.url).toContain('platform=ios');
+        expect(call.url).toContain('formFactor=tablet');
+        expect(call.url).toContain('surface=app');
+        expect(call.url).toContain('capabilities=markdown');
+        expect(call.url).toContain('capabilities=chart');
+    });
+
+    it('getForgeWindowMetadata encodes slash-bearing keys and keeps raw payloads', async () => {
+        const f = mockFetch(200, { key: 'folder/order' });
+        const c = client(f);
+
+        const metadata = await c.getForgeWindowMetadata(' folder/order ');
+
+        expect(metadata).toEqual({ key: 'folder/order' });
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/api/agently/forge/window/folder%2Forder');
+    });
+
+    it('getForgeWindowMetadata rejects blank keys before making a request', async () => {
+        const f = mockFetch(200, {});
+        const c = client(f);
+
+        await expect(c.getForgeWindowMetadata('   ')).rejects.toThrow('window key is required');
+        expect(f).not.toHaveBeenCalled();
+    });
+});
+
+// ─── Datasources + Lookups ────────────────────────────────────────────────────
+
+describe('Datasources + Lookups', () => {
+    it('fetchDatasource posts inputs, cache hints, and conversation id to an encoded datasource path', async () => {
+        const f = mockFetch(200, {
+            rows: [{ id: 'fixture-account-1', name: 'Fixture Account' }],
+            metrics: { total: 1 },
+            cache: { hit: false, fetchedAt: '2026-01-01T00:00:00Z' },
+        });
+        const c = client(f);
+
+        const out = await c.fetchDatasource({
+            id: 'lookups/account',
+            inputs: { q: 'fixture' },
+            cache: { bypassCache: true, writeThrough: true },
+            conversationId: 'conv-1',
+        });
+
+        expect(out.rows[0]?.id).toBe('fixture-account-1');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/api/datasources/lookups%2Faccount/fetch');
+        expect(call.body).toEqual({
+            inputs: { q: 'fixture' },
+            cache: { bypassCache: true, writeThrough: true },
+            conversationId: 'conv-1',
+        });
+    });
+
+    it('fetchDatasource trims ids and omits blank conversation ids', async () => {
+        const f = mockFetch(200, { rows: [] });
+        const c = client(f);
+
+        await c.fetchDatasource({
+            id: ' lookups/account ',
+            inputs: { q: 'fixture' },
+            conversationId: '   ',
+        });
+
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/api/datasources/lookups%2Faccount/fetch');
+        expect(call.body).toEqual({
+            inputs: { q: 'fixture' },
+        });
+    });
+
+    it('invalidateDatasourceCache encodes id and optional inputs hash', async () => {
+        const f = mockFetch(200, {});
+        const c = client(f);
+
+        await c.invalidateDatasourceCache({ id: 'lookups/account', inputsHash: 'hash+one/two' });
+
+        const call = lastCall(f);
+        expect(call.method).toBe('DELETE');
+        expect(call.url).toBe('http://localhost:8585/v1/api/datasources/lookups%2Faccount/cache?inputsHash=hash%2Bone%2Ftwo');
+    });
+
+    it('listLookupRegistry encodes context query and returns entries', async () => {
+        const f = mockFetch(200, {
+            entries: [{ name: 'account', dataSource: 'account_lookup' }],
+        });
+        const c = client(f);
+
+        const out = await c.listLookupRegistry({ context: 'chat-composer:agent/main' });
+
+        expect(out.entries[0]?.name).toBe('account');
+        const call = lastCall(f);
+        expect(call.method).toBe('GET');
+        expect(call.url).toBe('http://localhost:8585/v1/api/lookups/registry?context=chat-composer%3Aagent%2Fmain');
     });
 });
 

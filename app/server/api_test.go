@@ -666,6 +666,103 @@ func requireNoErr(t *testing.T, err error) {
 	}
 }
 
+func TestAPIHandler_ReportingInternalWorkerToolsAreNotCallable(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "config.yaml"), `
+default:
+  model: test-model
+  embedder: test-embedder
+  agent: coder
+  reporting:
+    enabled: true
+`)
+
+		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+			WorkspaceRoot: root,
+			Defaults: &execconfig.Defaults{
+				Model:    "test-model",
+				Embedder: "test-embedder",
+				Agent:    "coder",
+			},
+		})
+		if err != nil {
+			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
+		}
+		if rt.Reporting == nil {
+			t.Fatal("expected reporting runtime to be enabled from workspace defaults")
+		}
+
+		handler, err := NewAPIHandler(context.Background(), APIOptions{
+			Version:     "test-version",
+			Runtime:     rt,
+			Client:      client,
+			AgentFinder: finder,
+		})
+		if err != nil {
+			t.Fatalf("NewAPIHandler failed: %v", err)
+		}
+
+		submitBody := []byte(`{"name":"reporting:submit_export","args":{"artifactRef":"report://draft/performance","format":"pdf","scope":"draft","reportPrint":` + validReportingAPIPrintJSON() + `}}`)
+		submitReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(submitBody))
+		submitReq = submitReq.WithContext(svcauth.InjectUser(submitReq.Context(), "internal-boundary-user"))
+		submitRec := httptest.NewRecorder()
+		handler.ServeHTTP(submitRec, submitReq)
+		if submitRec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", submitRec.Code, submitRec.Body.String())
+		}
+
+		var submitEnvelope struct {
+			Result string `json:"result"`
+		}
+		requireNoErr(t, json.Unmarshal(submitRec.Body.Bytes(), &submitEnvelope))
+		var job struct {
+			JobID string `json:"jobId"`
+		}
+		requireNoErr(t, json.Unmarshal([]byte(submitEnvelope.Result), &job))
+		if job.JobID == "" {
+			t.Fatalf("expected queued job id, got %s", submitEnvelope.Result)
+		}
+
+		runExportBody := []byte(`{"name":"reporting:run_export","args":{"jobId":"` + job.JobID + `"}}`)
+		runExportReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(runExportBody))
+		runExportReq = runExportReq.WithContext(svcauth.InjectUser(runExportReq.Context(), "internal-boundary-user"))
+		runExportRec := httptest.NewRecorder()
+		handler.ServeHTTP(runExportRec, runExportReq)
+		if runExportRec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for reporting:run_export, got %d body=%s", runExportRec.Code, runExportRec.Body.String())
+		}
+
+		runQueuedBody := []byte(`{"name":"reporting:run_queued_exports","args":{"limit":1}}`)
+		runQueuedReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(runQueuedBody))
+		runQueuedReq = runQueuedReq.WithContext(svcauth.InjectUser(runQueuedReq.Context(), "internal-boundary-user"))
+		runQueuedRec := httptest.NewRecorder()
+		handler.ServeHTTP(runQueuedRec, runQueuedReq)
+		if runQueuedRec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for reporting:run_queued_exports, got %d body=%s", runQueuedRec.Code, runQueuedRec.Body.String())
+		}
+
+		statusBody := []byte(`{"name":"reporting:get_export_status","args":{"jobId":"` + job.JobID + `"}}`)
+		statusReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(statusBody))
+		statusReq = statusReq.WithContext(svcauth.InjectUser(statusReq.Context(), "internal-boundary-user"))
+		statusRec := httptest.NewRecorder()
+		handler.ServeHTTP(statusRec, statusReq)
+		if statusRec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", statusRec.Code, statusRec.Body.String())
+		}
+		var statusEnvelope struct {
+			Result string `json:"result"`
+		}
+		requireNoErr(t, json.Unmarshal(statusRec.Body.Bytes(), &statusEnvelope))
+		var queued struct {
+			Status string `json:"status"`
+		}
+		requireNoErr(t, json.Unmarshal([]byte(statusEnvelope.Result), &queued))
+		if queued.Status != "queued" {
+			t.Fatalf("expected queued status after blocked internal tool calls, got %q", queued.Status)
+		}
+	})
+}
+
 func requireJSONEq(t *testing.T, expected, actual string) {
 	t.Helper()
 	var left interface{}

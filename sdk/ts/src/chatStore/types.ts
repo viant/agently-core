@@ -112,8 +112,8 @@ export interface ClientToolCall extends EntityIdentity {
     errorMessage?: string;
     requestPayloadId?: string;
     responsePayloadId?: string;
-    requestPayload?: JSONObject | null;
-    responsePayload?: JSONObject | null;
+    requestPayload?: JSONValue | null;
+    responsePayload?: JSONValue | null;
     linkedConversationId?: string;
     linkedConversationAgentId?: string;
     linkedConversationTitle?: string;
@@ -124,7 +124,7 @@ export interface ClientToolCall extends EntityIdentity {
         status?: string;
         message?: string;
         error?: string;
-        response?: JSONObject;
+        response?: JSONValue;
     };
 }
 
@@ -202,7 +202,7 @@ export interface ClientElicitation extends EntityIdentity {
     message?: string;
     requestedSchema?: JSONObject | null;
     callbackUrl?: string;
-    responsePayload?: JSONObject | null;
+    responsePayload?: JSONValue | null;
 }
 
 // ─── Linked conversation ───────────────────────────────────────────────────────
@@ -480,7 +480,7 @@ export interface CanonicalToolStepState {
         status?: string;
         message?: string;
         error?: string;
-        response?: JSONObject | null;
+        response?: JSONValue | null;
     } | null;
 }
 
@@ -490,7 +490,7 @@ export interface CanonicalElicitationState {
     message?: string;
     requestedSchema?: JSONObject | null;
     callbackUrl?: string;
-    responsePayload?: JSONObject | null;
+    responsePayload?: JSONValue | null;
 }
 
 export interface CanonicalLinkedConversationState {

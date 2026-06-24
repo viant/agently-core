@@ -26,18 +26,13 @@ import (
 )
 
 func TestHTTPClient_Query(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/agent/query" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(&agentsvc.QueryOutput{ConversationID: "c1", Content: "ok"})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	out, err := c.Query(context.Background(), &agentsvc.QueryInput{Query: "hi"})
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -48,15 +43,10 @@ func TestHTTPClient_Query(t *testing.T) {
 }
 
 func TestHTTPClient_GetConversation(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(&conversation.Conversation{Id: "c1"})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	out, err := c.GetConversation(context.Background(), "c1")
 	if err != nil {
 		t.Fatalf("get conversation: %v", err)
@@ -67,7 +57,7 @@ func TestHTTPClient_GetConversation(t *testing.T) {
 }
 
 func TestHTTPClient_GetRun(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/runs/run-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -80,12 +70,7 @@ func TestHTTPClient_GetRun(t *testing.T) {
 			TurnId:         strPtr("turn-1"),
 		})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	out, err := c.GetRun(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
@@ -98,22 +83,17 @@ func TestHTTPClient_GetRun(t *testing.T) {
 func TestHTTPClient_GetWorkspaceMetadataWithTarget_QueryParams(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(&WorkspaceMetadata{DefaultAgent: "coder"})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
-	_, err = c.GetWorkspaceMetadataWithTarget(context.Background(), &MetadataTargetContext{
-		Platform:     "web",
-		FormFactor:   "desktop",
-		Surface:      "browser",
-		Capabilities: []string{"markdown", "chart"},
+	_, err := c.GetWorkspaceMetadataWithTarget(context.Background(), &MetadataTargetContext{
+		Platform:     " web ",
+		FormFactor:   " desktop ",
+		Surface:      " browser ",
+		Capabilities: []string{" markdown ", "", "chart"},
 	})
 	if err != nil {
 		t.Fatalf("GetWorkspaceMetadataWithTarget: %v", err)
@@ -130,10 +110,114 @@ func TestHTTPClient_GetWorkspaceMetadataWithTarget_QueryParams(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_GetWorkspaceMetadata_EnvelopeAndDefaultFallbacks(t *testing.T) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/workspace/metadata" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{
+				"defaults": map[string]interface{}{
+					"agent":    "coder",
+					"model":    "gpt-5.4",
+					"embedder": "openai_text",
+				},
+				"agents": []string{"coder"},
+				"models": []string{"gpt-5.4"},
+			},
+		})
+	}))
+
+	out, err := c.GetWorkspaceMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("GetWorkspaceMetadata: %v", err)
+	}
+	if out.DefaultAgent != "coder" || out.DefaultModel != "gpt-5.4" || out.DefaultEmbedder != "openai_text" {
+		t.Fatalf("default fallbacks were not applied: %#v", out)
+	}
+	if out.Defaults == nil || out.Defaults.Agent != "coder" || out.Defaults.Model != "gpt-5.4" || out.Defaults.Embedder != "openai_text" {
+		t.Fatalf("unexpected defaults payload: %#v", out.Defaults)
+	}
+	if len(out.Agents) != 1 || out.Agents[0] != "coder" || len(out.Models) != 1 || out.Models[0] != "gpt-5.4" {
+		t.Fatalf("unexpected metadata lists: agents=%#v models=%#v", out.Agents, out.Models)
+	}
+}
+
+func TestHTTPClient_GetForgeWindowMetadataWithTarget_QueryAndEnvelope(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{
+				"key": "report/review",
+				"view": map[string]interface{}{
+					"type": "container",
+				},
+			},
+		})
+	}))
+
+	raw, err := c.GetForgeWindowMetadataWithTarget(context.Background(), "report/review", &MetadataTargetContext{
+		Platform:     " ios ",
+		FormFactor:   " tablet ",
+		Surface:      " app ",
+		Capabilities: []string{" markdown ", "", "chart"},
+	})
+	if err != nil {
+		t.Fatalf("GetForgeWindowMetadataWithTarget: %v", err)
+	}
+	if gotPath != "/v1/api/agently/forge/window/report%2Freview" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if gotQuery.Get("platform") != "ios" || gotQuery.Get("formFactor") != "tablet" || gotQuery.Get("surface") != "app" {
+		t.Fatalf("unexpected target query values: %#v", gotQuery)
+	}
+	caps := gotQuery["capabilities"]
+	if len(caps) != 2 || caps[0] != "markdown" || caps[1] != "chart" {
+		t.Fatalf("unexpected capabilities query values: %#v", caps)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal raw metadata: %v", err)
+	}
+	if decoded["key"] != "report/review" {
+		t.Fatalf("unexpected unwrapped metadata: %#v", decoded)
+	}
+	if _, hasData := decoded["data"]; hasData {
+		t.Fatalf("expected data envelope to be unwrapped, got %#v", decoded)
+	}
+}
+
+func TestHTTPClient_GetForgeWindowMetadata_RawPayloadAndRequiredKey(t *testing.T) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/api/agently/forge/window/order" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"key": "order"})
+	}))
+
+	raw, err := c.GetForgeWindowMetadata(context.Background(), " order ")
+	if err != nil {
+		t.Fatalf("GetForgeWindowMetadata: %v", err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal raw metadata: %v", err)
+	}
+	if decoded["key"] != "order" {
+		t.Fatalf("unexpected raw metadata: %#v", decoded)
+	}
+	if _, err := c.GetForgeWindowMetadata(context.Background(), " "); err == nil {
+		t.Fatalf("expected empty window key to fail")
+	}
+}
+
 func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 	var gotPaths []string
 	var gotActivateBody map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPaths = append(gotPaths, r.URL.RequestURI())
 		switch {
 		case r.URL.Path == "/v1/skills/diagnostics":
@@ -147,12 +231,7 @@ func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	listOut, err := c.ListSkills(context.Background(), &ListSkillsInput{ConversationID: "c1"})
 	if err != nil {
 		t.Fatalf("ListSkills: %v", err)
@@ -194,7 +273,7 @@ func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 func TestHTTPClient_TemplatesUseFirstClassRoutes(t *testing.T) {
 	var gotRequests []string
 	var gotInclude string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRequests = append(gotRequests, r.Method+" "+r.URL.Path)
 		switch r.URL.Path {
 		case "/v1/templates":
@@ -215,12 +294,7 @@ func TestHTTPClient_TemplatesUseFirstClassRoutes(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	listOut, err := c.ListTemplates(context.Background(), &ListTemplatesInput{})
 	if err != nil {
 		t.Fatalf("ListTemplates: %v", err)
@@ -247,7 +321,7 @@ func TestHTTPClient_TemplatesUseFirstClassRoutes(t *testing.T) {
 func TestHTTPClient_EncodesSlashBearingTemplateAndSkillSegments(t *testing.T) {
 	var gotRequests []string
 	var gotActivateBody map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRequests = append(gotRequests, r.Method+" "+r.URL.RequestURI())
 		switch r.URL.Path {
 		case "/v1/templates/templates/brief":
@@ -259,12 +333,7 @@ func TestHTTPClient_EncodesSlashBearingTemplateAndSkillSegments(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	includeDocument := true
 	if _, err := c.GetTemplate(context.Background(), &GetTemplateInput{Name: "templates/brief", IncludeDocument: &includeDocument}); err != nil {
 		t.Fatalf("GetTemplate: %v", err)
@@ -289,13 +358,12 @@ func TestHTTPClient_EncodesSlashBearingTemplateAndSkillSegments(t *testing.T) {
 
 func TestHTTPClient_WithSessionDebug_SendsDebugHeaders(t *testing.T) {
 	var gotHeaders http.Header
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeaders = r.Header.Clone()
 		_ = json.NewEncoder(w).Encode(&WorkspaceMetadata{DefaultAgent: "coder"})
-	}))
-	defer srv.Close()
+	})
 
-	c, err := NewHTTP(srv.URL, WithSessionDebug("trace", "conversation", "reactor"))
+	c, err := NewHTTP("https://sdk.example.test", WithHTTPClient(newHandlerHTTPClient(t, handler)), WithSessionDebug("trace", "conversation", "reactor"))
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
@@ -318,7 +386,7 @@ func TestHTTPClient_GetPayloads_UsesBatchEndpoint(t *testing.T) {
 	var gotPath string
 	var gotInput GetPayloadsInput
 	var gotRequests int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRequests++
 		gotMethod = r.Method
 		gotPath = r.URL.Path
@@ -330,12 +398,7 @@ func TestHTTPClient_GetPayloads_UsesBatchEndpoint(t *testing.T) {
 			"p2": &conversation.Payload{Id: "p2"},
 		})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	out, err := c.GetPayloads(context.Background(), []string{"p1", "p2", "missing", "p1", ""})
 	if err != nil {
 		t.Fatalf("GetPayloads: %v", err)
@@ -367,7 +430,7 @@ func TestHTTPClient_UpdateConversation(t *testing.T) {
 		Visibility string `json:"visibility"`
 		Shareable  *bool  `json:"shareable"`
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		data, err := io.ReadAll(r.Body)
@@ -379,12 +442,7 @@ func TestHTTPClient_UpdateConversation(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(&conversation.Conversation{Id: "c1"})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	shareable := true
 	out, err := c.UpdateConversation(context.Background(), &UpdateConversationInput{
 		ConversationID: "c1",
@@ -414,17 +472,12 @@ func TestHTTPClient_UpdateConversation(t *testing.T) {
 func TestHTTPClient_DeleteConversation(t *testing.T) {
 	var gotMethod string
 	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	if err := c.DeleteConversation(context.Background(), "c1"); err != nil {
 		t.Fatalf("DeleteConversation: %v", err)
 	}
@@ -439,18 +492,13 @@ func TestHTTPClient_DeleteConversation(t *testing.T) {
 func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(&ConversationPage{Rows: nil})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
-	_, err = c.ListConversations(context.Background(), &ListConversationsInput{
+	_, err := c.ListConversations(context.Background(), &ListConversationsInput{
 		AgentID:          "agent-1",
 		ParentID:         "parent-conv",
 		ParentTurnID:     "parent-turn",
@@ -483,18 +531,13 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 func TestHTTPClient_ListLinkedConversations_QueryParams(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(&LinkedConversationPage{Rows: nil})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
-	_, err = c.ListLinkedConversations(context.Background(), &ListLinkedConversationsInput{
+	_, err := c.ListLinkedConversations(context.Background(), &ListLinkedConversationsInput{
 		ParentConversationID: "parent-conv",
 		ParentTurnID:         "parent-turn",
 		Page: &PageInput{
@@ -520,18 +563,13 @@ func TestHTTPClient_ListLinkedConversations_QueryParams(t *testing.T) {
 func TestHTTPClient_GetTranscript_QueryParamsAndSelectors(t *testing.T) {
 	var gotPath string
 	var gotQuery url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		_ = json.NewEncoder(w).Encode(&ConversationState{})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
-	_, err = c.GetTranscript(context.Background(), &GetTranscriptInput{
+	_, err := c.GetTranscript(context.Background(), &GetTranscriptInput{
 		ConversationID:    "c1",
 		Since:             "m1",
 		IncludeModelCalls: true,
@@ -567,7 +605,7 @@ func TestHTTPClient_GetTranscript_QueryParamsAndSelectors(t *testing.T) {
 }
 
 func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/stream" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -576,12 +614,7 @@ func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
 		_, _ = io.WriteString(w, "data:{\"type\":\"model_started\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"status\":\"thinking\"}\n\n")
 		_, _ = io.WriteString(w, "data:{\"type\":\"assistant\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"content\":\"done\"}\n\n")
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	sub, err := c.StreamEvents(context.Background(), &StreamEventsInput{ConversationID: "c1"})
 	if err != nil {
 		t.Fatalf("StreamEvents: %v", err)
@@ -1428,6 +1461,14 @@ func (s *upstreamDeniedExecuteClient) ExecuteTool(_ context.Context, _ string, _
 	return "", errors.New(`request failed: 500 Internal Server Error: {"status":"error","message":"user access denied","errors":[{"view":"taxonomy","parameter":"Auth","statusCode":403,"message":"user access denied"}]}`)
 }
 
+type partialResultExecuteClient struct {
+	*HTTPClient
+}
+
+func (s *partialResultExecuteClient) ExecuteTool(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
+	return `{"jobId":"job-1","status":"failed","error":"artifact artifact-1 already exists"}`, errors.New("reporting: already exists")
+}
+
 func TestHandler_ExecuteToolByName_PreservesUpstreamAuthStatus(t *testing.T) {
 	base, err := NewHTTP("http://127.0.0.1")
 	if err != nil {
@@ -1443,6 +1484,62 @@ func TestHandler_ExecuteToolByName_PreservesUpstreamAuthStatus(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_ExecuteTool_PreservesPartialResultOnError(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &partialResultExecuteClient{HTTPClient: base}
+	handler := handleExecuteTool(spy)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/reporting%3Arun_export/execute", strings.NewReader(`{"jobId":"job-1"}`))
+	req.SetPathValue("name", "reporting:run_export")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["error"] != "reporting: already exists" {
+		t.Fatalf("unexpected error payload: %#v", payload)
+	}
+	if payload["result"] == "" {
+		t.Fatalf("expected partial result in error payload: %#v", payload)
+	}
+}
+
+func TestHandler_ExecuteToolByName_PreservesPartialResultOnError(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &partialResultExecuteClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	body := []byte(`{"name":"reporting:run_export","args":{"jobId":"job-1"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["error"] != "reporting: already exists" {
+		t.Fatalf("unexpected error payload: %#v", payload)
+	}
+	if payload["result"] == "" {
+		t.Fatalf("expected partial result in error payload: %#v", payload)
 	}
 }
 
@@ -1566,7 +1663,7 @@ func TestHandler_StreamEvents_EmitsOverflowTerminalEvent(t *testing.T) {
 }
 
 func TestHTTPClient_GetSchedule(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
@@ -1578,12 +1675,7 @@ func TestHTTPClient_GetSchedule(t *testing.T) {
 			"data":   &scheduler.Schedule{ID: "sched-1", Name: "daily-report"},
 		})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	out, err := c.GetSchedule(context.Background(), "sched-1")
 	if err != nil {
 		t.Fatalf("GetSchedule: %v", err)
@@ -1594,7 +1686,7 @@ func TestHTTPClient_GetSchedule(t *testing.T) {
 }
 
 func TestHTTPClient_ListSchedules(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
@@ -1611,12 +1703,7 @@ func TestHTTPClient_ListSchedules(t *testing.T) {
 			},
 		})
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
 	out, err := c.ListSchedules(context.Background())
 	if err != nil {
 		t.Fatalf("ListSchedules: %v", err)
@@ -1632,7 +1719,7 @@ func TestHTTPClient_UpsertSchedules(t *testing.T) {
 	var gotBody struct {
 		Schedules []*scheduler.Schedule `json:"schedules"`
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		data, err := io.ReadAll(r.Body)
@@ -1644,13 +1731,8 @@ func TestHTTPClient_UpsertSchedules(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
-	err = c.UpsertSchedules(context.Background(), []*scheduler.Schedule{
+	err := c.UpsertSchedules(context.Background(), []*scheduler.Schedule{
 		{ID: "s1", Name: "first", Enabled: true},
 	})
 	if err != nil {
@@ -1670,18 +1752,13 @@ func TestHTTPClient_UpsertSchedules(t *testing.T) {
 func TestHTTPClient_RunScheduleNow(t *testing.T) {
 	var gotMethod string
 	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP: %v", err)
-	}
-	err = c.RunScheduleNow(context.Background(), "sched-1")
+	err := c.RunScheduleNow(context.Background(), "sched-1")
 	if err != nil {
 		t.Fatalf("RunScheduleNow: %v", err)
 	}

@@ -191,6 +191,222 @@ describe('ConversationStreamTracker', () => {
         });
     });
 
+    it('planner SSE events update turn planner state', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyEvent({
+            type: 'turn_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'planner.selected',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            plannerTrigger: 'exploratory_strategy',
+            plannerStaticProfile: 'repo_analysis',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'planner.output',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            plannerStrategyFamily: 'troubleshoot',
+            plannerAttempt: 1,
+            plannerOutputPayloadId: 'planner-output:conv-1:turn-1',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'planner.validated',
+            conversationId: 'conv-1',
+            turnId: 'turn-1',
+            plannerAttempt: 1,
+            plannerValidated: true,
+        } as SSEEvent);
+
+        expect(tracker.snapshot().plannerByTurnId?.['turn-1']).toMatchObject({
+            status: 'validated',
+            trigger: 'exploratory_strategy',
+            staticProfile: 'repo_analysis',
+            strategyFamily: 'troubleshoot',
+            attempt: 1,
+            outputPayloadId: 'planner-output:conv-1:turn-1',
+            validated: true,
+        });
+    });
+
+    it('transcript hydrate populates planner state for past turns', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyTranscript([{
+            id: 'turn-past',
+            conversationId: 'conv-1',
+            status: 'completed',
+            createdAt: '2026-01-01T00:00:00Z',
+            message: [],
+            planner: {
+                status: 'failed',
+                trigger: 'low_confidence',
+                strategyFamily: 'troubleshoot',
+                attempt: 2,
+                secondPolicy: 'clarify',
+                outputPayloadId: 'planner-output:conv-1:turn-past',
+                validated: false,
+            },
+        } as Turn]);
+
+        expect(tracker.snapshot().plannerByTurnId?.['turn-past']).toMatchObject({
+            status: 'failed',
+            trigger: 'low_confidence',
+            strategyFamily: 'troubleshoot',
+            attempt: 2,
+            secondPolicy: 'clarify',
+            outputPayloadId: 'planner-output:conv-1:turn-past',
+            validated: false,
+        });
+    });
+
+    it('transcript does not overwrite active turn planner state owned by SSE', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyEvent({
+            type: 'turn_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-live',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'planner.failed',
+            conversationId: 'conv-1',
+            turnId: 'turn-live',
+            plannerTrigger: 'exploratory_strategy',
+            plannerAttempt: 2,
+            plannerSecondPolicy: 'block',
+        } as SSEEvent);
+
+        tracker.applyTranscript([{
+            id: 'turn-live',
+            conversationId: 'conv-1',
+            status: 'running',
+            createdAt: '2026-01-01T00:00:00Z',
+            message: [],
+            planner: {
+                status: 'selected',
+                trigger: 'low_confidence',
+                attempt: 1,
+            },
+        } as Turn]);
+
+        expect(tracker.snapshot().plannerByTurnId?.['turn-live']).toMatchObject({
+            status: 'failed',
+            trigger: 'exploratory_strategy',
+            attempt: 2,
+            secondPolicy: 'block',
+        });
+    });
+
+    it('transcript does not overwrite active turn message and execution owned by SSE', () => {
+        const tracker = new ConversationStreamTracker('conv-1');
+
+        tracker.applyEvent({
+            type: 'turn_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-live',
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'assistant',
+            conversationId: 'conv-1',
+            turnId: 'turn-live',
+            messageId: 'assistant-live',
+            content: 'SSE active response',
+            patch: { role: 'assistant' },
+        } as SSEEvent);
+        tracker.applyEvent({
+            type: 'tool_call_started',
+            conversationId: 'conv-1',
+            turnId: 'turn-live',
+            assistantMessageId: 'assistant-live',
+            toolCallId: 'tool-live',
+            toolName: 'system/exec',
+            status: 'running',
+        } as SSEEvent);
+
+        tracker.applyTranscript([
+            {
+                id: 'turn-history',
+                conversationId: 'conv-1',
+                status: 'completed',
+                createdAt: '2026-01-01T00:00:00Z',
+                assistant: {
+                    final: {
+                        messageId: 'assistant-history',
+                        content: 'Historical response',
+                    },
+                },
+            },
+            {
+                id: 'turn-live',
+                conversationId: 'conv-1',
+                status: 'running',
+                createdAt: '2026-01-01T00:00:01Z',
+                execution: {
+                    pages: [{
+                        pageId: 'stale-page',
+                        assistantMessageId: 'assistant-live',
+                        turnId: 'turn-live',
+                        status: 'completed',
+                        content: 'stale transcript execution',
+                    }],
+                },
+                assistant: {
+                    final: {
+                        messageId: 'assistant-live',
+                        content: 'stale transcript response',
+                    },
+                },
+                message: [{
+                    id: 'assistant-live',
+                    conversationId: 'conv-1',
+                    role: 'assistant',
+                    type: 'text',
+                    content: 'stale transcript response',
+                    interim: 0,
+                    createdAt: '2026-01-01T00:00:02Z',
+                }],
+            },
+        ] as Turn[]);
+
+        expect(tracker.activeTurnId).toBe('turn-live');
+        expect(tracker.snapshot().bufferedMessages).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'assistant-live',
+                    turnId: 'turn-live',
+                    content: 'SSE active response',
+                }),
+                expect.objectContaining({
+                    id: 'assistant-history',
+                    turnId: 'turn-history',
+                    content: 'Historical response',
+                }),
+            ]),
+        );
+        expect(tracker.snapshot().bufferedMessages).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'assistant-live',
+                    content: 'stale transcript response',
+                }),
+            ]),
+        );
+        expect(tracker.snapshot().liveExecutionGroupsById['assistant-live']).toMatchObject({
+            assistantMessageId: 'assistant-live',
+            turnId: 'turn-live',
+            status: 'running',
+            toolSteps: [expect.objectContaining({ toolCallId: 'tool-live' })],
+        });
+        expect(tracker.snapshot().liveExecutionGroupsById['assistant-live']).not.toMatchObject({
+            content: 'stale transcript execution',
+        });
+    });
+
     it('projects startedByMessageId from turn_started user identity', () => {
         const tracker = new ConversationStreamTracker('conv-1');
         tracker.applyEvent({

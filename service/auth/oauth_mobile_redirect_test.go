@@ -3,13 +3,22 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/oauth2"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestAuthExtensionOAuthInitiate_UsesWebCallbackByDefault(t *testing.T) {
 	cfgPath := writeOAuthClientConfig(t)
@@ -186,19 +195,30 @@ func TestAuthExtensionOAuthMobileCallback_ExchangesWithNativeRedirectAndVerifier
 	var gotRedirectURI string
 	var gotCodeVerifier string
 	var gotAuthHeader string
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.String(); got != "https://token.example.test/oauth/token" {
+			t.Fatalf("token URL = %q, want token endpoint", got)
 		}
-		gotRedirectURI = r.Form.Get("redirect_uri")
-		gotCodeVerifier = r.Form.Get("code_verifier")
-		gotAuthHeader = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"access-token","token_type":"Bearer","expires_in":3600}`))
-	}))
-	defer tokenSrv.Close()
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("ReadAll() error = %v", err)
+		}
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatalf("ParseQuery() error = %v", err)
+		}
+		gotRedirectURI = values.Get("redirect_uri")
+		gotCodeVerifier = values.Get("code_verifier")
+		gotAuthHeader = req.Header.Get("Authorization")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-token","token_type":"Bearer","expires_in":3600}`)),
+			Request:    req,
+		}, nil
+	})}
 
-	cfgPath := writeOAuthClientConfigWithTokenURL(t, tokenSrv.URL)
+	cfgPath := writeOAuthClientConfigWithTokenURL(t, "https://token.example.test/oauth/token")
 	ext := newAuthExtension(&Config{
 		CookieName:   "agently_session",
 		RedirectPath: "/v1/api/auth/oauth/callback",
@@ -218,6 +238,7 @@ func TestAuthExtensionOAuthMobileCallback_ExchangesWithNativeRedirectAndVerifier
 		t.Fatalf("encryptOAuthState() error = %v", err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "https://workspace.example.test/v1/api/auth/oauth/mobile/callback", strings.NewReader(`{"code":"code-123","state":"`+state+`"}`))
+	req = req.WithContext(context.WithValue(req.Context(), oauth2.HTTPClient, httpClient))
 	rec := httptest.NewRecorder()
 
 	ext.handleOAuthMobileCallback().ServeHTTP(rec, req)

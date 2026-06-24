@@ -2,6 +2,7 @@ import Foundation
 
 public enum AgentlySDKError: Error, LocalizedError, Sendable {
     case missingEndpoint(String)
+    case invalidArgument(String)
     case invalidResponse
     case httpStatus(Int, String?)
     case rpcError(Int, String)
@@ -10,6 +11,8 @@ public enum AgentlySDKError: Error, LocalizedError, Sendable {
         switch self {
         case .missingEndpoint(let name):
             return "Missing endpoint configuration: \(name)."
+        case .invalidArgument(let message):
+            return message
         case .invalidResponse:
             return "The server returned an unexpected response."
         case .httpStatus(let statusCode, let message):

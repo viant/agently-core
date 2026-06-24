@@ -99,6 +99,37 @@ type SubmitExportRequest struct {
 	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
 }
 
+// RecordAuditEventInput carries a UI-originated reporting audit event through
+// the reporting service boundary.
+type RecordAuditEventInput struct {
+	Event *AuditEvent `json:"event,omitempty"`
+}
+
+// ShareArtifactRequest creates or returns a shared reporting artifact through
+// the reporting persistence boundary.
+type ShareArtifactRequest struct {
+	ArtifactRef         string               `json:"artifactRef,omitempty"`
+	Version             int                  `json:"version,omitempty"`
+	Lifecycle           string               `json:"lifecycle,omitempty"`
+	ReportDocument      json.RawMessage      `json:"reportDocument,omitempty"`
+	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
+	SavedViewOverlay    json.RawMessage      `json:"savedViewOverlay,omitempty"`
+	Metadata            json.RawMessage      `json:"metadata,omitempty"`
+}
+
+// TransitionArtifactRequest mutates or materializes a lifecycle transition
+// through the reporting persistence boundary.
+type TransitionArtifactRequest struct {
+	ArtifactRef         string               `json:"artifactRef,omitempty"`
+	From                string               `json:"from,omitempty"`
+	To                  string               `json:"to,omitempty"`
+	Reason              string               `json:"reason,omitempty"`
+	Version             int                  `json:"version,omitempty"`
+	ReportDocument      json.RawMessage      `json:"reportDocument,omitempty"`
+	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
+	Metadata            json.RawMessage      `json:"metadata,omitempty"`
+}
+
 // ReportExportRequest is the canonical Forge export handoff envelope accepted
 // by agently-core reporting export submission.
 type ReportExportRequest struct {
@@ -175,6 +206,32 @@ type Artifact struct {
 	RetentionTTL time.Duration `json:"retentionTtl,omitempty"`
 }
 
+// SharedArtifact is the persisted saved-view / published-snapshot shell owned
+// by agently-core. Payload fields remain opaque JSON at this boundary.
+type SharedArtifact struct {
+	ArtifactID       string          `json:"artifactId,omitempty"`
+	ArtifactRef      string          `json:"artifactRef,omitempty"`
+	OwnerID          string          `json:"ownerId,omitempty"`
+	OwnerRef         string          `json:"ownerRef,omitempty"`
+	Kind             string          `json:"kind,omitempty"`
+	Lifecycle        string          `json:"lifecycle,omitempty"`
+	Version          int             `json:"version,omitempty"`
+	ReportID         string          `json:"reportId,omitempty"`
+	Title            string          `json:"title,omitempty"`
+	SourceArtifactID string          `json:"sourceArtifactId,omitempty"`
+	BaseArtifactRef  string          `json:"baseArtifactRef,omitempty"`
+	PolicyRef        string          `json:"policyRef,omitempty"`
+	DocumentVersion  int             `json:"documentVersion,omitempty"`
+	Document         json.RawMessage `json:"document,omitempty"`
+	ReportSpec       json.RawMessage `json:"reportSpec,omitempty"`
+	ReportFill       json.RawMessage `json:"reportFill,omitempty"`
+	ReportPrint      json.RawMessage `json:"reportPrint,omitempty"`
+	SavedViewOverlay json.RawMessage `json:"savedViewOverlay,omitempty"`
+	Metadata         json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt        time.Time       `json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time      `json:"updatedAt,omitempty"`
+}
+
 // Compiler lowers authored artifacts into canonical ReportSpec payloads.
 type Compiler interface {
 	Compile(ctx context.Context, request *CompileRequest) (*CompileResult, error)
@@ -190,18 +247,26 @@ type Exporter interface {
 type Store interface {
 	CreateJob(ctx context.Context, job *ExportJob) error
 	GetJob(ctx context.Context, jobID string) (*ExportJob, error)
+	ListJobs(ctx context.Context) ([]*ExportJob, error)
 	UpdateJob(ctx context.Context, job *ExportJob) error
 	PutArtifact(ctx context.Context, artifact *Artifact) error
 	GetArtifact(ctx context.Context, artifactID string) (*Artifact, error)
+	ListArtifacts(ctx context.Context) ([]*Artifact, error)
+	CreateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error
+	GetSharedArtifact(ctx context.Context, artifactID string) (*SharedArtifact, error)
+	ListSharedArtifacts(ctx context.Context) ([]*SharedArtifact, error)
+	UpdateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error
 }
 
 // AuditEvent is the generic reporting audit payload emitted by the service.
 type AuditEvent struct {
 	EventType   string                 `json:"eventType,omitempty"`
 	ArtifactRef string                 `json:"artifactRef,omitempty"`
+	Version     int                    `json:"version,omitempty"`
 	JobID       string                 `json:"jobId,omitempty"`
 	ArtifactID  string                 `json:"artifactId,omitempty"`
 	ActorID     string                 `json:"actorId,omitempty"`
+	ActorRef    string                 `json:"actorRef,omitempty"`
 	OccurredAt  time.Time              `json:"occurredAt,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }

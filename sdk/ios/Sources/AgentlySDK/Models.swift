@@ -432,6 +432,80 @@ public struct HostedWorkspaceRestoreState: Codable, Sendable, Equatable {
     }
 }
 
+public struct UIEvent: Codable, Sendable, Equatable {
+    public let seq: Int64
+    public let at: String?
+    public let conversationId: String?
+    public let clientId: String?
+    public let windowId: String?
+    public let windowKey: String?
+    public let kind: String?
+    public let actor: String?
+    public let detail: [String: JSONValue]?
+
+    public init(
+        seq: Int64,
+        at: String? = nil,
+        conversationId: String? = nil,
+        clientId: String? = nil,
+        windowId: String? = nil,
+        windowKey: String? = nil,
+        kind: String? = nil,
+        actor: String? = nil,
+        detail: [String: JSONValue]? = nil
+    ) {
+        self.seq = seq
+        self.at = at
+        self.conversationId = conversationId
+        self.clientId = clientId
+        self.windowId = windowId
+        self.windowKey = windowKey
+        self.kind = kind
+        self.actor = actor
+        self.detail = detail
+    }
+}
+
+public struct ListUIEventsInput: Sendable, Equatable {
+    public let conversationId: String
+    public let clientId: String?
+    public let windowId: String?
+    public let windowKey: String?
+    public let kinds: [String]
+    public let sinceSeq: Int64?
+    public let limit: Int?
+
+    public init(
+        conversationId: String,
+        clientId: String? = nil,
+        windowId: String? = nil,
+        windowKey: String? = nil,
+        kinds: [String] = [],
+        sinceSeq: Int64? = nil,
+        limit: Int? = nil
+    ) {
+        self.conversationId = conversationId
+        self.clientId = clientId
+        self.windowId = windowId
+        self.windowKey = windowKey
+        self.kinds = kinds
+        self.sinceSeq = sinceSeq
+        self.limit = limit
+    }
+}
+
+public struct ListUIEventsOutput: Codable, Sendable, Equatable {
+    public let conversationId: String?
+    public let clientId: String?
+    public let events: [UIEvent]
+
+    public init(conversationId: String? = nil, clientId: String? = nil, events: [UIEvent] = []) {
+        self.conversationId = conversationId
+        self.clientId = clientId
+        self.events = events
+    }
+}
+
 public struct ListTemplatesInput: Codable, Sendable {
     public init() {}
 }
@@ -1484,6 +1558,7 @@ public struct PendingElicitation: Codable, Sendable, Identifiable {
     public let url: String?
     public let callbackURL: String?
     public let requestedSchema: JSONValue?
+    public let status: String?
 
     enum CodingKeys: String, CodingKey {
         case elicitationID = "elicitationId"
@@ -1494,6 +1569,7 @@ public struct PendingElicitation: Codable, Sendable, Identifiable {
         case url
         case callbackURL = "callbackUrl"
         case requestedSchema
+        case status
     }
 
     public var id: String { elicitationID }
@@ -1506,7 +1582,8 @@ public struct PendingElicitation: Codable, Sendable, Identifiable {
         mode: String? = nil,
         url: String? = nil,
         callbackURL: String? = nil,
-        requestedSchema: JSONValue? = nil
+        requestedSchema: JSONValue? = nil,
+        status: String? = nil
     ) {
         self.elicitationID = elicitationID
         self.conversationID = conversationID
@@ -1516,6 +1593,7 @@ public struct PendingElicitation: Codable, Sendable, Identifiable {
         self.url = url
         self.callbackURL = callbackURL
         self.requestedSchema = requestedSchema
+        self.status = status
     }
 }
 
@@ -1986,7 +2064,7 @@ public struct ApprovalCallback: Codable, Sendable {
     public let elementID: String?
     public let event: String?
     public let handler: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case elementID = "elementId"
         case event
@@ -2040,27 +2118,57 @@ public struct ApprovalCallbackPayload: Codable, Sendable {
     public let approval: ApprovalMeta?
     public let editedFields: [String: JSONValue]
     public let originalArgs: [String: JSONValue]
+    public let action: String?
 
     public init(
         approval: ApprovalMeta? = nil,
         editedFields: [String: JSONValue] = [:],
-        originalArgs: [String: JSONValue] = [:]
+        originalArgs: [String: JSONValue] = [:],
+        action: String? = nil
     ) {
         self.approval = approval
         self.editedFields = editedFields
         self.originalArgs = originalArgs
+        self.action = action
     }
 }
 
 public struct ApprovalCallbackResult: Codable, Sendable {
     public let allow: Bool?
     public let message: String?
+    public let editedFields: [String: JSONValue]
+    public let action: String?
     public let payload: [String: JSONValue]
 
-    public init(allow: Bool? = nil, message: String? = nil, payload: [String: JSONValue] = [:]) {
+    enum CodingKeys: String, CodingKey {
+        case allow
+        case message
+        case editedFields
+        case action
+        case payload
+    }
+
+    public init(
+        allow: Bool? = nil,
+        message: String? = nil,
+        editedFields: [String: JSONValue] = [:],
+        action: String? = nil,
+        payload: [String: JSONValue] = [:]
+    ) {
         self.allow = allow
         self.message = message
+        self.editedFields = editedFields
+        self.action = action
         self.payload = payload
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        allow = try container.decodeIfPresent(Bool.self, forKey: .allow)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+        editedFields = try container.decodeIfPresent([String: JSONValue].self, forKey: .editedFields) ?? [:]
+        action = try container.decodeIfPresent(String.self, forKey: .action)
+        payload = try container.decodeIfPresent([String: JSONValue].self, forKey: .payload) ?? [:]
     }
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -16,26 +15,29 @@ import (
 // matching the Go + Kotlin clients. This guards against cross-platform drift.
 func TestHTTPClient_FetchDatasource_ForwardsCacheHints(t *testing.T) {
 	var gotBody map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var gotPath string
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &gotBody)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"rows":[],"cache":{"hit":false,"fetchedAt":"2026-04-22T00:00:00Z"}}`))
 	}))
-	defer srv.Close()
 
-	c, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("client: %v", err)
-	}
-
-	_, err = c.FetchDatasource(context.Background(), &api.FetchDatasourceInput{
-		ID:     "account",
-		Inputs: map[string]interface{}{"q": "acm"},
-		Cache:  &api.DatasourceCacheHints{BypassCache: true, WriteThrough: true},
+	_, err := c.FetchDatasource(context.Background(), &api.FetchDatasourceInput{
+		ID:             " sources/main ",
+		ConversationID: " conv-1 ",
+		Inputs:         map[string]interface{}{"q": "acm"},
+		Cache:          &api.DatasourceCacheHints{BypassCache: true, WriteThrough: true},
 	})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
+	}
+	if gotPath != "/v1/api/datasources/sources%2Fmain/fetch" {
+		t.Fatalf("path not normalized/encoded: %s", gotPath)
+	}
+	if gotBody["conversationId"] != "conv-1" {
+		t.Fatalf("conversation id not trimmed: %v", gotBody)
 	}
 	if gotBody["cache"] == nil {
 		t.Fatalf("cache hints not forwarded; body=%v", gotBody)
@@ -52,15 +54,13 @@ func TestHTTPClient_FetchDatasource_ForwardsCacheHints(t *testing.T) {
 // HTTPClient.InvalidateDatasourceCache must carry the inputsHash query param.
 func TestHTTPClient_InvalidateDatasourceCache_SendsInputsHash(t *testing.T) {
 	var gotURL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotURL = r.URL.String()
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	defer srv.Close()
 
-	c, _ := NewHTTP(srv.URL)
 	err := c.InvalidateDatasourceCache(context.Background(), &api.InvalidateDatasourceCacheInput{
-		ID: "account", InputsHash: "abc123",
+		ID: " account ", InputsHash: " abc123 ",
 	})
 	if err != nil {
 		t.Fatalf("invalidate: %v", err)
@@ -73,20 +73,39 @@ func TestHTTPClient_InvalidateDatasourceCache_SendsInputsHash(t *testing.T) {
 // HTTPClient.ListLookupRegistry URL-encodes the context param.
 func TestHTTPClient_ListLookupRegistry_EncodesContext(t *testing.T) {
 	var gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("context")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"entries":[]}`))
 	}))
-	defer srv.Close()
 
-	c, _ := NewHTTP(srv.URL)
 	if _, err := c.ListLookupRegistry(context.Background(), &api.ListLookupRegistryInput{
-		Context: "template:resource_list_review",
+		Context: " template:resource_list_review ",
 	}); err != nil {
 		t.Fatalf("registry: %v", err)
 	}
 	if gotQuery != "template:resource_list_review" {
 		t.Fatalf("want context=template:resource_list_review, got %q", gotQuery)
+	}
+}
+
+func TestHTTPClient_DatasourceLookupRejectBlankIdentifiersBeforeDispatch(t *testing.T) {
+	var requests int
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	if _, err := c.FetchDatasource(context.Background(), &api.FetchDatasourceInput{ID: "   "}); err == nil {
+		t.Fatalf("expected blank datasource id to fail")
+	}
+	if err := c.InvalidateDatasourceCache(context.Background(), &api.InvalidateDatasourceCacheInput{ID: "   "}); err == nil {
+		t.Fatalf("expected blank datasource id to fail")
+	}
+	if _, err := c.ListLookupRegistry(context.Background(), &api.ListLookupRegistryInput{Context: "   "}); err == nil {
+		t.Fatalf("expected blank lookup context to fail")
+	}
+	if requests != 0 {
+		t.Fatalf("expected no requests for invalid identifiers, got %d", requests)
 	}
 }

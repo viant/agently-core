@@ -47,7 +47,11 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 			http.Error(w, "missing path in URL", http.StatusBadRequest)
 			return
 		}
-		windowKey := pathParts[0]
+		windowKey := strings.TrimSpace(pathParts[0])
+		if windowKey == "" {
+			http.Error(w, "window key is required", http.StatusBadRequest)
+			return
+		}
 		subPath := strings.Join(pathParts[1:], "/")
 		target := targetContextFromRequest(r)
 		aWindow, workspaceErr := windowloader.LoadWorkspaceWindow(r.Context(), windowKey, target)
@@ -82,30 +86,26 @@ func targetContextFromRequest(r *http.Request) *metaSvc.TargetContext {
 		return nil
 	}
 	query := r.URL.Query()
-	capabilities := query["capabilities"]
-	if len(capabilities) == 1 && strings.Contains(capabilities[0], ",") {
-		capabilities = strings.Split(capabilities[0], ",")
-	}
-	for index, value := range capabilities {
-		capabilities[index] = strings.TrimSpace(value)
-	}
+	capabilities := capabilityValuesFromQuery(query["capabilities"])
 	return &metaSvc.TargetContext{
 		Platform:     strings.TrimSpace(query.Get("platform")),
 		FormFactor:   strings.TrimSpace(query.Get("formFactor")),
 		Surface:      strings.TrimSpace(query.Get("surface")),
-		Capabilities: compactStrings(capabilities),
+		Capabilities: capabilities,
 	}
 }
 
-func compactStrings(values []string) []string {
+func capabilityValuesFromQuery(values []string) []string {
 	if len(values) == 0 {
 		return nil
 	}
-	result := make([]string, 0, len(values))
+	capabilities := make([]string, 0, len(values))
 	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			result = append(result, trimmed)
+		for _, part := range strings.Split(value, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				capabilities = append(capabilities, trimmed)
+			}
 		}
 	}
-	return result
+	return capabilities
 }

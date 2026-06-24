@@ -81,8 +81,12 @@ func TestDefaultsUnmarshalYAMLReporting(t *testing.T) {
 	input := `
 reporting:
   enabled: true
+  queueIntervalMs: 250
+  queueBatchLimit: 3
 `
 	var got Defaults
 	require.NoError(t, yaml.Unmarshal([]byte(input), &got))
 	require.True(t, got.Reporting.Enabled)
+	require.Equal(t, 250, got.Reporting.QueueIntervalMs)
+	require.Equal(t, 3, got.Reporting.QueueBatchLimit)
 }

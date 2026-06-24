@@ -172,7 +172,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	items, err := s.reg.ListByConversation(ctx, conversationID)
+	items, err := s.reg.ListReadableByConversation(ctx, conversationID)
 	if err != nil {
 		return err
 	}
@@ -236,7 +236,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if preferredClientID == "" {
 		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 	}
-	clientID, _, snap, win, err := s.reg.FindWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
+	clientID, _, snap, win, err := s.reg.FindReadableWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -264,6 +264,14 @@ func (s *Service) resolveWindowTarget(ctx context.Context, requestedClientID, wi
 			Namespace: namespace,
 			Snapshot:  snap,
 			Window:    win,
+		}, nil
+	}
+	if readableClientID, readableNamespace, readableSnap, readableWin, readableErr := s.reg.FindReadableWindow(ctx, conversationID, preferredClientID, windowID, windowKey); readableErr == nil {
+		return &resolvedWindowTarget{
+			ClientID:  readableClientID,
+			Namespace: readableNamespace,
+			Snapshot:  readableSnap,
+			Window:    readableWin,
 		}, nil
 	}
 	if strings.TrimSpace(windowID) == "" {

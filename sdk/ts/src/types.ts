@@ -247,6 +247,8 @@ export interface ToolStepState {
     errorMessage?: string;
     requestPayloadId?: string;
     responsePayloadId?: string;
+    requestPayload?: JSONValue;
+    responsePayload?: JSONValue;
     linkedConversationId?: string;
     linkedConversationAgentId?: string;
     linkedConversationTitle?: string;
@@ -257,7 +259,7 @@ export interface ToolStepState {
         status?: string;
         message?: string;
         error?: string;
-        response?: JSONObject;
+        response?: JSONValue;
     };
 }
 
@@ -481,7 +483,7 @@ export interface SSEEvent {
     toolName?: string;
     skillName?: string;
     skillExecutionId?: string;
-    arguments?: JSONObject;
+    arguments?: JSONValue;
     error?: string;
     status?: string;
     iteration?: number;
@@ -501,7 +503,7 @@ export interface SSEEvent {
     elicitationId?: string;
     elicitationData?: JSONObject;
     callbackUrl?: string;
-    responsePayload?: JSONObject;
+    responsePayload?: JSONValue;
     // Tool feed fields
     feedId?: string;
     feedTitle?: string;
@@ -913,6 +915,107 @@ export interface LinkedConversationEntry {
 export interface LinkedConversationPage {
     data: LinkedConversationEntry[];
     page?: PageOutput;
+}
+
+// ─── Datasources + Lookups ───────────────────────────────────────────────────
+
+export interface DatasourceCacheHints {
+    bypassCache?: boolean;
+    writeThrough?: boolean;
+}
+
+export interface DatasourceCacheMeta {
+    hit: boolean;
+    stale?: boolean;
+    fetchedAt: string;
+    ttlSeconds?: number;
+}
+
+export interface FetchDatasourceInput {
+    id: string;
+    inputs?: JSONObject;
+    cache?: DatasourceCacheHints;
+    conversationId?: string;
+}
+
+export interface FetchDatasourceOutput {
+    rows: JSONObject[];
+    dataInfo?: JSONObject;
+    metrics?: JSONObject;
+    cache?: DatasourceCacheMeta;
+}
+
+export interface InvalidateDatasourceCacheInput {
+    id: string;
+    inputsHash?: string;
+}
+
+export interface ListLookupRegistryInput {
+    context: string;
+}
+
+export interface LookupTokenFormat {
+    store?: string;
+    display?: string;
+    modelForm?: string;
+    queryInput?: string;
+    resolveInput?: string;
+}
+
+export interface LookupParameter {
+    from?: string;
+    to?: string;
+    name: string;
+    location?: string;
+}
+
+export interface LookupRegistryEntry {
+    name: string;
+    title?: string;
+    dataSource: string;
+    dialogId?: string;
+    windowId?: string;
+    trigger?: string;
+    required?: boolean;
+    display?: string;
+    token?: LookupTokenFormat;
+    inputs?: LookupParameter[];
+    outputs?: LookupParameter[];
+    extra?: Record<string, string>;
+}
+
+export interface ListLookupRegistryOutput {
+    entries: LookupRegistryEntry[];
+}
+
+// ─── UI Events ───────────────────────────────────────────────────────────────
+
+export interface UIEvent {
+    seq: number;
+    at?: string;
+    conversationId?: string;
+    clientId?: string;
+    windowId?: string;
+    windowKey?: string;
+    kind?: string;
+    actor?: string;
+    detail?: JSONObject;
+}
+
+export interface ListUIEventsInput {
+    conversationId: string;
+    clientId?: string;
+    windowId?: string;
+    windowKey?: string;
+    kinds?: string[];
+    sinceSeq?: number;
+    limit?: number;
+}
+
+export interface ListUIEventsOutput {
+    conversationId?: string;
+    clientId?: string;
+    events: UIEvent[];
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────

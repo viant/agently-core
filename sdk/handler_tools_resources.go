@@ -102,7 +102,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 		ctx = ensureDirectToolPolicy(ctx)
 		result, err := client.ExecuteTool(ctx, name, args)
 		if err != nil {
-			httpError(w, statusForToolExecuteError(err), err)
+			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
@@ -131,7 +131,7 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		ctx = ensureDirectToolPolicy(ctx)
 		result, err := client.ExecuteTool(ctx, name, req.Args)
 		if err != nil {
-			httpError(w, statusForToolExecuteError(err), err)
+			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
@@ -240,6 +240,9 @@ func statusForToolApprovalErr(err error) int {
 	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
 		return http.StatusForbidden
 	}
+	if strings.Contains(msg, "already exists") || strings.Contains(msg, "conflict") {
+		return http.StatusConflict
+	}
 	if strings.Contains(msg, "not found") {
 		return http.StatusNotFound
 	}
@@ -259,6 +262,9 @@ func statusForToolExecuteError(err error) int {
 	msg := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
 	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
 		return http.StatusForbidden
+	}
+	if strings.Contains(msg, "already exists") || strings.Contains(msg, "conflict") {
+		return http.StatusConflict
 	}
 	if strings.Contains(msg, "not found") {
 		return http.StatusNotFound

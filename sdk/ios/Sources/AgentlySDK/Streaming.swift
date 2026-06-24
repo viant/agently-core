@@ -224,6 +224,7 @@ public struct ConversationStreamSnapshot: Sendable {
     public var pendingElicitation: PendingElicitation?
     public var bufferedMessages: [BufferedStreamMessage]
     public var liveExecutionGroupsByID: [String: LiveExecutionGroup]
+    public var plannerByTurnID: [String: PlannerState]
 
     public init(
         conversationID: String? = nil,
@@ -231,7 +232,8 @@ public struct ConversationStreamSnapshot: Sendable {
         feeds: [ActiveFeedState] = [],
         pendingElicitation: PendingElicitation? = nil,
         bufferedMessages: [BufferedStreamMessage] = [],
-        liveExecutionGroupsByID: [String: LiveExecutionGroup] = [:]
+        liveExecutionGroupsByID: [String: LiveExecutionGroup] = [:],
+        plannerByTurnID: [String: PlannerState] = [:]
     ) {
         self.conversationID = conversationID
         self.activeTurnID = activeTurnID
@@ -239,6 +241,7 @@ public struct ConversationStreamSnapshot: Sendable {
         self.pendingElicitation = pendingElicitation
         self.bufferedMessages = bufferedMessages
         self.liveExecutionGroupsByID = liveExecutionGroupsByID
+        self.plannerByTurnID = plannerByTurnID
     }
 }
 
@@ -247,7 +250,9 @@ public actor ConversationStreamTracker {
     private var messagesByID: [String: BufferedStreamMessage] = [:]
     private var feedsByID: [String: ActiveFeedState] = [:]
     private var executionGroupsByID: [String: LiveExecutionGroup] = [:]
-    private var maxEventSeqByTurnID: [String: Int] = [:]
+    private var plannerByTurnID: [String: PlannerState] = [:]
+    private var maxHydratedEventSeqByTurnID: [String: Int] = [:]
+    private var maxAppliedEventSeqByTurnID: [String: Int] = [:]
 
     public init() {}
 
@@ -272,11 +277,13 @@ public actor ConversationStreamTracker {
         executionGroupsByID = applyExecutionEvent(payload, to: executionGroupsByID)
         applyFeedEvent(payload)
         applyElicitationEvent(payload)
+        applyPlannerEvent(payload)
         applyMessageEvent(payload)
         recordAppliedSequence(payload)
 
         snapshot.feeds = sortedFeeds()
         snapshot.liveExecutionGroupsByID = executionGroupsByID
+        snapshot.plannerByTurnID = plannerByTurnID
         snapshot.bufferedMessages = sortedBufferedMessages()
         return snapshot
     }
@@ -290,10 +297,12 @@ public actor ConversationStreamTracker {
             snapshot.conversationID = conversationID
         }
         let turns = response.conversation?.turns ?? []
-        snapshot.activeTurnID = latestNonTerminalTurnID(from: turns)
-        messagesByID = reconcileMessages(from: turns)
-        executionGroupsByID = reconcileExecutionGroups(from: turns)
-        maxEventSeqByTurnID = maxEventSequences(from: turns)
+        let activeTurnID = latestNonTerminalTurnID(from: turns)
+        snapshot.activeTurnID = activeTurnID
+        messagesByID = reconcileMessages(from: turns, activeTurnID: activeTurnID)
+        executionGroupsByID = reconcileExecutionGroups(from: turns, activeTurnID: activeTurnID)
+        plannerByTurnID = reconcilePlannerState(from: turns, activeTurnID: activeTurnID)
+        maxHydratedEventSeqByTurnID = maxEventSequences(from: turns)
         feedsByID.removeAll()
         for feed in response.feeds {
             if let feedID = feed.feedID?.trimmedNonEmpty {
@@ -303,6 +312,7 @@ public actor ConversationStreamTracker {
         snapshot.feeds = sortedFeeds()
         snapshot.bufferedMessages = sortedBufferedMessages()
         snapshot.liveExecutionGroupsByID = executionGroupsByID
+        snapshot.plannerByTurnID = plannerByTurnID
     }
 
     public func reset(conversationID: String? = nil) {
@@ -310,7 +320,9 @@ public actor ConversationStreamTracker {
         messagesByID.removeAll()
         feedsByID.removeAll()
         executionGroupsByID.removeAll()
-        maxEventSeqByTurnID.removeAll()
+        plannerByTurnID.removeAll()
+        maxHydratedEventSeqByTurnID.removeAll()
+        maxAppliedEventSeqByTurnID.removeAll()
     }
 }
 
@@ -375,6 +387,13 @@ private extension ConversationStreamTracker {
         let feedTitle: String?
         let feedItemCount: Int?
         let feedData: JSONValue?
+        let plannerTrigger: String?
+        let plannerStaticProfile: String?
+        let plannerStrategyFamily: String?
+        let plannerAttempt: Int?
+        let plannerSecondPolicy: String?
+        let plannerOutputPayloadID: String?
+        let plannerValidated: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -430,6 +449,13 @@ private extension ConversationStreamTracker {
             case feedTitle
             case feedItemCount
             case feedData
+            case plannerTrigger
+            case plannerStaticProfile
+            case plannerStrategyFamily
+            case plannerAttempt
+            case plannerSecondPolicy
+            case plannerOutputPayloadID = "plannerOutputPayloadId"
+            case plannerValidated
         }
 
         var resolvedMessageID: String? {
@@ -543,12 +569,62 @@ private extension ConversationStreamTracker {
                 mode: payload.elicitationData?.mode ?? payload.mode,
                 url: payload.elicitationData?.url ?? payload.callbackURL,
                 callbackURL: payload.callbackURL,
-                requestedSchema: payload.elicitationData?.resolvedRequestedSchema
+                requestedSchema: payload.elicitationData?.resolvedRequestedSchema,
+                status: payload.status ?? "pending"
             )
         case "elicitation_resolved":
             snapshot.pendingElicitation = nil
         default:
             break
+        }
+    }
+
+    func applyPlannerEvent(_ payload: StreamPayload) {
+        guard isPlannerPayload(payload),
+              let turnID = payload.turnID?.trimmedNonEmpty else {
+            return
+        }
+        let current = plannerByTurnID[turnID]
+        let incoming = PlannerState(
+            status: plannerStatus(for: payload.type),
+            trigger: payload.plannerTrigger,
+            staticProfile: payload.plannerStaticProfile,
+            strategyFamily: payload.plannerStrategyFamily,
+            attempt: payload.plannerAttempt,
+            secondPolicy: payload.plannerSecondPolicy,
+            outputPayloadID: payload.plannerOutputPayloadID,
+            validated: payload.plannerValidated
+        )
+        plannerByTurnID[turnID] = mergePlannerState(current, incoming: incoming)
+    }
+
+    func isPlannerPayload(_ payload: StreamPayload) -> Bool {
+        switch payload.type.lowercased() {
+        case "planner.selected", "planner.output", "planner.validated", "planner.failed":
+            return true
+        default:
+            return payload.plannerTrigger != nil ||
+                payload.plannerStaticProfile != nil ||
+                payload.plannerStrategyFamily != nil ||
+                payload.plannerAttempt != nil ||
+                payload.plannerSecondPolicy != nil ||
+                payload.plannerOutputPayloadID != nil ||
+                payload.plannerValidated != nil
+        }
+    }
+
+    func plannerStatus(for eventType: String) -> String? {
+        switch eventType.lowercased() {
+        case "planner.selected":
+            return "selected"
+        case "planner.output":
+            return "output"
+        case "planner.validated":
+            return "validated"
+        case "planner.failed":
+            return "failed"
+        default:
+            return nil
         }
     }
 
@@ -687,20 +763,28 @@ private extension ConversationStreamTracker {
     }
 
     func shouldSkipHydratedPayload(_ payload: StreamPayload, hydrationCursor: String?) -> Bool {
-        if let turnID = payload.turnID?.trimmedNonEmpty,
-           let eventSeq = payload.eventSeq,
-           eventSeq > 0,
-           let maxSeq = maxEventSeqByTurnID[turnID],
-           eventSeq <= maxSeq {
-            return true
-        }
-        guard let hydrationCursor = hydrationCursor?.trimmedNonEmpty,
-              let createdAt = payload.createdAt?.trimmedNonEmpty,
-              let cursorDate = parseEventDate(hydrationCursor),
-              let eventDate = parseEventDate(createdAt) else {
+        let turnID = payload.turnID?.trimmedNonEmpty
+        let eventSeq = payload.eventSeq ?? 0
+        if let hydrationCursor = hydrationCursor?.trimmedNonEmpty,
+           let createdAt = payload.createdAt?.trimmedNonEmpty,
+           let cursorDate = parseEventDate(hydrationCursor),
+           let eventDate = parseEventDate(createdAt) {
+            if eventDate <= cursorDate {
+                return true
+            }
+            if let turnID, eventSeq > 0 {
+                return eventSeq <= (maxAppliedEventSeqByTurnID[turnID] ?? 0)
+            }
             return false
         }
-        return eventDate <= cursorDate
+        guard let turnID, eventSeq > 0 else {
+            return false
+        }
+        let maxSeq = max(
+            maxHydratedEventSeqByTurnID[turnID] ?? 0,
+            maxAppliedEventSeqByTurnID[turnID] ?? 0
+        )
+        return eventSeq <= maxSeq
     }
 
     func recordAppliedSequence(_ payload: StreamPayload) {
@@ -709,7 +793,7 @@ private extension ConversationStreamTracker {
               eventSeq > 0 else {
             return
         }
-        maxEventSeqByTurnID[turnID] = max(maxEventSeqByTurnID[turnID] ?? 0, eventSeq)
+        maxAppliedEventSeqByTurnID[turnID] = max(maxAppliedEventSeqByTurnID[turnID] ?? 0, eventSeq)
     }
 
     func parseEventDate(_ raw: String) -> Date? {
@@ -737,9 +821,17 @@ private extension ConversationStreamTracker {
         return result
     }
 
-    func reconcileMessages(from turns: [ConversationTurn]) -> [String: BufferedStreamMessage] {
+    func reconcileMessages(from turns: [ConversationTurn], activeTurnID: String?) -> [String: BufferedStreamMessage] {
         var merged: [String: BufferedStreamMessage] = [:]
+        let preserveActiveBufferedAssistant = activeTurnID.flatMap { activeTurnID in
+            messagesByID.values.contains { message in
+                message.turnID == activeTurnID && message.role.lowercased() == "assistant"
+            } ? activeTurnID : nil
+        }
         for turn in turns {
+            if turn.id.trimmedNonEmpty == preserveActiveBufferedAssistant {
+                continue
+            }
             if let narration = turn.assistant?.narration, let messageID = narration.messageID.trimmedNonEmpty {
                 merged[messageID] = BufferedStreamMessage(
                     id: messageID,
@@ -769,13 +861,27 @@ private extension ConversationStreamTracker {
                 )
             }
         }
+        if let preserveActiveBufferedAssistant {
+            for (messageID, message) in messagesByID where message.turnID == preserveActiveBufferedAssistant {
+                merged[messageID] = message
+            }
+        }
         return merged
     }
 
-    func reconcileExecutionGroups(from turns: [ConversationTurn]) -> [String: LiveExecutionGroup] {
+    func reconcileExecutionGroups(from turns: [ConversationTurn], activeTurnID: String?) -> [String: LiveExecutionGroup] {
         var merged: [String: LiveExecutionGroup] = [:]
+        let preserveActiveExecutionTurnID = activeTurnID.flatMap { activeTurnID in
+            executionGroupsByID.values.contains { group in
+                group.turnID == activeTurnID
+            } ? activeTurnID : nil
+        }
         for turn in turns {
             for page in turn.execution?.pages ?? [] {
+                let pageTurnID = page.turnID?.trimmedNonEmpty ?? turn.id.trimmedNonEmpty
+                if pageTurnID == preserveActiveExecutionTurnID {
+                    continue
+                }
                 let assistantMessageID = page.assistantMessageID?.trimmedNonEmpty ?? page.pageID.trimmedNonEmpty
                 guard let assistantMessageID else { continue }
                 let group = LiveExecutionGroup(
@@ -799,6 +905,30 @@ private extension ConversationStreamTracker {
                 )
                 merged[assistantMessageID] = mergeExecutionGroup(merged[assistantMessageID], incoming: group)
             }
+        }
+        if let preserveActiveExecutionTurnID {
+            for (assistantMessageID, group) in executionGroupsByID where group.turnID == preserveActiveExecutionTurnID {
+                merged[assistantMessageID] = group
+            }
+        }
+        return merged
+    }
+
+    func reconcilePlannerState(from turns: [ConversationTurn], activeTurnID: String?) -> [String: PlannerState] {
+        var merged: [String: PlannerState] = [:]
+        if let activeTurnID,
+           let current = plannerByTurnID[activeTurnID] {
+            merged[activeTurnID] = current
+        }
+        for turn in turns {
+            guard let turnID = turn.id.trimmedNonEmpty,
+                  let planner = turn.planner else {
+                continue
+            }
+            if turnID == activeTurnID, merged[turnID] != nil {
+                continue
+            }
+            merged[turnID] = planner
         }
         return merged
     }
@@ -1226,6 +1356,19 @@ private extension LiveExecutionGroup {
             completedAt: completedAt ?? self.completedAt
         )
     }
+}
+
+private func mergePlannerState(_ current: PlannerState?, incoming: PlannerState) -> PlannerState {
+    PlannerState(
+        status: incoming.status?.trimmedNonEmpty ?? current?.status,
+        trigger: incoming.trigger?.trimmedNonEmpty ?? current?.trigger,
+        staticProfile: incoming.staticProfile?.trimmedNonEmpty ?? current?.staticProfile,
+        strategyFamily: incoming.strategyFamily?.trimmedNonEmpty ?? current?.strategyFamily,
+        attempt: incoming.attempt ?? current?.attempt,
+        secondPolicy: incoming.secondPolicy?.trimmedNonEmpty ?? current?.secondPolicy,
+        outputPayloadID: incoming.outputPayloadID?.trimmedNonEmpty ?? current?.outputPayloadID,
+        validated: incoming.validated ?? current?.validated
+    )
 }
 
 private extension ISO8601DateFormatter {

@@ -21,6 +21,7 @@ import (
 	"github.com/viant/scy"
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
 	authmeta "github.com/viant/scy/auth/metadata"
+	"golang.org/x/oauth2"
 )
 
 func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (*Runtime, error) {
@@ -312,7 +313,13 @@ func fetchOpenIDJWKSURL(ctx context.Context, discoveryURL string) (string, error
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	client := http.DefaultClient
+	if ctx != nil {
+		if ctxClient, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && ctxClient != nil {
+			client = ctxClient
+		}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}

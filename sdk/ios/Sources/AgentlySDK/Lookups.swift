@@ -17,11 +17,18 @@ public struct FetchDatasourceInput: Codable, Sendable {
     public var id: String
     public var inputs: [String: JSONValue]?
     public var cache: DatasourceCacheHints?
+    public var conversationId: String?
 
-    public init(id: String, inputs: [String: JSONValue]? = nil, cache: DatasourceCacheHints? = nil) {
+    public init(
+        id: String,
+        inputs: [String: JSONValue]? = nil,
+        cache: DatasourceCacheHints? = nil,
+        conversationId: String? = nil
+    ) {
         self.id = id
         self.inputs = inputs
         self.cache = cache
+        self.conversationId = conversationId
     }
 }
 
@@ -111,14 +118,17 @@ extension AgentlyClient {
     /// drafts silently dropped `input.cache`, producing cross-platform
     /// drift with the Go + Kotlin clients.
     public func fetchDatasource(_ input: FetchDatasourceInput) async throws -> FetchDatasourceOutput {
-        let path = "/v1/api/datasources/\(agentlyPercentEncodedPathSegment(input.id))/fetch"
+        let id = try agentlyRequiredTrimmed(input.id, name: "datasource id")
+        let conversationId = input.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let path = "/v1/api/datasources/\(agentlyPercentEncodedPathSegment(id))/fetch"
         struct Body: Encodable {
             let inputs: [String: JSONValue]?
             let cache: DatasourceCacheHints?
+            let conversationId: String?
         }
         return try await post(
             path,
-            body: Body(inputs: input.inputs, cache: input.cache),
+            body: Body(inputs: input.inputs, cache: input.cache, conversationId: conversationId),
             as: FetchDatasourceOutput.self
         )
     }
@@ -126,22 +136,38 @@ extension AgentlyClient {
     /// DELETE /v1/api/datasources/{id}/cache[?inputsHash=…]
     public func invalidateDatasourceCache(_ input: InvalidateDatasourceCacheInput) async throws {
         var q: [URLQueryItem] = []
-        if let h = input.inputsHash, !h.isEmpty {
+        let id = try agentlyRequiredTrimmed(input.id, name: "datasource id")
+        if let h = input.inputsHash?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
             q.append(URLQueryItem(name: "inputsHash", value: h))
         }
-        let path = "/v1/api/datasources/\(agentlyPercentEncodedPathSegment(input.id))/cache"
+        let path = "/v1/api/datasources/\(agentlyPercentEncodedPathSegment(id))/cache"
         _ = try await rawRequest(path: path, method: "DELETE", query: q, as: EmptyResponse.self)
     }
 
     /// GET /v1/api/lookups/registry?context=<kind>:<id>
     public func listLookupRegistry(_ input: ListLookupRegistryInput) async throws -> ListLookupRegistryOutput {
+        let context = try agentlyRequiredTrimmed(input.context, name: "lookup context")
         return try await get(
             "/v1/api/lookups/registry",
-            query: [URLQueryItem(name: "context", value: input.context)],
+            query: [URLQueryItem(name: "context", value: context)],
             as: ListLookupRegistryOutput.self
         )
     }
 
+}
+
+private func agentlyRequiredTrimmed(_ value: String, name: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else {
+        throw AgentlySDKError.invalidArgument("\(name) is required")
+    }
+    return normalized
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }
 
 // MARK: - Pure token helpers (Activations b + c)

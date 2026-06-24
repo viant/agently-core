@@ -224,6 +224,7 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 			IDToken      string `json:"idToken,omitempty"`
 			RefreshToken string `json:"refreshToken,omitempty"`
 			Username     string `json:"username,omitempty"`
+			ExpiresAt    string `json:"expiresAt,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			httpError(w, http.StatusBadRequest, err)
@@ -233,13 +234,27 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("accessToken is required"))
 			return
 		}
+		username := strings.TrimSpace(body.Username)
+		derivedUsername, subject, email, _ := identityFromTokenStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
+		if username == "" {
+			username = derivedUsername
+		}
+		if username == "" {
+			username = "anonymous:" + uuid.New().String()
+		}
+		if subject == "" {
+			subject = username
+		}
 		sess := &Session{
 			ID:        uuid.New().String(),
-			Username:  body.Username,
+			Username:  username,
+			Email:     email,
+			Subject:   subject,
 			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
 			CreatedAt: time.Now(),
 		}
 		sess.Tokens = newTokenBundle(body.AccessToken, body.IDToken, body.RefreshToken)
+		sess.Tokens.Expiry = resolveTokenExpiry(strings.TrimSpace(body.ExpiresAt), strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
 		h.sessions.Put(r.Context(), sess)
 
 		// Store tokens in shared provider for downstream use.

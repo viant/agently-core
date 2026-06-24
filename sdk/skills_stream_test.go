@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,12 +70,7 @@ func TestHTTPStream_ActivateSkill_EmitsSkillActivatedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandlerWithContext() error: %v", err)
 	}
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-	client, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP() error: %v", err)
-	}
+	client := newStreamingHandlerBackedHTTP(t, handler)
 	conv, err := client.CreateConversation(context.Background(), &CreateConversationInput{AgentID: "coder", Title: "skill event"})
 	if err != nil {
 		t.Fatalf("CreateConversation() error: %v", err)
@@ -148,12 +142,7 @@ func TestHTTPStream_SkillRegistryUpdate_EmitsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandlerWithContext() error: %v", err)
 	}
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-	client, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatalf("NewHTTP() error: %v", err)
-	}
+	client := newStreamingHandlerBackedHTTP(t, handler)
 	streamCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sub, err := client.StreamEvents(streamCtx, &StreamEventsInput{})

@@ -3,8 +3,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	token "github.com/viant/agently-core/internal/auth/token"
+	"golang.org/x/oauth2"
 )
 
 type brokerStoreStub struct {
@@ -39,24 +41,40 @@ func (s *brokerStoreStub) CASPut(ctx context.Context, token *OAuthToken, expecte
 	return false, nil
 }
 
-func TestOAuthRefreshBroker_Refresh_PreservesStoredIDTokenWhenRefreshResponseOmitsIt(t *testing.T) {
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
+func tokenEndpointContext(t *testing.T, inspect func(url.Values)) context.Context {
+	t.Helper()
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.String(); got != "https://token.example.test/oauth/token" {
+			t.Fatalf("token URL = %q, want token endpoint", got)
 		}
-		if got := strings.TrimSpace(r.FormValue("refresh_token")); got != "refresh-1" {
-			t.Fatalf("refresh_token = %q, want %q", got, "refresh-1")
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("ReadAll() error = %v", err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"new-refresh","token_type":"Bearer","expires_in":3600}`))
-	}))
-	defer tokenSrv.Close()
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatalf("ParseQuery() error = %v", err)
+		}
+		if inspect != nil {
+			inspect(values)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","token_type":"Bearer","expires_in":3600}`)),
+			Request:    req,
+		}, nil
+	})}
+	return context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
+}
 
+func writeBrokerOAuthConfig(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
 	cfgPath := filepath.Join(root, "oauth.json")
 	cfgBody, _ := json.Marshal(map[string]any{
 		"authURL":      "https://idp.example.com/auth",
-		"tokenURL":     tokenSrv.URL,
+		"tokenURL":     "https://token.example.test/oauth/token",
 		"clientID":     "client-1",
 		"clientSecret": "secret-1",
 		"redirectURL":  "http://localhost/callback",
@@ -65,9 +83,18 @@ func TestOAuthRefreshBroker_Refresh_PreservesStoredIDTokenWhenRefreshResponseOmi
 	if err := os.WriteFile(cfgPath, cfgBody, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+	return cfgPath
+}
+
+func TestOAuthRefreshBroker_Refresh_PreservesStoredIDTokenWhenRefreshResponseOmitsIt(t *testing.T) {
+	ctx := tokenEndpointContext(t, func(values url.Values) {
+		if got := strings.TrimSpace(values.Get("refresh_token")); got != "refresh-1" {
+			t.Fatalf("refresh_token = %q, want %q", got, "refresh-1")
+		}
+	})
 
 	broker := &oauthRefreshBroker{
-		configURL: cfgPath,
+		configURL: writeBrokerOAuthConfig(t),
 		store: &brokerStoreStub{token: &OAuthToken{
 			Username:     "user-1",
 			Provider:     "oauth",
@@ -78,7 +105,7 @@ func TestOAuthRefreshBroker_Refresh_PreservesStoredIDTokenWhenRefreshResponseOmi
 		}},
 	}
 
-	got, err := broker.Refresh(context.Background(), token.Key{Subject: "user-1", Provider: "oauth"}, "refresh-1")
+	got, err := broker.Refresh(ctx, token.Key{Subject: "user-1", Provider: "oauth"}, "refresh-1")
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
@@ -97,25 +124,7 @@ func TestOAuthRefreshBroker_Refresh_PreservesStoredIDTokenWhenRefreshResponseOmi
 }
 
 func TestOAuthRefreshBroker_Refresh_UsesCanonicalTokenOwner(t *testing.T) {
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"new-refresh","token_type":"Bearer","expires_in":3600}`))
-	}))
-	defer tokenSrv.Close()
-
-	root := t.TempDir()
-	cfgPath := filepath.Join(root, "oauth.json")
-	cfgBody, _ := json.Marshal(map[string]any{
-		"authURL":      "https://idp.example.com/auth",
-		"tokenURL":     tokenSrv.URL,
-		"clientID":     "client-1",
-		"clientSecret": "secret-1",
-		"redirectURL":  "http://localhost/callback",
-		"scopes":       []string{"openid"},
-	})
-	if err := os.WriteFile(cfgPath, cfgBody, 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	ctx := tokenEndpointContext(t, nil)
 
 	rawStore := &brokerStoreStub{token: &OAuthToken{
 		Username:     "user-42",
@@ -126,14 +135,14 @@ func TestOAuthRefreshBroker_Refresh_UsesCanonicalTokenOwner(t *testing.T) {
 		ExpiresAt:    time.Now().Add(-time.Hour),
 	}}
 	users := &testUserService{userBySubjectProvider: map[string]*User{
-		"user-sub-123|oauth": {ID: "user-42", Username: "awitas"},
+		"user-sub-123|oauth": {ID: "user-42", Username: "localuser"},
 	}}
 	broker := &oauthRefreshBroker{
-		configURL: cfgPath,
+		configURL: writeBrokerOAuthConfig(t),
 		store:     &canonicalTokenStore{inner: rawStore, users: users},
 	}
 
-	got, err := broker.Refresh(context.Background(), token.Key{Subject: "user-sub-123", Provider: "oauth"}, "refresh-1")
+	got, err := broker.Refresh(ctx, token.Key{Subject: "user-sub-123", Provider: "oauth"}, "refresh-1")
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}

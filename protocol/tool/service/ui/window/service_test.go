@@ -1,19 +1,49 @@
 package window
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/gorilla/websocket"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
+
+func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "test-" + method,
+		"method":  method,
+		"params":  params,
+	})
+	if err != nil {
+		t.Fatalf("marshal rpc request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	bridge.Hub().ServeHTTPRPC(rec, req)
+	resp := rec.Result()
+	defer resp.Body.Close()
+	var envelope map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode %s response: %v", method, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		t.Fatalf("%s returned HTTP %d: %#v", method, resp.StatusCode, envelope)
+	}
+	if errValue := envelope["error"]; errValue != nil {
+		t.Fatalf("%s returned RPC error: %#v", method, errValue)
+	}
+	result, _ := envelope["result"].(map[string]interface{})
+	return result
+}
 
 func TestWindowAlreadyFocused(t *testing.T) {
 	snap := &uireg.Snapshot{
@@ -137,24 +167,7 @@ func TestServiceMethod_SetFormDataRegistered(t *testing.T) {
 
 func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bridge.Hub().ServeWS(w, r)
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial ws: %v", err)
-	}
-	defer conn.Close()
-
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.hello",
-		"clientId": "client-1",
-	}); err != nil {
-		t.Fatalf("write hello: %v", err)
-	}
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "client-1"})
 
 	initialSnapshot := map[string]interface{}{
 		"clientId":       "client-1",
@@ -180,28 +193,16 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 			},
 		},
 	}
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.snapshot",
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 		"clientId": "client-1",
 		"data":     initialSnapshot,
-	}); err != nil {
-		t.Fatalf("write initial snapshot: %v", err)
-	}
+	})
 
 	svc := New(bridge)
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		probe := &GetOutput{}
-		err := svc.get(ctx, &GetInput{WindowID: "reportBuilder__conv-1"}, probe)
-		if err == nil && probe.Window != nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("window snapshot did not become visible to registry in time: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
+	probe := &GetOutput{}
+	if err := svc.get(ctx, &GetInput{WindowID: "reportBuilder__conv-1"}, probe); err != nil || probe.Window == nil {
+		t.Fatalf("window snapshot did not become visible to registry: window=%#v err=%v", probe.Window, err)
 	}
 
 	done := make(chan error, 1)
@@ -227,17 +228,10 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 		done <- nil
 	}()
 
-	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
-	var request map[string]interface{}
-	if err := conn.ReadJSON(&request); err != nil {
-		select {
-		case callErr := <-done:
-			t.Fatalf("setFormData returned before command read: %v", callErr)
-		default:
-		}
-		t.Fatalf("read command: %v", err)
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	request, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
 	}
 	if got := request["method"]; got != "ui.window.setFormData" {
 		t.Fatalf("expected ui.window.setFormData command, got %#v", got)
@@ -284,23 +278,18 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 			},
 		},
 	}
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.snapshot",
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 		"clientId": "client-1",
 		"data":     updatedSnapshot,
-	}); err != nil {
-		t.Fatalf("write updated snapshot: %v", err)
-	}
+	})
 
-	if err := conn.WriteJSON(map[string]interface{}{
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
 		"id": request["id"],
 		"ok": true,
 		"result": map[string]interface{}{
 			"ok": true,
 		},
-	}); err != nil {
-		t.Fatalf("write response: %v", err)
-	}
+	})
 
 	if err := <-done; err != nil {
 		t.Fatalf("setFormData failed: %v", err)
@@ -322,28 +311,54 @@ func TestSetFormDataThenGetReflectsUpdatedLiveWindowSnapshot(t *testing.T) {
 	}
 }
 
+func TestGetFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "active-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "active-client",
+		"data": map[string]interface{}{
+			"clientId":       "active-client",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "genericBuilder__conv-1",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "genericBuilder__conv-1",
+					"windowKey":      "genericBuilder",
+					"windowTitle":    "Generic Builder",
+					"conversationId": "conv-1",
+					"presentation":   "hosted",
+					"region":         "chat.top",
+					"parentKey":      "chat/new",
+				},
+			},
+		},
+	})
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	out := &GetOutput{}
+	err := svc.get(ctx, &GetInput{
+		ClientID:  "stale-client",
+		WindowID:  "genericBuilder__conv-1",
+		WindowKey: "genericBuilder",
+	}, out)
+	if err != nil {
+		t.Fatalf("get failed: %v", err)
+	}
+	if out.ClientID != "active-client" {
+		t.Fatalf("expected active-client, got %q", out.ClientID)
+	}
+	if out.Window == nil || out.Window.WindowID != "genericBuilder__conv-1" {
+		t.Fatalf("expected exact generic builder window, got %#v", out.Window)
+	}
+}
+
 func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bridge.Hub().ServeWS(w, r)
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial ws: %v", err)
-	}
-	defer conn.Close()
-
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.hello",
-		"clientId": "client-1",
-	}); err != nil {
-		t.Fatalf("write hello: %v", err)
-	}
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.snapshot",
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "client-1"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 		"clientId": "client-1",
 		"data": map[string]interface{}{
 			"clientId":       "client-1",
@@ -360,23 +375,13 @@ func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("write snapshot: %v", err)
-	}
+	})
 
 	svc := New(bridge)
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		listOut := &ListOutput{}
-		if err := svc.list(ctx, &ListInput{}, listOut); err == nil && len(listOut.Items) > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("client snapshot did not become visible to registry")
-		}
-		time.Sleep(20 * time.Millisecond)
+	listOut := &ListOutput{}
+	if err := svc.list(ctx, &ListInput{}, listOut); err != nil || len(listOut.Items) == 0 {
+		t.Fatalf("client snapshot did not become visible to registry: items=%#v err=%v", listOut.Items, err)
 	}
 
 	done := make(chan error, 1)
@@ -384,11 +389,11 @@ func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 		out := &CommandOutput{}
 		err := svc.setFormData(ctx, &SetFormDataInput{
 			ClientID:  "client-1",
-			WindowID:  "forecastingCubeBuilder__conv-1",
-			WindowKey: "forecastingCubeBuilder",
+			WindowID:  "genericBuilder__conv-1",
+			WindowKey: "genericBuilder",
 			Values: map[string]interface{}{
 				"prefill": map[string]interface{}{
-					"audienceIds": []interface{}{7288336},
+					"recordIds": []interface{}{12345},
 				},
 			},
 		}, out)
@@ -403,17 +408,10 @@ func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 		done <- nil
 	}()
 
-	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
-	var request map[string]interface{}
-	if err := conn.ReadJSON(&request); err != nil {
-		select {
-		case callErr := <-done:
-			t.Fatalf("setFormData returned before command read: %v", callErr)
-		default:
-		}
-		t.Fatalf("read command: %v", err)
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	request, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
 	}
 	if got := request["method"]; got != "ui.window.setFormData" {
 		t.Fatalf("expected ui.window.setFormData command, got %#v", got)
@@ -422,20 +420,203 @@ func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected params map, got %#v", request["params"])
 	}
-	if got := params["windowId"]; got != "forecastingCubeBuilder__conv-1" {
+	if got := params["windowId"]; got != "genericBuilder__conv-1" {
 		t.Fatalf("expected fresh target window id, got %#v", got)
 	}
 
-	if err := conn.WriteJSON(map[string]interface{}{
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
 		"id": request["id"],
 		"ok": true,
 		"result": map[string]interface{}{
 			"ok": true,
 		},
-	}); err != nil {
-		t.Fatalf("write response: %v", err)
+	})
+
+	if err := <-done; err != nil {
+		t.Fatalf("setFormData failed: %v", err)
+	}
+}
+
+func TestSetFormDataUsesReadablePollingSnapshotWhenListedWindowIsBetweenPolls(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "mobile-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "mobile-client",
+		"data": map[string]interface{}{
+			"clientId":       "mobile-client",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "chat/new",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"windowTitle":    "Chat",
+					"conversationId": "conv-1",
+				},
+				map[string]interface{}{
+					"windowId":       "genericBuilder__conv-1",
+					"windowKey":      "genericBuilder",
+					"windowTitle":    "Generic Builder",
+					"conversationId": "conv-1",
+					"presentation":   "hosted",
+					"region":         "chat.top",
+					"parentKey":      "chat/new",
+				},
+			},
+		},
+	})
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	listOut := &ListOutput{}
+	if err := svc.list(ctx, &ListInput{ClientID: "mobile-client"}, listOut); err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	found := false
+	for _, item := range listOut.Items {
+		if item.WindowID == "genericBuilder__conv-1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected readable polling snapshot to list generic builder window, got %#v", listOut.Items)
 	}
 
+	done := make(chan error, 1)
+	go func() {
+		out := &CommandOutput{}
+		err := svc.setFormData(ctx, &SetFormDataInput{
+			ClientID:  "mobile-client",
+			WindowID:  "genericBuilder__conv-1",
+			WindowKey: "genericBuilder",
+			Values: map[string]interface{}{
+				"prefill": map[string]interface{}{
+					"recordIds": []interface{}{12345},
+				},
+			},
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "mobile-client" {
+			done <- fmt.Errorf("unexpected output: %#v", out)
+			return
+		}
+		done <- nil
+	}()
+
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{
+		"clientId":  "mobile-client",
+		"timeoutMs": 1000,
+	})
+	if got := result["method"]; got != "ui.command" {
+		t.Fatalf("expected queued ui.command, got %#v", got)
+	}
+	command, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
+	}
+	if got := command["method"]; got != "ui.window.setFormData" {
+		t.Fatalf("expected ui.window.setFormData, got %#v", got)
+	}
+	commandParams, ok := command["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params map, got %#v", command["params"])
+	}
+	if got := commandParams["windowId"]; got != "genericBuilder__conv-1" {
+		t.Fatalf("expected generic builder window id, got %#v", got)
+	}
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+		"id":     command["id"],
+		"ok":     true,
+		"result": map[string]interface{}{"ok": true},
+	})
+	if err := <-done; err != nil {
+		t.Fatalf("setFormData failed: %v", err)
+	}
+}
+
+func TestSetFormDataFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "active-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "active-client",
+		"data": map[string]interface{}{
+			"clientId":       "active-client",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "genericBuilder__conv-1",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "genericBuilder__conv-1",
+					"windowKey":      "genericBuilder",
+					"windowTitle":    "Generic Builder",
+					"conversationId": "conv-1",
+					"presentation":   "hosted",
+					"region":         "chat.top",
+					"parentKey":      "chat/new",
+				},
+			},
+		},
+	})
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	go func() {
+		out := &CommandOutput{}
+		err := svc.setFormData(ctx, &SetFormDataInput{
+			ClientID:  "stale-client",
+			WindowID:  "genericBuilder__conv-1",
+			WindowKey: "genericBuilder",
+			Values: map[string]interface{}{
+				"prefill": map[string]interface{}{
+					"recordId": 12345,
+				},
+			},
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "active-client" {
+			done <- fmt.Errorf("expected command routed to active-client, got %#v", out)
+			return
+		}
+		done <- nil
+	}()
+
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{
+		"clientId":  "active-client",
+		"timeoutMs": 1000,
+	})
+	command, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
+	}
+	if got := command["method"]; got != "ui.window.setFormData" {
+		t.Fatalf("expected ui.window.setFormData, got %#v", got)
+	}
+	commandParams, ok := command["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params map, got %#v", command["params"])
+	}
+	if got := commandParams["windowId"]; got != "genericBuilder__conv-1" {
+		t.Fatalf("expected generic builder window id, got %#v", got)
+	}
+
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+		"id":     command["id"],
+		"ok":     true,
+		"result": map[string]interface{}{"ok": true},
+	})
 	if err := <-done; err != nil {
 		t.Fatalf("setFormData failed: %v", err)
 	}
@@ -443,26 +624,8 @@ func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 
 func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bridge.Hub().ServeWS(w, r)
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial ws: %v", err)
-	}
-	defer conn.Close()
-
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.hello",
-		"clientId": "client-1",
-	}); err != nil {
-		t.Fatalf("write hello: %v", err)
-	}
-	if err := conn.WriteJSON(map[string]interface{}{
-		"type":     "ui.snapshot",
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "client-1"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 		"clientId": "client-1",
 		"data": map[string]interface{}{
 			"clientId":       "client-1",
@@ -479,23 +642,13 @@ func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("write snapshot: %v", err)
-	}
+	})
 
 	svc := New(bridge)
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		listOut := &ListOutput{}
-		if err := svc.list(ctx, &ListInput{}, listOut); err == nil && len(listOut.Items) > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("client snapshot did not become visible to registry")
-		}
-		time.Sleep(20 * time.Millisecond)
+	listOut := &ListOutput{}
+	if err := svc.list(ctx, &ListInput{}, listOut); err != nil || len(listOut.Items) == 0 {
+		t.Fatalf("client snapshot did not become visible to registry: items=%#v err=%v", listOut.Items, err)
 	}
 
 	done := make(chan error, 1)
@@ -503,7 +656,7 @@ func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 		out := &CommandOutput{}
 		err := svc.show(ctx, &ActivateInput{
 			ClientID: "client-1",
-			WindowID: "forecastingCubeBuilder__conv-1",
+			WindowID: "genericBuilder__conv-1",
 		}, out)
 		if err != nil {
 			done <- err
@@ -516,17 +669,10 @@ func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 		done <- nil
 	}()
 
-	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
-	var request map[string]interface{}
-	if err := conn.ReadJSON(&request); err != nil {
-		select {
-		case callErr := <-done:
-			t.Fatalf("show returned before command read: %v", callErr)
-		default:
-		}
-		t.Fatalf("read command: %v", err)
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	request, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
 	}
 	if got := request["method"]; got != "ui.window.activate" {
 		t.Fatalf("expected ui.window.activate command, got %#v", got)
@@ -535,19 +681,17 @@ func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected params map, got %#v", request["params"])
 	}
-	if got := params["windowId"]; got != "forecastingCubeBuilder__conv-1" {
+	if got := params["windowId"]; got != "genericBuilder__conv-1" {
 		t.Fatalf("expected fresh target window id, got %#v", got)
 	}
 
-	if err := conn.WriteJSON(map[string]interface{}{
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
 		"id": request["id"],
 		"ok": true,
 		"result": map[string]interface{}{
 			"ok": true,
 		},
-	}); err != nil {
-		t.Fatalf("write response: %v", err)
-	}
+	})
 
 	if err := <-done; err != nil {
 		t.Fatalf("show failed: %v", err)
@@ -556,26 +700,9 @@ func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 
 func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFilter(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bridge.Hub().ServeWS(w, r)
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	connectClient := func(clientID, windowID string) *websocket.Conn {
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-		if err != nil {
-			t.Fatalf("dial ws for %s: %v", clientID, err)
-		}
-		if err := conn.WriteJSON(map[string]interface{}{
-			"type":     "ui.hello",
-			"clientId": clientID,
-		}); err != nil {
-			conn.Close()
-			t.Fatalf("write hello for %s: %v", clientID, err)
-		}
-		if err := conn.WriteJSON(map[string]interface{}{
-			"type":     "ui.snapshot",
+	connectClient := func(clientID, windowID string) {
+		postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": clientID})
+		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 			"clientId": clientID,
 			"data": map[string]interface{}{
 				"clientId":       clientID,
@@ -586,8 +713,8 @@ func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFil
 				"windows": []interface{}{
 					map[string]interface{}{
 						"windowId":       windowID,
-						"windowKey":      "forecastingCubeBuilder",
-						"windowTitle":    "Forecasting",
+						"windowKey":      "genericBuilder",
+						"windowTitle":    "Generic Builder",
 						"conversationId": "conv-1",
 						"presentation":   "hosted",
 						"region":         "chat.top",
@@ -595,36 +722,22 @@ func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFil
 					},
 				},
 			},
-		}); err != nil {
-			conn.Close()
-			t.Fatalf("write snapshot for %s: %v", clientID, err)
-		}
-		return conn
+		})
 	}
 
-	conn1 := connectClient("client-1", "forecastingCubeBuilder__client-1")
-	defer conn1.Close()
-	conn2 := connectClient("client-2", "forecastingCubeBuilder__client-2")
-	defer conn2.Close()
+	connectClient("client-1", "genericBuilder__client-1")
+	connectClient("client-2", "genericBuilder__client-2")
 
 	svc := New(bridge)
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 	ctx = runtimerequestctx.WithPreferredUIClientID(ctx, "client-1")
 
-	deadline := time.Now().Add(2 * time.Second)
 	var got ListOutput
-	for {
-		got = ListOutput{}
-		if err := svc.list(ctx, &ListInput{}, &got); err != nil {
-			t.Fatalf("list failed: %v", err)
-		}
-		if len(got.Items) == 2 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("expected both clients to be listed, got %#v", got)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if err := svc.list(ctx, &ListInput{}, &got); err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("expected both clients to be listed, got %#v", got)
 	}
 	if got.ClientID != "" || got.FocusedWindowID != "" {
 		t.Fatalf("expected ambiguous top-level client/focus when multiple clients match, got %#v", got)
@@ -633,7 +746,7 @@ func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFil
 	for _, item := range got.Items {
 		seen[item.ClientID+"|"+item.WindowID] = true
 	}
-	if !seen["client-1|forecastingCubeBuilder__client-1"] || !seen["client-2|forecastingCubeBuilder__client-2"] {
+	if !seen["client-1|genericBuilder__client-1"] || !seen["client-2|genericBuilder__client-2"] {
 		t.Fatalf("expected both client-owned windows, got %#v", got.Items)
 	}
 
@@ -641,7 +754,7 @@ func TestListReturnsAllConversationOwnedClientsWithoutImplicitPreferredClientFil
 	if err := svc.list(ctx, &ListInput{ClientID: "client-1"}, filtered); err != nil {
 		t.Fatalf("filtered list failed: %v", err)
 	}
-	if filtered.ClientID != "client-1" || filtered.FocusedWindowID != "forecastingCubeBuilder__client-1" || len(filtered.Items) != 1 {
+	if filtered.ClientID != "client-1" || filtered.FocusedWindowID != "genericBuilder__client-1" || len(filtered.Items) != 1 {
 		t.Fatalf("expected explicit client filter to return one client, got %#v", filtered)
 	}
 }

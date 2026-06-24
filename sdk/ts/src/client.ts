@@ -31,6 +31,9 @@ import type {
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
     OOBLoginInput, IDPDelegateOutput,
     FeedSpec, JSONObject, JSONValue,
+    FetchDatasourceInput, FetchDatasourceOutput, InvalidateDatasourceCacheInput,
+    ListLookupRegistryInput, ListLookupRegistryOutput,
+    ListUIEventsInput, ListUIEventsOutput,
 } from './types';
 import { HttpError } from './errors';
 import { normalizeStreamEventIdentity } from './streamIdentity';
@@ -544,6 +547,22 @@ export class AgentlyClient {
         return typeof res === 'string' ? res : (res?.result ?? JSON.stringify(res));
     }
 
+    /** List recent structured UI events for a conversation/client/window scope. */
+    async listUIEvents(input: ListUIEventsInput): Promise<ListUIEventsOutput> {
+        const { conversationId, ...filters } = input;
+        if (!conversationId || !conversationId.trim()) {
+            throw new Error('conversationId is required');
+        }
+        const raw = await this.executeTool('ui/events:list', compactObject(filters), { conversationId });
+        const parsed = safeParseJSON(raw);
+        const output = isJSONObject(parsed) ? parsed : {};
+        return {
+            conversationId: String(output.conversationId || conversationId),
+            clientId: typeof output.clientId === 'string' ? output.clientId : filters.clientId,
+            events: Array.isArray(output.events) ? output.events as ListUIEventsOutput['events'] : [],
+        };
+    }
+
     // ── Files ────────────────────────────────────────────────────────────────
 
     /** Upload a file associated with a conversation. */
@@ -721,14 +740,56 @@ export class AgentlyClient {
 
     /** Get workspace metadata (available agents, models, defaults, capabilities). */
     async getWorkspaceMetadata(targetContext?: MetadataTargetContext): Promise<WorkspaceMetadata> {
-        const q = new URLSearchParams();
-        if (targetContext?.platform) q.set('platform', targetContext.platform);
-        if (targetContext?.formFactor) q.set('formFactor', targetContext.formFactor);
-        if (targetContext?.surface) q.set('surface', targetContext.surface);
-        for (const capability of Array.isArray(targetContext?.capabilities) ? targetContext.capabilities : []) {
-            if (capability) q.append('capabilities', capability);
+        const decoded = await this.get<JSONValue>('/workspace/metadata', targetContextQuery(targetContext));
+        return normalizeWorkspaceMetadata(decoded);
+    }
+
+    /** Get Forge window metadata with optional platform/form-factor targeting. */
+    async getForgeWindowMetadata(windowKey: string, targetContext?: MetadataTargetContext): Promise<JSONValue> {
+        const key = String(windowKey || '').trim();
+        if (!key) throw new Error('window key is required');
+        const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, targetContextQuery(targetContext));
+        if (isJSONObject(decoded) && Object.prototype.hasOwnProperty.call(decoded, 'data')) {
+            return decoded.data as JSONValue;
         }
-        return this.get<WorkspaceMetadata>('/workspace/metadata', q);
+        return decoded;
+    }
+
+    // ── Datasources + Lookups ───────────────────────────────────────────────
+
+    /** Fetch a datasource by id. */
+    async fetchDatasource(input: FetchDatasourceInput): Promise<FetchDatasourceOutput> {
+        const id = String(input?.id || '').trim();
+        if (!id) throw new Error('datasource id is required');
+        const body: JSONObject = {};
+        if (input.inputs) body.inputs = input.inputs;
+        if (input.cache) body.cache = input.cache as JSONObject;
+        const conversationId = input.conversationId?.trim();
+        if (conversationId) body.conversationId = conversationId;
+        return this.post<FetchDatasourceOutput>(
+            `/api/datasources/${enc(id)}/fetch`,
+            body
+        );
+    }
+
+    /** Invalidate datasource cache entries by id and optional inputs hash. */
+    async invalidateDatasourceCache(input: InvalidateDatasourceCacheInput): Promise<void> {
+        const id = String(input?.id || '').trim();
+        if (!id) throw new Error('datasource id is required');
+        const q = new URLSearchParams();
+        const inputsHash = String(input?.inputsHash || '').trim();
+        if (inputsHash) q.set('inputsHash', inputsHash);
+        const qs = q.toString();
+        await this.del(`/api/datasources/${enc(id)}/cache${qs ? `?${qs}` : ''}`);
+    }
+
+    /** List lookup registry entries for a composer/window/template context. */
+    async listLookupRegistry(input: ListLookupRegistryInput): Promise<ListLookupRegistryOutput> {
+        const context = String(input?.context || '').trim();
+        if (!context) throw new Error('context is required');
+        const q = new URLSearchParams();
+        q.set('context', context);
+        return this.get<ListLookupRegistryOutput>('/api/lookups/registry', q);
     }
 
     // ── Payload ─────────────────────────────────────────────────────────────
@@ -1136,6 +1197,60 @@ export class AgentlyClient {
 
 function enc(s: string): string {
     return encodeURIComponent(s);
+}
+
+function targetContextQuery(targetContext?: MetadataTargetContext): URLSearchParams {
+    const q = new URLSearchParams();
+    const platform = targetContext?.platform?.trim();
+    const formFactor = targetContext?.formFactor?.trim();
+    const surface = targetContext?.surface?.trim();
+    if (platform) q.set('platform', platform);
+    if (formFactor) q.set('formFactor', formFactor);
+    if (surface) q.set('surface', surface);
+    for (const capability of Array.isArray(targetContext?.capabilities) ? targetContext.capabilities : []) {
+        const trimmed = capability.trim();
+        if (trimmed) q.append('capabilities', trimmed);
+    }
+    return q;
+}
+
+function isJSONObject(value: JSONValue): value is JSONObject {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safeParseJSON(raw: string): JSONValue {
+    try {
+        return JSON.parse(raw) as JSONValue;
+    } catch {
+        return {};
+    }
+}
+
+function compactObject(input: Record<string, unknown>): JSONObject {
+    const out: JSONObject = {};
+    for (const [key, value] of Object.entries(input)) {
+        if (value === undefined || value === null) {
+            continue;
+        }
+        if (Array.isArray(value) && value.length === 0) {
+            continue;
+        }
+        out[key] = value as JSONValue;
+    }
+    return out;
+}
+
+function normalizeWorkspaceMetadata(value: JSONValue): WorkspaceMetadata {
+    const payload = isJSONObject(value) && Object.prototype.hasOwnProperty.call(value, 'data')
+        ? value.data
+        : value;
+    const metadata = (isJSONObject(payload) ? payload : {}) as WorkspaceMetadata;
+    return {
+        ...metadata,
+        defaultAgent: metadata.defaultAgent ?? metadata.defaults?.agent,
+        defaultModel: metadata.defaultModel ?? metadata.defaults?.model,
+        defaultEmbedder: metadata.defaultEmbedder ?? metadata.defaults?.embedder,
+    };
 }
 
 function sleep(ms: number): Promise<void> {

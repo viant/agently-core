@@ -11,7 +11,7 @@ import (
 )
 
 func TestHTTPClient_ListAsyncOperations_QueryParams(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
 		require.Equal(t, "/v1/conversations/conv-1/async", r.URL.Path)
 		require.Equal(t, "system/exec:execute", r.URL.Query().Get("tool"))
@@ -27,10 +27,6 @@ func TestHTTPClient_ListAsyncOperations_QueryParams(t *testing.T) {
 			},
 		})
 	}))
-	defer srv.Close()
-
-	client, err := NewHTTP(srv.URL, WithHTTPClient(srv.Client()))
-	require.NoError(t, err)
 
 	out, err := client.ListAsyncOperations(context.Background(), &ListAsyncOperationsInput{
 		ConversationID: "conv-1",
