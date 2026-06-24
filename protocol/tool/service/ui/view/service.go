@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -96,6 +97,18 @@ type Service struct {
 	repo   *repo.Repository
 	bridge *forgeuisvc.Service
 	reg    *uireg.Registry
+}
+
+type viewNotFoundError struct {
+	id        string
+	available []string
+}
+
+func (e *viewNotFoundError) Error() string {
+	if len(e.available) == 0 {
+		return fmt.Sprintf("ui view %q not found; no workspace Forge windows are loaded", e.id)
+	}
+	return fmt.Sprintf("ui view %q not found; available views: %s", e.id, strings.Join(e.available, ", "))
 }
 
 func New(repository *repo.Repository, bridge *forgeuisvc.Service) *Service {
@@ -291,6 +304,10 @@ func clientNamespaceFromSnapshots(clients []uireg.ClientSnapshot, clientID strin
 func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, conversationID string, input OpenItem, timeout int) (*OpenOutput, error) {
 	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
 	if err != nil {
+		var notFound *viewNotFoundError
+		if errors.As(err, &notFound) {
+			s.recordInvalidWorkspaceIDEvent(namespace, clientID, conversationID, notFound)
+		}
 		return nil, err
 	}
 	windowParameters := expandOpenParameters(item.Parameters, input.Parameters)
@@ -363,6 +380,32 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 		},
 	})
 	return output, nil
+}
+
+func (s *Service) recordInvalidWorkspaceIDEvent(namespace, clientID, conversationID string, notFound *viewNotFoundError) {
+	if s == nil || s.reg == nil || notFound == nil {
+		return
+	}
+	invalidID := strings.TrimSpace(notFound.id)
+	if invalidID == "" {
+		return
+	}
+	payload := map[string]interface{}{
+		"invalidWorkspaceId": invalidID,
+	}
+	if len(notFound.available) > 0 {
+		payload["availableWorkspaceIds"] = append([]string(nil), notFound.available...)
+	}
+	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+		ConversationID: strings.TrimSpace(conversationID),
+		ClientID:       strings.TrimSpace(clientID),
+		Kind:           "error",
+		Actor:          "agent",
+		Detail: map[string]interface{}{
+			"message": notFound.Error(),
+			"payload": payload,
+		},
+	})
 }
 
 func shouldRefreshOpenedWindow(item *ListItem, windowID string) bool {
@@ -514,10 +557,7 @@ func (s *Service) loadOne(ctx context.Context, id string) (*ListItem, error) {
 		}
 	}
 	available := availableViewIDs(items)
-	if len(available) == 0 {
-		return nil, fmt.Errorf("ui view %q not found; no workspace Forge windows are loaded", id)
-	}
-	return nil, fmt.Errorf("ui view %q not found; available views: %s", id, strings.Join(available, ", "))
+	return nil, &viewNotFoundError{id: id, available: available}
 }
 
 func availableViewIDs(items []ListItem) []string {

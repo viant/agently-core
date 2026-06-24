@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/data"
 )
 
@@ -18,8 +20,9 @@ func TestDatlyUserService_UpsertWithProvider_ReusesExistingSubjectIdentity(t *te
 	if svc == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
+	username, email, subject := uniqueDatlyUserIdentity(t, "reuse")
 
-	firstID, err := svc.UpsertWithProvider(ctx, "awitas", "awitas", "awitas@viantinc.com", "oauth", "awitas_viant_devtest")
+	firstID, err := svc.UpsertWithProvider(ctx, username, username, email, "oauth", subject)
 	if err != nil {
 		t.Fatalf("first UpsertWithProvider() error = %v", err)
 	}
@@ -27,7 +30,7 @@ func TestDatlyUserService_UpsertWithProvider_ReusesExistingSubjectIdentity(t *te
 		t.Fatalf("first UpsertWithProvider() id was empty")
 	}
 
-	secondID, err := svc.UpsertWithProvider(ctx, "awitas_viant_devtest", "awitas_viant_devtest", "awitas@viantinc.com", "oauth", "awitas_viant_devtest")
+	secondID, err := svc.UpsertWithProvider(ctx, subject, subject, email, "oauth", subject)
 	if err != nil {
 		t.Fatalf("second UpsertWithProvider() error = %v", err)
 	}
@@ -35,7 +38,7 @@ func TestDatlyUserService_UpsertWithProvider_ReusesExistingSubjectIdentity(t *te
 		t.Fatalf("second UpsertWithProvider() id = %q, want %q", secondID, firstID)
 	}
 
-	user, err := svc.GetBySubjectAndProvider(ctx, "awitas_viant_devtest", "oauth")
+	user, err := svc.GetBySubjectAndProvider(ctx, subject, "oauth")
 	if err != nil {
 		t.Fatalf("GetBySubjectAndProvider() error = %v", err)
 	}
@@ -52,27 +55,27 @@ func TestUserMatchesDesired(t *testing.T) {
 		ID:          "u1",
 		Username:    "bc027324-cdef-4df8-bb5c-36cda0550722",
 		DisplayName: "bc027324-cdef-4df8-bb5c-36cda0550722",
-		Email:       "awitas@viantinc.com",
+		Email:       "user@example.test",
 		Provider:    "oauth",
-		Subject:     "awitas_viant_devtest",
+		Subject:     "oauth_subject_test",
 	}
 	if !userMatchesDesired(user,
 		"bc027324-cdef-4df8-bb5c-36cda0550722",
 		"bc027324-cdef-4df8-bb5c-36cda0550722",
-		"awitas@viantinc.com",
+		"user@example.test",
 		"oauth",
-		"awitas_viant_devtest",
+		"oauth_subject_test",
 		"",
 		nil,
 	) {
 		t.Fatalf("expected exact existing canonical user to be treated as no-op")
 	}
 	if userMatchesDesired(user,
-		"awitas",
-		"awitas",
-		"awitas@viantinc.com",
+		"localuser",
+		"localuser",
+		"user@example.test",
 		"oauth",
-		"awitas_viant_devtest",
+		"oauth_subject_test",
 		"",
 		nil,
 	) {
@@ -85,23 +88,23 @@ func TestSubjectIdentityReusable_IgnoresAliasUsernameDrift(t *testing.T) {
 		ID:          "bc027324-cdef-4df8-bb5c-36cda0550722",
 		Username:    "bc027324-cdef-4df8-bb5c-36cda0550722",
 		DisplayName: "bc027324-cdef-4df8-bb5c-36cda0550722",
-		Email:       "awitas@viantinc.com",
+		Email:       "user@example.test",
 		Provider:    "oauth",
-		Subject:     "awitas_viant_devtest",
+		Subject:     "oauth_subject_test",
 	}
 	if !subjectIdentityReusable(user,
-		"awitas@viantinc.com",
+		"user@example.test",
 		"oauth",
-		"awitas_viant_devtest",
+		"oauth_subject_test",
 		"",
 		nil,
 	) {
 		t.Fatalf("expected canonical subject identity to be reusable without alias rewrite")
 	}
 	if subjectIdentityReusable(user,
-		"other@viantinc.com",
+		"other@example.test",
 		"oauth",
-		"awitas_viant_devtest",
+		"oauth_subject_test",
 		"",
 		nil,
 	) {
@@ -109,7 +112,7 @@ func TestSubjectIdentityReusable_IgnoresAliasUsernameDrift(t *testing.T) {
 	}
 }
 
-func TestDatlyUserService_UpsertWithProvider_PreservesFriendlyDisplayIdentity(t *testing.T) {
+func TestDatlyUserService_UpsertWithProvider_PreservesExactDisplayIdentity(t *testing.T) {
 	ctx := context.Background()
 	dao, err := data.NewDatlyInMemory(ctx)
 	if err != nil {
@@ -120,8 +123,9 @@ func TestDatlyUserService_UpsertWithProvider_PreservesFriendlyDisplayIdentity(t 
 	if svc == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
+	username, email, subject := uniqueDatlyUserIdentity(t, "exact")
 
-	firstID, err := svc.UpsertWithProvider(ctx, "awitas", "awitas", "awitas@viantinc.com", "oauth", "awitas_viant_devtest")
+	firstID, err := svc.UpsertWithProvider(ctx, username, username, email, "oauth", subject)
 	if err != nil {
 		t.Fatalf("first UpsertWithProvider() error = %v", err)
 	}
@@ -129,7 +133,7 @@ func TestDatlyUserService_UpsertWithProvider_PreservesFriendlyDisplayIdentity(t 
 		t.Fatalf("first UpsertWithProvider() id was empty")
 	}
 
-	secondID, err := svc.UpsertWithProvider(ctx, "bc027324-cdef-4df8-bb5c-36cda0550722", "bc027324-cdef-4df8-bb5c-36cda0550722", "awitas@viantinc.com", "oauth", "awitas_viant_devtest")
+	secondID, err := svc.UpsertWithProvider(ctx, "bc027324-cdef-4df8-bb5c-36cda0550722", "bc027324-cdef-4df8-bb5c-36cda0550722", email, "oauth", subject)
 	if err != nil {
 		t.Fatalf("second UpsertWithProvider() error = %v", err)
 	}
@@ -137,17 +141,24 @@ func TestDatlyUserService_UpsertWithProvider_PreservesFriendlyDisplayIdentity(t 
 		t.Fatalf("second UpsertWithProvider() id = %q, want %q", secondID, firstID)
 	}
 
-	user, err := svc.GetBySubjectAndProvider(ctx, "awitas_viant_devtest", "oauth")
+	user, err := svc.GetBySubjectAndProvider(ctx, subject, "oauth")
 	if err != nil {
 		t.Fatalf("GetBySubjectAndProvider() error = %v", err)
 	}
 	if user == nil {
 		t.Fatalf("GetBySubjectAndProvider() = nil")
 	}
-	if user.Username != "awitas" {
-		t.Fatalf("user.Username = %q, want %q", user.Username, "awitas")
+	if user.Username != username {
+		t.Fatalf("user.Username = %q, want %q", user.Username, username)
 	}
-	if user.DisplayName != "Awitas" {
-		t.Fatalf("user.DisplayName = %q, want %q", user.DisplayName, "Awitas")
+	if user.DisplayName != username {
+		t.Fatalf("user.DisplayName = %q, want %q", user.DisplayName, username)
 	}
+}
+
+func uniqueDatlyUserIdentity(t *testing.T, prefix string) (username, email, subject string) {
+	t.Helper()
+	token := strings.ReplaceAll(uuid.NewString(), "-", "")
+	name := prefix + "_" + token
+	return name, name + "@example.test", "oauth_" + name
 }

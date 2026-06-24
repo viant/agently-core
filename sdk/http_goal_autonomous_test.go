@@ -3,7 +3,6 @@ package sdk
 import (
 	"context"
 	"database/sql"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -80,11 +79,7 @@ features:
 	backend := &backendClient{data: dataSvc}
 	backend.SetScheduler(schedulerSvc)
 
-	server := httptest.NewServer(NewHandler(backend))
-	defer server.Close()
-
-	client, err := NewHTTP(server.URL, WithHTTPClient(server.Client()))
-	require.NoError(t, err)
+	client := newHandlerBackedHTTP(t, NewHandler(backend))
 
 	wakeAt := time.Now().UTC().Add(2 * time.Minute).Truncate(time.Second)
 	scheduled, err := schedulerSvc.ScheduleGoalWakeup(ctx, agentsvc.GoalWakeupRequest{

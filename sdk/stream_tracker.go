@@ -140,12 +140,15 @@ func (t *ConversationStreamTracker) ApplyEvent(event *streaming.Event) *Conversa
 }
 
 // ApplyTranscript replaces the tracked state with an authoritative transcript snapshot.
+// When the incoming transcript is for the same active turn already owned by
+// live SSE state, the active turn's live assistant/execution fields are kept.
 func (t *ConversationStreamTracker) ApplyTranscript(state *ConversationState) *ConversationState {
 	if t == nil {
 		return state
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	state = preserveLiveActiveTurn(t.state, state)
 	t.state = state
 	return t.state
 }
@@ -191,6 +194,26 @@ func activeTurnID(state *ConversationState) string {
 		return turn.TurnID
 	}
 	return ""
+}
+
+func preserveLiveActiveTurn(current, incoming *ConversationState) *ConversationState {
+	currentActive := activeTurn(current)
+	incomingActive := activeTurn(incoming)
+	if currentActive == nil || incomingActive == nil || currentActive.TurnID == "" || currentActive.TurnID != incomingActive.TurnID {
+		return incoming
+	}
+	hasLiveActiveTurn := currentActive.Assistant != nil ||
+		len(currentActive.Messages) > 0 ||
+		currentActive.Execution != nil ||
+		currentActive.Planner != nil
+	if !hasLiveActiveTurn {
+		return incoming
+	}
+	incomingActive.Assistant = currentActive.Assistant
+	incomingActive.Messages = currentActive.Messages
+	incomingActive.Execution = currentActive.Execution
+	incomingActive.Planner = currentActive.Planner
+	return incoming
 }
 
 func activeFeeds(state *ConversationState) []*ActiveFeedState {

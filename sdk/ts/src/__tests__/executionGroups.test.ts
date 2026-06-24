@@ -458,4 +458,33 @@ describe('executionGroups', () => {
             modelSteps: [{ status: 'completed', responsePayloadId: 'resp-9' }],
         });
     });
+
+    it('preserves non-object live tool request and response payloads', () => {
+        const live1 = applyExecutionStreamEventToGroups({}, event({
+            type: 'tool_call_started',
+            assistantMessageId: 'a10',
+            turnId: 'turn-1',
+            toolCallId: 'tc10',
+            toolMessageId: 'tm10',
+            toolName: 'ui/window/show',
+            arguments: 'window-1',
+            status: 'running',
+        }));
+        const live2 = applyExecutionStreamEventToGroups(live1, event({
+            type: 'tool_call_completed',
+            assistantMessageId: 'a10',
+            turnId: 'turn-1',
+            toolCallId: 'tc10',
+            toolMessageId: 'tm10',
+            toolName: 'ui/window/show',
+            responsePayload: ['ok', true],
+            status: 'completed',
+        }));
+
+        expect(live2.a10.toolSteps[0]).toMatchObject({
+            requestPayload: 'window-1',
+            responsePayload: ['ok', true],
+            status: 'completed',
+        });
+    });
 });

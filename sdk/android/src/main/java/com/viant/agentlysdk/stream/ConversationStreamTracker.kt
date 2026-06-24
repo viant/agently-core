@@ -116,7 +116,8 @@ class ElicitationTracker {
                     requestedSchema = requestedSchema,
                     callbackURL = event.callbackUrl,
                     url = data?.get("url")?.toString()?.trim('"'),
-                    mode = data?.get("mode")?.toString()?.trim('"')
+                    mode = data?.get("mode")?.toString()?.trim('"'),
+                    status = event.status ?: "pending"
                 )
             }
             event.type == "elicitation_resolved" -> clear()
@@ -214,7 +215,8 @@ class PlannerTracker {
 class ConversationStreamTracker(conversationId: String = "") {
     private val messages = MessageBuffer()
     private var executionGroupsById: MutableMap<String, LiveExecutionGroup> = linkedMapOf()
-    private var maxEventSeqByTurnId: MutableMap<String, Int> = linkedMapOf()
+    private var maxHydratedEventSeqByTurnId: MutableMap<String, Int> = linkedMapOf()
+    private var maxAppliedEventSeqByTurnId: MutableMap<String, Int> = linkedMapOf()
     private val feeds = FeedTracker()
     private val elicitation = ElicitationTracker()
     private val planner = PlannerTracker()
@@ -239,7 +241,8 @@ class ConversationStreamTracker(conversationId: String = "") {
         messages.byId.clear()
         messages.activeTurnId = null
         executionGroupsById = linkedMapOf()
-        maxEventSeqByTurnId = linkedMapOf()
+        maxHydratedEventSeqByTurnId = linkedMapOf()
+        maxAppliedEventSeqByTurnId = linkedMapOf()
         feeds.clear()
         elicitation.clear()
         planner.clear()
@@ -279,18 +282,31 @@ class ConversationStreamTracker(conversationId: String = "") {
         val turns = response.conversation?.turns ?: emptyList()
         reconcileTranscript(turns)
         reconcileExecutionGroups(turns)
+        maxHydratedEventSeqByTurnId = maxEventSequencesByTurnId(turns).toMutableMap()
         hydrateFeeds(response.feeds)
     }
 
     private fun shouldSkipHydratedPayload(event: SSEEvent, hydrationCursor: String?): Boolean {
         val turnId = resolveEventTurnId(event).trim()
         val eventSeq = event.eventSeq ?: 0
-        if (turnId.isNotEmpty() && eventSeq > 0 && eventSeq <= (maxEventSeqByTurnId[turnId] ?: 0)) {
-            return true
-        }
         val cursorInstant = parseEventInstant(hydrationCursor)
         val eventInstant = parseEventInstant(event.createdAt)
-        return cursorInstant != null && eventInstant != null && !eventInstant.isAfter(cursorInstant)
+        if (cursorInstant != null && eventInstant != null) {
+            if (!eventInstant.isAfter(cursorInstant)) {
+                return true
+            }
+            return turnId.isNotEmpty() &&
+                eventSeq > 0 &&
+                eventSeq <= (maxAppliedEventSeqByTurnId[turnId] ?: 0)
+        }
+        if (turnId.isEmpty() || eventSeq <= 0) {
+            return false
+        }
+        val maxSeq = maxOf(
+            maxHydratedEventSeqByTurnId[turnId] ?: 0,
+            maxAppliedEventSeqByTurnId[turnId] ?: 0
+        )
+        return eventSeq <= maxSeq
     }
 
     private fun recordAppliedSequence(event: SSEEvent) {
@@ -299,13 +315,24 @@ class ConversationStreamTracker(conversationId: String = "") {
         if (turnId.isEmpty() || eventSeq <= 0) {
             return
         }
-        maxEventSeqByTurnId[turnId] = maxOf(maxEventSeqByTurnId[turnId] ?: 0, eventSeq)
+        maxAppliedEventSeqByTurnId[turnId] = maxOf(maxAppliedEventSeqByTurnId[turnId] ?: 0, eventSeq)
     }
 
     private fun reconcileExecutionGroups(turns: List<TurnState>) {
-        val hydrated = executionGroupsFromTranscript(turns).toMutableMap()
+        val activeTurnId = messages.activeTurnId
+        val hasActiveLiveExecution = !activeTurnId.isNullOrBlank() && executionGroupsById.values.any {
+            firstString(it.turnId) == activeTurnId
+        }
+        val hydrated = executionGroupsFromTranscript(
+            turns = turns,
+            skippedTurnId = activeTurnId.takeIf { hasActiveLiveExecution }
+        ).toMutableMap()
         executionGroupsById.forEach { (assistantMessageId, group) ->
-            hydrated[assistantMessageId] = mergeExecutionGroup(hydrated[assistantMessageId], group)
+            if (hasActiveLiveExecution && firstString(group.turnId) == activeTurnId) {
+                hydrated[assistantMessageId] = group
+            } else {
+                hydrated[assistantMessageId] = mergeExecutionGroup(hydrated[assistantMessageId], group)
+            }
         }
         executionGroupsById = hydrated
     }
@@ -335,10 +362,35 @@ private fun parseEventInstant(raw: String?): java.time.Instant? {
         .getOrNull()
 }
 
-private fun executionGroupsFromTranscript(turns: List<TurnState>): LiveExecutionGroupsById {
+private fun maxEventSequencesByTurnId(turns: List<TurnState>): Map<String, Int> {
+    val result = linkedMapOf<String, Int>()
+    turns.forEach { turn ->
+        val turnId = firstString(turn.turnId)
+        if (turnId.isBlank()) {
+            return@forEach
+        }
+        val messageMax = turn.messages.orEmpty().maxOfOrNull { it.sequence ?: 0 } ?: 0
+        val pageMax = turn.execution?.pages.orEmpty().maxOfOrNull { it.sequence ?: 0 } ?: 0
+        val maxSeq = maxOf(messageMax, pageMax)
+        if (maxSeq > 0) {
+            result[turnId] = maxSeq
+        }
+    }
+    return result
+}
+
+private fun executionGroupsFromTranscript(
+    turns: List<TurnState>,
+    skippedTurnId: String? = null
+): LiveExecutionGroupsById {
     val groups = linkedMapOf<String, LiveExecutionGroup>()
     turns.forEach { turn ->
+        val turnId = firstString(turn.turnId)
         turn.execution?.pages.orEmpty().forEach pageLoop@{ page ->
+            val pageTurnId = firstString(page.turnId, turnId)
+            if (!skippedTurnId.isNullOrBlank() && pageTurnId == skippedTurnId) {
+                return@pageLoop
+            }
             val assistantMessageId = firstString(
                 page.assistantMessageId,
                 page.finalAssistantMessageId,
@@ -527,11 +579,20 @@ fun reconcileMessages(buffer: MessageBuffer, serverMessages: List<Message>): Lis
 }
 
 fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
-    buffer.activeTurnId = turns
+    val activeTurnId = turns
         .lastOrNull { !isTerminalTurnStatus(it.status) }
         ?.turnId
         ?.takeIf { it.isNotBlank() }
-    assistantMessagesFromTurns(turns).forEach { buffer.byId[it.id] = it }
+    buffer.activeTurnId = activeTurnId
+    val hasActiveBufferedAssistant = activeTurnId != null && buffer.byId.values.any {
+        firstString(it.turnId) == activeTurnId && firstString(it.role, "assistant").equals("assistant", true)
+    }
+    assistantMessagesFromTurns(turns).forEach {
+        if (hasActiveBufferedAssistant && firstString(it.turnId) == activeTurnId) {
+            return@forEach
+        }
+        buffer.byId[it.id] = it
+    }
 }
 
 fun applyExecutionStreamEventToGroups(

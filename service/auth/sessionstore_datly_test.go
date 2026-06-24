@@ -24,7 +24,7 @@ func TestSessionStoreDAO_Get_PrefersFriendlyUserIdentity(t *testing.T) {
 	if users == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
-	userID, err := users.UpsertWithProvider(ctx, "awitas", "Awitas", "awitas@viantinc.com", "oauth", "awitas_viant_devtest")
+	userID, err := users.UpsertWithProvider(ctx, "localuser", "Local User", "user@example.test", "oauth", "oauth_subject_test")
 	if err != nil {
 		t.Fatalf("UpsertWithProvider() error = %v", err)
 	}
@@ -68,14 +68,14 @@ func TestSessionStoreDAO_Get_PrefersFriendlyUserIdentity(t *testing.T) {
 	if got == nil {
 		t.Fatalf("store.Get() = nil")
 	}
-	if got.Username != "Awitas" {
-		t.Fatalf("got.Username = %q, want %q", got.Username, "Awitas")
+	if got.Username != "Local User" {
+		t.Fatalf("got.Username = %q, want %q", got.Username, "Local User")
 	}
-	if got.Email != "awitas@viantinc.com" {
-		t.Fatalf("got.Email = %q, want %q", got.Email, "awitas@viantinc.com")
+	if got.Email != "user@example.test" {
+		t.Fatalf("got.Email = %q, want %q", got.Email, "user@example.test")
 	}
-	if got.Subject != "awitas_viant_devtest" {
-		t.Fatalf("got.Subject = %q, want %q", got.Subject, "awitas_viant_devtest")
+	if got.Subject != "oauth_subject_test" {
+		t.Fatalf("got.Subject = %q, want %q", got.Subject, "oauth_subject_test")
 	}
 }
 
@@ -90,7 +90,7 @@ func TestSessionStoreDAO_ManagerPutIgnoresCanceledCallerContext(t *testing.T) {
 	}
 
 	users := NewDatlyUserService(dao)
-	userID, err := users.UpsertWithProvider(ctx, "awitas", "Awitas", "awitas@viantinc.com", "oauth", "awitas_viant_devtest")
+	userID, err := users.UpsertWithProvider(ctx, "localuser", "Local User", "user@example.test", "oauth", "oauth_subject_test")
 	if err != nil {
 		t.Fatalf("UpsertWithProvider() error = %v", err)
 	}
@@ -106,9 +106,9 @@ func TestSessionStoreDAO_ManagerPutIgnoresCanceledCallerContext(t *testing.T) {
 	manager.Put(canceledCtx, &Session{
 		ID:        "sess-canceled-datly-write",
 		UserID:    userID,
-		Username:  "awitas",
-		Email:     "awitas@viantinc.com",
-		Subject:   "awitas_viant_devtest",
+		Username:  "localuser",
+		Email:     "user@example.test",
+		Subject:   "oauth_subject_test",
 		Provider:  "oauth",
 		CreatedAt: time.Now().UTC(),
 		ExpiresAt: time.Now().UTC().Add(time.Hour),

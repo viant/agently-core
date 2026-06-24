@@ -176,27 +176,7 @@ func (c *HTTPClient) GetWorkspaceMetadata(ctx context.Context) (*WorkspaceMetada
 }
 
 func (c *HTTPClient) GetWorkspaceMetadataWithTarget(ctx context.Context, target *MetadataTargetContext) (*WorkspaceMetadata, error) {
-	query := url.Values{}
-	if target != nil {
-		if value := strings.TrimSpace(target.Platform); value != "" {
-			query.Set("platform", value)
-		}
-		if value := strings.TrimSpace(target.FormFactor); value != "" {
-			query.Set("formFactor", value)
-		}
-		if value := strings.TrimSpace(target.Surface); value != "" {
-			query.Set("surface", value)
-		}
-		for _, capability := range target.Capabilities {
-			if value := strings.TrimSpace(capability); value != "" {
-				query.Add("capabilities", value)
-			}
-		}
-	}
-	path := "/v1/workspace/metadata"
-	if encoded := query.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
+	path := appendMetadataTargetQuery("/v1/workspace/metadata", target)
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
@@ -236,6 +216,29 @@ func (c *HTTPClient) GetWorkspaceMetadataWithTarget(ctx context.Context, target 
 		out.DefaultEmbedder = out.Defaults.Embedder
 	}
 	return out, nil
+}
+
+func (c *HTTPClient) GetForgeWindowMetadata(ctx context.Context, windowKey string) (json.RawMessage, error) {
+	return c.GetForgeWindowMetadataWithTarget(ctx, windowKey, nil)
+}
+
+func (c *HTTPClient) GetForgeWindowMetadataWithTarget(ctx context.Context, windowKey string, target *MetadataTargetContext) (json.RawMessage, error) {
+	windowKey = strings.TrimSpace(windowKey)
+	if windowKey == "" {
+		return nil, errors.New("window key is required")
+	}
+	path := appendMetadataTargetQuery("/v1/api/agently/forge/window/"+url.PathEscape(windowKey), target)
+	var raw json.RawMessage
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &raw); err != nil {
+		return nil, err
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err == nil {
+		if data, ok := envelope["data"]; ok {
+			return data, nil
+		}
+	}
+	return raw, nil
 }
 
 func (c *HTTPClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
@@ -1224,6 +1227,30 @@ func (c *HTTPClient) resolveToken(ctx context.Context) (string, error) {
 		return c.tokenProvider(ctx)
 	}
 	return c.authToken, nil
+}
+
+func appendMetadataTargetQuery(path string, target *MetadataTargetContext) string {
+	query := url.Values{}
+	if target != nil {
+		if value := strings.TrimSpace(target.Platform); value != "" {
+			query.Set("platform", value)
+		}
+		if value := strings.TrimSpace(target.FormFactor); value != "" {
+			query.Set("formFactor", value)
+		}
+		if value := strings.TrimSpace(target.Surface); value != "" {
+			query.Set("surface", value)
+		}
+		for _, capability := range target.Capabilities {
+			if value := strings.TrimSpace(capability); value != "" {
+				query.Add("capabilities", value)
+			}
+		}
+	}
+	if encoded := query.Encode(); encoded != "" {
+		return path + "?" + encoded
+	}
+	return path
 }
 
 func (c *HTTPClient) applyAuth(ctx context.Context, req *http.Request) error {

@@ -65,7 +65,7 @@ func processImportNode(ctx context.Context, fs afs.Service, node *yaml.Node, bas
 }
 
 func replaceImportNode(ctx context.Context, fs afs.Service, node *yaml.Node, baseDir string, options ...storage.Option) error {
-	importPath, err := getImportPath(node.Value)
+	importPath, key, err := getImportPathAndKey(node.Value)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,14 @@ func replaceImportNode(ctx context.Context, fs afs.Service, node *yaml.Node, bas
 			return err
 		}
 	}
-	*node = *contentNode(imported)
+	replacement := contentNode(imported)
+	if key != "" {
+		replacement, err = nodeByKey(imported, key)
+		if err != nil {
+			return err
+		}
+	}
+	*node = *replacement
 	return nil
 }
 
@@ -92,21 +99,42 @@ func isImportDirective(value string) bool {
 }
 
 func getImportPath(value string) (string, error) {
+	path, _, err := getImportPathAndKey(value)
+	return path, err
+}
+
+func getImportPathAndKey(value string) (string, string, error) {
 	value = strings.TrimSpace(value)
 	if !isImportDirective(value) {
-		return "", fmt.Errorf("not an import directive: %s", value)
+		return "", "", fmt.Errorf("not an import directive: %s", value)
 	}
 	start := strings.Index(value, "(")
 	end := strings.LastIndex(value, ")")
 	if start == -1 || end == -1 || start >= end {
-		return "", fmt.Errorf("invalid import directive syntax: %s", value)
+		return "", "", fmt.Errorf("invalid import directive syntax: %s", value)
 	}
 	pathValue := strings.TrimSpace(value[start+1 : end])
 	pathValue = strings.Trim(pathValue, "\"'")
 	if strings.TrimSpace(pathValue) == "" {
-		return "", fmt.Errorf("empty import path: %s", value)
+		return "", "", fmt.Errorf("empty import path: %s", value)
 	}
-	return pathValue, nil
+	importPath, key := splitImportPathAndKey(pathValue)
+	return importPath, key, nil
+}
+
+func splitImportPathAndKey(value string) (string, string) {
+	lower := strings.ToLower(value)
+	for _, ext := range []string{".yaml", ".yml"} {
+		extensionEnd := strings.LastIndex(lower, ext)
+		if extensionEnd == -1 {
+			continue
+		}
+		selectorStart := extensionEnd + len(ext)
+		if selectorStart < len(value) && value[selectorStart] == ':' {
+			return value[:selectorStart], strings.TrimSpace(value[selectorStart+1:])
+		}
+	}
+	return value, ""
 }
 
 func resolveImportPath(baseDir, importPath string) string {
@@ -140,4 +168,32 @@ func contentNode(node *yaml.Node) *yaml.Node {
 		return node.Content[0]
 	}
 	return node
+}
+
+func nodeByKey(node *yaml.Node, key string) (*yaml.Node, error) {
+	current := contentNode(node)
+	for _, part := range strings.Split(key, ".") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("empty import selector in %q", key)
+		}
+		if current.Kind == yaml.DocumentNode {
+			current = contentNode(current)
+		}
+		if current.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("import selector %q cannot descend into %v", part, current.Kind)
+		}
+		found := false
+		for i := 0; i+1 < len(current.Content); i += 2 {
+			if current.Content[i].Value == part {
+				current = current.Content[i+1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("import selector %q not found", key)
+		}
+	}
+	return current, nil
 }

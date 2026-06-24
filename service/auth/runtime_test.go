@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -144,8 +145,8 @@ func TestRuntimeProtect_MixedLocalAndOAuthAcceptsLocalSessionCookie(t *testing.T
 	}
 	rt.sessions.Put(nil, &Session{
 		ID:       "sess-1",
-		Username: "awitas",
-		Subject:  "awitas",
+		Username: "localuser",
+		Subject:  "localuser",
 		Provider: "local",
 	})
 
@@ -184,8 +185,8 @@ func TestRuntimeProtect_KeepsSubjectForRequestOwnership(t *testing.T) {
 	}
 	rt.sessions.Put(nil, &Session{
 		ID:       "sess-1",
-		Username: "awitas",
-		Subject:  "awitas_viant_devtest",
+		Username: "localuser",
+		Subject:  "oauth_subject_test",
 		Provider: "oauth",
 		Tokens:   newTokenBundle("access-token", "id-token", ""),
 	})
@@ -203,8 +204,8 @@ func TestRuntimeProtect_KeepsSubjectForRequestOwnership(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if got := strings.TrimSpace(rec.Body.String()); got != "awitas_viant_devtest" {
-		t.Fatalf("effective user = %q, want %q", got, "awitas_viant_devtest")
+	if got := strings.TrimSpace(rec.Body.String()); got != "oauth_subject_test" {
+		t.Fatalf("effective user = %q, want %q", got, "oauth_subject_test")
 	}
 	if sess := rt.sessions.Get(context.Background(), "sess-1"); sess == nil || strings.TrimSpace(sess.UserID) != "user-canonical" {
 		t.Fatalf("session canonical user not updated, got %#v", sess)
@@ -280,8 +281,8 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 
 	rt.sessions.Put(nil, &Session{
 		ID:       "sess-expired",
-		Username: "awitas_viant_devtest",
-		Subject:  "awitas_viant_devtest",
+		Username: "oauth_subject_test",
+		Subject:  "oauth_subject_test",
 		Provider: "oauth",
 		Tokens:   tokens,
 	})
@@ -338,8 +339,8 @@ func TestRuntimeProtect_TransientRefreshFailurePersistsWithCanceledRequestContex
 
 	rt.sessions.Put(context.Background(), &Session{
 		ID:       "sess-expired-canceled",
-		Username: "awitas_viant_devtest",
-		Subject:  "awitas_viant_devtest",
+		Username: "oauth_subject_test",
+		Subject:  "oauth_subject_test",
 		Provider: "oauth",
 		Tokens:   tokens,
 	})
@@ -472,8 +473,8 @@ func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *
 
 	rt.sessions.Put(nil, &Session{
 		ID:                      "sess-expired-cooldown",
-		Username:                "awitas_viant_devtest",
-		Subject:                 "awitas_viant_devtest",
+		Username:                "oauth_subject_test",
+		Subject:                 "oauth_subject_test",
 		Provider:                "oauth",
 		Tokens:                  tokens,
 		TransientRefreshRetryAt: time.Now().Add(30 * time.Second),
@@ -506,22 +507,26 @@ func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *
 
 func TestRuntimeProtect_ExpiredSessionRefreshHonorsRequestContext(t *testing.T) {
 	var hits atomic.Int32
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		hits.Add(1)
 		select {
-		case <-r.Context().Done():
-			return
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
 		case <-time.After(300 * time.Millisecond):
-			http.Error(w, "slow token endpoint", http.StatusGatewayTimeout)
+			return &http.Response{
+				StatusCode: http.StatusGatewayTimeout,
+				Header:     http.Header{"Content-Type": []string{"text/plain"}},
+				Body:       io.NopCloser(strings.NewReader("slow token endpoint")),
+				Request:    req,
+			}, nil
 		}
-	}))
-	defer tokenSrv.Close()
+	})}
 
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "oauth.json")
 	payload := map[string]any{
-		"authURL":      tokenSrv.URL + "/auth",
-		"tokenURL":     tokenSrv.URL + "/token",
+		"authURL":      "https://token.example.test/auth",
+		"tokenURL":     "https://token.example.test/token",
 		"clientID":     "test-client",
 		"clientSecret": "test-secret",
 		"redirectURL":  "http://localhost/callback",
@@ -568,8 +573,8 @@ func TestRuntimeProtect_ExpiredSessionRefreshHonorsRequestContext(t *testing.T) 
 
 	rt.sessions.Put(nil, &Session{
 		ID:       "sess-refresh-timeout",
-		Username: "awitas",
-		Subject:  "awitas_viant_devtest",
+		Username: "localuser",
+		Subject:  "oauth_subject_test",
 		Provider: "oauth",
 		Tokens:   tokens,
 	})
@@ -580,6 +585,7 @@ func TestRuntimeProtect_ExpiredSessionRefreshHonorsRequestContext(t *testing.T) 
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 	req := httptest.NewRequest(http.MethodGet, "/v1/api/auth/me", nil).WithContext(ctx)
 	req.AddCookie(&http.Cookie{Name: "agently_session", Value: "sess-refresh-timeout"})
 	rec := httptest.NewRecorder()
@@ -602,14 +608,14 @@ func TestRuntimeRefreshCooldown_PersistsAcrossSessionObjects(t *testing.T) {
 
 	seed := &Session{
 		ID:       "sess-a",
-		Subject:  "awitas_viant_devtest",
+		Subject:  "oauth_subject_test",
 		Provider: "oauth",
 	}
 	rt.storeRefreshRetryAt(seed, until)
 
 	reloaded := &Session{
 		ID:       "sess-b",
-		Subject:  "awitas_viant_devtest",
+		Subject:  "oauth_subject_test",
 		Provider: "oauth",
 	}
 	got := rt.loadRefreshRetryAt(reloaded)
@@ -624,14 +630,14 @@ func TestRuntimeRefreshCooldown_PersistsAcrossSessionObjects(t *testing.T) {
 	}
 
 	rt.clearRefreshRetryAt(reloaded)
-	if got := rt.loadRefreshRetryAt(&Session{Subject: "awitas_viant_devtest", Provider: "oauth"}); !got.IsZero() {
+	if got := rt.loadRefreshRetryAt(&Session{Subject: "oauth_subject_test", Provider: "oauth"}); !got.IsZero() {
 		t.Fatalf("expected cleared retry timestamp, got %v", got)
 	}
 }
 
 func TestRuntimeShouldLogRefreshRetry_LogsOncePerCooldownWindow(t *testing.T) {
 	rt := &Runtime{}
-	sess := &Session{Subject: "awitas_viant_devtest", Provider: "oauth"}
+	sess := &Session{Subject: "oauth_subject_test", Provider: "oauth"}
 	until := time.Now().Add(30 * time.Second).UTC()
 
 	if !rt.shouldLogRefreshRetry(sess, until) {

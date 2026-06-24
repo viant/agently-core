@@ -709,7 +709,7 @@ Date rule:
   context when you emit a date.
 
 Clarification rule:
-- If the message already names a concrete entity scope such as an ad order, campaign, advertiser, audience, repo, package, file path, or other directly actionable object, do not ask for clarification just because timeframe, KPI family, or symptom subtype was omitted.
+- If the message already names a concrete entity scope such as an account, project, ticket, dataset, repo, package, file path, or other directly actionable object, do not ask for clarification just because timeframe, KPI family, or symptom subtype was omitted.
 - For concrete troubleshoot / diagnose / investigate / analyze asks on a named entity, prefer routing directly so the owning agent can establish the baseline from the available tools.
 - Ask for clarification only when a missing detail truly blocks selecting any reasonable next step.
 

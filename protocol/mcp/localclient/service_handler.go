@@ -191,6 +191,10 @@ func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest
 	if !ok {
 		return nil, mcpschema.NewUnknownTool(name)
 	}
+	planMode := strings.EqualFold(strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)), "plan")
+	if sig.Internal && !planMode {
+		return nil, mcpschema.NewUnknownTool(name)
+	}
 	exec, err := h.service.Method(sig.Name)
 	if err != nil || exec == nil {
 		return nil, jsonrpc.NewInternalError(fmt.Sprintf("method %s resolve: %v", sig.Name, err), nil)

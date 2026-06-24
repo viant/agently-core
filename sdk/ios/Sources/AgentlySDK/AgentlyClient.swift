@@ -85,23 +85,12 @@ public final class AgentlyClient: Sendable {
     }
 
     public func getWorkspaceMetadata(_ targetContext: MetadataTargetContext? = nil) async throws -> WorkspaceMetadata {
-        var query: [URLQueryItem] = []
-        if let platform = targetContext?.platform?.trimmingCharacters(in: .whitespacesAndNewlines), !platform.isEmpty {
-            query.append(URLQueryItem(name: "platform", value: platform))
-        }
-        if let formFactor = targetContext?.formFactor?.trimmingCharacters(in: .whitespacesAndNewlines), !formFactor.isEmpty {
-            query.append(URLQueryItem(name: "formFactor", value: formFactor))
-        }
-        if let surface = targetContext?.surface?.trimmingCharacters(in: .whitespacesAndNewlines), !surface.isEmpty {
-            query.append(URLQueryItem(name: "surface", value: surface))
-        }
-        for capability in targetContext?.capabilities ?? [] {
-            let trimmed = capability.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                query.append(URLQueryItem(name: "capabilities", value: trimmed))
-            }
-        }
-        return try await get("/v1/workspace/metadata", query: query, as: WorkspaceMetadata.self)
+        let data = try await rawDataRequest(
+            path: "/v1/workspace/metadata",
+            method: "GET",
+            query: metadataTargetQueryItems(from: targetContext)
+        )
+        return try decodeWorkspaceMetadata(data)
     }
 
     public func query(_ input: QueryInput) async throws -> QueryOutput {
@@ -462,6 +451,41 @@ public final class AgentlyClient: Sendable {
         let query = conversationID?.isEmpty == false ? [URLQueryItem(name: "conversationId", value: conversationID)] : []
         let data = try encoder.encode(args)
         return try await rawRequest(path: path, method: "POST", query: query, body: data, as: ToolExecuteEnvelope.self).result ?? ""
+    }
+
+    public func listUIEvents(_ input: ListUIEventsInput) async throws -> ListUIEventsOutput {
+        let conversationID = input.conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !conversationID.isEmpty else {
+            throw AgentlySDKError.invalidArgument("conversationId is required")
+        }
+        var args: [String: JSONValue] = [:]
+        if let clientID = input.clientId?.trimmingCharacters(in: .whitespacesAndNewlines), !clientID.isEmpty {
+            args["clientId"] = .string(clientID)
+        }
+        if let windowID = input.windowId?.trimmingCharacters(in: .whitespacesAndNewlines), !windowID.isEmpty {
+            args["windowId"] = .string(windowID)
+        }
+        if let windowKey = input.windowKey?.trimmingCharacters(in: .whitespacesAndNewlines), !windowKey.isEmpty {
+            args["windowKey"] = .string(windowKey)
+        }
+        let kinds = input.kinds
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !kinds.isEmpty {
+            args["kinds"] = .array(kinds.map { .string($0) })
+        }
+        if let sinceSeq = input.sinceSeq, sinceSeq > 0 {
+            args["sinceSeq"] = .number(Double(sinceSeq))
+        }
+        if let limit = input.limit, limit > 0 {
+            args["limit"] = .number(Double(limit))
+        }
+        let raw = try await executeTool(name: "ui/events:list", args: args, conversationID: conversationID)
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let data = raw.data(using: .utf8) else {
+            return ListUIEventsOutput(conversationId: conversationID)
+        }
+        return try decoder.decode(ListUIEventsOutput.self, from: data)
     }
 
     public func executeMCPUIToolCall(_ input: MCPUIToolCallInput) async throws -> MCPUIToolCallOutput {
@@ -867,6 +891,44 @@ private struct ScheduleListEnvelopeData: Codable {
 
 private struct SchedulePatchInput: Codable {
     let schedules: [Schedule]
+}
+
+private struct WorkspaceMetadataEnvelope: Codable {
+    let data: WorkspaceMetadata
+}
+
+private extension AgentlyClient {
+    func decodeWorkspaceMetadata(_ data: Data) throws -> WorkspaceMetadata {
+        let metadata: WorkspaceMetadata
+        if let decoded = try? decoder.decode(WorkspaceMetadata.self, from: data) {
+            metadata = decoded
+        } else {
+            metadata = try decoder.decode(WorkspaceMetadataEnvelope.self, from: data).data
+        }
+        return metadata.withDefaultFallbacks()
+    }
+}
+
+private extension WorkspaceMetadata {
+    func withDefaultFallbacks() -> WorkspaceMetadata {
+        WorkspaceMetadata(
+            workspaceRoot: workspaceRoot,
+            workspaceVersion: workspaceVersion,
+            metadataVersion: metadataVersion,
+            appName: appName,
+            appIconRef: appIconRef,
+            defaultAgent: defaultAgent ?? defaults?.agent,
+            defaultModel: defaultModel ?? defaults?.model,
+            defaultEmbedder: defaultEmbedder ?? defaults?.embedder,
+            agents: agents,
+            models: models,
+            agentInfos: agentInfos,
+            modelInfos: modelInfos,
+            defaults: defaults,
+            capabilities: capabilities,
+            version: version
+        )
+    }
 }
 
 private let uiBridgeSessionHeader = "Mcp-Session-Id"

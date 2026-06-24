@@ -101,7 +101,8 @@ data class PendingElicitation(
     val requestedSchema: JsonObject? = null,
     val callbackURL: String? = null,
     val url: String? = null,
-    val mode: String? = null
+    val mode: String? = null,
+    val status: String? = null
 )
 
 data class BufferedMessage(

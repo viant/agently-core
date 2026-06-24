@@ -134,6 +134,16 @@ func httpError(w http.ResponseWriter, code int, err error) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
+func httpErrorWithResult(w http.ResponseWriter, code int, err error, result string) {
+	payload := map[string]string{"error": err.Error()}
+	if strings.TrimSpace(result) != "" {
+		payload["result"] = result
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
 func WaitForReady(baseURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

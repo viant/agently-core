@@ -24,14 +24,21 @@ type Handler struct {
 	elicitation   *elicsvc.Service
 	conversation  string
 	lastRequestID int64
+	sampler       *Sampler
 }
 
 // New returns a client callback handler for MCP sessions.
-func New(elicitation *elicsvc.Service, conversations apiconv.Client) *Handler {
-	return &Handler{
+func New(elicitation *elicsvc.Service, conversations apiconv.Client, options ...Option) *Handler {
+	handler := &Handler{
 		conversations: conversations,
 		elicitation:   elicitation,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(handler)
+		}
+	}
+	return handler
 }
 
 func (h *Handler) SetConversationID(id string) {
@@ -53,17 +60,20 @@ func (h *Handler) LastRequestID() jsonrpc.RequestId {
 func (h *Handler) Init(_ context.Context, _ *mcpschema.ClientCapabilities) {}
 
 func (h *Handler) Implements(method string) bool {
-	return method == mcpschema.MethodElicitationCreate
+	switch method {
+	case mcpschema.MethodElicitationCreate:
+		return true
+	case mcpschema.MethodSamplingCreateMessage:
+		return h.canSample()
+	default:
+		return false
+	}
 }
 
 func (h *Handler) OnNotification(_ context.Context, _ *jsonrpc.Notification) {}
 
 func (h *Handler) ListRoots(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.ListRootsRequest]) (*mcpschema.ListRootsResult, *jsonrpc.Error) {
 	return &mcpschema.ListRootsResult{}, nil
-}
-
-func (h *Handler) CreateMessage(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschema.CreateMessageRequest]) (*mcpschema.CreateMessageResult, *jsonrpc.Error) {
-	return nil, jsonrpc.NewMethodNotFound("sampling/createMessage not implemented", nil)
 }
 
 func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcpschema.ElicitRequest]) (*mcpschema.ElicitResult, *jsonrpc.Error) {

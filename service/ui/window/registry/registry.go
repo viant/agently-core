@@ -135,7 +135,7 @@ func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey stri
 	if limit <= 0 {
 		limit = 10
 	}
-	items, err := r.ListByConversation(context.Background(), conversationID)
+	items, err := r.ListReadableByConversation(context.Background(), conversationID)
 	if err != nil {
 		return nil
 	}
@@ -161,6 +161,47 @@ func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey stri
 			out = append(out, event)
 		}
 	}
+	if len(out) == 0 && clientID != "" {
+		if windowID != "" {
+			for _, item := range items {
+				if strings.TrimSpace(item.ClientID) == clientID || item.Snapshot == nil {
+					continue
+				}
+				if !snapshotHasWindowID(item.Snapshot, conversationID, windowID) {
+					continue
+				}
+				for _, event := range r.state.listEvents(item.Namespace, item.ClientID) {
+					if sinceSeq > 0 && event.Seq <= sinceSeq {
+						continue
+					}
+					if conversationID != "" && strings.TrimSpace(event.ConversationID) != conversationID {
+						continue
+					}
+					if strings.TrimSpace(event.WindowID) != windowID {
+						continue
+					}
+					out = append(out, event)
+				}
+			}
+		}
+	}
+	if len(out) == 0 && clientID != "" {
+		for _, event := range r.state.listEvents("", clientID) {
+			if sinceSeq > 0 && event.Seq <= sinceSeq {
+				continue
+			}
+			if conversationID != "" && strings.TrimSpace(event.ConversationID) != conversationID {
+				continue
+			}
+			if windowID != "" && strings.TrimSpace(event.WindowID) != windowID {
+				continue
+			}
+			if windowID == "" && windowKey != "" && strings.TrimSpace(event.WindowKey) != windowKey {
+				continue
+			}
+			out = append(out, event)
+		}
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].Seq < out[j].Seq
 	})
@@ -168,6 +209,19 @@ func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey stri
 		out = append([]UIEvent(nil), out[len(out)-limit:]...)
 	}
 	return out
+}
+
+func snapshotHasWindowID(snap *Snapshot, conversationID, windowID string) bool {
+	filtered := filterSnapshotForConversation(snap, conversationID)
+	if filtered == nil {
+		return false
+	}
+	for i := range filtered.Windows {
+		if strings.TrimSpace(filtered.Windows[i].WindowID) == windowID {
+			return true
+		}
+	}
+	return false
 }
 
 func isFreshSnapshot(item ClientSnapshot, now time.Time) bool {
@@ -188,6 +242,11 @@ func isServiceableClient(item ClientSnapshot, now time.Time) bool {
 		return false
 	}
 	return now.Sub(item.LastPollAt) <= defaultPollFreshness
+}
+
+func isReadableClient(item ClientSnapshot, now time.Time) bool {
+	_ = now
+	return item.Snapshot != nil && !item.UpdatedAt.IsZero()
 }
 
 func isMainChatWindow(win WindowSnapshot) bool {
@@ -266,6 +325,14 @@ func filterSnapshotForConversation(snapshot *Snapshot, conversationID string) *S
 }
 
 func (r *Registry) ListByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
+	return r.listByConversation(ctx, conversationID, true)
+}
+
+func (r *Registry) ListReadableByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
+	return r.listByConversation(ctx, conversationID, false)
+}
+
+func (r *Registry) listByConversation(ctx context.Context, conversationID string, requireServiceable bool) ([]ClientSnapshot, error) {
 	_ = ctx
 	conversationID = strings.TrimSpace(conversationID)
 	items, err := r.snapshots()
@@ -276,7 +343,13 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 	if conversationID == "" {
 		result := make([]ClientSnapshot, 0, len(items))
 		for _, item := range items {
-			if isFreshSnapshot(item, now) && isServiceableClient(item, now) {
+			if requireServiceable {
+				if isFreshSnapshot(item, now) && isServiceableClient(item, now) {
+					result = append(result, item)
+				}
+				continue
+			}
+			if isReadableClient(item, now) {
 				result = append(result, item)
 			}
 		}
@@ -284,10 +357,14 @@ func (r *Registry) ListByConversation(ctx context.Context, conversationID string
 	}
 	result := make([]ClientSnapshot, 0, len(items))
 	for _, item := range items {
-		if !isFreshSnapshot(item, now) {
-			continue
-		}
-		if !isServiceableClient(item, now) {
+		if requireServiceable {
+			if !isFreshSnapshot(item, now) {
+				continue
+			}
+			if !isServiceableClient(item, now) {
+				continue
+			}
+		} else if !isReadableClient(item, now) {
 			continue
 		}
 		if snapshotBelongsToConversation(item.Snapshot, conversationID) {
@@ -329,15 +406,24 @@ func (r *Registry) FindClient(ctx context.Context, clientID string) (*ClientSnap
 }
 
 func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, windowID, windowKey string) (string, string, *Snapshot, *WindowSnapshot, error) {
+	return r.findWindow(ctx, conversationID, clientID, windowID, windowKey, true)
+}
+
+func (r *Registry) FindReadableWindow(ctx context.Context, conversationID, clientID, windowID, windowKey string) (string, string, *Snapshot, *WindowSnapshot, error) {
+	return r.findWindow(ctx, conversationID, clientID, windowID, windowKey, false)
+}
+
+func (r *Registry) findWindow(ctx context.Context, conversationID, clientID, windowID, windowKey string, requireServiceable bool) (string, string, *Snapshot, *WindowSnapshot, error) {
 	windowID = strings.TrimSpace(windowID)
 	windowKey = strings.TrimSpace(windowKey)
 	if windowID == "" && windowKey == "" {
 		return "", "", nil, nil, fmt.Errorf("windowId or windowKey is required")
 	}
-	items, err := r.ListByConversation(ctx, conversationID)
+	items, err := r.listByConversation(ctx, conversationID, requireServiceable)
 	if err != nil {
 		return "", "", nil, nil, err
 	}
+	allItems := items
 	preferredClientID := strings.TrimSpace(clientID)
 	if preferredClientID != "" {
 		filtered := make([]ClientSnapshot, 0, len(items))
@@ -348,6 +434,18 @@ func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, win
 		}
 		items = filtered
 	}
+	if clientID, namespace, snap, win, ok := findWindowInClientSnapshots(items, conversationID, windowID, windowKey); ok {
+		return clientID, namespace, snap, win, nil
+	}
+	if preferredClientID != "" && windowID != "" {
+		if clientID, namespace, snap, win, ok := findWindowInClientSnapshots(allItems, conversationID, windowID, ""); ok {
+			return clientID, namespace, snap, win, nil
+		}
+	}
+	return "", "", nil, nil, fmt.Errorf("window not found")
+}
+
+func findWindowInClientSnapshots(items []ClientSnapshot, conversationID, windowID, windowKey string) (string, string, *Snapshot, *WindowSnapshot, bool) {
 	for _, item := range items {
 		if item.Snapshot == nil {
 			continue
@@ -359,12 +457,12 @@ func (r *Registry) FindWindow(ctx context.Context, conversationID, clientID, win
 		for i := range filteredSnapshot.Windows {
 			win := &filteredSnapshot.Windows[i]
 			if windowID != "" && strings.TrimSpace(win.WindowID) == windowID {
-				return item.ClientID, item.Namespace, filteredSnapshot, win, nil
+				return item.ClientID, item.Namespace, filteredSnapshot, win, true
 			}
 			if windowID == "" && windowKey != "" && strings.TrimSpace(win.WindowKey) == windowKey {
-				return item.ClientID, item.Namespace, filteredSnapshot, win, nil
+				return item.ClientID, item.Namespace, filteredSnapshot, win, true
 			}
 		}
 	}
-	return "", "", nil, nil, fmt.Errorf("window not found")
+	return "", "", nil, nil, false
 }

@@ -63,7 +63,7 @@ final class AgentlySDKTests: XCTestCase {
         let json = """
         {
           "clientID": "",
-          "configURL": "idp_viant.enc|blowfish://default",
+          "configURL": "fixture-auth-config",
           "discoveryURL": "",
           "mode": "bff",
           "redirectSameTab": true,
@@ -799,14 +799,63 @@ final class AgentlySDKTests: XCTestCase {
 
         let metadata = try await client.getWorkspaceMetadata(
             MetadataTargetContext(
-                platform: "ios",
-                formFactor: "tablet",
-                surface: "app",
-                capabilities: ["markdown", "chart"]
+                platform: " ios ",
+                formFactor: " tablet ",
+                surface: " app ",
+                capabilities: [" markdown ", "", "chart"]
             )
         )
         XCTAssertEqual(metadata.appName, "Workspace")
         XCTAssertEqual(metadata.appIconRef, "builtin:viant")
+
+        await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testGetWorkspaceMetadataUnwrapsDataEnvelopeAndAppliesDefaultFallbacks() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        let expectation = expectation(description: "workspace metadata envelope request captured")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/v1/workspace/metadata")
+            expectation.fulfill()
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            let data = """
+            {
+              "data": {
+                "workspaceRoot": "/tmp/workspace",
+                "appName": "Workspace",
+                "appIconRef": "builtin:viant",
+                "agents": [],
+                "models": [],
+                "agentInfos": [],
+                "modelInfos": [],
+                "defaults": {
+                  "agent": "coder",
+                  "model": "gpt-5.4",
+                  "embedder": "openai_text"
+                }
+              }
+            }
+            """.data(using: .utf8)!
+            return (response, data)
+        }
+
+        let metadata = try await client.getWorkspaceMetadata()
+
+        XCTAssertEqual(metadata.workspaceRoot, "/tmp/workspace")
+        XCTAssertEqual(metadata.appName, "Workspace")
+        XCTAssertEqual(metadata.appIconRef, "builtin:viant")
+        XCTAssertEqual(metadata.defaultAgent, "coder")
+        XCTAssertEqual(metadata.defaultModel, "gpt-5.4")
+        XCTAssertEqual(metadata.defaultEmbedder, "openai_text")
 
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
@@ -832,7 +881,7 @@ final class AgentlySDKTests: XCTestCase {
             return (response, data)
         }
 
-        let metadata = try await client.getForgeWindowMetadata(windowKey: "report/review")
+        let metadata = try await client.getForgeWindowMetadata(windowKey: " report/review ")
         let root = try XCTUnwrap({
             if case .object(let value) = metadata { return value }
             return nil
@@ -856,6 +905,32 @@ final class AgentlySDKTests: XCTestCase {
         }())
         XCTAssertEqual(containerObject["id"], .string("reportRoot"))
         await fulfillment(of: [expectation], timeout: 2.0)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testGetForgeWindowMetadataRejectsBlankWindowKeyBeforeDispatch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var requestCount = 0
+        URLProtocolStub.requestHandler = { request in
+            requestCount += 1
+            let url = try XCTUnwrap(request.url)
+            let response = HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        do {
+            _ = try await client.getForgeWindowMetadata(windowKey: "   ")
+            XCTFail("expected blank window key to throw")
+        } catch AgentlySDKError.invalidArgument(let message) {
+            XCTAssertEqual(message, "window key is required")
+        }
+
+        XCTAssertEqual(requestCount, 0)
         URLProtocolStub.requestHandler = nil
     }
 
@@ -890,10 +965,10 @@ final class AgentlySDKTests: XCTestCase {
         _ = try await client.getForgeWindowMetadata(
             windowKey: "order",
             targetContext: MetadataTargetContext(
-                platform: "ios",
-                formFactor: "tablet",
-                surface: "app",
-                capabilities: ["markdown", "chart"]
+                platform: " ios ",
+                formFactor: " tablet ",
+                surface: " app ",
+                capabilities: [" markdown ", "", "chart"]
             )
         )
         await fulfillment(of: [expectation], timeout: 2.0)
@@ -1108,6 +1183,45 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(decoded.payload["action"], .string("approve"))
     }
 
+    func testApprovalCallbackResultDecodesCurrentEditedFieldsAndActionContract() throws {
+        let json = """
+        {
+          "editedFields": {
+            "names": ["prod"]
+          },
+          "action": "decline"
+        }
+        """
+
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let decoded = try JSONDecoder.agently().decode(ApprovalCallbackResult.self, from: data)
+
+        XCTAssertEqual(decoded.action, "decline")
+        XCTAssertEqual(decoded.editedFields["names"], .array([.string("prod")]))
+        XCTAssertEqual(decoded.payload, [:])
+    }
+
+    func testApprovalCallbackPayloadDecodesActionContract() throws {
+        let json = """
+        {
+          "action": "approve",
+          "editedFields": {
+            "names": ["prod"]
+          },
+          "originalArgs": {
+            "names": ["dev", "prod"]
+          }
+        }
+        """
+
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let decoded = try JSONDecoder.agently().decode(ApprovalCallbackPayload.self, from: data)
+
+        XCTAssertEqual(decoded.action, "approve")
+        XCTAssertEqual(decoded.editedFields["names"], .array([.string("prod")]))
+        XCTAssertEqual(decoded.originalArgs["names"], .array([.string("dev"), .string("prod")]))
+    }
+
     func testSessionDebugOptionsAppendDebugHeaders() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -1157,6 +1271,18 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Hello world")
         XCTAssertEqual(snapshot.bufferedMessages.first?.status, "completed")
         XCTAssertEqual(snapshot.bufferedMessages.first?.interim, 0)
+    }
+
+    func testConversationStreamTrackerPreservesPendingElicitationStatus() async throws {
+        let tracker = ConversationStreamTracker()
+
+        let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"elicitation_requested","conversationId":"conv-1","turnId":"turn-1","elicitationId":"elicit-1","content":"Approve this?","status":"resolved","elicitationData":{"requestedSchema":{"type":"object"}}}"#))
+
+        XCTAssertEqual(snapshot.pendingElicitation?.elicitationID, "elicit-1")
+        XCTAssertEqual(snapshot.pendingElicitation?.conversationID, "conv-1")
+        XCTAssertEqual(snapshot.pendingElicitation?.turnID, "turn-1")
+        XCTAssertEqual(snapshot.pendingElicitation?.message, "Approve this?")
+        XCTAssertEqual(snapshot.pendingElicitation?.status, "resolved")
     }
 
     func testConversationStreamTrackerAppliesControlMessagePatchAndExecutionGroup() async throws {
@@ -1699,6 +1825,55 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testListUIEventsExecutesScopedToolAndDecodesStructuredDetails() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let items = components.queryItems ?? []
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "application/json"
+            ])!
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(components.percentEncodedPath, "/v1/tools/ui%2Fevents%3Alist/execute")
+            XCTAssertEqual(items.first(where: { $0.name == "conversationId" })?.value, "conv-ui-1")
+            let body = try XCTUnwrap(self.requestBodyString(request))
+            XCTAssertTrue(body.contains(#""clientId":"mobile-client-1""#))
+            XCTAssertTrue(body.contains(#""kinds":["error"]"#))
+            XCTAssertTrue(body.contains(#""limit":20"#))
+            let result = #"{"conversationId":"conv-ui-1","clientId":"mobile-client-1","events":[{"seq":7,"kind":"error","actor":"agent","detail":{"payload":{"invalidWorkspaceId":"legacyAlias","availableWorkspaceIds":["orders"]}}}]}"#
+            let envelope = try JSONEncoder.agently().encode(["result": result])
+            return (response, envelope)
+        }
+
+        let output = try await client.listUIEvents(
+            ListUIEventsInput(
+                conversationId: "conv-ui-1",
+                clientId: "mobile-client-1",
+                kinds: ["error"],
+                limit: 20
+            )
+        )
+
+        XCTAssertEqual(output.conversationId, "conv-ui-1")
+        XCTAssertEqual(output.clientId, "mobile-client-1")
+        let event = try XCTUnwrap(output.events.first)
+        XCTAssertEqual(event.seq, 7)
+        XCTAssertEqual(event.kind, "error")
+        guard case .object(let payload) = try XCTUnwrap(event.detail?["payload"]) else {
+            XCTFail("expected object payload")
+            return
+        }
+        XCTAssertEqual(payload["invalidWorkspaceId"], .string("legacyAlias"))
+        XCTAssertEqual(payload["availableWorkspaceIds"], .array([.string("orders")]))
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testTemplatesSkillsAndMCPUIToolCallRoutesMatchSharedClientContract() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -1919,6 +2094,12 @@ final class AgentlySDKTests: XCTestCase {
             let body: String
             switch (request.httpMethod ?? "", components.percentEncodedPath) {
             case ("POST", "/v1/api/datasources/sources%2Fmain/fetch"):
+                let bodyString = try XCTUnwrap(self.requestBodyString(request))
+                let bodyData = try XCTUnwrap(bodyString.data(using: .utf8))
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+                XCTAssertEqual(payload["conversationId"] as? String, "conv-1")
+                let inputs = payload["inputs"] as? [String: Any]
+                XCTAssertEqual(inputs?["query"] as? String, "find")
                 body = #"{"rows":[]}"#
             case ("DELETE", "/v1/api/datasources/sources%2Fmain/cache"):
                 XCTAssertEqual(components.percentEncodedQuery, "inputsHash=hash%2Bone%2Ftwo")
@@ -1933,15 +2114,61 @@ final class AgentlySDKTests: XCTestCase {
             return (response, body.data(using: .utf8)!)
         }
 
-        _ = try await client.fetchDatasource(FetchDatasourceInput(id: "sources/main"))
-        try await client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id: "sources/main", inputsHash: "hash+one/two"))
-        _ = try await client.listLookupRegistry(ListLookupRegistryInput(context: "dialog:main/form+search"))
+        _ = try await client.fetchDatasource(
+            FetchDatasourceInput(
+                id: " sources/main ",
+                inputs: ["query": .string("find")],
+                conversationId: " conv-1 "
+            )
+        )
+        try await client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id: " sources/main ", inputsHash: " hash+one/two "))
+        _ = try await client.listLookupRegistry(ListLookupRegistryInput(context: " dialog:main/form+search "))
 
         XCTAssertEqual(seen, [
             "POST /v1/api/datasources/sources%2Fmain/fetch?",
             "DELETE /v1/api/datasources/sources%2Fmain/cache?inputsHash=hash%2Bone%2Ftwo",
             "GET /v1/api/lookups/registry?context=dialog%3Amain%2Fform%2Bsearch"
         ])
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testDatasourceAndLookupRoutesRejectBlankIdentifiersBeforeDispatch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        var requestCount = 0
+        URLProtocolStub.requestHandler = { request in
+            requestCount += 1
+            let url = try XCTUnwrap(request.url)
+            let response = HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        do {
+            _ = try await client.fetchDatasource(FetchDatasourceInput(id: "   "))
+            XCTFail("expected blank datasource id to throw")
+        } catch AgentlySDKError.invalidArgument(let message) {
+            XCTAssertEqual(message, "datasource id is required")
+        }
+
+        do {
+            try await client.invalidateDatasourceCache(InvalidateDatasourceCacheInput(id: "   "))
+            XCTFail("expected blank datasource id to throw")
+        } catch AgentlySDKError.invalidArgument(let message) {
+            XCTAssertEqual(message, "datasource id is required")
+        }
+
+        do {
+            _ = try await client.listLookupRegistry(ListLookupRegistryInput(context: "   "))
+            XCTFail("expected blank lookup context to throw")
+        } catch AgentlySDKError.invalidArgument(let message) {
+            XCTAssertEqual(message, "lookup context is required")
+        }
+
+        XCTAssertEqual(requestCount, 0)
         URLProtocolStub.requestHandler = nil
     }
 
@@ -2027,6 +2254,163 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshots.first?.bufferedMessages.first?.content, "visible live content")
     }
 
+    func testConversationStreamTrackerHydrateDoesNotOverwriteActiveTurnMessageOwnedBySSE() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-live"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"assistant","conversationId":"conv-1","turnId":"turn-live","messageId":"assistant-live","assistantMessageId":"assistant-live","content":"SSE active response","patch":{"role":"assistant"}}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"model_started","conversationId":"conv-1","turnId":"turn-live","assistantMessageId":"assistant-live","status":"running"}"#))
+
+        await tracker.hydrate(
+            try JSONDecoder.agently().decode(
+                ConversationStateResponse.self,
+                from: XCTUnwrap("""
+                {
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-history",
+                        "status": "completed",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-history",
+                            "content": "Historical response"
+                          }
+                        }
+                      },
+                      {
+                        "turnId": "turn-live",
+                        "status": "running",
+                        "assistant": {
+                          "final": {
+                            "messageId": "assistant-live",
+                            "content": "stale transcript response"
+                          }
+                        },
+                        "execution": {
+                          "pages": [
+                            {
+                              "pageId": "stale-page",
+                              "assistantMessageId": "assistant-live",
+                              "turnId": "turn-live",
+                              "status": "completed",
+                              "content": "stale transcript execution"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.data(using: .utf8))
+            )
+        )
+
+        let snapshot = await tracker.currentSnapshot()
+        XCTAssertEqual(snapshot.activeTurnID, "turn-live")
+        XCTAssertEqual(snapshot.bufferedMessages.first(where: { $0.id == "assistant-live" })?.content, "SSE active response")
+        XCTAssertEqual(snapshot.bufferedMessages.first(where: { $0.id == "assistant-history" })?.content, "Historical response")
+        XCTAssertEqual(snapshot.liveExecutionGroupsByID["assistant-live"]?.status, "running")
+        XCTAssertNil(snapshot.liveExecutionGroupsByID["assistant-live"]?.content)
+    }
+
+    func testConversationStreamTrackerPlannerEventsUpdateTurnPlannerState() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-1"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"planner.selected","conversationId":"conv-1","turnId":"turn-1","plannerTrigger":"exploratory_strategy","plannerStaticProfile":"repo_analysis"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"planner.output","conversationId":"conv-1","turnId":"turn-1","plannerStrategyFamily":"troubleshoot","plannerAttempt":1,"plannerOutputPayloadId":"planner-output:conv-1:turn-1"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"planner.validated","conversationId":"conv-1","turnId":"turn-1","plannerAttempt":1,"plannerValidated":true}"#))
+
+        let planner = await tracker.currentSnapshot().plannerByTurnID["turn-1"]
+        XCTAssertEqual(planner?.status, "validated")
+        XCTAssertEqual(planner?.trigger, "exploratory_strategy")
+        XCTAssertEqual(planner?.staticProfile, "repo_analysis")
+        XCTAssertEqual(planner?.strategyFamily, "troubleshoot")
+        XCTAssertEqual(planner?.attempt, 1)
+        XCTAssertEqual(planner?.outputPayloadID, "planner-output:conv-1:turn-1")
+        XCTAssertEqual(planner?.validated, true)
+    }
+
+    func testConversationStreamTrackerHydratesPlannerStateForPastTurns() async throws {
+        let tracker = ConversationStreamTracker()
+
+        await tracker.hydrate(
+            try JSONDecoder.agently().decode(
+                ConversationStateResponse.self,
+                from: XCTUnwrap("""
+                {
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-past",
+                        "status": "completed",
+                        "planner": {
+                          "status": "failed",
+                          "trigger": "low_confidence",
+                          "strategyFamily": "troubleshoot",
+                          "attempt": 2,
+                          "secondPolicy": "clarify",
+                          "outputPayloadId": "planner-output:conv-1:turn-past",
+                          "validated": false
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.data(using: .utf8))
+            )
+        )
+
+        let planner = await tracker.currentSnapshot().plannerByTurnID["turn-past"]
+        XCTAssertEqual(planner?.status, "failed")
+        XCTAssertEqual(planner?.trigger, "low_confidence")
+        XCTAssertEqual(planner?.strategyFamily, "troubleshoot")
+        XCTAssertEqual(planner?.attempt, 2)
+        XCTAssertEqual(planner?.secondPolicy, "clarify")
+        XCTAssertEqual(planner?.outputPayloadID, "planner-output:conv-1:turn-past")
+        XCTAssertEqual(planner?.validated, false)
+    }
+
+    func testConversationStreamTrackerTranscriptDoesNotOverwriteActivePlannerStateOwnedBySSE() async throws {
+        let tracker = ConversationStreamTracker()
+
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"turn_started","conversationId":"conv-1","turnId":"turn-live"}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"planner.failed","conversationId":"conv-1","turnId":"turn-live","plannerTrigger":"exploratory_strategy","plannerAttempt":2,"plannerSecondPolicy":"block"}"#))
+
+        await tracker.hydrate(
+            try JSONDecoder.agently().decode(
+                ConversationStateResponse.self,
+                from: XCTUnwrap("""
+                {
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": [
+                      {
+                        "turnId": "turn-live",
+                        "status": "running",
+                        "planner": {
+                          "status": "selected",
+                          "trigger": "low_confidence",
+                          "attempt": 1
+                        }
+                      }
+                    ]
+                  }
+                }
+                """.data(using: .utf8))
+            )
+        )
+
+        let planner = await tracker.currentSnapshot().plannerByTurnID["turn-live"]
+        XCTAssertEqual(planner?.status, "failed")
+        XCTAssertEqual(planner?.trigger, "exploratory_strategy")
+        XCTAssertEqual(planner?.attempt, 2)
+        XCTAssertEqual(planner?.secondPolicy, "block")
+    }
+
     func testTrackConversationStartsStreamBeforeHydrationAndSkipsHydratedEventSequences() async throws {
         let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))])
         let streamConstructed = DispatchSemaphore(value: 0)
@@ -2091,6 +2475,116 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshots.count, 2)
         XCTAssertEqual(snapshots.last?.activeTurnID, "turn-running")
         XCTAssertEqual(snapshots.last?.bufferedMessages.first?.content, "visible live content")
+    }
+
+    func testTrackConversationSkipsPreCursorEventAndAppliesLaterLiveEvent() async throws {
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))])
+        let initialJSON = """
+        {
+          "eventCursor": "2026-06-05T10:00:00Z",
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "status": "running",
+                "assistant": {
+                  "final": {
+                    "messageId": "assistant-1",
+                    "content": "Hello"
+                  }
+                }
+              }
+            ]
+          }
+        }
+        """
+        let initial = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(initialJSON.data(using: .utf8))
+        )
+        let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+            continuation.yield(SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":1,"content":" stale","createdAt":"2026-06-05T10:00:00Z"}"#))
+            continuation.yield(SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":2,"content":" live","createdAt":"2026-06-05T10:00:01Z"}"#))
+            continuation.finish()
+        }
+
+        let stream = client.trackConversation(
+            conversationID: "conv-1",
+            initialStateLoader: { id in
+                XCTAssertEqual(id, "conv-1")
+                return initial
+            },
+            eventStream: { id in
+                XCTAssertEqual(id, "conv-1")
+                return events
+            }
+        )
+
+        var snapshots: [ConversationStreamSnapshot] = []
+        for try await snapshot in stream {
+            snapshots.append(snapshot)
+        }
+
+        XCTAssertEqual(snapshots.count, 3)
+        XCTAssertEqual(snapshots[0].bufferedMessages.first(where: { $0.id == "assistant-1" })?.content, "Hello")
+        XCTAssertEqual(snapshots[1].bufferedMessages.first(where: { $0.id == "assistant-1" })?.content, "Hello")
+        XCTAssertEqual(snapshots[2].bufferedMessages.first(where: { $0.id == "assistant-1" })?.content, "Hello live")
+    }
+
+    func testConversationStreamTrackerHydrateUsesCursorNotTranscriptMessageSequenceForLiveDelta() async throws {
+        let tracker = ConversationStreamTracker()
+        let cursor = "2026-06-05T10:00:00Z"
+        let initialJSON = """
+        {
+          "eventCursor": "2026-06-05T10:00:00Z",
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "status": "running",
+                "messages": [
+                  {
+                    "messageId": "assistant-1",
+                    "role": "assistant",
+                    "content": "Hello",
+                    "sequence": 100
+                  }
+                ],
+                "assistant": {
+                  "final": {
+                    "messageId": "assistant-1",
+                    "content": "Hello"
+                  }
+                }
+              }
+            ]
+          }
+        }
+        """
+        let initial = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(initialJSON.data(using: .utf8))
+        )
+
+        await tracker.hydrate(initial)
+        _ = await tracker.apply(
+            SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":7,"content":" duplicate","createdAt":"2026-06-05T10:00:00Z"}"#),
+            hydrationCursor: cursor
+        )
+        _ = await tracker.apply(
+            SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","content":" stale","createdAt":"2026-06-05T10:00:00Z"}"#),
+            hydrationCursor: cursor
+        )
+        _ = await tracker.apply(
+            SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":1,"content":" live","createdAt":"2026-06-05T10:00:01Z"}"#),
+            hydrationCursor: cursor
+        )
+
+        let snapshot = await tracker.currentSnapshot()
+        XCTAssertEqual(snapshot.activeTurnID, "turn-1")
+        XCTAssertEqual(snapshot.bufferedMessages.first(where: { $0.id == "assistant-1" })?.content, "Hello live")
     }
 
     func testConversationStreamTrackerHydratesExecutionGroupsFromTranscriptToolPayloads() async throws {

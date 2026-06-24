@@ -259,6 +259,36 @@ data class HostedWorkspaceRestoreState(
 )
 
 @Serializable
+data class UIEvent(
+    val seq: Long,
+    val at: String? = null,
+    val conversationId: String? = null,
+    val clientId: String? = null,
+    val windowId: String? = null,
+    val windowKey: String? = null,
+    val kind: String? = null,
+    val actor: String? = null,
+    val detail: JsonObject? = null
+)
+
+data class ListUIEventsInput(
+    val conversationId: String,
+    val clientId: String? = null,
+    val windowId: String? = null,
+    val windowKey: String? = null,
+    val kinds: List<String> = emptyList(),
+    val sinceSeq: Long? = null,
+    val limit: Int? = null
+)
+
+@Serializable
+data class ListUIEventsOutput(
+    val conversationId: String? = null,
+    val clientId: String? = null,
+    val events: List<UIEvent> = emptyList()
+)
+
+@Serializable
 class ListTemplatesInput
 
 @Serializable
@@ -917,6 +947,8 @@ data class ApprovalCallbackPayload(
 data class ApprovalCallbackResult(
     val allow: Boolean? = null,
     val message: String? = null,
+    val editedFields: JsonElement? = null,
+    val action: String? = null,
     val payload: Map<String, JsonElement> = emptyMap()
 )
 

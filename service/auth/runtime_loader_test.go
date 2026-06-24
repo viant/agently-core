@@ -3,17 +3,19 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/oauth2"
 )
 
 func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("WORKSPACE_OAUTH_CONFIG_URL", "idp_override.enc|blowfish://default")
+	t.Setenv("WORKSPACE_OAUTH_CONFIG_URL", "oauth_override.ref")
 
 	config := `auth:
   enabled: true
@@ -22,7 +24,7 @@ func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
   oauth:
     mode: bff
     client:
-      configURL: ${WORKSPACE_OAUTH_CONFIG_URL:-idp_viant.enc|blowfish://default}
+      configURL: ${WORKSPACE_OAUTH_CONFIG_URL:-oauth_default.ref}
 `
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(config), 0o644); err != nil {
 		t.Fatalf("failed to write config.yaml: %v", err)
@@ -35,7 +37,7 @@ func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 	if cfg == nil || cfg.OAuth == nil || cfg.OAuth.Client == nil {
 		t.Fatalf("expected oauth client config to be loaded")
 	}
-	if got, want := cfg.OAuth.Client.ConfigURL, "idp_override.enc|blowfish://default"; got != want {
+	if got, want := cfg.OAuth.Client.ConfigURL, "oauth_override.ref"; got != want {
 		t.Fatalf("ConfigURL = %q, want %q", got, want)
 	}
 }
@@ -50,7 +52,7 @@ func TestLoadConfig_UsesOAuthConfigURLDefaultWhenEnvUnset(t *testing.T) {
   oauth:
     mode: bff
     client:
-      configURL: ${WORKSPACE_OAUTH_CONFIG_URL:-idp_viant.enc|blowfish://default}
+      configURL: ${WORKSPACE_OAUTH_CONFIG_URL:-oauth_default.ref}
 `
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(config), 0o644); err != nil {
 		t.Fatalf("failed to write config.yaml: %v", err)
@@ -63,7 +65,7 @@ func TestLoadConfig_UsesOAuthConfigURLDefaultWhenEnvUnset(t *testing.T) {
 	if cfg == nil || cfg.OAuth == nil || cfg.OAuth.Client == nil {
 		t.Fatalf("expected oauth client config to be loaded")
 	}
-	if got, want := cfg.OAuth.Client.ConfigURL, "idp_viant.enc|blowfish://default"; got != want {
+	if got, want := cfg.OAuth.Client.ConfigURL, "oauth_default.ref"; got != want {
 		t.Fatalf("ConfigURL = %q, want %q", got, want)
 	}
 }
@@ -90,8 +92,11 @@ func TestOAuthVerifierConfig_UsesExplicitJWKSURL(t *testing.T) {
 }
 
 func TestOAuthVerifierConfig_UsesDiscoveryURL(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.String(); got != "https://issuer.example.test/.well-known/openid-configuration" {
+			t.Fatalf("discovery URL = %q, want configured endpoint", got)
+		}
+		body, err := json.Marshal(map[string]any{
 			"issuer":                                "https://issuer.example.test",
 			"authorization_endpoint":                "https://issuer.example.test/authorize",
 			"token_endpoint":                        "https://issuer.example.test/token",
@@ -100,18 +105,27 @@ func TestOAuthVerifierConfig_UsesDiscoveryURL(t *testing.T) {
 			"subject_types_supported":               []string{"public"},
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 		})
-	}))
-	defer srv.Close()
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+			Request:    req,
+		}, nil
+	})}
 
 	cfg := &Config{
 		OAuth: &OAuth{
 			Client: &OAuthClient{
-				DiscoveryURL: srv.URL,
+				DiscoveryURL: "https://issuer.example.test/.well-known/openid-configuration",
 			},
 		},
 	}
 
-	verifyCfg, err := oauthVerifierConfig(context.Background(), cfg)
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
+	verifyCfg, err := oauthVerifierConfig(ctx, cfg)
 	if err != nil {
 		t.Fatalf("oauthVerifierConfig() error = %v", err)
 	}

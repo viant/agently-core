@@ -194,6 +194,38 @@ class ConversationStreamTrackerTest {
     }
 
     @Test
+    fun `elicitation request preserves status in pending state`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "elicitation_requested",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                elicitationId = "elicit-1",
+                content = "Approve this?",
+                status = "resolved",
+                elicitationData = buildJsonObject {
+                    put(
+                        "requestedSchema",
+                        buildJsonObject {
+                            put("type", "object")
+                        }
+                    )
+                }
+            )
+        )
+
+        val pending = tracker.snapshot().pendingElicitation
+        assertNotNull(pending)
+        assertEquals("elicit-1", pending.elicitationId)
+        assertEquals("conv-1", pending.conversationId)
+        assertEquals("turn-1", pending.turnId)
+        assertEquals("Approve this?", pending.message)
+        assertEquals("resolved", pending.status)
+    }
+
+    @Test
     fun `tool completion preserves non object request and response payloads`() {
         val tracker = ConversationStreamTracker("conv-1")
 
@@ -419,6 +451,7 @@ class ConversationStreamTrackerTest {
             ),
             hydrationCursor = cursor
         )
+        assertEquals("Hello", tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }.content)
         tracker.applyEvent(
             SSEEvent(
                 type = "text_delta",
@@ -431,6 +464,7 @@ class ConversationStreamTrackerTest {
             ),
             hydrationCursor = cursor
         )
+        assertEquals("Hello", tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }.content)
         tracker.applyEvent(
             SSEEvent(
                 type = "text_delta",
@@ -447,6 +481,149 @@ class ConversationStreamTrackerTest {
 
         val assistant = tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }
         assertEquals("Hello live", assistant.content)
+    }
+
+    @Test
+    fun `hydrate falls back to transcript message sequence when cursor is unavailable`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-1",
+                            status = "running",
+                            messages = listOf(
+                                TurnMessageState(
+                                    messageId = "assistant-1",
+                                    role = "assistant",
+                                    content = "Hello",
+                                    sequence = 7
+                                )
+                            ),
+                            assistant = AssistantState(
+                                final = AssistantMessageState(
+                                    messageId = "assistant-1",
+                                    content = "Hello"
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
+                eventSeq = 7,
+                content = " duplicate"
+            )
+        )
+        assertEquals("Hello", tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }.content)
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
+                eventSeq = 8,
+                content = " live"
+            )
+        )
+
+        assertEquals("Hello live", tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }.content)
+    }
+
+    @Test
+    fun `transcript hydrate does not overwrite active turn message owned by SSE`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "turn_started",
+                conversationId = "conv-1",
+                turnId = "turn-live"
+            )
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "assistant",
+                conversationId = "conv-1",
+                turnId = "turn-live",
+                messageId = "assistant-live",
+                assistantMessageId = "assistant-live",
+                content = "SSE active response",
+                patch = buildJsonObject {
+                    put("role", "assistant")
+                }
+            )
+        )
+        tracker.applyEvent(
+            SSEEvent(
+                type = "model_started",
+                conversationId = "conv-1",
+                turnId = "turn-live",
+                assistantMessageId = "assistant-live",
+                status = "running"
+            )
+        )
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-history",
+                            status = "completed",
+                            assistant = AssistantState(
+                                final = AssistantMessageState(
+                                    messageId = "assistant-history",
+                                    content = "Historical response"
+                                )
+                            )
+                        ),
+                        TurnState(
+                            turnId = "turn-live",
+                            status = "running",
+                            execution = ExecutionState(
+                                pages = listOf(
+                                    ExecutionPageState(
+                                        pageId = "stale-page",
+                                        assistantMessageId = "assistant-live",
+                                        turnId = "turn-live",
+                                        status = "completed",
+                                        content = "stale transcript execution"
+                                    )
+                                )
+                            ),
+                            assistant = AssistantState(
+                                final = AssistantMessageState(
+                                    messageId = "assistant-live",
+                                    content = "stale transcript response"
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val messages = tracker.snapshot().bufferedMessages
+        assertEquals("turn-live", tracker.snapshot().activeTurnId)
+        assertEquals("SSE active response", messages.single { it.id == "assistant-live" }.content)
+        assertEquals("Historical response", messages.single { it.id == "assistant-history" }.content)
+        assertEquals("running", tracker.snapshot().liveExecutionGroupsById["assistant-live"]?.status)
+        assertEquals(null, tracker.snapshot().liveExecutionGroupsById["assistant-live"]?.content)
     }
 
     @Test

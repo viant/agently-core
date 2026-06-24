@@ -306,6 +306,19 @@ export function reconcileMessages(
     return Array.from(merged.values()).sort(compareTemporalEntries);
 }
 
+function hasBufferedTurn(buf: MessageBuffer, turnId: string): boolean {
+    if (!turnId) return false;
+    for (const entry of buf.byId.values()) {
+        if (String(entry?.turnId || '').trim() === turnId) return true;
+    }
+    return false;
+}
+
+function isNonTerminalTurnStatus(status: unknown): boolean {
+    const normalized = String(status || '').trim().toLowerCase();
+    return ['running', 'waiting_for_user', 'in_progress', 'streaming', 'thinking', 'processing'].includes(normalized);
+}
+
 /**
  * Updates the buffer from a full transcript response.
  * Used to sync buffer IDs with actual server message IDs after polling.
@@ -317,6 +330,13 @@ export function reconcileFromTranscript(
     for (const turn of turns as any[]) {
         const conversationId = String(turn?.conversationId || '').trim();
         const turnId = String(turn?.turnId || turn?.id || '').trim();
+        const preserveLiveActiveTurn = turnId !== '' &&
+            turnId === String(buf.activeTurnId || '').trim() &&
+            isNonTerminalTurnStatus(turn?.status) &&
+            hasBufferedTurn(buf, turnId);
+        if (preserveLiveActiveTurn) {
+            continue;
+        }
         const canonicalUser = turn?.user;
         if (canonicalUser?.messageId) {
             buf.byId.set(String(canonicalUser.messageId).trim(), {

@@ -635,7 +635,7 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 func TestBuildCanonicalState_ExtractsStandaloneAssistantFinal(t *testing.T) {
 	now := time.Date(2026, 6, 18, 7, 57, 0, 0, time.UTC)
 	user := "Show mobile dashboard backward compatibility proof"
-	final := "Mobile dashboard verification\n\n```forge-data id=\"summary_metrics\"\n[{\"label\":\"Line 7288336\",\"value\":42}]\n```\n\n```forge-ui\n{\"blocks\":[{\"kind\":\"dashboard.summary\"},{\"kind\":\"dashboard.table\"}]}\n```"
+	final := "Mobile dashboard verification\n\n```forge-data id=\"summary_metrics\"\n[{\"label\":\"Line A\",\"value\":42}]\n```\n\n```forge-ui\n{\"blocks\":[{\"kind\":\"dashboard.summary\"},{\"kind\":\"dashboard.table\"}]}\n```"
 
 	turn := &agconv.TranscriptView{
 		Id:        "turn-standalone-final",

@@ -140,3 +140,74 @@ func TestSessionManagerPutDelete_StoreIgnoresCanceledCallerContext(t *testing.T)
 		t.Fatalf("store.Delete received canceled context")
 	}
 }
+
+type asyncContextSessionStore struct {
+	upsertDone     chan struct{}
+	upsertCanceled atomic.Bool
+}
+
+func (s *asyncContextSessionStore) Get(_ context.Context, _ string) (*SessionRecord, error) {
+	return nil, nil
+}
+
+func (s *asyncContextSessionStore) Upsert(ctx context.Context, _ *SessionRecord) error {
+	s.upsertCanceled.Store(ctx.Err() != nil)
+	close(s.upsertDone)
+	return nil
+}
+
+func (s *asyncContextSessionStore) Delete(_ context.Context, _ string) error { return nil }
+
+func TestSessionManagerPutAsync_StoreIgnoresCanceledCallerContext(t *testing.T) {
+	store := &asyncContextSessionStore{upsertDone: make(chan struct{})}
+	manager := NewManager(time.Hour, store)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	manager.PutAsync(ctx, &Session{
+		ID:        "sess-async-canceled-write",
+		UserID:    "user-1",
+		Username:  "awitas",
+		Provider:  "oauth",
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if got := manager.Get(context.Background(), "sess-async-canceled-write"); got == nil {
+		t.Fatalf("async session was not available in memory immediately")
+	}
+
+	select {
+	case <-store.upsertDone:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for async session persistence")
+	}
+	if store.upsertCanceled.Load() {
+		t.Fatalf("async store.Upsert received canceled context")
+	}
+}
+
+func TestSessionRecordRoundTrip_PreservesTokenExpiry(t *testing.T) {
+	expiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	sess := &Session{
+		ID:        "sess-token-expiry",
+		UserID:    "user-1",
+		Username:  "awitas",
+		Provider:  "oauth",
+		Tokens:    newTokenBundle("access", "id", "refresh"),
+		CreatedAt: time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(2 * time.Hour),
+	}
+	sess.Tokens.Expiry = expiry
+
+	rec := sessionToRecord(sess)
+	if !rec.TokenExpiresAt.Equal(expiry) {
+		t.Fatalf("record token expiry = %v, want %v", rec.TokenExpiresAt, expiry)
+	}
+	reloaded := recordToSession(rec)
+	if reloaded.Tokens == nil {
+		t.Fatalf("reloaded tokens = nil")
+	}
+	if !reloaded.Tokens.Expiry.Equal(expiry) {
+		t.Fatalf("reloaded token expiry = %v, want %v", reloaded.Tokens.Expiry, expiry)
+	}
+}

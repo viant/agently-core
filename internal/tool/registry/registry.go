@@ -78,6 +78,7 @@ type Registry struct {
 	internalTimeout   map[string]time.Duration
 	asyncByTool       map[string]*asynccfg.Config
 	internalCacheable map[string]map[string]bool // server name -> method name -> cacheable
+	internalMethods   map[string]map[string]svc.Signature
 
 	// cache: tool name → entry
 	cache map[string]*toolCacheEntry
@@ -160,6 +161,7 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		internal:           map[string]mcpclient.Interface{},
 		internalTimeout:    map[string]time.Duration{},
 		asyncByTool:        map[string]*asynccfg.Config{},
+		internalMethods:    map[string]map[string]svc.Signature{},
 		recentResults:      map[string]map[string]recentItem{},
 		recentTTL:          5 * time.Second,
 		refreshEvery:       30 * time.Second,
@@ -743,6 +745,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		r.debugf("Execute: invalid tool name (no server): %s", baseName)
 		return "", fmt.Errorf("invalid tool name: %s", name)
 	}
+	if r.isBlockedInternalMethodExecution(ctx, server, baseName) {
+		return "", fmt.Errorf("tool not found: %s", baseName)
+	}
 	var options []mcpclient.RequestOption
 	if r.mgr != nil {
 		ctx = r.mgr.WithAuthTokenContext(ctx, server)
@@ -1082,7 +1087,15 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	if r.asyncByTool == nil {
 		r.asyncByTool = map[string]*asynccfg.Config{}
 	}
+	if r.internalMethods == nil {
+		r.internalMethods = map[string]map[string]svc.Signature{}
+	}
 	r.internal[s.Name()] = cli
+	methods := make(map[string]svc.Signature, len(s.Methods()))
+	for _, sig := range s.Methods() {
+		methods[strings.TrimSpace(sig.Name)] = sig
+	}
+	r.internalMethods[s.Name()] = methods
 	// Capture service-provided timeout when available
 	if tt, ok := any(s).(interface{ ToolTimeout() time.Duration }); ok {
 		if d := tt.ToolTimeout(); d > 0 {
@@ -1104,6 +1117,25 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	}
 	r.mu.Unlock()
 	return nil
+}
+
+func (r *Registry) isBlockedInternalMethodExecution(ctx context.Context, server, baseName string) bool {
+	if r == nil {
+		return false
+	}
+	planMode := strings.EqualFold(strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)), "plan")
+	if planMode {
+		return false
+	}
+	_, method := splitToolName(baseName)
+	if method == "" {
+		return false
+	}
+	r.mu.RLock()
+	methods := r.internalMethods[strings.TrimSpace(server)]
+	sig, ok := methods[strings.TrimSpace(method)]
+	r.mu.RUnlock()
+	return ok && sig.Internal
 }
 
 func (r *Registry) AsyncConfig(name string) (*asynccfg.Config, bool) {

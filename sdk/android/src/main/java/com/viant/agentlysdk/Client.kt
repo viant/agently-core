@@ -105,16 +105,8 @@ class AgentlyClient(
     }
 
     suspend fun getWorkspaceMetadata(targetContext: MetadataTargetContext? = null): WorkspaceMetadata = withContext(Dispatchers.IO) {
-        val query = linkedMapOf<String, String>()
-        targetContext?.platform?.takeIf { it.isNotBlank() }?.let { query["platform"] = it }
-        targetContext?.formFactor?.takeIf { it.isNotBlank() }?.let { query["formFactor"] = it }
-        targetContext?.surface?.takeIf { it.isNotBlank() }?.let { query["surface"] = it }
-        targetContext?.capabilities
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { query["capabilities"] = it.joinToString(",") }
-        val path = appendQuery("/v1/workspace/metadata", query)
+        val query = targetContext.toTargetQuery()
+        val path = appendRepeatedQuery("/v1/workspace/metadata", query)
         val root = parseJson(restClient.get(endpointName, path) { it })
         val payload = (root as? JsonObject)?.get("data") ?: root
         val metadata = decode(payload, WorkspaceMetadata.serializer())
@@ -447,6 +439,26 @@ class AgentlyClient(
             appendQuery("/v1/tools/${encodePath(name)}/execute", linkedMapOf("conversationId" to conversationId))
         }
         post(path, args, ToolExecuteEnvelope.serializer()).result.orEmpty()
+    }
+
+    suspend fun listUIEvents(input: ListUIEventsInput): ListUIEventsOutput = withContext(Dispatchers.IO) {
+        require(input.conversationId.isNotBlank()) { "conversationId is required" }
+        val args = linkedMapOf<String, JsonElement>()
+        input.clientId?.trim()?.takeIf { it.isNotEmpty() }?.let { args["clientId"] = JsonPrimitive(it) }
+        input.windowId?.trim()?.takeIf { it.isNotEmpty() }?.let { args["windowId"] = JsonPrimitive(it) }
+        input.windowKey?.trim()?.takeIf { it.isNotEmpty() }?.let { args["windowKey"] = JsonPrimitive(it) }
+        input.kinds
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .takeIf { it.isNotEmpty() }
+            ?.let { kinds -> args["kinds"] = JsonArray(kinds.map { JsonPrimitive(it) }) }
+        input.sinceSeq?.let { if (it > 0) args["sinceSeq"] = JsonPrimitive(it) }
+        input.limit?.let { if (it > 0) args["limit"] = JsonPrimitive(it) }
+        val raw = executeTool("ui/events:list", args, conversationId = input.conversationId)
+        if (raw.isBlank()) {
+            return@withContext ListUIEventsOutput(conversationId = input.conversationId)
+        }
+        json.decodeFromString(ListUIEventsOutput.serializer(), raw)
     }
 
     suspend fun executeMCPUIToolCall(input: MCPUIToolCallInput): MCPUIToolCallOutput = withContext(Dispatchers.IO) {

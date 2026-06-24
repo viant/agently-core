@@ -70,7 +70,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	preferredClientID := normalizeOptionalClientID(input.ClientID)
-	items, err := s.reg.ListByConversation(ctx, conversationID)
+	items, err := s.reg.ListReadableByConversation(ctx, conversationID)
 	if err != nil {
 		return err
 	}

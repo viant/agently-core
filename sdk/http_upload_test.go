@@ -15,7 +15,7 @@ import (
 )
 
 func TestHTTPClient_UploadFile(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method %s", r.Method)
 		}
@@ -52,12 +52,7 @@ func TestHTTPClient_UploadFile(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(&UploadFileOutput{ID: "file_1", URI: "/v1/files/file_1?conversationId=conv_1"})
 	}))
-	defer srv.Close()
 
-	client, err := NewHTTP(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
 	out, err := client.UploadFile(context.Background(), &UploadFileInput{
 		ConversationID: "conv_1",
 		Name:           "note.txt",

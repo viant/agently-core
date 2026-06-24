@@ -7,13 +7,15 @@ import (
 	"testing"
 )
 
+const testOAuthConfigURL = "oauth_config_test.enc|secret://test"
+
 func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	cfg := &Config{
 		OAuth: &OAuth{
 			Mode:          "bff",
 			UsePopupLogin: true,
 			Client: &OAuthClient{
-				ConfigURL: "idp_viant.enc|blowfish://default",
+				ConfigURL: testOAuthConfigURL,
 			},
 		},
 	}
@@ -36,7 +38,7 @@ func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	if got, ok := payload["redirectSameTab"].(bool); !ok || got {
 		t.Fatalf("redirectSameTab = %#v, want false", payload["redirectSameTab"])
 	}
-	if got := payload["configURL"]; got != "idp_viant.enc|blowfish://default" {
+	if got := payload["configURL"]; got != testOAuthConfigURL {
 		t.Fatalf("configURL = %#v, want encrypted config URL", got)
 	}
 	if got, ok := payload["scopes"].([]any); !ok || len(got) != 0 {
@@ -50,7 +52,7 @@ func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 			Mode:          "bff",
 			UsePopupLogin: true,
 			Client: &OAuthClient{
-				ConfigURL: "idp_viant.enc|blowfish://default",
+				ConfigURL: testOAuthConfigURL,
 				ClientID:  "client-id",
 			},
 		},
@@ -76,7 +78,7 @@ func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	if got := payload["clientId"]; got != "client-id" {
 		t.Fatalf("clientId = %#v, want client-id", got)
 	}
-	if got := payload["configURL"]; got != "idp_viant.enc|blowfish://default" {
+	if got := payload["configURL"]; got != testOAuthConfigURL {
 		t.Fatalf("configURL = %#v, want encrypted config URL", got)
 	}
 	if got, ok := payload["scopes"].([]any); !ok || len(got) != 0 {

@@ -261,20 +261,23 @@ function upsertToolStep(current: LiveExecutionGroup, event: SSEEvent, extra: Par
     );
     const priorList = Array.isArray(current.toolSteps) ? current.toolSteps : [];
     const existingIndex = priorList.findIndex((entry) => firstString(entry?.toolCallId, entry?.toolMessageId, entry?.toolName) === toolKey);
-    const operationId = firstString(event?.operationId, existingIndex >= 0 ? priorList[existingIndex]?.operationId : '');
+    const existingStep = existingIndex >= 0 ? priorList[existingIndex] : undefined;
+    const operationId = firstString(event?.operationId, existingStep?.operationId);
     const executionRole = normalizeEventExecutionRole(event);
     const toolEntry: ToolStepState = {
         toolCallId: firstString(extra?.toolCallId, event?.toolCallId),
         toolMessageId: firstString(extra?.toolMessageId, event?.toolMessageId, event?.id),
-        parentMessageId: firstString(event?.parentMessageId, existingIndex >= 0 ? priorList[existingIndex]?.parentMessageId : ''),
+        parentMessageId: firstString(event?.parentMessageId, existingStep?.parentMessageId),
         toolName: firstString(extra?.toolName, event?.toolName),
-        executionRole: firstString(extra?.executionRole, executionRole, existingIndex >= 0 ? priorList[existingIndex]?.executionRole : ''),
+        executionRole: firstString(extra?.executionRole, executionRole, existingStep?.executionRole),
         content: firstString(extra?.content, event?.content),
         operationId,
-        errorMessage: firstString(event?.error, existingIndex >= 0 ? priorList[existingIndex]?.errorMessage : ''),
-        status: firstString(event?.status, existingIndex >= 0 ? priorList[existingIndex]?.status : ''),
+        errorMessage: firstString(event?.error, existingStep?.errorMessage),
+        status: firstString(event?.status, existingStep?.status),
         requestPayloadId: firstString(event?.requestPayloadId),
         responsePayloadId: firstString(event?.responsePayloadId),
+        requestPayload: event?.arguments ?? existingStep?.requestPayload,
+        responsePayload: event?.responsePayload ?? existingStep?.responsePayload,
         linkedConversationId: firstString(event?.linkedConversationId),
         linkedConversationAgentId: firstString(event?.linkedConversationAgentId),
         linkedConversationTitle: firstString(event?.linkedConversationTitle),

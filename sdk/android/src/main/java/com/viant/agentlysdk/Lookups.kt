@@ -120,13 +120,15 @@ data class ListLookupRegistryOutput(
 suspend fun AgentlyClient.fetchDatasource(
     input: FetchDatasourceInput
 ): FetchDatasourceOutput = withContext(Dispatchers.IO) {
-    val path = "/v1/api/datasources/${encodeSegment(input.id)}/fetch"
+    val id = normalizedRequired(input.id, "datasource id")
+    val conversationId = input.conversationId?.trim()?.takeIf { it.isNotEmpty() }
+    val path = "/v1/api/datasources/${encodeSegment(id)}/fetch"
     post(
         path,
         FetchDatasourceBody(
             inputs = input.inputs,
             cache = input.cache,
-            conversationId = input.conversationId
+            conversationId = conversationId
         ),
         FetchDatasourceOutput.serializer()
     )
@@ -135,9 +137,11 @@ suspend fun AgentlyClient.fetchDatasource(
 suspend fun AgentlyClient.invalidateDatasourceCache(
     input: InvalidateDatasourceCacheInput
 ) = withContext(Dispatchers.IO) {
-    val base = "/v1/api/datasources/${encodeSegment(input.id)}/cache"
-    val path = if (!input.inputsHash.isNullOrEmpty()) {
-        base + "?inputsHash=" + URLEncoder.encode(input.inputsHash, StandardCharsets.UTF_8.toString())
+    val id = normalizedRequired(input.id, "datasource id")
+    val inputsHash = input.inputsHash?.trim()?.takeIf { it.isNotEmpty() }
+    val base = "/v1/api/datasources/${encodeSegment(id)}/cache"
+    val path = if (inputsHash != null) {
+        base + "?inputsHash=" + URLEncoder.encode(inputsHash, StandardCharsets.UTF_8.toString())
     } else base
     // Reuse the existing EmptyResponse declared in Models.kt — no new type.
     delete(path, EmptyResponse.serializer())
@@ -147,9 +151,16 @@ suspend fun AgentlyClient.invalidateDatasourceCache(
 suspend fun AgentlyClient.listLookupRegistry(
     input: ListLookupRegistryInput
 ): ListLookupRegistryOutput = withContext(Dispatchers.IO) {
-    val q = URLEncoder.encode(input.context, StandardCharsets.UTF_8.toString())
+    val context = normalizedRequired(input.context, "lookup context")
+    val q = URLEncoder.encode(context, StandardCharsets.UTF_8.toString())
     val path = "/v1/api/lookups/registry?context=$q"
     get(path, ListLookupRegistryOutput.serializer())
+}
+
+private fun normalizedRequired(value: String, name: String): String {
+    val normalized = value.trim()
+    require(normalized.isNotEmpty()) { "$name is required" }
+    return normalized
 }
 
 private fun encodeSegment(v: String): String =

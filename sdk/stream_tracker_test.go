@@ -84,6 +84,70 @@ func TestConversationStreamTracker_ApplyEventAndTranscript(t *testing.T) {
 	}
 }
 
+func TestConversationStreamTracker_ApplyTranscriptPreservesSameActiveTurnFromSSE(t *testing.T) {
+	tracker := NewConversationStreamTracker("conv-1")
+
+	tracker.ApplyEvent(&streaming.Event{
+		Type:           streaming.EventTypeTurnStarted,
+		ConversationID: "conv-1",
+		TurnID:         "turn-live",
+		CreatedAt:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	tracker.ApplyEvent(&streaming.Event{
+		Type:           streaming.EventTypeAssistant,
+		ConversationID: "conv-1",
+		TurnID:         "turn-live",
+		MessageID:      "assistant-live",
+		Content:        "SSE active response",
+		Patch: map[string]interface{}{
+			"role": "assistant",
+		},
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC),
+	})
+
+	state := tracker.ApplyTranscript(&ConversationState{
+		ConversationID: "conv-1",
+		Turns: []*TurnState{
+			{
+				TurnID: "turn-history",
+				Status: TurnStatusCompleted,
+				Assistant: &AssistantState{Final: &AssistantMessageState{
+					MessageID: "assistant-history",
+					Content:   "Historical response",
+				}},
+			},
+			{
+				TurnID: "turn-live",
+				Status: TurnStatusRunning,
+				Execution: &ExecutionState{Pages: []*ExecutionPageState{{
+					PageID:             "stale-page",
+					AssistantMessageID: "assistant-live",
+					TurnID:             "turn-live",
+					Status:             "completed",
+					Content:            "stale transcript execution",
+				}}},
+				Planner: &PlannerState{
+					Status: "stale",
+				},
+				Assistant: &AssistantState{Final: &AssistantMessageState{
+					MessageID: "assistant-live",
+					Content:   "stale transcript response",
+				}},
+			},
+		},
+	})
+
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 2)
+	require.Equal(t, "turn-live", tracker.ActiveTurnID())
+	require.Nil(t, state.Turns[1].Assistant)
+	require.Len(t, state.Turns[1].Messages, 1)
+	require.Equal(t, "SSE active response", state.Turns[1].Messages[0].Content)
+	require.Nil(t, state.Turns[1].Execution)
+	require.Nil(t, state.Turns[1].Planner)
+	require.Equal(t, "Historical response", state.Turns[0].Assistant.Final.Content)
+}
+
 func TestConversationStreamTracker_TrackSubscription(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	sub, err := bus.Subscribe(context.Background(), nil)
