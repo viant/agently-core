@@ -22,6 +22,8 @@ type fakeConv struct {
 	lastPatchedStatus string
 	lastUserContent   string
 	lastUserRaw       string
+	lastPayloadID     string
+	lastUserPayloadID string
 }
 
 func newFakeConv() *fakeConv {
@@ -43,6 +45,9 @@ func (f *fakeConv) PatchMessage(ctx context.Context, m *apiconv.MutableMessage) 
 		if m.RawContent != nil {
 			f.lastUserRaw = *m.RawContent
 		}
+		if m.ElicitationPayloadID != nil {
+			f.lastUserPayloadID = *m.ElicitationPayloadID
+		}
 	}
 	// store by ID for GetMessage
 	if m.Id != "" {
@@ -58,6 +63,9 @@ func (f *fakeConv) PatchMessage(ctx context.Context, m *apiconv.MutableMessage) 
 		if m.ParentMessageID != nil {
 			mm.ParentMessageId = m.ParentMessageID
 		}
+		if m.ElicitationPayloadID != nil {
+			mm.ElicitationPayloadId = m.ElicitationPayloadID
+		}
 		f.byID[m.Id] = mm
 	}
 	return nil
@@ -65,7 +73,12 @@ func (f *fakeConv) PatchMessage(ctx context.Context, m *apiconv.MutableMessage) 
 func (f *fakeConv) GetMessage(ctx context.Context, id string, _ ...apiconv.Option) (*apiconv.Message, error) {
 	return f.byID[id], nil
 }
-func (f *fakeConv) PatchPayload(ctx context.Context, _ *apiconv.MutablePayload) error { return nil }
+func (f *fakeConv) PatchPayload(ctx context.Context, p *apiconv.MutablePayload) error {
+	if p != nil {
+		f.lastPayloadID = p.Id
+	}
+	return nil
+}
 func (f *fakeConv) PatchConversations(ctx context.Context, _ *apiconv.MutableConversation) error {
 	return nil
 }
@@ -205,4 +218,26 @@ func TestAddUserResponseMessageStoresRawContent(t *testing.T) {
 	assert.NoError(t, srv.AddUserResponseMessage(context.Background(), turn, "e1", payload))
 	assert.Contains(t, fake.lastUserContent, "field")
 	assert.EqualValues(t, fake.lastUserContent, fake.lastUserRaw)
+}
+
+func TestStorePayloadLinksResponsePayloadToUserMessage(t *testing.T) {
+	convID := "conv-store"
+	elicID := "elic-store"
+	turnID := "turn-store"
+	parentID := "msg-parent"
+
+	fake := newFakeConv()
+	msg := &apiconv.Message{Id: "msg-elicit", ConversationId: convID, Role: "assistant"}
+	msg.TurnId = &turnID
+	msg.ParentMessageId = &parentID
+	fake.byElic[convID+"/"+elicID] = msg
+	fake.byID[msg.Id] = msg
+
+	srv := &Service{client: fake}
+	payload := map[string]interface{}{"field": "value"}
+	assert.NoError(t, srv.StorePayload(context.Background(), convID, elicID, payload))
+
+	assert.NotEmpty(t, fake.lastPayloadID)
+	assert.Equal(t, fake.lastPayloadID, fake.lastUserPayloadID)
+	assert.Contains(t, fake.lastUserContent, "field")
 }

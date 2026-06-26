@@ -644,7 +644,7 @@ func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, e
 		ElicitationPayloadId: row.ElicitationPayloadId,
 		ToolName:             row.ToolName,
 		EmbeddingIndex:       row.EmbeddingIndex,
-		Narration:            row.Narration,
+		Narration:            row.Preamble,
 		Iteration:            row.Iteration,
 		Phase:                row.Phase,
 	}

@@ -40,6 +40,10 @@ type parentElicitationMessageGetter interface {
 	GetMessageByParentAndElicitation(ctx context.Context, parentMessageID, elicitationID string) (*apiconv.Message, error)
 }
 
+type elicitationResponseMessageGetter interface {
+	GetElicitationResponseMessage(ctx context.Context, conversationID, elicitationID string) (*apiconv.Message, error)
+}
+
 type elicitationResolutionTarget struct {
 	submitted     *apiconv.Message
 	authoritative *apiconv.Message
@@ -629,6 +633,47 @@ func statusAwaitingUser(status string) bool {
 	}
 }
 
+func (s *Service) existingElicitationResponse(ctx context.Context, convID, elicitationID string) (*apiconv.Message, error) {
+	convID = strings.TrimSpace(convID)
+	elicitationID = strings.TrimSpace(elicitationID)
+	if convID == "" || elicitationID == "" || s == nil || s.client == nil {
+		return nil, nil
+	}
+	if getter, ok := s.client.(elicitationResponseMessageGetter); ok {
+		return getter.GetElicitationResponseMessage(ctx, convID, elicitationID)
+	}
+	conv, err := s.client.GetConversation(ctx, convID, apiconv.WithIncludeTranscript(true))
+	if err != nil || conv == nil {
+		return nil, err
+	}
+	var latest *apiconv.Message
+	for _, turn := range conv.GetTranscript() {
+		if turn == nil {
+			continue
+		}
+		for _, msg := range turn.GetMessages() {
+			if !isElicitationResponseMessage(msg, elicitationID) {
+				continue
+			}
+			if latest == nil || msg.CreatedAt.After(latest.CreatedAt) {
+				latest = msg
+			}
+		}
+	}
+	return latest, nil
+}
+
+func isElicitationResponseMessage(msg *apiconv.Message, elicitationID string) bool {
+	if msg == nil || msg.ElicitationId == nil {
+		return false
+	}
+	if strings.TrimSpace(*msg.ElicitationId) != strings.TrimSpace(elicitationID) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(msg.Role), llm.RoleUser.String()) &&
+		strings.EqualFold(strings.TrimSpace(msg.Type), "elicitation_response")
+}
+
 func stringValue(value *string) string {
 	if value == nil {
 		return ""
@@ -664,8 +709,8 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 		if loaded, ok := s.loadRecordedElicitation(ctx, msg); ok {
 			payload = enrichApprovalPayload(payload, &loaded)
 		}
-		turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
-		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload); err != nil {
+		turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: stringValue(msg.ParentMessageId)}
+		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload, pid); err != nil {
 			return err
 		}
 		return nil
@@ -674,16 +719,20 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 	return s.client.PatchMessage(ctx, upd)
 }
 
-func (s *Service) AddUserResponseMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, elicitationID string, payload map[string]interface{}) error {
+func (s *Service) AddUserResponseMessage(ctx context.Context, turn *runtimerequestctx.TurnMeta, elicitationID string, payload map[string]interface{}, payloadID ...string) error {
 	raw, _ := json.Marshal(payload)
-	_, err := apiconv.AddMessage(ctx, s.client, turn,
+	options := []apiconv.MessageOption{
 		apiconv.WithId(uuid.New().String()),
 		apiconv.WithRole("user"),
 		apiconv.WithType("elicitation_response"),
 		apiconv.WithElicitationID(elicitationID),
 		apiconv.WithContent(string(raw)),
 		apiconv.WithRawContent(string(raw)),
-	)
+	}
+	if len(payloadID) > 0 && strings.TrimSpace(payloadID[0]) != "" {
+		options = append(options, apiconv.WithElicitationPayloadID(strings.TrimSpace(payloadID[0])))
+	}
+	_, err := apiconv.AddMessage(ctx, s.client, turn, options...)
 	return err
 }
 
@@ -828,6 +877,12 @@ func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action str
 	if target.proxy != nil {
 		proxyConvID = strings.TrimSpace(target.proxy.ConversationId)
 	}
+	if existing, err := s.existingElicitationResponse(ctx, authoritativeConvID, elicitationID); err != nil {
+		return err
+	} else if existing != nil {
+		logx.Infof("conversation", "elicitation resolve idempotent existing response convo=%q elicitation_id=%q message_id=%q payload_id=%q", authoritativeConvID, strings.TrimSpace(elicitationID), strings.TrimSpace(existing.Id), stringValue(existing.ElicitationPayloadId))
+		return nil
+	}
 	if err := s.UpdateStatus(ctx, authoritativeConvID, elicitationID, act); err != nil {
 		return err
 	}
@@ -870,7 +925,7 @@ func (s *Service) StoreDeclineReason(ctx context.Context, convID, elicitationID,
 	if msg.Role != llm.RoleAssistant.String() {
 		return nil
 	}
-	turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+	turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: stringValue(msg.ParentMessageId)}
 	payload := map[string]interface{}{"declineReason": reason}
 	return s.AddUserResponseMessage(ctx, &turn, elicitationID, payload)
 }
@@ -890,7 +945,7 @@ func (s *Service) StoreCancelReason(ctx context.Context, convID, elicitationID, 
 	if msg.Role != llm.RoleAssistant.String() {
 		return nil
 	}
-	turn := runtimerequestctx.TurnMeta{TurnID: *msg.TurnId, ConversationID: msg.ConversationId, ParentMessageID: *msg.ParentMessageId}
+	turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: stringValue(msg.ParentMessageId)}
 	payload := map[string]interface{}{
 		"cancelReason": reason,
 		"message":      "User did not respond before the elicitation timeout.",
