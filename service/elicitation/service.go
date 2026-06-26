@@ -40,6 +40,10 @@ type parentElicitationMessageGetter interface {
 	GetMessageByParentAndElicitation(ctx context.Context, parentMessageID, elicitationID string) (*apiconv.Message, error)
 }
 
+type linkedElicitationProxyGetter interface {
+	GetMessageByLinkedConversationAndElicitation(ctx context.Context, linkedConversationID, elicitationID string) (*apiconv.Message, error)
+}
+
 type elicitationResponseMessageGetter interface {
 	GetElicitationResponseMessage(ctx context.Context, conversationID, elicitationID string) (*apiconv.Message, error)
 }
@@ -419,19 +423,14 @@ func (s *Service) proxyElicitationToTopLevelConversation(ctx context.Context, tu
 	rootConversationMessage := *msg
 	rootConversationMessage.SetId(uuid.New().String())
 	rootConversationMessage.SetConversationID(root.Id)
+	rootConversationMessage.SetLinkedConversationID(turn.ConversationID)
+	rootConversationMessage.SetParentMessageID("")
 	if root.LastTurnId != nil {
 		rootConversationMessage.SetTurnID(*root.LastTurnId)
 	}
 	rootConversationMessage.Sequence = nil
 	if err := s.client.PatchMessage(ctx, &rootConversationMessage); err != nil {
 		return fmt.Errorf("failed to proxy elicitation to top-level conversation: %w", err)
-	}
-
-	cloneMsg := apiconv.NewMessage()
-	cloneMsg.SetId(msg.Id)
-	cloneMsg.SetParentMessageID(rootConversationMessage.Id)
-	if err := s.client.PatchMessage(ctx, cloneMsg); err != nil {
-		return fmt.Errorf("failed to link elicitation proxy message: %w", err)
 	}
 	if elic != nil {
 		rootTurn := &runtimerequestctx.TurnMeta{
@@ -510,6 +509,20 @@ func (s *Service) resolveElicitationTarget(ctx context.Context, convID, elicitat
 		return nil, fmt.Errorf("elicitation message not found")
 	}
 	target := &elicitationResolutionTarget{submitted: msg, authoritative: msg}
+	if msg.LinkedConversationId != nil {
+		linkedConversationID := strings.TrimSpace(*msg.LinkedConversationId)
+		if linkedConversationID != "" && linkedConversationID != strings.TrimSpace(msg.ConversationId) {
+			child, err := s.client.GetMessageByElicitation(ctx, linkedConversationID, elicitationID)
+			if err != nil {
+				return nil, err
+			}
+			if child != nil && strings.TrimSpace(child.ConversationId) != "" && child.ConversationId != msg.ConversationId {
+				target.authoritative = child
+				target.proxy = msg
+				return target, nil
+			}
+		}
+	}
 	if msg.ParentMessageId != nil && strings.TrimSpace(*msg.ParentMessageId) != "" {
 		parentMessageID := strings.TrimSpace(*msg.ParentMessageId)
 		parent, err := s.client.GetMessage(ctx, parentMessageID)
@@ -518,6 +531,16 @@ func (s *Service) resolveElicitationTarget(ctx context.Context, convID, elicitat
 		}
 		if isMatchingProxyMessage(parent, elicitationID, msg.ConversationId) {
 			target.proxy = parent
+			return target, nil
+		}
+	}
+	if getter, ok := s.client.(linkedElicitationProxyGetter); ok {
+		proxy, err := getter.GetMessageByLinkedConversationAndElicitation(ctx, msg.ConversationId, elicitationID)
+		if err != nil {
+			return nil, err
+		}
+		if isMatchingProxyMessage(proxy, elicitationID, msg.ConversationId) {
+			target.proxy = proxy
 			return target, nil
 		}
 	}
@@ -709,7 +732,7 @@ func (s *Service) StorePayload(ctx context.Context, convID, elicitationID string
 		if loaded, ok := s.loadRecordedElicitation(ctx, msg); ok {
 			payload = enrichApprovalPayload(payload, &loaded)
 		}
-		turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: stringValue(msg.ParentMessageId)}
+		turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: strings.TrimSpace(msg.Id)}
 		if err := s.AddUserResponseMessage(ctx, &turn, elicitationID, payload, pid); err != nil {
 			return err
 		}
@@ -925,7 +948,7 @@ func (s *Service) StoreDeclineReason(ctx context.Context, convID, elicitationID,
 	if msg.Role != llm.RoleAssistant.String() {
 		return nil
 	}
-	turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: stringValue(msg.ParentMessageId)}
+	turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: strings.TrimSpace(msg.Id)}
 	payload := map[string]interface{}{"declineReason": reason}
 	return s.AddUserResponseMessage(ctx, &turn, elicitationID, payload)
 }
@@ -945,7 +968,7 @@ func (s *Service) StoreCancelReason(ctx context.Context, convID, elicitationID, 
 	if msg.Role != llm.RoleAssistant.String() {
 		return nil
 	}
-	turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: stringValue(msg.ParentMessageId)}
+	turn := runtimerequestctx.TurnMeta{TurnID: stringValue(msg.TurnId), ConversationID: msg.ConversationId, ParentMessageID: strings.TrimSpace(msg.Id)}
 	payload := map[string]interface{}{
 		"cancelReason": reason,
 		"message":      "User did not respond before the elicitation timeout.",
