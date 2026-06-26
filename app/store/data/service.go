@@ -560,11 +560,14 @@ func (s *datlyService) PatchGoals(ctx context.Context, rows []*aggoalwrite.Mutab
 }
 
 func (s *datlyService) PatchMessages(ctx context.Context, rows []*agmessagewrite.MutableMessageView) ([]*agmessagewrite.MutableMessageView, error) {
+	payloadDiagPatchMessages("before", rows, nil)
 	in := &agmessagewrite.Input{Messages: rows}
 	out := &agmessagewrite.Output{}
 	if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agmessagewrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+		payloadDiagPatchMessages("error", rows, err)
 		return out.Data, err
 	}
+	payloadDiagPatchMessages("after", out.Data, nil)
 	return out.Data, nil
 }
 
@@ -579,17 +582,21 @@ func (s *datlyService) PatchTurns(ctx context.Context, rows []*agturnwrite.Mutab
 
 func (s *datlyService) PatchModelCalls(ctx context.Context, rows []*agmodelcallwrite.MutableModelCallView) ([]*agmodelcallwrite.MutableModelCallView, error) {
 	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agmodelcallwrite.MutableModelCallView, error) {
+		payloadDiagPatchModelCalls("before", rows, nil)
 		in := &agmodelcallwrite.Input{ModelCalls: rows}
 		out := &agmodelcallwrite.Output{}
 		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agmodelcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			payloadDiagPatchModelCalls("error", rows, err)
 			return out.Data, err
 		}
+		payloadDiagPatchModelCalls("after", out.Data, nil)
 		return out.Data, nil
 	})
 }
 
 func (s *datlyService) PatchToolCalls(ctx context.Context, rows []*agtoolcallwrite.MutableToolCallView) ([]*agtoolcallwrite.MutableToolCallView, error) {
 	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agtoolcallwrite.MutableToolCallView, error) {
+		payloadDiagPatchToolCalls("before", rows, nil)
 		for _, row := range rows {
 			if row == nil || row.Has == nil || !row.Has.ErrorMessage || row.ErrorMessage == nil {
 				continue
@@ -600,19 +607,24 @@ func (s *datlyService) PatchToolCalls(ctx context.Context, rows []*agtoolcallwri
 		in := &agtoolcallwrite.Input{ToolCalls: rows}
 		out := &agtoolcallwrite.Output{}
 		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agtoolcallwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			payloadDiagPatchToolCalls("error", rows, err)
 			return out.Data, err
 		}
+		payloadDiagPatchToolCalls("after", out.Data, nil)
 		return out.Data, nil
 	})
 }
 
 func (s *datlyService) PatchPayloads(ctx context.Context, rows []*agpayloadwrite.MutablePayloadView) ([]*agpayloadwrite.MutablePayloadView, error) {
 	return sqlitewrite.Do(ctx, s.writeGate, func() ([]*agpayloadwrite.MutablePayloadView, error) {
+		payloadDiagPatchPayloads("before", rows, nil)
 		in := &agpayloadwrite.Input{Payloads: rows}
 		out := &agpayloadwrite.Output{}
 		if _, err := s.dao.Operate(ctx, datly.WithPath(contract.NewPath("PATCH", agpayloadwrite.PathURI)), datly.WithInput(in), datly.WithOutput(out)); err != nil {
+			payloadDiagPatchPayloads("error", rows, err)
 			return out.Data, err
 		}
+		payloadDiagPatchPayloads("after", out.Data, nil)
 		return out.Data, nil
 	})
 }

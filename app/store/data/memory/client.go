@@ -562,6 +562,9 @@ func (c *Client) GetMessageByElicitation(_ context.Context, conversationID, elic
 			if m == nil || m.ElicitationId == nil {
 				continue
 			}
+			if strings.EqualFold(strings.TrimSpace(m.Type), "elicitation_response") {
+				continue
+			}
 			if *m.ElicitationId == elicitationID {
 				return toClientMessage(copyMessage(m)), nil
 			}
