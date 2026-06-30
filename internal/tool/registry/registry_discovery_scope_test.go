@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/protocol/mcp/config"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
@@ -60,6 +61,39 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 		if call.convID == "" {
 			t.Fatalf("expected non-empty discovery scope, got %+v", getCalls)
 		}
+	}
+}
+
+func TestListServerTools_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			if convID != "mcp-discovery:helper:background" {
+				return nil, fmt.Errorf("unexpected background discovery scope %q", convID)
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: convID}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub}
+	ctx := runtimediscovery.WithBackground(context.Background())
+
+	first, err := reg.listServerTools(ctx, "helper")
+	if err != nil {
+		t.Fatalf("first listServerTools() error: %v", err)
+	}
+	second, err := reg.listServerTools(ctx, "helper")
+	if err != nil {
+		t.Fatalf("second listServerTools() error: %v", err)
+	}
+
+	getCalls := stub.getCallsSnapshot()
+	if len(getCalls) != 2 {
+		t.Fatalf("expected 2 manager Get calls, got %d", len(getCalls))
+	}
+	if getCalls[0].convID != "mcp-discovery:helper:background" || getCalls[1].convID != getCalls[0].convID {
+		t.Fatalf("expected stable background discovery scope, got %+v", getCalls)
+	}
+	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[0].convID {
+		t.Fatalf("unexpected tool mapping for background scope: tools1=%+v tools2=%+v calls=%+v", first, second, getCalls)
 	}
 }
 
@@ -160,6 +194,57 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 	}
 	if getCalls[0].convID != syntheticScope || getCalls[1].convID != syntheticScope || reconnectCalls[0].convID != syntheticScope {
 		t.Fatalf("expected retry to reuse scope %q, got gets=%+v reconnects=%+v", syntheticScope, getCalls, reconnectCalls)
+	}
+}
+
+func TestListServerTools_RetryReusesStableBackgroundScope(t *testing.T) {
+	var (
+		getCount       int
+		reconnectCount int
+	)
+	const backgroundScope = "mcp-discovery:helper:background"
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			if convID != backgroundScope {
+				return nil, fmt.Errorf("unexpected background discovery scope %q", convID)
+			}
+			getCount++
+			if getCount == 1 {
+				return &discoveryListClient{listErr: errors.New("EOF")}, nil
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "recovered"}}}, nil
+		},
+		reconnectFunc: func(convID, server string) (mcpclient.Interface, error) {
+			reconnectCount++
+			if convID != backgroundScope {
+				return nil, fmt.Errorf("unexpected reconnect scope %q", convID)
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "recovered"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub}
+
+	tools, err := reg.listServerTools(runtimediscovery.WithBackground(context.Background()), "helper")
+	if err != nil {
+		t.Fatalf("listServerTools() error: %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "recovered" {
+		t.Fatalf("unexpected tools after retry: %+v", tools)
+	}
+	if reconnectCount != 1 {
+		t.Fatalf("expected 1 reconnect, got %d", reconnectCount)
+	}
+
+	getCalls := stub.getCallsSnapshot()
+	reconnectCalls := stub.reconnectCallsSnapshot()
+	if len(getCalls) != 2 {
+		t.Fatalf("expected 2 manager Get calls, got %d", len(getCalls))
+	}
+	if len(reconnectCalls) != 1 {
+		t.Fatalf("expected 1 manager Reconnect call, got %d", len(reconnectCalls))
+	}
+	if getCalls[0].convID != backgroundScope || getCalls[1].convID != backgroundScope || reconnectCalls[0].convID != backgroundScope {
+		t.Fatalf("expected retry to reuse background scope %q, got gets=%+v reconnects=%+v", backgroundScope, getCalls, reconnectCalls)
 	}
 }
 
