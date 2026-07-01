@@ -273,7 +273,13 @@ func (c *backendClient) DeleteConversation(ctx context.Context, id string) error
 	if c.data == nil {
 		return errors.New("data service not configured")
 	}
-	return c.data.DeleteConversationTree(ctx, conversationID)
+	if err := c.data.DeleteConversationTree(ctx, conversationID); err != nil {
+		return err
+	}
+	if c.mcpMgr != nil {
+		c.mcpMgr.CloseConversation(conversationID)
+	}
+	return nil
 }
 
 func ensureGoalsFeatureEnabled() error {
