@@ -1080,8 +1080,8 @@ func (c *backendClient) ListPendingToolApprovals(ctx context.Context, input *Lis
 func (c *backendClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
 	return decideToolApproval(c, ctx, input)
 }
-func (c *backendClient) ListToolDefinitions(_ context.Context) ([]ToolDefinitionInfo, error) {
-	return listToolDefinitions(c)
+func (c *backendClient) ListToolDefinitions(ctx context.Context) ([]ToolDefinitionInfo, error) {
+	return listToolDefinitions(c, ctx)
 }
 func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) (*ListSkillsOutput, error) {
 	if c.skills == nil {

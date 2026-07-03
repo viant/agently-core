@@ -139,7 +139,8 @@ func New(prov Provider, opts ...Option) (*Manager, error) {
 		epoch:    map[string]uint64{},
 		// Activity-driven summary: emitted from Get/Reconnect paths, not by
 		// starting a separate goroutine.
-		poolSummaryEvery: 10 * time.Minute,
+		poolSummaryEvery: 15 * time.Minute,
+		//poolSummaryEvery: 2 * time.Minute,
 	}
 	for _, o := range opts {
 		if err := o(m); err != nil {
@@ -453,6 +454,14 @@ type poolServerSummary struct {
 	other        int
 }
 
+type poolClientSummary struct {
+	server    string
+	poolKey   string
+	scopeType string
+	active    int
+	usedAt    time.Time
+}
+
 func (m *Manager) poolSummaryLogLinesLocked(now time.Time) []string {
 	if m == nil || m.poolSummaryEvery <= 0 {
 		return nil
@@ -463,6 +472,7 @@ func (m *Manager) poolSummaryLogLinesLocked(now time.Time) []string {
 	m.poolSummaryAt = now
 
 	byServer := map[string]*poolServerSummary{}
+	clients := []poolClientSummary{}
 	poolKeys := 0
 	totalClients := 0
 	for poolKey, perServer := range m.pool {
@@ -485,7 +495,8 @@ func (m *Manager) poolSummaryLogLinesLocked(now time.Time) []string {
 			}
 			totalClients++
 			summary.total++
-			switch poolScopeType(poolKey, serverName) {
+			scopeType := poolScopeType(poolKey, serverName)
+			switch scopeType {
 			case "background":
 				summary.background++
 			case "synthetic_seq":
@@ -495,6 +506,13 @@ func (m *Manager) poolSummaryLogLinesLocked(now time.Time) []string {
 			default:
 				summary.other++
 			}
+			clients = append(clients, poolClientSummary{
+				server:    serverName,
+				poolKey:   poolKey,
+				scopeType: scopeType,
+				active:    e.active,
+				usedAt:    e.usedAt,
+			})
 		}
 	}
 
@@ -509,6 +527,16 @@ func (m *Manager) poolSummaryLogLinesLocked(now time.Time) []string {
 		summary := byServer[server]
 		lines = append(lines, fmt.Sprintf("[info][mcp-client-pool] server=%q total=%d background=%d conversation=%d synthetic_seq=%d other=%d",
 			summary.server, summary.total, summary.background, summary.conversation, summary.syntheticSeq, summary.other))
+	}
+	sort.Slice(clients, func(i, j int) bool {
+		if clients[i].server != clients[j].server {
+			return clients[i].server < clients[j].server
+		}
+		return clients[i].poolKey < clients[j].poolKey
+	})
+	for _, client := range clients {
+		lines = append(lines, fmt.Sprintf("[info][mcp-client-pool] client server=%q pool_key=%q scope_type=%s active=%d used_at=%s",
+			client.server, client.poolKey, client.scopeType, client.active, client.usedAt.Format(time.RFC3339Nano)))
 	}
 	return lines
 }

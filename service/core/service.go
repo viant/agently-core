@@ -58,6 +58,13 @@ func (s *Service) ToolDefinitions() []llm.ToolDefinition {
 	return s.EnrichedToolDefinitions()
 }
 
+func (s *Service) ToolDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+	if s == nil || s.registry == nil {
+		return nil
+	}
+	return s.EnrichedToolDefinitionsWithContext(ctx)
+}
+
 // Name returns the service Name
 func (s *Service) Name() string {
 	return Name

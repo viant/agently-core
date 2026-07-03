@@ -219,7 +219,7 @@ func (s *Service) availableToolBundles(ctx context.Context) []*toolbundle.Bundle
 		}
 	}
 	if len(bundles) == 0 {
-		bundles = toolbundle.DeriveBundles(s.registry.Definitions())
+		bundles = toolbundle.DeriveBundles(s.definitions(ctx))
 	}
 	if len(bundles) == 0 {
 		return nil

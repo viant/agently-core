@@ -29,7 +29,7 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 			}
 		},
 	}
-	reg := &Registry{mgr: stub}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
 
 	tools1, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-1"), "helper")
 	if err != nil {
@@ -73,7 +73,7 @@ func TestListServerTools_UsesStableBackgroundScopeWithoutConversationID(t *testi
 			return &discoveryListClient{tools: []mcpschema.Tool{{Name: convID}}}, nil
 		},
 	}
-	reg := &Registry{mgr: stub}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
 	ctx := runtimediscovery.WithBackground(context.Background())
 
 	first, err := reg.listServerTools(ctx, "helper")
@@ -95,6 +95,64 @@ func TestListServerTools_UsesStableBackgroundScopeWithoutConversationID(t *testi
 	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[0].convID {
 		t.Fatalf("unexpected tool mapping for background scope: tools1=%+v tools2=%+v calls=%+v", first, second, getCalls)
 	}
+}
+
+func TestDefinitions_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
+	t.Setenv("AGENTLY_MCP_SERVERS", "helper")
+	const backgroundScope = "mcp-discovery:helper:background"
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			if server != "helper" {
+				return &discoveryListClient{}, nil
+			}
+			if convID != backgroundScope {
+				return nil, fmt.Errorf("unexpected background discovery scope %q", convID)
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
+
+	_ = reg.Definitions()
+	_ = reg.Definitions()
+
+	assertDiscoveryCallScope(t, stub.getCallsSnapshot(), "helper", backgroundScope)
+}
+
+func TestMatchDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
+	const backgroundScope = "mcp-discovery:helper:background"
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			if convID != backgroundScope {
+				return nil, fmt.Errorf("unexpected background discovery scope %q", convID)
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
+
+	_ = reg.MatchDefinition("helper:*")
+	_ = reg.MatchDefinition("helper:*")
+
+	assertDiscoveryCallScope(t, stub.getCallsSnapshot(), "helper", backgroundScope)
+}
+
+func TestGetDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
+	const backgroundScope = "mcp-discovery:helper:background"
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			if convID != backgroundScope {
+				return nil, fmt.Errorf("unexpected background discovery scope %q", convID)
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
+
+	_, _ = reg.GetDefinition("helper/alpha")
+	_, _ = reg.GetDefinition("helper/alpha")
+
+	assertDiscoveryCallScope(t, stub.getCallsSnapshot(), "helper", backgroundScope)
 }
 
 func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing.T) {
@@ -281,6 +339,23 @@ func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 	secondCalls := stub.getCallsSnapshot()
 	if len(secondCalls) != 1 {
 		t.Fatalf("expected cooldown to skip a second manager Get, got calls=%d", len(secondCalls))
+	}
+}
+
+func assertDiscoveryCallScope(t *testing.T, calls []discoveryManagerCall, server, scope string) {
+	t.Helper()
+	var found bool
+	for _, call := range calls {
+		if call.server != server {
+			continue
+		}
+		found = true
+		if call.convID != scope {
+			t.Fatalf("expected server %q to use scope %q, got calls=%+v", server, scope, calls)
+		}
+	}
+	if !found {
+		t.Fatalf("expected at least one discovery call for server %q, got %+v", server, calls)
 	}
 }
 

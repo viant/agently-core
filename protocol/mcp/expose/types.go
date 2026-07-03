@@ -14,6 +14,12 @@ type LLMCore interface {
 	ToolDefinitions() []llm.ToolDefinition
 }
 
+// ContextLLMCore is an optional extension for cores that can list tool
+// definitions using request-scoped context.
+type ContextLLMCore interface {
+	ToolDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition
+}
+
 // Executor is the minimal runtime contract needed by MCP expose handlers.
 type Executor interface {
 	LLMCore() LLMCore

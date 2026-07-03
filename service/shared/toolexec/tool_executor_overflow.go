@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/tool"
 	contpol "github.com/viant/agently-core/protocol/tool/continuation"
 	overwrap "github.com/viant/agently-core/protocol/tool/overflow"
@@ -16,7 +17,7 @@ import (
 // maybeWrapOverflow inspects a tool result for continuation hints and, based on
 // input/output schemas, returns a YAML overflow wrapper when native range
 // continuation is not supported. When no wrapper is needed, it returns an empty string.
-func maybeWrapOverflow(_ context.Context, reg tool.Registry, toolName, result, toolMsgID string) string {
+func maybeWrapOverflow(ctx context.Context, reg tool.Registry, toolName, result, toolMsgID string) string {
 	var payload map[string]interface{}
 	if err := json.Unmarshal([]byte(result), &payload); err != nil {
 		return ""
@@ -35,10 +36,18 @@ func maybeWrapOverflow(_ context.Context, reg tool.Registry, toolName, result, t
 	if !hasMore && remaining <= 0 {
 		return ""
 	}
-	def, ok := reg.GetDefinition(toolName)
+	var (
+		def   *llm.ToolDefinition
+		found bool
+	)
+	if getter, supportsContext := reg.(tool.ContextDefinitionGetter); supportsContext {
+		def, found = getter.GetDefinitionWithContext(ctx, toolName)
+	} else {
+		def, found = reg.GetDefinition(toolName)
+	}
 	var inShape schinspect.RangeInputs
 	var outShape schinspect.ContinuationShape
-	if ok && def != nil {
+	if found && def != nil {
 		_, inShape = schinspect.HasInputRanges(def.Parameters)
 		_, outShape = schinspect.HasOutputContinuation(def.OutputSchema)
 	}

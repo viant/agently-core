@@ -435,6 +435,11 @@ func newToolCacheEntry(def *llm.ToolDefinition, mcpDef mcpschema.Tool, inject bo
 // ---------------------------------------------------------------------------
 
 func (r *Registry) Definitions() []llm.ToolDefinition {
+	return r.DefinitionsWithContext(context.Background())
+}
+
+func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+	ctx = r.discoveryLookupContext(ctx)
 	var defs []llm.ToolDefinition
 	// Always include virtual tools.
 	r.mu.RLock()
@@ -466,7 +471,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	r.mu.RUnlock()
 
 	// Try to aggregate current server tools; merge with cache, but never remove on failure.
-	discoveryCtx, cancel := r.withDiscoveryTimeout(context.TODO())
+	discoveryCtx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
 		if cancel != nil {
 			cancel()
@@ -509,16 +514,17 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 }
 
 func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
-	ctx, cancel := r.withDiscoveryTimeout(context.TODO())
+	return r.MatchDefinitionWithContext(context.Background(), pattern)
+}
+
+func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	ctx = r.discoveryLookupContext(ctx)
+	ctx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
 		if cancel != nil {
 			cancel()
 		}
 	}()
-	return r.MatchDefinitionWithContext(ctx, pattern)
-}
-
-func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
 	var result []*llm.ToolDefinition
 	seen := map[string]struct{}{}
 
@@ -623,6 +629,10 @@ func isExplicitPattern(pattern string) bool {
 }
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	return r.GetDefinitionWithContext(context.Background(), name)
+}
+
+func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
 	// Lightweight debug hook to trace how tool definitions are resolved.
 	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {
@@ -641,7 +651,8 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 		return nil, false
 	}
 	injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
-	discoveryCtx, cancel := r.withDiscoveryTimeout(context.TODO())
+	ctx = r.discoveryLookupContext(ctx)
+	discoveryCtx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
 		if cancel != nil {
 			cancel()
@@ -676,6 +687,19 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (r *Registry) discoveryLookupContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+		return ctx
+	}
+	if runtimediscovery.BackgroundFromContext(ctx) {
+		return ctx
+	}
+	return runtimediscovery.WithBackground(ctx)
 }
 
 func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
