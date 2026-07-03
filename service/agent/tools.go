@@ -46,7 +46,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 			if name == "" {
 				continue
 			}
-			if def, ok := s.registry.GetDefinition(name); ok && def != nil {
+			if def, ok := s.getDefinition(ctx, name); ok && def != nil {
 				canonical := *def
 				canonical.Name = mcpname.Canonical(canonical.Name)
 				out = append(out, llm.Tool{Type: "function", Definition: canonical})
@@ -268,7 +268,7 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 	}
 	var derived map[string]*toolbundle.Bundle
 	if len(bundles) == 0 {
-		derived = indexBundlesByID(toolbundle.DeriveBundles(s.registry.Definitions()))
+		derived = indexBundlesByID(toolbundle.DeriveBundles(s.definitions(ctx)))
 		bundles = derived
 	}
 	entry := &resolvedToolSurface{
@@ -282,7 +282,7 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 			// When workspace bundles exist but don't include the requested id,
 			// fall back to derived bundles from tool registry.
 			if derived == nil {
-				derived = indexBundlesByID(toolbundle.DeriveBundles(s.registry.Definitions()))
+				derived = indexBundlesByID(toolbundle.DeriveBundles(s.definitions(ctx)))
 			}
 			b = derived[key]
 		}
@@ -549,6 +549,20 @@ func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.T
 		return cm.MatchDefinitionWithContext(ctx, pattern)
 	}
 	return s.registry.MatchDefinition(pattern)
+}
+
+func (s *Service) definitions(ctx context.Context) []llm.ToolDefinition {
+	if lister, ok := s.registry.(toolctx.ContextDefinitionLister); ok {
+		return lister.DefinitionsWithContext(ctx)
+	}
+	return s.registry.Definitions()
+}
+
+func (s *Service) getDefinition(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+	if getter, ok := s.registry.(toolctx.ContextDefinitionGetter); ok {
+		return getter.GetDefinitionWithContext(ctx, name)
+	}
+	return s.registry.GetDefinition(name)
 }
 
 func strictDiscoveryMode(ctx context.Context) bool {

@@ -167,3 +167,10 @@ func (a *runtimeExecutorAdapter) ReadResource(ctx context.Context, uri string) (
 func (r *registryLLMCore) ToolDefinitions() []llm.ToolDefinition {
 	return r.reg.Definitions()
 }
+
+func (r *registryLLMCore) ToolDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+	if lister, ok := r.reg.(tool.ContextDefinitionLister); ok {
+		return lister.DefinitionsWithContext(ctx)
+	}
+	return r.reg.Definitions()
+}

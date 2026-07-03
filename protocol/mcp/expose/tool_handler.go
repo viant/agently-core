@@ -208,11 +208,17 @@ func (h *ToolHandler) Implements(method string) bool {
 
 // ---------------- helpers ----------------
 
-func (h *ToolHandler) allowedDefinitions(_ context.Context) ([]llm.ToolDefinition, error) {
+func (h *ToolHandler) allowedDefinitions(ctx context.Context) ([]llm.ToolDefinition, error) {
 	if h == nil || h.exec == nil || h.exec.LLMCore() == nil {
 		return nil, fmt.Errorf("mcp server: executor not initialised")
 	}
-	defs := h.exec.LLMCore().ToolDefinitions()
+	core := h.exec.LLMCore()
+	var defs []llm.ToolDefinition
+	if ctxCore, ok := core.(ContextLLMCore); ok {
+		defs = ctxCore.ToolDefinitionsWithContext(ctx)
+	} else {
+		defs = core.ToolDefinitions()
+	}
 	if len(h.patterns) == 0 {
 		return nil, nil
 	}
