@@ -1798,6 +1798,163 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastLineWithoutForRoutesToForec
 	require.Nil(t, stored.DirectAction.Input)
 }
 
+func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineRoutesToBuilderAssist(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-forecast-builder",
+		Query:          "open forecast builder for line 7288336",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "open_forecasting_builder_for_line",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{`(?i)^open\s+forecast(?:ing)?\s+(?:cube\s+)?builder\s+for\s+line\s+(\d+)\.?\s*$`},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "forecasting_builder_prefill"},
+					Prompting: agentmdl.ActivationPrompting{
+						SuggestedProfileID: "workspace_ui",
+						AppendToolBundles:  []string{"workspace-ui"},
+					},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"uiTarget":    "forecastingCubeBuilder",
+						"workspaceUI": "builder_assist",
+						"AdLineId":    "$1",
+						"AudienceId":  "$1",
+						"audienceIds": "$1",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "forecasting_builder_prefill", stored.Classification.Intent)
+	require.Equal(t, "workspace_ui", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, []string{"workspace-ui"}, stored.Prompting.AppendToolBundles)
+	require.Equal(t, "forecastingCubeBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "builder_assist", stored.Scope.Values["workspaceUI"])
+	require.Equal(t, "7288336", stored.Scope.Values["AdLineId"])
+	require.Equal(t, "7288336", stored.Scope.Values["AudienceId"])
+	require.Equal(t, "7288336", stored.Scope.Values["audienceIds"])
+	require.Empty(t, stored.DirectAction.ToolName)
+	require.Nil(t, stored.DirectAction.Input)
+}
+
+func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineNoRunPreservesNoRunScope(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-forecast-builder-no-run",
+		Query:          "open forecast builder for line 7288336, and not run forecast",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "open_forecasting_builder_for_line_no_run",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{`(?i)^open\s+forecast(?:ing)?\s+(?:cube\s+)?builder\s+for\s+line\s+(\d+)\s*,?\s*(?:and\s+)?not\s+run\s+forecast\.?\s*$`},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "forecasting_builder_prefill"},
+					Prompting: agentmdl.ActivationPrompting{
+						SuggestedProfileID: "workspace_ui",
+						AppendToolBundles:  []string{"workspace-ui"},
+					},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"uiTarget":    "forecastingCubeBuilder",
+						"workspaceUI": "builder_assist",
+						"forecastRun": "false",
+						"AdLineId":    "$1",
+						"AudienceId":  "$1",
+						"audienceIds": "$1",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "forecasting_builder_prefill", stored.Classification.Intent)
+	require.Equal(t, "false", stored.Scope.Values["forecastRun"])
+	require.Equal(t, "7288336", stored.Scope.Values["AdLineId"])
+	require.Empty(t, stored.DirectAction.ToolName)
+}
+
+func TestMaybeRunIntakeSidecar_OpenPerformanceBuilderForOrderRunsPrefilledWindowOpen(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-performance-builder",
+		Query:          "open performance builder for order 2678499",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "open_performance_builder_for_order",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{`(?i)^open\s+performance\s+builder\s+for\s+order\s+(\d+)\.?\s*$`},
+						Extractors: map[string]agentmdl.ActivationExtractor{
+							"ids": {
+								Type:    "regex_all",
+								Source:  "$1",
+								Pattern: `\d+`,
+							},
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "workspace_ui_open"},
+					Prompting:      agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"uiTarget":    "metricReportBuilder",
+						"workspaceUI": "activation",
+						"action":      "open",
+						"AdOrderId":   "$1",
+						"adOrderIds":  "$ids",
+					}},
+					Action: agentmdl.ActivationAction{
+						Tool: "ui/view:open",
+						Input: map[string]interface{}{
+							"id":        "metricReportBuilder",
+							"timeoutMs": 600000,
+							"parameters": map[string]interface{}{
+								"orderIds": []interface{}{"$1:int"},
+							},
+						},
+					},
+					Response: agentmdl.ActivationResponse{AssistantText: "The Performance Metrics workspace is open for order $1."},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "workspace_ui_open", stored.Classification.Intent)
+	require.Equal(t, "metricReportBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "2678499", stored.Scope.Values["AdOrderId"])
+	require.Equal(t, "2678499", stored.Scope.Values["adOrderIds"])
+	require.Equal(t, "ui/view:open", stored.DirectAction.ToolName)
+	require.Equal(t, "metricReportBuilder", stored.DirectAction.Input["id"])
+	require.Equal(t, 600000, stored.DirectAction.Input["timeoutMs"])
+	parameters, ok := stored.DirectAction.Input["parameters"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, []interface{}{2678499}, parameters["orderIds"])
+}
+
 func TestMaybeRunIntakeSidecar_ForecastReachAvailabilityNaturalPhraseRoutesToForecastTemplate(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{

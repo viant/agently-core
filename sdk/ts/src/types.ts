@@ -1095,7 +1095,9 @@ export interface CreateSessionOutput {
 }
 
 export interface OOBLoginInput {
-    accessToken: string;
+    secretsURL?: string;
+    scopes?: string[];
+    accessToken?: string;
     idToken?: string;
     refreshToken?: string;
     username?: string;

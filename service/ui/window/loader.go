@@ -33,6 +33,16 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 		if window == nil || window.View.Content == nil {
 			return nil, fmt.Errorf("workspace forge window %q has no view content", windowKey)
 		}
+		if window.Actions == nil || strings.TrimSpace(window.Actions.Code) == "" {
+			jsBase := metaURL.Join(workspaceWindowRoot, windowKey)
+			if resolvedJSPath, err := loader.ResolveWindowAsset(ctx, jsBase, ".js", target); err == nil {
+				code, err := loader.Download(ctx, resolvedJSPath)
+				if err != nil {
+					return nil, err
+				}
+				window.SetCode(code)
+			}
+		}
 		if err := MergeWorkspaceForgeAssets(ctx, window); err != nil {
 			return nil, err
 		}

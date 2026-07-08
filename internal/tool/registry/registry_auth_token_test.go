@@ -121,6 +121,30 @@ func TestExecute_UsesRefreshedAuthContextForMCPCall(t *testing.T) {
 	}
 }
 
+func TestStructuredContentString_UnwrapsSingleStringResult(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		in   map[string]interface{}
+		want string
+		ok   bool
+	}{
+		{name: "result", in: map[string]interface{}{"result": `{"status":"ok"}`}, want: `{"status":"ok"}`, ok: true},
+		{name: "text", in: map[string]interface{}{"text": "hello"}, want: "hello", ok: true},
+		{name: "ordinary object", in: map[string]interface{}{"status": "ok"}, ok: false},
+		{name: "extra field", in: map[string]interface{}{"result": "ok", "status": "ok"}, ok: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, ok := structuredContentString(testCase.in)
+			if ok != testCase.ok {
+				t.Fatalf("ok = %v, want %v", ok, testCase.ok)
+			}
+			if got != testCase.want {
+				t.Fatalf("result = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 type reconnectingCallClient struct {
 	errOnCall error
 	options   *mcpclient.RequestOptions

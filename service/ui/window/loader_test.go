@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/viant/agently-core/workspace"
@@ -217,6 +218,87 @@ title: Android platform
 		}
 		if got.View.Content.Title != "Android phone" {
 			t.Fatalf("expected exact android/phone target title, got %#v", got.View.Content)
+		}
+	})
+}
+
+func TestLoadWorkspaceWindowLoadsRootSiblingActionCodeForFolderizedWindow(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		base := filepath.Join(root, workspace.KindForgeWindow, "metricReportBuilder")
+		mustWriteLoaderFile(t, filepath.Join(base, "shared", "main.yaml"), `
+namespace: Performance Metrics
+presentation: hosted
+region: chat.top
+view:
+  content:
+    id: metricsCubeBuilder
+    kind: dashboard.reportBuilder
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "metricReportBuilder.js"), `
+(() => ({
+  stewardReportBuilder: {
+    buildRequest() {
+      return {};
+    },
+  },
+}))()
+`)
+
+		got, err := LoadWorkspaceWindow(context.Background(), "metricReportBuilder", &metaSvc.TargetContext{
+			Platform:   "web",
+			FormFactor: "desktop",
+			Surface:    "app",
+		})
+		if err != nil {
+			t.Fatalf("load workspace window: %v", err)
+		}
+		if got == nil {
+			t.Fatalf("expected workspace window")
+		}
+		if strings.TrimSpace(got.Actions.Code) == "" {
+			t.Fatalf("expected root sibling action code to load for folderized workspace window")
+		}
+	})
+}
+
+func TestLoadWorkspaceWindowLoadsRootSiblingActionCodeForFolderizedWindowInBrowserSurface(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		base := filepath.Join(root, workspace.KindForgeWindow, "metricReportBuilder")
+		mustWriteLoaderFile(t, filepath.Join(base, "shared", "main.yaml"), `
+namespace: Performance Metrics
+presentation: hosted
+region: chat.top
+view:
+  content:
+    id: metricsCubeBuilder
+    kind: dashboard.reportBuilder
+`)
+		mustWriteLoaderFile(t, filepath.Join(base, "web", "main.yaml"), `
+$import('../shared/main.yaml')
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "metricReportBuilder.js"), `
+(() => ({
+  stewardReportBuilder: {
+    buildRequest() {
+      return {};
+    },
+  },
+}))()
+`)
+
+		got, err := LoadWorkspaceWindow(context.Background(), "metricReportBuilder", &metaSvc.TargetContext{
+			Platform:   "web",
+			FormFactor: "desktop",
+			Surface:    "browser",
+		})
+		if err != nil {
+			t.Fatalf("load workspace window: %v", err)
+		}
+		if got == nil {
+			t.Fatalf("expected workspace window")
+		}
+		if strings.TrimSpace(got.Actions.Code) == "" {
+			t.Fatalf("expected root sibling action code to load for browser-targeted folderized workspace window")
 		}
 	})
 }

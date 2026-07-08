@@ -20,6 +20,7 @@ type Record struct {
 	DocumentVersion  int        `json:"documentVersion,omitempty"`
 	Document         []byte     `json:"document,omitempty"`
 	ReportSpec       []byte     `json:"reportSpec,omitempty"`
+	CompileState     []byte     `json:"compileState,omitempty"`
 	ReportFill       []byte     `json:"reportFill,omitempty"`
 	ReportPrint      []byte     `json:"reportPrint,omitempty"`
 	SavedViewOverlay []byte     `json:"savedViewOverlay,omitempty"`

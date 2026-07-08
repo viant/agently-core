@@ -607,6 +607,79 @@ backend:
 	}
 }
 
+func TestWindowHandler_LoadsWorkspaceOwnedFolderizedForgeWindowWithRootSiblingActionCode(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder", "shared", "main.yaml"), `
+namespace: Performance Metrics
+presentation: hosted
+region: chat.top
+view:
+  content:
+    id: metricsCubeBuilder
+    kind: dashboard.reportBuilder
+`)
+
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder.js"), `
+(() => ({
+  stewardReportBuilder: {
+    buildRequest() {
+      return {};
+    },
+  },
+}))()
+`)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/window/metricReportBuilder", nil)
+	newHandler("file://"+metaRoot, nil).ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Data   struct {
+			Namespace string `json:"namespace"`
+			Actions   struct {
+				Code string `json:"code"`
+			} `json:"actions"`
+			View struct {
+				Content struct {
+					ID   string `json:"id"`
+					Kind string `json:"kind"`
+				} `json:"content"`
+			} `json:"view"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(strings.NewReader(recorder.Body.String())).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", payload.Status)
+	}
+	if payload.Data.Namespace != "Performance Metrics" {
+		t.Fatalf("expected workspace namespace, got %q", payload.Data.Namespace)
+	}
+	if payload.Data.View.Content.ID != "metricsCubeBuilder" {
+		t.Fatalf("expected imported content id, got %q", payload.Data.View.Content.ID)
+	}
+	if payload.Data.View.Content.Kind != "dashboard.reportBuilder" {
+		t.Fatalf("expected imported report builder kind, got %q", payload.Data.View.Content.Kind)
+	}
+	if strings.TrimSpace(payload.Data.Actions.Code) == "" {
+		t.Fatalf("expected folderized workspace window action code in HTTP response")
+	}
+}
+
 func TestWindowHandler_LoadsWorkspaceOwnedForgeForecastingBuilderWithImportedSharedContent(t *testing.T) {
 	metaRoot := t.TempDir()
 	workspaceRoot := t.TempDir()

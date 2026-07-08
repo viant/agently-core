@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
@@ -86,6 +88,7 @@ func handleActivateSkill(client Client) http.HandlerFunc {
 
 func handleExecuteTool(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
 		name := strings.TrimSpace(r.PathValue("name"))
 		if name == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("tool name is required"))
@@ -100,17 +103,21 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
+		debugMCPExecf("http execute start name=%s argsKeys=%d", name, len(args))
 		result, err := client.ExecuteTool(ctx, name, args)
+		debugMCPExecf("http execute done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
 			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
+		debugMCPExecf("http execute wrote response name=%s elapsed=%s", name, time.Since(start).Round(time.Millisecond))
 	}
 }
 
 func handleExecuteToolByName(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
 		var req struct {
 			Name string                 `json:"name"`
 			Args map[string]interface{} `json:"args"`
@@ -129,13 +136,23 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
+		debugMCPExecf("http execute-by-name start name=%s argsKeys=%d", name, len(req.Args))
 		result, err := client.ExecuteTool(ctx, name, req.Args)
+		debugMCPExecf("http execute-by-name done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
 			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
+		debugMCPExecf("http execute-by-name wrote response name=%s elapsed=%s", name, time.Since(start).Round(time.Millisecond))
 	}
+}
+
+func debugMCPExecf(format string, args ...interface{}) {
+	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_EXEC")) == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "[mcp-exec] "+format+"\n", args...)
 }
 
 func resourcePathRef(r *http.Request) (*ResourceRef, error) {

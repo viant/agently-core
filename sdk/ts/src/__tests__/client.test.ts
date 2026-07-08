@@ -415,6 +415,28 @@ describe('Turns', () => {
     });
 });
 
+// ─── Auth ──────────────────────────────────────────────────────────────────────
+
+describe('Auth', () => {
+    it('oobLogin sends POST with backend-compatible secretsURL and scopes payload', async () => {
+        const f = mockFetch(200, { sessionId: 'sess-oob-1', username: 'awitas' });
+        const c = client(f);
+        const res = await c.oobLogin({
+            secretsURL: '/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default',
+            scopes: ['openid', 'profile', 'email'],
+        });
+
+        expect(res.sessionId).toBe('sess-oob-1');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/api/auth/oob');
+        expect(call.body).toEqual({
+            secretsURL: '/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default',
+            scopes: ['openid', 'profile', 'email'],
+        });
+    });
+});
+
 // ─── Tool Approvals ────────────────────────────────────────────────────────────
 
 describe('Tool Approvals', () => {
