@@ -1,9 +1,11 @@
 package core
 
 import (
+	"context"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/protocol/tool"
 	overlaypkg "github.com/viant/agently-core/workspace/overlay"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
@@ -97,10 +99,21 @@ func (s *Service) enriched(defs []llm.ToolDefinition) []llm.ToolDefinition {
 // EnrichedToolDefinitions exposes the executor definitions with overlay
 // enrichment so callers return UI-ready schemas.
 func (s *Service) EnrichedToolDefinitions() []llm.ToolDefinition {
+	return s.EnrichedToolDefinitionsWithContext(context.Background())
+}
+
+// EnrichedToolDefinitionsWithContext exposes executor definitions with overlay
+// enrichment using request-scoped context when the registry supports it.
+func (s *Service) EnrichedToolDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
 	if s == nil || s.registry == nil {
 		return nil
 	}
-	base := s.registry.Definitions()
+	var base []llm.ToolDefinition
+	if lister, ok := s.registry.(tool.ContextDefinitionLister); ok {
+		base = lister.DefinitionsWithContext(ctx)
+	} else {
+		base = s.registry.Definitions()
+	}
 	if len(base) == 0 {
 		return base
 	}

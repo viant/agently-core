@@ -55,6 +55,18 @@ type ContextMatcher interface {
 	MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition
 }
 
+// ContextDefinitionLister is an optional extension for registries that can list
+// tool definitions using request-scoped context.
+type ContextDefinitionLister interface {
+	DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition
+}
+
+// ContextDefinitionGetter is an optional extension for registries that can fetch
+// a tool definition using request-scoped context.
+type ContextDefinitionGetter interface {
+	GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool)
+}
+
 // TimeoutResolver may be implemented by registries that can suggest per-tool
 // execution timeouts.  The returned duration should be >0 to take effect; the
 // boolean indicates whether a suggestion is available for the given name.

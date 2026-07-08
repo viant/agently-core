@@ -1673,11 +1673,16 @@ func nullableString(value interface{}) interface{} {
 	return text
 }
 
-func listToolDefinitions(c *backendClient) ([]ToolDefinitionInfo, error) {
+func listToolDefinitions(c *backendClient, ctx context.Context) ([]ToolDefinitionInfo, error) {
 	if c.registry == nil {
 		return nil, nil
 	}
-	defs := c.registry.Definitions()
+	var defs []llm.ToolDefinition
+	if lister, ok := c.registry.(tool.ContextDefinitionLister); ok {
+		defs = lister.DefinitionsWithContext(ctx)
+	} else {
+		defs = c.registry.Definitions()
+	}
 	out := make([]ToolDefinitionInfo, len(defs))
 	for i, d := range defs {
 		out[i] = ToolDefinitionInfo{Name: d.Name, Description: d.Description, Parameters: d.Parameters, Required: d.Required, OutputSchema: d.OutputSchema, Cacheable: d.Cacheable}

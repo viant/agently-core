@@ -273,7 +273,13 @@ func (c *backendClient) DeleteConversation(ctx context.Context, id string) error
 	if c.data == nil {
 		return errors.New("data service not configured")
 	}
-	return c.data.DeleteConversationTree(ctx, conversationID)
+	if err := c.data.DeleteConversationTree(ctx, conversationID); err != nil {
+		return err
+	}
+	if c.mcpMgr != nil {
+		c.mcpMgr.CloseConversation(conversationID)
+	}
+	return nil
 }
 
 func ensureGoalsFeatureEnabled() error {
@@ -1074,8 +1080,8 @@ func (c *backendClient) ListPendingToolApprovals(ctx context.Context, input *Lis
 func (c *backendClient) DecideToolApproval(ctx context.Context, input *DecideToolApprovalInput) (*DecideToolApprovalOutput, error) {
 	return decideToolApproval(c, ctx, input)
 }
-func (c *backendClient) ListToolDefinitions(_ context.Context) ([]ToolDefinitionInfo, error) {
-	return listToolDefinitions(c)
+func (c *backendClient) ListToolDefinitions(ctx context.Context) ([]ToolDefinitionInfo, error) {
+	return listToolDefinitions(c, ctx)
 }
 func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) (*ListSkillsOutput, error) {
 	if c.skills == nil {

@@ -2806,6 +2806,7 @@ func seedForMessageAndElicitation(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO conversation (id, created_at) VALUES (?, ?)`, Params: []interface{}{"c-main", "2026-01-01T09:00:00Z"}},
 		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"t-run-main", "c-main", "2026-01-01T09:10:00Z", "running"}},
 		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, interim, elicitation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-main", "c-main", "t-run-main", "2026-01-01T09:10:00Z", "assistant", "text", "main", 1, "elic-1"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, content, interim, elicitation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-response", "c-main", "t-run-main", "2026-01-01T09:11:00Z", "user", "elicitation_response", `{"answer":"ok"}`, 0, "elic-1"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }

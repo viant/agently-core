@@ -11,6 +11,7 @@ type modeKey struct{}
 type Mode struct {
 	Scheduler     bool
 	Strict        bool
+	Background    bool
 	ScheduleID    string
 	ScheduleRunID string
 }
@@ -35,9 +36,19 @@ func ModeFromContext(ctx context.Context) (Mode, bool) {
 	return mode, true
 }
 
+func WithBackground(ctx context.Context) context.Context {
+	return MergeMode(ctx, Mode{Background: true})
+}
+
+func BackgroundFromContext(ctx context.Context) bool {
+	mode, ok := ModeFromContext(ctx)
+	return ok && mode.Background
+}
+
 func MergeMode(ctx context.Context, update Mode) context.Context {
 	base, _ := ModeFromContext(ctx)
 	base.Scheduler = base.Scheduler || update.Scheduler
+	base.Background = base.Background || update.Background
 	if update.Strict {
 		base.Strict = true
 	}

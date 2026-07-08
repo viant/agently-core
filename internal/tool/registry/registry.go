@@ -442,6 +442,11 @@ func newToolCacheEntry(def *llm.ToolDefinition, mcpDef mcpschema.Tool, inject bo
 // ---------------------------------------------------------------------------
 
 func (r *Registry) Definitions() []llm.ToolDefinition {
+	return r.DefinitionsWithContext(context.Background())
+}
+
+func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+	ctx = r.discoveryLookupContext(ctx)
 	var defs []llm.ToolDefinition
 	// Always include virtual tools.
 	r.mu.RLock()
@@ -473,7 +478,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	r.mu.RUnlock()
 
 	// Try to aggregate current server tools; merge with cache, but never remove on failure.
-	discoveryCtx, cancel := r.withDiscoveryTimeout(context.TODO())
+	discoveryCtx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
 		if cancel != nil {
 			cancel()
@@ -516,16 +521,17 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 }
 
 func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
-	ctx, cancel := r.withDiscoveryTimeout(context.TODO())
+	return r.MatchDefinitionWithContext(context.Background(), pattern)
+}
+
+func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	ctx = r.discoveryLookupContext(ctx)
+	ctx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
 		if cancel != nil {
 			cancel()
 		}
 	}()
-	return r.MatchDefinitionWithContext(ctx, pattern)
-}
-
-func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
 	var result []*llm.ToolDefinition
 	seen := map[string]struct{}{}
 
@@ -630,6 +636,10 @@ func isExplicitPattern(pattern string) bool {
 }
 
 func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	return r.GetDefinitionWithContext(context.Background(), name)
+}
+
+func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
 	// Lightweight debug hook to trace how tool definitions are resolved.
 	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {
@@ -648,7 +658,8 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 		return nil, false
 	}
 	injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
-	discoveryCtx, cancel := r.withDiscoveryTimeout(context.TODO())
+	ctx = r.discoveryLookupContext(ctx)
+	discoveryCtx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
 		if cancel != nil {
 			cancel()
@@ -683,6 +694,19 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (r *Registry) discoveryLookupContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
+		return ctx
+	}
+	if runtimediscovery.BackgroundFromContext(ctx) {
+		return ctx
+	}
+	return runtimediscovery.WithBackground(ctx)
 }
 
 func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
@@ -839,11 +863,19 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), len(res.StructuredContent))
 				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {
 					// reconnect and retry
+					log.Printf("[warn][mcp-client-pool] reconnect requested server=%q scope_type=conversation conv_id=%q reason=tool_error attempt=%d err=%v",
+						server, convID, attempt+1, terr)
 					if _, rerr := r.mgr.Reconnect(ctx, convID, server); rerr == nil {
 						if ncli, gerr := r.mgr.Get(ctx, convID, server); gerr == nil {
 							px, _ = mcpproxy.NewProxy(ctx, server, ncli)
 							continue
+						} else {
+							log.Printf("[warn][mcp-client-pool] reconnect get failed server=%q scope_type=conversation conv_id=%q attempt=%d err=%v",
+								server, convID, attempt+1, gerr)
 						}
+					} else {
+						log.Printf("[warn][mcp-client-pool] reconnect failed server=%q scope_type=conversation conv_id=%q attempt=%d err=%v",
+							server, convID, attempt+1, rerr)
 					}
 				}
 				return "", terr
@@ -852,11 +884,19 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 		// Transport/client-level error
 		if r.mgr != nil && isReconnectableError(err) && attempt < maxAttempts-1 {
+			log.Printf("[warn][mcp-client-pool] reconnect requested server=%q scope_type=conversation conv_id=%q reason=transport_error attempt=%d err=%v",
+				server, convID, attempt+1, err)
 			if _, rerr := r.mgr.Reconnect(ctx, convID, server); rerr == nil {
 				if ncli, gerr := r.mgr.Get(ctx, convID, server); gerr == nil {
 					px, _ = mcpproxy.NewProxy(ctx, server, ncli)
 					continue
+				} else {
+					log.Printf("[warn][mcp-client-pool] reconnect get failed server=%q scope_type=conversation conv_id=%q attempt=%d err=%v",
+						server, convID, attempt+1, gerr)
 				}
+			} else {
+				log.Printf("[warn][mcp-client-pool] reconnect failed server=%q scope_type=conversation conv_id=%q attempt=%d err=%v",
+					server, convID, attempt+1, rerr)
 			}
 		}
 		// Non-reconnectable or reconnect failed
@@ -1304,7 +1344,7 @@ func (r *Registry) Initialize(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			tools, err := r.listServerTools(ctx, server)
+			tools, err := r.listServerTools(runtimediscovery.WithBackground(ctx), server)
 			if err != nil {
 				r.warnf("list tools failed for %s: %v", server, err)
 				return
@@ -1430,6 +1470,7 @@ func (r *Registry) monitorServer(ctx context.Context, server string) {
 
 // refreshServerTools lists tools for a server and atomically replaces its cache entries.
 func (r *Registry) refreshServerTools(ctx context.Context, server string) error {
+	ctx = runtimediscovery.WithBackground(ctx)
 	tools, err := r.listServerTools(ctx, server)
 	if err != nil {
 		return err
@@ -1636,6 +1677,8 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		if r.shouldBypassDiscoveryCooldown(server, scope) {
 			r.clearDiscoveryFailure(server, scope)
 		} else {
+			log.Printf("[warn][mcp-discovery] cooldown active server=%q scope=%q scope_type=%s err=%v",
+				server, scope, discoveryScopeType(scope, server), err)
 			r.warnDiscoveryListIssue(server, scope, "cooldown", err, userID, useID, tokenFingerprint(token))
 			return nil, err
 		}
@@ -1684,8 +1727,12 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	if r == nil || r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
 	}
+	log.Printf("[warn][mcp-discovery] reconnect requested server=%q scope=%q scope_type=%s reason=list_tools_retry",
+		server, scope, discoveryScopeType(scope, server))
 	if _, err := r.mgr.Reconnect(ctx, scope, server); err != nil {
 		r.noteDiscoveryFailure(server, scope, err)
+		log.Printf("[warn][mcp-discovery] reconnect failed server=%q scope=%q scope_type=%s err=%v",
+			server, scope, discoveryScopeType(scope, server), err)
 		return nil, err
 	}
 	var cli mcpclient.Interface
@@ -1696,6 +1743,8 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	})
 	if err != nil {
 		r.noteDiscoveryFailure(server, scope, err)
+		log.Printf("[warn][mcp-discovery] reconnect get failed server=%q scope=%q scope_type=%s err=%v",
+			server, scope, discoveryScopeType(scope, server), err)
 		return nil, err
 	}
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
@@ -1710,6 +1759,8 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 		return nil, err
 	}
 	r.clearDiscoveryFailure(server, scope)
+	log.Printf("[info][mcp-discovery] reconnect retry succeeded server=%q scope=%q scope_type=%s tools=%d",
+		server, scope, discoveryScopeType(scope, server), len(tools))
 	return tools, nil
 }
 
@@ -1808,8 +1859,30 @@ func (r *Registry) discoveryClientScope(ctx context.Context, server string) stri
 	if server == "" {
 		server = "unknown"
 	}
+	if runtimediscovery.BackgroundFromContext(ctx) {
+		scope := fmt.Sprintf("mcp-discovery:%s:background", server)
+		return scope
+	}
 	seq := atomic.AddUint64(&r.discoveryScopeSeq, 1)
-	return fmt.Sprintf("mcp-discovery:%s:%d", server, seq)
+	scope := fmt.Sprintf("mcp-discovery:%s:%d", server, seq)
+	log.Printf("[warn][mcp-discovery] synthetic discovery scope fallback server=%q scope=%q seq=%d reason=%q",
+		server, scope, seq, "no background mode and no conversation id in context")
+	return scope
+}
+
+func discoveryScopeType(scope, server string) string {
+	scope = strings.TrimSpace(scope)
+	server = strings.TrimSpace(server)
+	if scope == "" {
+		return "other"
+	}
+	if strings.EqualFold(scope, "mcp-discovery:"+server+":background") {
+		return "background"
+	}
+	if strings.HasPrefix(scope, "mcp-discovery:"+server+":") {
+		return "synthetic_seq"
+	}
+	return "conversation"
 }
 
 func (r *Registry) waitDiscoveryStage(ctx context.Context, server, stage string, fn func(context.Context) error) error {

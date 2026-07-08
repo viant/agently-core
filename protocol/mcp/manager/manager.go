@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -104,28 +106,41 @@ type Manager struct {
 	mu       sync.Mutex
 	pool     map[string]map[string]*entry      // poolKey -> serverName -> entry
 	inflight map[string]map[string]*createCall // poolKey -> serverName -> in-flight client creation
+	epoch    map[string]uint64                 // poolKey -> invalidation generation
+
+	poolSummaryEvery time.Duration
+	poolSummaryAt    time.Time
 }
 
 type entry struct {
-	client mcpclient.Interface
-	usedAt time.Time
+	client  mcpclient.Interface
+	managed *managedClient
+	usedAt  time.Time
+	active  int
+	evicted bool
+	closed  bool
+	epoch   uint64
 }
 
 type createCall struct {
-	ready  chan struct{}
-	client mcpclient.Interface
-	err    error
+	ready chan struct{}
+	entry *entry
+	err   error
+	epoch uint64
 }
 
 // New creates a Manager with the given Provider and options.
 func New(prov Provider, opts ...Option) (*Manager, error) {
-	// Default idle TTL reduced to 5 minutes to ensure per-conversation
-	// MCP clients are disconnected and removed promptly when idle.
 	m := &Manager{
 		prov:     prov,
-		ttl:      5 * time.Minute,
+		ttl:      30 * time.Minute,
 		pool:     map[string]map[string]*entry{},
 		inflight: map[string]map[string]*createCall{},
+		epoch:    map[string]uint64{},
+		// Activity-driven summary: emitted from Get/Reconnect paths, not by
+		// starting a separate goroutine.
+		poolSummaryEvery: 15 * time.Minute,
+		//poolSummaryEvery: 2 * time.Minute,
 	}
 	for _, o := range opts {
 		if err := o(m); err != nil {
@@ -174,8 +189,10 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	}
 	if e := m.pool[key][serverName]; e != nil && e.client != nil {
 		e.usedAt = time.Now()
-		client := e.client
+		client := m.ensureManagedLocked(key, serverName, e)
+		summary := m.poolSummaryLogLinesLocked(time.Now())
 		m.mu.Unlock()
+		logPoolSummary(summary)
 		return client, nil
 	}
 	if m.inflight[key] == nil {
@@ -185,18 +202,18 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		m.mu.Unlock()
 		select {
 		case <-call.ready:
-			if call.client == nil {
+			if call.entry == nil || call.entry.managed == nil {
 				if call.err != nil {
 					return nil, call.err
 				}
 				return nil, errors.New("mcp manager: client creation returned nil")
 			}
-			return call.client, nil
+			return call.entry.managed, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
-	call := &createCall{ready: make(chan struct{})}
+	call := &createCall{ready: make(chan struct{}), epoch: m.epoch[key]}
 	m.inflight[key][serverName] = call
 	m.mu.Unlock()
 
@@ -212,14 +229,21 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if len(m.inflight[key]) == 0 {
 		delete(m.inflight, key)
 	}
-	call.client = client
 	call.err = err
-	close(call.ready)
 	if err != nil {
+		close(call.ready)
 		return nil, err
 	}
 	if client == nil {
-		return nil, errors.New("mcp manager: nil client returned")
+		call.err = errors.New("mcp manager: nil client returned")
+		close(call.ready)
+		return nil, call.err
+	}
+	if m.epoch[key] != call.epoch {
+		call.err = errors.New("mcp manager: client creation discarded after conversation close")
+		close(call.ready)
+		closeClientBestEffort(client)
+		return nil, call.err
 	}
 	// Double-check under lock: another goroutine may have inserted meanwhile.
 	if m.pool[key] == nil {
@@ -230,10 +254,19 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		if e.client != client {
 			closeClientBestEffort(client)
 		}
-		return e.client, nil
+		managed := m.ensureManagedLocked(key, serverName, e)
+		call.entry = e
+		close(call.ready)
+		return managed, nil
 	}
-	m.pool[key][serverName] = &entry{client: client, usedAt: time.Now()}
-	return client, nil
+	e := &entry{client: client, usedAt: time.Now(), epoch: call.epoch}
+	e.managed = &managedClient{mgr: m, key: key, serverName: serverName, entry: e}
+	m.pool[key][serverName] = e
+	call.entry = e
+	close(call.ready)
+	summary := m.poolSummaryLogLinesLocked(time.Now())
+	logPoolSummary(summary)
+	return e.managed, nil
 }
 
 func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
@@ -351,6 +384,189 @@ func closeClientBestEffort(client mcpclient.Interface) {
 	}
 }
 
+func (m *Manager) ensureManagedLocked(key, serverName string, e *entry) mcpclient.Interface {
+	if e == nil {
+		return nil
+	}
+	if e.managed == nil {
+		e.managed = &managedClient{mgr: m, key: key, serverName: serverName, entry: e}
+	}
+	return e.managed
+}
+
+func (m *Manager) beginUse(e *entry) (mcpclient.Interface, error) {
+	if m == nil || e == nil {
+		return nil, errors.New("mcp manager: nil managed client")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e.evicted || e.closed || e.client == nil {
+		return nil, errors.New("mcp manager: client is closed")
+	}
+	e.active++
+	return e.client, nil
+}
+
+func (m *Manager) endUse(e *entry) {
+	if m == nil || e == nil {
+		return
+	}
+	var toClose mcpclient.Interface
+	m.mu.Lock()
+	if e.active > 0 {
+		e.active--
+	}
+	if e.active == 0 {
+		e.usedAt = time.Now()
+		if e.evicted && !e.closed {
+			e.closed = true
+			toClose = e.client
+		}
+	}
+	m.mu.Unlock()
+	closeClientBestEffort(toClose)
+}
+
+func (m *Manager) evictEntryLocked(key, serverName string, e *entry) mcpclient.Interface {
+	if e == nil {
+		return nil
+	}
+	e.evicted = true
+	if perServer := m.pool[key]; perServer != nil {
+		delete(perServer, serverName)
+		if len(perServer) == 0 {
+			delete(m.pool, key)
+		}
+	}
+	if e.active == 0 && !e.closed {
+		e.closed = true
+		return e.client
+	}
+	return nil
+}
+
+type poolServerSummary struct {
+	server       string
+	total        int
+	background   int
+	conversation int
+	syntheticSeq int
+	other        int
+}
+
+type poolClientSummary struct {
+	server    string
+	poolKey   string
+	scopeType string
+	active    int
+	usedAt    time.Time
+}
+
+func (m *Manager) poolSummaryLogLinesLocked(now time.Time) []string {
+	if m == nil || m.poolSummaryEvery <= 0 {
+		return nil
+	}
+	if !m.poolSummaryAt.IsZero() && now.Sub(m.poolSummaryAt) < m.poolSummaryEvery {
+		return nil
+	}
+	m.poolSummaryAt = now
+
+	byServer := map[string]*poolServerSummary{}
+	clients := []poolClientSummary{}
+	poolKeys := 0
+	totalClients := 0
+	for poolKey, perServer := range m.pool {
+		if len(perServer) == 0 {
+			continue
+		}
+		poolKeys++
+		for serverName, e := range perServer {
+			if e == nil || e.client == nil {
+				continue
+			}
+			serverName = strings.TrimSpace(serverName)
+			if serverName == "" {
+				serverName = "unknown"
+			}
+			summary := byServer[serverName]
+			if summary == nil {
+				summary = &poolServerSummary{server: serverName}
+				byServer[serverName] = summary
+			}
+			totalClients++
+			summary.total++
+			scopeType := poolScopeType(poolKey, serverName)
+			switch scopeType {
+			case "background":
+				summary.background++
+			case "synthetic_seq":
+				summary.syntheticSeq++
+			case "conversation":
+				summary.conversation++
+			default:
+				summary.other++
+			}
+			clients = append(clients, poolClientSummary{
+				server:    serverName,
+				poolKey:   poolKey,
+				scopeType: scopeType,
+				active:    e.active,
+				usedAt:    e.usedAt,
+			})
+		}
+	}
+
+	servers := make([]string, 0, len(byServer))
+	for server := range byServer {
+		servers = append(servers, server)
+	}
+	sort.Strings(servers)
+
+	lines := []string{fmt.Sprintf("[info][mcp-client-pool] summary total=%d pool_keys=%d servers=%d", totalClients, poolKeys, len(servers))}
+	for _, server := range servers {
+		summary := byServer[server]
+		lines = append(lines, fmt.Sprintf("[info][mcp-client-pool] server=%q total=%d background=%d conversation=%d synthetic_seq=%d other=%d",
+			summary.server, summary.total, summary.background, summary.conversation, summary.syntheticSeq, summary.other))
+	}
+	sort.Slice(clients, func(i, j int) bool {
+		if clients[i].server != clients[j].server {
+			return clients[i].server < clients[j].server
+		}
+		return clients[i].poolKey < clients[j].poolKey
+	})
+	for _, client := range clients {
+		lines = append(lines, fmt.Sprintf("[info][mcp-client-pool] client server=%q pool_key=%q scope_type=%s active=%d used_at=%s",
+			client.server, client.poolKey, client.scopeType, client.active, client.usedAt.Format(time.RFC3339Nano)))
+	}
+	return lines
+}
+
+func logPoolSummary(lines []string) {
+	for _, line := range lines {
+		log.Print(line)
+	}
+}
+
+func poolScopeType(poolKey, server string) string {
+	poolKey = strings.TrimSpace(poolKey)
+	server = strings.TrimSpace(server)
+	if poolKey == "" {
+		return "other"
+	}
+	discoveryPrefix := "mcp-discovery:" + server + ":"
+	if idx := strings.Index(poolKey, discoveryPrefix); idx >= 0 {
+		suffix := strings.TrimSpace(poolKey[idx+len(discoveryPrefix):])
+		if suffix == "background" {
+			return "background"
+		}
+		if suffix != "" {
+			return "synthetic_seq"
+		}
+		return "other"
+	}
+	return "conversation"
+}
+
 // Touch updates last-used time for (convID, serverName).
 func (m *Manager) Touch(convID, serverName string) {
 	m.mu.Lock()
@@ -370,15 +586,22 @@ func (m *Manager) Touch(convID, serverName string) {
 func (m *Manager) CloseConversation(convID string) {
 	var toClose []mcpclient.Interface
 	m.mu.Lock()
+	if m.epoch == nil {
+		m.epoch = map[string]uint64{}
+	}
 	for key, perServer := range m.pool {
 		if key == convID || strings.HasSuffix(key, ":"+convID) {
 			for server, e := range perServer {
-				if e != nil && e.client != nil {
-					toClose = append(toClose, e.client)
+				if client := m.evictEntryLocked(key, server, e); client != nil {
+					toClose = append(toClose, client)
 				}
-				delete(perServer, server)
 			}
-			delete(m.pool, key)
+			m.epoch[key]++
+		}
+	}
+	for key := range m.inflight {
+		if key == convID || strings.HasSuffix(key, ":"+convID) {
+			m.epoch[key]++
 		}
 	}
 	m.mu.Unlock()
@@ -394,11 +617,14 @@ func (m *Manager) Reap() {
 	m.mu.Lock()
 	for convID, perServer := range m.pool {
 		for server, e := range perServer {
-			if e == nil || e.usedAt.Before(cutoff) {
-				if e != nil && e.client != nil {
-					toClose = append(toClose, e.client)
-				}
+			if e == nil {
 				delete(perServer, server)
+				continue
+			}
+			if e.active == 0 && e.usedAt.Before(cutoff) {
+				if client := m.evictEntryLocked(convID, server, e); client != nil {
+					toClose = append(toClose, client)
+				}
 			}
 		}
 		if len(perServer) == 0 {
@@ -423,17 +649,26 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 	m.mu.Lock()
 	if m.pool[key] != nil {
 		if e := m.pool[key][serverName]; e != nil && e.client != nil {
-			toClose = e.client
-		}
-		delete(m.pool[key], serverName)
-		if len(m.pool[key]) == 0 {
-			delete(m.pool, key)
+			toClose = m.evictEntryLocked(key, serverName, e)
 		}
 	}
+	summary := m.poolSummaryLogLinesLocked(time.Now())
 	m.mu.Unlock()
+	scopeType := poolScopeType(key, serverName)
+	log.Printf("[warn][mcp-client-pool] reconnect server=%q scope_type=%s conv_id=%q pool_key=%q closing_existing=%v",
+		serverName, scopeType, convID, key, toClose != nil)
+	logPoolSummary(summary)
 	closeClientBestEffort(toClose)
 	// Recreate
-	return m.Get(ctx, convID, serverName)
+	client, err := m.Get(ctx, convID, serverName)
+	if err != nil {
+		log.Printf("[warn][mcp-client-pool] reconnect failed server=%q scope_type=%s conv_id=%q pool_key=%q err=%v",
+			serverName, scopeType, convID, key, err)
+		return nil, err
+	}
+	log.Printf("[info][mcp-client-pool] reconnect succeeded server=%q scope_type=%s conv_id=%q pool_key=%q",
+		serverName, scopeType, convID, key)
+	return client, nil
 }
 
 // StartReaper launches a background goroutine that periodically invokes Reap
