@@ -272,6 +272,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 		out.MCPManager = mgr
+		if ctx != nil {
+			out.MCPManager.StartReaper(ctx, 5*time.Minute)
+		}
 	}
 
 	out.Registry = b.registry

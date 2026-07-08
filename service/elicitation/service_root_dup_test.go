@@ -28,9 +28,10 @@ type seqRecordingConv struct {
 	childConversationID string
 	conversations       map[string]*apiconv.Conversation
 
-	byID     map[string]*apiconv.Message
-	byElic   map[string]*apiconv.Message
-	payloads map[string]*apiconv.Payload
+	byID      map[string]*apiconv.Message
+	byElic    map[string]*apiconv.Message
+	responses map[string]*apiconv.Message
+	payloads  map[string]*apiconv.Payload
 
 	patches []patchCall
 	deleted []patchCall
@@ -43,6 +44,7 @@ func newSeqRecordingConv(childConversationID string) *seqRecordingConv {
 		conversations:       map[string]*apiconv.Conversation{},
 		byID:                map[string]*apiconv.Message{},
 		byElic:              map[string]*apiconv.Message{},
+		responses:           map[string]*apiconv.Message{},
 		payloads:            map[string]*apiconv.Payload{},
 	}
 }
@@ -129,12 +131,28 @@ func (f *seqRecordingConv) GetMessageByElicitation(ctx context.Context, conversa
 	return f.byElic[conversationID+"/"+elicitationID], nil
 }
 
+func (f *seqRecordingConv) GetElicitationResponseMessage(ctx context.Context, conversationID, elicitationID string) (*apiconv.Message, error) {
+	return f.responses[conversationID+"/"+elicitationID], nil
+}
+
 func (f *seqRecordingConv) GetMessageByParentAndElicitation(ctx context.Context, parentMessageID, elicitationID string) (*apiconv.Message, error) {
 	for _, msg := range f.byID {
 		if msg == nil || msg.ParentMessageId == nil || msg.ElicitationId == nil {
 			continue
 		}
 		if *msg.ParentMessageId == parentMessageID && *msg.ElicitationId == elicitationID {
+			return msg, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *seqRecordingConv) GetMessageByLinkedConversationAndElicitation(ctx context.Context, linkedConversationID, elicitationID string) (*apiconv.Message, error) {
+	for _, msg := range f.byID {
+		if msg == nil || msg.LinkedConversationId == nil || msg.ElicitationId == nil {
+			continue
+		}
+		if *msg.LinkedConversationId == linkedConversationID && *msg.ElicitationId == elicitationID && msg.Type != "elicitation_response" {
 			return msg, nil
 		}
 	}
@@ -206,6 +224,9 @@ func (f *seqRecordingConv) PatchMessage(ctx context.Context, m *apiconv.MutableM
 		if m.ParentMessageID != nil {
 			mv.ParentMessageId = m.ParentMessageID
 		}
+		if m.LinkedConversationID != nil {
+			mv.LinkedConversationId = m.LinkedConversationID
+		}
 		if m.ElicitationID != nil {
 			mv.ElicitationId = m.ElicitationID
 		}
@@ -218,7 +239,10 @@ func (f *seqRecordingConv) PatchMessage(ctx context.Context, m *apiconv.MutableM
 		if m.Sequence != nil {
 			mv.Sequence = m.Sequence
 		}
-		if mv.ElicitationId != nil && *mv.ElicitationId != "" && mv.ConversationId != "" {
+		if mv.ElicitationId != nil && *mv.ElicitationId != "" && mv.ConversationId != "" && mv.Type == "elicitation_response" && mv.Role == "user" {
+			f.responses[mv.ConversationId+"/"+*mv.ElicitationId] = mv
+		}
+		if mv.ElicitationId != nil && *mv.ElicitationId != "" && mv.ConversationId != "" && mv.Type != "elicitation_response" {
 			f.byElic[mv.ConversationId+"/"+*mv.ElicitationId] = mv
 		}
 	}
@@ -271,18 +295,33 @@ func TestRecord_ProxiesToTopLevelConversation(t *testing.T) {
 
 	srv := New(fake, nil, router.New(), func() Awaiter { return acceptNoPayloadAwaiter{} })
 
-	turn := &memory.TurnMeta{ConversationID: childID, TurnID: childTurnID}
-	_, err := srv.Record(context.Background(), turn, "assistant", &execution.Elicitation{})
+	childParentMessageID := "child-parent-message"
+	turn := &memory.TurnMeta{ConversationID: childID, TurnID: childTurnID, ParentMessageID: childParentMessageID}
+	recorded, err := srv.Record(context.Background(), turn, "assistant", &execution.Elicitation{})
 	assert.NoError(t, err)
 
 	found := false
+	var proxy *apiconv.Message
 	for _, call := range fake.patches {
 		if call.conversationID == rootID && call.turnID == rootTurnID && call.id != "" {
 			found = true
 			assert.False(t, call.seqProvided, "root-duplicated message must not provide sequence (turn_id, sequence is unique)")
+			proxy = fake.byID[call.id]
 		}
 	}
 	assert.True(t, found, "expected Record to proxy elicitation into the top-level conversation")
+	child := fake.byID[recorded.Id]
+	if assert.NotNil(t, child) && assert.NotNil(t, child.ParentMessageId) {
+		assert.Equal(t, childParentMessageID, *child.ParentMessageId)
+	}
+	if assert.NotNil(t, proxy) {
+		if assert.NotNil(t, proxy.LinkedConversationId) {
+			assert.Equal(t, childID, *proxy.LinkedConversationId)
+		}
+		if assert.NotNil(t, proxy.ParentMessageId) {
+			assert.Equal(t, "", *proxy.ParentMessageId)
+		}
+	}
 }
 
 func TestRecord_ProxiesElicitationEventToTopLevelConversation(t *testing.T) {
@@ -344,9 +383,46 @@ func TestResolve_ChildSubmissionClearsRootProxyAndEmitsBothStreams(t *testing.T)
 	if assert.NotNil(t, child) && assert.NotNil(t, child.Status) {
 		assert.Equal(t, "accepted", *child.Status)
 	}
+	response := fake.responses[childID+"/"+elicID]
+	if assert.NotNil(t, response) && assert.NotNil(t, response.ParentMessageId) {
+		assert.Equal(t, recorded.Id, *response.ParentMessageId)
+	}
 	assertProxyDeleted(t, fake, rootID)
 	assertResolvedEvent(t, publisher.events, childID, elicID)
 	assertResolvedEvent(t, publisher.events, rootID, elicID)
+}
+
+func TestResolve_AcceptRetryDoesNotCreateDuplicateResponsePayload(t *testing.T) {
+	childID := "conv-child"
+	childTurnID := "turn-child"
+
+	fake := newSeqRecordingConv(childID)
+	fake.conversations[childID] = &apiconv.Conversation{Id: childID}
+
+	srv := New(fake, nil, router.New(), nil)
+	turn := &memory.TurnMeta{ConversationID: childID, TurnID: childTurnID}
+	recorded, err := srv.Record(context.Background(), turn, "assistant", &execution.Elicitation{ElicitRequestParams: mcpproto.ElicitRequestParams{
+		Message: "Need input",
+	}})
+	assert.NoError(t, err)
+	elicID := *recorded.ElicitationID
+
+	err = srv.Resolve(context.Background(), childID, elicID, "accept", map[string]interface{}{"answer": "ok"}, "")
+	assert.NoError(t, err)
+	assert.Len(t, fake.responses, 1)
+	assert.Len(t, fake.payloads, 2, "expected request payload and one response payload")
+
+	firstResponse := fake.responses[childID+"/"+elicID]
+	if !assert.NotNil(t, firstResponse) || !assert.NotNil(t, firstResponse.ElicitationPayloadId) {
+		return
+	}
+	firstPayloadID := *firstResponse.ElicitationPayloadId
+
+	err = srv.Resolve(context.Background(), childID, elicID, "accept", map[string]interface{}{"answer": "ok"}, "")
+	assert.NoError(t, err)
+	assert.Len(t, fake.responses, 1)
+	assert.Len(t, fake.payloads, 2, "retry must not create another response payload")
+	assert.Equal(t, firstPayloadID, *fake.responses[childID+"/"+elicID].ElicitationPayloadId)
 }
 
 func TestResolve_ChildSubmissionClearsWaitingRootProxyTurn(t *testing.T) {
@@ -426,6 +502,10 @@ func TestResolve_RootProxySubmissionResolvesAuthoritativeChild(t *testing.T) {
 	child := fake.byID[recorded.Id]
 	if assert.NotNil(t, child) && assert.NotNil(t, child.Status) {
 		assert.Equal(t, "accepted", *child.Status)
+	}
+	response := fake.responses[childID+"/"+elicID]
+	if assert.NotNil(t, response) && assert.NotNil(t, response.ParentMessageId) {
+		assert.Equal(t, recorded.Id, *response.ParentMessageId)
 	}
 	assertProxyDeleted(t, fake, rootID)
 	assertResolvedEvent(t, publisher.events, childID, elicID)

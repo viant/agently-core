@@ -96,6 +96,9 @@ func (s *Service) init(ctx context.Context, dao *datly.Service) error {
 	if err := messageread.DefineMessageByParentAndElicitationComponent(ctx, dao); err != nil {
 		return err
 	}
+	if err := messageread.DefineMessageByLinkedConversationAndElicitationComponent(ctx, dao); err != nil {
+		return err
+	}
 	if err := messagelist.DefineMessageRowsComponent(ctx, dao); err != nil {
 		return err
 	}
@@ -644,7 +647,7 @@ func (s *Service) GetMessageByElicitation(ctx context.Context, conversationID, e
 		ElicitationPayloadId: row.ElicitationPayloadId,
 		ToolName:             row.ToolName,
 		EmbeddingIndex:       row.EmbeddingIndex,
-		Narration:            row.Narration,
+		Narration:            row.Preamble,
 		Iteration:            row.Iteration,
 		Phase:                row.Phase,
 	}
@@ -670,6 +673,67 @@ func (s *Service) GetMessageByParentAndElicitation(ctx context.Context, parentMe
 	}
 	out := &messageread.MessageByParentAndElicitationOutput{}
 	uri := strings.ReplaceAll(messageread.MessageByParentAndElicitationPathURI, "{parentMessageId}", parentMessageID)
+	uri = strings.ReplaceAll(uri, "{elicId}", elicitationID)
+	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		return nil, nil
+	}
+	row := out.Data[0]
+	res := convcli.Message{
+		Id:                   row.Id,
+		ConversationId:       row.ConversationId,
+		TurnId:               row.TurnId,
+		Archived:             row.Archived,
+		Sequence:             row.Sequence,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
+		CreatedByUserId:      row.CreatedByUserId,
+		Status:               row.Status,
+		Mode:                 row.Mode,
+		Role:                 row.Role,
+		Type:                 row.Type,
+		Content:              row.Content,
+		RawContent:           row.RawContent,
+		Summary:              row.Summary,
+		ContextSummary:       row.ContextSummary,
+		Tags:                 row.Tags,
+		Interim:              row.Interim,
+		ElicitationId:        row.ElicitationId,
+		ParentMessageId:      row.ParentMessageId,
+		SupersededBy:         row.SupersededBy,
+		LinkedConversationId: row.LinkedConversationId,
+		AttachmentPayloadId:  row.AttachmentPayloadId,
+		ElicitationPayloadId: row.ElicitationPayloadId,
+		ToolName:             row.ToolName,
+		EmbeddingIndex:       row.EmbeddingIndex,
+		Narration:            row.Narration,
+		Iteration:            row.Iteration,
+		Phase:                row.Phase,
+	}
+	return &res, nil
+}
+
+func (s *Service) GetMessageByLinkedConversationAndElicitation(ctx context.Context, linkedConversationID, elicitationID string) (*convcli.Message, error) {
+	if s == nil || s.dao == nil {
+		return nil, errors.New("conversation service not configured: dao is nil")
+	}
+	linkedConversationID = strings.TrimSpace(linkedConversationID)
+	elicitationID = strings.TrimSpace(elicitationID)
+	if linkedConversationID == "" || elicitationID == "" {
+		return nil, nil
+	}
+	in := messageread.MessageByLinkedConversationAndElicitationInput{
+		LinkedConversationId: linkedConversationID,
+		ElicitationId:        elicitationID,
+		Has: &messageread.MessageByLinkedConversationAndElicitationHas{
+			LinkedConversationId: true,
+			ElicitationId:        true,
+		},
+	}
+	out := &messageread.MessageByLinkedConversationAndElicitationOutput{}
+	uri := strings.ReplaceAll(messageread.MessageByLinkedConversationAndElicitationPathURI, "{linkedConversationId}", linkedConversationID)
 	uri = strings.ReplaceAll(uri, "{elicId}", elicitationID)
 	if _, err := s.dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
 		return nil, err

@@ -17,11 +17,20 @@ func TestDiscoveryModeContext(t *testing.T) {
 
 func TestMergeMode(t *testing.T) {
 	ctx := WithMode(context.Background(), Mode{Scheduler: true, ScheduleID: "sched-1"})
-	ctx = MergeMode(ctx, Mode{Strict: true, ScheduleRunID: "run-1"})
+	ctx = MergeMode(ctx, Mode{Strict: true, Background: true, ScheduleRunID: "run-1"})
 	got, ok := ModeFromContext(ctx)
 	require.True(t, ok)
 	require.True(t, got.Scheduler)
 	require.True(t, got.Strict)
+	require.True(t, got.Background)
 	require.Equal(t, "sched-1", got.ScheduleID)
 	require.Equal(t, "run-1", got.ScheduleRunID)
+}
+
+func TestBackgroundContext(t *testing.T) {
+	ctx := WithBackground(context.Background())
+	require.True(t, BackgroundFromContext(ctx))
+	got, ok := ModeFromContext(ctx)
+	require.True(t, ok)
+	require.True(t, got.Background)
 }

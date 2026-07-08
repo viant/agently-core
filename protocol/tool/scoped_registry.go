@@ -31,25 +31,48 @@ func WithConversation(inner Registry, convID string) Registry {
 	return &scopedRegistry{inner: inner, convID: convID}
 }
 
-// Definitions delegates to the underlying registry.
-func (s *scopedRegistry) Definitions() []llm.ToolDefinition { return s.inner.Definitions() }
+// Definitions delegates to the underlying registry with the scoped conversation.
+func (s *scopedRegistry) Definitions() []llm.ToolDefinition {
+	return s.DefinitionsWithContext(context.Background())
+}
 
-// MatchDefinition delegates to the underlying registry.
+// DefinitionsWithContext delegates to the underlying registry when it supports
+// ContextDefinitionLister; otherwise falls back to Definitions.
+func (s *scopedRegistry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+	ctx = s.withConversation(ctx)
+	if lister, ok := s.inner.(ContextDefinitionLister); ok {
+		return lister.DefinitionsWithContext(ctx)
+	}
+	return s.inner.Definitions()
+}
+
+// MatchDefinition delegates to the underlying registry with the scoped conversation.
 func (s *scopedRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
-	return s.inner.MatchDefinition(pattern)
+	return s.MatchDefinitionWithContext(context.Background(), pattern)
 }
 
 // MatchDefinitionWithContext delegates to the underlying registry when it
 // supports ContextMatcher; otherwise falls back to MatchDefinition.
 func (s *scopedRegistry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	ctx = s.withConversation(ctx)
 	if cm, ok := s.inner.(ContextMatcher); ok {
 		return cm.MatchDefinitionWithContext(ctx, pattern)
 	}
 	return s.inner.MatchDefinition(pattern)
 }
 
-// GetDefinition delegates to the underlying registry.
+// GetDefinition delegates to the underlying registry with the scoped conversation.
 func (s *scopedRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
+	return s.GetDefinitionWithContext(context.Background(), name)
+}
+
+// GetDefinitionWithContext delegates to the underlying registry when it supports
+// ContextDefinitionGetter; otherwise falls back to GetDefinition.
+func (s *scopedRegistry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+	ctx = s.withConversation(ctx)
+	if getter, ok := s.inner.(ContextDefinitionGetter); ok {
+		return getter.GetDefinitionWithContext(ctx, name)
+	}
 	return s.inner.GetDefinition(name)
 }
 
@@ -61,12 +84,18 @@ func (s *scopedRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 // Execute injects the conversation ID into context and delegates to the
 // underlying registry.
 func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-	if s.convID != "" {
-		if runtimerequestctx.ConversationIDFromContext(ctx) == "" {
-			ctx = runtimerequestctx.WithConversationID(ctx, s.convID)
-		}
-	}
+	ctx = s.withConversation(ctx)
 	return s.inner.Execute(ctx, name, args)
+}
+
+func (s *scopedRegistry) withConversation(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s.convID != "" && runtimerequestctx.ConversationIDFromContext(ctx) == "" {
+		ctx = runtimerequestctx.WithConversationID(ctx, s.convID)
+	}
+	return ctx
 }
 
 // SetDebugLogger delegates to the underlying registry.

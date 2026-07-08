@@ -412,14 +412,28 @@ func (s *Service) toolDetails(ctx context.Context, in, out interface{}) error {
 			if name == "" {
 				continue
 			}
-			if def, ok := s.registry.GetDefinition(name); ok && def != nil {
+			var (
+				def *llm.ToolDefinition
+				ok  bool
+			)
+			if getter, supportsContext := s.registry.(toolreg.ContextDefinitionGetter); supportsContext {
+				def, ok = getter.GetDefinitionWithContext(ctx, name)
+			} else {
+				def, ok = s.registry.GetDefinition(name)
+			}
+			if ok && def != nil {
 				items = append(items, toolDetailsItem(*def))
 			}
 		}
 		tdo.Items = items
 		return nil
 	}
-	defs := s.registry.Definitions()
+	var defs []llm.ToolDefinition
+	if lister, supportsContext := s.registry.(toolreg.ContextDefinitionLister); supportsContext {
+		defs = lister.DefinitionsWithContext(ctx)
+	} else {
+		defs = s.registry.Definitions()
+	}
 	items := make([]ToolDetailsItem, 0, len(defs))
 	for _, def := range defs {
 		if strings.TrimSpace(def.Name) == "" {

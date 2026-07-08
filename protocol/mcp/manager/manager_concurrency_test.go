@@ -102,8 +102,17 @@ func TestManagerGet_SingleFlightsConcurrentClientCreation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Get(%d) error = %v", i, err)
 		}
-		if results[i] != expected {
-			t.Fatalf("Get(%d) client mismatch: got %p want %p", i, results[i], expected)
+		if results[i] == nil {
+			t.Fatalf("Get(%d) returned nil client", i)
 		}
+		if results[i] != results[0] {
+			t.Fatalf("Get(%d) client mismatch: got %p want %p", i, results[i], results[0])
+		}
+	}
+	if _, err := results[0].ListTools(context.Background(), nil); err != nil {
+		t.Fatalf("managed client ListTools() error = %v", err)
+	}
+	if expected == nil {
+		t.Fatalf("expected raw client should remain allocated")
 	}
 }

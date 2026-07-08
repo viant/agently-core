@@ -562,6 +562,9 @@ func (c *Client) GetMessageByElicitation(_ context.Context, conversationID, elic
 			if m == nil || m.ElicitationId == nil {
 				continue
 			}
+			if strings.EqualFold(strings.TrimSpace(m.Type), "elicitation_response") {
+				continue
+			}
 			if *m.ElicitationId == elicitationID {
 				return toClientMessage(copyMessage(m)), nil
 			}
@@ -584,6 +587,29 @@ func (c *Client) GetMessageByParentAndElicitation(_ context.Context, parentMessa
 			continue
 		}
 		if strings.TrimSpace(*m.ParentMessageId) == parentMessageID && strings.TrimSpace(*m.ElicitationId) == elicitationID {
+			return toClientMessage(copyMessage(m)), nil
+		}
+	}
+	return nil, nil
+}
+
+// GetMessageByLinkedConversationAndElicitation returns the proxy message for a child elicitation.
+func (c *Client) GetMessageByLinkedConversationAndElicitation(_ context.Context, linkedConversationID, elicitationID string) (*convcli.Message, error) {
+	linkedConversationID = strings.TrimSpace(linkedConversationID)
+	elicitationID = strings.TrimSpace(elicitationID)
+	if linkedConversationID == "" || elicitationID == "" {
+		return nil, nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, m := range c.messages {
+		if m == nil || m.LinkedConversationId == nil || m.ElicitationId == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(m.Type), "elicitation_response") {
+			continue
+		}
+		if strings.TrimSpace(*m.LinkedConversationId) == linkedConversationID && strings.TrimSpace(*m.ElicitationId) == elicitationID {
 			return toClientMessage(copyMessage(m)), nil
 		}
 	}
