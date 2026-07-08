@@ -189,6 +189,13 @@ func (r *Registry) debugf(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(r.debugWriter, "[tools] "+format+"\n", args...)
 }
 
+func debugMCPExecf(format string, args ...interface{}) {
+	if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_EXEC")) == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "[mcp-exec] "+format+"\n", args...)
+}
+
 // WithManager attaches a per-conversation MCP manager used to inject the
 // appropriate client and auth token into the context at call-time.
 func (r *Registry) WithManager(m *manager.Manager) *Registry { r.mgr = m; return r }
@@ -697,6 +704,7 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	execStart := time.Now()
 	// Handle selector suffix and base tool name
 	var selector string
 	baseName := name
@@ -705,6 +713,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		selector = strings.TrimSpace(name[i+1:])
 	}
 	callArgs := args
+	debugMCPExecf("registry execute start name=%s base=%s selector=%q argsKeys=%d", name, baseName, selector, len(args))
 	if r != nil {
 		var cancel context.CancelFunc
 		ctx, cancel, callArgs = r.applyTimeoutMs(ctx, baseName, callArgs)
@@ -771,12 +780,16 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	var err error
 	if c, ok := r.internal[server]; ok && c != nil {
 		cli = c
+		debugMCPExecf("registry client internal server=%s base=%s", server, baseName)
 	} else {
+		debugMCPExecf("registry client manager get start server=%s convID=%s base=%s", server, convID, baseName)
 		cli, err = r.mgr.Get(ctx, convID, server)
 	}
 	if err != nil {
+		debugMCPExecf("registry client get error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", err
 	}
+	debugMCPExecf("registry client ready server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 	if r.mgr != nil {
 		defer r.mgr.Touch(convID, server)
 	}
@@ -805,13 +818,25 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 
 	// Use proxy to normalize tool name and execute with reconnect-aware retry.
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
+	if px == nil {
+		err := fmt.Errorf("mcp proxy is nil for server %s", server)
+		debugMCPExecf("registry proxy error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
+		return "", err
+	}
 	const maxAttempts = 3 // initial + 2 retries
 	var res *mcpschema.CallToolResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		attemptStart := time.Now()
+		debugMCPExecf("registry calltool start server=%s base=%s attempt=%d argsBytes=%d", server, baseName, attempt+1, len(keyArgs))
 		res, err = px.CallTool(ctx, baseName, callArgs, options...)
+		debugMCPExecf("registry calltool done server=%s base=%s attempt=%d elapsed=%s err=%v nilResult=%v", server, baseName, attempt+1, time.Since(attemptStart).Round(time.Millisecond), err, res == nil)
 		if err == nil {
+			if res == nil {
+				break
+			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
+				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), len(res.StructuredContent))
 				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {
 					// reconnect and retry
 					if _, rerr := r.mgr.Reconnect(ctx, convID, server); rerr == nil {
@@ -835,12 +860,52 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			}
 		}
 		// Non-reconnectable or reconnect failed
+		debugMCPExecf("registry calltool returning transport error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", err
 	}
-	// Compose textual result prioritising structured → json/text → first content
+	if res == nil {
+		err := fmt.Errorf("mcp tool %s returned nil result", baseName)
+		debugMCPExecf("registry nil result server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
+		return "", err
+	}
+	debugMCPExecf("registry compose start server=%s base=%s elapsed=%s content=%d structured=%d isError=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), len(res.Content), len(res.StructuredContent), res.IsError != nil && *res.IsError)
+	// Compose textual result prioritising text content, then structured content.
+	for _, c := range res.Content {
+		if text := strings.TrimSpace(callToolContentText(c)); text != "" {
+			debugMCPExecf("registry compose text server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(text))
+			if selector != "" {
+				return r.applySelector(text, selector)
+			}
+			if r.recentTTL > 0 {
+				r.recentMu.Lock()
+				if r.recentResults[convID] == nil {
+					r.recentResults[convID] = map[string]recentItem{}
+				}
+				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: text}
+				r.recentMu.Unlock()
+			}
+			return text, nil
+		}
+	}
 	if res.StructuredContent != nil {
+		if out, ok := structuredContentString(res.StructuredContent); ok {
+			debugMCPExecf("registry compose structured-string server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(out))
+			if selector != "" {
+				return r.applySelector(out, selector)
+			}
+			if r.recentTTL > 0 {
+				r.recentMu.Lock()
+				if r.recentResults[convID] == nil {
+					r.recentResults[convID] = map[string]recentItem{}
+				}
+				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: out}
+				r.recentMu.Unlock()
+			}
+			return out, nil
+		}
 		if data, err := json.Marshal(res.StructuredContent); err == nil {
 			out := string(data)
+			debugMCPExecf("registry compose structured-json server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(out))
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
@@ -857,6 +922,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	for _, c := range res.Content {
 		if text := strings.TrimSpace(callToolContentText(c)); text != "" {
+			debugMCPExecf("registry compose fallback-text server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(text))
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
@@ -875,12 +941,27 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	if len(res.Content) > 0 {
 		raw, _ := json.Marshal(res.Content[0])
 		out := string(raw)
+		debugMCPExecf("registry compose raw-content server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(out))
 		if selector != "" {
 			return r.applySelector(out, selector)
 		}
 		return out, nil
 	}
+	debugMCPExecf("registry compose empty server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 	return "", nil
+}
+
+func structuredContentString(values map[string]interface{}) (string, bool) {
+	if len(values) != 1 {
+		return "", false
+	}
+	for _, key := range []string{"result", "text"} {
+		if value, ok := values[key]; ok {
+			text, ok := value.(string)
+			return text, ok
+		}
+	}
+	return "", false
 }
 
 func (r *Registry) nextJSONRPCRequestID() int {

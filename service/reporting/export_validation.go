@@ -63,13 +63,17 @@ func normalizeSubmitExportRequest(request *SubmitExportRequest) (*SubmitExportRe
 	if strings.TrimSpace(string(envelope.Target.Format)) == "" {
 		return nil, fmt.Errorf("reporting export: reportExportRequest target.format is required")
 	}
+	conversationID, workspaceID := extractExportContextIDs(envelope.Metadata)
 	return &SubmitExportRequest{
-		ArtifactRef: strings.TrimSpace(envelope.Source.ArtifactRef),
-		Format:      envelope.Target.Format,
-		Scope:       scope,
-		ReportSpec:  cloneJSON(envelope.ReportSpec),
-		ReportFill:  cloneJSON(envelope.ReportFill),
-		ReportPrint: cloneJSON(envelope.ReportPrint),
+		ArtifactRef:    strings.TrimSpace(envelope.Source.ArtifactRef),
+		Format:         envelope.Target.Format,
+		Scope:          scope,
+		ConversationID: conversationID,
+		WorkspaceID:    workspaceID,
+		ReportSpec:     cloneJSON(envelope.ReportSpec),
+		ReportFill:     cloneJSON(envelope.ReportFill),
+		ReportPrint:    cloneJSON(envelope.ReportPrint),
+		Metadata:       cloneJSON(envelope.Metadata),
 	}, nil
 }
 
@@ -138,6 +142,28 @@ func validateSubmitExportRequest(request *SubmitExportRequest) error {
 	}
 
 	return validateExportArtifactChain(request, specPresent, fillPresent, printPresent)
+}
+
+func extractExportContextIDs(metadata json.RawMessage) (string, string) {
+	if len(bytes.TrimSpace(metadata)) == 0 {
+		return "", ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		return "", ""
+	}
+	conversationID := strings.TrimSpace(stringValue(payload["conversationId"]))
+	workspaceID := strings.TrimSpace(stringValue(payload["workspaceId"]))
+	return conversationID, workspaceID
+}
+
+func stringValue(value any) string {
+	switch actual := value.(type) {
+	case string:
+		return actual
+	default:
+		return ""
+	}
 }
 
 func validateExportArtifactChain(request *SubmitExportRequest, specPresent, fillPresent, printPresent bool) error {

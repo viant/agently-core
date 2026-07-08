@@ -101,6 +101,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
+			Name:        "export_report",
+			Description: "Submit an async reporting export job against canonical report artifacts.",
+			Input:       reflect.TypeOf(&SubmitExportRequest{}),
+			Output:      reflect.TypeOf(&ExportJob{}),
+		},
+		{
 			Name:        "submit_export",
 			Description: "Submit an async reporting export job against canonical report artifacts.",
 			Input:       reflect.TypeOf(&SubmitExportRequest{}),
@@ -141,6 +147,30 @@ func (s *Service) Methods() svc.Signatures {
 			Description: "List shared reporting artifacts visible to the current principal with optional report and lifecycle filters.",
 			Input:       reflect.TypeOf(&ListSharedArtifactsInput{}),
 			Output:      reflect.TypeOf(&ListSharedArtifactsResult{}),
+		},
+		{
+			Name:        "save_report",
+			Description: "Persist a reusable report record owned by the current principal.",
+			Input:       reflect.TypeOf(&SaveReportRequest{}),
+			Output:      reflect.TypeOf(&SharedArtifact{}),
+		},
+		{
+			Name:        "get_report",
+			Description: "Load a persisted report record visible to the current principal.",
+			Input:       reflect.TypeOf(&GetReportInput{}),
+			Output:      reflect.TypeOf(&SharedArtifact{}),
+		},
+		{
+			Name:        "list_reports",
+			Description: "List persisted report records visible to the current principal.",
+			Input:       reflect.TypeOf(&ListReportsInput{}),
+			Output:      reflect.TypeOf(&ListReportsResult{}),
+		},
+		{
+			Name:        "update_report",
+			Description: "Update a persisted report record visible to the current principal.",
+			Input:       reflect.TypeOf(&UpdateReportRequest{}),
+			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
 			Name:        "run_export",
@@ -190,6 +220,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.shareArtifactTool, nil
 	case "transition_artifact":
 		return s.transitionArtifactTool, nil
+	case "export_report":
+		return s.submitExportTool, nil
 	case "submit_export":
 		return s.submitExportTool, nil
 	case "get_export_status":
@@ -204,6 +236,14 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.getSharedArtifactTool, nil
 	case "list_shared_artifacts":
 		return s.listSharedArtifactsTool, nil
+	case "save_report":
+		return s.saveReportTool, nil
+	case "get_report":
+		return s.getReportTool, nil
+	case "list_reports":
+		return s.listReportsTool, nil
+	case "update_report":
+		return s.updateReportTool, nil
 	case "run_export":
 		return s.runExportTool, nil
 	case "run_queued_exports":
@@ -569,16 +609,20 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 		scope = ExportScopeDraft
 	}
 	job := &ExportJob{
-		JobID:       s.newID(),
-		ArtifactRef: strings.TrimSpace(normalizedRequest.ArtifactRef),
-		OwnerID:     ownerID,
-		Format:      normalizedRequest.Format,
-		Scope:       scope,
-		Status:      JobStatusQueued,
-		ReportSpec:  cloneJSON(normalizedRequest.ReportSpec),
-		ReportFill:  cloneJSON(normalizedRequest.ReportFill),
-		ReportPrint: cloneJSON(normalizedRequest.ReportPrint),
-		SubmittedAt: s.now().UTC(),
+		JobID:          s.newID(),
+		ArtifactRef:    strings.TrimSpace(normalizedRequest.ArtifactRef),
+		OwnerID:        ownerID,
+		ConversationID: strings.TrimSpace(normalizedRequest.ConversationID),
+		WorkspaceID:    strings.TrimSpace(normalizedRequest.WorkspaceID),
+		AuthContextRef: strings.TrimSpace(buildAuthContextRef(ctx)),
+		Format:         normalizedRequest.Format,
+		Scope:          scope,
+		Status:         JobStatusQueued,
+		ReportSpec:     cloneJSON(normalizedRequest.ReportSpec),
+		ReportFill:     cloneJSON(normalizedRequest.ReportFill),
+		ReportPrint:    cloneJSON(normalizedRequest.ReportPrint),
+		Metadata:       cloneJSON(normalizedRequest.Metadata),
+		SubmittedAt:    s.now().UTC(),
 	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		return nil, err
@@ -636,14 +680,18 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 	}
 
 	result, err := s.exporter.Export(ctx, &RenderRequest{
-		JobID:       job.JobID,
-		ArtifactRef: job.ArtifactRef,
-		OwnerID:     job.OwnerID,
-		Format:      job.Format,
-		Scope:       job.Scope,
-		ReportSpec:  cloneJSON(job.ReportSpec),
-		ReportFill:  cloneJSON(job.ReportFill),
-		ReportPrint: cloneJSON(job.ReportPrint),
+		JobID:          job.JobID,
+		ArtifactRef:    job.ArtifactRef,
+		OwnerID:        job.OwnerID,
+		ConversationID: job.ConversationID,
+		WorkspaceID:    job.WorkspaceID,
+		AuthContextRef: job.AuthContextRef,
+		Format:         job.Format,
+		Scope:          job.Scope,
+		ReportSpec:     cloneJSON(job.ReportSpec),
+		ReportFill:     cloneJSON(job.ReportFill),
+		ReportPrint:    cloneJSON(job.ReportPrint),
+		Metadata:       cloneJSON(job.Metadata),
 	})
 	if err != nil {
 		return s.failRunExport(ctx, job.JobID, err)
@@ -1267,6 +1315,231 @@ func (s *Service) listSharedArtifactsTool(ctx context.Context, in, out interface
 	return nil
 }
 
+const savedReportArtifactKind = "reportBuilder.savedReportPayload"
+
+func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*SharedArtifact, error) {
+	if request == nil {
+		return nil, fmt.Errorf("report store: save request is required")
+	}
+	ownerID := effectiveActorID(ctx)
+	if ownerID == "" {
+		return nil, fmt.Errorf("report store: effective user id is required")
+	}
+	reportID := strings.TrimSpace(request.ReportID)
+	title := strings.TrimSpace(request.Title)
+	if reportID == "" && title == "" && len(bytes.TrimSpace(request.ReportDocument)) == 0 && len(bytes.TrimSpace(request.ReportSpec)) == 0 {
+		return nil, fmt.Errorf("report store: report identity or payload is required")
+	}
+	sourceArtifactID := normalizeSharedArtifactSourceID("report", "", reportID, s.newID())
+	artifactRef := strings.TrimSpace(request.ArtifactRef)
+	if artifactRef == "" {
+		artifactRef = buildSharedArtifactRef(savedReportArtifactKind, sourceArtifactID)
+	}
+	if title == "" {
+		title = reportID
+	}
+	artifact := &SharedArtifact{
+		ArtifactID:       s.newID(),
+		ArtifactRef:      artifactRef,
+		OwnerID:          ownerID,
+		OwnerRef:         buildOwnerRef(ownerID),
+		Kind:             savedReportArtifactKind,
+		Lifecycle:        "draft",
+		Version:          resolveSharedArtifactVersion(request.Version, 0),
+		ReportID:         reportID,
+		Title:            title,
+		SourceArtifactID: sourceArtifactID,
+		DocumentVersion:  request.DocumentVersion,
+		Document:         cloneJSON(request.ReportDocument),
+		ReportSpec:       cloneJSON(request.ReportSpec),
+		CompileState:     cloneJSON(request.CompileState),
+		ReportFill:       cloneJSON(request.ReportFill),
+		ReportPrint:      cloneJSON(request.ReportPrint),
+		Metadata:         cloneJSON(request.Metadata),
+		CreatedAt:        s.now().UTC(),
+	}
+	if err := s.store.CreateSharedArtifact(ctx, artifact); err != nil {
+		return nil, err
+	}
+	return cloneSharedArtifact(artifact), nil
+}
+
+func (s *Service) saveReportTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*SaveReportRequest)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*SharedArtifact)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	report, err := s.SaveReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *cloneSharedArtifact(report)
+	return nil
+}
+
+func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
+	if input == nil {
+		return nil, fmt.Errorf("report store: get request is required")
+	}
+	if artifactID := strings.TrimSpace(input.ArtifactID); artifactID != "" {
+		artifact, err := s.GetSharedArtifact(ctx, artifactID)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(artifact.Kind) != savedReportArtifactKind {
+			return nil, ErrNotFound
+		}
+		return artifact, nil
+	}
+	artifactRef := strings.TrimSpace(input.ArtifactRef)
+	reportID := strings.TrimSpace(input.ReportID)
+	if artifactRef == "" && reportID == "" {
+		return nil, fmt.Errorf("report store: artifactId, artifactRef, or reportId is required")
+	}
+	artifacts, err := s.store.ListSharedArtifacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, artifact := range artifacts {
+		if artifact == nil || !isVisibleToActor(ctx, artifact.GetOwnerID()) {
+			continue
+		}
+		if strings.TrimSpace(artifact.Kind) != savedReportArtifactKind {
+			continue
+		}
+		if artifactRef != "" && strings.TrimSpace(artifact.ArtifactRef) == artifactRef {
+			return cloneSharedArtifact(artifact), nil
+		}
+		if reportID != "" && strings.TrimSpace(artifact.ReportID) == reportID {
+			return cloneSharedArtifact(artifact), nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *Service) getReportTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*GetReportInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*SharedArtifact)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	report, err := s.GetReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *cloneSharedArtifact(report)
+	return nil
+}
+
+func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*ListReportsResult, error) {
+	var normalized ListReportsInput
+	if input != nil {
+		normalized = *input
+	}
+	result, err := s.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{
+		ArtifactRef: strings.TrimSpace(normalized.ArtifactRef),
+		ReportID:    strings.TrimSpace(normalized.ReportID),
+		Kind:        savedReportArtifactKind,
+		Limit:       normalized.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ListReportsResult{
+		Reports:    result.Artifacts,
+		TotalCount: result.TotalCount,
+	}, nil
+}
+
+func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*ListReportsInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*ListReportsResult)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	result, err := s.ListReports(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *cloneListReportsResult(result)
+	return nil
+}
+
+func (s *Service) UpdateReport(ctx context.Context, request *UpdateReportRequest) (*SharedArtifact, error) {
+	if request == nil {
+		return nil, fmt.Errorf("report store: update request is required")
+	}
+	current, err := s.GetReport(ctx, &GetReportInput{
+		ArtifactID:  request.ArtifactID,
+		ArtifactRef: request.ArtifactRef,
+		ReportID:    request.ReportID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	updated := cloneSharedArtifact(current)
+	if title := strings.TrimSpace(request.Title); title != "" {
+		updated.Title = title
+	}
+	if request.Version > 0 {
+		updated.Version = request.Version
+	}
+	if request.DocumentVersion > 0 {
+		updated.DocumentVersion = request.DocumentVersion
+	}
+	if len(bytes.TrimSpace(request.ReportDocument)) > 0 {
+		updated.Document = cloneJSON(request.ReportDocument)
+	}
+	if len(bytes.TrimSpace(request.ReportSpec)) > 0 {
+		updated.ReportSpec = cloneJSON(request.ReportSpec)
+	}
+	if len(bytes.TrimSpace(request.CompileState)) > 0 {
+		updated.CompileState = cloneJSON(request.CompileState)
+	}
+	if len(bytes.TrimSpace(request.ReportFill)) > 0 {
+		updated.ReportFill = cloneJSON(request.ReportFill)
+	}
+	if len(bytes.TrimSpace(request.ReportPrint)) > 0 {
+		updated.ReportPrint = cloneJSON(request.ReportPrint)
+	}
+	if len(bytes.TrimSpace(request.Metadata)) > 0 {
+		updated.Metadata = cloneJSON(request.Metadata)
+	}
+	now := s.now().UTC()
+	updated.UpdatedAt = &now
+	if err := s.store.UpdateSharedArtifact(ctx, updated); err != nil {
+		return nil, err
+	}
+	return cloneSharedArtifact(updated), nil
+}
+
+func (s *Service) updateReportTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*UpdateReportRequest)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*SharedArtifact)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	report, err := s.UpdateReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *cloneSharedArtifact(report)
+	return nil
+}
+
 func (s *Service) failRunExport(ctx context.Context, jobID string, exportErr error) (*ExportJob, error) {
 	failed, failErr := s.FailExport(ctx, &FailExportRequest{
 		JobID: strings.TrimSpace(jobID),
@@ -1426,6 +1699,26 @@ func effectiveActorID(ctx context.Context) string {
 	return strings.TrimSpace(authctx.EffectiveUserID(ctx))
 }
 
+func buildAuthContextRef(ctx context.Context) string {
+	actorID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	hasAccessToken := strings.TrimSpace(authctx.MCPAuthToken(ctx, false)) != ""
+	hasIDToken := strings.TrimSpace(authctx.MCPAuthToken(ctx, true)) != ""
+	if actorID == "" && !hasAccessToken && !hasIDToken {
+		return ""
+	}
+	parts := []string{}
+	if actorID != "" {
+		parts = append(parts, "actor="+actorID)
+	}
+	if hasAccessToken {
+		parts = append(parts, "access=true")
+	}
+	if hasIDToken {
+		parts = append(parts, "id=true")
+	}
+	return strings.Join(parts, ";")
+}
+
 func isVisibleToActor(ctx context.Context, ownerID string) bool {
 	actorID := effectiveActorID(ctx)
 	normalizedOwner := strings.TrimSpace(ownerID)
@@ -1541,15 +1834,19 @@ func cloneSubmitExportRequest(input *SubmitExportRequest) *SubmitExportRequest {
 			ReportSpec:  cloneJSON(input.ReportExportRequest.ReportSpec),
 			ReportFill:  cloneJSON(input.ReportExportRequest.ReportFill),
 			ReportPrint: cloneJSON(input.ReportExportRequest.ReportPrint),
+			Metadata:    cloneJSON(input.ReportExportRequest.Metadata),
 		}
 	}
 	return &SubmitExportRequest{
 		ArtifactRef:         strings.TrimSpace(input.ArtifactRef),
 		Format:              input.Format,
 		Scope:               input.Scope,
+		ConversationID:      strings.TrimSpace(input.ConversationID),
+		WorkspaceID:         strings.TrimSpace(input.WorkspaceID),
 		ReportSpec:          cloneJSON(input.ReportSpec),
 		ReportFill:          cloneJSON(input.ReportFill),
 		ReportPrint:         cloneJSON(input.ReportPrint),
+		Metadata:            cloneJSON(input.Metadata),
 		ReportExportRequest: reportExportRequest,
 	}
 }
@@ -1568,6 +1865,7 @@ func cloneShareArtifactRequest(input *ShareArtifactRequest) *ShareArtifactReques
 			ReportSpec:  cloneJSON(input.ReportExportRequest.ReportSpec),
 			ReportFill:  cloneJSON(input.ReportExportRequest.ReportFill),
 			ReportPrint: cloneJSON(input.ReportExportRequest.ReportPrint),
+			Metadata:    cloneJSON(input.ReportExportRequest.Metadata),
 		}
 	}
 	return &ShareArtifactRequest{
@@ -1595,6 +1893,7 @@ func cloneTransitionArtifactRequest(input *TransitionArtifactRequest) *Transitio
 			ReportSpec:  cloneJSON(input.ReportExportRequest.ReportSpec),
 			ReportFill:  cloneJSON(input.ReportExportRequest.ReportFill),
 			ReportPrint: cloneJSON(input.ReportExportRequest.ReportPrint),
+			Metadata:    cloneJSON(input.ReportExportRequest.Metadata),
 		}
 	}
 	return &TransitionArtifactRequest{
@@ -1614,20 +1913,24 @@ func cloneJob(input *ExportJob) *ExportJob {
 		return nil
 	}
 	out := &ExportJob{
-		JobID:        strings.TrimSpace(input.JobID),
-		ArtifactRef:  strings.TrimSpace(input.ArtifactRef),
-		OwnerID:      strings.TrimSpace(input.OwnerID),
-		Format:       input.Format,
-		Scope:        input.Scope,
-		Status:       input.Status,
-		ReportSpec:   cloneJSON(input.ReportSpec),
-		ReportFill:   cloneJSON(input.ReportFill),
-		ReportPrint:  cloneJSON(input.ReportPrint),
-		ArtifactID:   strings.TrimSpace(input.ArtifactID),
-		Error:        strings.TrimSpace(input.Error),
-		Diagnostics:  cloneDiagnostics(input.Diagnostics),
-		SubmittedAt:  input.SubmittedAt,
-		RetentionTTL: input.RetentionTTL,
+		JobID:          strings.TrimSpace(input.JobID),
+		ArtifactRef:    strings.TrimSpace(input.ArtifactRef),
+		OwnerID:        strings.TrimSpace(input.OwnerID),
+		ConversationID: strings.TrimSpace(input.ConversationID),
+		WorkspaceID:    strings.TrimSpace(input.WorkspaceID),
+		AuthContextRef: strings.TrimSpace(input.AuthContextRef),
+		Format:         input.Format,
+		Scope:          input.Scope,
+		Status:         input.Status,
+		ReportSpec:     cloneJSON(input.ReportSpec),
+		ReportFill:     cloneJSON(input.ReportFill),
+		ReportPrint:    cloneJSON(input.ReportPrint),
+		Metadata:       cloneJSON(input.Metadata),
+		ArtifactID:     strings.TrimSpace(input.ArtifactID),
+		Error:          strings.TrimSpace(input.Error),
+		Diagnostics:    cloneDiagnostics(input.Diagnostics),
+		SubmittedAt:    input.SubmittedAt,
+		RetentionTTL:   input.RetentionTTL,
 	}
 	if input.StartedAt != nil {
 		startedAt := *input.StartedAt
@@ -1706,6 +2009,22 @@ func cloneListSharedArtifactsResult(input *ListSharedArtifactsResult) *ListShare
 	return result
 }
 
+func cloneListReportsResult(input *ListReportsResult) *ListReportsResult {
+	if input == nil {
+		return nil
+	}
+	result := &ListReportsResult{
+		Reports:    make([]*SharedArtifact, 0, len(input.Reports)),
+		TotalCount: input.TotalCount,
+	}
+	for _, report := range input.Reports {
+		if cloned := cloneSharedArtifact(report); cloned != nil {
+			result.Reports = append(result.Reports, cloned)
+		}
+	}
+	return result
+}
+
 func cloneArtifact(input *Artifact) *Artifact {
 	if input == nil {
 		return nil
@@ -1746,6 +2065,7 @@ func cloneSharedArtifact(input *SharedArtifact) *SharedArtifact {
 		DocumentVersion:  input.DocumentVersion,
 		Document:         cloneJSON(input.Document),
 		ReportSpec:       cloneJSON(input.ReportSpec),
+		CompileState:     cloneJSON(input.CompileState),
 		ReportFill:       cloneJSON(input.ReportFill),
 		ReportPrint:      cloneJSON(input.ReportPrint),
 		SavedViewOverlay: cloneJSON(input.SavedViewOverlay),

@@ -36,14 +36,18 @@ type exportRecorder struct {
 func (r *exportRecorder) Export(_ context.Context, request *RenderRequest) (*RenderResult, error) {
 	if request != nil {
 		r.request = &RenderRequest{
-			JobID:       request.JobID,
-			ArtifactRef: request.ArtifactRef,
-			OwnerID:     request.OwnerID,
-			Format:      request.Format,
-			Scope:       request.Scope,
-			ReportSpec:  cloneJSON(request.ReportSpec),
-			ReportFill:  cloneJSON(request.ReportFill),
-			ReportPrint: cloneJSON(request.ReportPrint),
+			JobID:          request.JobID,
+			ArtifactRef:    request.ArtifactRef,
+			OwnerID:        request.OwnerID,
+			ConversationID: request.ConversationID,
+			WorkspaceID:    request.WorkspaceID,
+			AuthContextRef: request.AuthContextRef,
+			Format:         request.Format,
+			Scope:          request.Scope,
+			ReportSpec:     cloneJSON(request.ReportSpec),
+			ReportFill:     cloneJSON(request.ReportFill),
+			ReportPrint:    cloneJSON(request.ReportPrint),
+			Metadata:       cloneJSON(request.Metadata),
 		}
 	}
 	if r.err != nil {
@@ -68,14 +72,18 @@ type queuedExportRecorder struct {
 func (r *queuedExportRecorder) Export(_ context.Context, request *RenderRequest) (*RenderResult, error) {
 	if request != nil {
 		r.requests = append(r.requests, &RenderRequest{
-			JobID:       request.JobID,
-			ArtifactRef: request.ArtifactRef,
-			OwnerID:     request.OwnerID,
-			Format:      request.Format,
-			Scope:       request.Scope,
-			ReportSpec:  cloneJSON(request.ReportSpec),
-			ReportFill:  cloneJSON(request.ReportFill),
-			ReportPrint: cloneJSON(request.ReportPrint),
+			JobID:          request.JobID,
+			ArtifactRef:    request.ArtifactRef,
+			OwnerID:        request.OwnerID,
+			ConversationID: request.ConversationID,
+			WorkspaceID:    request.WorkspaceID,
+			AuthContextRef: request.AuthContextRef,
+			Format:         request.Format,
+			Scope:          request.Scope,
+			ReportSpec:     cloneJSON(request.ReportSpec),
+			ReportFill:     cloneJSON(request.ReportFill),
+			ReportPrint:    cloneJSON(request.ReportPrint),
+			Metadata:       cloneJSON(request.Metadata),
 		})
 	}
 	if err := r.errors[request.JobID]; err != nil {
@@ -867,6 +875,26 @@ func TestServiceSubmitExportAcceptsCanonicalEnvelope(t *testing.T) {
 	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
 }
 
+func TestServiceSubmitExportPersistsMetadataAndDerivedAuthContextRef(t *testing.T) {
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		Now:   func() time.Time { return time.Unix(0, 0).UTC() },
+		NewID: func() string { return "job-metadata" },
+	})
+	ctx := authsvc.InjectUser(context.Background(), "user-1")
+	envelope := validTestReportExportRequestEnvelope()
+	envelope.Metadata = json.RawMessage(`{"conversationId":"conv-123","workspaceId":"steward","renderHints":{"theme":"print"}}`)
+
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		ReportExportRequest: envelope,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "conv-123", job.ConversationID)
+	require.Equal(t, "steward", job.WorkspaceID)
+	require.JSONEq(t, `{"conversationId":"conv-123","workspaceId":"steward","renderHints":{"theme":"print"}}`, string(job.Metadata))
+	require.Contains(t, job.AuthContextRef, "actor=user-1")
+}
+
 func TestServiceSubmitExportSurfacesDuplicateJobIDs(t *testing.T) {
 	svc := New(Options{
 		Store: NewStoreAdapter(reportmemory.New()),
@@ -1041,12 +1069,15 @@ func TestServiceRunExportUsesConfiguredExporter(t *testing.T) {
 
 	ownerCtx := authsvc.InjectUser(context.Background(), "owner-1")
 	job, err := svc.SubmitExport(ownerCtx, &SubmitExportRequest{
-		ArtifactRef: "report://draft/performance",
-		Format:      ExportFormatPDF,
-		Scope:       ExportScopeDraft,
-		ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
-		ReportFill:  json.RawMessage(validTestReportFillJSON()),
-		ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+		ArtifactRef:    "report://draft/performance",
+		Format:         ExportFormatPDF,
+		Scope:          ExportScopeDraft,
+		ConversationID: "conv-456",
+		WorkspaceID:    "steward",
+		ReportSpec:     json.RawMessage(validTestReportSpecJSON()),
+		ReportFill:     json.RawMessage(validTestReportFillJSON()),
+		ReportPrint:    json.RawMessage(validTestReportPrintJSON()),
+		Metadata:       json.RawMessage(`{"conversationId":"conv-456","workspaceId":"steward","renderHints":{"page":"landscape"}}`),
 	})
 	require.NoError(t, err)
 
@@ -1059,6 +1090,10 @@ func TestServiceRunExportUsesConfiguredExporter(t *testing.T) {
 	require.Equal(t, ExportFormatPDF, exporter.request.Format)
 	require.Equal(t, ExportScopeDraft, exporter.request.Scope)
 	require.Equal(t, "owner-1", exporter.request.OwnerID)
+	require.Equal(t, "conv-456", exporter.request.ConversationID)
+	require.Equal(t, "steward", exporter.request.WorkspaceID)
+	require.Contains(t, exporter.request.AuthContextRef, "actor=owner-1")
+	require.JSONEq(t, `{"conversationId":"conv-456","workspaceId":"steward","renderHints":{"page":"landscape"}}`, string(exporter.request.Metadata))
 	require.JSONEq(t, validTestReportPrintJSON(), string(exporter.request.ReportPrint))
 	require.JSONEq(t, validTestReportFillJSON(), string(exporter.request.ReportFill))
 	require.JSONEq(t, validTestReportSpecJSON(), string(exporter.request.ReportSpec))
@@ -1951,7 +1986,7 @@ func validRenderableTestReportFillJSON() string {
 			"id": "primary",
 			"dataSourceRef": "demo",
 			"request": {"limit": 25, "offset": 0},
-			"provenance": {"requestHash":"request-1","rowCount":2,"truncated":false,"hasMore":false,"diagnostics":[]},
+			"provenance": {"requestHash":"fnv1a:9702fdec","rowCount":2,"truncated":false,"hasMore":false,"diagnostics":[]},
 			"rows": [{"channel":"Display","spend":42.5},{"channel":"CTV","spend":30}]
 		}],
 		"blocks": [{
@@ -1998,7 +2033,7 @@ func validTestReportFillJSONWithSpecVersion(specVersion int) string {
 			"id": "primary",
 			"dataSourceRef": "demo",
 			"request": {"limit": 25, "offset": 0},
-			"provenance": {"requestHash":"request-1","rowCount":1,"truncated":false,"hasMore":false,"diagnostics":[]},
+			"provenance": {"requestHash":"fnv1a:9702fdec","rowCount":1,"truncated":false,"hasMore":false,"diagnostics":[]},
 			"rows": [{"channel":"Display"}]
 		}],
 		"blocks": [{"id":"primaryTable","kind":"tableBlock"}],

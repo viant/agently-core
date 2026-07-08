@@ -83,6 +83,8 @@ type Runtime struct {
 	TokenProvider token.Provider
 }
 
+const defaultReportingQueueIntervalMs = 250
+
 type Builder struct {
 	defaults          *config.Defaults
 	dao               *datly.Service
@@ -392,9 +394,13 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	if out.Reporting != nil && out.Defaults != nil && out.Defaults.Reporting.Enabled && out.Defaults.Reporting.QueueIntervalMs > 0 {
+	if out.Reporting != nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
+		queueIntervalMs := out.Defaults.Reporting.QueueIntervalMs
+		if queueIntervalMs <= 0 {
+			queueIntervalMs = defaultReportingQueueIntervalMs
+		}
 		out.ReportingWorker = reportingsvc.NewWorker(out.Reporting, reportingsvc.WorkerOptions{
-			Interval:   time.Duration(out.Defaults.Reporting.QueueIntervalMs) * time.Millisecond,
+			Interval:   time.Duration(queueIntervalMs) * time.Millisecond,
 			BatchLimit: out.Defaults.Reporting.QueueBatchLimit,
 		})
 		if err := out.ReportingWorker.Start(ctx); err != nil {

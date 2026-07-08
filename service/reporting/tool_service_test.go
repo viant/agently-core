@@ -21,24 +21,29 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	})
 
 	signatures := service.Methods()
-	require.Len(t, signatures, 16)
+	require.Len(t, signatures, 21)
 	require.Equal(t, Name, service.Name())
 	require.Equal(t, "compile", signatures[0].Name)
 	require.Equal(t, "record_audit_event", signatures[1].Name)
 	require.Equal(t, "share_artifact", signatures[2].Name)
 	require.Equal(t, "transition_artifact", signatures[3].Name)
-	require.Equal(t, "submit_export", signatures[4].Name)
-	require.Equal(t, "get_export_status", signatures[5].Name)
-	require.Equal(t, "list_export_jobs", signatures[6].Name)
-	require.Equal(t, "list_export_artifacts", signatures[7].Name)
-	require.Equal(t, "get_artifact", signatures[8].Name)
-	require.Equal(t, "get_shared_artifact", signatures[9].Name)
-	require.Equal(t, "list_shared_artifacts", signatures[10].Name)
-	require.True(t, signatures[11].Internal)
-	require.True(t, signatures[12].Internal)
-	require.True(t, signatures[13].Internal)
-	require.True(t, signatures[14].Internal)
-	require.True(t, signatures[15].Internal)
+	require.Equal(t, "export_report", signatures[4].Name)
+	require.Equal(t, "submit_export", signatures[5].Name)
+	require.Equal(t, "get_export_status", signatures[6].Name)
+	require.Equal(t, "list_export_jobs", signatures[7].Name)
+	require.Equal(t, "list_export_artifacts", signatures[8].Name)
+	require.Equal(t, "get_artifact", signatures[9].Name)
+	require.Equal(t, "get_shared_artifact", signatures[10].Name)
+	require.Equal(t, "list_shared_artifacts", signatures[11].Name)
+	require.Equal(t, "save_report", signatures[12].Name)
+	require.Equal(t, "get_report", signatures[13].Name)
+	require.Equal(t, "list_reports", signatures[14].Name)
+	require.Equal(t, "update_report", signatures[15].Name)
+	require.True(t, signatures[16].Internal)
+	require.True(t, signatures[17].Internal)
+	require.True(t, signatures[18].Internal)
+	require.True(t, signatures[19].Internal)
+	require.True(t, signatures[20].Internal)
 }
 
 func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
@@ -251,6 +256,63 @@ func TestServiceToolMethodCreatesAndTransitionsSharedArtifacts(t *testing.T) {
 	require.Len(t, listResult.Artifacts, 2)
 	require.Equal(t, published.ArtifactID, listResult.Artifacts[0].ArtifactID)
 	require.Equal(t, shared.ArtifactID, listResult.Artifacts[1].ArtifactID)
+}
+
+func TestServiceToolMethodSavesGetsListsAndUpdatesReports(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
+	idCount := 0
+	service := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		Now:   func() time.Time { return now },
+		NewID: func() string {
+			idCount++
+			return "report-" + string(rune('0'+idCount))
+		},
+	})
+	ctx := authsvc.InjectUser(context.Background(), "owner-1")
+
+	saveMethod, err := service.Method("save_report")
+	require.NoError(t, err)
+	saved := &SharedArtifact{}
+	require.NoError(t, saveMethod(ctx, &SaveReportRequest{
+		ReportID:        "forecastingQ3",
+		Title:           "Forecasting Q3",
+		Version:         1,
+		DocumentVersion: 4,
+		ReportDocument:  json.RawMessage(`{"kind":"reportDocument","id":"forecastingQ3","title":"Forecasting Q3"}`),
+		ReportSpec:      json.RawMessage(validTestReportSpecJSON()),
+		CompileState:    json.RawMessage(`{"status":"clean"}`),
+		Metadata:        json.RawMessage(`{"workspaceId":"steward"}`),
+	}, saved))
+	require.Equal(t, savedReportArtifactKind, saved.Kind)
+	require.Equal(t, "forecastingQ3", saved.ReportID)
+	require.JSONEq(t, `{"status":"clean"}`, string(saved.CompileState))
+
+	getMethod, err := service.Method("get_report")
+	require.NoError(t, err)
+	got := &SharedArtifact{}
+	require.NoError(t, getMethod(ctx, &GetReportInput{ArtifactID: saved.ArtifactID}, got))
+	require.Equal(t, saved.ArtifactID, got.ArtifactID)
+
+	listMethod, err := service.Method("list_reports")
+	require.NoError(t, err)
+	listed := &ListReportsResult{}
+	require.NoError(t, listMethod(ctx, &ListReportsInput{Limit: 10}, listed))
+	require.Len(t, listed.Reports, 1)
+	require.Equal(t, saved.ArtifactID, listed.Reports[0].ArtifactID)
+
+	updateMethod, err := service.Method("update_report")
+	require.NoError(t, err)
+	updated := &SharedArtifact{}
+	require.NoError(t, updateMethod(ctx, &UpdateReportRequest{
+		ArtifactID:   saved.ArtifactID,
+		Title:        "Forecasting Q3 Updated",
+		Version:      2,
+		CompileState: json.RawMessage(`{"status":"stale"}`),
+	}, updated))
+	require.Equal(t, "Forecasting Q3 Updated", updated.Title)
+	require.Equal(t, 2, updated.Version)
+	require.JSONEq(t, `{"status":"stale"}`, string(updated.CompileState))
 }
 
 func TestServiceToolMethodSupportsManualLifecycleWhenNeeded(t *testing.T) {

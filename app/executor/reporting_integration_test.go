@@ -41,11 +41,16 @@ func TestBuilderBuild_RegistersReportingService(t *testing.T) {
 	}
 
 	require.Contains(t, names, "reporting/compile")
+	require.Contains(t, names, "reporting/export_report")
 	require.Contains(t, names, "reporting/submit_export")
 	require.Contains(t, names, "reporting/get_export_status")
 	require.Contains(t, names, "reporting/list_export_jobs")
 	require.Contains(t, names, "reporting/list_export_artifacts")
 	require.Contains(t, names, "reporting/get_artifact")
+	require.Contains(t, names, "reporting/save_report")
+	require.Contains(t, names, "reporting/get_report")
+	require.Contains(t, names, "reporting/list_reports")
+	require.Contains(t, names, "reporting/update_report")
 	require.NotContains(t, names, "reporting/run_export")
 	require.NotContains(t, names, "reporting/start_export")
 	require.NotContains(t, names, "reporting/complete_export")
@@ -84,9 +89,14 @@ func TestBuilderBuild_RegistersReportingServiceFromDefaults(t *testing.T) {
 		names = append(names, def.Name)
 	}
 	require.Contains(t, names, "reporting/compile")
+	require.Contains(t, names, "reporting/export_report")
 	require.Contains(t, names, "reporting/submit_export")
 	require.Contains(t, names, "reporting/list_export_jobs")
 	require.Contains(t, names, "reporting/list_export_artifacts")
+	require.Contains(t, names, "reporting/save_report")
+	require.Contains(t, names, "reporting/get_report")
+	require.Contains(t, names, "reporting/list_reports")
+	require.Contains(t, names, "reporting/update_report")
 }
 
 func TestBuilderBuild_RegistersReportingServiceFromWorkspaceDefaults(t *testing.T) {
@@ -129,9 +139,14 @@ default:
 		names = append(names, def.Name)
 	}
 	require.Contains(t, names, "reporting/compile")
+	require.Contains(t, names, "reporting/export_report")
 	require.Contains(t, names, "reporting/submit_export")
 	require.Contains(t, names, "reporting/list_export_jobs")
 	require.Contains(t, names, "reporting/list_export_artifacts")
+	require.Contains(t, names, "reporting/save_report")
+	require.Contains(t, names, "reporting/get_report")
+	require.Contains(t, names, "reporting/list_reports")
+	require.Contains(t, names, "reporting/update_report")
 }
 
 func TestBuilderBuild_ReportingServiceFromDefaultsPersistsAcrossRuntimeRebuild(t *testing.T) {
@@ -431,6 +446,42 @@ func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *tes
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestBuilderBuild_DefaultReportingServiceWorkerUsesFallbackIntervalWhenEnabled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(stubAgentFinder{}).
+		WithModelFinder(stubModelFinder{}).
+		WithDefaults(&execconfig.Defaults{
+			Reporting: execconfig.ReportingDefaults{
+				Enabled: true,
+			},
+		}).
+		Build(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, rt.Reporting)
+	require.NotNil(t, rt.ReportingWorker)
+
+	ownerCtx := authsvc.InjectUser(context.Background(), "builder-user")
+	submitRaw, err := rt.Registry.Execute(ownerCtx, "reporting:submit_export", map[string]interface{}{
+		"artifactRef": "report://draft/worker-fallback-pdf",
+		"format":      "pdf",
+		"scope":       "draft",
+		"reportPrint": validReportingIntegrationPrintPayload(),
+	})
+	require.NoError(t, err)
+
+	var queued reportingsvc.ExportJob
+	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
+	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
+
+	require.Eventually(t, func() bool {
+		status, err := rt.Reporting.GetExportStatus(ownerCtx, queued.JobID)
+		return err == nil && status != nil && status.Status == reportingsvc.JobStatusSucceeded
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
 func TestBuilderBuild_DefaultReportingServiceWorkerPreservesOwnerVisibility(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -622,7 +673,7 @@ func validReportingIntegrationFillPayload() map[string]interface{} {
 				"dataSourceRef": "demo",
 				"request":       map[string]interface{}{"limit": 25, "offset": 0},
 				"provenance": map[string]interface{}{
-					"requestHash": "request-1",
+					"requestHash": "fnv1a:9702fdec",
 					"rowCount":    1,
 					"truncated":   false,
 					"hasMore":     false,
@@ -665,7 +716,7 @@ func validReportingIntegrationRenderableFillPayload() map[string]interface{} {
 				"dataSourceRef": "demo",
 				"request":       map[string]interface{}{"limit": 25, "offset": 0},
 				"provenance": map[string]interface{}{
-					"requestHash": "request-1",
+					"requestHash": "fnv1a:9702fdec",
 					"rowCount":    2,
 					"truncated":   false,
 					"hasMore":     false,
