@@ -18,7 +18,7 @@ require (
 	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62
 	github.com/sourcegraph/go-diff v0.7.0
 	github.com/stretchr/testify v1.11.1
-	github.com/viant/afs v1.30.0
+	github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
