@@ -125,16 +125,16 @@ func upstreamAuthStatusFromError(err error) (int, bool) {
 	}
 	body := datasourceErrorBody(msg)
 	if body == "" {
-		return 0, false
+		return upstreamAuthStatusFromMessage(msg)
 	}
 	var envelope datasourceErrorEnvelope
 	if json.Unmarshal([]byte(body), &envelope) != nil {
-		return 0, false
+		return upstreamAuthStatusFromMessage(msg)
 	}
 	if status := datasourceDetailStatus(envelope.Errors); status != 0 {
 		return status, true
 	}
-	return 0, false
+	return upstreamAuthStatusFromMessage(strings.TrimSpace(envelope.Message + " " + msg))
 }
 
 func datasourceErrorBody(msg string) string {
@@ -162,6 +162,27 @@ func datasourceDetailStatus(details []datasourceErrorDetail) int {
 
 func isAuthStatus(status int) bool {
 	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
+func upstreamAuthStatusFromMessage(msg string) (int, bool) {
+	text := strings.ToLower(strings.TrimSpace(msg))
+	if text == "" {
+		return 0, false
+	}
+	switch {
+	case strings.Contains(text, "authorization required"),
+		strings.Contains(text, "unauthorized"),
+		strings.Contains(text, "oauth session is missing a valid token"),
+		strings.Contains(text, "missing usable oauth tokens"),
+		strings.Contains(text, "missing valid token"):
+		return http.StatusUnauthorized, true
+	case strings.Contains(text, "forbidden"),
+		strings.Contains(text, "permission denied"),
+		strings.Contains(text, "user access denied"):
+		return http.StatusForbidden, true
+	default:
+		return 0, false
+	}
 }
 
 func authorizeDatasourceConversation(ctx context.Context, client Backend, conversationID string) error {

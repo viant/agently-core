@@ -110,6 +110,27 @@ func TestStatusForDatasourceErr_ParsesRequestFailedWrappedAuthStatus(t *testing.
 	}
 }
 
+func TestStatusForDatasourceErr_ParsesPlainAuthorizationRequired(t *testing.T) {
+	err := errors.New("authorization required")
+	if got := statusForDatasourceErr(err); got != http.StatusUnauthorized {
+		t.Fatalf("want plain authorization required to map to 401, got %d", got)
+	}
+}
+
+func TestStatusForDatasourceErr_ParsesPlainTokenMissingAuthMessage(t *testing.T) {
+	err := errors.New("oauth session is missing a valid token")
+	if got := statusForDatasourceErr(err); got != http.StatusUnauthorized {
+		t.Fatalf("want missing token auth message to map to 401, got %d", got)
+	}
+}
+
+func TestStatusForDatasourceErr_ParsesPlainPermissionDenied(t *testing.T) {
+	err := errors.New("permission denied")
+	if got := statusForDatasourceErr(err); got != http.StatusForbidden {
+		t.Fatalf("want plain permission denied to map to 403, got %d", got)
+	}
+}
+
 func TestHandleFetchDatasource_DispatchesToBackend(t *testing.T) {
 	body := `{"inputs":{"q":"acm"}}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader(body))
