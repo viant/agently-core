@@ -726,6 +726,75 @@ func TestSetFormDataFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 	}
 }
 
+func TestSetFormDataFallsBackToRecentViewOpenEventWhenSnapshotIsMissing(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "active-client"})
+
+	svc := New(bridge)
+	svc.reg.RecordEvent("default", "active-client", uireg.UIEvent{
+		ConversationID: "conv-1",
+		ClientID:       "active-client",
+		WindowID:       "forecastingCubeBuilder__conv-1",
+		WindowKey:      "forecastingCubeBuilder",
+		Kind:           "view.open",
+		Actor:          "agent",
+		At:             time.Now(),
+	})
+
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	go func() {
+		out := &CommandOutput{}
+		err := svc.setFormData(ctx, &SetFormDataInput{
+			ClientID:  "active-client",
+			WindowID:  "forecastingCubeBuilder__conv-1",
+			WindowKey: "forecastingCubeBuilder",
+			Values: map[string]interface{}{
+				"prefill": map[string]interface{}{
+					"audienceIds": []interface{}{7113447},
+				},
+			},
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "active-client" {
+			done <- fmt.Errorf("unexpected output: %#v", out)
+			return
+		}
+		done <- nil
+	}()
+
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{
+		"clientId":  "active-client",
+		"timeoutMs": 1000,
+	})
+	command, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
+	}
+	if got := command["method"]; got != "ui.window.setFormData" {
+		t.Fatalf("expected ui.window.setFormData, got %#v", got)
+	}
+	commandParams, ok := command["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params map, got %#v", command["params"])
+	}
+	if got := commandParams["windowId"]; got != "forecastingCubeBuilder__conv-1" {
+		t.Fatalf("expected forecasting builder window id, got %#v", got)
+	}
+
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+		"id":     command["id"],
+		"ok":     true,
+		"result": map[string]interface{}{"ok": true},
+	})
+	if err := <-done; err != nil {
+		t.Fatalf("setFormData failed: %v", err)
+	}
+}
+
 func TestShowAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
 	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "client-1"})
