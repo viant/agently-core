@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/mcp/manager"
-	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -282,8 +281,8 @@ func TestDefinitions_SkipsTimeoutMsForInternalTools(t *testing.T) {
 	require.True(t, hasCommand, "expected original properties to remain")
 }
 
-func TestExecute_AssignsUniqueJSONRPCRequestID(t *testing.T) {
-	client := &requestIDCapturingClient{toolListClient: &toolListClient{}}
+func TestExecute_LeavesJSONRPCRequestIDToClient(t *testing.T) {
+	client := &requestOptionsCapturingClient{toolListClient: &toolListClient{}}
 	reg := &Registry{
 		internal:       map[string]mcpclient.Interface{"db": client},
 		cache:          map[string]*toolCacheEntry{},
@@ -308,40 +307,89 @@ func TestExecute_AssignsUniqueJSONRPCRequestID(t *testing.T) {
 	for err := range errCh {
 		require.NoError(t, err)
 	}
-	ids := client.requestIDs()
-	require.Len(t, ids, calls)
-	seen := map[int]bool{}
-	for _, id := range ids {
-		require.NotZero(t, id)
-		require.False(t, seen[id], "duplicate request id detected: %d", id)
-		seen[id] = true
+	explicitIDs := client.explicitRequestIDs()
+	require.Len(t, explicitIDs, calls)
+	for _, hasExplicitID := range explicitIDs {
+		require.False(t, hasExplicitID, "registry should leave request ID assignment to the downstream client")
 	}
 }
 
-type requestIDCapturingClient struct {
+func TestExecute_PropagatesCancellationWithoutExplicitJSONRPCRequestID(t *testing.T) {
+	client := &cancellationCapturingClient{
+		toolListClient: &toolListClient{},
+		started:        make(chan struct{}),
+	}
+	reg := &Registry{
+		internal:       map[string]mcpclient.Interface{"db": client},
+		cache:          map[string]*toolCacheEntry{},
+		virtualTimeout: map[string]timeoutSupport{},
+		recentResults:  map[string]map[string]recentItem{},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := reg.Execute(ctx, "db/ping", map[string]interface{}{})
+		errCh <- err
+	}()
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for internal MCP call to start")
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for canceled internal MCP call to return")
+	}
+	require.False(t, client.hasExplicitRequestID())
+}
+
+type requestOptionsCapturingClient struct {
 	*toolListClient
-	mu  sync.Mutex
-	ids []int
+	mu          sync.Mutex
+	explicitIDs []bool
 }
 
-func (c *requestIDCapturingClient) CallTool(ctx context.Context, params *mcpschema.CallToolRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+func (c *requestOptionsCapturingClient) CallTool(ctx context.Context, params *mcpschema.CallToolRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
 	ro := mcpclient.NewRequestOptions(options)
-	if ro != nil {
-		if id, ok := jsonrpc.AsRequestIntId(ro.RequestId); ok {
-			c.mu.Lock()
-			c.ids = append(c.ids, id)
-			c.mu.Unlock()
-		}
-	}
+	c.mu.Lock()
+	c.explicitIDs = append(c.explicitIDs, ro != nil && ro.RequestId != nil)
+	c.mu.Unlock()
 	return &mcpschema.CallToolResult{}, nil
 }
 
-func (c *requestIDCapturingClient) requestIDs() []int {
+func (c *requestOptionsCapturingClient) explicitRequestIDs() []bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	ret := make([]int, len(c.ids))
-	copy(ret, c.ids)
+	ret := make([]bool, len(c.explicitIDs))
+	copy(ret, c.explicitIDs)
 	return ret
+}
+
+type cancellationCapturingClient struct {
+	*toolListClient
+	started chan struct{}
+	mu      sync.Mutex
+	hasID   bool
+}
+
+func (c *cancellationCapturingClient) CallTool(ctx context.Context, params *mcpschema.CallToolRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+	ro := mcpclient.NewRequestOptions(options)
+	c.mu.Lock()
+	c.hasID = ro != nil && ro.RequestId != nil
+	c.mu.Unlock()
+	close(c.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (c *cancellationCapturingClient) hasExplicitRequestID() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hasID
 }
 
 type toolListClient struct {
