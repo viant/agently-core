@@ -10,6 +10,7 @@ require (
 	github.com/aws/smithy-go v1.24.1
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/go-pdf/fpdf v0.6.0
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
@@ -25,9 +26,9 @@ require (
 	github.com/viant/forge v0.3.8-0.20260707192818-e1739d85877e
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
-	github.com/viant/jsonrpc v0.21.0
+	github.com/viant/jsonrpc v0.23.1-0.20260710212050-f1bb78063207
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.16.0
+	github.com/viant/mcp v0.17.0
 	github.com/viant/mcp-protocol v0.14.0
 	github.com/viant/mcp-ui v0.1.0
 	github.com/viant/parsly v0.3.3
@@ -106,7 +107,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect

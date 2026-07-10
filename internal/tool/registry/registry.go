@@ -110,9 +110,6 @@ type Registry struct {
 	discoveryStrictTTL time.Duration
 	discoveryFailTTL   time.Duration
 	discoveryScopeSeq  uint64
-
-	// jsonRPCRequestSeq provides unique JSON-RPC request ids for local MCP calls.
-	jsonRPCRequestSeq uint64
 }
 
 type toolCacheEntry struct {
@@ -798,7 +795,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=none\n", strings.TrimSpace(server), useID)
 		}
 	}
-	options = append(options, mcpclient.WithJsonRpcRequestId(r.nextJSONRPCRequestID()))
+	// Request ID ownership belongs to the downstream layer: the MCP Adapter for
+	// in-process clients and the JSON-RPC transport for remote clients. Assigning
+	// IDs here would create a second independent sequence and possible collisions.
 	// Acquire appropriate client: internal or per-conversation via manager.
 	var cli mcpclient.Interface
 	var err error
@@ -1002,13 +1001,6 @@ func structuredContentString(values map[string]interface{}) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func (r *Registry) nextJSONRPCRequestID() int {
-	if r == nil {
-		return int(time.Now().UnixNano())
-	}
-	return int(atomic.AddUint64(&r.jsonRPCRequestSeq, 1))
 }
 
 func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context.Context) {
