@@ -296,7 +296,10 @@ func (s *sharedState) findRecentWindowEvent(conversationID, preferredClientID, w
 			if !windowEventProvidesTarget(event.Kind) {
 				continue
 			}
-			if !event.At.IsZero() && now.Sub(event.At) > maxAge {
+			if event.At.IsZero() {
+				continue
+			}
+			if now.Sub(event.At) > maxAge {
 				continue
 			}
 			current := candidate{namespace: ns, clientID: clientID, event: event}
