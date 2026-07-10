@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,9 @@ import (
 const (
 	// envKey is the environment variable used to override the default workspace root.
 	envKey = "AGENTLY_WORKSPACE"
+
+	// debugEnvKey enables workspace bootstrap debug logging when set.
+	debugEnvKey = "AGENTLY_DEBUG_WORKSPACE"
 
 	// defaultRoot is used when the env variable is not defined.
 	defaultRootDir = ".agently"
@@ -101,7 +105,7 @@ func Root() string {
 		// calls (e.g. in tests) see the correct location.
 		if env := os.Getenv(envKey); env != "" && abs(env) != cachedRoot && explicitRoot == "" {
 			cachedRoot = abs(env)
-			_ = os.MkdirAll(cachedRoot, 0755)
+			ensureWorkspaceDir(cachedRoot)
 			ensureDefaults(cachedRoot)
 			return cachedRoot
 		}
@@ -110,14 +114,14 @@ func Root() string {
 
 	if explicitRoot != "" {
 		cachedRoot = explicitRoot
-		_ = os.MkdirAll(cachedRoot, 0755)
+		ensureWorkspaceDir(cachedRoot)
 		ensureDefaults(cachedRoot)
 		return cachedRoot
 	}
 
 	if env := os.Getenv(envKey); env != "" {
 		cachedRoot = abs(env)
-		_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
+		ensureWorkspaceDir(cachedRoot)
 		ensureDefaults(cachedRoot)
 		return cachedRoot
 	}
@@ -130,7 +134,7 @@ func Root() string {
 	}
 
 	cachedRoot = abs(filepath.Join(home, defaultRootDir))
-	_ = os.MkdirAll(cachedRoot, 0755) // ensure root exists
+	ensureWorkspaceDir(cachedRoot)
 
 	// lazily create default resources once the root directory is ready
 	ensureDefaults(cachedRoot)
@@ -144,7 +148,7 @@ func RuntimeRoot() string {
 		resolved := abs(resolveTemplate(env, false))
 		if cachedRuntime == "" || cachedRuntime != resolved {
 			cachedRuntime = resolved
-			_ = os.MkdirAll(cachedRuntime, 0755)
+			ensureWorkspaceDir(cachedRuntime)
 			cachedState = ""
 		}
 		return cachedRuntime
@@ -163,14 +167,14 @@ func StateRoot() string {
 		resolved := abs(resolveTemplate(env, true))
 		if cachedState == "" || cachedState != resolved {
 			cachedState = resolved
-			_ = os.MkdirAll(cachedState, 0755)
+			ensureWorkspaceDir(cachedState)
 		}
 		return cachedState
 	}
 	resolved := filepath.Join(RuntimeRoot(), "state")
 	if cachedState == "" || cachedState != resolved {
 		cachedState = resolved
-		_ = os.MkdirAll(cachedState, 0755)
+		ensureWorkspaceDir(cachedState)
 	}
 	return cachedState
 }
@@ -181,7 +185,7 @@ func SetRuntimeRoot(path string) {
 		return
 	}
 	cachedRuntime = abs(resolveTemplate(path, false))
-	_ = os.MkdirAll(cachedRuntime, 0755)
+	ensureWorkspaceDir(cachedRuntime)
 	// reset derived state root so it can be recomputed
 	cachedState = ""
 }
@@ -192,7 +196,7 @@ func SetStateRoot(path string) {
 		return
 	}
 	cachedState = abs(resolveTemplate(path, true))
-	_ = os.MkdirAll(cachedState, 0755)
+	ensureWorkspaceDir(cachedState)
 }
 
 // ResolvePathTemplate expands supported macros in a path template.
@@ -206,8 +210,10 @@ func resolveTemplate(value string, includeRuntime bool) string {
 	if v == "" {
 		return v
 	}
-	v = strings.ReplaceAll(v, "${workspaceRoot}", Root())
-	if includeRuntime {
+	if strings.Contains(v, "${workspaceRoot}") {
+		v = strings.ReplaceAll(v, "${workspaceRoot}", Root())
+	}
+	if includeRuntime && strings.Contains(v, "${runtimeRoot}") {
 		v = strings.ReplaceAll(v, "${runtimeRoot}", RuntimeRoot())
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
@@ -276,7 +282,42 @@ func ensureDefaults(root string) {
 	defaultsMu.Unlock()
 
 	afsSvc := afs.New()
+	debugWorkspacef("bootstrapping defaults at %s", root)
 	EnsureDefaultAt(context.Background(), afsSvc, root)
+}
+
+func ensureWorkspaceDir(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	exists := false
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		exists = true
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		debugWorkspacef("create directory failed at %s: %v", path, err)
+		return
+	}
+	if !exists {
+		debugWorkspacef("created directory at %s", path)
+	}
+}
+
+func debugWorkspacef(format string, args ...interface{}) {
+	if !workspaceDebugEnabled() {
+		return
+	}
+	log.Printf("[debug][workspace] "+format, args...)
+}
+
+func workspaceDebugEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(debugEnvKey))) {
+	case "", "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
 }
 
 // abs converts p into an absolute, clean path. If an error occurs it returns p

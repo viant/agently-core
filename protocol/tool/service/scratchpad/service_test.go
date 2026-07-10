@@ -465,18 +465,14 @@ func TestResolveRootURI_DefaultExpandsSanitizedUserID(t *testing.T) {
 }
 
 func TestResolveRootURI_DefaultDoesNotBootstrapWorkspace(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
-	tempDir := t.TempDir()
-	require.NoError(t, os.Chdir(tempDir))
-	t.Setenv("AGENTLY_WORKSPACE", "")
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace-cache-sentinel")
+	t.Setenv("AGENTLY_WORKSPACE", workspaceRoot)
 
 	root, _, err := ResolveRootURI(userCtx("alice"), "")
 
 	require.NoError(t, err)
 	assert.Equal(t, "mem://localhost/scratchpad/alice", root)
-	_, err = os.Stat(filepath.Join(tempDir, ".agently"))
+	_, err = os.Stat(workspaceRoot)
 	assert.True(t, os.IsNotExist(err), "default mem scratchpad must not create a workspace")
 }
 
@@ -510,12 +506,8 @@ func TestResolveRootURI_UsesEmailFallbackAndUserAlias(t *testing.T) {
 }
 
 func TestResolveRootURI_ExpandsHomeTemplateWithoutWorkspaceBootstrap(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
-	tempDir := t.TempDir()
-	require.NoError(t, os.Chdir(tempDir))
-	t.Setenv("AGENTLY_WORKSPACE", "")
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace-cache-sentinel")
+	t.Setenv("AGENTLY_WORKSPACE", workspaceRoot)
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -523,8 +515,57 @@ func TestResolveRootURI_ExpandsHomeTemplateWithoutWorkspaceBootstrap(t *testing.
 
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, "scratchpad", "alice"), root)
-	_, err = os.Stat(filepath.Join(tempDir, ".agently"))
+	_, err = os.Stat(workspaceRoot)
 	assert.True(t, os.IsNotExist(err), "home-only scratchpad template must not create a workspace")
+}
+
+func TestResolveRootURI_RelativeTemplateUsesWorkspaceRoot(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	t.Setenv("AGENTLY_WORKSPACE", workspaceRoot)
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
+
+	root, userID, err := ResolveRootURI(userCtx("alice"), "scratchpad/${userID}")
+
+	require.NoError(t, err)
+	assert.Equal(t, "alice", userID)
+	assert.Equal(t, filepath.Join(workspaceRoot, "scratchpad", "alice"), root)
+	info, err := os.Stat(workspaceRoot)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestResolveRootURI_WorkspaceRootTemplateUsesWorkspaceRoot(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	t.Setenv("AGENTLY_WORKSPACE", workspaceRoot)
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
+
+	root, userID, err := ResolveRootURI(userCtx("alice"), "${workspaceRoot}/scratchpad/${userID}")
+
+	require.NoError(t, err)
+	assert.Equal(t, "alice", userID)
+	assert.Equal(t, filepath.Join(workspaceRoot, "scratchpad", "alice"), root)
+	info, err := os.Stat(workspaceRoot)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestResolveRootURI_RuntimeRootTemplateUsesRuntimeRoot(t *testing.T) {
+	workspaceRoot := filepath.Join(t.TempDir(), "workspace-cache-sentinel")
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	t.Setenv("AGENTLY_WORKSPACE", workspaceRoot)
+	t.Setenv("AGENTLY_RUNTIME_ROOT", runtimeRoot)
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
+
+	root, userID, err := ResolveRootURI(userCtx("alice"), "${runtimeRoot}/scratchpad/${userID}")
+
+	require.NoError(t, err)
+	assert.Equal(t, "alice", userID)
+	assert.Equal(t, filepath.Join(runtimeRoot, "scratchpad", "alice"), root)
+	info, err := os.Stat(runtimeRoot)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+	_, err = os.Stat(workspaceRoot)
+	assert.True(t, os.IsNotExist(err), "absolute runtime root scratchpad template must not create a workspace")
 }
 
 func TestService_RequiresEffectiveUserID(t *testing.T) {

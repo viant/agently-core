@@ -2,21 +2,15 @@ package scratchpad
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/viant/afs"
-	afsurl "github.com/viant/afs/url"
+	afsscratchpad "github.com/viant/afs/scratchpad"
 	authctx "github.com/viant/agently-core/internal/auth"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/workspace"
@@ -25,11 +19,8 @@ import (
 const (
 	Name                   = "scratchpad"
 	EnvScratchpadURI       = "AGENTLY_SCRATCHPAD_URI"
-	DefaultRootURITemplate = "mem://localhost/scratchpad/${userID}"
-	appendSeparator        = "\n\n---\n\n"
+	DefaultRootURITemplate = afsscratchpad.DefaultRootURITemplate
 )
-
-var errScratchpadNoteNotFound = errors.New("scratchpad note not found")
 
 type Service struct {
 	fs           afs.Service
@@ -133,10 +124,14 @@ func (s *Service) memorize(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	output.Status = "ok"
-	if err := s.memorizeNote(ctx, input, output); err != nil {
+	result, err := s.client(ctx).Memorize(ctx, input)
+	if err != nil {
 		output.Status = "error"
 		output.Error = err.Error()
+		return nil
 	}
+	*output = *result
+	output.Status = "ok"
 	return nil
 }
 
@@ -150,10 +145,14 @@ func (s *Service) append(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	output.Status = "ok"
-	if err := s.appendNote(ctx, input, output); err != nil {
+	result, err := s.client(ctx).Append(ctx, input)
+	if err != nil {
 		output.Status = "error"
 		output.Error = err.Error()
+		return nil
 	}
+	*output = *result
+	output.Status = "ok"
 	return nil
 }
 
@@ -166,10 +165,14 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	output.Status = "ok"
-	if err := s.listNotes(ctx, output); err != nil {
+	result, err := s.client(ctx).List(ctx)
+	if err != nil {
 		output.Status = "error"
 		output.Error = err.Error()
+		return nil
 	}
+	*output = *result
+	output.Status = "ok"
 	return nil
 }
 
@@ -183,303 +186,132 @@ func (s *Service) fetch(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	output.Status = "ok"
-	if err := s.fetchNote(ctx, input, output); err != nil {
+	result, err := s.client(ctx).Fetch(ctx, input.Key)
+	if err != nil {
 		output.Status = "error"
 		output.Error = err.Error()
-	}
-	return nil
-}
-
-func (s *Service) memorizeNote(ctx context.Context, input *MemorizeInput, output *MemorizeOutput) error {
-	key := strings.TrimSpace(input.Key)
-	description := strings.TrimSpace(input.Description)
-	body := strings.TrimSpace(input.Body)
-	if key == "" {
-		return fmt.Errorf("key is required")
-	}
-	if description == "" {
-		return fmt.Errorf("description is required")
-	}
-	if body == "" {
-		return fmt.Errorf("body is required")
-	}
-	root, userID, err := s.resolveRootURI(ctx)
-	if err != nil {
-		return err
-	}
-	if err = s.ensureRoot(ctx, root); err != nil {
-		return fmt.Errorf("scratchpad storage unavailable")
-	}
-	updatedAt := s.now().UTC().Format(time.RFC3339Nano)
-	note := noteFile{
-		Key:         key,
-		Description: description,
-		Body:        input.Body,
-		UserID:      userID,
-		UpdatedAt:   updatedAt,
-	}
-	if err = s.writeNote(ctx, root, key, note); err != nil {
-		return err
-	}
-	output.Key = key
-	output.Description = description
-	output.UpdatedAt = updatedAt
-	return nil
-}
-
-func (s *Service) appendNote(ctx context.Context, input *AppendInput, output *AppendOutput) error {
-	key := strings.TrimSpace(input.Key)
-	body := strings.TrimSpace(input.Body)
-	if key == "" {
-		return fmt.Errorf("key is required")
-	}
-	if body == "" {
-		return fmt.Errorf("body is required")
-	}
-	root, userID, err := s.resolveRootURI(ctx)
-	if err != nil {
-		return err
-	}
-	if err = s.ensureRoot(ctx, root); err != nil {
-		return fmt.Errorf("scratchpad storage unavailable")
-	}
-	target := noteURL(root, key)
-	exists, err := s.fs.Exists(ctx, target)
-	if err != nil {
-		return fmt.Errorf("read scratchpad note failed")
-	}
-	description := strings.TrimSpace(input.Description)
-	updatedAt := s.now().UTC().Format(time.RFC3339Nano)
-	var note noteFile
-	if exists {
-		existing, err := s.readNoteURL(ctx, target)
-		if err != nil {
-			return err
-		}
-		if existing.Key != key {
-			return fmt.Errorf("scratchpad note identity mismatch for key %q", key)
-		}
-		note = *existing
-		note.Body = appendNoteBody(note.Body, input.Body)
-		if description != "" {
-			note.Description = description
-		}
-		if strings.TrimSpace(note.Description) == "" {
-			note.Description = key
-		}
-	} else {
-		output.Created = true
-		if description == "" {
-			description = key
-		}
-		note = noteFile{
-			Key:         key,
-			Description: description,
-			Body:        input.Body,
-			UserID:      userID,
-		}
-	}
-	note.UserID = userID
-	note.UpdatedAt = updatedAt
-	if err = s.writeNote(ctx, root, key, note); err != nil {
-		return err
-	}
-	output.Key = note.Key
-	output.Description = note.Description
-	output.UpdatedAt = note.UpdatedAt
-	return nil
-}
-
-func (s *Service) listNotes(ctx context.Context, output *ListOutput) error {
-	root, _, err := s.resolveRootURI(ctx)
-	if err != nil {
-		return err
-	}
-	if ok, err := s.fs.Exists(ctx, root); err != nil {
-		return fmt.Errorf("list scratchpad notes failed")
-	} else if !ok {
-		output.Entries = []Entry{}
 		return nil
 	}
-	objects, err := s.fs.List(ctx, root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			output.Entries = []Entry{}
-			return nil
-		}
-		return fmt.Errorf("list scratchpad notes failed")
-	}
-	var entries []Entry
-	for _, object := range objects {
-		if object == nil || object.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(strings.ToLower(object.Name()), ".json") {
-			continue
-		}
-		note, err := s.readNoteURL(ctx, object.URL())
-		if err != nil {
-			return err
-		}
-		entries = append(entries, Entry{
-			Key:         note.Key,
-			Description: note.Description,
-			UpdatedAt:   note.UpdatedAt,
-		})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
-	output.Entries = entries
+	*output = *result
+	output.Status = "ok"
 	return nil
 }
 
-func (s *Service) fetchNote(ctx context.Context, input *FetchInput, output *FetchOutput) error {
-	key := strings.TrimSpace(input.Key)
-	if key == "" {
-		return fmt.Errorf("key is required")
+func (s *Service) client(ctx context.Context) *afsscratchpad.Service {
+	template := s.effectiveRootTemplate()
+	options := []afsscratchpad.Option{
+		afsscratchpad.WithAFS(s.fs),
+		afsscratchpad.WithRootURI(template),
+		afsscratchpad.WithUserID(authctx.EffectiveUserID(ctx)),
+		afsscratchpad.WithNow(s.now),
 	}
-	root, _, err := s.resolveRootURI(ctx)
-	if err != nil {
-		return err
+	basePath, macros := workspaceBindingsForTemplate(template)
+	if basePath != "" {
+		options = append(options, afsscratchpad.WithBasePath(basePath))
 	}
-	target := noteURL(root, key)
-	exists, err := s.fs.Exists(ctx, target)
-	if err != nil {
-		return fmt.Errorf("read scratchpad note failed")
+	if len(macros) > 0 {
+		options = append(options, afsscratchpad.WithMacros(macros))
 	}
-	if !exists {
-		return fmt.Errorf("scratchpad note %q not found", key)
-	}
-	note, err := s.readNoteURL(ctx, target)
-	if err != nil {
-		if errors.Is(err, errScratchpadNoteNotFound) {
-			return fmt.Errorf("scratchpad note %q not found", key)
-		}
-		return err
-	}
-	if note.Key != key {
-		return fmt.Errorf("scratchpad note identity mismatch for key %q", key)
-	}
-	output.Key = note.Key
-	output.Description = note.Description
-	output.Body = note.Body
-	output.UpdatedAt = note.UpdatedAt
-	return nil
-}
-
-func (s *Service) writeNote(ctx context.Context, root, key string, note noteFile) error {
-	data, err := json.MarshalIndent(note, "", "  ")
-	if err != nil {
-		return err
-	}
-	target := noteURL(root, key)
-	if err = s.fs.Upload(ctx, target, 0o644, strings.NewReader(string(data)+"\n")); err != nil {
-		return fmt.Errorf("write scratchpad note %q failed", key)
-	}
-	return nil
-}
-
-func appendNoteBody(existing, addition string) string {
-	if strings.TrimSpace(existing) == "" {
-		return addition
-	}
-	return strings.TrimRight(existing, "\n") + appendSeparator + strings.TrimLeft(addition, "\n")
-}
-
-func (s *Service) readNoteURL(ctx context.Context, uri string) (*noteFile, error) {
-	data, err := s.fs.DownloadWithURL(ctx, uri)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, errScratchpadNoteNotFound
-		}
-		return nil, fmt.Errorf("read scratchpad note failed")
-	}
-	var note noteFile
-	if err = json.Unmarshal(data, &note); err != nil {
-		return nil, fmt.Errorf("decode scratchpad note failed: %w", err)
-	}
-	if strings.TrimSpace(note.Key) == "" {
-		return nil, fmt.Errorf("scratchpad note is missing key")
-	}
-	return &note, nil
-}
-
-func (s *Service) ensureRoot(ctx context.Context, root string) error {
-	if ok, err := s.fs.Exists(ctx, root); err != nil {
-		return err
-	} else if ok {
-		return nil
-	}
-	return s.fs.Create(ctx, root, 0o755, true)
+	return afsscratchpad.New(options...)
 }
 
 func (s *Service) resolveRootURI(ctx context.Context) (string, string, error) {
+	return ResolveRootURI(ctx, s.effectiveRootTemplate())
+}
+
+func (s *Service) effectiveRootTemplate() string {
 	template := strings.TrimSpace(os.Getenv(EnvScratchpadURI))
 	if template == "" {
 		template = strings.TrimSpace(s.rootTemplate)
 	}
-	return ResolveRootURI(ctx, template)
+	return template
 }
 
 func ResolveRootURI(ctx context.Context, template string) (string, string, error) {
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	if userID == "" {
-		return "", "", fmt.Errorf("scratchpad requires an effective user id")
-	}
 	if strings.TrimSpace(template) == "" {
 		template = DefaultRootURITemplate
 	}
-	if !strings.Contains(template, "${userID}") && !strings.Contains(template, "${user}") {
-		return "", "", fmt.Errorf("%s template must include ${userID} or ${user}", EnvScratchpadURI)
+	basePath, macros := workspaceBindingsForTemplate(template)
+	root, resolvedUserID, err := afsscratchpad.ResolveRootURI(template, userID, basePath, macros)
+	if err != nil {
+		if strings.Contains(err.Error(), "root template must include") {
+			return "", "", fmt.Errorf("%s template must include ${userID} or ${user}", EnvScratchpadURI)
+		}
+		return "", "", err
 	}
-	safeUserID := sanitizePathComponent(userID)
-	if safeUserID == "" {
-		return "", "", fmt.Errorf("effective user id cannot be converted to a scratchpad path segment")
-	}
-	out := strings.ReplaceAll(template, "${userID}", safeUserID)
-	out = strings.ReplaceAll(out, "${user}", safeUserID)
-	out = expandHostPathMacros(out)
-	out = strings.ReplaceAll(out, "${userID}", safeUserID)
-	out = strings.ReplaceAll(out, "${user}", safeUserID)
-	return normalizeRootURI(out), userID, nil
+	return root, resolvedUserID, nil
 }
 
-func expandHostPathMacros(value string) string {
-	out := strings.TrimSpace(value)
-	if strings.Contains(out, "${workspaceRoot}") {
-		out = strings.ReplaceAll(out, "${workspaceRoot}", workspace.Root())
+func workspaceBindingsForTemplate(template string) (string, map[string]string) {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		template = DefaultRootURITemplate
 	}
-	if strings.Contains(out, "${runtimeRoot}") {
-		out = strings.ReplaceAll(out, "${runtimeRoot}", workspace.RuntimeRoot())
+	macros := map[string]string{}
+	var workspaceRoot string
+	if needsWorkspaceRoot(template) {
+		workspaceRoot = workspace.Root()
 	}
-	if strings.Contains(out, "${home}") {
-		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-			out = strings.ReplaceAll(out, "${home}", home)
+	if needsWorkspaceBasePath(template) {
+		if workspaceRoot == "" {
+			workspaceRoot = workspace.Root()
 		}
-	}
-	if strings.HasPrefix(out, "~/") || out == "~" {
-		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-			if out == "~" {
-				out = home
-			} else {
-				out = filepath.Join(home, strings.TrimPrefix(out, "~/"))
-			}
+		returnBasePath := workspaceRoot
+		if strings.Contains(template, "${workspaceRoot}") {
+			macros["workspaceRoot"] = workspaceRoot
 		}
+		if strings.Contains(template, "${runtimeRoot}") {
+			macros["runtimeRoot"] = workspace.RuntimeRoot()
+		}
+		if len(macros) == 0 {
+			return returnBasePath, nil
+		}
+		return returnBasePath, macros
 	}
-	return strings.TrimSpace(out)
+	if strings.Contains(template, "${workspaceRoot}") {
+		macros["workspaceRoot"] = workspaceRoot
+	}
+	if strings.Contains(template, "${runtimeRoot}") {
+		macros["runtimeRoot"] = workspace.RuntimeRoot()
+	}
+	if len(macros) == 0 {
+		return "", nil
+	}
+	return "", macros
+}
+
+func needsWorkspaceRoot(template string) bool {
+	return needsWorkspaceBasePath(template) || strings.Contains(template, "${workspaceRoot}")
+}
+
+func needsWorkspaceBasePath(template string) bool {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		template = DefaultRootURITemplate
+	}
+	if strings.Contains(template, "://") || filepath.IsAbs(template) || isWindowsAbsPath(template) {
+		return false
+	}
+	if strings.HasPrefix(template, "${home}") || strings.HasPrefix(template, "~/") || template == "~" {
+		return false
+	}
+	if strings.HasPrefix(template, "${workspaceRoot}") || strings.HasPrefix(template, "${runtimeRoot}") {
+		return false
+	}
+	return true
 }
 
 func noteURL(root, key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return afsurl.Join(root, hex.EncodeToString(sum[:])+".json")
+	return afsscratchpad.NoteURL(root, key)
 }
 
-var unsafePathComponent = regexp.MustCompile(`[^A-Za-z0-9_.@-]+`)
+func appendNoteBody(existing, addition string) string {
+	return afsscratchpad.AppendNoteBody(existing, addition)
+}
 
 func sanitizePathComponent(value string) string {
-	value = strings.TrimSpace(value)
-	value = unsafePathComponent.ReplaceAllString(value, "_")
-	value = strings.Trim(value, "._-")
-	return value
+	return afsscratchpad.SanitizePathComponent(value)
 }
 
 func normalizeRootURI(root string) string {
