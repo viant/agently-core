@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
@@ -432,6 +433,109 @@ func TestSetFormDataAllowsFreshWindowIDWhenClientSnapshotIsLive(t *testing.T) {
 		},
 	})
 
+	if err := <-done; err != nil {
+		t.Fatalf("setFormData failed: %v", err)
+	}
+}
+
+func TestSetFormDataWaitsForFreshHostedWindowSnapshot(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "client-1"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "client-1",
+		"data": map[string]interface{}{
+			"clientId":       "client-1",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "chat/new",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"windowTitle":    "Chat",
+					"conversationId": "conv-1",
+				},
+			},
+		},
+	})
+
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	go func() {
+		out := &CommandOutput{}
+		err := svc.setFormData(ctx, &SetFormDataInput{
+			ClientID:  "client-1",
+			WindowID:  "forecastingCubeBuilder__conv-1",
+			WindowKey: "forecastingCubeBuilder",
+			Values: map[string]interface{}{
+				"prefill": map[string]interface{}{
+					"audienceIds": []interface{}{7113447},
+				},
+			},
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "client-1" {
+			done <- fmt.Errorf("unexpected output: %#v", out)
+			return
+		}
+		done <- nil
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "client-1",
+		"data": map[string]interface{}{
+			"clientId":       "client-1",
+			"conversationId": "conv-1",
+			"selected": map[string]interface{}{
+				"windowId": "forecastingCubeBuilder__conv-1",
+			},
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"windowTitle":    "Chat",
+					"conversationId": "conv-1",
+				},
+				map[string]interface{}{
+					"windowId":       "forecastingCubeBuilder__conv-1",
+					"windowKey":      "forecastingCubeBuilder",
+					"windowTitle":    "Forecasting",
+					"conversationId": "conv-1",
+					"presentation":   "hosted",
+					"region":         "chat.top",
+					"parentKey":      "chat/new",
+				},
+			},
+		},
+	})
+
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	command, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
+	}
+	if got := command["method"]; got != "ui.window.setFormData" {
+		t.Fatalf("expected ui.window.setFormData, got %#v", got)
+	}
+	commandParams, ok := command["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params map, got %#v", command["params"])
+	}
+	if got := commandParams["windowId"]; got != "forecastingCubeBuilder__conv-1" {
+		t.Fatalf("expected forecasting builder window id, got %#v", got)
+	}
+
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+		"id":     command["id"],
+		"ok":     true,
+		"result": map[string]interface{}{"ok": true},
+	})
 	if err := <-done; err != nil {
 		t.Fatalf("setFormData failed: %v", err)
 	}

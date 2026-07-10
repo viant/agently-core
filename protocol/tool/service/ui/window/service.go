@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -125,6 +126,9 @@ type Service struct {
 	bridge *forgeuisvc.Service
 	reg    *uireg.Registry
 }
+
+const setFormDataWindowResolveTimeout = 2 * time.Second
+const setFormDataWindowResolvePollInterval = 50 * time.Millisecond
 
 func New(bridge *forgeuisvc.Service) *Service {
 	return &Service{bridge: bridge, reg: uireg.New(bridge)}
@@ -366,7 +370,13 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 	if len(input.Values) == 0 {
 		return fmt.Errorf("values are required")
 	}
-	target, err := s.resolveWindowTarget(ctx, input.ClientID, input.WindowID, input.WindowKey)
+	target, err := s.resolveWindowTargetWithRetry(
+		ctx,
+		input.ClientID,
+		input.WindowID,
+		input.WindowKey,
+		setFormDataWindowResolveTimeout,
+	)
 	if err != nil {
 		return err
 	}
@@ -400,6 +410,27 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 		},
 	})
 	return nil
+}
+
+func (s *Service) resolveWindowTargetWithRetry(ctx context.Context, requestedClientID, windowID, windowKey string, timeout time.Duration) (*resolvedWindowTarget, error) {
+	target, err := s.resolveWindowTarget(ctx, requestedClientID, windowID, windowKey)
+	if err == nil || timeout <= 0 {
+		return target, err
+	}
+	deadline := time.Now().Add(timeout)
+	lastErr := err
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		time.Sleep(setFormDataWindowResolvePollInterval)
+		target, err = s.resolveWindowTarget(ctx, requestedClientID, windowID, windowKey)
+		if err == nil {
+			return target, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func windowAlreadyFocused(snap *uireg.Snapshot, win *uireg.WindowSnapshot) bool {
