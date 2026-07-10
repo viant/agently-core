@@ -59,6 +59,8 @@ type sharedState struct {
 
 var sharedStates sync.Map
 
+const defaultWindowEventFreshness = 2 * time.Minute
+
 func sharedStateFor(bridge interface{}) *sharedState {
 	key := fmt.Sprintf("%p", bridge)
 	if state, ok := sharedStates.Load(key); ok {
@@ -252,6 +254,89 @@ func (s *sharedState) listEvents(ns, clientID string) []UIEvent {
 	out := make([]UIEvent, len(events))
 	copy(out, events)
 	return out
+}
+
+func (s *sharedState) findRecentWindowEvent(conversationID, preferredClientID, windowID string, maxAge time.Duration) (string, string, UIEvent, bool) {
+	if s == nil {
+		return "", "", UIEvent{}, false
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	preferredClientID = strings.TrimSpace(preferredClientID)
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return "", "", UIEvent{}, false
+	}
+	if maxAge <= 0 {
+		maxAge = defaultWindowEventFreshness
+	}
+	now := time.Now()
+	type candidate struct {
+		namespace string
+		clientID  string
+		event     UIEvent
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bestPreferred := candidate{}
+	bestPreferredFound := false
+	bestAny := candidate{}
+	bestAnyFound := false
+	for key, events := range s.events {
+		ns, clientID, ok := splitStateSnapshotKey(key)
+		if !ok {
+			continue
+		}
+		for _, event := range events {
+			if strings.TrimSpace(event.WindowID) != windowID {
+				continue
+			}
+			if conversationID != "" && strings.TrimSpace(event.ConversationID) != conversationID {
+				continue
+			}
+			if !windowEventProvidesTarget(event.Kind) {
+				continue
+			}
+			if !event.At.IsZero() && now.Sub(event.At) > maxAge {
+				continue
+			}
+			current := candidate{namespace: ns, clientID: clientID, event: event}
+			if preferredClientID != "" && clientID == preferredClientID {
+				if !bestPreferredFound || event.At.After(bestPreferred.event.At) {
+					bestPreferred = current
+					bestPreferredFound = true
+				}
+				continue
+			}
+			if !bestAnyFound || event.At.After(bestAny.event.At) {
+				bestAny = current
+				bestAnyFound = true
+			}
+		}
+	}
+	if bestPreferredFound {
+		return bestPreferred.clientID, bestPreferred.namespace, bestPreferred.event, true
+	}
+	if bestAnyFound {
+		return bestAny.clientID, bestAny.namespace, bestAny.event, true
+	}
+	return "", "", UIEvent{}, false
+}
+
+func splitStateSnapshotKey(key string) (string, string, bool) {
+	parts := strings.SplitN(strings.TrimSpace(key), "::", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
+}
+
+func windowEventProvidesTarget(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "view.open", "window.opened", "window.focused", "window.set_form_data":
+		return true
+	default:
+		return false
+	}
 }
 
 func BuildWindowSurface(win *WindowSnapshot) *WindowSurface {

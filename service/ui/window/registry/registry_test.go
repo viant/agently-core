@@ -352,6 +352,34 @@ func TestFindWindowDoesNotFallbackByWindowKeyWhenClientIDIsStale(t *testing.T) {
 	}
 }
 
+func TestFindWindowFallsBackToRecentViewOpenEventWhenSnapshotIsMissing(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	reg := New(bridge)
+	reg.RecordEvent("default", "active-client", UIEvent{
+		ConversationID: "conv-1",
+		ClientID:       "active-client",
+		WindowID:       "forecastingCubeBuilder__conv-1",
+		WindowKey:      "forecastingCubeBuilder",
+		Kind:           "view.open",
+		Actor:          "agent",
+		At:             time.Now(),
+	})
+
+	clientID, namespace, _, win, err := reg.FindWindow(context.Background(), "conv-1", "active-client", "forecastingCubeBuilder__conv-1", "forecastingCubeBuilder")
+	if err != nil {
+		t.Fatalf("find window from event fallback: %v", err)
+	}
+	if clientID != "active-client" {
+		t.Fatalf("expected active-client, got %q", clientID)
+	}
+	if namespace != "default" {
+		t.Fatalf("expected default namespace, got %q", namespace)
+	}
+	if win == nil || win.WindowID != "forecastingCubeBuilder__conv-1" || win.WindowKey != "forecastingCubeBuilder" {
+		t.Fatalf("unexpected window fallback: %#v", win)
+	}
+}
+
 func postWindowSnapshot(t *testing.T, bridge *forgeuisvc.Service, clientID, conversationID, windowID, windowKey string) {
 	t.Helper()
 	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": clientID})

@@ -442,6 +442,15 @@ func (r *Registry) findWindow(ctx context.Context, conversationID, clientID, win
 			return clientID, namespace, snap, win, nil
 		}
 	}
+	if windowID != "" && r.state != nil {
+		if eventClientID, eventNamespace, event, ok := r.state.findRecentWindowEvent(conversationID, preferredClientID, windowID, defaultWindowEventFreshness); ok {
+			return eventClientID, eventNamespace, nil, &WindowSnapshot{
+				WindowID:       strings.TrimSpace(event.WindowID),
+				WindowKey:      firstNonEmpty(strings.TrimSpace(event.WindowKey), windowKey),
+				ConversationID: strings.TrimSpace(event.ConversationID),
+			}, nil
+		}
+	}
 	return "", "", nil, nil, fmt.Errorf("window not found")
 }
 
@@ -465,4 +474,13 @@ func findWindowInClientSnapshots(items []ClientSnapshot, conversationID, windowI
 		}
 	}
 	return "", "", nil, nil, false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
