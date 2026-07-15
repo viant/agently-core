@@ -196,10 +196,16 @@ type SkillsDefaults struct {
 	Model string   `yaml:"model,omitempty" json:"model,omitempty"`
 }
 
+type ReportingStoreDefaults struct {
+	Backend      string `yaml:"backend,omitempty" json:"backend,omitempty"`
+	ConnectorRef string `yaml:"connectorRef,omitempty" json:"connectorRef,omitempty"`
+}
+
 type ReportingDefaults struct {
-	Enabled         bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	QueueIntervalMs int  `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
-	QueueBatchLimit int  `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
+	Enabled         bool                   `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	QueueIntervalMs int                    `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
+	QueueBatchLimit int                    `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
+	Store           ReportingStoreDefaults `yaml:"store,omitempty" json:"store,omitempty"`
 }
 
 // ToolApprovalDefaults defines global tool approval behavior.

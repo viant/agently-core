@@ -369,6 +369,12 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if src.Reporting.Enabled {
 		dst.Reporting.Enabled = true
 	}
+	if strings.TrimSpace(src.Reporting.Store.Backend) != "" {
+		dst.Reporting.Store.Backend = strings.TrimSpace(src.Reporting.Store.Backend)
+	}
+	if strings.TrimSpace(src.Reporting.Store.ConnectorRef) != "" {
+		dst.Reporting.Store.ConnectorRef = strings.TrimSpace(src.Reporting.Store.ConnectorRef)
+	}
 	if strings.TrimSpace(src.ToolAutoSelection.Model) != "" {
 		dst.ToolAutoSelection.Model = strings.TrimSpace(src.ToolAutoSelection.Model)
 	}

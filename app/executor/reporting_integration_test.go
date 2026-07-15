@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	"github.com/viant/agently-core/app/store/data"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
 	authsvc "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
@@ -97,6 +98,143 @@ func TestBuilderBuild_RegistersReportingServiceFromDefaults(t *testing.T) {
 	require.Contains(t, names, "reporting/get_report")
 	require.Contains(t, names, "reporting/list_reports")
 	require.Contains(t, names, "reporting/update_report")
+}
+
+func TestBuilderBuild_RegistersReportingServiceFromSQLStoreDefaults(t *testing.T) {
+	dao, err := data.NewDatlyInMemory(context.Background())
+	require.NoError(t, err)
+
+	rt, err := executor.NewBuilder().
+		WithDAO(dao).
+		WithAgentFinder(stubAgentFinder{}).
+		WithModelFinder(stubModelFinder{}).
+		WithDefaults(&execconfig.Defaults{
+			Reporting: execconfig.ReportingDefaults{
+				Enabled: true,
+				Store: execconfig.ReportingStoreDefaults{
+					Backend:      "sql",
+					ConnectorRef: "agently",
+				},
+			},
+		}).
+		Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, rt.Reporting)
+
+	ctx := authsvc.InjectUser(context.Background(), "sql-builder-user")
+	saveRaw, err := rt.Registry.Execute(ctx, "reporting:save_report", map[string]interface{}{
+		"reportId":       "forecasting_q3",
+		"title":          "Forecasting Q3",
+		"reportDocument": map[string]interface{}{"kind": "reportDocument", "id": "forecasting_q3"},
+	})
+	require.NoError(t, err)
+
+	var saved reportingsvc.SharedArtifact
+	require.NoError(t, json.Unmarshal([]byte(saveRaw), &saved))
+	require.Equal(t, "sql-builder-user", saved.OwnerID)
+
+	getRaw, err := rt.Registry.Execute(ctx, "reporting:get_report", map[string]interface{}{
+		"artifactId": saved.ArtifactID,
+	})
+	require.NoError(t, err)
+
+	var reopened reportingsvc.SharedArtifact
+	require.NoError(t, json.Unmarshal([]byte(getRaw), &reopened))
+	require.Equal(t, saved.ArtifactID, reopened.ArtifactID)
+	require.Equal(t, "Forecasting Q3", reopened.Title)
+}
+
+func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(t *testing.T) {
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(stubAgentFinder{}).
+		WithModelFinder(stubModelFinder{}).
+		WithDefaults(&execconfig.Defaults{
+			Reporting: execconfig.ReportingDefaults{Enabled: true},
+		}).
+		Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, rt.Reporting)
+
+	ctx := authsvc.InjectUser(context.Background(), "builder-user")
+	saveRaw, err := rt.Registry.Execute(ctx, "reporting:save_report", map[string]interface{}{
+		"reportId":    "forecastingQ3",
+		"title":       "Forecasting Q3",
+		"reportSpec":  validReportingIntegrationSpecPayload(),
+		"reportFill":  validReportingIntegrationFillPayload(),
+		"reportPrint": validReportingIntegrationPrintPayload(),
+	})
+	require.NoError(t, err)
+	var saved reportingsvc.SharedArtifact
+	require.NoError(t, json.Unmarshal([]byte(saveRaw), &saved))
+
+	submitRaw, err := rt.Registry.Execute(ctx, "reporting:submit_export", map[string]interface{}{
+		"format": "pdf",
+		"source": map[string]interface{}{
+			"kind":     "report",
+			"reportId": "forecastingQ3",
+		},
+	})
+	require.NoError(t, err)
+
+	var job reportingsvc.ExportJob
+	require.NoError(t, json.Unmarshal([]byte(submitRaw), &job))
+	require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
+	require.Equal(t, saved.ArtifactRef, job.ArtifactRef)
+
+	completed, err := rt.Reporting.RunExport(context.Background(), job.JobID)
+	require.NoError(t, err)
+	require.Equal(t, reportingsvc.JobStatusSucceeded, completed.Status)
+
+	artifact, err := rt.Reporting.GetArtifact(ctx, completed.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, "scratchpad://artifact/"+completed.ArtifactID, artifact.SourceURL)
+	require.NotEmpty(t, artifact.Data)
+}
+
+func TestBuilderBuild_ReportingRegistryExportsMaterializedPresetViaUnifiedPresetSource(t *testing.T) {
+	rt, err := executor.NewBuilder().
+		WithAgentFinder(stubAgentFinder{}).
+		WithModelFinder(stubModelFinder{}).
+		WithDefaults(&execconfig.Defaults{
+			Reporting: execconfig.ReportingDefaults{Enabled: true},
+		}).
+		Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, rt.Reporting)
+
+	ctx := authsvc.InjectUser(context.Background(), "builder-user")
+	submitRaw, err := rt.Registry.Execute(ctx, "reporting:submit_export", map[string]interface{}{
+		"format": "pdf",
+		"source": map[string]interface{}{
+			"kind":        "preset",
+			"windowKey":   "metricReportBuilder",
+			"presetId":    "performance_inventory_brief",
+			"reportSpec":  validReportingIntegrationSpecPayload(),
+			"reportFill":  validReportingIntegrationFillPayload(),
+			"reportPrint": validReportingIntegrationPrintPayload(),
+			"metadata": map[string]interface{}{
+				"source": "preset-runtime",
+			},
+		},
+		"conversationId": "conv-preset",
+		"workspaceId":    "steward",
+	})
+	require.NoError(t, err)
+
+	var job reportingsvc.ExportJob
+	require.NoError(t, json.Unmarshal([]byte(submitRaw), &job))
+	require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
+	require.Equal(t, "report://preset/metricReportBuilder/performance_inventory_brief", job.ArtifactRef)
+	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"steward","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(job.Metadata))
+
+	completed, err := rt.Reporting.RunExport(context.Background(), job.JobID)
+	require.NoError(t, err)
+	require.Equal(t, reportingsvc.JobStatusSucceeded, completed.Status)
+
+	artifact, err := rt.Reporting.GetArtifact(ctx, completed.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, "scratchpad://artifact/"+completed.ArtifactID, artifact.SourceURL)
+	require.NotEmpty(t, artifact.Data)
 }
 
 func TestBuilderBuild_RegistersReportingServiceFromWorkspaceDefaults(t *testing.T) {

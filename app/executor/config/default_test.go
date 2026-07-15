@@ -83,10 +83,15 @@ reporting:
   enabled: true
   queueIntervalMs: 250
   queueBatchLimit: 3
+  store:
+    backend: sql
+    connectorRef: agently
 `
 	var got Defaults
 	require.NoError(t, yaml.Unmarshal([]byte(input), &got))
 	require.True(t, got.Reporting.Enabled)
 	require.Equal(t, 250, got.Reporting.QueueIntervalMs)
 	require.Equal(t, 3, got.Reporting.QueueBatchLimit)
+	require.Equal(t, "sql", got.Reporting.Store.Backend)
+	require.Equal(t, "agently", got.Reporting.Store.ConnectorRef)
 }

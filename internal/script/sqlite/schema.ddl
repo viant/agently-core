@@ -451,3 +451,91 @@ CREATE TABLE IF NOT EXISTS session (
 
 CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id);
 CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at);
+
+CREATE TABLE IF NOT EXISTS report_shared_artifact (
+    artifact_id TEXT PRIMARY KEY,
+    artifact_ref TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    owner_ref TEXT,
+    kind TEXT NOT NULL,
+    lifecycle TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    report_id TEXT,
+    title TEXT,
+    source_artifact_id TEXT,
+    base_artifact_ref TEXT,
+    policy_ref TEXT,
+    document_version INTEGER NOT NULL DEFAULT 0,
+    report_document_json BLOB,
+    report_spec_json BLOB,
+    compile_state_json BLOB,
+    report_fill_json BLOB,
+    report_print_json BLOB,
+    saved_view_overlay_json BLOB,
+    metadata_json BLOB,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_artifact_ref ON report_shared_artifact(owner_id, artifact_ref);
+CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_report_id ON report_shared_artifact(owner_id, report_id);
+CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_kind_lifecycle_updated ON report_shared_artifact(owner_id, kind, lifecycle, updated_at, created_at);
+
+CREATE TABLE IF NOT EXISTS report_export_job (
+    job_id TEXT PRIMARY KEY,
+    artifact_ref TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    conversation_id TEXT,
+    workspace_id TEXT,
+    auth_context_ref TEXT,
+    format TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    status TEXT NOT NULL,
+    report_spec_json BLOB,
+    report_fill_json BLOB,
+    report_print_json BLOB,
+    metadata_json BLOB,
+    artifact_id TEXT,
+    error_text TEXT,
+    diagnostics_json BLOB,
+    submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    completed_at DATETIME,
+    retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_submitted_at ON report_export_job(owner_id, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_artifact_ref ON report_export_job(owner_id, artifact_ref);
+CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_status ON report_export_job(owner_id, status);
+
+CREATE TABLE IF NOT EXISTS report_export_artifact (
+    artifact_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    format TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    inline_data BLOB,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_created_at ON report_export_artifact(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_artifact_ref ON report_export_artifact(owner_id, artifact_ref);
+CREATE INDEX IF NOT EXISTS idx_report_export_artifact_job_id ON report_export_artifact(job_id);
+
+CREATE TABLE IF NOT EXISTS report_audit_event (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    job_id TEXT,
+    artifact_id TEXT,
+    actor_id TEXT NOT NULL,
+    actor_ref TEXT,
+    occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    metadata_json BLOB
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_actor_occurred_at ON report_audit_event(actor_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact_ref ON report_audit_event(artifact_ref);

@@ -9,11 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/afs"
+	afsscratchpad "github.com/viant/afs/scratchpad"
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
 	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
+	reportsql "github.com/viant/agently-core/app/store/reporting/sql"
 	"github.com/viant/agently-core/genai/embedder"
 	"github.com/viant/agently-core/genai/llm"
 	token "github.com/viant/agently-core/internal/auth/token"
@@ -25,6 +28,7 @@ import (
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	resourcessvc "github.com/viant/agently-core/protocol/tool/service/resources"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
@@ -85,6 +89,16 @@ type Runtime struct {
 
 const defaultReportingQueueIntervalMs = 250
 
+const defaultReportingStoreConnectorRef = "agently"
+
+func resolveScratchpadTemplate() string {
+	template := strings.TrimSpace(os.Getenv(scratchpadsvc.EnvScratchpadURI))
+	if template != "" {
+		return template
+	}
+	return scratchpadsvc.DefaultRootURITemplate
+}
+
 type Builder struct {
 	defaults          *config.Defaults
 	dao               *datly.Service
@@ -114,6 +128,49 @@ type Builder struct {
 	stateStore        workspace.StateStore
 	tokenProvider     token.Provider
 	reportingService  *reportingsvc.Service
+}
+
+func resolveReportingStoreDefaults(defaults *config.Defaults) config.ReportingStoreDefaults {
+	if defaults == nil {
+		return config.ReportingStoreDefaults{}
+	}
+	store := defaults.Reporting.Store
+	backend := strings.TrimSpace(store.Backend)
+	connectorRef := strings.TrimSpace(store.ConnectorRef)
+	if backend == "" && hasReportingDBConfigEnv() {
+		backend = "sql"
+	}
+	if strings.EqualFold(backend, "sql") && connectorRef == "" {
+		connectorRef = defaultReportingStoreConnectorRef
+	}
+	return config.ReportingStoreDefaults{
+		Backend:      backend,
+		ConnectorRef: connectorRef,
+	}
+}
+
+func reportingSQLStoreEnabled(defaults *config.Defaults) bool {
+	if defaults == nil || !defaults.Reporting.Enabled {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(resolveReportingStoreDefaults(defaults).Backend), "sql")
+}
+
+// hasReportingDBConfigEnv belongs at the Agently runtime layer, not Forge.
+// Forge consumes reporting services/contracts; Agently-core decides whether
+// report persistence should auto-bind to the local runtime database contract.
+func hasReportingDBConfigEnv() bool {
+	for _, envKey := range []string{
+		"AGENTLY_DB_DSN",
+		"AGENTLY_DB_PATH",
+		"AGENTLY_DB_DRIVER",
+		"AGENTLY_DB_SECRETS",
+	} {
+		if strings.TrimSpace(os.Getenv(envKey)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func NewBuilder() *Builder { return &Builder{} }
@@ -217,13 +274,13 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.Defaults = &config.Defaults{}
 	}
 
-	needsDAO := b.conversation == nil || b.data == nil
+	needsDAO := b.conversation == nil || b.data == nil || reportingSQLStoreEnabled(out.Defaults)
 	if out.DAO == nil && needsDAO {
 		var (
 			dao *datly.Service
 			err error
 		)
-		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" {
+		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" && strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH")) == "" {
 			dao, err = data.NewDatlyFromWorkspace(ctx, workspace.RuntimeRoot())
 		} else {
 			dao, err = data.NewDatly(ctx)
@@ -385,11 +442,40 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.Reporting = b.reportingService
 	}
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
+		scratchpadTemplate := resolveScratchpadTemplate()
+		scratchpadFS := afs.New()
+		afsscratchpad.Register(
+			afsscratchpad.WithAFS(scratchpadFS),
+			afsscratchpad.WithRootURI(scratchpadTemplate),
+		)
+		reportScratchpad := afsscratchpad.New(
+			afsscratchpad.WithAFS(scratchpadFS),
+			afsscratchpad.WithRootURI(scratchpadTemplate),
+		)
+		reportStore := reportingsvc.NewStoreAdapter(reportfs.New(b.stateStore))
+		reportAudit := reportfs.NewAuditSink(b.stateStore)
+		reportStoreDefaults := resolveReportingStoreDefaults(out.Defaults)
+		if strings.EqualFold(strings.TrimSpace(reportStoreDefaults.Backend), "sql") {
+			if out.DAO == nil {
+				return nil, fmt.Errorf("reporting sql store requires a datly service")
+			}
+			sqlClient, err := reportsql.New(ctx, out.DAO, reportStoreDefaults.ConnectorRef, b.stateStore, reportfs.New(b.stateStore))
+			if err != nil {
+				return nil, err
+			}
+			reportStore = reportingsvc.NewStoreAdapter(sqlClient)
+			if sqlStore, ok := sqlClient.(*reportsql.Store); ok {
+				reportAudit = reportsql.NewAuditSink(sqlStore)
+			}
+		}
 		out.Reporting = reportingsvc.New(reportingsvc.Options{
-			Compiler: reportingsvc.NewReportSpecCompiler(nil),
-			Exporter: reportingsvc.NewForgeExporter(nil),
-			Store:    reportingsvc.NewStoreAdapter(reportfs.New(b.stateStore)),
-			Audit:    reportfs.NewAuditSink(b.stateStore),
+			Compiler:      reportingsvc.NewReportSpecCompiler(nil),
+			Exporter:      reportingsvc.NewForgeExporter(nil),
+			Store:         reportStore,
+			Audit:         reportAudit,
+			Scratchpad:    reportScratchpad,
+			ScratchpadFS:  scratchpadFS,
+			TokenProvider: b.tokenProvider,
 		})
 	}
 	if out.Registry != nil && out.Reporting != nil {
@@ -402,11 +488,15 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		if queueIntervalMs <= 0 {
 			queueIntervalMs = defaultReportingQueueIntervalMs
 		}
+		workerCtx := ctx
+		if strings.EqualFold(strings.TrimSpace(resolveReportingStoreDefaults(out.Defaults).Backend), "sql") {
+			workerCtx = reportsql.WithInternalAccess(workerCtx)
+		}
 		out.ReportingWorker = reportingsvc.NewWorker(out.Reporting, reportingsvc.WorkerOptions{
 			Interval:   time.Duration(queueIntervalMs) * time.Millisecond,
 			BatchLimit: out.Defaults.Reporting.QueueBatchLimit,
 		})
-		if err := out.ReportingWorker.Start(ctx); err != nil {
+		if err := out.ReportingWorker.Start(workerCtx); err != nil {
 			return nil, err
 		}
 	}

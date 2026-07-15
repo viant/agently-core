@@ -92,7 +92,7 @@ var (
 )
 
 // NewDatly creates a singleton datly service with configured connector.
-// It expects AGENTLY_DB_DSN and AGENTLY_DB_DRIVER to be set.
+// It prefers AGENTLY_DB_DSN and falls back to AGENTLY_DB_PATH for SQLite.
 func NewDatly(ctx context.Context) (*datly.Service, error) {
 	var initErr error
 	daoOnce.Do(func() {
@@ -108,9 +108,20 @@ func NewDatly(ctx context.Context) (*datly.Service, error) {
 		}
 		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
 		secrets := strings.TrimSpace(os.Getenv("AGENTLY_DB_SECRETS"))
+		dbPath := strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH"))
 		if dsn == "" {
-			initErr = fmt.Errorf("AGENTLY_DB_DSN is required")
-			return
+			if dbPath == "" {
+				initErr = fmt.Errorf("AGENTLY_DB_DSN is required")
+				return
+			}
+			sqlite := sqlitesvc.New("")
+			sqlite = sqlite.WithPath(dbPath)
+			var err error
+			if dsn, err = sqlite.Ensure(ctx); err != nil {
+				initErr = err
+				return
+			}
+			driver = "sqlite"
 		}
 		secretResource, err := func() (*scy.Resource, error) {
 			expanded, resource, err := dbconfig.ExpandDSN(ctx, dsn, secrets)
