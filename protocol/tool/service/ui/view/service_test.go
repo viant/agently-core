@@ -282,6 +282,32 @@ workspaceMinHeight: 500
 	})
 }
 
+func TestServiceLoadAll_PreservesReportPresetCatalog(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
+id: report
+title: Report
+windowKey: report
+reportPresets:
+  - id: inventory_brief
+    label: Inventory Brief
+    description: Channel-first inventory report.
+`)
+		svc := &Service{repo: repo.New(afs.New())}
+		items, err := svc.loadAll(context.Background())
+		if err != nil {
+			t.Fatalf("loadAll failed: %v", err)
+		}
+		if len(items) != 1 || len(items[0].ReportPresets) != 1 {
+			t.Fatalf("expected one report preset, got %#v", items)
+		}
+		preset := items[0].ReportPresets[0]
+		if preset.ID != "inventory_brief" || preset.Label != "Inventory Brief" || preset.Description == "" {
+			t.Fatalf("unexpected report preset: %#v", preset)
+		}
+	})
+}
+
 func TestServiceLoadAll_LoadsImportOnlyForgeViewSpecs(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "order.yaml"), `

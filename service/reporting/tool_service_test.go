@@ -300,6 +300,10 @@ func TestServiceToolMethodSavesGetsListsAndUpdatesReports(t *testing.T) {
 	require.NoError(t, listMethod(ctx, &ListReportsInput{Limit: 10}, listed))
 	require.Len(t, listed.Reports, 1)
 	require.Equal(t, saved.ArtifactID, listed.Reports[0].ArtifactID)
+	encodedList, err := json.Marshal(listed)
+	require.NoError(t, err)
+	require.NotContains(t, string(encodedList), "reportDocument")
+	require.NotContains(t, string(encodedList), "compileState")
 
 	updateMethod, err := service.Method("update_report")
 	require.NoError(t, err)
