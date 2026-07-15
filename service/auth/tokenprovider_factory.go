@@ -45,8 +45,13 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 		return nil, err
 	}
 	base := &oauth2.Token{RefreshToken: strings.TrimSpace(refreshToken)}
-	ts := oauthCfg.TokenSource(ctx, base)
-	refreshed, err := ts.Token()
+	var stored *OAuthToken
+	if b.store != nil {
+		stored, _ = b.store.Get(ctx, strings.TrimSpace(key.Subject), strings.TrimSpace(key.Provider))
+	}
+	scopes := oauthRefreshScopes(nil, stored)
+	resource := oauthRefreshResource(nil, stored, oauthCfg.ClientID)
+	refreshed, err := refreshOAuthToken(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), base, scopes, resource)
 	if err != nil {
 		return nil, err
 	}
@@ -62,10 +67,8 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 			idToken = strings.TrimSpace(s)
 		}
 	}
-	if idToken == "" && b.store != nil {
-		if stored, err := b.store.Get(ctx, strings.TrimSpace(key.Subject), strings.TrimSpace(key.Provider)); err == nil && stored != nil {
-			idToken = strings.TrimSpace(stored.IDToken)
-		}
+	if idToken == "" && stored != nil {
+		idToken = strings.TrimSpace(stored.IDToken)
 	}
 	return &scyauth.Token{
 		Token:   *refreshed,

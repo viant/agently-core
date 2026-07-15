@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,10 +25,20 @@ type oauthInitiateResponse struct {
 }
 
 type oauthStatePayload struct {
-	CodeVerifier string `json:"codeVerifier"`
-	ReturnURL    string `json:"returnURL,omitempty"`
-	RedirectURI  string `json:"redirectURI,omitempty"`
+	CodeVerifier string   `json:"codeVerifier"`
+	ReturnURL    string   `json:"returnURL,omitempty"`
+	RedirectURI  string   `json:"redirectURI,omitempty"`
+	Scopes       []string `json:"scopes,omitempty"`
 }
+
+type oauthScopeTarget string
+
+const (
+	oauthScopeTargetDefault oauthScopeTarget = ""
+	oauthScopeTargetWebUI   oauthScopeTarget = "web"
+	oauthScopeTargetMobile  oauthScopeTarget = "mobile"
+	oauthScopeTargetCLI     oauthScopeTarget = "cli"
+)
 
 func callbackURL(r *http.Request, configuredPath string) string {
 	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
@@ -175,6 +186,373 @@ func resolveTokenExpiry(explicitExpiresAt, idToken, accessToken string) time.Tim
 		}
 	}
 	return tokenExpiryFromTokenStrings(idToken, accessToken)
+}
+
+func oauthScopesForTarget(client *OAuthClient, target oauthScopeTarget, explicit ...string) []string {
+	if len(explicit) > 0 {
+		if scopes := normalizeScopes(explicit); len(scopes) > 0 {
+			return scopes
+		}
+	}
+	if client != nil {
+		switch target {
+		case oauthScopeTargetWebUI:
+			if scopes := normalizeScopes(client.WebUIScopes); len(scopes) > 0 {
+				return scopes
+			}
+		case oauthScopeTargetMobile:
+			if scopes := normalizeScopes(client.MobileUIScopes); len(scopes) > 0 {
+				return scopes
+			}
+		case oauthScopeTargetCLI:
+			if scopes := normalizeScopes(client.CLIScopes); len(scopes) > 0 {
+				return scopes
+			}
+		}
+		if scopes := normalizeScopes(client.Scopes); len(scopes) > 0 {
+			return scopes
+		}
+	}
+	if target == oauthScopeTargetDefault {
+		return []string{"openid"}
+	}
+	return []string{"openid", "profile", "email"}
+}
+
+func normalizeScopes(scopes []string) []string {
+	if len(scopes) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(scopes))
+	seen := map[string]bool{}
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		result = append(result, scope)
+	}
+	return result
+}
+
+func configuredOAuthScopeSets(client *OAuthClient) [][]string {
+	if client == nil {
+		return nil
+	}
+	candidates := [][]string{
+		normalizeScopes(client.WebUIScopes),
+		normalizeScopes(client.MobileUIScopes),
+		normalizeScopes(client.CLIScopes),
+		normalizeScopes(client.Scopes),
+	}
+	result := make([][]string, 0, len(candidates))
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if len(candidate) == 0 {
+			continue
+		}
+		key := strings.Join(candidate, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, candidate)
+	}
+	return result
+}
+
+var oidcScopeSet = map[string]bool{
+	"openid":         true,
+	"profile":        true,
+	"email":          true,
+	"phone":          true,
+	"address":        true,
+	"offline_access": true,
+}
+
+func tokenScopesFromStrings(tokens ...string) []string {
+	for _, token := range tokens {
+		if scopes := tokenScopes(token); len(scopes) > 0 {
+			return scopes
+		}
+	}
+	return nil
+}
+
+func tokenScopes(token string) []string {
+	claims := parseJWTClaims(token)
+	if len(claims) == 0 {
+		return nil
+	}
+	if scope := claimString(claims, "scope"); scope != "" {
+		return normalizeScopes(strings.Fields(scope))
+	}
+	if raw, ok := claims["scp"]; ok {
+		switch actual := raw.(type) {
+		case string:
+			return normalizeScopes(strings.Fields(actual))
+		case []interface{}:
+			values := make([]string, 0, len(actual))
+			for _, item := range actual {
+				if s, ok := item.(string); ok {
+					values = append(values, s)
+				}
+			}
+			return normalizeScopes(values)
+		}
+	}
+	return nil
+}
+
+func tokenAudience(token string) string {
+	claims := parseJWTClaims(token)
+	if len(claims) == 0 {
+		return ""
+	}
+	switch actual := claims["aud"].(type) {
+	case string:
+		return strings.TrimSpace(actual)
+	case []interface{}:
+		for _, item := range actual {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
+func hasAllScopes(actual, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	if len(actual) == 0 {
+		return false
+	}
+	set := map[string]bool{}
+	for _, item := range normalizeScopes(actual) {
+		set[item] = true
+	}
+	for _, item := range normalizeScopes(required) {
+		if !set[item] {
+			return false
+		}
+	}
+	return true
+}
+
+func discriminatorScopes(scopes []string) []string {
+	scopes = normalizeScopes(scopes)
+	if len(scopes) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		if oidcScopeSet[scope] {
+			continue
+		}
+		result = append(result, scope)
+	}
+	return result
+}
+
+func hasAnyScope(actual, allowed []string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	set := map[string]bool{}
+	for _, item := range normalizeScopes(actual) {
+		set[item] = true
+	}
+	for _, item := range normalizeScopes(allowed) {
+		if set[item] {
+			return true
+		}
+	}
+	return false
+}
+
+func validateConfiguredOAuthScopes(client *OAuthClient, expected []string, tokens ...string) error {
+	expected = normalizeScopes(expected)
+	tokenScopes := tokenScopesFromStrings(tokens...)
+	if len(expected) > 0 {
+		if discriminator := discriminatorScopes(expected); len(discriminator) > 0 {
+			if hasAnyScope(tokenScopes, discriminator) {
+				return nil
+			}
+			return fmt.Errorf("oauth token is missing required scope marker: need one of [%s]", strings.Join(discriminator, "] ["))
+		}
+		if hasAllScopes(tokenScopes, expected) {
+			return nil
+		}
+		return fmt.Errorf("oauth token is missing required scopes: need %s", strings.Join(expected, " "))
+	}
+	configured := configuredOAuthScopeSets(client)
+	if len(configured) == 0 {
+		return nil
+	}
+	for _, candidate := range configured {
+		if discriminator := discriminatorScopes(candidate); len(discriminator) > 0 {
+			if hasAnyScope(tokenScopes, discriminator) {
+				return nil
+			}
+			continue
+		}
+		if hasAllScopes(tokenScopes, candidate) {
+			return nil
+		}
+	}
+	options := make([]string, 0, len(configured))
+	for _, item := range configured {
+		options = append(options, strings.Join(item, " "))
+	}
+	return fmt.Errorf("oauth token is missing configured scopes: need one of [%s]", strings.Join(options, "] ["))
+}
+
+func cloneOAuthConfigWithScopes(config *oauth2.Config, scopes []string) *oauth2.Config {
+	if config == nil {
+		return nil
+	}
+	clone := *config
+	clone.Scopes = append([]string(nil), normalizeScopes(scopes)...)
+	return &clone
+}
+
+func oauthRefreshScopes(sess *Session, token *OAuthToken) []string {
+	if sess != nil {
+		if scopes := normalizeScopes(sess.Scopes); len(scopes) > 0 {
+			return scopes
+		}
+		if sess.Tokens != nil {
+			if scopes := tokenScopesFromStrings(sess.Tokens.RefreshToken, sess.Tokens.IDToken, sess.Tokens.AccessToken); len(scopes) > 0 {
+				return scopes
+			}
+		}
+	}
+	if token != nil {
+		if scopes := tokenScopesFromStrings(token.RefreshToken, token.IDToken, token.AccessToken); len(scopes) > 0 {
+			return scopes
+		}
+	}
+	return nil
+}
+
+func oauthRefreshResource(sess *Session, token *OAuthToken, clientID string) string {
+	clientID = strings.TrimSpace(clientID)
+	candidates := []string{}
+	if sess != nil && sess.Tokens != nil {
+		candidates = append(candidates,
+			tokenAudience(sess.Tokens.RefreshToken),
+			tokenAudience(sess.Tokens.AccessToken),
+			tokenAudience(sess.Tokens.IDToken),
+		)
+	}
+	if token != nil {
+		candidates = append(candidates,
+			tokenAudience(token.RefreshToken),
+			tokenAudience(token.AccessToken),
+			tokenAudience(token.IDToken),
+		)
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if clientID != "" && candidate == clientID {
+			return ""
+		}
+		return candidate
+	}
+	return ""
+}
+
+func refreshOAuthToken(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
+	if config == nil {
+		return nil, fmt.Errorf("oauth2 config is nil")
+	}
+	if base == nil {
+		return nil, fmt.Errorf("oauth refresh token is nil")
+	}
+	if strings.TrimSpace(base.RefreshToken) == "" {
+		return nil, fmt.Errorf("oauth refresh token is empty")
+	}
+	scopes = normalizeScopes(scopes)
+	resource = strings.TrimSpace(resource)
+	if len(scopes) == 0 && resource == "" {
+		return config.TokenSource(ctx, base).Token()
+	}
+	values := url.Values{}
+	values.Set("grant_type", "refresh_token")
+	values.Set("refresh_token", strings.TrimSpace(base.RefreshToken))
+	if len(scopes) > 0 {
+		values.Set("scope", strings.Join(scopes, " "))
+	}
+	if resource != "" {
+		values.Set("resource", resource)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.Endpoint.TokenURL, strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if strings.TrimSpace(config.ClientID) != "" {
+		req.SetBasicAuth(strings.TrimSpace(config.ClientID), strings.TrimSpace(config.ClientSecret))
+	}
+	client := http.DefaultClient
+	if httpClient, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && httpClient != nil {
+		client = httpClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &oauth2.RetrieveError{
+			Response: resp,
+			Body:     body,
+		}
+	}
+	var payload struct {
+		AccessToken  string      `json:"access_token"`
+		TokenType    string      `json:"token_type"`
+		RefreshToken string      `json:"refresh_token"`
+		ExpiresIn    int64       `json:"expires_in"`
+		Scope        string      `json:"scope"`
+		IDToken      string      `json:"id_token"`
+		Extra        interface{} `json:"-"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	token := &oauth2.Token{
+		AccessToken:  strings.TrimSpace(payload.AccessToken),
+		TokenType:    strings.TrimSpace(payload.TokenType),
+		RefreshToken: strings.TrimSpace(payload.RefreshToken),
+	}
+	if payload.ExpiresIn > 0 {
+		token.Expiry = time.Now().UTC().Add(time.Duration(payload.ExpiresIn) * time.Second)
+	}
+	extras := map[string]any{}
+	if strings.TrimSpace(payload.IDToken) != "" {
+		extras["id_token"] = strings.TrimSpace(payload.IDToken)
+	}
+	if scope := strings.TrimSpace(payload.Scope); scope != "" {
+		extras["scope"] = scope
+	}
+	if len(extras) > 0 {
+		token = token.WithExtra(extras)
+	}
+	if token.RefreshToken == "" {
+		token.RefreshToken = strings.TrimSpace(base.RefreshToken)
+	}
+	return token, nil
 }
 
 var stateCipher = blowfish.Cipher{}

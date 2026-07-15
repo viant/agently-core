@@ -153,13 +153,16 @@ func (a *authExtension) handleProviders() http.HandlerFunc {
 			}
 			if mode == "spa" || mode == "bearer" || mode == "oidc" || mode == "mixed" {
 				providers = append(providers, map[string]any{
-					"name":         a.oauthProviderName(),
-					"label":        firstNonEmpty(a.cfg.OAuth.Label, "OIDC"),
-					"type":         "oidc",
-					"clientID":     strings.TrimSpace(a.cfg.OAuth.Client.ClientID),
-					"discoveryURL": strings.TrimSpace(a.cfg.OAuth.Client.DiscoveryURL),
-					"redirectURI":  strings.TrimSpace(a.cfg.OAuth.Client.RedirectURI),
-					"scopes":       append([]string(nil), a.cfg.OAuth.Client.Scopes...),
+					"name":           a.oauthProviderName(),
+					"label":          firstNonEmpty(a.cfg.OAuth.Label, "OIDC"),
+					"type":           "oidc",
+					"clientID":       strings.TrimSpace(a.cfg.OAuth.Client.ClientID),
+					"discoveryURL":   strings.TrimSpace(a.cfg.OAuth.Client.DiscoveryURL),
+					"redirectURI":    strings.TrimSpace(a.cfg.OAuth.Client.RedirectURI),
+					"scopes":         append([]string(nil), a.cfg.OAuth.Client.Scopes...),
+					"webUIScopes":    append([]string(nil), a.cfg.OAuth.Client.WebUIScopes...),
+					"mobileUIScopes": append([]string(nil), a.cfg.OAuth.Client.MobileUIScopes...),
+					"cliScopes":      append([]string(nil), a.cfg.OAuth.Client.CLIScopes...),
 				})
 			}
 		}
@@ -187,6 +190,9 @@ func (a *authExtension) handleOAuthConfig() http.HandlerFunc {
 			"usePopupLogin":   a.cfg.OAuth.UsePopupLogin,
 			"redirectSameTab": !a.cfg.OAuth.UsePopupLogin,
 			"scopes":          scopes,
+			"webUIScopes":     append([]string(nil), a.cfg.OAuth.Client.WebUIScopes...),
+			"mobileUIScopes":  append([]string(nil), a.cfg.OAuth.Client.MobileUIScopes...),
+			"cliScopes":       append([]string(nil), a.cfg.OAuth.Client.CLIScopes...),
 		})
 	}
 }
@@ -229,12 +235,22 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 		if subject == "" {
 			subject = username
 		}
+		scopes := tokenScopesFromStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.RefreshToken))
+		var oauthClient *OAuthClient
+		if a != nil && a.cfg != nil && a.cfg.OAuth != nil {
+			oauthClient = a.cfg.OAuth.Client
+		}
+		if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.RefreshToken)); err != nil {
+			runtimeError(w, http.StatusUnauthorized, err)
+			return
+		}
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
 			Email:     email,
 			Subject:   subject,
 			Provider:  a.oauthProviderName(),
+			Scopes:    scopes,
 			CreatedAt: time.Now(),
 		}
 		if strings.TrimSpace(in.AccessToken) != "" || strings.TrimSpace(in.IDToken) != "" || strings.TrimSpace(in.RefreshToken) != "" {

@@ -15,7 +15,10 @@ func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 			Mode:          "bff",
 			UsePopupLogin: true,
 			Client: &OAuthClient{
-				ConfigURL: testOAuthConfigURL,
+				ConfigURL:      testOAuthConfigURL,
+				WebUIScopes:    []string{"XXX_WEBUI"},
+				MobileUIScopes: []string{"XXX_MOBILEUI"},
+				CLIScopes:      []string{"XXX_CLI"},
 			},
 		},
 	}
@@ -44,6 +47,15 @@ func TestAuthExtensionHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	if got, ok := payload["scopes"].([]any); !ok || len(got) != 0 {
 		t.Fatalf("scopes = %#v, want empty array", payload["scopes"])
 	}
+	if got, ok := payload["webUIScopes"].([]any); !ok || len(got) != 1 || got[0] != "XXX_WEBUI" {
+		t.Fatalf("webUIScopes = %#v, want [XXX_WEBUI]", payload["webUIScopes"])
+	}
+	if got, ok := payload["mobileUIScopes"].([]any); !ok || len(got) != 1 || got[0] != "XXX_MOBILEUI" {
+		t.Fatalf("mobileUIScopes = %#v, want [XXX_MOBILEUI]", payload["mobileUIScopes"])
+	}
+	if got, ok := payload["cliScopes"].([]any); !ok || len(got) != 1 || got[0] != "XXX_CLI" {
+		t.Fatalf("cliScopes = %#v, want [XXX_CLI]", payload["cliScopes"])
+	}
 }
 
 func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
@@ -52,8 +64,11 @@ func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 			Mode:          "bff",
 			UsePopupLogin: true,
 			Client: &OAuthClient{
-				ConfigURL: testOAuthConfigURL,
-				ClientID:  "client-id",
+				ConfigURL:      testOAuthConfigURL,
+				ClientID:       "client-id",
+				WebUIScopes:    []string{"XXX_WEBUI"},
+				MobileUIScopes: []string{"XXX_MOBILEUI"},
+				CLIScopes:      []string{"XXX_CLI"},
 			},
 		},
 	}, NewManager(0, nil))
@@ -83,5 +98,14 @@ func TestHandlerHandleOAuthConfig_ExposesUsePopupLogin(t *testing.T) {
 	}
 	if got, ok := payload["scopes"].([]any); !ok || len(got) != 0 {
 		t.Fatalf("scopes = %#v, want empty array", payload["scopes"])
+	}
+	if got, ok := payload["webUIScopes"].([]any); !ok || len(got) != 1 || got[0] != "XXX_WEBUI" {
+		t.Fatalf("webUIScopes = %#v, want [XXX_WEBUI]", payload["webUIScopes"])
+	}
+	if got, ok := payload["mobileUIScopes"].([]any); !ok || len(got) != 1 || got[0] != "XXX_MOBILEUI" {
+		t.Fatalf("mobileUIScopes = %#v, want [XXX_MOBILEUI]", payload["mobileUIScopes"])
+	}
+	if got, ok := payload["cliScopes"].([]any); !ok || len(got) != 1 || got[0] != "XXX_CLI" {
+		t.Fatalf("cliScopes = %#v, want [XXX_CLI]", payload["cliScopes"])
 	}
 }

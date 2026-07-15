@@ -58,7 +58,7 @@ func (a *authExtension) handleOAuthMobileInitiate() http.HandlerFunc {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("redirectURI is required for mobile oauth"))
 			return
 		}
-		resp, err := a.buildOAuthInitiateResponseFor(r, initiation)
+		resp, err := a.buildOAuthInitiateResponseFor(r, initiation, oauthScopeTargetMobile)
 		if err != nil {
 			runtimeError(w, http.StatusBadRequest, err)
 			return
@@ -100,12 +100,11 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("oauth client configURL is required"))
 			return
 		}
-		scopes := in.Scopes
-		if len(scopes) == 0 {
-			scopes = append([]string(nil), a.cfg.OAuth.Client.Scopes...)
-		}
-		if len(scopes) == 0 {
-			scopes = []string{"openid"}
+		scopes := oauthScopesForTarget(a.cfg.OAuth.Client, oauthScopeTargetDefault, in.Scopes...)
+		oauthCfg, err := loadOAuthClientConfig(r.Context(), configURL)
+		if err != nil {
+			runtimeError(w, http.StatusBadRequest, fmt.Errorf("unable to load oauth config: %w", err))
+			return
 		}
 		cmd := &authorizer.Command{
 			AuthFlow:   "OOB",
@@ -113,7 +112,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			SecretsURL: secretsURL,
 			Scopes:     scopes,
 			OAuthConfig: authorizer.OAuthConfig{
-				ConfigURL: configURL,
+				Config: cloneOAuthConfigWithScopes(oauthCfg, scopes),
 			},
 		}
 		token, err := authorizer.New().Authorize(r.Context(), cmd)
@@ -126,6 +125,10 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			return
 		}
 		username, subject, email, idToken := identityFromOAuthToken(token)
+		if err := validateConfiguredOAuthScopes(a.cfg.OAuth.Client, scopes, idToken, token.AccessToken, token.RefreshToken); err != nil {
+			runtimeError(w, http.StatusUnauthorized, err)
+			return
+		}
 		if username == "" {
 			username = "user"
 		}
@@ -136,6 +139,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			Email:     email,
 			Subject:   subject,
 			Provider:  provider,
+			Scopes:    append([]string(nil), scopes...),
 			CreatedAt: time.Now(),
 			Tokens: &scyauth.Token{
 				Token: oauth2.Token{
@@ -159,10 +163,10 @@ func (a *authExtension) buildOAuthInitiateResponse(r *http.Request) (*oauthIniti
 	if err != nil {
 		return nil, err
 	}
-	return a.buildOAuthInitiateResponseFor(r, initiation)
+	return a.buildOAuthInitiateResponseFor(r, initiation, oauthScopeTargetWebUI)
 }
 
-func (a *authExtension) buildOAuthInitiateResponseFor(r *http.Request, initiation oauthInitiateRequest) (*oauthInitiateResponse, error) {
+func (a *authExtension) buildOAuthInitiateResponseFor(r *http.Request, initiation oauthInitiateRequest, target oauthScopeTarget) (*oauthInitiateResponse, error) {
 	if a.cfg == nil || a.cfg.OAuth == nil || a.cfg.OAuth.Client == nil {
 		return nil, fmt.Errorf("oauth client not configured")
 	}
@@ -187,9 +191,16 @@ func (a *authExtension) buildOAuthInitiateResponseFor(r *http.Request, initiatio
 	if err != nil {
 		return nil, fmt.Errorf("unable to create oauth state: %w", err)
 	}
-	scopes := a.cfg.OAuth.Client.Scopes
-	if len(scopes) == 0 {
-		scopes = []string{"openid", "profile", "email"}
+	scopes := oauthScopesForTarget(a.cfg.OAuth.Client, target, initiation.Scopes...)
+	oauthCfg = cloneOAuthConfigWithScopes(oauthCfg, scopes)
+	state, err = encryptOAuthState(r.Context(), configURL, oauthStatePayload{
+		CodeVerifier: codeVerifier,
+		ReturnURL:    returnURL,
+		RedirectURI:  redirectURI,
+		Scopes:       scopes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to create oauth state: %w", err)
 	}
 	authURL, err := flow.BuildAuthCodeURL(
 		oauthCfg,
@@ -206,10 +217,11 @@ func (a *authExtension) buildOAuthInitiateResponseFor(r *http.Request, initiatio
 }
 
 type oauthInitiateRequest struct {
-	RedirectURI string `json:"redirectURI"`
-	RedirectUri string `json:"redirectUri"`
-	ReturnURL   string `json:"returnURL"`
-	ReturnUrl   string `json:"returnUrl"`
+	RedirectURI string   `json:"redirectURI"`
+	RedirectUri string   `json:"redirectUri"`
+	ReturnURL   string   `json:"returnURL"`
+	ReturnUrl   string   `json:"returnUrl"`
+	Scopes      []string `json:"scopes,omitempty"`
 }
 
 func decodeOAuthInitiateRequest(r *http.Request) (oauthInitiateRequest, error) {
@@ -232,6 +244,7 @@ func decodeOAuthInitiateRequest(r *http.Request) (oauthInitiateRequest, error) {
 	if value := strings.TrimSpace(firstNonEmpty(body.ReturnURL, body.ReturnUrl)); value != "" {
 		ret.ReturnURL = value
 	}
+	ret.Scopes = append([]string(nil), body.Scopes...)
 	return ret, nil
 }
 
@@ -321,6 +334,10 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 			return
 		}
 		username, subject, email, idToken := identityFromOAuthToken(token)
+		if err := validateConfiguredOAuthScopes(a.cfg.OAuth.Client, statePayload.Scopes, idToken, token.AccessToken, token.RefreshToken); err != nil {
+			runtimeError(w, http.StatusUnauthorized, err)
+			return
+		}
 		if username == "" {
 			username = "user"
 		}
@@ -331,6 +348,7 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 			Email:     email,
 			Subject:   subject,
 			Provider:  provider,
+			Scopes:    append([]string(nil), statePayload.Scopes...),
 			CreatedAt: time.Now(),
 			Tokens: &scyauth.Token{
 				Token: oauth2.Token{
@@ -340,6 +358,9 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 				},
 				IDToken: idToken,
 			},
+		}
+		if len(sess.Scopes) == 0 {
+			sess.Scopes = tokenScopesFromStrings(idToken, token.AccessToken, token.RefreshToken)
 		}
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)

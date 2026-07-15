@@ -57,6 +57,41 @@ func TestAuthExtensionOAuthInitiate_UsesWebCallbackByDefault(t *testing.T) {
 	}
 }
 
+func TestAuthExtensionOAuthInitiate_UsesConfiguredWebUIScopes(t *testing.T) {
+	cfgPath := writeOAuthClientConfig(t)
+	ext := newAuthExtension(&Config{
+		CookieName:   "agently_session",
+		RedirectPath: "/v1/api/auth/oauth/callback",
+		OAuth: &OAuth{
+			Mode: "bff",
+			Client: &OAuthClient{
+				ConfigURL:   cfgPath,
+				Scopes:      []string{"openid", "profile"},
+				WebUIScopes: []string{"XXX_WEBUI", "openid"},
+			},
+		},
+	}, NewManager(0, nil), "", nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "https://workspace.example.test/v1/api/auth/oauth/initiate", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+
+	ext.handleOAuthInitiate().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	authURL, err := url.Parse(payload["authURL"].(string))
+	if err != nil {
+		t.Fatalf("authURL parse error = %v", err)
+	}
+	if got := authURL.Query().Get("scope"); got != "XXX_WEBUI openid" {
+		t.Fatalf("scope = %q, want %q", got, "XXX_WEBUI openid")
+	}
+}
+
 func TestAuthExtensionOAuthInitiate_AllowsConfiguredMobileRedirect(t *testing.T) {
 	cfgPath := writeOAuthClientConfig(t)
 	ext := newAuthExtension(&Config{
@@ -188,6 +223,76 @@ func TestAuthExtensionOAuthMobileInitiate_UsesConfiguredNativeRedirectWithPKCE(t
 	}
 	if got := payload["mobile"]; got != true {
 		t.Fatalf("mobile = %#v, want true", got)
+	}
+}
+
+func TestAuthExtensionOAuthMobileInitiate_UsesConfiguredMobileUIScopes(t *testing.T) {
+	cfgPath := writeOAuthClientConfig(t)
+	ext := newAuthExtension(&Config{
+		CookieName:   "agently_session",
+		RedirectPath: "/v1/api/auth/oauth/callback",
+		OAuth: &OAuth{
+			Mode: "bff",
+			Client: &OAuthClient{
+				ConfigURL:      cfgPath,
+				RedirectURIs:   []string{"agently-ios://oauth/callback"},
+				Scopes:         []string{"openid", "profile"},
+				MobileUIScopes: []string{"XXX_MOBILEUI", "openid"},
+			},
+		},
+	}, NewManager(0, nil), "", nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "https://workspace.example.test/v1/api/auth/oauth/mobile/initiate", strings.NewReader(`{"redirectURI":"agently-ios://oauth/callback"}`))
+	rec := httptest.NewRecorder()
+
+	ext.handleOAuthMobileInitiate().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	authURL, err := url.Parse(payload["authURL"].(string))
+	if err != nil {
+		t.Fatalf("authURL parse error = %v", err)
+	}
+	if got := authURL.Query().Get("scope"); got != "XXX_MOBILEUI openid" {
+		t.Fatalf("scope = %q, want %q", got, "XXX_MOBILEUI openid")
+	}
+}
+
+func TestAuthExtensionOAuthInitiate_RequestScopesOverrideConfiguredSurfaceScopes(t *testing.T) {
+	cfgPath := writeOAuthClientConfig(t)
+	ext := newAuthExtension(&Config{
+		CookieName:   "agently_session",
+		RedirectPath: "/v1/api/auth/oauth/callback",
+		OAuth: &OAuth{
+			Mode: "bff",
+			Client: &OAuthClient{
+				ConfigURL:   cfgPath,
+				WebUIScopes: []string{"XXX_WEBUI"},
+			},
+		},
+	}, NewManager(0, nil), "", nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "https://workspace.example.test/v1/api/auth/oauth/initiate", strings.NewReader(`{"scopes":["CUSTOM_SCOPE","openid"]}`))
+	rec := httptest.NewRecorder()
+
+	ext.handleOAuthInitiate().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	authURL, err := url.Parse(payload["authURL"].(string))
+	if err != nil {
+		t.Fatalf("authURL parse error = %v", err)
+	}
+	if got := authURL.Query().Get("scope"); got != "CUSTOM_SCOPE openid" {
+		t.Fatalf("scope = %q, want %q", got, "CUSTOM_SCOPE openid")
 	}
 }
 

@@ -1061,6 +1061,12 @@ export interface OAuthInitiateOutput {
     delegated?: boolean;
 }
 
+export interface OAuthInitiateInput {
+    redirectURI?: string;
+    returnURL?: string;
+    scopes?: string[];
+}
+
 export interface OAuthCallbackInput {
     code: string;
     state: string;
@@ -1080,6 +1086,9 @@ export interface OAuthConfigOutput {
     redirectUri?: string;
     usePopupLogin?: boolean;
     scopes?: string[];
+    webUIScopes?: string[];
+    mobileUIScopes?: string[];
+    cliScopes?: string[];
 }
 
 export interface CreateSessionInput {

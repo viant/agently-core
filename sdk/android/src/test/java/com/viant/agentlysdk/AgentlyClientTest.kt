@@ -995,7 +995,10 @@ class AgentlyClientTest {
         val client = client()
 
         val result = client.oauthInitiate(
-            OAuthInitiateInput(redirectURI = "agently-ios://oauth/callback")
+            OAuthInitiateInput(
+                redirectURI = "agently-ios://oauth/callback",
+                scopes = listOf("XXX_WEBUI")
+            )
         )
 
         assertEquals("agently-ios://oauth/callback", result.redirectURI)
@@ -1004,6 +1007,7 @@ class AgentlyClientTest {
         assertEquals("POST", request.method)
         val body = request.body.readUtf8()
         assertTrue(body.contains(""""redirectURI":"agently-ios://oauth/callback""""))
+        assertTrue(body.contains(""""scopes":["XXX_WEBUI"]"""))
     }
 
     @Test
@@ -1024,7 +1028,10 @@ class AgentlyClientTest {
         val client = client()
 
         val result = client.oauthMobileInitiate(
-            OAuthInitiateInput(redirectURI = "agently-android://oauth/callback")
+            OAuthInitiateInput(
+                redirectURI = "agently-android://oauth/callback",
+                scopes = listOf("XXX_MOBILEUI")
+            )
         )
 
         assertEquals("agently-android://oauth/callback", result.redirectURI)
@@ -1033,6 +1040,7 @@ class AgentlyClientTest {
         assertEquals("POST", request.method)
         val body = request.body.readUtf8()
         assertTrue(body.contains(""""redirectURI":"agently-android://oauth/callback""""))
+        assertTrue(body.contains(""""scopes":["XXX_MOBILEUI"]"""))
     }
 
     @Test

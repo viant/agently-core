@@ -203,6 +203,15 @@ func expandAuthEnvTemplates(cfg *Config) {
 			for i := range cfg.OAuth.Client.Scopes {
 				cfg.OAuth.Client.Scopes[i] = expandAuthEnvString(cfg.OAuth.Client.Scopes[i])
 			}
+			for i := range cfg.OAuth.Client.WebUIScopes {
+				cfg.OAuth.Client.WebUIScopes[i] = expandAuthEnvString(cfg.OAuth.Client.WebUIScopes[i])
+			}
+			for i := range cfg.OAuth.Client.MobileUIScopes {
+				cfg.OAuth.Client.MobileUIScopes[i] = expandAuthEnvString(cfg.OAuth.Client.MobileUIScopes[i])
+			}
+			for i := range cfg.OAuth.Client.CLIScopes {
+				cfg.OAuth.Client.CLIScopes[i] = expandAuthEnvString(cfg.OAuth.Client.CLIScopes[i])
+			}
 			for i := range cfg.OAuth.Client.Audiences {
 				cfg.OAuth.Client.Audiences[i] = expandAuthEnvString(cfg.OAuth.Client.Audiences[i])
 			}

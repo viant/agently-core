@@ -198,6 +198,40 @@ func TestRuntimeHandleCreateSession_InferExpiryFromJWTWhenMissing(t *testing.T) 
 	}
 }
 
+func TestRuntimeHandleCreateSession_RejectsMissingConfiguredScopes(t *testing.T) {
+	ext := &authExtension{
+		cfg: &Config{
+			CookieName: "agently_session",
+			OAuth: &OAuth{
+				Name: "oauth",
+				Mode: "bff",
+				Client: &OAuthClient{
+					WebUIScopes: []string{"XXX_WEBUI"},
+				},
+			},
+		},
+		sessions: NewManager(time.Hour, nil),
+	}
+
+	idToken := fakeJWTWithClaims(t, map[string]any{
+		"sub":                "user-123",
+		"email":              "dev@example.com",
+		"preferred_username": "devuser",
+		"scope":              "openid profile",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session", strings.NewReader(
+		`{"username":"devuser","idToken":"`+idToken+`","accessToken":"token-access"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	ext.handleCreateSession().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+}
+
 func TestRuntimeHandleCreateSession_BearerBootstrapDoesNotPersistOAuthToken(t *testing.T) {
 	store := &testTokenStore{}
 	ext := &authExtension{

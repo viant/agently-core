@@ -28,7 +28,7 @@ import type {
     ListLinkedConversationsInput, LinkedConversationPage,
     AuthProvider, AuthUser, LocalLoginInput, LocalLoginOutput,
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
-    OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
+    OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
     FeedSpec, JSONObject, JSONValue,
     FetchDatasourceInput, FetchDatasourceOutput, InvalidateDatasourceCacheInput,
@@ -914,8 +914,8 @@ export class AgentlyClient {
     }
 
     /** Initiate an OAuth BFF flow (returns authURL + state for redirect). */
-    async oauthInitiate(): Promise<OAuthInitiateOutput> {
-        return this.post<OAuthInitiateOutput>('/api/auth/oauth/initiate', {});
+    async oauthInitiate(input: OAuthInitiateInput = {}): Promise<OAuthInitiateOutput> {
+        return this.post<OAuthInitiateOutput>('/api/auth/oauth/initiate', input);
     }
 
     /** Complete an OAuth callback with authorization code + state. */
