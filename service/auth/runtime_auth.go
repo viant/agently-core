@@ -83,6 +83,9 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 		token := strings.TrimSpace(authz[len("Bearer "):])
 		if token != "" {
 			if claims, err := r.jwtVerifier.VerifyClaims(req.Context(), token); err == nil && claims != nil {
+				if err := validateConfiguredOAuthScopes(runtimeOAuthClient(r), nil, token); err != nil {
+					return nil
+				}
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
 				tok.IDToken = token
@@ -102,6 +105,12 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 				r.ensureSessionCanonicalUserID(req.Context(), sess)
 				if r.requiresOAuthTokens() && !r.ensureSessionOAuthTokens(req.Context(), sess) {
 					log.Printf("[auth] session missing usable oauth tokens, invalidating session user=%q", sess.Subject)
+					r.clearRefreshRetryAt(sess)
+					r.deleteSessionDurable(req.Context(), strings.TrimSpace(c.Value))
+					return nil
+				}
+				if err := validateConfiguredOAuthScopes(runtimeOAuthClient(r), sess.Scopes, scopeValidationTokens(sess)...); err != nil {
+					log.Printf("[auth] session token missing required scopes, invalidating session user=%q err=%v", sess.Subject, err)
 					r.clearRefreshRetryAt(sess)
 					r.deleteSessionDurable(req.Context(), strings.TrimSpace(c.Value))
 					return nil
@@ -152,6 +161,24 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 		}
 	}
 	return nil
+}
+
+func runtimeOAuthClient(r *Runtime) *OAuthClient {
+	if r == nil || r.cfg == nil || r.cfg.OAuth == nil {
+		return nil
+	}
+	return r.cfg.OAuth.Client
+}
+
+func scopeValidationTokens(sess *Session) []string {
+	if sess == nil || sess.Tokens == nil {
+		return nil
+	}
+	return []string{
+		strings.TrimSpace(sess.Tokens.IDToken),
+		strings.TrimSpace(sess.Tokens.AccessToken),
+		strings.TrimSpace(sess.Tokens.RefreshToken),
+	}
 }
 
 func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAuthUser {

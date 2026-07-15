@@ -199,10 +199,20 @@ func (h *Handler) handleOAuthInitiate() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("oauth not configured"))
 			return
 		}
+		var body struct {
+			RedirectURI string   `json:"redirectURI,omitempty"`
+			Scopes      []string `json:"scopes,omitempty"`
+		}
+		if r.Body != nil && r.ContentLength != 0 {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid oauth initiate request: %w", err))
+				return
+			}
+		}
 		client := h.cfg.OAuth.Client
 		state := uuid.New().String()
 		// Build authorization URL
-		scopes := strings.Join(client.Scopes, " ")
+		scopes := strings.Join(oauthScopesForTarget(client, oauthScopeTargetWebUI, body.Scopes...), " ")
 		authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&state=%s",
 			client.ConfigURL, client.ClientID, client.RedirectURI, scopes, state)
 		httpJSON(w, http.StatusOK, map[string]string{"authUrl": authURL, "state": state})
@@ -234,6 +244,14 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("accessToken is required"))
 			return
 		}
+		var oauthClient *OAuthClient
+		if h != nil && h.cfg != nil && h.cfg.OAuth != nil {
+			oauthClient = h.cfg.OAuth.Client
+		}
+		if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)); err != nil {
+			httpError(w, http.StatusUnauthorized, err)
+			return
+		}
 		username := strings.TrimSpace(body.Username)
 		derivedUsername, subject, email, _ := identityFromTokenStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
 		if username == "" {
@@ -251,6 +269,7 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 			Email:     email,
 			Subject:   subject,
 			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
+			Scopes:    tokenScopesFromStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)),
 			CreatedAt: time.Now(),
 		}
 		sess.Tokens = newTokenBundle(body.AccessToken, body.IDToken, body.RefreshToken)
@@ -297,6 +316,9 @@ func (h *Handler) handleOAuthConfig() http.HandlerFunc {
 			"usePopupLogin":   h.cfg.OAuth.UsePopupLogin,
 			"redirectSameTab": !h.cfg.OAuth.UsePopupLogin,
 			"scopes":          scopes,
+			"webUIScopes":     append([]string(nil), c.WebUIScopes...),
+			"mobileUIScopes":  append([]string(nil), c.MobileUIScopes...),
+			"cliScopes":       append([]string(nil), c.CLIScopes...),
 		}
 		if c.DiscoveryURL != "" {
 			resp["discoveryUrl"] = c.DiscoveryURL
@@ -327,10 +349,19 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 		if username == "" {
 			username = "anonymous:" + uuid.New().String()
 		}
+		var oauthClient *OAuthClient
+		if h != nil && h.cfg != nil && h.cfg.OAuth != nil {
+			oauthClient = h.cfg.OAuth.Client
+		}
+		if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)); err != nil {
+			httpError(w, http.StatusUnauthorized, err)
+			return
+		}
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
 			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
+			Scopes:    tokenScopesFromStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)),
 			CreatedAt: time.Now(),
 		}
 		if body.AccessToken != "" {

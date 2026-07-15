@@ -35,14 +35,17 @@ type OAuth struct {
 }
 
 type OAuthClient struct {
-	ConfigURL    string   `yaml:"configURL" json:"configURL"`       // for bff
-	DiscoveryURL string   `yaml:"discoveryURL" json:"discoveryURL"` // for spa/bearer
-	JWKSURL      string   `yaml:"jwksURL" json:"jwksURL"`           // for bearer verifier
-	RedirectURI  string   `yaml:"redirectURI" json:"redirectURI"`
-	ClientID     string   `yaml:"clientID" json:"clientID"`
-	Scopes       []string `yaml:"scopes" json:"scopes"`
-	Issuer       string   `yaml:"issuer" json:"issuer"`       // optional expected iss claim
-	Audiences    []string `yaml:"audiences" json:"audiences"` // optional expected aud claim(s)
+	ConfigURL      string   `yaml:"configURL" json:"configURL"`       // for bff
+	DiscoveryURL   string   `yaml:"discoveryURL" json:"discoveryURL"` // for spa/bearer
+	JWKSURL        string   `yaml:"jwksURL" json:"jwksURL"`           // for bearer verifier
+	RedirectURI    string   `yaml:"redirectURI" json:"redirectURI"`
+	ClientID       string   `yaml:"clientID" json:"clientID"`
+	Scopes         []string `yaml:"scopes" json:"scopes"`
+	WebUIScopes    []string `yaml:"webUIScopes,omitempty" json:"webUIScopes,omitempty"`
+	MobileUIScopes []string `yaml:"mobileUIScopes,omitempty" json:"mobileUIScopes,omitempty"`
+	CLIScopes      []string `yaml:"cliScopes,omitempty" json:"cliScopes,omitempty"`
+	Issuer         string   `yaml:"issuer" json:"issuer"`       // optional expected iss claim
+	Audiences      []string `yaml:"audiences" json:"audiences"` // optional expected aud claim(s)
 }
 
 type Local struct {

@@ -46,10 +46,12 @@ public struct OAuthInitiateOutput: Codable, Sendable {
 public struct OAuthInitiateInput: Codable, Sendable {
     public let redirectURI: String?
     public let returnURL: String?
+    public let scopes: [String]
 
-    public init(redirectURI: String? = nil, returnURL: String? = nil) {
+    public init(redirectURI: String? = nil, returnURL: String? = nil, scopes: [String] = []) {
         self.redirectURI = redirectURI
         self.returnURL = returnURL
+        self.scopes = scopes
     }
 }
 
@@ -81,21 +83,33 @@ public struct OAuthCallbackOutput: Codable, Sendable {
 
 public struct OAuthConfigOutput: Codable, Sendable {
     public let scopes: [String]
+    public let webUIScopes: [String]
+    public let mobileUIScopes: [String]
+    public let cliScopes: [String]
     public let redirectURIs: [String]
 
-    public init(scopes: [String] = [], redirectURIs: [String] = []) {
+    public init(scopes: [String] = [], webUIScopes: [String] = [], mobileUIScopes: [String] = [], cliScopes: [String] = [], redirectURIs: [String] = []) {
         self.scopes = scopes
+        self.webUIScopes = webUIScopes
+        self.mobileUIScopes = mobileUIScopes
+        self.cliScopes = cliScopes
         self.redirectURIs = redirectURIs
     }
 
     enum CodingKeys: String, CodingKey {
         case scopes
+        case webUIScopes
+        case mobileUIScopes
+        case cliScopes
         case redirectURIs
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         scopes = try container.decodeIfPresent([String].self, forKey: .scopes) ?? []
+        webUIScopes = try container.decodeIfPresent([String].self, forKey: .webUIScopes) ?? []
+        mobileUIScopes = try container.decodeIfPresent([String].self, forKey: .mobileUIScopes) ?? []
+        cliScopes = try container.decodeIfPresent([String].self, forKey: .cliScopes) ?? []
         redirectURIs = try container.decodeIfPresent([String].self, forKey: .redirectURIs) ?? []
     }
 }

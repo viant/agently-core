@@ -94,6 +94,7 @@ final class AgentlySDKTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             let body = try XCTUnwrap(self.requestBodyString(request))
             XCTAssertTrue(body.contains(#""redirectURI":"agently-ios:\/\/oauth\/callback""#))
+            XCTAssertTrue(body.contains(#""scopes":["XXX_WEBUI"]"#))
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -105,7 +106,7 @@ final class AgentlySDKTests: XCTestCase {
         }
 
         let output = try await client.oauthInitiate(
-            OAuthInitiateInput(redirectURI: "agently-ios://oauth/callback")
+            OAuthInitiateInput(redirectURI: "agently-ios://oauth/callback", scopes: ["XXX_WEBUI"])
         )
 
         XCTAssertEqual(output.redirectURI, "agently-ios://oauth/callback")
@@ -125,6 +126,7 @@ final class AgentlySDKTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             let body = try XCTUnwrap(self.requestBodyString(request))
             XCTAssertTrue(body.contains(#""redirectURI":"agently-ios:\/\/oauth\/callback""#))
+            XCTAssertTrue(body.contains(#""scopes":["XXX_MOBILEUI"]"#))
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -136,7 +138,7 @@ final class AgentlySDKTests: XCTestCase {
         }
 
         let output = try await client.oauthMobileInitiate(
-            OAuthInitiateInput(redirectURI: "agently-ios://oauth/callback")
+            OAuthInitiateInput(redirectURI: "agently-ios://oauth/callback", scopes: ["XXX_MOBILEUI"])
         )
 
         XCTAssertEqual(output.redirectURI, "agently-ios://oauth/callback")

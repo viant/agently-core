@@ -111,7 +111,8 @@ data class OAuthInitiateOutput(
 @Serializable
 data class OAuthInitiateInput(
     val redirectURI: String? = null,
-    val returnURL: String? = null
+    val returnURL: String? = null,
+    val scopes: List<String> = emptyList()
 )
 
 @Serializable
@@ -140,7 +141,13 @@ data class OAuthConfigOutput(
     val redirectUri: String? = null,
     val redirectURIs: List<String> = emptyList(),
     @Serializable(with = NullAsEmptyStringListSerializer::class)
-    val scopes: List<String> = emptyList()
+    val scopes: List<String> = emptyList(),
+    @Serializable(with = NullAsEmptyStringListSerializer::class)
+    val webUIScopes: List<String> = emptyList(),
+    @Serializable(with = NullAsEmptyStringListSerializer::class)
+    val mobileUIScopes: List<String> = emptyList(),
+    @Serializable(with = NullAsEmptyStringListSerializer::class)
+    val cliScopes: List<String> = emptyList()
 )
 
 @Serializable
