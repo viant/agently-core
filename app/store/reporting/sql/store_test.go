@@ -2,19 +2,54 @@ package sql
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/viant/agently-core/app/store/data"
 	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
+	"github.com/viant/agently-core/internal/testutil/dbtest"
 	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
 	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
 	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
 	authsvc "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	fsstate "github.com/viant/agently-core/workspace/store/fs"
+	"github.com/viant/datly"
+	"github.com/viant/datly/view"
 )
+
+func TestStore_NewDoesNotProvisionReportingSchema(t *testing.T) {
+	ctx := context.Background()
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "reporting-store-empty-schema")
+	t.Cleanup(cleanup)
+
+	dao, err := datly.New(ctx)
+	if err != nil {
+		t.Fatalf("datly.New() error = %v", err)
+	}
+	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "sqlite", dbPath)); err != nil {
+		t.Fatalf("AddConnectors() error = %v", err)
+	}
+	isolateReportingComponents(t, dao, "agently")
+
+	if _, err = New(ctx, dao, "agently", nil, nil); err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var tableCount int
+	if err = db.QueryRowContext(ctx, `
+SELECT COUNT(1)
+FROM sqlite_master
+WHERE type = 'table' AND name GLOB 'report_*'`).Scan(&tableCount); err != nil {
+		t.Fatalf("query reporting tables error = %v", err)
+	}
+	if tableCount != 0 {
+		t.Fatalf("reporting table count = %d, want 0", tableCount)
+	}
+}
 
 func TestStore_SharedArtifactRoundTripIsScopedByOwner(t *testing.T) {
 	ctx := context.Background()
@@ -205,6 +240,45 @@ func TestStore_ImportsFilesystemReportingState(t *testing.T) {
 	}
 }
 
+func TestStore_ImportsFilesystemStateWhenComponentsAlreadyRegistered(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	isolateReportingComponents(t, dao, "agently")
+
+	if _, err = New(ctx, dao, "agently", nil, nil); err != nil {
+		t.Fatalf("first New() error = %v", err)
+	}
+
+	stateStore := fsstate.NewStateStore(t.TempDir())
+	fsClient := reportfs.New(stateStore)
+	mustNoErr(t, fsClient.CreateJob(ctx, &reportjob.Record{
+		JobID:       "job-fs-loaded-components",
+		ArtifactRef: "report://draft/loaded-components",
+		OwnerID:     "user-fs-loaded-components",
+		Format:      "pdf",
+		Scope:       "draft",
+		Status:      "queued",
+		SubmittedAt: time.Date(2026, 7, 15, 18, 0, 0, 0, time.UTC),
+	}))
+
+	client, err := New(ctx, dao, "agently", stateStore, fsClient)
+	if err != nil {
+		t.Fatalf("second New() error = %v", err)
+	}
+
+	ownerCtx := authsvc.InjectUser(ctx, "user-fs-loaded-components")
+	jobs, err := client.ListJobs(ownerCtx)
+	if err != nil {
+		t.Fatalf("ListJobs() error = %v", err)
+	}
+	if len(jobs) != 1 || jobs[0] == nil || jobs[0].JobID != "job-fs-loaded-components" {
+		t.Fatalf("ListJobs() = %+v, want imported job from second Store initialization", jobs)
+	}
+}
+
 func TestStore_InternalAccessBypassesOwnerScopeForWorkerFlows(t *testing.T) {
 	ctx := context.Background()
 	dao, err := data.NewDatlyInMemory(ctx)
@@ -303,4 +377,13 @@ func mustNoErr(t *testing.T, err error) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func isolateReportingComponents(t *testing.T, dao *datly.Service, connectorRef string) {
+	t.Helper()
+	key := fmt.Sprintf("%d:%s", reflect.ValueOf(dao).Pointer(), normalizeConnectorRef(connectorRef))
+	reportingComponentsBy.Delete(key)
+	t.Cleanup(func() {
+		reportingComponentsBy.Delete(key)
+	})
 }
