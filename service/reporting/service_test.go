@@ -2202,6 +2202,35 @@ func TestReportSpecCompiler_CompileCanonicalSpec(t *testing.T) {
 	require.Equal(t, now, result.CompiledAt)
 }
 
+func TestReportSpecCompiler_ExpandsSemanticDatasetTimeRanges(t *testing.T) {
+	now := time.Date(2026, 7, 15, 14, 0, 0, 0, time.UTC)
+	compiler := NewReportSpecCompiler(func() time.Time { return now })
+	result, err := compiler.Compile(context.Background(), &CompileRequest{
+		SourceKind: SourceKindReportSpec,
+		Document: json.RawMessage(`{
+			"version":1,"kind":"reportSpec",
+			"source":{"kind":"dashboard.reportBuilder","containerId":"demo","stateKey":"demo","dataSourceRef":"demo"},
+			"title":"Semantic Time",
+			"parameters":{"viewMode":"table","groupBy":"","pageSize":25,"orderField":"","orderDir":"asc"},
+			"layoutIntent":{"kind":"single","resultPanePosition":"left","blockOrder":["table"]},
+			"refinements":[],"calculatedFields":[],
+			"datasets":[{
+				"id":"last7","dataSourceRef":"demo","request":{"filters":{"channelIds":[6]}},
+				"scope":{"mode":"override","relativeDateRange":{"startExpression":"6 days ago in UTC","endExpression":"today in UTC","startParamPath":"filters.From","endParamPath":"filters.To"}}
+			}],
+			"blocks":[{"id":"table","kind":"tableBlock","datasetRef":"last7","columns":[]}]
+		}`),
+	})
+	require.NoError(t, err)
+	var compiled map[string]interface{}
+	require.NoError(t, json.Unmarshal(result.ReportSpec, &compiled))
+	dataset := compiled["datasets"].([]interface{})[0].(map[string]interface{})
+	filters := dataset["request"].(map[string]interface{})["filters"].(map[string]interface{})
+	require.Equal(t, "2026-07-09", filters["From"])
+	require.Equal(t, "2026-07-15", filters["To"])
+	require.Equal(t, []interface{}{float64(6)}, filters["channelIds"])
+}
+
 func TestReportSpecCompiler_RejectsInvalidInputs(t *testing.T) {
 	compiler := NewReportSpecCompiler(nil)
 	_, err := compiler.Compile(context.Background(), &CompileRequest{
