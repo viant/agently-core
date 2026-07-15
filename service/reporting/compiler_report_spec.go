@@ -44,9 +44,13 @@ func (c *ReportSpecCompiler) Compile(_ context.Context, request *CompileRequest)
 	if err := validateReportSpecRoot(root); err != nil {
 		return nil, err
 	}
+	expandedDocument, err := expandReportSpecTimeSemantics(request.Document, c.now())
+	if err != nil {
+		return nil, fmt.Errorf("expand reportSpec time semantics: %w", err)
+	}
 	return &CompileResult{
 		ArtifactRef: strings.TrimSpace(request.ArtifactRef),
-		ReportSpec:  cloneJSON(request.Document),
+		ReportSpec:  cloneJSON(expandedDocument),
 		CompiledAt:  c.now().UTC(),
 	}, nil
 }
