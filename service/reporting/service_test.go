@@ -4,13 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/viant/afs"
+	afsscratchpad "github.com/viant/afs/scratchpad"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
+	tokenctx "github.com/viant/agently-core/internal/auth/token"
 	authsvc "github.com/viant/agently-core/service/auth"
+	scyauth "github.com/viant/scy/auth"
+	"golang.org/x/oauth2"
 )
 
 type compileRecorder struct {
@@ -101,6 +108,62 @@ type auditRecorder struct {
 
 func (r *auditRecorder) Record(_ context.Context, event *AuditEvent) error {
 	r.events = append(r.events, cloneAuditEvent(event))
+	return nil
+}
+
+type authCaptureExporter struct {
+	requests     []*RenderRequest
+	accessTokens []string
+	idTokens     []string
+	actorIDs     []string
+}
+
+func (e *authCaptureExporter) Export(ctx context.Context, request *RenderRequest) (*RenderResult, error) {
+	if request != nil {
+		e.requests = append(e.requests, &RenderRequest{
+			JobID:          request.JobID,
+			ArtifactRef:    request.ArtifactRef,
+			OwnerID:        request.OwnerID,
+			ConversationID: request.ConversationID,
+			WorkspaceID:    request.WorkspaceID,
+			AuthContextRef: request.AuthContextRef,
+			Format:         request.Format,
+			Scope:          request.Scope,
+			ReportSpec:     cloneJSON(request.ReportSpec),
+			ReportFill:     cloneJSON(request.ReportFill),
+			ReportPrint:    cloneJSON(request.ReportPrint),
+			Metadata:       cloneJSON(request.Metadata),
+		})
+	}
+	e.accessTokens = append(e.accessTokens, strings.TrimSpace(authsvc.MCPAuthToken(ctx, false)))
+	e.idTokens = append(e.idTokens, strings.TrimSpace(authsvc.MCPAuthToken(ctx, true)))
+	e.actorIDs = append(e.actorIDs, strings.TrimSpace(authsvc.EffectiveUserID(ctx)))
+	return &RenderResult{
+		ContentType: "application/pdf",
+		Data:        []byte("%PDF-auth"),
+	}, nil
+}
+
+type staticTokenProvider struct {
+	tokensByKey map[tokenctx.Key]*scyauth.Token
+}
+
+func (p *staticTokenProvider) EnsureTokens(ctx context.Context, key tokenctx.Key) (context.Context, error) {
+	if p == nil {
+		return ctx, nil
+	}
+	tok := p.tokensByKey[key]
+	if tok == nil {
+		return ctx, nil
+	}
+	return authsvc.InjectTokens(ctx, tok), nil
+}
+
+func (p *staticTokenProvider) Store(ctx context.Context, key tokenctx.Key, tok *scyauth.Token) error {
+	return nil
+}
+
+func (p *staticTokenProvider) Invalidate(ctx context.Context, key tokenctx.Key) error {
 	return nil
 }
 
@@ -258,11 +321,25 @@ func TestServiceCompileDelegatesAndAudits(t *testing.T) {
 
 func TestServiceExportLifecycleScopesArtifactsToOwner(t *testing.T) {
 	now := time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC)
+	fs := afs.New()
+	root := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "scratchpad", "${userID}"))
+	afsscratchpad.Register(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
+	scratch := afsscratchpad.New(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
 	audit := &auditRecorder{}
 	svc := New(Options{
-		Store: NewStoreAdapter(reportmemory.New()),
-		Audit: audit,
-		Now:   func() time.Time { return now },
+		Store:        NewStoreAdapter(reportmemory.New()),
+		Audit:        audit,
+		Scratchpad:   scratch,
+		ScratchpadFS: fs,
+		Now:          func() time.Time { return now },
 		NewID: func() string {
 			if len(audit.events) == 0 {
 				return "job-1"
@@ -304,6 +381,7 @@ func TestServiceExportLifecycleScopesArtifactsToOwner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ExportFormatPDF, artifact.Format)
 	require.Equal(t, "application/pdf", artifact.ContentType)
+	require.Equal(t, "scratchpad://artifact/artifact-1", artifact.SourceURL)
 	require.Equal(t, []byte("%PDF-1.7"), artifact.Data)
 
 	otherCtx := authsvc.InjectUser(context.Background(), "owner-2")
@@ -315,6 +393,247 @@ func TestServiceExportLifecycleScopesArtifactsToOwner(t *testing.T) {
 	require.Len(t, audit.events, 2)
 	require.Equal(t, "report.export.submit", audit.events[0].EventType)
 	require.Equal(t, "report.export.complete", audit.events[1].EventType)
+}
+
+func TestServiceCompleteExportPublishesScratchpadArtifact(t *testing.T) {
+	now := time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC)
+	fs := afs.New()
+	root := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "scratchpad", "${userID}"))
+	afsscratchpad.Register(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
+	scratch := afsscratchpad.New(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
+	audit := &auditRecorder{}
+	svc := New(Options{
+		Store:        NewStoreAdapter(reportmemory.New()),
+		Audit:        audit,
+		Scratchpad:   scratch,
+		ScratchpadFS: fs,
+		Now:          func() time.Time { return now },
+		NewID: func() string {
+			if len(audit.events) == 0 {
+				return "job-1"
+			}
+			return "artifact-1"
+		},
+	})
+
+	ownerCtx := authsvc.InjectUser(context.Background(), "owner-1")
+	job, err := svc.SubmitExport(ownerCtx, &SubmitExportRequest{
+		ArtifactRef: "report://draft/performance",
+		Format:      ExportFormatPDF,
+		Scope:       ExportScopeDraft,
+		ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+	})
+	require.NoError(t, err)
+
+	_, err = svc.StartExport(context.Background(), job.JobID)
+	require.NoError(t, err)
+
+	completed, err := svc.CompleteExport(context.Background(), &CompleteExportRequest{
+		JobID: job.JobID,
+		Data:  []byte("%PDF-1.7 scratchpad"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, JobStatusSucceeded, completed.Status)
+
+	artifact, err := svc.GetArtifact(ownerCtx, completed.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, "scratchpad://artifact/artifact-1", artifact.SourceURL)
+	require.Equal(t, []byte("%PDF-1.7 scratchpad"), artifact.Data)
+
+	data, err := fs.DownloadWithURL(afsscratchpad.ContextWithUserID(context.Background(), "owner-1"), artifact.SourceURL)
+	require.NoError(t, err)
+	require.Equal(t, []byte("%PDF-1.7 scratchpad"), data)
+}
+
+func TestServiceSubmitExportResolvesReportSource(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
+	idCount := 0
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		Now:   func() time.Time { return now },
+		NewID: func() string {
+			idCount++
+			return "report-" + string(rune('0'+idCount))
+		},
+	})
+	ctx := authsvc.InjectUser(context.Background(), "owner-1")
+
+	saved, err := svc.SaveReport(ctx, &SaveReportRequest{
+		ReportID:    "forecastingQ3",
+		Title:       "Forecasting Q3",
+		ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
+		ReportFill:  json.RawMessage(validTestReportFillJSON()),
+		ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+		Metadata:    json.RawMessage(`{"workspaceId":"steward"}`),
+	})
+	require.NoError(t, err)
+
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		Format:         ExportFormatPDF,
+		ConversationID: "conv-1",
+		WorkspaceID:    "steward",
+		Source: &ExportSource{
+			Kind:     "report",
+			ReportID: "forecastingQ3",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ExportScopeSavedPayload, job.Scope)
+	require.Equal(t, saved.ArtifactRef, job.ArtifactRef)
+	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
+	require.JSONEq(t, validTestReportFillJSON(), string(job.ReportFill))
+	require.JSONEq(t, validTestReportSpecJSON(), string(job.ReportSpec))
+	require.JSONEq(t, `{"conversationId":"conv-1","workspaceId":"steward"}`, string(job.Metadata))
+}
+
+func TestServiceSubmitExportResolvesInlineSource(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
+	idCount := 0
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		Now:   func() time.Time { return now },
+		NewID: func() string {
+			idCount++
+			return "inline-" + string(rune('0'+idCount))
+		},
+	})
+	ctx := authsvc.InjectUser(context.Background(), "owner-1")
+
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		Format:         ExportFormatPDF,
+		ConversationID: "conv-inline",
+		WorkspaceID:    "steward",
+		Source: &ExportSource{
+			Kind:        "inline",
+			ArtifactRef: "report://inline/test",
+			ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
+			ReportFill:  json.RawMessage(validTestReportFillJSON()),
+			ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+			Metadata:    json.RawMessage(`{"source":"inline"}`),
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ExportScopeDraft, job.Scope)
+	require.Equal(t, "report://inline/test", job.ArtifactRef)
+	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
+	require.JSONEq(t, validTestReportFillJSON(), string(job.ReportFill))
+	require.JSONEq(t, validTestReportSpecJSON(), string(job.ReportSpec))
+	require.JSONEq(t, `{"conversationId":"conv-inline","workspaceId":"steward","source":"inline"}`, string(job.Metadata))
+}
+
+func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
+	idCount := 0
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		Now:   func() time.Time { return now },
+		NewID: func() string {
+			idCount++
+			return "preset-" + string(rune('0'+idCount))
+		},
+	})
+	ctx := authsvc.InjectUser(context.Background(), "owner-1")
+
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		Format:         ExportFormatPDF,
+		ConversationID: "conv-preset",
+		WorkspaceID:    "steward",
+		Source: &ExportSource{
+			Kind:        "preset",
+			WindowKey:   "metricReportBuilder",
+			PresetID:    "performance_inventory_brief",
+			ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
+			ReportFill:  json.RawMessage(validTestReportFillJSON()),
+			ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+			Metadata:    json.RawMessage(`{"source":"preset-runtime"}`),
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ExportScopeDraft, job.Scope)
+	require.Equal(t, "report://preset/metricReportBuilder/performance_inventory_brief", job.ArtifactRef)
+	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
+	require.JSONEq(t, validTestReportFillJSON(), string(job.ReportFill))
+	require.JSONEq(t, validTestReportSpecJSON(), string(job.ReportSpec))
+	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"steward","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(job.Metadata))
+}
+
+func TestServiceSubmitExportPresetSourceRequiresMaterializedArtifacts(t *testing.T) {
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+	})
+	ctx := authsvc.InjectUser(context.Background(), "owner-1")
+
+	_, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		Format: ExportFormatPDF,
+		Source: &ExportSource{
+			Kind:      "preset",
+			WindowKey: "metricReportBuilder",
+			PresetID:  "performance_inventory_brief",
+		},
+	})
+	require.EqualError(t, err, "reporting export: preset source requires a materialized reportPrint for pdf export")
+}
+
+func TestServiceRunExportRehydratesTokensFromTokenProvider(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 30, 0, 0, time.UTC)
+	exporter := &authCaptureExporter{}
+	provider := &staticTokenProvider{
+		tokensByKey: map[tokenctx.Key]*scyauth.Token{
+			{Subject: "owner-1", Provider: "oauth"}: {
+				Token: oauth2.Token{
+					AccessToken: "access-token-1",
+				},
+				IDToken: "id-token-1",
+			},
+		},
+	}
+	idCount := 0
+	svc := New(Options{
+		Exporter:      exporter,
+		Store:         NewStoreAdapter(reportmemory.New()),
+		TokenProvider: provider,
+		Now:           func() time.Time { return now },
+		NewID: func() string {
+			idCount++
+			if idCount == 1 {
+				return "job-1"
+			}
+			return "artifact-1"
+		},
+	})
+	submitCtx := authsvc.InjectUser(context.Background(), "owner-1")
+	submitCtx = authsvc.InjectTokens(submitCtx, &scyauth.Token{
+		Token: oauth2.Token{
+			AccessToken: "access-token-1",
+		},
+		IDToken: "id-token-1",
+	})
+	job, err := svc.SubmitExport(submitCtx, &SubmitExportRequest{
+		ArtifactRef: "report://draft/auth",
+		Format:      ExportFormatPDF,
+		Scope:       ExportScopeDraft,
+		ReportPrint: json.RawMessage(validRenderableTestReportPrintJSON()),
+	})
+	require.NoError(t, err)
+	require.Contains(t, job.AuthContextRef, "actor=owner-1")
+	require.Contains(t, job.AuthContextRef, "access=true")
+	require.Contains(t, job.AuthContextRef, "id=true")
+
+	completed, err := svc.RunExport(context.Background(), job.JobID)
+	require.NoError(t, err)
+	require.Equal(t, JobStatusSucceeded, completed.Status)
+	require.Len(t, exporter.requests, 1)
+	require.Equal(t, "owner-1", exporter.actorIDs[0])
+	require.Equal(t, "access-token-1", exporter.accessTokens[0])
+	require.Equal(t, "id-token-1", exporter.idTokens[0])
 }
 
 func TestServiceListExportJobsScopesAndFiltersByOwner(t *testing.T) {
@@ -1042,6 +1361,29 @@ func TestServiceValidatesExportArtifactsByFormat(t *testing.T) {
 		},
 	})
 	require.EqualError(t, err, "reporting export: reportExportRequest source.payloadId is required for savedPayload exports")
+
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		ReportExportRequest: &ReportExportRequest{
+			Version: 1,
+			Kind:    "reportExportRequest",
+			Target: ReportExportTarget{
+				Format: ExportFormatPDF,
+			},
+			Source: ReportExportSource{
+				From:             "preset",
+				ArtifactKind:     "reportBuilder.reportTemplate",
+				ArtifactRef:      "reportBuilder.reportTemplate://metricReportBuilder:performance_inventory_brief",
+				Title:            "Performance Inventory Brief",
+				SourceArtifactID: "performance_inventory_brief",
+			},
+			ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
+			ReportFill:  json.RawMessage(validTestReportFillJSON()),
+			ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ExportScopeDraft, job.Scope)
+	require.Equal(t, "reportBuilder.reportTemplate://metricReportBuilder:performance_inventory_brief", job.ArtifactRef)
 }
 
 func TestServiceRunExportUsesConfiguredExporter(t *testing.T) {
@@ -1676,9 +2018,23 @@ func TestServiceRunQueuedExportsSharesQueueAcrossFormatsWhileKeepingOwnerVisibil
 	now := time.Date(2026, 6, 13, 16, 30, 0, 0, time.UTC)
 	exporter := &queuedExportRecorder{}
 	idCounter := 0
+	fs := afs.New()
+	root := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "scratchpad", "${userID}"))
+	afsscratchpad.Register(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
+	scratch := afsscratchpad.New(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
 	svc := New(Options{
-		Exporter: exporter,
-		Store:    NewStoreAdapter(reportmemory.New()),
+		Exporter:     exporter,
+		Store:        NewStoreAdapter(reportmemory.New()),
+		Scratchpad:   scratch,
+		ScratchpadFS: fs,
 		Now: func() time.Time {
 			return now.Add(time.Duration(idCounter) * time.Minute)
 		},
@@ -1785,18 +2141,21 @@ func TestServiceRunQueuedExportsSharesQueueAcrossFormatsWhileKeepingOwnerVisibil
 	require.NoError(t, err)
 	require.Equal(t, ExportFormatPDF, pdfArtifact.Format)
 	require.Equal(t, "application/pdf", pdfArtifact.ContentType)
+	require.Equal(t, "scratchpad://artifact/artifact-pdf", pdfArtifact.SourceURL)
 	require.Equal(t, []byte("%pdf-job-pdf"), pdfArtifact.Data)
 
 	csvArtifact, err := svc.GetArtifact(ownerTwoCtx, csvStatus.ArtifactID)
 	require.NoError(t, err)
 	require.Equal(t, ExportFormatCSV, csvArtifact.Format)
 	require.Equal(t, "text/csv", csvArtifact.ContentType)
+	require.Equal(t, "scratchpad://artifact/artifact-csv", csvArtifact.SourceURL)
 	require.Equal(t, []byte("%csv-job-csv"), csvArtifact.Data)
 
 	xlsxArtifact, err := svc.GetArtifact(ownerOneCtx, xlsxStatus.ArtifactID)
 	require.NoError(t, err)
 	require.Equal(t, ExportFormatXLSX, xlsxArtifact.Format)
 	require.Equal(t, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxArtifact.ContentType)
+	require.Equal(t, "scratchpad://artifact/artifact-xlsx", xlsxArtifact.SourceURL)
 	require.Equal(t, []byte("%xlsx-job-xlsx"), xlsxArtifact.Data)
 
 	_, err = svc.GetArtifact(ownerOneCtx, csvStatus.ArtifactID)

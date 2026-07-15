@@ -1,11 +1,10 @@
-package reportshareartifact
+package reporting
 
 import "time"
 
-// Record is the persisted shared reporting artifact shell for saved views and
-// published snapshots. The payload remains opaque JSON so agently-core can own
-// storage without reinterpreting Forge authoring semantics in this layer.
-type Record struct {
+// SharedArtifact is the Datly-facing persisted report shell used by the SQL
+// reporting store.
+type SharedArtifact struct {
 	ArtifactID       string     `sqlx:"artifact_id,primaryKey" json:"artifactId,omitempty"`
 	ArtifactRef      string     `sqlx:"artifact_ref" json:"artifactRef,omitempty"`
 	OwnerID          string     `sqlx:"owner_id" json:"ownerId,omitempty"`

@@ -757,19 +757,27 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		// Post-filter output when possible (JSON expected)
 		return r.applySelector(out, selector)
 	}
-	// cached executable?
-	r.mu.RLock()
-	if e, ok := r.cache[baseName]; ok && e.exec != nil {
-		r.mu.RUnlock()
-		out, err := e.exec(ctx, callArgs)
-		if err != nil || selector == "" {
-			return out, err
-		}
-		return r.applySelector(out, selector)
-	}
-	r.mu.RUnlock()
-
 	serviceName, _ := splitToolName(baseName)
+	hasInternalClient := false
+	if serviceName != "" {
+		r.mu.RLock()
+		_, hasInternalClient = r.internal[serviceName]
+		r.mu.RUnlock()
+	}
+	// cached executable?
+	if !hasInternalClient {
+		r.mu.RLock()
+		if e, ok := r.cache[baseName]; ok && e.exec != nil {
+			r.mu.RUnlock()
+			out, err := e.exec(ctx, callArgs)
+			if err != nil || selector == "" {
+				return out, err
+			}
+			return r.applySelector(out, selector)
+		}
+		r.mu.RUnlock()
+	}
+
 	server := serviceName
 	if server == "" {
 		r.debugf("Execute: invalid tool name (no server): %s", baseName)

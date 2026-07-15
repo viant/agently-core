@@ -31,6 +31,21 @@ func TestService_EnsureInMemory(t *testing.T) {
 	if name != "conversation" {
 		t.Fatalf("unexpected table name: %s", name)
 	}
+
+	for _, table := range []string{
+		"report_shared_artifact",
+		"report_export_job",
+		"report_export_artifact",
+		"report_audit_event",
+	} {
+		var got string
+		if err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&got); err != nil {
+			t.Fatalf("%s table missing: %v", table, err)
+		}
+		if got != table {
+			t.Fatalf("unexpected table name for %s: %s", table, got)
+		}
+	}
 }
 
 func TestService_EnsureInMemory_MessageLookupIndexesExist(t *testing.T) {

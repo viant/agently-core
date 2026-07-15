@@ -93,3 +93,40 @@ func readAuditEvent(path string) (*reportingsvc.AuditEvent, error) {
 	}
 	return event, nil
 }
+
+// ListAuditEvents loads persisted reporting audit events from the workspace
+// state store.
+func ListAuditEvents(ctx context.Context, stateStore workspace.StateStore) ([]*reportingsvc.AuditEvent, error) {
+	if stateStore == nil {
+		return nil, fmt.Errorf("reporting fs audit sink: state store is required")
+	}
+	dir, err := stateStore.StatePath(ctx, filepath.Join("reporting", "audits"))
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []*reportingsvc.AuditEvent{}, nil
+		}
+		return nil, err
+	}
+	result := make([]*reportingsvc.AuditEvent, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.TrimSpace(entry.Name())
+		if !strings.HasSuffix(strings.ToLower(name), ".json") {
+			continue
+		}
+		event, err := readAuditEvent(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		if event != nil {
+			result = append(result, event)
+		}
+	}
+	return result, nil
+}

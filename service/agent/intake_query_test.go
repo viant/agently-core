@@ -1955,6 +1955,204 @@ func TestMaybeRunIntakeSidecar_OpenPerformanceBuilderForOrderRunsPrefilledWindow
 	require.Equal(t, []interface{}{2678499}, parameters["orderIds"])
 }
 
+func TestMaybeRunIntakeSidecar_ExecutePerformanceInventoryPresetForOrderRunsStarterAwareWindowOpen(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-performance-preset",
+		Query:          "execute preset Performance Inventory Brief for order id 2680567",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "open_performance_inventory_brief_for_order",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{
+							`(?i)^execute\s+preset\s+performance\s+inventory\s+brief\s+for\s+order(?:\s+id)?\s+(\d+)\.?\s*$`,
+							`(?i)^open\s+metric\s+report\s+builder\s+for\s+order(?:\s+id)?\s+(\d+)\s+and\s+apply\s+(?:preset\s+)?performance\s+inventory\s+brief\.?\s*$`,
+						},
+						Extractors: map[string]agentmdl.ActivationExtractor{
+							"ids": {
+								Type:    "regex_all",
+								Source:  "$1",
+								Pattern: `\d+`,
+							},
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "workspace_ui_open"},
+					Prompting:      agentmdl.ActivationPrompting{SuggestedProfileID: "workspace_ui"},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"uiTarget":        "metricReportBuilder",
+						"workspaceUI":     "activation",
+						"action":          "open",
+						"AdOrderId":       "$1",
+						"adOrderIds":      "$ids",
+						"reportStarterId": "performance_inventory_brief",
+					}},
+					Action: agentmdl.ActivationAction{
+						Tool: "ui/view:open",
+						Input: map[string]interface{}{
+							"id":        "metricReportBuilder",
+							"timeoutMs": 600000,
+							"parameters": map[string]interface{}{
+								"orderIds":        []interface{}{"$1:int"},
+								"reportStarterId": "performance_inventory_brief",
+								"executeOnOpen":   true,
+							},
+						},
+					},
+					Response: agentmdl.ActivationResponse{AssistantText: "The Performance Metrics workspace is open for order $1 with preset Performance Inventory Brief applied."},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Equal(t, "workspace_ui", input.PromptProfileId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "workspace_ui_open", stored.Classification.Intent)
+	require.Equal(t, "metricReportBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "2680567", stored.Scope.Values["AdOrderId"])
+	require.Equal(t, "2680567", stored.Scope.Values["adOrderIds"])
+	require.Equal(t, "performance_inventory_brief", stored.Scope.Values["reportStarterId"])
+	require.Equal(t, "ui/view:open", stored.DirectAction.ToolName)
+	parameters, ok := stored.DirectAction.Input["parameters"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, []interface{}{2680567}, parameters["orderIds"])
+	require.Equal(t, "performance_inventory_brief", parameters["reportStarterId"])
+	require.Equal(t, true, parameters["executeOnOpen"])
+}
+
+func TestMaybeRunIntakeSidecar_ListSavedReportsRoutesToReportingCatalog(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-report-catalog",
+		Query:          "what reports do I have",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "list_saved_reports",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{
+							`(?i)^(?:what|which)\s+reports\s+do\s+i\s+have\??\s*$`,
+							`(?i)^list\s+(?:my\s+)?reports\??\s*$`,
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "report_catalog"},
+					Prompting: agentmdl.ActivationPrompting{
+						AppendToolBundles: []string{"reporting-tools"},
+					},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"reportCatalogKind": "saved_reports",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "report_catalog", stored.Classification.Intent)
+	require.Equal(t, "saved_reports", stored.Scope.Values["reportCatalogKind"])
+	require.Contains(t, stored.Prompting.AppendToolBundles, "reporting-tools")
+	require.Empty(t, stored.DirectAction.ToolName)
+}
+
+func TestMaybeRunIntakeSidecar_ListPresetsRoutesToWorkspaceUICatalog(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-preset-catalog",
+		Query:          "what presets do I have",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "list_report_presets",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{
+							`(?i)^(?:what|which)\s+presets\s+do\s+i\s+have\??\s*$`,
+							`(?i)^list\s+(?:my\s+)?presets\??\s*$`,
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "report_catalog"},
+					Prompting: agentmdl.ActivationPrompting{
+						SuggestedProfileID: "workspace_ui",
+						AppendToolBundles:  []string{"workspace-ui"},
+					},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"workspaceUI":       "inspect",
+						"reportCatalogKind": "presets",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "report_catalog", stored.Classification.Intent)
+	require.Equal(t, "workspace_ui", stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "inspect", stored.Scope.Values["workspaceUI"])
+	require.Equal(t, "presets", stored.Scope.Values["reportCatalogKind"])
+	require.Contains(t, stored.Prompting.AppendToolBundles, "workspace-ui")
+	require.Empty(t, stored.DirectAction.ToolName)
+}
+
+func TestMaybeRunIntakeSidecar_ExportSavedReportAsPDFRoutesToReportingCatalog(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-report-export",
+		Query:          "export report forecastingQ3 as pdf",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "export_saved_report_as_pdf",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{
+							`(?i)^export\s+(?:saved\s+)?report\s+([A-Za-z0-9._:-]+)\s+as\s+pdf\??\s*$`,
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "report_export"},
+					Prompting: agentmdl.ActivationPrompting{
+						AppendToolBundles: []string{"reporting-tools"},
+					},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"reportExportSourceKind": "report",
+						"reportExportFormat":     "pdf",
+						"reportId":               "$1",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "report_export", stored.Classification.Intent)
+	require.Equal(t, "report", stored.Scope.Values["reportExportSourceKind"])
+	require.Equal(t, "pdf", stored.Scope.Values["reportExportFormat"])
+	require.Equal(t, "forecastingQ3", stored.Scope.Values["reportId"])
+	require.Contains(t, stored.Prompting.AppendToolBundles, "reporting-tools")
+	require.Empty(t, stored.DirectAction.ToolName)
+}
+
 func TestMaybeRunIntakeSidecar_ForecastReachAvailabilityNaturalPhraseRoutesToForecastTemplate(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{

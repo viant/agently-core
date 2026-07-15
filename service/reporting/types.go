@@ -99,6 +99,7 @@ type SubmitExportRequest struct {
 	Scope               ExportScope          `json:"scope,omitempty"`
 	ConversationID      string               `json:"conversationId,omitempty"`
 	WorkspaceID         string               `json:"workspaceId,omitempty"`
+	Source              *ExportSource        `json:"source,omitempty"`
 	ReportSpec          json.RawMessage      `json:"reportSpec,omitempty"`
 	ReportFill          json.RawMessage      `json:"reportFill,omitempty"`
 	ReportPrint         json.RawMessage      `json:"reportPrint,omitempty"`
@@ -213,6 +214,7 @@ type Artifact struct {
 	OwnerID      string        `json:"ownerId,omitempty"`
 	Format       ExportFormat  `json:"format,omitempty"`
 	ContentType  string        `json:"contentType,omitempty"`
+	SourceURL    string        `json:"sourceURL,omitempty"`
 	Data         []byte        `json:"data,omitempty"`
 	CreatedAt    time.Time     `json:"createdAt,omitempty"`
 	RetentionTTL time.Duration `json:"retentionTtl,omitempty"`
@@ -274,6 +276,19 @@ type ListReportsInput struct {
 type ListReportsResult struct {
 	Reports    []*SharedArtifact `json:"reports,omitempty"`
 	TotalCount int               `json:"totalCount,omitempty"`
+}
+
+type ExportSource struct {
+	Kind        string          `json:"kind,omitempty"`
+	ArtifactID  string          `json:"artifactId,omitempty"`
+	ArtifactRef string          `json:"artifactRef,omitempty"`
+	ReportID    string          `json:"reportId,omitempty"`
+	WindowKey   string          `json:"windowKey,omitempty"`
+	PresetID    string          `json:"presetId,omitempty"`
+	ReportSpec  json.RawMessage `json:"reportSpec,omitempty"`
+	ReportFill  json.RawMessage `json:"reportFill,omitempty"`
+	ReportPrint json.RawMessage `json:"reportPrint,omitempty"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
 }
 
 type UpdateReportRequest struct {

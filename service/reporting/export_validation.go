@@ -81,6 +81,8 @@ func mapReportExportSourceScope(from string) (ExportScope, error) {
 	switch strings.TrimSpace(strings.ToLower(from)) {
 	case "draft":
 		return ExportScopeDraft, nil
+	case "preset":
+		return ExportScopeDraft, nil
 	case "savedpayload":
 		return ExportScopeSavedPayload, nil
 	case "savedview":

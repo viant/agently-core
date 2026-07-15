@@ -32,6 +32,9 @@ default:
   model: openai_gpt-5_4
   reporting:
     enabled: true
+    store:
+      backend: sql
+      connectorRef: agently
   skills:
     model: openai_gpt-5.4-mini
   previewSettings:
@@ -57,6 +60,12 @@ default:
 	}
 	if !got.Reporting.Enabled {
 		t.Fatalf("expected reporting enabled to merge from workspace defaults")
+	}
+	if got.Reporting.Store.Backend != "sql" {
+		t.Fatalf("expected reporting store backend sql, got %q", got.Reporting.Store.Backend)
+	}
+	if got.Reporting.Store.ConnectorRef != "agently" {
+		t.Fatalf("expected reporting store connectorRef agently, got %q", got.Reporting.Store.ConnectorRef)
 	}
 	if got.Skills.Model != "openai_gpt-5.4-mini" {
 		t.Fatalf("expected merged skills model, got %q", got.Skills.Model)

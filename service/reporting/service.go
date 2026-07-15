@@ -12,6 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/afs"
+	afsscratchpad "github.com/viant/afs/scratchpad"
+	iauth "github.com/viant/agently-core/internal/auth"
+	tokenctx "github.com/viant/agently-core/internal/auth/token"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	authctx "github.com/viant/agently-core/service/auth"
 )
@@ -30,23 +34,29 @@ const Name = "reporting"
 
 // Options configures a reporting Service.
 type Options struct {
-	Compiler Compiler
-	Exporter Exporter
-	Store    Store
-	Audit    AuditSink
-	Now      func() time.Time
-	NewID    func() string
+	Compiler      Compiler
+	Exporter      Exporter
+	Store         Store
+	Audit         AuditSink
+	Scratchpad    *afsscratchpad.Service
+	ScratchpadFS  afs.Service
+	TokenProvider tokenctx.Provider
+	Now           func() time.Time
+	NewID         func() string
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
-	compiler Compiler
-	exporter Exporter
-	store    Store
-	audit    AuditSink
-	now      func() time.Time
-	newID    func() string
+	compiler      Compiler
+	exporter      Exporter
+	store         Store
+	audit         AuditSink
+	scratchpad    *afsscratchpad.Service
+	scratchpadFS  afs.Service
+	tokenProvider tokenctx.Provider
+	now           func() time.Time
+	newID         func() string
 }
 
 // New constructs a reporting Service.
@@ -63,12 +73,20 @@ func New(opts Options) *Service {
 		newIDFn = func() string { return uuid.NewString() }
 	}
 	return &Service{
-		compiler: opts.Compiler,
-		exporter: opts.Exporter,
-		store:    opts.Store,
-		audit:    opts.Audit,
-		now:      nowFn,
-		newID:    newIDFn,
+		compiler:      opts.Compiler,
+		exporter:      opts.Exporter,
+		store:         opts.Store,
+		audit:         opts.Audit,
+		scratchpad:    opts.Scratchpad,
+		tokenProvider: opts.TokenProvider,
+		scratchpadFS: func() afs.Service {
+			if opts.ScratchpadFS != nil {
+				return opts.ScratchpadFS
+			}
+			return afs.New()
+		}(),
+		now:   nowFn,
+		newID: newIDFn,
 	}
 }
 
@@ -593,7 +611,7 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if request == nil {
 		return nil, fmt.Errorf("reporting export: request is required")
 	}
-	normalizedRequest, err := normalizeSubmitExportRequest(request)
+	normalizedRequest, err := s.resolveSubmitExportRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -668,6 +686,10 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 	if err != nil {
 		return nil, err
 	}
+	runCtx, err := s.ensureRunExportAuthContext(ctx, job)
+	if err != nil {
+		return s.failRunExport(ctx, job.JobID, err)
+	}
 	if err := validateSubmitExportRequest(&SubmitExportRequest{
 		ArtifactRef: job.ArtifactRef,
 		Format:      job.Format,
@@ -676,10 +698,10 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 		ReportFill:  cloneJSON(job.ReportFill),
 		ReportPrint: cloneJSON(job.ReportPrint),
 	}); err != nil {
-		return s.failRunExport(ctx, job.JobID, err)
+		return s.failRunExport(runCtx, job.JobID, err)
 	}
 
-	result, err := s.exporter.Export(ctx, &RenderRequest{
+	result, err := s.exporter.Export(runCtx, &RenderRequest{
 		JobID:          job.JobID,
 		ArtifactRef:    job.ArtifactRef,
 		OwnerID:        job.OwnerID,
@@ -694,15 +716,15 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 		Metadata:       cloneJSON(job.Metadata),
 	})
 	if err != nil {
-		return s.failRunExport(ctx, job.JobID, err)
+		return s.failRunExport(runCtx, job.JobID, err)
 	}
 	if result == nil {
-		return s.failRunExport(ctx, job.JobID, fmt.Errorf("reporting export execution: exporter returned nil result"))
+		return s.failRunExport(runCtx, job.JobID, fmt.Errorf("reporting export execution: exporter returned nil result"))
 	}
 	if len(result.Data) == 0 {
-		return s.failRunExport(ctx, job.JobID, fmt.Errorf("reporting export execution: exporter returned empty artifact data"))
+		return s.failRunExport(runCtx, job.JobID, fmt.Errorf("reporting export execution: exporter returned empty artifact data"))
 	}
-	completed, err := s.CompleteExport(ctx, &CompleteExportRequest{
+	completed, err := s.CompleteExport(runCtx, &CompleteExportRequest{
 		JobID:        job.JobID,
 		ContentType:  strings.TrimSpace(result.ContentType),
 		Data:         append([]byte{}, result.Data...),
@@ -875,6 +897,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 		Data:         append([]byte{}, request.Data...),
 		CreatedAt:    s.now().UTC(),
 		RetentionTTL: request.RetentionTTL,
+	}
+	if err := s.publishArtifactToScratchpad(ctx, artifact); err != nil {
+		return nil, err
 	}
 	if err := s.store.PutArtifact(ctx, artifact); err != nil {
 		if errors.Is(err, ErrAlreadyExists) {
@@ -1140,7 +1165,11 @@ func (s *Service) ListExportArtifacts(ctx context.Context, input *ListExportArti
 		if normalized.Format != "" && artifact.Format != normalized.Format {
 			continue
 		}
-		filtered = append(filtered, cloneArtifact(artifact))
+		expanded, err := s.enrichArtifactWithScratchpad(ctx, artifact)
+		if err != nil {
+			return nil, err
+		}
+		filtered = append(filtered, expanded)
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
 		if filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
@@ -1194,7 +1223,7 @@ func (s *Service) GetArtifact(ctx context.Context, artifactID string) (*Artifact
 	if !isCompletedArtifactVisibleToActor(ctx, artifact, job, s.now().UTC()) {
 		return nil, ErrNotFound
 	}
-	return cloneArtifact(artifact), nil
+	return s.enrichArtifactWithScratchpad(ctx, artifact)
 }
 
 func (s *Service) getArtifactTool(ctx context.Context, in, out interface{}) error {
@@ -1701,6 +1730,7 @@ func effectiveActorID(ctx context.Context) string {
 
 func buildAuthContextRef(ctx context.Context) string {
 	actorID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	provider := strings.TrimSpace(iauth.Provider(ctx))
 	hasAccessToken := strings.TrimSpace(authctx.MCPAuthToken(ctx, false)) != ""
 	hasIDToken := strings.TrimSpace(authctx.MCPAuthToken(ctx, true)) != ""
 	if actorID == "" && !hasAccessToken && !hasIDToken {
@@ -1710,6 +1740,9 @@ func buildAuthContextRef(ctx context.Context) string {
 	if actorID != "" {
 		parts = append(parts, "actor="+actorID)
 	}
+	if provider != "" {
+		parts = append(parts, "provider="+provider)
+	}
 	if hasAccessToken {
 		parts = append(parts, "access=true")
 	}
@@ -1717,6 +1750,57 @@ func buildAuthContextRef(ctx context.Context) string {
 		parts = append(parts, "id=true")
 	}
 	return strings.Join(parts, ";")
+}
+
+func parseAuthContextRef(value string) map[string]string {
+	result := map[string]string{}
+	for _, part := range strings.Split(strings.TrimSpace(value), ";") {
+		key, val, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if key == "" || val == "" {
+			continue
+		}
+		result[key] = val
+	}
+	return result
+}
+
+func (s *Service) ensureRunExportAuthContext(ctx context.Context, job *ExportJob) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if job == nil {
+		return ctx, nil
+	}
+	meta := parseAuthContextRef(job.AuthContextRef)
+	actorID := strings.TrimSpace(meta["actor"])
+	if actorID == "" {
+		actorID = strings.TrimSpace(job.OwnerID)
+	}
+	if actorID == "" {
+		return ctx, nil
+	}
+	ctx = authctx.InjectUser(ctx, actorID)
+	provider := strings.TrimSpace(meta["provider"])
+	if provider == "" {
+		provider = "oauth"
+	}
+	ctx = iauth.WithProvider(ctx, provider)
+	if s.tokenProvider == nil {
+		return ctx, nil
+	}
+	nextCtx, err := s.tokenProvider.EnsureTokens(ctx, tokenctx.Key{
+		Subject:  actorID,
+		Provider: provider,
+	})
+	if err != nil {
+		return ctx, err
+	}
+	return nextCtx, nil
 }
 
 func isVisibleToActor(ctx context.Context, ownerID string) bool {
@@ -1843,6 +1927,7 @@ func cloneSubmitExportRequest(input *SubmitExportRequest) *SubmitExportRequest {
 		Scope:               input.Scope,
 		ConversationID:      strings.TrimSpace(input.ConversationID),
 		WorkspaceID:         strings.TrimSpace(input.WorkspaceID),
+		Source:              cloneExportSource(input.Source),
 		ReportSpec:          cloneJSON(input.ReportSpec),
 		ReportFill:          cloneJSON(input.ReportFill),
 		ReportPrint:         cloneJSON(input.ReportPrint),
@@ -2036,6 +2121,7 @@ func cloneArtifact(input *Artifact) *Artifact {
 		OwnerID:      strings.TrimSpace(input.OwnerID),
 		Format:       input.Format,
 		ContentType:  strings.TrimSpace(input.ContentType),
+		SourceURL:    strings.TrimSpace(input.SourceURL),
 		CreatedAt:    input.CreatedAt,
 		RetentionTTL: input.RetentionTTL,
 	}
