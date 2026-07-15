@@ -2238,4 +2238,114 @@ END $$
 CALL schema_upgrade_28() $$
 DROP PROCEDURE schema_upgrade_28 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_29 $$
+CREATE PROCEDURE schema_upgrade_29()
+BEGIN
+    IF get_schema_version() = 29 THEN
+CREATE TABLE IF NOT EXISTS report_shared_artifact (
+                                                      artifact_id VARCHAR(255) PRIMARY KEY,
+    artifact_ref TEXT NOT NULL,
+    owner_id VARCHAR(255) NOT NULL,
+    owner_ref TEXT NULL,
+    kind VARCHAR(255) NOT NULL,
+    lifecycle VARCHAR(255) NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    report_id VARCHAR(255) NULL,
+    title TEXT NULL,
+    source_artifact_id VARCHAR(255) NULL,
+    base_artifact_ref TEXT NULL,
+    policy_ref VARCHAR(255) NULL,
+    document_version BIGINT NOT NULL DEFAULT 0,
+    report_document_json MEDIUMBLOB NULL,
+    report_spec_json MEDIUMBLOB NULL,
+    compile_state_json MEDIUMBLOB NULL,
+    report_fill_json MEDIUMBLOB NULL,
+    report_print_json MEDIUMBLOB NULL,
+    saved_view_overlay_json MEDIUMBLOB NULL,
+    metadata_json MEDIUMBLOB NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL
+    );
+
+CREATE INDEX idx_report_shared_artifact_owner_artifact_ref
+    ON report_shared_artifact(owner_id(191), artifact_ref(191));
+CREATE INDEX idx_report_shared_artifact_owner_report_id
+    ON report_shared_artifact(owner_id, report_id);
+CREATE INDEX idx_report_shared_artifact_owner_kind_lifecycle_updated
+    ON report_shared_artifact(owner_id, kind, lifecycle, updated_at, created_at);
+
+CREATE TABLE IF NOT EXISTS report_export_job (
+                                                 job_id VARCHAR(255) PRIMARY KEY,
+    artifact_ref TEXT NOT NULL,
+    owner_id VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(255) NULL,
+    workspace_id VARCHAR(255) NULL,
+    auth_context_ref TEXT NULL,
+    format VARCHAR(64) NOT NULL,
+    scope VARCHAR(64) NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    report_spec_json MEDIUMBLOB NULL,
+    report_fill_json MEDIUMBLOB NULL,
+    report_print_json MEDIUMBLOB NULL,
+    metadata_json MEDIUMBLOB NULL,
+    artifact_id VARCHAR(255) NULL,
+    error_text TEXT NULL,
+    diagnostics_json MEDIUMBLOB NULL,
+    submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    retention_ttl_sec BIGINT NOT NULL DEFAULT 0
+    );
+
+CREATE INDEX idx_report_export_job_owner_submitted_at
+    ON report_export_job(owner_id, submitted_at);
+CREATE INDEX idx_report_export_job_owner_artifact_ref
+    ON report_export_job(owner_id, artifact_ref(191));
+CREATE INDEX idx_report_export_job_owner_status
+    ON report_export_job(owner_id, status);
+
+CREATE TABLE IF NOT EXISTS report_export_artifact (
+                                                      artifact_id VARCHAR(255) PRIMARY KEY,
+    job_id VARCHAR(255) NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    owner_id VARCHAR(255) NOT NULL,
+    format VARCHAR(64) NOT NULL,
+    content_type VARCHAR(255) NOT NULL,
+    inline_data LONGBLOB NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retention_ttl_sec BIGINT NOT NULL DEFAULT 0
+    );
+
+CREATE INDEX idx_report_export_artifact_owner_created_at
+    ON report_export_artifact(owner_id, created_at);
+CREATE INDEX idx_report_export_artifact_owner_artifact_ref
+    ON report_export_artifact(owner_id, artifact_ref(191));
+CREATE INDEX idx_report_export_artifact_job_id
+    ON report_export_artifact(job_id);
+
+CREATE TABLE IF NOT EXISTS report_audit_event (
+                                                  event_id VARCHAR(255) PRIMARY KEY,
+    event_type VARCHAR(255) NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    job_id VARCHAR(255) NULL,
+    artifact_id VARCHAR(255) NULL,
+    actor_id VARCHAR(255) NOT NULL,
+    actor_ref TEXT NULL,
+    occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    metadata_json MEDIUMBLOB NULL
+    );
+
+CREATE INDEX idx_report_audit_event_actor_occurred_at
+    ON report_audit_event(actor_id, occurred_at);
+CREATE INDEX idx_report_audit_event_artifact_ref
+    ON report_audit_event(artifact_ref(191));
+
+CALL set_schema_version(30);
+END IF;
+END $$
+
+CALL schema_upgrade_29() $$
+DROP PROCEDURE schema_upgrade_29 $$
+
 DELIMITER ;
