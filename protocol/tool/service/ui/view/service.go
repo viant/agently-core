@@ -22,17 +22,18 @@ const Name = "ui/view"
 type ListInput struct{}
 
 type ListItem struct {
-	ID                 string                 `json:"id,omitempty"`
-	Title              string                 `json:"title,omitempty"`
-	Description        string                 `json:"description,omitempty"`
-	WindowKey          string                 `json:"windowKey,omitempty"`
-	Presentation       string                 `json:"presentation,omitempty"`
-	Region             string                 `json:"region,omitempty"`
-	OpenMode           string                 `json:"openMode,omitempty"`
-	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
-	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
-	Parameters         []viewproto.Parameter  `json:"parameters,omitempty"`
-	Capabilities       viewproto.Capabilities `json:"capabilities,omitempty"`
+	ID                 string                   `json:"id,omitempty"`
+	Title              string                   `json:"title,omitempty"`
+	Description        string                   `json:"description,omitempty"`
+	WindowKey          string                   `json:"windowKey,omitempty"`
+	Presentation       string                   `json:"presentation,omitempty"`
+	Region             string                   `json:"region,omitempty"`
+	OpenMode           string                   `json:"openMode,omitempty"`
+	WorkspaceSharePct  int                      `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                      `json:"workspaceMinHeight,omitempty"`
+	Parameters         []viewproto.Parameter    `json:"parameters,omitempty"`
+	ReportPresets      []viewproto.ReportPreset `json:"reportPresets,omitempty"`
+	Capabilities       viewproto.Capabilities   `json:"capabilities,omitempty"`
 }
 
 type ListOutput struct {
@@ -530,6 +531,7 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			WorkspaceSharePct:  spec.WorkspaceSharePct,
 			WorkspaceMinHeight: spec.WorkspaceMinHeight,
 			Parameters:         append([]viewproto.Parameter(nil), spec.Parameters...),
+			ReportPresets:      append([]viewproto.ReportPreset(nil), spec.ReportPresets...),
 			Capabilities:       spec.Capabilities,
 		})
 	}

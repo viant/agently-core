@@ -1481,8 +1481,14 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 	if err != nil {
 		return nil, err
 	}
+	reports := make([]*ReportSummary, 0, len(result.Artifacts))
+	for _, artifact := range result.Artifacts {
+		if summary := reportSummary(artifact); summary != nil {
+			reports = append(reports, summary)
+		}
+	}
 	return &ListReportsResult{
-		Reports:    result.Artifacts,
+		Reports:    reports,
 		TotalCount: result.TotalCount,
 	}, nil
 }
@@ -2099,15 +2105,42 @@ func cloneListReportsResult(input *ListReportsResult) *ListReportsResult {
 		return nil
 	}
 	result := &ListReportsResult{
-		Reports:    make([]*SharedArtifact, 0, len(input.Reports)),
+		Reports:    make([]*ReportSummary, 0, len(input.Reports)),
 		TotalCount: input.TotalCount,
 	}
 	for _, report := range input.Reports {
-		if cloned := cloneSharedArtifact(report); cloned != nil {
+		if cloned := cloneReportSummary(report); cloned != nil {
 			result.Reports = append(result.Reports, cloned)
 		}
 	}
 	return result
+}
+
+func reportSummary(input *SharedArtifact) *ReportSummary {
+	if input == nil {
+		return nil
+	}
+	return &ReportSummary{
+		ArtifactID:       strings.TrimSpace(input.ArtifactID),
+		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
+		ReportID:         strings.TrimSpace(input.ReportID),
+		Title:            strings.TrimSpace(input.Title),
+		Lifecycle:        strings.TrimSpace(input.Lifecycle),
+		Version:          input.Version,
+		DocumentVersion:  input.DocumentVersion,
+		SourceArtifactID: strings.TrimSpace(input.SourceArtifactID),
+		CreatedAt:        input.CreatedAt,
+		UpdatedAt:        cloneTime(input.UpdatedAt),
+	}
+}
+
+func cloneReportSummary(input *ReportSummary) *ReportSummary {
+	if input == nil {
+		return nil
+	}
+	result := *input
+	result.UpdatedAt = cloneTime(input.UpdatedAt)
+	return &result
 }
 
 func cloneArtifact(input *Artifact) *Artifact {

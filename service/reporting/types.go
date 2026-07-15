@@ -273,9 +273,24 @@ type ListReportsInput struct {
 	Limit       int    `json:"limit,omitempty"`
 }
 
+// ReportSummary is the lightweight catalog projection. Full authored and
+// compiled payloads remain available through get_report.
+type ReportSummary struct {
+	ArtifactID       string     `json:"artifactId,omitempty"`
+	ArtifactRef      string     `json:"artifactRef,omitempty"`
+	ReportID         string     `json:"reportId,omitempty"`
+	Title            string     `json:"title,omitempty"`
+	Lifecycle        string     `json:"lifecycle,omitempty"`
+	Version          int        `json:"version,omitempty"`
+	DocumentVersion  int        `json:"documentVersion,omitempty"`
+	SourceArtifactID string     `json:"sourceArtifactId,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time `json:"updatedAt,omitempty"`
+}
+
 type ListReportsResult struct {
-	Reports    []*SharedArtifact `json:"reports,omitempty"`
-	TotalCount int               `json:"totalCount,omitempty"`
+	Reports    []*ReportSummary `json:"reports,omitempty"`
+	TotalCount int              `json:"totalCount,omitempty"`
 }
 
 type ExportSource struct {
