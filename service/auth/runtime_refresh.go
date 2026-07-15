@@ -151,8 +151,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	if err != nil || oauthCfg == nil {
 		return nil
 	}
-	ts := oauthCfg.TokenSource(ctx, &sess.Tokens.Token)
-	refreshed, err := ts.Token()
+	scopes := oauthRefreshScopes(sess, nil)
+	resource := oauthRefreshResource(sess, nil, oauthCfg.ClientID)
+	refreshed, err := refreshOAuthToken(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), &sess.Tokens.Token, scopes, resource)
 	if err != nil {
 		if isPermanentRefreshError(err) {
 			// The refresh token itself is dead (revoked, expired, user
@@ -177,7 +178,15 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	previousIDToken := strings.TrimSpace(sess.Tokens.IDToken)
 	refreshedIDToken := refreshedOAuthIDToken(refreshed, previousIDToken)
 	result := &scyauth.Token{Token: *refreshed, IDToken: refreshedIDToken}
+	if err := validateConfiguredOAuthScopes(r.ext.cfg.OAuth.Client, sess.Scopes, refreshedIDToken, refreshed.AccessToken, refreshed.RefreshToken); err != nil {
+		logx.Warnf("token-refresh", "refreshed token missing required scopes user=%q err=%v", username, err)
+		r.invalidateSessionTokens(ctx, sess, username, provider)
+		return nil
+	}
 	sess.Tokens = result
+	if len(sess.Scopes) == 0 {
+		sess.Scopes = oauthRefreshScopes(sess, nil)
+	}
 	r.clearRefreshRetryAt(sess)
 	sess.Provider = provider
 	r.putSessionDurable(ctx, sess)

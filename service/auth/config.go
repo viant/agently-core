@@ -31,15 +31,18 @@ type OAuth struct {
 }
 
 type OAuthClient struct {
-	ConfigURL    string   `yaml:"configURL" json:"configURL"`
-	DiscoveryURL string   `yaml:"discoveryURL" json:"discoveryURL"`
-	JWKSURL      string   `yaml:"jwksURL" json:"jwksURL"`
-	RedirectURI  string   `yaml:"redirectURI" json:"redirectURI"`
-	RedirectURIs []string `yaml:"redirectURIs" json:"redirectURIs"`
-	ClientID     string   `yaml:"clientID" json:"clientID"`
-	Scopes       []string `yaml:"scopes" json:"scopes"`
-	Issuer       string   `yaml:"issuer" json:"issuer"`
-	Audiences    []string `yaml:"audiences" json:"audiences"`
+	ConfigURL      string   `yaml:"configURL" json:"configURL"`
+	DiscoveryURL   string   `yaml:"discoveryURL" json:"discoveryURL"`
+	JWKSURL        string   `yaml:"jwksURL" json:"jwksURL"`
+	RedirectURI    string   `yaml:"redirectURI" json:"redirectURI"`
+	RedirectURIs   []string `yaml:"redirectURIs" json:"redirectURIs"`
+	ClientID       string   `yaml:"clientID" json:"clientID"`
+	Scopes         []string `yaml:"scopes" json:"scopes"`
+	WebUIScopes    []string `yaml:"webUIScopes,omitempty" json:"webUIScopes,omitempty"`
+	MobileUIScopes []string `yaml:"mobileUIScopes,omitempty" json:"mobileUIScopes,omitempty"`
+	CLIScopes      []string `yaml:"cliScopes,omitempty" json:"cliScopes,omitempty"`
+	Issuer         string   `yaml:"issuer" json:"issuer"`
+	Audiences      []string `yaml:"audiences" json:"audiences"`
 }
 
 type Local struct {

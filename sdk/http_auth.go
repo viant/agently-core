@@ -31,8 +31,11 @@ type CreateSessionRequest struct {
 }
 
 type OAuthConfigResponse struct {
-	ConfigURL string   `json:"configURL"`
-	Scopes    []string `json:"scopes,omitempty"`
+	ConfigURL      string   `json:"configURL"`
+	Scopes         []string `json:"scopes,omitempty"`
+	WebUIScopes    []string `json:"webUIScopes,omitempty"`
+	MobileUIScopes []string `json:"mobileUIScopes,omitempty"`
+	CLIScopes      []string `json:"cliScopes,omitempty"`
 }
 
 type OOBRequest struct {
@@ -133,20 +136,31 @@ func (c *HTTPClient) AuthLocalOOBSession(ctx context.Context, opts *LocalOOBSess
 		}
 		configURL = strings.TrimSpace(cfg.ConfigURL)
 		if len(scopes) == 0 {
-			scopes = append([]string(nil), cfg.Scopes...)
+			scopes = append([]string(nil), cfg.CLIScopes...)
+			if len(scopes) == 0 {
+				scopes = append([]string(nil), cfg.Scopes...)
+			}
 		}
 	}
 	if configURL == "" {
 		return fmt.Errorf("oauth configURL is required for local OOB login")
 	}
+	authz := authorizer.New()
+	oauthCfg := authorizer.OAuthConfig{ConfigURL: configURL}
+	if err := authz.EnsureConfig(ctx, &oauthCfg); err != nil {
+		return err
+	}
+	if oauthCfg.Config != nil {
+		clone := *oauthCfg.Config
+		clone.Scopes = append([]string(nil), scopes...)
+		oauthCfg.Config = &clone
+	}
 	payload, err := authorizer.New().AuthorizeSessionTokenPayload(ctx, &authorizer.Command{
-		AuthFlow:   "OOB",
-		UsePKCE:    true,
-		SecretsURL: strings.TrimSpace(opts.SecretsURL),
-		Scopes:     scopes,
-		OAuthConfig: authorizer.OAuthConfig{
-			ConfigURL: configURL,
-		},
+		AuthFlow:    "OOB",
+		UsePKCE:     true,
+		SecretsURL:  strings.TrimSpace(opts.SecretsURL),
+		Scopes:      scopes,
+		OAuthConfig: oauthCfg,
 	})
 	if err != nil {
 		return err
