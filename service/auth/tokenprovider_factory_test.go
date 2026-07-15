@@ -159,3 +159,30 @@ func TestOAuthRefreshBroker_Refresh_UsesCanonicalTokenOwner(t *testing.T) {
 		t.Fatalf("IDToken = %q, want %q", got.IDToken, "stored-id-token")
 	}
 }
+
+func TestOAuthRefreshBroker_Refresh_SendsStoredScopes(t *testing.T) {
+	scopeToken := fakeJWTWithClaims(t, map[string]any{
+		"scope": "XXX_WEBUI openid",
+	})
+	ctx := tokenEndpointContext(t, func(values url.Values) {
+		if got := strings.TrimSpace(values.Get("scope")); got != "XXX_WEBUI openid" {
+			t.Fatalf("scope = %q, want %q", got, "XXX_WEBUI openid")
+		}
+	})
+
+	broker := &oauthRefreshBroker{
+		configURL: writeBrokerOAuthConfig(t),
+		store: &brokerStoreStub{token: &OAuthToken{
+			Username:     "user-1",
+			Provider:     "oauth",
+			AccessToken:  scopeToken,
+			IDToken:      scopeToken,
+			RefreshToken: "refresh-1",
+			ExpiresAt:    time.Now().Add(-time.Hour),
+		}},
+	}
+
+	if _, err := broker.Refresh(ctx, token.Key{Subject: "user-1", Provider: "oauth"}, "refresh-1"); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+}

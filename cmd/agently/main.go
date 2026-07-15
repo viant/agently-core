@@ -23,6 +23,7 @@ import (
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	svcauth "github.com/viant/agently-core/service/auth"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
 	wsconfig "github.com/viant/agently-core/workspace/config"
@@ -76,16 +77,24 @@ var buildQueryRuntime = func(ctx context.Context, workspaceRoot string, defaults
 }
 
 var authorizeQueryOOB = func(ctx context.Context, secretsURL, configURL string, scopes []string) (*scyauth.Token, error) {
-	cmd := &authorizer.Command{
-		AuthFlow:   "OOB",
-		UsePKCE:    true,
-		SecretsURL: strings.TrimSpace(secretsURL),
-		Scopes:     scopes,
-		OAuthConfig: authorizer.OAuthConfig{
-			ConfigURL: strings.TrimSpace(configURL),
-		},
+	authz := authorizer.New()
+	oauthCfg := authorizer.OAuthConfig{ConfigURL: strings.TrimSpace(configURL)}
+	if err := authz.EnsureConfig(ctx, &oauthCfg); err != nil {
+		return nil, err
 	}
-	oauthTok, err := authorizer.New().Authorize(ctx, cmd)
+	if oauthCfg.Config != nil {
+		clone := *oauthCfg.Config
+		clone.Scopes = append([]string(nil), scopes...)
+		oauthCfg.Config = &clone
+	}
+	cmd := &authorizer.Command{
+		AuthFlow:    "OOB",
+		UsePKCE:     true,
+		SecretsURL:  strings.TrimSpace(secretsURL),
+		Scopes:      scopes,
+		OAuthConfig: oauthCfg,
+	}
+	oauthTok, err := authz.Authorize(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +104,36 @@ var authorizeQueryOOB = func(ctx context.Context, secretsURL, configURL string, 
 	st := &scyauth.Token{Token: *oauthTok}
 	st.PopulateIDToken()
 	return st, nil
+}
+
+func oauthScopesForCLI(client *svcauth.OAuthClient) []string {
+	if client == nil {
+		return []string{"openid"}
+	}
+	if scopes := normalizedScopes(client.CLIScopes); len(scopes) > 0 {
+		return scopes
+	}
+	if scopes := normalizedScopes(client.Scopes); len(scopes) > 0 {
+		return scopes
+	}
+	return []string{"openid"}
+}
+
+func normalizedScopes(scopes []string) []string {
+	if len(scopes) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(scopes))
+	seen := map[string]bool{}
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		result = append(result, scope)
+	}
+	return result
 }
 
 func main() {
@@ -601,8 +640,8 @@ func runQuery(args []string, stdout io.Writer) error {
 				return fmt.Errorf("oauth client configURL is required (set --auth or configure auth.oauth.client.configURL)")
 			}
 			scopes := []string{"openid"}
-			if rt.AuthConfig != nil && rt.AuthConfig.OAuth != nil && rt.AuthConfig.OAuth.Client != nil && len(rt.AuthConfig.OAuth.Client.Scopes) > 0 {
-				scopes = append([]string(nil), rt.AuthConfig.OAuth.Client.Scopes...)
+			if rt.AuthConfig != nil && rt.AuthConfig.OAuth != nil && rt.AuthConfig.OAuth.Client != nil {
+				scopes = oauthScopesForCLI(rt.AuthConfig.OAuth.Client)
 			}
 			tok, err := authorizeQueryOOB(ctx, strings.TrimSpace(*oobURL), cfgURL, scopes)
 			if err != nil {

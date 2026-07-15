@@ -38,6 +38,7 @@ type Session struct {
 	Email    string         `json:"email,omitempty"`
 	Subject  string         `json:"subject,omitempty"`
 	Provider string         `json:"provider,omitempty"`
+	Scopes   []string       `json:"scopes,omitempty"`
 	Tokens   *scyauth.Token `json:"-"`
 	// TransientRefreshRetryAt suppresses repeated refresh attempts/log spam
 	// after a temporary token-endpoint failure. Runtime auth code persists the
@@ -80,6 +81,7 @@ type SessionRecord struct {
 	Email          string    `json:"email,omitempty"`
 	Subject        string    `json:"subject,omitempty"`
 	Provider       string    `json:"provider,omitempty"`
+	Scopes         []string  `json:"scopes,omitempty"`
 	AccessToken    string    `json:"accessToken,omitempty"`
 	IDToken        string    `json:"idToken,omitempty"`
 	RefreshToken   string    `json:"refreshToken,omitempty"`
@@ -274,6 +276,7 @@ func recordToSession(r *SessionRecord) *Session {
 		Email:     r.Email,
 		Subject:   r.Subject,
 		Provider:  r.Provider,
+		Scopes:    append([]string(nil), r.Scopes...),
 		CreatedAt: r.CreatedAt,
 		ExpiresAt: r.ExpiresAt,
 	}
@@ -298,6 +301,7 @@ func sessionToRecord(s *Session) *SessionRecord {
 		Email:     s.Email,
 		Subject:   s.Subject,
 		Provider:  s.Provider,
+		Scopes:    append([]string(nil), s.Scopes...),
 		CreatedAt: s.CreatedAt,
 		ExpiresAt: s.ExpiresAt,
 	}

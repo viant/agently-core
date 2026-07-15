@@ -66,7 +66,7 @@ export type {
     // Auth
     AuthProvider, AuthUser, LocalLoginInput, LocalLoginOutput,
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
-    OAuthConfigOutput, CreateSessionInput, CreateSessionOutput,
+    OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
     // Tool Feeds
     FeedSpec, ActiveFeed,

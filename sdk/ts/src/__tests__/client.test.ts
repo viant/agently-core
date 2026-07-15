@@ -1518,6 +1518,21 @@ describe('Auth', () => {
         expect(call.method).toBe('POST');
     });
 
+    it('oauthInitiate forwards scope overrides', async () => {
+        const f = mockFetch(200, { authURL: 'https://idp/auth', state: 'abc' });
+        const c = client(f);
+        await c.oauthInitiate({
+            redirectURI: 'agently-web://oauth/callback',
+            scopes: ['XXX_WEBUI'],
+        });
+
+        const call = lastCall(f);
+        expect(call.body).toEqual({
+            redirectURI: 'agently-web://oauth/callback',
+            scopes: ['XXX_WEBUI'],
+        });
+    });
+
     it('oauthCallback sends POST with code and state', async () => {
         const f = mockFetch(200, { status: 'ok', username: 'user1' });
         const c = client(f);
