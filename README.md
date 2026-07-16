@@ -225,7 +225,9 @@ Predefined resource kinds: `agents`, `models`, `embedders`, `mcp`, `workflows`,
 ## Persistence
 
 SQL-backed persistence via Datly. Falls back to workspace SQLite when `AGENTLY_DB_*` not set.
-Schema is auto-applied on startup — supports incremental migrations via `CREATE IF NOT EXISTS`.
+For workspace SQLite, the embedded `internal/script/sqlite/schema.ddl` is applied on startup.
+For MySQL, apply `script/mysql/schema_versioned.ddl` before starting Agently. Runtime reporting
+stores do not create or migrate their schema.
 
 | Env var | Default | Purpose |
 |---------|---------|---------|
