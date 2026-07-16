@@ -126,7 +126,7 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "submit_export",
-			Description: "Submit an async reporting export job against canonical report artifacts.",
+			Description: "Submit an async reporting export job. Use exactly one input form: unified source (report, preset, or inline), or a fully materialized reportExportRequest whose kind is literally reportExportRequest; never send both.",
 			Input:       reflect.TypeOf(&SubmitExportRequest{}),
 			Output:      reflect.TypeOf(&ExportJob{}),
 		},
