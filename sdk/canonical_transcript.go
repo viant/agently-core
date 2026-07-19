@@ -25,6 +25,7 @@ func BuildCanonicalState(conversationID string, turns convstore.Transcript) *Con
 			state.Turns = append(state.Turns, ts)
 		}
 	}
+	hydrateRenderedContent(state)
 	return state
 }
 

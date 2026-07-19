@@ -669,9 +669,13 @@ func TestBuildCanonicalState_ExtractsStandaloneAssistantFinal(t *testing.T) {
 	require.NotNil(t, ts.Assistant.Final)
 	require.Equal(t, "assistant-final", ts.Assistant.Final.MessageID)
 	require.Equal(t, final, ts.Assistant.Final.Content)
+	require.NotNil(t, ts.Assistant.Final.RenderedContent)
+	require.Len(t, ts.Assistant.Final.RenderedContent.Parts, 4)
+	require.Equal(t, "summary_metrics", ts.Assistant.Final.RenderedContent.Parts[1].Data.ID)
 	require.Len(t, ts.Messages, 1)
 	require.Equal(t, "assistant", ts.Messages[0].Role)
 	require.Equal(t, final, ts.Messages[0].Content)
+	require.NotNil(t, ts.Messages[0].RenderedContent)
 }
 
 func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscript(t *testing.T) {

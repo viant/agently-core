@@ -137,6 +137,84 @@ func TestOAuthVerifierConfig_UsesDiscoveryURL(t *testing.T) {
 	}
 }
 
+func TestOAuthVerifierConfig_IssuerUsesContextHTTPClient(t *testing.T) {
+	var requests []string
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.URL.String())
+		return jsonResponse(req, http.StatusOK, map[string]any{
+			"issuer":   "https://issuer.example.test",
+			"jwks_uri": "https://issuer.example.test/jwks",
+		})
+	})}
+	cfg := &Config{OAuth: &OAuth{Client: &OAuthClient{Issuer: "https://issuer.example.test"}}}
+
+	verifyCfg, err := oauthVerifierConfig(context.WithValue(context.Background(), oauth2.HTTPClient, httpClient), cfg)
+	if err != nil {
+		t.Fatalf("oauthVerifierConfig() error = %v", err)
+	}
+	if verifyCfg == nil || verifyCfg.CertURL != "https://issuer.example.test/jwks" {
+		t.Fatalf("verifier config = %#v, want discovered JWKS URL", verifyCfg)
+	}
+	if len(requests) != 1 || !strings.HasSuffix(requests[0], "/.well-known/oauth-authorization-server") {
+		t.Fatalf("metadata requests = %v, want RFC 8414 metadata request", requests)
+	}
+}
+
+func TestOAuthVerifierConfig_IssuerFallsBackToOpenIDDiscovery(t *testing.T) {
+	var requests []string
+	httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.URL.String())
+		if strings.HasSuffix(req.URL.Path, "/.well-known/oauth-authorization-server") {
+			return jsonResponse(req, http.StatusNotFound, map[string]any{})
+		}
+		return jsonResponse(req, http.StatusOK, map[string]any{
+			"issuer":                                "https://issuer.example.test",
+			"authorization_endpoint":                "https://issuer.example.test/authorize",
+			"token_endpoint":                        "https://issuer.example.test/token",
+			"jwks_uri":                              "https://issuer.example.test/jwks",
+			"response_types_supported":              []string{"code"},
+			"subject_types_supported":               []string{"public"},
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	})}
+	cfg := &Config{OAuth: &OAuth{Client: &OAuthClient{Issuer: "https://issuer.example.test"}}}
+
+	verifyCfg, err := oauthVerifierConfig(context.WithValue(context.Background(), oauth2.HTTPClient, httpClient), cfg)
+	if err != nil {
+		t.Fatalf("oauthVerifierConfig() error = %v", err)
+	}
+	if verifyCfg == nil || verifyCfg.CertURL != "https://issuer.example.test/jwks" {
+		t.Fatalf("verifier config = %#v, want discovered JWKS URL", verifyCfg)
+	}
+	if len(requests) != 2 || !strings.HasSuffix(requests[1], "/.well-known/openid-configuration") {
+		t.Fatalf("metadata requests = %v, want OpenID fallback", requests)
+	}
+}
+
+func TestOAuthMetadataHTTPClient_DefaultIsBoundedAndInjectionWins(t *testing.T) {
+	if got := oauthMetadataHTTPClient(context.Background()); got.Timeout != oauthMetadataTimeout {
+		t.Fatalf("default metadata timeout = %s, want %s", got.Timeout, oauthMetadataTimeout)
+	}
+	injected := &http.Client{}
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, injected)
+	if got := oauthMetadataHTTPClient(ctx); got != injected {
+		t.Fatal("expected context OAuth HTTP client to be preserved")
+	}
+}
+
+func jsonResponse(req *http.Request, status int, payload any) (*http.Response, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+		Request:    req,
+	}, nil
+}
+
 func TestIssuerCandidatesFromAuthURL(t *testing.T) {
 	testCases := []struct {
 		authURL string

@@ -168,6 +168,7 @@ export interface ClientUserMessage extends EntityIdentity {
 export interface ClientStandaloneMessage extends EntityIdentity {
     role: 'user' | 'assistant';
     content: string;
+    renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
     sequence?: number;
     mode?: string;
@@ -179,11 +180,13 @@ export interface ClientStandaloneMessage extends EntityIdentity {
 
 export interface ClientAssistantFinal extends EntityIdentity {
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
 }
 
 export interface ClientAssistantNarration extends EntityIdentity {
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
 }
 
@@ -238,6 +241,7 @@ export interface ClientExecutionPage extends EntityIdentity {
     status?: string;
     narration?: string;
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     finalResponse?: boolean;
     narrationMessageId?: string;
     finalAssistantMessageId?: string;
@@ -382,6 +386,7 @@ export interface CanonicalTurnMessageState {
     messageId: string;
     role: 'user' | 'assistant';
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
     sequence?: number;
     mode?: string;
@@ -397,7 +402,35 @@ export interface CanonicalAssistantState {
 export interface CanonicalAssistantMessageState {
     messageId: string;
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
+}
+
+export interface CanonicalRenderedContent {
+    schemaVersion: string;
+    parts: CanonicalRenderedContentPart[];
+    diagnostics?: CanonicalRenderedContentWarning[];
+}
+
+export interface CanonicalRenderedContentPart {
+    kind: string;
+    text?: string;
+    language?: string;
+    source?: string;
+    payload?: unknown;
+    data?: CanonicalRenderedData | null;
+}
+
+export interface CanonicalRenderedData {
+    id: string;
+    format?: string;
+    mode?: string;
+    payload?: unknown;
+}
+
+export interface CanonicalRenderedContentWarning {
+    code: string;
+    message: string;
 }
 
 export interface CanonicalPlannerState {
@@ -433,6 +466,7 @@ export interface CanonicalExecutionPageState {
     finalAssistantMessageId?: string;
     narration?: string;
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     finalResponse?: boolean;
     sequence?: number;
     createdAt?: string;

@@ -22,6 +22,7 @@
 
 import type {
     ClientConversationState,
+    CanonicalRenderedContent,
     ClientElicitation,
     ClientExecutionPage,
     ClientExecutionPhase,
@@ -60,6 +61,7 @@ export interface AssistantRenderRow {
     turnId: string;
     messageId?: string;
     content: string;
+    renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
     sequence?: number;
     mode?: string;
@@ -128,6 +130,7 @@ export interface RoundRenderView {
     phase: ClientExecutionPhase;
     narration?: string;
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     status?: string;
     finalResponse: boolean;
     modelSteps: ModelStepRenderView[];
@@ -422,6 +425,7 @@ function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): 
         turnId: turn.turnId,
         messageId: message.messageId,
         content: message.content ?? '',
+        renderedContent: message.renderedContent,
         createdAt: message.createdAt,
         sequence: message.sequence,
         mode: message.mode,
@@ -525,6 +529,7 @@ function projectRound(page: ClientExecutionPage): RoundRenderView {
         phase: deriveRoundPhase(page),
         narration: page.narration,
         content: page.content,
+        renderedContent: page.renderedContent,
         status: page.status,
         finalResponse: !!page.finalResponse,
         modelSteps,

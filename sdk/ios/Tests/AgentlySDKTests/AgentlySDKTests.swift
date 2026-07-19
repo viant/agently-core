@@ -749,6 +749,16 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(toolStep.asyncOperation?.status, "running")
     }
 
+    func testRenderedContentDecodesWithoutDiagnostics() throws {
+        let json = #"{"schemaVersion":"1","parts":[{"kind":"forgeData","data":{"id":"summary_metrics","payload":[{"label":"Spend"}]}}]}"#
+
+        let decoded = try JSONDecoder.agently().decode(RenderedContent.self, from: try XCTUnwrap(json.data(using: .utf8)))
+
+        XCTAssertEqual(decoded.schemaVersion, "1")
+        XCTAssertEqual(decoded.parts.first?.data?.id, "summary_metrics")
+        XCTAssertEqual(decoded.diagnostics, [])
+    }
+
     func testListFilesOutputDecodesCapitalizedFilesKey() throws {
         let json = """
         {
