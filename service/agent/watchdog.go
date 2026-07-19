@@ -24,7 +24,6 @@ import (
 	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
 	agruntime "github.com/viant/agently-core/runtime"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
@@ -32,19 +31,31 @@ import (
 // Watchdog periodically detects stale runs and either marks them failed
 // or resumes them (when the conversation still has pending work).
 type Watchdog struct {
-	data          data.Service
-	agent         *Service
-	tokenProvider token.Provider
-	interval      time.Duration
-	handleTimeout time.Duration
-	workerHost    string
-	recoverySem   chan struct{}
-	handleSem     chan struct{}
-	handleFn      func(context.Context, *agrunstale.StaleRunsView) error
-	repairOnce    sync.Once
+	data                    data.Service
+	agent                   *Service
+	tokenProvider           token.Provider
+	interval                time.Duration
+	handleTimeout           time.Duration
+	workerHost              string
+	recoverySem             chan struct{}
+	handleSem               chan struct{}
+	handleFn                func(context.Context, *agrunstale.StaleRunsView) error
+	cleanupOnce             sync.Once
+	cleanupMu               sync.Mutex
+	cleanupStore            data.TerminalArtifactCleanupStore
+	cleanupRows             []data.TerminalArtifactCandidate
+	cleanupSnapshotComplete bool
 }
 
-const defaultRecoveryConcurrency = 4
+const (
+	defaultRecoveryConcurrency       = 4
+	terminalArtifactSnapshotTimeout  = 10 * time.Second
+	terminalArtifactCleanupTimeout   = 10 * time.Second
+	terminalArtifactCleanupBatchSize = 250
+	terminalArtifactCleanupCycleMax  = 1000
+	terminalArtifactSnapshotTurnMax  = 5000
+	terminalArtifactSnapshotAge      = 60 * 24 * time.Hour
+)
 
 // WatchdogOption configures a Watchdog.
 type WatchdogOption func(*Watchdog)
@@ -85,8 +96,9 @@ func NewWatchdog(data data.Service, agent *Service, opts ...WatchdogOption) *Wat
 
 // Start begins the watchdog polling loop. It blocks until ctx is canceled.
 func (w *Watchdog) Start(ctx context.Context) {
-	w.runTerminalArtifactCleanupOnce(ctx)
+	w.captureTerminalArtifactCleanupOnce(ctx)
 	w.sweep(ctx)
+	w.runTerminalArtifactCleanup(ctx)
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 	for {
@@ -95,6 +107,9 @@ func (w *Watchdog) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			w.sweep(ctx)
+			if w.terminalArtifactCleanupRemaining() > 0 {
+				w.runTerminalArtifactCleanup(ctx)
+			}
 		}
 	}
 }
@@ -139,17 +154,181 @@ func (w *Watchdog) sweep(ctx context.Context) {
 	w.sweepRuns(ctx, runs)
 }
 
-func (w *Watchdog) runTerminalArtifactCleanupOnce(ctx context.Context) {
+func (w *Watchdog) captureTerminalArtifactCleanupOnce(ctx context.Context) {
 	if w == nil {
 		return
 	}
-	w.repairOnce.Do(func() {
-		repairCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		if err := w.repairTerminalTurnArtifacts(repairCtx); err != nil {
-			log.Printf("[watchdog] repair terminal turn artifacts: %v", err)
+	w.cleanupOnce.Do(func() {
+		started := time.Now()
+		store, ok := w.data.(data.TerminalArtifactCleanupStore)
+		if !ok || store == nil {
+			w.cleanupMu.Lock()
+			w.cleanupSnapshotComplete = true
+			w.cleanupMu.Unlock()
+			w.logTerminalArtifactSnapshot(nil, true, time.Since(started))
+			return
 		}
+		snapshotCtx, cancel := context.WithTimeout(ctx, terminalArtifactSnapshotTimeout)
+		defer cancel()
+		rows, err := store.SnapshotTerminalArtifactCandidates(
+			snapshotCtx,
+			time.Now().UTC().Add(-terminalArtifactSnapshotAge),
+			terminalArtifactSnapshotTurnMax,
+		)
+		if err != nil {
+			w.cleanupMu.Lock()
+			w.cleanupSnapshotComplete = false
+			w.cleanupMu.Unlock()
+			w.logTerminalArtifactSnapshot(nil, false, time.Since(started))
+			log.Printf("[watchdog] terminal artifact cleanup error phase=snapshot err=%v", err)
+			return
+		}
+		w.cleanupMu.Lock()
+		w.cleanupStore = store
+		w.cleanupRows = append([]data.TerminalArtifactCandidate(nil), rows...)
+		w.cleanupSnapshotComplete = true
+		w.cleanupMu.Unlock()
+		w.logTerminalArtifactSnapshot(rows, true, time.Since(started))
 	})
+}
+
+func (w *Watchdog) logTerminalArtifactSnapshot(rows []data.TerminalArtifactCandidate, complete bool, duration time.Duration) {
+	counts := map[data.TerminalArtifactKind]int{}
+	for _, row := range rows {
+		counts[row.Kind]++
+	}
+	log.Printf(
+		"[watchdog] terminal artifact cleanup snapshot found=%d model_calls=%d tool_calls=%d messages=%d complete=%t duration=%s",
+		len(rows),
+		counts[data.TerminalArtifactModelCall],
+		counts[data.TerminalArtifactToolCall],
+		counts[data.TerminalArtifactMessage],
+		complete,
+		duration.Round(time.Millisecond),
+	)
+}
+
+type terminalArtifactCleanupAttempt struct {
+	found            int
+	cleaned          int
+	alreadyResolved  int
+	noLongerEligible int
+	retryable        int
+	remaining        int
+	batches          int
+	limitReached     bool
+	complete         bool
+}
+
+func (w *Watchdog) runTerminalArtifactCleanup(ctx context.Context) {
+	started := time.Now()
+	stats := terminalArtifactCleanupAttempt{}
+	if w == nil {
+		return
+	}
+
+	w.cleanupMu.Lock()
+	store := w.cleanupStore
+	snapshotComplete := w.cleanupSnapshotComplete
+	cycleSize := len(w.cleanupRows)
+	if cycleSize > terminalArtifactCleanupCycleMax {
+		cycleSize = terminalArtifactCleanupCycleMax
+	}
+	cycleRows := append([]data.TerminalArtifactCandidate(nil), w.cleanupRows[:cycleSize]...)
+	w.cleanupMu.Unlock()
+
+	var attemptErr error
+	if store != nil && len(cycleRows) > 0 {
+		cleanupCtx, cancel := context.WithTimeout(ctx, terminalArtifactCleanupTimeout)
+		defer cancel()
+		for offset := 0; offset < len(cycleRows); offset += terminalArtifactCleanupBatchSize {
+			end := offset + terminalArtifactCleanupBatchSize
+			if end > len(cycleRows) {
+				end = len(cycleRows)
+			}
+			batch := cycleRows[offset:end]
+			stats.found += len(batch)
+			stats.batches++
+			dispositions, err := store.CleanupTerminalArtifactCandidates(cleanupCtx, batch, time.Now().UTC())
+			if err != nil {
+				stats.retryable += len(batch)
+				attemptErr = err
+				break
+			}
+			if len(dispositions) != len(batch) {
+				stats.retryable += len(batch)
+				attemptErr = fmt.Errorf("cleanup returned %d dispositions for %d candidates", len(dispositions), len(batch))
+				break
+			}
+			w.applyTerminalArtifactDispositions(batch, dispositions, &stats)
+		}
+	}
+	stats.remaining = w.terminalArtifactCleanupRemaining()
+	stats.limitReached = stats.found >= terminalArtifactCleanupCycleMax && stats.remaining > 0
+	stats.complete = snapshotComplete && attemptErr == nil && stats.remaining == 0
+	if attemptErr != nil {
+		log.Printf("[watchdog] terminal artifact cleanup error phase=cleanup err=%v", attemptErr)
+	}
+	log.Printf(
+		"[watchdog] terminal artifact cleanup attempt found=%d cleaned=%d already_resolved=%d no_longer_eligible=%d retryable=%d remaining=%d duration=%s complete=%t batches=%d limit_reached=%t",
+		stats.found,
+		stats.cleaned,
+		stats.alreadyResolved,
+		stats.noLongerEligible,
+		stats.retryable,
+		stats.remaining,
+		time.Since(started).Round(time.Millisecond),
+		stats.complete,
+		stats.batches,
+		stats.limitReached,
+	)
+}
+
+func (w *Watchdog) applyTerminalArtifactDispositions(batch []data.TerminalArtifactCandidate, dispositions []data.TerminalArtifactDisposition, stats *terminalArtifactCleanupAttempt) {
+	remove := make(map[string]struct{}, len(batch))
+	for i, disposition := range dispositions {
+		switch disposition {
+		case data.TerminalArtifactRepaired:
+			stats.cleaned++
+		case data.TerminalArtifactAlreadyResolved:
+			stats.alreadyResolved++
+		case data.TerminalArtifactNoLongerEligible:
+			stats.noLongerEligible++
+		case data.TerminalArtifactUnresolved:
+			stats.retryable++
+			continue
+		default:
+			stats.retryable++
+			continue
+		}
+		remove[terminalArtifactCandidateKey(batch[i])] = struct{}{}
+	}
+	if len(remove) == 0 {
+		return
+	}
+	w.cleanupMu.Lock()
+	retained := w.cleanupRows[:0]
+	for _, row := range w.cleanupRows {
+		if _, ok := remove[terminalArtifactCandidateKey(row)]; ok {
+			continue
+		}
+		retained = append(retained, row)
+	}
+	w.cleanupRows = retained
+	w.cleanupMu.Unlock()
+}
+
+func (w *Watchdog) terminalArtifactCleanupRemaining() int {
+	if w == nil {
+		return 0
+	}
+	w.cleanupMu.Lock()
+	defer w.cleanupMu.Unlock()
+	return len(w.cleanupRows)
+}
+
+func terminalArtifactCandidateKey(row data.TerminalArtifactCandidate) string {
+	return string(row.Kind) + "\x00" + row.ID
 }
 
 func (w *Watchdog) sweepRuns(ctx context.Context, runs []*agrunstale.StaleRunsView) {
@@ -440,60 +619,6 @@ func activeRunSupersedesStale(staleRunID string, activeRun *agrunactive.ActiveRu
 		return false
 	}
 	return activeID != strings.TrimSpace(staleRunID)
-}
-
-func (w *Watchdog) repairTerminalTurnArtifacts(ctx context.Context) error {
-	if w == nil || w.data == nil {
-		return nil
-	}
-	cursor := ""
-	processed := 0
-	const pageLimit = 500
-	const maxTurns = 5000
-	createdSince := time.Now().Add(-60 * 24 * time.Hour)
-	for {
-		page, err := w.data.GetTurnsPage(ctx, &agturnlistall.TurnRowsInput{
-			Statuses:     []string{"failed", "succeeded", "canceled"},
-			CreatedSince: createdSince,
-			Has: &agturnlistall.TurnRowsInputHas{
-				Statuses:     true,
-				CreatedSince: true,
-			},
-		}, &data.PageInput{Limit: pageLimit, Cursor: cursor, Direction: data.DirectionBefore})
-		if err != nil {
-			return fmt.Errorf("list terminal turns: %w", err)
-		}
-		if page == nil || len(page.Rows) == 0 {
-			return nil
-		}
-		for _, turn := range page.Rows {
-			if turn == nil {
-				continue
-			}
-			runID := strings.TrimSpace(turn.Id)
-			if turn.RunId != nil && strings.TrimSpace(*turn.RunId) != "" {
-				runID = strings.TrimSpace(*turn.RunId)
-			}
-			if runID == "" {
-				continue
-			}
-			reason := strings.TrimSpace(valueOrEmpty(turn.ErrorMessage))
-			if reason == "" {
-				reason = fmt.Sprintf("turn reached terminal status %s", strings.TrimSpace(turn.Status))
-			}
-			if err := w.failSupersededRunArtifacts(ctx, strings.TrimSpace(turn.ConversationId), strings.TrimSpace(turn.Id), runID, reason); err != nil {
-				return fmt.Errorf("repair terminal turn %s: %w", strings.TrimSpace(turn.Id), err)
-			}
-			processed++
-			if processed >= maxTurns {
-				return nil
-			}
-		}
-		if !page.HasMore || strings.TrimSpace(page.NextCursor) == "" {
-			return nil
-		}
-		cursor = strings.TrimSpace(page.NextCursor)
-	}
 }
 
 func (w *Watchdog) failSupersededRunArtifacts(ctx context.Context, conversationID, turnID, runID, reason string) error {
