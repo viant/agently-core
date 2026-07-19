@@ -1549,6 +1549,7 @@ function mergeTranscriptTurnMessage(
     if (message) {
         writeField(message, 'role', snapshotMessage.role, 'transcript');
         if (snapshotMessage.content !== undefined) writeField(message, 'content', snapshotMessage.content, 'transcript');
+        if (snapshotMessage.renderedContent !== undefined) writeField(message, 'renderedContent', snapshotMessage.renderedContent, 'transcript');
         if (snapshotMessage.createdAt) writeField(message, 'createdAt', snapshotMessage.createdAt, 'transcript');
         if (typeof snapshotMessage.sequence === 'number') writeField(message, 'sequence', snapshotMessage.sequence, 'transcript');
         if (snapshotMessage.mode !== undefined) writeField(message, 'mode', snapshotMessage.mode, 'transcript');
@@ -1561,6 +1562,7 @@ function mergeTranscriptTurnMessage(
         messageId,
         role: snapshotMessage.role,
         content: snapshotMessage.content ?? '',
+        renderedContent: snapshotMessage.renderedContent,
         createdAt: snapshotMessage.createdAt,
         sequence: snapshotMessage.sequence,
         mode: snapshotMessage.mode,
@@ -1570,6 +1572,7 @@ function mergeTranscriptTurnMessage(
     setFieldProvenance(message, 'messageId', 'transcript');
     setFieldProvenance(message, 'role', 'transcript');
     setFieldProvenance(message, 'content', 'transcript');
+    if (snapshotMessage.renderedContent !== undefined) setFieldProvenance(message, 'renderedContent', 'transcript');
     if (snapshotMessage.createdAt) setFieldProvenance(message, 'createdAt', 'transcript');
     if (typeof snapshotMessage.sequence === 'number') setFieldProvenance(message, 'sequence', 'transcript');
     if (snapshotMessage.mode !== undefined) setFieldProvenance(message, 'mode', 'transcript');
@@ -1600,6 +1603,7 @@ function mergeTranscriptPage(
             status: snapshotPage.status,
             narration: snapshotPage.narration,
             content: snapshotPage.content,
+            renderedContent: snapshotPage.renderedContent,
             finalResponse: snapshotPage.finalResponse,
             sequence: snapshotPage.sequence,
             narrationMessageId: snapshotPage.narrationMessageId,
@@ -1616,6 +1620,7 @@ function mergeTranscriptPage(
         if (snapshotPage.executionRole) setFieldProvenance(page, 'executionRole', 'transcript');
         if (snapshotPage.phase) setFieldProvenance(page, 'phase', 'transcript');
         if (snapshotPage.content !== undefined) setFieldProvenance(page, 'content', 'transcript');
+        if (snapshotPage.renderedContent !== undefined) setFieldProvenance(page, 'renderedContent', 'transcript');
         if (snapshotPage.narration !== undefined) setFieldProvenance(page, 'narration', 'transcript');
         if (typeof snapshotPage.sequence === 'number') setFieldProvenance(page, 'sequence', 'transcript');
         turn.pages.push(page);
@@ -1628,6 +1633,7 @@ function mergeTranscriptPage(
         if (snapshotPage.status) writeField(page, 'status', snapshotPage.status, 'transcript');
         if (snapshotPage.narration !== undefined) writeField(page, 'narration', snapshotPage.narration, 'transcript');
         if (snapshotPage.content !== undefined) writeField(page, 'content', snapshotPage.content, 'transcript');
+        if (snapshotPage.renderedContent !== undefined) writeField(page, 'renderedContent', snapshotPage.renderedContent, 'transcript');
         if (snapshotPage.finalResponse !== undefined) writeField(page, 'finalResponse', snapshotPage.finalResponse, 'transcript');
         if (typeof snapshotPage.sequence === 'number') writeField(page, 'sequence', snapshotPage.sequence, 'transcript');
         if (snapshotPage.narrationMessageId) writeField(page, 'narrationMessageId', snapshotPage.narrationMessageId, 'transcript');
@@ -1744,6 +1750,7 @@ function mergeTranscriptAssistantNarration(
     const p = turn.assistantNarration as ClientAssistantNarration;
     if (snapshot.messageId) writeField(p, 'messageId', snapshot.messageId, 'transcript');
     if (snapshot.content !== undefined) writeField(p, 'content', snapshot.content, 'transcript');
+    if (snapshot.renderedContent !== undefined) writeField(p, 'renderedContent', snapshot.renderedContent, 'transcript');
     if (snapshot.createdAt) writeField(p, 'createdAt', snapshot.createdAt, 'transcript');
 }
 
@@ -1756,6 +1763,7 @@ function mergeTranscriptAssistantFinal(
     const f = turn.assistantFinal as ClientAssistantFinal;
     if (snapshot.messageId) writeField(f, 'messageId', snapshot.messageId, 'transcript');
     if (snapshot.content !== undefined) writeField(f, 'content', snapshot.content, 'transcript');
+    if (snapshot.renderedContent !== undefined) writeField(f, 'renderedContent', snapshot.renderedContent, 'transcript');
     if (snapshot.createdAt) writeField(f, 'createdAt', snapshot.createdAt, 'transcript');
 }
 

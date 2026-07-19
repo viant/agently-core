@@ -24,6 +24,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const oauthMetadataTimeout = 5 * time.Second
+
+var defaultOAuthMetadataHTTPClient = &http.Client{Timeout: oauthMetadataTimeout}
+
 func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (*Runtime, error) {
 	cfg, err := LoadConfig(workspaceRoot)
 	if err != nil {
@@ -307,7 +311,10 @@ func oauthVerifierConfig(ctx context.Context, cfg *Config) (*vcfg.Config, error)
 }
 
 func fetchIssuerJWKSURL(ctx context.Context, issuer string) (string, error) {
-	if meta, err := authmeta.FetchAuthorizationServerMetadata(ctx, issuer, nil); err == nil && meta != nil && strings.TrimSpace(meta.JSONWebKeySetURI) != "" {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if meta, err := authmeta.FetchAuthorizationServerMetadata(ctx, issuer, oauthMetadataHTTPClient(ctx)); err == nil && meta != nil && strings.TrimSpace(meta.JSONWebKeySetURI) != "" {
 		return strings.TrimSpace(meta.JSONWebKeySetURI), nil
 	}
 	discoveryURL, err := openIDDiscoveryURL(issuer)
@@ -318,17 +325,14 @@ func fetchIssuerJWKSURL(ctx context.Context, issuer string) (string, error) {
 }
 
 func fetchOpenIDJWKSURL(ctx context.Context, discoveryURL string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(discoveryURL), nil)
 	if err != nil {
 		return "", err
 	}
-	client := http.DefaultClient
-	if ctx != nil {
-		if ctxClient, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && ctxClient != nil {
-			client = ctxClient
-		}
-	}
-	resp, err := client.Do(req)
+	resp, err := oauthMetadataHTTPClient(ctx).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -345,6 +349,18 @@ func fetchOpenIDJWKSURL(ctx context.Context, discoveryURL string) (string, error
 		return "", fmt.Errorf("openid discovery missing jwks_uri")
 	}
 	return jwksURL, nil
+}
+
+// oauthMetadataHTTPClient keeps verifier discovery bounded during startup.
+// A caller-supplied OAuth client remains authoritative for platform policy and
+// deterministic tests.
+func oauthMetadataHTTPClient(ctx context.Context) *http.Client {
+	if ctx != nil {
+		if ctxClient, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && ctxClient != nil {
+			return ctxClient
+		}
+	}
+	return defaultOAuthMetadataHTTPClient
 }
 
 func issuerCandidatesFromAuthURL(authURL string) []string {

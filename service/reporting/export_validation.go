@@ -582,6 +582,37 @@ func validateReportFillRequest(raw json.RawMessage, datasetIndex int) error {
 	if err != nil {
 		return fmt.Errorf("invalid reportFill: %s must be an object", field)
 	}
+	var requestKind string
+	if kindRaw, ok := root["kind"]; ok {
+		if err := requireJSONStringForKind(kindRaw, "reportFill", field+".kind", false, &requestKind); err != nil {
+			return err
+		}
+	}
+	if requestKind == "staticCsv" || requestKind == "staticJson" {
+		if err := requireCanonicalFields(root, "reportFill", []string{"kind", "format", "rowCount", "columnKeys"}); err != nil {
+			return err
+		}
+		var format string
+		if err := requireJSONStringForKind(root["format"], "reportFill", field+".format", false, &format); err != nil {
+			return err
+		}
+		if format != "csv" && format != "json" {
+			return fmt.Errorf("invalid reportFill: %s.format must be csv or json", field)
+		}
+		if _, err := requireIntegerAtLeast(root["rowCount"], "reportFill", field+".rowCount", 0); err != nil {
+			return err
+		}
+		var columnKeys []json.RawMessage
+		if err := requireJSONArrayForKind(root["columnKeys"], "reportFill", field+".columnKeys", false, &columnKeys); err != nil {
+			return err
+		}
+		for index, columnKey := range columnKeys {
+			if err := requireJSONStringForKind(columnKey, "reportFill", fmt.Sprintf("%s.columnKeys[%d]", field, index), false, new(string)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if err := requireCanonicalFields(root, "reportFill", []string{"limit", "offset"}); err != nil {
 		return err
 	}

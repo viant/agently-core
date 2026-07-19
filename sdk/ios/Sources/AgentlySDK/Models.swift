@@ -1184,6 +1184,7 @@ public struct TurnMessageState: Codable, Sendable {
     public let messageID: String
     public let role: String
     public let content: String?
+    public let renderedContent: RenderedContent?
     public let createdAt: String?
     public let sequence: Int?
     public let interim: Int?
@@ -1194,6 +1195,7 @@ public struct TurnMessageState: Codable, Sendable {
         case messageID = "messageId"
         case role
         case content
+        case renderedContent
         case createdAt
         case sequence
         case interim
@@ -1234,19 +1236,68 @@ public struct AssistantState: Codable, Sendable {
 public struct AssistantMessageState: Codable, Sendable {
     public let messageID: String
     public let content: String?
+    public let renderedContent: RenderedContent?
     public let createdAt: String?
 
     enum CodingKeys: String, CodingKey {
         case messageID = "messageId"
         case content
+        case renderedContent
         case createdAt
     }
 
-    public init(messageID: String, content: String? = nil, createdAt: String? = nil) {
+    public init(messageID: String, content: String? = nil, renderedContent: RenderedContent? = nil, createdAt: String? = nil) {
         self.messageID = messageID
         self.content = content
+        self.renderedContent = renderedContent
         self.createdAt = createdAt
     }
+}
+
+public struct RenderedContent: Codable, Sendable, Equatable {
+    public let schemaVersion: String
+    public let parts: [RenderedContentPart]
+    public let diagnostics: [RenderedContentWarning]
+
+    public init(schemaVersion: String, parts: [RenderedContentPart] = [], diagnostics: [RenderedContentWarning] = []) {
+        self.schemaVersion = schemaVersion
+        self.parts = parts
+        self.diagnostics = diagnostics
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case parts
+        case diagnostics
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        self.parts = try container.decodeIfPresent([RenderedContentPart].self, forKey: .parts) ?? []
+        self.diagnostics = try container.decodeIfPresent([RenderedContentWarning].self, forKey: .diagnostics) ?? []
+    }
+}
+
+public struct RenderedContentPart: Codable, Sendable, Equatable {
+    public let kind: String
+    public let text: String?
+    public let language: String?
+    public let source: String?
+    public let payload: JSONValue?
+    public let data: RenderedData?
+}
+
+public struct RenderedData: Codable, Sendable, Equatable {
+    public let id: String
+    public let format: String?
+    public let mode: String?
+    public let payload: JSONValue?
+}
+
+public struct RenderedContentWarning: Codable, Sendable, Equatable {
+    public let code: String
+    public let message: String
 }
 
 public struct PlannerState: Codable, Sendable {
@@ -1318,6 +1369,7 @@ public struct ExecutionPageState: Codable, Sendable, Identifiable {
     public let finalAssistantMessageID: String?
     public let narration: String?
     public let content: String?
+    public let renderedContent: RenderedContent?
     public let finalResponse: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -1337,6 +1389,7 @@ public struct ExecutionPageState: Codable, Sendable, Identifiable {
         case finalAssistantMessageID = "finalAssistantMessageId"
         case narration
         case content
+        case renderedContent
         case finalResponse
     }
 
@@ -1358,6 +1411,7 @@ public struct ExecutionPageState: Codable, Sendable, Identifiable {
         self.finalAssistantMessageID = try container.decodeIfPresent(String.self, forKey: .finalAssistantMessageID)
         self.narration = try container.decodeIfPresent(String.self, forKey: .narration)
         self.content = try container.decodeIfPresent(String.self, forKey: .content)
+        self.renderedContent = try container.decodeIfPresent(RenderedContent.self, forKey: .renderedContent)
         self.finalResponse = try container.decodeIfPresent(Bool.self, forKey: .finalResponse) ?? false
     }
 }

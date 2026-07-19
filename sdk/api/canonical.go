@@ -54,14 +54,15 @@ type UserMessageState struct {
 }
 
 type TurnMessageState struct {
-	MessageID string    `json:"messageId"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content,omitempty"`
-	CreatedAt time.Time `json:"createdAt,omitempty"`
-	Sequence  int       `json:"sequence,omitempty"`
-	Interim   int       `json:"interim,omitempty"`
-	Mode      string    `json:"mode,omitempty"`
-	Status    string    `json:"status,omitempty"`
+	MessageID       string           `json:"messageId"`
+	Role            string           `json:"role"`
+	Content         string           `json:"content,omitempty"`
+	RenderedContent *RenderedContent `json:"renderedContent,omitempty"`
+	CreatedAt       time.Time        `json:"createdAt,omitempty"`
+	Sequence        int              `json:"sequence,omitempty"`
+	Interim         int              `json:"interim,omitempty"`
+	Mode            string           `json:"mode,omitempty"`
+	Status          string           `json:"status,omitempty"`
 }
 
 type AssistantState struct {
@@ -71,9 +72,10 @@ type AssistantState struct {
 }
 
 type AssistantMessageState struct {
-	MessageID string    `json:"messageId"`
-	Content   string    `json:"content,omitempty"`
-	CreatedAt time.Time `json:"createdAt,omitempty"`
+	MessageID       string           `json:"messageId"`
+	Content         string           `json:"content,omitempty"`
+	RenderedContent *RenderedContent `json:"renderedContent,omitempty"`
+	CreatedAt       time.Time        `json:"createdAt,omitempty"`
 }
 
 type PlannerState struct {
@@ -110,7 +112,37 @@ type ExecutionPageState struct {
 	FinalAssistantMessageID string            `json:"finalAssistantMessageId,omitempty"`
 	Narration               string            `json:"narration,omitempty"`
 	Content                 string            `json:"content,omitempty"`
+	RenderedContent         *RenderedContent  `json:"renderedContent,omitempty"`
 	FinalResponse           bool              `json:"finalResponse"`
+}
+
+// RenderedContent is an additive, canonical rendering contract for rich
+// transcript content. Raw content remains available for compatibility.
+type RenderedContent struct {
+	SchemaVersion string                    `json:"schemaVersion"`
+	Parts         []*RenderedContentPart    `json:"parts"`
+	Diagnostics   []*RenderedContentWarning `json:"diagnostics,omitempty"`
+}
+
+type RenderedContentPart struct {
+	Kind     string          `json:"kind"`
+	Text     string          `json:"text,omitempty"`
+	Language string          `json:"language,omitempty"`
+	Source   string          `json:"source,omitempty"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
+	Data     *RenderedData   `json:"data,omitempty"`
+}
+
+type RenderedData struct {
+	ID      string          `json:"id"`
+	Format  string          `json:"format,omitempty"`
+	Mode    string          `json:"mode,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+type RenderedContentWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type ModelStepState struct {

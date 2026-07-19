@@ -1276,6 +1276,7 @@ data class TurnMessageState(
     val messageId: String,
     val role: String,
     val content: String? = null,
+    val renderedContent: RenderedContent? = null,
     val createdAt: String? = null,
     val sequence: Int? = null,
     val interim: Int? = null,
@@ -1294,7 +1295,39 @@ data class AssistantState(
 data class AssistantMessageState(
     val messageId: String,
     val content: String? = null,
+    val renderedContent: RenderedContent? = null,
     val createdAt: String? = null
+)
+
+@Serializable
+data class RenderedContent(
+    val schemaVersion: String,
+    val parts: List<RenderedContentPart> = emptyList(),
+    val diagnostics: List<RenderedContentWarning> = emptyList()
+)
+
+@Serializable
+data class RenderedContentPart(
+    val kind: String,
+    val text: String? = null,
+    val language: String? = null,
+    val source: String? = null,
+    val payload: JsonElement? = null,
+    val data: RenderedData? = null
+)
+
+@Serializable
+data class RenderedData(
+    val id: String,
+    val format: String? = null,
+    val mode: String? = null,
+    val payload: JsonElement? = null
+)
+
+@Serializable
+data class RenderedContentWarning(
+    val code: String,
+    val message: String
 )
 
 @Serializable
@@ -1334,6 +1367,7 @@ data class ExecutionPageState(
     val finalAssistantMessageId: String? = null,
     val narration: String? = null,
     val content: String? = null,
+    val renderedContent: RenderedContent? = null,
     val finalResponse: Boolean? = null
 )
 

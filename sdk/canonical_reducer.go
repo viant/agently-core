@@ -12,7 +12,8 @@ import (
 //
 // The reducer is the single owner of state transitions. UI and SDK callers
 // must not infer execution structure outside this function.
-func Reduce(state *ConversationState, event *streaming.Event) *ConversationState {
+func Reduce(state *ConversationState, event *streaming.Event) (result *ConversationState) {
+	defer func() { hydrateRenderedContent(result) }()
 	if event == nil {
 		return state
 	}
