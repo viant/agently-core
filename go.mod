@@ -23,7 +23,7 @@ require (
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
-	github.com/viant/forge v0.3.10-0.20260715081341-a57139b33f3d
+	github.com/viant/forge v0.3.10-0.20260720080836-dcd6a16977fa
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.23.1-0.20260710212050-f1bb78063207
