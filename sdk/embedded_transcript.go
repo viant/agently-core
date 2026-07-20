@@ -131,6 +131,7 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
 	state := BuildCanonicalState(input.ConversationID, turns)
+	applyInlineReportWorkspaceCatalogToState(ctx, state, c)
 	resp := &ConversationStateResponse{
 		SchemaVersion: "2",
 		Conversation:  state,

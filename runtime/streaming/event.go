@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/sdk/rendering"
 )
 
 type EventType string
@@ -159,38 +160,39 @@ type PlannedToolCall struct {
 
 // Event is a transport-neutral streaming event.
 type Event struct {
-	ID                        string                 `json:"id,omitempty"`
-	StreamID                  string                 `json:"streamId,omitempty"`
-	ConversationID            string                 `json:"conversationId,omitempty"`
-	TurnID                    string                 `json:"turnId,omitempty"`
-	MessageID                 string                 `json:"messageId,omitempty"`
-	EventSeq                  int64                  `json:"eventSeq,omitempty"`
-	AgentIDUsed               string                 `json:"agentIdUsed,omitempty"`
-	AgentName                 string                 `json:"agentName,omitempty"`
-	AssistantMessageID        string                 `json:"assistantMessageId,omitempty"`
-	ParentMessageID           string                 `json:"parentMessageId,omitempty"`
-	RequestID                 string                 `json:"requestId,omitempty"`
-	ResponseID                string                 `json:"responseId,omitempty"`
-	OperationID               string                 `json:"operationId,omitempty"`
-	ToolCallID                string                 `json:"toolCallId,omitempty"`
-	ToolMessageID             string                 `json:"toolMessageId,omitempty"`
-	RequestPayloadID          string                 `json:"requestPayloadId,omitempty"`
-	ResponsePayloadID         string                 `json:"responsePayloadId,omitempty"`
-	ProviderRequestPayloadID  string                 `json:"providerRequestPayloadId,omitempty"`
-	ProviderResponsePayloadID string                 `json:"providerResponsePayloadId,omitempty"`
-	StreamPayloadID           string                 `json:"streamPayloadId,omitempty"`
-	LinkedConversationID      string                 `json:"linkedConversationId,omitempty"`
-	LinkedConversationAgentID string                 `json:"linkedConversationAgentId,omitempty"`
-	LinkedConversationTitle   string                 `json:"linkedConversationTitle,omitempty"`
-	ExecutionRole             string                 `json:"executionRole,omitempty"`
-	Phase                     string                 `json:"phase,omitempty"`
-	PageID                    string                 `json:"pageId,omitempty"`
-	Mode                      string                 `json:"mode,omitempty"`
-	Type                      EventType              `json:"type"`
-	Op                        string                 `json:"op,omitempty"`
-	Patch                     map[string]interface{} `json:"patch,omitempty"`
-	Content                   string                 `json:"content,omitempty"`
-	Narration                 string                 `json:"narration,omitempty"`
+	ID                        string                     `json:"id,omitempty"`
+	StreamID                  string                     `json:"streamId,omitempty"`
+	ConversationID            string                     `json:"conversationId,omitempty"`
+	TurnID                    string                     `json:"turnId,omitempty"`
+	MessageID                 string                     `json:"messageId,omitempty"`
+	EventSeq                  int64                      `json:"eventSeq,omitempty"`
+	AgentIDUsed               string                     `json:"agentIdUsed,omitempty"`
+	AgentName                 string                     `json:"agentName,omitempty"`
+	AssistantMessageID        string                     `json:"assistantMessageId,omitempty"`
+	ParentMessageID           string                     `json:"parentMessageId,omitempty"`
+	RequestID                 string                     `json:"requestId,omitempty"`
+	ResponseID                string                     `json:"responseId,omitempty"`
+	OperationID               string                     `json:"operationId,omitempty"`
+	ToolCallID                string                     `json:"toolCallId,omitempty"`
+	ToolMessageID             string                     `json:"toolMessageId,omitempty"`
+	RequestPayloadID          string                     `json:"requestPayloadId,omitempty"`
+	ResponsePayloadID         string                     `json:"responsePayloadId,omitempty"`
+	ProviderRequestPayloadID  string                     `json:"providerRequestPayloadId,omitempty"`
+	ProviderResponsePayloadID string                     `json:"providerResponsePayloadId,omitempty"`
+	StreamPayloadID           string                     `json:"streamPayloadId,omitempty"`
+	LinkedConversationID      string                     `json:"linkedConversationId,omitempty"`
+	LinkedConversationAgentID string                     `json:"linkedConversationAgentId,omitempty"`
+	LinkedConversationTitle   string                     `json:"linkedConversationTitle,omitempty"`
+	ExecutionRole             string                     `json:"executionRole,omitempty"`
+	Phase                     string                     `json:"phase,omitempty"`
+	PageID                    string                     `json:"pageId,omitempty"`
+	Mode                      string                     `json:"mode,omitempty"`
+	Type                      EventType                  `json:"type"`
+	Op                        string                     `json:"op,omitempty"`
+	Patch                     map[string]interface{}     `json:"patch,omitempty"`
+	Content                   string                     `json:"content,omitempty"`
+	RenderedContent           *rendering.RenderedContent `json:"renderedContent,omitempty"`
+	Narration                 string                     `json:"narration,omitempty"`
 	// NarrationSource identifies the author of a narration payload.
 	// Populated on narration events and on model_completed events that
 	// carry an inline Narration field. Values:

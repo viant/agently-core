@@ -409,6 +409,7 @@ export interface CanonicalAssistantMessageState {
 export interface CanonicalRenderedContent {
     schemaVersion: string;
     parts: CanonicalRenderedContentPart[];
+    reports?: CanonicalRenderedReportAssembly[];
     diagnostics?: CanonicalRenderedContentWarning[];
 }
 
@@ -419,18 +420,59 @@ export interface CanonicalRenderedContentPart {
     source?: string;
     payload?: unknown;
     data?: CanonicalRenderedData | null;
+    report?: CanonicalRenderedReport | null;
 }
 
 export interface CanonicalRenderedData {
+    version?: number;
+    scope?: string;
+    reportRef?: string;
+    sequence?: number;
     id: string;
     format?: string;
     mode?: string;
     payload?: unknown;
 }
 
+export interface CanonicalRenderedReportTarget {
+    kind?: string;
+    ref?: string;
+    slot?: string;
+    position?: string;
+}
+
+export interface CanonicalRenderedReport {
+    version: number;
+    scope?: string;
+    id: string;
+    sequence: number;
+    mode: string;
+    grammar?: string;
+    target?: CanonicalRenderedReportTarget | null;
+    payload: unknown;
+}
+
+export interface CanonicalRenderedReportAssembly {
+    scope: string;
+    id: string;
+    grammar?: string;
+    status: string;
+    sequence?: number;
+    resetVersion?: number;
+    source?: unknown;
+    dataSources?: Record<string, CanonicalRenderedData>;
+}
+
 export interface CanonicalRenderedContentWarning {
     code: string;
     message: string;
+    reportId?: string;
+    blockId?: string;
+    dataSourceId?: string;
+    sequence?: number;
+    fence?: string;
+    path?: string;
+    suggestedFix?: string;
 }
 
 export interface CanonicalPlannerState {

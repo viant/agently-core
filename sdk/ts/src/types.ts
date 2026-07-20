@@ -5,6 +5,8 @@
  * HTTP API. Field names use camelCase as serialised by Go's json tags.
  */
 
+import type { CanonicalRenderedContent } from './chatStore/types';
+
 export type JSONPrimitive = string | number | boolean | null;
 export type JSONValue = JSONPrimitive | JSONObject | JSONArray;
 export interface JSONObject {
@@ -479,6 +481,7 @@ export interface SSEEvent {
     op?: string;
     patch?: JSONObject;
     content?: string;
+    renderedContent?: CanonicalRenderedContent | null;
     narration?: string;
     toolName?: string;
     skillName?: string;

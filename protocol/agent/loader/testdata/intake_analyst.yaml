@@ -1,5 +1,5 @@
-id: steward
-name: Steward
+id: intake_analyst
+name: Intake Analyst
 modelRef: gpt-4o
 intake:
   enabled: true
@@ -19,7 +19,7 @@ intake:
   maxTokens: 400
   confidenceThreshold: 0.85
   plannerEnabled: true
-  plannerAgentId: steward_planner
+  plannerAgentId: planner_agent
   plannerFallbackThreshold: 0.7
   plannerOnValidatorFailure: true
   plannerOnCreativeRequest: true

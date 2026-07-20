@@ -1303,6 +1303,7 @@ data class AssistantMessageState(
 data class RenderedContent(
     val schemaVersion: String,
     val parts: List<RenderedContentPart> = emptyList(),
+    val reports: List<RenderedReportAssembly> = emptyList(),
     val diagnostics: List<RenderedContentWarning> = emptyList()
 )
 
@@ -1313,11 +1314,16 @@ data class RenderedContentPart(
     val language: String? = null,
     val source: String? = null,
     val payload: JsonElement? = null,
-    val data: RenderedData? = null
+    val data: RenderedData? = null,
+    val report: RenderedReport? = null
 )
 
 @Serializable
 data class RenderedData(
+    val version: Int? = null,
+    val scope: String? = null,
+    val reportRef: String? = null,
+    val sequence: Int? = null,
     val id: String,
     val format: String? = null,
     val mode: String? = null,
@@ -1325,9 +1331,48 @@ data class RenderedData(
 )
 
 @Serializable
+data class RenderedReportTarget(
+    val kind: String? = null,
+    val ref: String? = null,
+    val slot: String? = null,
+    val position: String? = null
+)
+
+@Serializable
+data class RenderedReport(
+    val version: Int,
+    val scope: String? = null,
+    val id: String,
+    val sequence: Int,
+    val mode: String,
+    val grammar: String? = null,
+    val target: RenderedReportTarget? = null,
+    val payload: JsonElement
+)
+
+@Serializable
+data class RenderedReportAssembly(
+    val scope: String,
+    val id: String,
+    val grammar: String? = null,
+    val status: String,
+    val sequence: Int? = null,
+    val resetVersion: Int = 0,
+    val source: JsonElement? = null,
+    val dataSources: Map<String, RenderedData> = emptyMap()
+)
+
+@Serializable
 data class RenderedContentWarning(
     val code: String,
-    val message: String
+    val message: String,
+    val reportId: String? = null,
+    val blockId: String? = null,
+    val dataSourceId: String? = null,
+    val sequence: Int? = null,
+    val fence: String? = null,
+    val path: String? = null,
+    val suggestedFix: String? = null
 )
 
 @Serializable

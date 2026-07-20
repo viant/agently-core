@@ -759,6 +759,43 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(decoded.diagnostics, [])
     }
 
+    func testRenderedContentDecodesProgressiveInlineReport() throws {
+        let json = #"{"schemaVersion":"1","parts":[{"kind":"forgeReport","report":{"version":1,"id":"brief","sequence":2,"mode":"start","payload":{"id":"brief"}}}],"reports":[{"scope":"campaign","id":"brief","grammar":"dashboard-v1","status":"committed","sequence":2,"source":{"title":"Delivery","blocks":[]},"dataSources":{"rows":{"version":2,"reportRef":"brief","sequence":1,"id":"rows","payload":[{"spend":12}]}}}]}"#
+
+        let decoded = try JSONDecoder.agently().decode(RenderedContent.self, from: try XCTUnwrap(json.data(using: .utf8)))
+
+        XCTAssertEqual(decoded.parts.first?.report?.id, "brief")
+        XCTAssertEqual(decoded.reports.first?.grammar, "dashboard-v1")
+        XCTAssertEqual(decoded.reports.first?.status, "committed")
+        XCTAssertEqual(decoded.reports.first?.dataSources["rows"]?.reportRef, "brief")
+    }
+
+    func testSharedProgressiveRenderedContentFixture() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let fixtureURL = testFile.deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("testdata/rendered_content_progressive.json")
+        let decoded = try JSONDecoder.agently().decode(RenderedContent.self, from: Data(contentsOf: fixtureURL))
+
+        let report = try XCTUnwrap(decoded.reports.first)
+        XCTAssertEqual(report.scope, "campaign")
+        XCTAssertEqual(report.id, "delivery")
+        XCTAssertEqual(report.grammar, "dashboard-v1")
+        XCTAssertEqual(report.status, "committed")
+        XCTAssertEqual(report.sequence, 3)
+        XCTAssertEqual(report.resetVersion, 1)
+        guard case .object(let source)? = report.source else { return XCTFail("Expected report source object") }
+        XCTAssertEqual(source["title"], .string("Delivery"))
+        guard case .array(let blocks)? = source["blocks"] else { return XCTFail("Expected report blocks") }
+        XCTAssertEqual(blocks.count, 1)
+        XCTAssertEqual(report.dataSources["rows"]?.reportRef, "delivery")
+        guard case .array(let rows)? = report.dataSources["rows"]?.payload,
+              case .object(let firstRow)? = rows.first else { return XCTFail("Expected report rows") }
+        XCTAssertEqual(firstRow["channel"], .string("CTV"))
+    }
+
     func testListFilesOutputDecodesCapitalizedFilesKey() throws {
         let json = """
         {
@@ -1283,6 +1320,17 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Hello world")
         XCTAssertEqual(snapshot.bufferedMessages.first?.status, "completed")
         XCTAssertEqual(snapshot.bufferedMessages.first?.interim, 0)
+    }
+
+    func testConversationStreamTrackerCarriesCanonicalProgressiveReport() async throws {
+        let tracker = ConversationStreamTracker()
+        let payload = #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","content":"report fragment","renderedContent":{"schemaVersion":"1","parts":[],"reports":[{"scope":"campaign","id":"delivery","grammar":"dashboard-v1","status":"committed","sequence":2,"source":{"title":"Delivery","blocks":[]},"dataSources":{}}]}}"#
+
+        let snapshot = await tracker.apply(SSEEvent(data: payload))
+
+        let report = try XCTUnwrap(snapshot.liveExecutionGroupsByID["msg-1"]?.renderedContent?.reports.first)
+        XCTAssertEqual(report.id, "delivery")
+        XCTAssertEqual(report.status, "committed")
     }
 
     func testConversationStreamTrackerPreservesPendingElicitationStatus() async throws {

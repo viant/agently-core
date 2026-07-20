@@ -122,6 +122,7 @@ public struct LiveExecutionGroup: Codable, Sendable, Equatable, Identifiable {
     public let iteration: Int?
     public let narration: String?
     public let content: String?
+    public let renderedContent: RenderedContent?
     public let errorMessage: String?
     public let status: String?
     public let finalResponse: Bool?
@@ -141,6 +142,7 @@ public struct LiveExecutionGroup: Codable, Sendable, Equatable, Identifiable {
         iteration: Int? = nil,
         narration: String? = nil,
         content: String? = nil,
+        renderedContent: RenderedContent? = nil,
         errorMessage: String? = nil,
         status: String? = nil,
         finalResponse: Bool? = nil,
@@ -159,6 +161,7 @@ public struct LiveExecutionGroup: Codable, Sendable, Equatable, Identifiable {
         self.iteration = iteration
         self.narration = narration
         self.content = content
+        self.renderedContent = renderedContent
         self.errorMessage = errorMessage
         self.status = status
         self.finalResponse = finalResponse
@@ -362,6 +365,7 @@ private extension ConversationStreamTracker {
         let op: String?
         let patch: [String: JSONValue]?
         let content: String?
+        let renderedContent: RenderedContent?
         let narration: String?
         let toolName: String?
         let error: String?
@@ -424,6 +428,7 @@ private extension ConversationStreamTracker {
             case op
             case patch
             case content
+            case renderedContent
             case narration
             case toolName
             case error
@@ -892,7 +897,8 @@ private extension ConversationStreamTracker {
                     sequence: page.sequence,
                     iteration: page.iteration,
                     narration: page.narration?.trimmedNonEmpty,
-                    content: page.content?.trimmedNonEmpty,
+                content: page.content?.trimmedNonEmpty,
+                    renderedContent: page.renderedContent,
                     errorMessage: executionErrorMessage(from: page),
                     status: page.status?.trimmedNonEmpty ?? turn.status?.trimmedNonEmpty,
                     finalResponse: page.finalResponse,
@@ -1031,6 +1037,7 @@ private extension ConversationStreamTracker {
                 iteration: payload.iteration ?? current.iteration,
                 narration: payload.narration ?? current.narration,
                 content: content,
+                renderedContent: payload.renderedContent,
                 errorMessage: payload.error ?? current.errorMessage,
                 status: payload.status ?? current.status ?? (type == "model_completed" ? "completed" : "running"),
                 finalResponse: payload.finalResponse ?? current.finalResponse
@@ -1095,6 +1102,7 @@ private extension ConversationStreamTracker {
             iteration: payload.iteration,
             narration: payload.narration?.trimmedNonEmpty,
             content: payload.content?.trimmedNonEmpty,
+            renderedContent: payload.renderedContent,
             errorMessage: payload.error?.trimmedNonEmpty,
             status: payload.status ?? "running",
             finalResponse: payload.finalResponse ?? false,
@@ -1326,6 +1334,7 @@ private extension LiveExecutionGroup {
         iteration: Int? = nil,
         narration: String? = nil,
         content: String? = nil,
+        renderedContent: RenderedContent? = nil,
         errorMessage: String? = nil,
         status: String? = nil,
         finalResponse: Bool? = nil,
@@ -1345,6 +1354,7 @@ private extension LiveExecutionGroup {
             iteration: iteration ?? self.iteration,
             narration: narration ?? self.narration,
             content: content ?? self.content,
+            renderedContent: renderedContent ?? self.renderedContent,
             errorMessage: errorMessage ?? self.errorMessage,
             status: status ?? self.status,
             finalResponse: finalResponse ?? self.finalResponse,

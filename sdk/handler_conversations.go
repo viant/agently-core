@@ -168,6 +168,9 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
+		if out != nil {
+			applyInlineReportWorkspaceCatalogToState(r.Context(), out.Conversation, client)
+		}
 		httpJSON(w, http.StatusOK, out)
 	}
 }

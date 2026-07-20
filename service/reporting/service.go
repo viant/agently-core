@@ -1359,6 +1359,9 @@ func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*
 	if reportID == "" && title == "" && len(bytes.TrimSpace(request.ReportDocument)) == 0 && len(bytes.TrimSpace(request.ReportSpec)) == 0 {
 		return nil, fmt.Errorf("report store: report identity or payload is required")
 	}
+	if err := validateInlineSaveReport(request); err != nil {
+		return nil, err
+	}
 	sourceArtifactID := normalizeSharedArtifactSourceID("report", "", reportID, s.newID())
 	artifactRef := strings.TrimSpace(request.ArtifactRef)
 	if artifactRef == "" {
@@ -1391,6 +1394,43 @@ func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*
 		return nil, err
 	}
 	return cloneSharedArtifact(artifact), nil
+}
+
+func validateInlineSaveReport(request *SaveReportRequest) error {
+	if request == nil || !jsonObjectString(request.Metadata, "source", "inline") {
+		return nil
+	}
+	required := []struct {
+		name  string
+		value json.RawMessage
+	}{
+		{name: "reportDocument", value: request.ReportDocument},
+		{name: "reportSpec", value: request.ReportSpec},
+		{name: "reportFill", value: request.ReportFill},
+		{name: "reportPrint", value: request.ReportPrint},
+	}
+	for _, item := range required {
+		value := bytes.TrimSpace(item.value)
+		if len(value) == 0 || !json.Valid(value) {
+			return fmt.Errorf("report store: committed inline report requires valid %s", item.name)
+		}
+	}
+	if !jsonObjectString(request.CompileState, "status", "clean") {
+		return fmt.Errorf("report store: committed inline report requires clean compileState")
+	}
+	return nil
+}
+
+func jsonObjectString(raw json.RawMessage, key, expected string) bool {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return false
+	}
+	var value map[string]interface{}
+	if json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	actual, _ := value[key].(string)
+	return strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(expected))
 }
 
 func (s *Service) saveReportTool(ctx context.Context, in, out interface{}) error {
