@@ -566,8 +566,9 @@ default:
 		}
 
 		submitBody := []byte(`{"name":"reporting:submit_export","args":{"artifactRef":"report://draft/performance","format":"pdf","scope":"draft","reportPrint":` + validReportingAPIPrintJSON() + `}}`)
+		authContext := svcauth.InjectUser(context.Background(), "artifact-user")
 		submitReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(submitBody))
-		submitReq = submitReq.WithContext(svcauth.InjectUser(submitReq.Context(), "artifact-user"))
+		submitReq = submitReq.WithContext(authContext)
 		submitRec := httptest.NewRecorder()
 		handler.ServeHTTP(submitRec, submitReq)
 		if submitRec.Code != http.StatusOK {
@@ -595,7 +596,7 @@ default:
 			t.Fatalf("resolve start_export: %v", err)
 		}
 		startOut := &reportingsvc.ExportJob{}
-		requireNoErr(t, startMethod(context.Background(), &reportingsvc.StartExportInput{JobID: job.JobID}, startOut))
+		requireNoErr(t, startMethod(authContext, &reportingsvc.StartExportInput{JobID: job.JobID}, startOut))
 		if startOut.Status != reportingsvc.JobStatusRunning {
 			t.Fatalf("expected running status, got %q", startOut.Status)
 		}
@@ -605,7 +606,7 @@ default:
 			t.Fatalf("resolve complete_export: %v", err)
 		}
 		completeOut := &reportingsvc.ExportJob{}
-		requireNoErr(t, completeMethod(context.Background(), &reportingsvc.CompleteExportRequest{
+		requireNoErr(t, completeMethod(authContext, &reportingsvc.CompleteExportRequest{
 			JobID:       job.JobID,
 			ContentType: "application/pdf",
 			Data:        []byte("%PDF"),

@@ -8,13 +8,18 @@ import com.viant.agentlysdk.ExecutionPageState
 import com.viant.agentlysdk.ExecutionState
 import com.viant.agentlysdk.ModelStepState
 import com.viant.agentlysdk.PlannerState
+import com.viant.agentlysdk.RenderedContent
+import com.viant.agentlysdk.RenderedReportAssembly
 import com.viant.agentlysdk.ToolStepState
 import com.viant.agentlysdk.TurnMessageState
 import com.viant.agentlysdk.TurnState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import java.io.File
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -22,6 +27,97 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class ConversationStreamTrackerTest {
+
+    @Test
+    fun `shared progressive rendered content fixture decodes`() {
+        val fixture = File("../testdata/rendered_content_progressive.json").readText()
+        val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<RenderedContent>(fixture)
+
+        val report = decoded.reports.single()
+        assertEquals("campaign", report.scope)
+        assertEquals("delivery", report.id)
+        assertEquals("dashboard-v1", report.grammar)
+        assertEquals("committed", report.status)
+        assertEquals(3, report.sequence)
+        assertEquals(1, report.resetVersion)
+        assertEquals("Delivery", report.source!!.jsonObject.getValue("title").jsonPrimitive.content)
+        assertEquals(1, report.source!!.jsonObject.getValue("blocks").jsonArray.size)
+        assertEquals("delivery", report.dataSources["rows"]?.reportRef)
+        assertEquals("CTV", report.dataSources.getValue("rows").payload!!.jsonArray.first().jsonObject.getValue("channel").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `stream events carry canonical progressive reports into the live execution group`() {
+        val tracker = ConversationStreamTracker("conv-1")
+        val rendered = RenderedContent(
+            schemaVersion = "1",
+            reports = listOf(
+                RenderedReportAssembly(
+                    scope = "campaign",
+                    id = "delivery",
+                    status = "committed"
+                )
+            )
+        )
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                assistantMessageId = "assistant-1",
+                content = "report fragment",
+                renderedContent = rendered
+            )
+        )
+
+        val group = tracker.snapshot().liveExecutionGroupsById["assistant-1"]
+        assertNotNull(group)
+        assertEquals("delivery", group.renderedContent?.reports?.single()?.id)
+    }
+
+    @Test
+    fun `transcript hydration restores canonical progressive reports`() {
+        val tracker = ConversationStreamTracker("conv-1")
+        val rendered = RenderedContent(
+            schemaVersion = "1",
+            reports = listOf(
+                RenderedReportAssembly(
+                    scope = "campaign",
+                    id = "delivery",
+                    status = "committed"
+                )
+            )
+        )
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-1",
+                            status = "completed",
+                            execution = ExecutionState(
+                                pages = listOf(
+                                    ExecutionPageState(
+                                        pageId = "page-1",
+                                        assistantMessageId = "assistant-1",
+                                        renderedContent = rendered
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            "delivery",
+            tracker.snapshot().liveExecutionGroupsById["assistant-1"]?.renderedContent?.reports?.single()?.id
+        )
+    }
 
     @Test
     fun `late duplicated message patch does not overwrite clean final assistant content`() {

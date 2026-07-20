@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/viant/agently-core/sdk/rendering"
 )
 
 type ActiveFeedState struct {
@@ -116,34 +118,13 @@ type ExecutionPageState struct {
 	FinalResponse           bool              `json:"finalResponse"`
 }
 
-// RenderedContent is an additive, canonical rendering contract for rich
-// transcript content. Raw content remains available for compatibility.
-type RenderedContent struct {
-	SchemaVersion string                    `json:"schemaVersion"`
-	Parts         []*RenderedContentPart    `json:"parts"`
-	Diagnostics   []*RenderedContentWarning `json:"diagnostics,omitempty"`
-}
-
-type RenderedContentPart struct {
-	Kind     string          `json:"kind"`
-	Text     string          `json:"text,omitempty"`
-	Language string          `json:"language,omitempty"`
-	Source   string          `json:"source,omitempty"`
-	Payload  json.RawMessage `json:"payload,omitempty"`
-	Data     *RenderedData   `json:"data,omitempty"`
-}
-
-type RenderedData struct {
-	ID      string          `json:"id"`
-	Format  string          `json:"format,omitempty"`
-	Mode    string          `json:"mode,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
-
-type RenderedContentWarning struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+type RenderedContent = rendering.RenderedContent
+type RenderedContentPart = rendering.RenderedContentPart
+type RenderedData = rendering.RenderedData
+type RenderedReport = rendering.RenderedReport
+type RenderedReportTarget = rendering.RenderedReportTarget
+type RenderedReportAssembly = rendering.RenderedReportAssembly
+type RenderedContentWarning = rendering.RenderedContentWarning
 
 type ModelStepState struct {
 	ModelCallID               string          `json:"modelCallId"`

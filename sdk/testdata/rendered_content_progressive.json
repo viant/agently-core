@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1",
+  "parts": [],
+  "reports": [
+    {
+      "scope": "campaign",
+      "id": "delivery",
+      "grammar": "dashboard-v1",
+      "status": "committed",
+      "sequence": 3,
+      "resetVersion": 1,
+      "source": {
+        "title": "Delivery",
+        "blocks": [
+          {
+            "id": "detail",
+            "kind": "dashboard.table",
+            "dataSourceRef": "rows",
+            "columns": [
+              { "key": "channel", "label": "Channel" },
+              { "key": "spend", "label": "Spend" }
+            ]
+          }
+        ]
+      },
+      "dataSources": {
+        "rows": {
+          "version": 2,
+          "scope": "campaign",
+          "reportRef": "delivery",
+          "sequence": 1,
+          "id": "rows",
+          "format": "json",
+          "mode": "replace",
+          "payload": [
+            { "channel": "CTV", "spend": 12 }
+          ]
+        }
+      }
+    }
+  ],
+  "diagnostics": []
+}

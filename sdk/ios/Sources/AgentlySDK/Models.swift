@@ -1257,17 +1257,20 @@ public struct AssistantMessageState: Codable, Sendable {
 public struct RenderedContent: Codable, Sendable, Equatable {
     public let schemaVersion: String
     public let parts: [RenderedContentPart]
+    public let reports: [RenderedReportAssembly]
     public let diagnostics: [RenderedContentWarning]
 
-    public init(schemaVersion: String, parts: [RenderedContentPart] = [], diagnostics: [RenderedContentWarning] = []) {
+    public init(schemaVersion: String, parts: [RenderedContentPart] = [], reports: [RenderedReportAssembly] = [], diagnostics: [RenderedContentWarning] = []) {
         self.schemaVersion = schemaVersion
         self.parts = parts
+        self.reports = reports
         self.diagnostics = diagnostics
     }
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion
         case parts
+        case reports
         case diagnostics
     }
 
@@ -1275,6 +1278,7 @@ public struct RenderedContent: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
         self.parts = try container.decodeIfPresent([RenderedContentPart].self, forKey: .parts) ?? []
+        self.reports = try container.decodeIfPresent([RenderedReportAssembly].self, forKey: .reports) ?? []
         self.diagnostics = try container.decodeIfPresent([RenderedContentWarning].self, forKey: .diagnostics) ?? []
     }
 }
@@ -1286,18 +1290,75 @@ public struct RenderedContentPart: Codable, Sendable, Equatable {
     public let source: String?
     public let payload: JSONValue?
     public let data: RenderedData?
+    public let report: RenderedReport?
 }
 
 public struct RenderedData: Codable, Sendable, Equatable {
+    public let version: Int?
+    public let scope: String?
+    public let reportRef: String?
+    public let sequence: Int?
     public let id: String
     public let format: String?
     public let mode: String?
     public let payload: JSONValue?
 }
 
+public struct RenderedReportTarget: Codable, Sendable, Equatable {
+    public let kind: String?
+    public let ref: String?
+    public let slot: String?
+    public let position: String?
+}
+
+public struct RenderedReport: Codable, Sendable, Equatable {
+    public let version: Int
+    public let scope: String?
+    public let id: String
+    public let sequence: Int
+    public let mode: String
+    public let grammar: String?
+    public let target: RenderedReportTarget?
+    public let payload: JSONValue
+}
+
+public struct RenderedReportAssembly: Codable, Sendable, Equatable {
+    public let scope: String
+    public let id: String
+    public let grammar: String?
+    public let status: String
+    public let sequence: Int?
+    public let resetVersion: Int
+    public let source: JSONValue?
+    public let dataSources: [String: RenderedData]
+
+    enum CodingKeys: String, CodingKey {
+        case scope, id, grammar, status, sequence, resetVersion, source, dataSources
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.scope = try container.decode(String.self, forKey: .scope)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.grammar = try container.decodeIfPresent(String.self, forKey: .grammar)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.sequence = try container.decodeIfPresent(Int.self, forKey: .sequence)
+        self.resetVersion = try container.decodeIfPresent(Int.self, forKey: .resetVersion) ?? 0
+        self.source = try container.decodeIfPresent(JSONValue.self, forKey: .source)
+        self.dataSources = try container.decodeIfPresent([String: RenderedData].self, forKey: .dataSources) ?? [:]
+    }
+}
+
 public struct RenderedContentWarning: Codable, Sendable, Equatable {
     public let code: String
     public let message: String
+    public let reportId: String?
+    public let blockId: String?
+    public let dataSourceId: String?
+    public let sequence: Int?
+    public let fence: String?
+    public let path: String?
+    public let suggestedFix: String?
 }
 
 public struct PlannerState: Codable, Sendable {

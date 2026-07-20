@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import {
     applyEvent,
@@ -9,6 +10,7 @@ import {
     newConversationState,
 } from '../chatStore/reducer';
 import type {
+    CanonicalRenderedContent,
     CanonicalConversationState,
     ClientConversationState,
     LocalSubmit,
@@ -713,6 +715,53 @@ describe('chatStore/reducer — merge rule', () => {
         expect(page.content).toBe('streaming partial');
         expect(page.finalResponse).not.toBe(true);
         expect(page.finalAssistantMessageId).toBeUndefined();
+    });
+
+    it('carries canonical progressive reports from SSE into the live page', () => {
+        const state = startedState();
+        const renderedContent = {
+            schemaVersion: '1',
+            parts: [],
+            reports: [{
+                scope: 'campaign',
+                id: 'delivery',
+                grammar: 'dashboard-v1',
+                status: 'committed',
+                sequence: 2,
+                source: { title: 'Delivery', blocks: [] },
+                dataSources: {},
+            }],
+        };
+        applyEvent(state, sse({
+            type: 'text_delta',
+            turnId: 'tn_M',
+            pageId: 'pg_1',
+            assistantMessageId: 'msg_1',
+            content: '',
+            renderedContent,
+            iteration: 1,
+        } as SSEEvent));
+
+        const page = state.turns[0].pages.find((candidate) => candidate.pageId === 'pg_1')!;
+        expect(page.renderedContent?.reports?.[0]?.id).toBe('delivery');
+        expect(page.renderedContent?.reports?.[0]?.status).toBe('committed');
+    });
+
+    it('decodes the shared progressive rendered content fixture', () => {
+        const fixtureURL = new URL('../../../testdata/rendered_content_progressive.json', import.meta.url);
+        const renderedContent = JSON.parse(readFileSync(fixtureURL, 'utf8')) as CanonicalRenderedContent;
+
+        const report = renderedContent.reports[0];
+        expect(report.scope).toBe('campaign');
+        expect(report.id).toBe('delivery');
+        expect(report.grammar).toBe('dashboard-v1');
+        expect(report.status).toBe('committed');
+        expect(report.sequence).toBe(3);
+        expect(report.resetVersion).toBe(1);
+        expect((report.source as any).title).toBe('Delivery');
+        expect((report.source as any).blocks).toHaveLength(1);
+        expect(report.dataSources.rows.reportRef).toBe('delivery');
+        expect((report.dataSources.rows.payload as any[])[0].channel).toBe('CTV');
     });
 
     it('does not surface intake/router model_completed JSON as page content without an explicit final response', () => {

@@ -949,6 +949,7 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     if (event.content && !hidesInterimModelContent && (explicitFinalResponse || !String(page.content ?? '').trim())) {
         writeField(page, 'content', event.content, 'event');
     }
+    if (event.renderedContent !== undefined) writeField(page, 'renderedContent', event.renderedContent, 'event');
     if (explicitFinalResponse && assistantMessageId) writeField(page, 'finalAssistantMessageId', assistantMessageId, 'event');
     if (explicitFinalResponse) writeField(page, 'finalResponse', true, 'event');
     if (event.requestPayloadId) writeField(step, 'requestPayloadId', event.requestPayloadId, 'event');
@@ -1058,6 +1059,7 @@ function onAssistantFinal(state: ClientConversationState, event: SSEEvent): Clie
     const messageId = ((event.messageId ?? event.assistantMessageId) ?? '').trim();
     if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
     if (event.content) writeField(page, 'content', event.content, 'event');
+    if (event.renderedContent !== undefined) writeField(page, 'renderedContent', event.renderedContent, 'event');
     if (messageId) writeField(page, 'finalAssistantMessageId', messageId, 'event');
     writeField(page, 'finalResponse', true, 'event');
     // Turn-level assistantFinal aggregate (optional mirror).
@@ -1066,6 +1068,7 @@ function onAssistantFinal(state: ClientConversationState, event: SSEEvent): Clie
         const af = turn.assistantFinal as ClientAssistantFinal;
         if (messageId) writeField(af, 'messageId', messageId, 'event');
         if (event.content) writeField(af, 'content', event.content, 'event');
+        if (event.renderedContent !== undefined) writeField(af, 'renderedContent', event.renderedContent, 'event');
         if (event.createdAt) writeField(af, 'createdAt', event.createdAt, 'event');
     }
     return state;
@@ -1080,9 +1083,11 @@ function onTextDelta(state: ClientConversationState, event: SSEEvent): ClientCon
     }
     const page = ensurePageForEvent(turn, event, 'event');
     const chunk = typeof event.content === 'string' ? event.content : '';
-    if (chunk === '') return state;          // empty chunk → no-op per §5.2
-    const prior = typeof page.content === 'string' ? page.content : '';
-    writeField(page, 'content', prior + chunk, 'event');
+    if (chunk !== '') {
+        const prior = typeof page.content === 'string' ? page.content : '';
+        writeField(page, 'content', prior + chunk, 'event');
+    }
+    if (event.renderedContent !== undefined) writeField(page, 'renderedContent', event.renderedContent, 'event');
     return state;
 }
 
@@ -1282,12 +1287,14 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
         const page = ensurePageForEvent(turn, event, 'event');
         if (event.createdAt) writeField(page, 'createdAt', event.createdAt, 'event');
         writeField(page, 'content', content, 'event');
+        if (event.renderedContent !== undefined) writeField(page, 'renderedContent', event.renderedContent, 'event');
         if (messageId) writeField(page, 'finalAssistantMessageId', messageId, 'event');
         writeField(page, 'finalResponse', true, 'event');
         turn.assistantFinal = turn.assistantFinal ?? { renderKey: allocateRenderKey() };
         const af = turn.assistantFinal as ClientAssistantFinal;
         if (messageId) writeField(af, 'messageId', messageId, 'event');
         writeField(af, 'content', content, 'event');
+        if (event.renderedContent !== undefined) writeField(af, 'renderedContent', event.renderedContent, 'event');
         if (event.createdAt) writeField(af, 'createdAt', event.createdAt, 'event');
         return state;
     }
@@ -1297,6 +1304,7 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
     if (entry) {
         writeField(entry, 'role', 'assistant', 'event');
         writeField(entry, 'content', content, 'event');
+        if (event.renderedContent !== undefined) writeField(entry, 'renderedContent', event.renderedContent, 'event');
         if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
         if (typeof patch.sequence === 'number') writeField(entry, 'sequence', patch.sequence, 'event');
         if (typeof patch.mode === 'string' && patch.mode) writeField(entry, 'mode', String(patch.mode), 'event');
@@ -1311,6 +1319,7 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
         messageId,
         role: 'assistant',
         content,
+        renderedContent: event.renderedContent,
         createdAt: event.createdAt,
         sequence: typeof patch.sequence === 'number' ? patch.sequence : undefined,
         mode: typeof patch.mode === 'string' ? String(patch.mode) : undefined,
@@ -1320,6 +1329,7 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
     setFieldProvenance(entry, 'messageId', 'event');
     setFieldProvenance(entry, 'role', 'event');
     setFieldProvenance(entry, 'content', 'event');
+    if (entry.renderedContent !== undefined) setFieldProvenance(entry, 'renderedContent', 'event');
     if (entry.createdAt) setFieldProvenance(entry, 'createdAt', 'event');
     if (typeof entry.sequence === 'number') setFieldProvenance(entry, 'sequence', 'event');
     if (entry.mode) setFieldProvenance(entry, 'mode', 'event');

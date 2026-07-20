@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1",
+  "cases": [
+    {
+      "name": "progressive-dashboard",
+      "content": "```forge-data\n{\"version\":2,\"scope\":\"campaign\",\"reportRef\":\"brief\",\"id\":\"summary\",\"sequence\":1,\"mode\":\"replace\",\"data\":[{\"spend\":12}]}\n```\n```forge-report\n{\"version\":1,\"scope\":\"campaign\",\"id\":\"brief\",\"sequence\":2,\"mode\":\"start\",\"title\":\"Delivery\",\"blocks\":[{\"id\":\"summary-card\",\"kind\":\"dashboard.summary\",\"dataSourceRef\":\"summary\"}]}\n```\n```forge-report\n{\"version\":1,\"scope\":\"campaign\",\"id\":\"brief\",\"sequence\":3,\"mode\":\"append\",\"blocks\":[{\"id\":\"detail-table\",\"kind\":\"dashboard.table\",\"dataSourceRef\":\"summary\"}]}\n```\n```forge-report\n{\"version\":1,\"scope\":\"campaign\",\"id\":\"brief\",\"sequence\":4,\"mode\":\"commit\"}\n```",
+      "reports": [{ "scope": "campaign", "id": "brief", "grammar": "dashboard-v1", "status": "committed", "sequence": 4, "blockCount": 2, "dataSourceCount": 1 }],
+      "diagnostics": []
+    },
+    {
+      "name": "multiple-isolated-reports",
+      "content": "```forge-report\n{\"version\":1,\"scope\":\"shared\",\"id\":\"one\",\"sequence\":1,\"mode\":\"start\",\"blocks\":[{\"id\":\"one-card\",\"kind\":\"dashboard.summary\"}]}\n```\n```forge-report\n{\"version\":1,\"scope\":\"shared\",\"id\":\"two\",\"sequence\":1,\"mode\":\"start\",\"blocks\":[{\"id\":\"two-card\",\"kind\":\"dashboard.summary\"}]}\n```",
+      "reports": [
+        { "scope": "shared", "id": "one", "grammar": "dashboard-v1", "status": "committed", "sequence": 1, "blockCount": 1, "dataSourceCount": 0 },
+        { "scope": "shared", "id": "two", "grammar": "dashboard-v1", "status": "committed", "sequence": 1, "blockCount": 1, "dataSourceCount": 0 }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "canonical-targets",
+      "content": "```forge-report\n{\"version\":1,\"id\":\"nested\",\"sequence\":1,\"mode\":\"start\",\"grammar\":\"report-document-v1\",\"blocks\":[{\"id\":\"group\",\"kind\":\"compositeBlock\",\"childBlockIds\":[]},{\"id\":\"tabs\",\"kind\":\"tabGroupBlock\",\"sectionIds\":[]}]}\n```\n```forge-report\n{\"version\":1,\"id\":\"nested\",\"sequence\":2,\"mode\":\"append\",\"target\":{\"kind\":\"block\",\"ref\":\"group\",\"slot\":\"childBlockIds\"},\"blocks\":[{\"id\":\"table\",\"kind\":\"tableBlock\"}]}\n```\n```forge-report\n{\"version\":1,\"id\":\"nested\",\"sequence\":3,\"mode\":\"append\",\"target\":{\"kind\":\"block\",\"ref\":\"tabs\",\"slot\":\"sectionIds\"},\"blocks\":[{\"id\":\"section\",\"kind\":\"sectionBlock\"}]}\n```",
+      "reports": [{ "scope": "message", "id": "nested", "grammar": "report-document-v1", "status": "committed", "sequence": 3, "blockCount": 4, "dataSourceCount": 0 }],
+      "diagnostics": []
+    },
+    {
+      "name": "rejected-sequence-is-consumed",
+      "content": "```forge-report\n{\"version\":1,\"id\":\"brief\",\"sequence\":1,\"mode\":\"start\",\"blocks\":[]}\n```\n```forge-report\n{\"version\":1,\"id\":\"brief\",\"sequence\":2,\"mode\":\"append\",\"blocks\":[{\"kind\":\"dashboard.table\"}]}\n```\n```forge-report\n{\"version\":1,\"id\":\"brief\",\"sequence\":3,\"mode\":\"append\",\"blocks\":[{\"id\":\"table\",\"kind\":\"dashboard.table\"}]}\n```",
+      "reports": [{ "scope": "message", "id": "brief", "grammar": "dashboard-v1", "status": "committed", "sequence": 3, "blockCount": 1, "dataSourceCount": 0 }],
+      "diagnostics": ["REPORT_TRANSACTION_INVALID"]
+    }
+  ]
+}

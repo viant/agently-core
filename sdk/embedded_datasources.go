@@ -3,12 +3,14 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	loproto "github.com/viant/agently-core/protocol/lookup/overlay"
 	"github.com/viant/agently-core/sdk/api"
+	authctx "github.com/viant/agently-core/service/auth"
 	dssvc "github.com/viant/agently-core/service/datasource"
 	"github.com/viant/agently-core/service/elicitation/refiner"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
@@ -47,6 +49,26 @@ func (c *backendClient) SetDatasourceStack(ds *dssvc.Service, overlay *oversvc.S
 // DatasourceSvc is exposed so tests and runtime glue can reuse the
 // configured instance (e.g. for the scheduler, for direct Go callers).
 func (c *backendClient) DatasourceSvc() *dssvc.Service { return c.datasourceSvc }
+
+// InlineReportWorkspaceDataSources exposes the current workspace-owned
+// datasource allowlist to the generic inline-report policy gate. The
+// workspace catalog is shared configuration, but access is fail-closed unless
+// the request carries an effective authenticated user. Fence content can
+// never add entries to this list.
+func (c *backendClient) InlineReportWorkspaceDataSources(ctx context.Context) ([]string, error) {
+	if c == nil || c.datasourceStore == nil {
+		return nil, ErrDatasourceStackNotConfigured
+	}
+	if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
+		return nil, fmt.Errorf("effective authenticated user is required")
+	}
+	if err := c.refreshDatasourceStack(ctx); err != nil {
+		return nil, err
+	}
+	result := c.datasourceStore.List()
+	sort.Strings(result)
+	return result, nil
+}
 
 // OverlaySvc mirrors DatasourceSvc for the overlay service.
 func (c *backendClient) OverlaySvc() *oversvc.Service { return c.overlaySvc }

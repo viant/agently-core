@@ -1,6 +1,7 @@
 package com.viant.agentlysdk.stream
 
 import com.viant.agentlysdk.PlannerState
+import com.viant.agentlysdk.RenderedContent
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -47,6 +48,7 @@ data class SSEEvent(
     val op: String? = null,
     val patch: JsonObject? = null,
     val content: String? = null,
+    val renderedContent: RenderedContent? = null,
     val narration: String? = null,
     val toolName: String? = null,
     val arguments: JsonElement? = null,
@@ -164,6 +166,7 @@ data class LiveExecutionGroup(
     val iteration: Int? = null,
     val narration: String? = null,
     val content: String? = null,
+    val renderedContent: RenderedContent? = null,
     val errorMessage: String? = null,
     val status: String? = null,
     val finalResponse: Boolean? = null,

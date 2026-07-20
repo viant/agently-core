@@ -529,6 +529,57 @@ func TestServiceSubmitExportResolvesInlineSource(t *testing.T) {
 	require.JSONEq(t, `{"conversationId":"conv-inline","workspaceId":"steward","source":"inline"}`, string(job.Metadata))
 }
 
+func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *testing.T) {
+	svc := New(Options{Store: NewStoreAdapter(reportmemory.New())})
+	request := &SaveReportRequest{
+		ReportID:       "inline-delivery",
+		Title:          "Inline delivery",
+		ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"inline-delivery"}`),
+		ReportSpec:     json.RawMessage(validTestReportSpecJSON()),
+		ReportFill:     json.RawMessage(validTestReportFillJSON()),
+		ReportPrint:    json.RawMessage(validTestReportPrintJSON()),
+		CompileState:   json.RawMessage(`{"status":"clean"}`),
+		Metadata:       json.RawMessage(`{"source":"inline","scope":"message"}`),
+	}
+
+	_, err := svc.SaveReport(context.Background(), request)
+	require.EqualError(t, err, "report store: effective user id is required")
+
+	ctx := authsvc.InjectUser(context.Background(), "owner-inline")
+	incomplete := *request
+	incomplete.ReportPrint = nil
+	_, err = svc.SaveReport(ctx, &incomplete)
+	require.EqualError(t, err, "report store: committed inline report requires valid reportPrint")
+
+	stale := *request
+	stale.CompileState = json.RawMessage(`{"status":"stale"}`)
+	_, err = svc.SaveReport(ctx, &stale)
+	require.EqualError(t, err, "report store: committed inline report requires clean compileState")
+
+	saved, err := svc.SaveReport(ctx, request)
+	require.NoError(t, err)
+	require.Equal(t, "owner-inline", saved.OwnerID)
+
+	listed, err := svc.ListReports(ctx, &ListReportsInput{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, listed.Reports, 1)
+
+	reopened, err := svc.GetReport(ctx, &GetReportInput{ArtifactID: saved.ArtifactID})
+	require.NoError(t, err)
+	require.JSONEq(t, string(request.ReportDocument), string(reopened.Document))
+
+	_, err = svc.GetReport(authsvc.InjectUser(context.Background(), "other-owner"), &GetReportInput{ArtifactID: saved.ArtifactID})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
+		Format: ExportFormatPDF,
+		Source: &ExportSource{Kind: "report", ArtifactID: saved.ArtifactID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ExportScopeSavedPayload, job.Scope)
+	require.JSONEq(t, string(request.ReportPrint), string(job.ReportPrint))
+}
+
 func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {
 	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
 	idCount := 0
