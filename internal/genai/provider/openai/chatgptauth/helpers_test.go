@@ -74,6 +74,30 @@ func TestNeedsRefresh(t *testing.T) {
 	}
 }
 
+func TestAccessTokenNeedsRefresh(t *testing.T) {
+	now := time.Now().UTC()
+	soon := now.Add(2 * time.Minute)
+	later := now.Add(2 * time.Hour)
+
+	testCases := []struct {
+		name     string
+		state    *TokenState
+		expected bool
+	}{
+		{name: "nil state", state: nil, expected: true},
+		{name: "missing access token", state: &TokenState{}, expected: true},
+		{name: "access token expires soon", state: &TokenState{AccessToken: fakeJWTWithWorkspaceAndExp("ws", soon)}, expected: true},
+		{name: "valid access token ignores expired id token and old refresh", state: &TokenState{IDToken: fakeJWTWithWorkspaceAndExp("ws", now.Add(-time.Hour)), AccessToken: fakeJWTWithWorkspaceAndExp("ws", later), LastRefresh: now.Add(-8 * 24 * time.Hour)}, expected: false},
+		{name: "opaque access token uses periodic refresh", state: &TokenState{AccessToken: "opaque", LastRefresh: now.Add(-8 * 24 * time.Hour)}, expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.EqualValues(t, tc.expected, accessTokenNeedsRefresh(tc.state))
+		})
+	}
+}
+
 func TestScyTokenStateStore_RoundTrip(t *testing.T) {
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, "tokens.json")

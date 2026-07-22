@@ -29,8 +29,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 		return nil, fmt.Errorf("model is required")
 	}
 
-	// Convert llms.ChatRequest to Request
-	req, err := ToRequest(ctx, request, c.Model)
+	req, err := c.prepareRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +141,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if c.Model == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	req, err := ToRequest(ctx, request, c.Model)
+	req, err := c.prepareRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -253,6 +252,33 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		}
 	}()
 	return events, nil
+}
+
+// prepareRequest converts a generic request and applies model-level defaults.
+func (c *Client) prepareRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, error) {
+	req, err := ToRequest(ctx, request, c.Model)
+	if err != nil {
+		return nil, err
+	}
+	if c.MaxTokens == 0 && c.Temperature == nil && c.KeepAlive == "" && c.ContextWindow == 0 {
+		return req, nil
+	}
+	if req.KeepAlive == "" && c.KeepAlive != "" {
+		req.KeepAlive = c.KeepAlive
+	}
+	if req.Options == nil {
+		req.Options = &Options{RepeatPenalty: 1.1, Stop: []string{"Human:", "User:"}}
+	}
+	if req.Options.NumPredict == 0 && c.MaxTokens > 0 {
+		req.Options.NumPredict = c.MaxTokens
+	}
+	if req.Options.NumCtx == 0 && c.ContextWindow > 0 {
+		req.Options.NumCtx = c.ContextWindow
+	}
+	if req.Options.Temperature == 0 && c.Temperature != nil {
+		req.Options.Temperature = *c.Temperature
+	}
+	return req, nil
 }
 
 // sendPullRequest sends a pull request to the Ollama API and returns the response

@@ -166,6 +166,31 @@ func TestService_BuildBinding_InjectsSelectedTemplateAndRemovesTemplateTools(t *
 	}
 }
 
+func TestService_ApplySelectedTemplateOutputSchema(t *testing.T) {
+	tmpDir := t.TempDir()
+	templateDir := filepath.Join(tmpDir, "templates")
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "tutor_action.yaml"), []byte(`
+id: tutor_action
+name: tutor_action
+format: json
+schema:
+  type: object
+  required: [action]
+  properties:
+    action:
+      type: string
+`), 0o644))
+	service := &Service{templateRepo: tplrepo.NewWithStore(fsstore.New(tmpDir))}
+	selection := llm.ModelSelection{Model: "local-model", Options: &llm.Options{MaxTokens: 64}}
+	require.NoError(t, service.applySelectedTemplateOutputSchema(context.Background(), &QueryInput{TemplateId: "tutor_action"}, &selection))
+	require.NotNil(t, selection.Options)
+	require.True(t, selection.Options.JSONMode)
+	require.Equal(t, "application/json", selection.Options.ResponseMIMEType)
+	require.Equal(t, "object", selection.Options.OutputSchema["type"])
+	require.Equal(t, 64, selection.Options.MaxTokens)
+}
+
 func TestService_BuildBinding_InjectsSelectedPromptProfile(t *testing.T) {
 	store := convmem.New()
 	ctx := context.Background()

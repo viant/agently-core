@@ -1029,6 +1029,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if modelSelection.Options == nil {
 			modelSelection.Options = &llm.Options{}
 		}
+		if err := s.applySelectedTemplateOutputSchema(iterCtx, input, &modelSelection); err != nil {
+			return err
+		}
 		queryOutput.Model = modelSelection.Model
 		queryOutput.Agent = input.Agent
 		genInput := &core.GenerateInput{

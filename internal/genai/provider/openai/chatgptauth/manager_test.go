@@ -237,6 +237,34 @@ func TestManager_AccessToken_RefreshTokenReused_ReloadsState(t *testing.T) {
 	assert.EqualValues(t, "new-access", token)
 }
 
+func TestManager_AccessToken_UsesValidAccessTokenWhenIDTokenExpired(t *testing.T) {
+	var calls int32
+	clientLoader := lazyClientLoader{}
+	store := &lazyStore{state: &TokenState{
+		IDToken:      fakeJWTWithWorkspaceAndExp("ws-1", time.Now().Add(-time.Hour)),
+		AccessToken:  fakeJWTWithWorkspaceAndExp("ws-1", time.Now().Add(time.Hour)),
+		RefreshToken: "refresh-1",
+		LastRefresh:  time.Now().Add(-48 * time.Hour),
+	}}
+	manager, err := NewManager(
+		&Options{AllowedWorkspaceID: "ws-1"},
+		clientLoader,
+		store,
+		&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			atomic.AddInt32(&calls, 1)
+			rec := newResponseRecorder()
+			rec.WriteHeader(http.StatusInternalServerError)
+			return rec.Result(r), nil
+		})},
+	)
+	require.NoError(t, err)
+
+	token, err := manager.AccessToken(context.Background())
+	require.NoError(t, err)
+	assert.EqualValues(t, store.state.AccessToken, token)
+	assert.EqualValues(t, int32(0), calls)
+}
+
 func TestManager_ExchangeAuthorizationCode_PersistsTokens(t *testing.T) {
 	var tokenCalls int32
 	httpClient := &http.Client{

@@ -178,9 +178,23 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		opts = append(opts, openai.WithContextContinuation(options.ContextContinuation))
 		return openai.NewClient(apiKey, options.Model, opts...), nil
 	case ProviderOllama:
-		client, err := ollama.NewClient(ctx, options.Model,
+		ollamaOptions := []ollama.ClientOption{
 			ollama.WithBaseURL(options.URL),
-			ollama.WithUsageListener(options.UsageListener))
+			ollama.WithUsageListener(options.UsageListener),
+		}
+		if options.MaxTokens > 0 {
+			ollamaOptions = append(ollamaOptions, ollama.WithMaxTokens(options.MaxTokens))
+		}
+		if strings.TrimSpace(options.KeepAlive) != "" {
+			ollamaOptions = append(ollamaOptions, ollama.WithKeepAlive(strings.TrimSpace(options.KeepAlive)))
+		}
+		if options.ContextWindow > 0 {
+			ollamaOptions = append(ollamaOptions, ollama.WithContextWindow(options.ContextWindow))
+		}
+		if options.Temperature != nil {
+			ollamaOptions = append(ollamaOptions, ollama.WithTemperature(*options.Temperature))
+		}
+		client, err := ollama.NewClient(ctx, options.Model, ollamaOptions...)
 		if err != nil {
 			return nil, err
 		}

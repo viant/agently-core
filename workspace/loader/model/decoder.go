@@ -114,6 +114,24 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.MaxTokens = tokens
 			}
+		case "keepalive":
+			if valueNode.Kind == yaml.ScalarNode {
+				config.Options.KeepAlive = strings.TrimSpace(valueNode.Value)
+			}
+		case "contextwindow":
+			if valueNode.Kind == yaml.ScalarNode {
+				value := valueNode.Interface()
+				var tokens int
+				switch actual := value.(type) {
+				case int:
+					tokens = actual
+				case int64:
+					tokens = int(actual)
+				default:
+					return fmt.Errorf("invalid context window value: %T %v", value, value)
+				}
+				config.Options.ContextWindow = tokens
+			}
 		case "model":
 			if valueNode.Kind == yaml.ScalarNode {
 				config.Options.Model = strings.TrimSpace(valueNode.Value)

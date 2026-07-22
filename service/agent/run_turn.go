@@ -436,16 +436,20 @@ func (s *Service) captureSecurityContext(ctx context.Context, input *QueryInput)
 	if runID == "" {
 		return
 	}
-	secData, err := token.MarshalSecurityContext(ctx)
-	if err != nil || secData == "" {
-		return
-	}
 	run := &agrunwrite.MutableRunView{}
 	run.SetId(runID)
-	run.SetSecurityContext(secData)
+	if secData, err := token.MarshalSecurityContext(ctx); err == nil && secData != "" {
+		run.SetSecurityContext(secData)
+	}
 	userID := authctx.EffectiveUserID(ctx)
+	if userID == "" {
+		userID = strings.TrimSpace(input.UserId)
+	}
 	if userID != "" {
 		run.SetEffectiveUserID(userID)
+	}
+	if userID == "" && run.SecurityContext == nil {
+		return
 	}
 	_, _ = s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
 }

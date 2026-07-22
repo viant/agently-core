@@ -269,11 +269,11 @@ func (m *Manager) AccessToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("token state was empty")
 	}
 
-	state, err = m.refreshIfNeeded(ctx, issuer, oauthClient.ClientID, oauthClient.ClientSecret, state)
+	state, err = m.refreshAccessTokenIfNeeded(ctx, issuer, oauthClient.ClientID, oauthClient.ClientSecret, state)
 	if err != nil {
 		return "", err
 	}
-	if err := ensureWorkspaceAllowed(m.allowedWorkspaceID, state.IDToken); err != nil {
+	if err := ensureWorkspaceAllowed(m.allowedWorkspaceID, workspaceValidationToken(state)); err != nil {
 		return "", err
 	}
 	token := strings.TrimSpace(state.AccessToken)
@@ -477,6 +477,21 @@ func (m *Manager) refreshIfNeeded(ctx context.Context, issuer string, clientID s
 	return m.refreshOnce(ctx, issuer, clientID, clientSecret, reloaded)
 }
 
+// refreshAccessTokenIfNeeded deliberately ignores an expired ID token when the
+// access token used by the ChatGPT backend is still valid. ID tokens are often
+// short lived, while the corresponding access token remains usable for much
+// longer. Refreshing solely because of the ID token can make an otherwise
+// healthy backend session unavailable.
+func (m *Manager) refreshAccessTokenIfNeeded(ctx context.Context, issuer string, clientID string, clientSecret string, state *TokenState) (*TokenState, error) {
+	if state == nil {
+		return nil, fmt.Errorf("token state was nil")
+	}
+	if !accessTokenNeedsRefresh(state) {
+		return state, nil
+	}
+	return m.refreshIfNeeded(ctx, issuer, clientID, clientSecret, state)
+}
+
 func (m *Manager) refreshOnce(ctx context.Context, issuer string, clientID string, clientSecret string, state *TokenState) (*TokenState, error) {
 	endpoint := issuer + "/oauth/token"
 	payload := map[string]any{
@@ -639,6 +654,28 @@ func needsRefresh(state *TokenState) bool {
 		}
 	}
 	return false
+}
+
+func accessTokenNeedsRefresh(state *TokenState) bool {
+	if state == nil || strings.TrimSpace(state.AccessToken) == "" {
+		return true
+	}
+	if exp, ok := parseJWTExpiry(state.AccessToken); ok {
+		return time.Until(exp) <= defaultRefreshSkew
+	}
+	// Opaque access tokens do not expose an expiry. Retain the existing
+	// periodic refresh behavior for those providers.
+	return state.LastRefresh.IsZero() || time.Since(state.LastRefresh) >= defaultRefreshPeriod
+}
+
+func workspaceValidationToken(state *TokenState) string {
+	if state == nil {
+		return ""
+	}
+	if _, err := parseJWTAuthClaims(state.AccessToken); err == nil {
+		return state.AccessToken
+	}
+	return state.IDToken
 }
 
 func (m *Manager) issuerForClient(client *OAuthClientConfig) string {

@@ -67,15 +67,22 @@ type AnthropicOAuthOptions struct {
 }
 
 type Options struct {
-	Model             string                 `yaml:"model,omitempty" json:"model,omitempty"`
-	Provider          string                 `yaml:"provider,omitempty" json:"provider,omitempty"`
-	APIKeyURL         string                 `yaml:"apiKeyURL,omitempty" json:"APIKeyURL,omitempty"`
-	EnvKey            string                 `yaml:"envKey,omitempty" json:"envKey,omitempty"` // environment variable key to use for API key
-	CredentialsURL    string                 `yaml:"credentialsURL,omitempty" json:"credentialsURL,omitempty"`
-	URL               string                 `yaml:"url,omitempty" json:"url,omitempty"`
-	ProjectID         string                 `yaml:"projectID,omitempty" json:"projectID,omitempty"`
-	Temperature       *float64               `yaml:"temperature,omitempty" json:"temperature,omitempty"`
-	MaxTokens         int                    `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
+	Model          string   `yaml:"model,omitempty" json:"model,omitempty"`
+	Provider       string   `yaml:"provider,omitempty" json:"provider,omitempty"`
+	APIKeyURL      string   `yaml:"apiKeyURL,omitempty" json:"APIKeyURL,omitempty"`
+	EnvKey         string   `yaml:"envKey,omitempty" json:"envKey,omitempty"` // environment variable key to use for API key
+	CredentialsURL string   `yaml:"credentialsURL,omitempty" json:"credentialsURL,omitempty"`
+	URL            string   `yaml:"url,omitempty" json:"url,omitempty"`
+	ProjectID      string   `yaml:"projectID,omitempty" json:"projectID,omitempty"`
+	Temperature    *float64 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	MaxTokens      int      `yaml:"maxTokens,omitempty" json:"maxTokens,omitempty"`
+	// KeepAlive controls how long an Ollama model remains resident after a
+	// request (for example, "30m"). It is ignored by providers that do not
+	// support Ollama's native keep_alive request field.
+	KeepAlive string `yaml:"keepAlive,omitempty" json:"keepAlive,omitempty"`
+	// ContextWindow configures Ollama's num_ctx request option. It is ignored
+	// by providers that do not expose a per-request context window.
+	ContextWindow     int                    `yaml:"contextWindow,omitempty" json:"contextWindow,omitempty"`
 	TopP              float64                `yaml:"topP,omitempty" json:"topP,omitempty"`
 	UserAgent         string                 `yaml:"userAgent,omitempty" json:"userAgent,omitempty"`
 	Originator        string                 `yaml:"originator,omitempty" json:"originator,omitempty"`

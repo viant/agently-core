@@ -100,3 +100,42 @@ func TestToRequest_StreamFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestClientPrepareRequest_AppliesModelDefaults(t *testing.T) {
+	client, err := NewClient(context.Background(), "test-model", WithMaxTokens(128), WithKeepAlive("30m"), WithContextWindow(4096), WithTemperature(0.2))
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	req, err := client.prepareRequest(context.Background(), &llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("Hello")},
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	if assert.NotNil(t, req.Options) {
+		assert.Equal(t, 128, req.Options.NumPredict)
+		assert.Equal(t, 4096, req.Options.NumCtx)
+		assert.Equal(t, 0.2, req.Options.Temperature)
+		assert.Equal(t, []string{"Human:", "User:"}, req.Options.Stop)
+		assert.Equal(t, "30m", req.KeepAlive)
+	}
+}
+
+func TestToRequest_UsesOutputSchemaAsOllamaFormat(t *testing.T) {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"action": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"action"},
+	}
+	req, err := ToRequest(context.Background(), &llm.GenerateRequest{
+		Messages: []llm.Message{llm.NewUserMessage("Return an action")},
+		Options:  &llm.Options{OutputSchema: schema},
+	}, "test-model")
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, schema, req.Format)
+}
