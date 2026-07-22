@@ -67,7 +67,7 @@ func TestAuthExtensionOAuthInitiate_UsesConfiguredWebUIScopes(t *testing.T) {
 			Client: &OAuthClient{
 				ConfigURL:   cfgPath,
 				Scopes:      []string{"openid", "profile"},
-				WebUIScopes: []string{"XXX_WEBUI", "openid"},
+				WebUIScopes: []string{"XXX_WEBUI"},
 			},
 		},
 	}, NewManager(0, nil), "", nil, nil)
@@ -87,8 +87,8 @@ func TestAuthExtensionOAuthInitiate_UsesConfiguredWebUIScopes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authURL parse error = %v", err)
 	}
-	if got := authURL.Query().Get("scope"); got != "XXX_WEBUI openid" {
-		t.Fatalf("scope = %q, want %q", got, "XXX_WEBUI openid")
+	if got := authURL.Query().Get("scope"); got != "openid profile XXX_WEBUI" {
+		t.Fatalf("scope = %q, want %q", got, "openid profile XXX_WEBUI")
 	}
 }
 
@@ -237,7 +237,7 @@ func TestAuthExtensionOAuthMobileInitiate_UsesConfiguredMobileUIScopes(t *testin
 				ConfigURL:      cfgPath,
 				RedirectURIs:   []string{"agently-ios://oauth/callback"},
 				Scopes:         []string{"openid", "profile"},
-				MobileUIScopes: []string{"XXX_MOBILEUI", "openid"},
+				MobileUIScopes: []string{"XXX_MOBILEUI"},
 			},
 		},
 	}, NewManager(0, nil), "", nil, nil)
@@ -257,8 +257,8 @@ func TestAuthExtensionOAuthMobileInitiate_UsesConfiguredMobileUIScopes(t *testin
 	if err != nil {
 		t.Fatalf("authURL parse error = %v", err)
 	}
-	if got := authURL.Query().Get("scope"); got != "XXX_MOBILEUI openid" {
-		t.Fatalf("scope = %q, want %q", got, "XXX_MOBILEUI openid")
+	if got := authURL.Query().Get("scope"); got != "openid profile XXX_MOBILEUI" {
+		t.Fatalf("scope = %q, want %q", got, "openid profile XXX_MOBILEUI")
 	}
 }
 

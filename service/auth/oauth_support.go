@@ -195,22 +195,21 @@ func oauthScopesForTarget(client *OAuthClient, target oauthScopeTarget, explicit
 		}
 	}
 	if client != nil {
+		baseScopes := normalizeScopes(client.Scopes)
+		var surfaceScopes []string
 		switch target {
 		case oauthScopeTargetWebUI:
-			if scopes := normalizeScopes(client.WebUIScopes); len(scopes) > 0 {
-				return scopes
-			}
+			surfaceScopes = normalizeScopes(client.WebUIScopes)
 		case oauthScopeTargetMobile:
-			if scopes := normalizeScopes(client.MobileUIScopes); len(scopes) > 0 {
-				return scopes
-			}
+			surfaceScopes = normalizeScopes(client.MobileUIScopes)
 		case oauthScopeTargetCLI:
-			if scopes := normalizeScopes(client.CLIScopes); len(scopes) > 0 {
-				return scopes
-			}
+			surfaceScopes = normalizeScopes(client.CLIScopes)
 		}
-		if scopes := normalizeScopes(client.Scopes); len(scopes) > 0 {
-			return scopes
+		if len(surfaceScopes) > 0 {
+			return normalizeScopes(append(append([]string(nil), baseScopes...), surfaceScopes...))
+		}
+		if len(baseScopes) > 0 {
+			return baseScopes
 		}
 	}
 	if target == oauthScopeTargetDefault {
@@ -272,12 +271,13 @@ var oidcScopeSet = map[string]bool{
 }
 
 func tokenScopesFromStrings(tokens ...string) []string {
+	merged := make([]string, 0, len(tokens))
 	for _, token := range tokens {
 		if scopes := tokenScopes(token); len(scopes) > 0 {
-			return scopes
+			merged = append(merged, scopes...)
 		}
 	}
-	return nil
+	return normalizeScopes(merged)
 }
 
 func tokenScopes(token string) []string {
