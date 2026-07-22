@@ -37,6 +37,11 @@ func TestService_Load(t *testing.T) {
 			expectedJSON: `{"id":"gemini-pro","description":"Gemini Pro model from Google","options":{"model":"gemini-pro","provider":"googleai","apiKeyURL":"secrets/googleai","credentialsURL":"secrets/gcp-credentials","temperature":0.8,"maxTokens":2048}}`,
 		},
 		{
+			name:         "Valid Ollama model settings",
+			url:          "ollama.yaml",
+			expectedJSON: `{"id":"qwen-local","description":"Local Qwen model","options":{"model":"qwen2.5:14b","provider":"ollama","url":"http://127.0.0.1:11434","maxTokens":128,"keepAlive":"30m","contextWindow":4096}}`,
+		},
+		{
 			name:        "Invalid URL",
 			url:         "nonexistent.yaml",
 			expectedErr: true,

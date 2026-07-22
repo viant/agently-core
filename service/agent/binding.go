@@ -393,6 +393,36 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 	return nil
 }
 
+// applySelectedTemplateOutputSchema gives providers that support structured
+// output the same contract already injected into the prompt. Without this,
+// local JSON-mode models can return syntactically valid but host-incompatible
+// objects even when a selected template has a schema.
+func (s *Service) applySelectedTemplateOutputSchema(ctx context.Context, input *QueryInput, selection *llm.ModelSelection) error {
+	if s == nil || input == nil || selection == nil || s.templateRepo == nil {
+		return nil
+	}
+	templateID := strings.TrimSpace(input.TemplateId)
+	if templateID == "" {
+		return nil
+	}
+	tpl, err := s.templateRepo.Load(ctx, templateID)
+	if err != nil {
+		return fmt.Errorf("load template %q: %w", templateID, err)
+	}
+	if tpl == nil || len(tpl.Schema) == 0 {
+		return nil
+	}
+	options := llm.Options{}
+	if selection.Options != nil {
+		options = *selection.Options
+	}
+	options.JSONMode = true
+	options.ResponseMIMEType = "application/json"
+	options.OutputSchema = cloneInterfaceMap(tpl.Schema)
+	selection.Options = &options
+	return nil
+}
+
 func (s *Service) bindingConversation(ctx context.Context, input *QueryInput) (*apiconv.Conversation, error) {
 	return s.fetchConversationWithRetry(
 		ctx,

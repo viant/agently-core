@@ -130,6 +130,53 @@ func TestToRequest_StreamFlag(t *testing.T) {
 	}
 }
 
+func TestStrictJSONSchema_ClosesNestedObjectNodes(t *testing.T) {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"template": map[string]interface{}{"const": "TutorAction"},
+			"variant": map[string]interface{}{
+				"oneOf": []interface{}{
+					map[string]interface{}{"type": "string"},
+					map[string]interface{}{"type": "number"},
+				},
+			},
+			"nested": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string"},
+				},
+			},
+			"entries": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"value": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
+		},
+	}
+
+	actual := strictJSONSchema(schema)
+	assert.Equal(t, false, actual["additionalProperties"])
+	assert.Equal(t, []string{"entries", "nested", "template", "variant"}, actual["required"])
+	template := actual["properties"].(map[string]interface{})["template"].(map[string]interface{})
+	assert.Equal(t, "string", template["type"])
+	variant := actual["properties"].(map[string]interface{})["variant"].(map[string]interface{})
+	assert.NotContains(t, variant, "oneOf")
+	assert.Len(t, variant["anyOf"].([]interface{}), 2)
+	nested := actual["properties"].(map[string]interface{})["nested"].(map[string]interface{})
+	assert.Equal(t, false, nested["additionalProperties"])
+	assert.Equal(t, []string{"name"}, nested["required"])
+	items := actual["properties"].(map[string]interface{})["entries"].(map[string]interface{})["items"].(map[string]interface{})
+	assert.Equal(t, false, items["additionalProperties"])
+	assert.Equal(t, []string{"value"}, items["required"])
+	_, originalChanged := schema["additionalProperties"]
+	assert.False(t, originalChanged)
+}
+
 // Test mapping of tool calls and tool call result ID from OpenAI response to llm.Message
 func TestToLLMSResponse_ToolCallsAndToolCallId(t *testing.T) {
 	// prepare a simulated OpenAI response with tool_calls and tool_call_id
@@ -333,18 +380,19 @@ func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
 	in := llm.GenerateRequest{
 		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
 		Options: &llm.Options{
-			Model:       "gpt-5-mini",
+			Model:       "gpt-5.6-luna",
 			Temperature: 0.2,
 		},
 	}
 
 	got := ToRequest(&in)
-	assert.Equal(t, "gpt-5-mini", got.Model)
+	assert.Equal(t, "gpt-5.6-luna", got.Model)
 	assert.Nil(t, got.Temperature)
 }
 
-func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Mini(t *testing.T) {
-	client := &Client{Config: basecfg.Config{Model: "gpt-5-mini"}}
+func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Models(t *testing.T) {
+	temperature := 0.2
+	client := &Client{Config: basecfg.Config{Model: "gpt-5.6-luna"}, Temperature: &temperature}
 	in := &llm.GenerateRequest{
 		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
 		Options: &llm.Options{
@@ -352,9 +400,9 @@ func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Mini(t *testing.T) 
 		},
 	}
 
-	got, err := client.ToRequest(in)
+	got, err := client.prepareChatRequest(in)
 	assert.NoError(t, err)
-	assert.Equal(t, "gpt-5-mini", got.Model)
+	assert.Equal(t, "gpt-5.6-luna", got.Model)
 	assert.Nil(t, got.Temperature)
 }
 

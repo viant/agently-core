@@ -2,15 +2,19 @@ package ollama
 
 // Request represents the request structure for Ollama API
 type Request struct {
-	Model    string   `json:"model"`
-	Prompt   string   `json:"prompt"`
-	System   string   `json:"system,omitempty"`
-	Template string   `json:"template,omitempty"`
-	Context  []int    `json:"context,omitempty"`
-	Format   string   `json:"format,omitempty"`
-	Stream   bool     `json:"stream"`
-	Raw      bool     `json:"raw,omitempty"`
-	Options  *Options `json:"options,omitempty"`
+	Model    string `json:"model"`
+	Prompt   string `json:"prompt"`
+	System   string `json:"system,omitempty"`
+	Template string `json:"template,omitempty"`
+	Context  []int  `json:"context,omitempty"`
+	// Format accepts either "json" or an Ollama JSON Schema object. Keeping it
+	// as an interface lets structured template turns use provider enforcement.
+	Format interface{} `json:"format,omitempty"`
+	Stream bool        `json:"stream"`
+	Raw    bool        `json:"raw,omitempty"`
+	// KeepAlive is Ollama's native model residency duration, such as "30m".
+	KeepAlive string   `json:"keep_alive,omitempty"`
+	Options   *Options `json:"options,omitempty"`
 }
 
 // Options represents the options for the Ollama API request
@@ -21,6 +25,7 @@ type Options struct {
 	RepeatPenalty float64  `json:"repeat_penalty,omitempty"`
 	Seed          int      `json:"seed,omitempty"`
 	NumPredict    int      `json:"num_predict,omitempty"`
+	NumCtx        int      `json:"num_ctx,omitempty"`
 	Stop          []string `json:"stop,omitempty"`
 }
 

@@ -68,6 +68,11 @@ func FromPromptProfile(profile *promptdef.Profile) Selection {
 	}
 	return Normalize(Selection{
 		Bundles: append([]string(nil), profile.ToolBundles...),
+		// PreferredTools is an intentional, profile-scoped tool surface. A
+		// profile can therefore expose one precise MCP operation without
+		// forcing the worker to see every tool in its bundles or run the tool
+		// auto-selector first.
+		Tools: append([]string(nil), profile.PreferredTools...),
 	})
 }
 

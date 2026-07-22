@@ -16,7 +16,11 @@ const (
 // Client represents an Ollama API client
 type Client struct {
 	basecfg.Config
-	Timeout time.Duration
+	Timeout       time.Duration
+	MaxTokens     int
+	KeepAlive     string
+	ContextWindow int
+	Temperature   *float64
 }
 
 // NewClient creates a new Ollama client

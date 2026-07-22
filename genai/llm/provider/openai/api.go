@@ -393,7 +393,7 @@ func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, err
 	if req.MaxTokens == 0 && c.MaxTokens > 0 {
 		req.MaxTokens = c.MaxTokens
 	}
-	if req.Temperature == nil && c.Temperature != nil {
+	if req.Temperature == nil && c.Temperature != nil && supportsExplicitTemperature(req.Model) {
 		req.Temperature = c.Temperature
 	}
 	if req.Temperature == nil {

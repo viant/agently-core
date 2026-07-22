@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ const defaultToolResultPreviewLimit = 8 * 1024
 
 func supportsExplicitTemperature(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
-	case "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5":
+	case "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "gpt-5.6-luna":
 		return false
 	}
 	return true
@@ -353,7 +354,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 				tc.Format = &TextFormat{
 					Type:   "json_schema",
 					Strict: true,
-					Schema: schema,
+					Schema: strictJSONSchema(schema),
 					Name:   "codex_output_schema",
 				}
 			}
@@ -537,6 +538,77 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 	}
 
 	return req, nil
+}
+
+// strictJSONSchema clones a JSON Schema and normalizes every object node for
+// OpenAI strict structured output. Objects must forbid additional properties
+// and list every declared property as required, including objects nested in
+// properties, array items, and composition branches. Workspace templates
+// predate those requirements and may omit either constraint.
+func strictJSONSchema(schema map[string]interface{}) map[string]interface{} {
+	cloned, _ := strictJSONSchemaValue(schema).(map[string]interface{})
+	return cloned
+}
+
+func strictJSONSchemaValue(value interface{}) interface{} {
+	switch actual := value.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(actual)+1)
+		for key, entry := range actual {
+			// OpenAI strict schemas support anyOf, but reject oneOf. The
+			// semantics are equivalent for the disjoint template branches used
+			// by Agently's typed response templates.
+			if key == "oneOf" {
+				out["anyOf"] = strictJSONSchemaValue(entry)
+				continue
+			}
+			out[key] = strictJSONSchemaValue(entry)
+		}
+		if schemaType, _ := actual["type"].(string); schemaType == "object" {
+			out["additionalProperties"] = false
+			if properties, ok := actual["properties"].(map[string]interface{}); ok {
+				required := make([]string, 0, len(properties))
+				for name := range properties {
+					required = append(required, name)
+				}
+				sort.Strings(required)
+				out["required"] = required
+			}
+		}
+		if _, hasType := actual["type"]; !hasType {
+			if constValue, hasConst := actual["const"]; hasConst {
+				if inferredType := jsonSchemaConstType(constValue); inferredType != "" {
+					out["type"] = inferredType
+				}
+			}
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(actual))
+		for index, entry := range actual {
+			out[index] = strictJSONSchemaValue(entry)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func jsonSchemaConstType(value interface{}) string {
+	switch value.(type) {
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "integer"
+	case float32, float64, json.Number:
+		return "number"
+	case nil:
+		return "null"
+	default:
+		return ""
+	}
 }
 
 // ToRequest is a convenience wrapper retained for backward-compatible tests.
