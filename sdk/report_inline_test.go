@@ -38,6 +38,22 @@ func TestNormalizeRenderedContent_AssemblesProgressiveDashboardReport(t *testing
 	require.Empty(t, got.Diagnostics)
 }
 
+func TestNormalizeRenderedContent_DoesNotCommitAfterRejectedReportFragment(t *testing.T) {
+	content := "```forge-report\n" +
+		`{"version":1,"id":"brief","sequence":1,"mode":"start","grammar":"dashboard-v1","blocks":[]}` +
+		"\n```\n```forge-report\n" +
+		`{"version":1,"id":"brief","sequence":2,"mode":"append","blocks":[{"kind":"dashboard.report","title":"Missing stable id"}]}` +
+		"\n```\n```forge-report\n" +
+		`{"version":1,"id":"brief","sequence":3,"mode":"commit"}` +
+		"\n```"
+
+	got := NormalizeRenderedContent(content)
+	require.Len(t, got.Reports, 1)
+	require.Equal(t, "incomplete", got.Reports[0].Status)
+	require.Contains(t, warningCodes(got.Diagnostics), "REPORT_TRANSACTION_INVALID")
+	require.Contains(t, warningCodes(got.Diagnostics), "REPORT_SEQUENCE_GAP")
+}
+
 func TestNormalizeRenderedContent_KeepsLegacyForgeNamespacesSeparate(t *testing.T) {
 	content := "```forge-data\n" +
 		`{"id":"rows","data":[{"legacy":true}]}` +
@@ -224,9 +240,9 @@ func TestNormalizeRenderedContent_RejectsMissingBlockIDAndDanglingDatasource(t *
 
 func TestNormalizeRenderedContent_UsesRawDataEnvelopeForReplayEquality(t *testing.T) {
 	content := "```forge-data\n" +
-		`{"version":2,"reportRef":"brief","id":"rows","sequence":1,"extension":"one","data":[]}` +
+		`{"version":2,"reportRef":"brief","id":"rows","sequence":1,"data":[{"id":1}]}` +
 		"\n```\n```forge-data\n" +
-		`{"version":2,"reportRef":"brief","id":"rows","sequence":1,"extension":"two","data":[]}` +
+		`{"version":2,"reportRef":"brief","id":"rows","sequence":1,"data":[{"id":2}]}` +
 		"\n```\n```forge-report\n" +
 		`{"version":1,"id":"brief","sequence":2,"mode":"start","blocks":[]}` + "\n```"
 
