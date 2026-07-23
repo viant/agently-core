@@ -131,6 +131,18 @@ func Load(root string) (*Root, error) {
 	return cfg, nil
 }
 
+// ForgeReportingRoot returns the optional singular reporting asset root owned
+// by the workspace. An empty value delegates to Forge's default root.
+func (r *Root) ForgeReportingRoot() string {
+	if r == nil {
+		return ""
+	}
+	forge := mapLookup(r.Raw, "forge")
+	reporting := mapLookup(forge, "reporting")
+	value, _ := reporting["root"].(string)
+	return strings.TrimSpace(value)
+}
+
 // DecodeAuth decodes the auth section into the supplied destination.
 func (r *Root) DecodeAuth(out interface{}) error {
 	if r == nil || out == nil || isZeroNode(&r.AuthNode) {

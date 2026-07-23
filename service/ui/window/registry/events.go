@@ -50,11 +50,12 @@ type UIEvent struct {
 }
 
 type sharedState struct {
-	mu           sync.Mutex
-	fingerprints map[string]string
-	snapshots    map[string]*Snapshot
-	events       map[string][]UIEvent
-	nextSeq      int64
+	mu                sync.Mutex
+	fingerprints      map[string]string
+	snapshots         map[string]*Snapshot
+	events            map[string][]UIEvent
+	authorizedWindows map[string][]UIEvent
+	nextSeq           int64
 }
 
 var sharedStates sync.Map
@@ -67,9 +68,10 @@ func sharedStateFor(bridge interface{}) *sharedState {
 		return state.(*sharedState)
 	}
 	state := &sharedState{
-		fingerprints: map[string]string{},
-		snapshots:    map[string]*Snapshot{},
-		events:       map[string][]UIEvent{},
+		fingerprints:      map[string]string{},
+		snapshots:         map[string]*Snapshot{},
+		events:            map[string][]UIEvent{},
+		authorizedWindows: map[string][]UIEvent{},
 	}
 	actual, _ := sharedStates.LoadOrStore(key, state)
 	return actual.(*sharedState)
@@ -110,6 +112,15 @@ func (s *sharedState) ingestSnapshot(ns, clientID string, snap *Snapshot, raw js
 	prev := s.snapshots[key]
 	s.fingerprints[key] = fingerprint
 	s.snapshots[key] = cloneSnapshot(snap)
+	for _, window := range snap.Windows {
+		s.authorizeWindowLocked(UIEvent{
+			At:             updatedAt,
+			ConversationID: strings.TrimSpace(window.ConversationID),
+			ClientID:       strings.TrimSpace(clientID),
+			WindowID:       strings.TrimSpace(window.WindowID),
+			WindowKey:      strings.TrimSpace(window.WindowKey),
+		})
+	}
 
 	nextSeq := func() int64 {
 		s.nextSeq++
@@ -222,9 +233,9 @@ func (s *sharedState) ingestSnapshot(ns, clientID string, snap *Snapshot, raw js
 	}
 }
 
-func (s *sharedState) recordEvent(ns, clientID string, event UIEvent) {
+func (s *sharedState) recordEvent(ns, clientID string, event UIEvent) UIEvent {
 	if s == nil {
-		return
+		return event
 	}
 	key := stateSnapshotKey(ns, clientID)
 	s.mu.Lock()
@@ -234,10 +245,71 @@ func (s *sharedState) recordEvent(ns, clientID string, event UIEvent) {
 	if event.At.IsZero() {
 		event.At = time.Now()
 	}
+	s.authorizeWindowLocked(event)
 	s.events[key] = append(s.events[key], event)
 	if len(s.events[key]) > 200 {
 		s.events[key] = append([]UIEvent(nil), s.events[key][len(s.events[key])-200:]...)
 	}
+	return event
+}
+
+func (s *sharedState) authorizeWindowLocked(event UIEvent) {
+	conversationID := strings.TrimSpace(event.ConversationID)
+	windowID := strings.TrimSpace(event.WindowID)
+	windowKey := strings.TrimSpace(event.WindowKey)
+	if conversationID == "" || (windowID == "" && windowKey == "") {
+		return
+	}
+	event.ConversationID = conversationID
+	event.ClientID = strings.TrimSpace(event.ClientID)
+	event.WindowID = windowID
+	event.WindowKey = windowKey
+	if event.At.IsZero() {
+		event.At = time.Now()
+	}
+	items := s.authorizedWindows[conversationID]
+	for index := range items {
+		if items[index].ClientID == event.ClientID && items[index].WindowID == windowID && items[index].WindowKey == windowKey {
+			items[index] = event
+			s.authorizedWindows[conversationID] = items
+			return
+		}
+	}
+	items = append(items, event)
+	if len(items) > 100 {
+		items = append([]UIEvent(nil), items[len(items)-100:]...)
+	}
+	s.authorizedWindows[conversationID] = items
+}
+
+func (s *sharedState) findAuthorizedWindow(conversationID, clientID, windowID, windowKey string) (UIEvent, bool) {
+	if s == nil {
+		return UIEvent{}, false
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	clientID = strings.TrimSpace(clientID)
+	windowID = strings.TrimSpace(windowID)
+	windowKey = strings.TrimSpace(windowKey)
+	if conversationID == "" || (windowID == "" && windowKey == "") {
+		return UIEvent{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.authorizedWindows[conversationID]
+	for index := len(items) - 1; index >= 0; index-- {
+		item := items[index]
+		if clientID != "" && strings.TrimSpace(item.ClientID) != clientID {
+			continue
+		}
+		if windowID != "" && strings.TrimSpace(item.WindowID) != windowID {
+			continue
+		}
+		if windowKey != "" && strings.TrimSpace(item.WindowKey) != windowKey {
+			continue
+		}
+		return item, true
+	}
+	return UIEvent{}, false
 }
 
 func (s *sharedState) listEvents(ns, clientID string) []UIEvent {

@@ -43,6 +43,9 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 				window.SetCode(code)
 			}
 		}
+		if err := mergeWorkspaceWindowActionRefs(ctx, loader, workspaceWindowRoot, window, target); err != nil {
+			return nil, err
+		}
 		if err := MergeWorkspaceForgeAssets(ctx, window); err != nil {
 			return nil, err
 		}
@@ -73,10 +76,66 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 		}
 		window.SetCode(code)
 	}
+	if err := mergeWorkspaceWindowActionRefs(ctx, loader, workspaceWindowRoot, window, target); err != nil {
+		return nil, err
+	}
 	if err := MergeWorkspaceForgeAssets(ctx, window); err != nil {
 		return nil, err
 	}
 	return window, nil
+}
+
+func mergeWorkspaceWindowActionRefs(ctx context.Context, loader *metaSvc.Service, workspaceWindowRoot string, window *forgeTypes.Window, target *metaSvc.TargetContext) error {
+	actionRefs := workspaceWindowActionRefs(window)
+	if len(actionRefs) == 0 {
+		return nil
+	}
+	code := make([]string, 0, len(actionRefs)+1)
+	if window.Actions != nil && strings.TrimSpace(window.Actions.Code) != "" {
+		code = append(code, strings.TrimSpace(window.Actions.Code))
+	}
+	seen := map[string]bool{}
+	for _, actionRef := range actionRefs {
+		actionRef = strings.TrimSpace(actionRef)
+		if actionRef == "" || seen[actionRef] {
+			continue
+		}
+		seen[actionRef] = true
+		jsBase := metaURL.Join(workspaceWindowRoot, actionRef)
+		resolvedJSPath, err := loader.ResolveWindowAsset(ctx, jsBase, ".js", target)
+		if err != nil {
+			return fmt.Errorf("resolve workspace window action ref %q: %w", actionRef, err)
+		}
+		source, err := loader.Download(ctx, resolvedJSPath)
+		if err != nil {
+			return fmt.Errorf("load workspace window action ref %q: %w", actionRef, err)
+		}
+		code = append(code, strings.TrimSpace(string(source)))
+	}
+	if len(code) == 0 {
+		return nil
+	}
+	window.SetCode([]byte("(() => Object.assign({},\n" + strings.Join(code, ",\n") + "\n))()"))
+	return nil
+}
+
+func workspaceWindowActionRefs(window *forgeTypes.Window) []string {
+	if window == nil || window.View.Content == nil || window.View.Content.Dashboard == nil {
+		return nil
+	}
+	raw := window.View.Content.Dashboard.ReportBuilder["actionRefs"]
+	result := make([]string, 0)
+	switch actual := raw.(type) {
+	case []string:
+		result = append(result, actual...)
+	case []interface{}:
+		for _, item := range actual {
+			if value := strings.TrimSpace(fmt.Sprint(item)); value != "" {
+				result = append(result, value)
+			}
+		}
+	}
+	return result
 }
 
 // MergeWorkspaceForgeAssets merges workspace dialogs and datasources into the
@@ -124,7 +183,7 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window) e
 			window.DataSource[id] = dataSource
 		}
 	}
-	return nil
+	return enrichWorkspaceWindow(ctx, window)
 }
 
 func loadWorkspaceDialogs(ctx context.Context, svc *wsmeta.Service) ([]forgeTypes.Dialog, error) {

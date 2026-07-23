@@ -169,6 +169,9 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 			return
 		}
 		if out != nil {
+			// Backends may return persisted canonical state without derived render
+			// content. Normalize at the HTTP boundary before applying auth policy.
+			hydrateRenderedContent(out.Conversation)
 			applyInlineReportWorkspaceCatalogToState(r.Context(), out.Conversation, client)
 		}
 		httpJSON(w, http.StatusOK, out)

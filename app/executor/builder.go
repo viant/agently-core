@@ -51,6 +51,7 @@ import (
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/datly"
+	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
@@ -77,6 +78,9 @@ type Runtime struct {
 	Store             workspace.Store
 	KnowledgeStore    workspace.KnowledgeStore
 	StateStore        workspace.StateStore
+	// UIBridge is the single Forge UI service shared by browser RPC, agents,
+	// and all UI-facing internal tools for this runtime.
+	UIBridge *forgeuisvc.Service
 
 	// AuthConfig holds the auth configuration when auth is enabled.
 	AuthConfig *svcauth.Config
@@ -269,6 +273,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		Store:          b.store,
 		KnowledgeStore: b.knowledgeStore,
 		StateStore:     b.stateStore,
+		UIBridge:       forgeuisvc.NewService(&forgeuisvc.Config{}),
 	}
 	if out.Defaults == nil {
 		out.Defaults = &config.Defaults{}
@@ -424,6 +429,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	if out.Agent != nil {
 		out.Agent.SetSkillService(out.Skills)
+		out.Agent.SetUIBridge(out.UIBridge)
 	}
 	// Apply workspace-level async defaults (GC cadence, narrator timeout)
 	// to the agent service's Manager. Parse errors surface loudly so

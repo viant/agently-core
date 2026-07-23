@@ -1406,8 +1406,6 @@ func validateInlineSaveReport(request *SaveReportRequest) error {
 	}{
 		{name: "reportDocument", value: request.ReportDocument},
 		{name: "reportSpec", value: request.ReportSpec},
-		{name: "reportFill", value: request.ReportFill},
-		{name: "reportPrint", value: request.ReportPrint},
 	}
 	for _, item := range required {
 		value := bytes.TrimSpace(item.value)
@@ -1417,6 +1415,58 @@ func validateInlineSaveReport(request *SaveReportRequest) error {
 	}
 	if !jsonObjectString(request.CompileState, "status", "clean") {
 		return fmt.Errorf("report store: committed inline report requires clean compileState")
+	}
+	if !jsonObjectBool(request.Metadata, "reusableDataSources", true) {
+		return fmt.Errorf("report store: inline promotion requires resolved reusable workspace data sources")
+	}
+	if len(bytes.TrimSpace(request.ReportFill)) > 0 || len(bytes.TrimSpace(request.ReportPrint)) > 0 {
+		return fmt.Errorf("report store: inline promotion must not persist materialized runtime rows")
+	}
+	if err := validateInlinePromotionSources(request.ReportDocument, request.ReportSpec, request.Metadata); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateInlinePromotionSources(documentRaw, specRaw, metadataRaw json.RawMessage) error {
+	var document struct {
+		Datasets []struct {
+			ID   string          `json:"id"`
+			Rows json.RawMessage `json:"rows"`
+		} `json:"datasets"`
+	}
+	if err := json.Unmarshal(documentRaw, &document); err != nil {
+		return fmt.Errorf("report store: committed inline report requires valid reportDocument")
+	}
+	for _, dataset := range document.Datasets {
+		if len(bytes.TrimSpace(dataset.Rows)) > 0 && string(bytes.TrimSpace(dataset.Rows)) != "null" {
+			return fmt.Errorf("report store: inline promotion dataset %q contains materialized rows", strings.TrimSpace(dataset.ID))
+		}
+	}
+	var spec struct {
+		Datasets []struct {
+			ID            string                 `json:"id"`
+			DataSourceRef string                 `json:"dataSourceRef"`
+			Request       map[string]interface{} `json:"request"`
+		} `json:"datasets"`
+	}
+	if err := json.Unmarshal(specRaw, &spec); err != nil {
+		return fmt.Errorf("report store: committed inline report requires valid reportSpec")
+	}
+	resolvedRefs := jsonObjectStrings(metadataRaw, "resolvedDataSourceRefs")
+	resolved := make(map[string]bool, len(resolvedRefs))
+	for _, ref := range resolvedRefs {
+		resolved[strings.TrimSpace(ref)] = true
+	}
+	for _, dataset := range spec.Datasets {
+		ref := strings.TrimSpace(dataset.DataSourceRef)
+		kind, _ := dataset.Request["kind"].(string)
+		if ref == "" || strings.HasPrefix(strings.ToLower(ref), "static_json_") || strings.EqualFold(strings.TrimSpace(kind), "staticJson") {
+			return fmt.Errorf("report store: inline promotion dataset %q is not backed by a reusable workspace data source", strings.TrimSpace(dataset.ID))
+		}
+		if !resolved[ref] {
+			return fmt.Errorf("report store: inline promotion data source %q was not resolved by the workspace", ref)
+		}
 	}
 	return nil
 }
@@ -1431,6 +1481,36 @@ func jsonObjectString(raw json.RawMessage, key, expected string) bool {
 	}
 	actual, _ := value[key].(string)
 	return strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(expected))
+}
+
+func jsonObjectBool(raw json.RawMessage, key string, expected bool) bool {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return false
+	}
+	var value map[string]interface{}
+	if json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	actual, ok := value[key].(bool)
+	return ok && actual == expected
+}
+
+func jsonObjectStrings(raw json.RawMessage, key string) []string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	var value map[string]interface{}
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	items, _ := value[key].([]interface{})
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+			result = append(result, strings.TrimSpace(text))
+		}
+	}
+	return result
 }
 
 func (s *Service) saveReportTool(ctx context.Context, in, out interface{}) error {

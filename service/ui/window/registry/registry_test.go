@@ -158,6 +158,103 @@ func TestIsReadableClientAllowsRegisteredSnapshotWithoutPoll(t *testing.T) {
 	}
 }
 
+func TestIsAttachedClientAllowsUnchangedSnapshotWithCurrentPoll(t *testing.T) {
+	now := time.Now()
+	item := ClientSnapshot{
+		UpdatedAt:  now.Add(-time.Minute),
+		LastPollAt: now,
+		Transport:  "http",
+		Snapshot:   &Snapshot{},
+	}
+	if !isAttachedClient(item, now) {
+		t.Fatalf("expected unchanged actively polling client to remain attached")
+	}
+}
+
+func TestIsAttachedClientRejectsStaleDisconnectedSnapshot(t *testing.T) {
+	now := time.Now()
+	item := ClientSnapshot{
+		UpdatedAt:  now.Add(-time.Minute),
+		LastPollAt: now.Add(-time.Minute),
+		Transport:  "http",
+		Snapshot:   &Snapshot{},
+	}
+	if isAttachedClient(item, now) {
+		t.Fatalf("expected stale disconnected client not to remain attached")
+	}
+}
+
+func TestListAttachedByConversationAcceptsFreshSnapshotBetweenPolls(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "web-client",
+		"data": map[string]interface{}{
+			"clientId":       "web-client",
+			"conversationId": "conv-1",
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"conversationId": "conv-1",
+				},
+			},
+		},
+	})
+	registry := New(bridge)
+	attached, err := registry.ListAttachedByConversation(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatalf("list attached clients: %v", err)
+	}
+	if len(attached) != 1 || attached[0].ClientID != "web-client" {
+		t.Fatalf("expected fresh attached client, got %#v", attached)
+	}
+	serviceable, err := registry.ListByConversation(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatalf("list serviceable clients: %v", err)
+	}
+	if len(serviceable) != 0 {
+		t.Fatalf("expected no active poll before command delivery, got %#v", serviceable)
+	}
+}
+
+func TestReadableSnapshotAcceptsCollectionMetricsPayload(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "web-client",
+		"data": map[string]interface{}{
+			"clientId":       "web-client",
+			"conversationId": "conv-1",
+			"windows": []interface{}{
+				map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"conversationId": "conv-1",
+					"dataSources": map[string]interface{}{
+						"delivery": map[string]interface{}{
+							"dataSourceRef": "delivery",
+							"metrics": []interface{}{
+								map[string]interface{}{"name": "spend", "value": 42},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	readable, err := New(bridge).ListReadableByConversation(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatalf("list readable clients: %v", err)
+	}
+	if len(readable) != 1 {
+		t.Fatalf("expected collection-shaped metrics to preserve the snapshot, got %#v", readable)
+	}
+	metrics, ok := readable[0].Snapshot.Windows[0].DataSources["delivery"].Metrics.([]interface{})
+	if !ok || len(metrics) != 1 {
+		t.Fatalf("expected collection-shaped metrics payload, got %#v", readable[0].Snapshot.Windows[0].DataSources["delivery"].Metrics)
+	}
+}
+
 func TestReadableSnapshotsDoNotRequireHTTPPollFreshness(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
 

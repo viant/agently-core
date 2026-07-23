@@ -1013,6 +1013,7 @@ export interface ListUIEventsInput {
     kinds?: string[];
     sinceSeq?: number;
     limit?: number;
+    order?: 'asc' | 'desc';
 }
 
 export interface ListUIEventsOutput {

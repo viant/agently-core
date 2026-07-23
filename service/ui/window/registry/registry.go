@@ -65,7 +65,7 @@ type DataSourceSnapshot struct {
 	Selection      interface{}            `json:"selection,omitempty"`
 	Collection     interface{}            `json:"collection,omitempty"`
 	CollectionInfo map[string]interface{} `json:"collectionInfo,omitempty"`
-	Metrics        map[string]interface{} `json:"metrics,omitempty"`
+	Metrics        interface{}            `json:"metrics,omitempty"`
 	FormStatus     map[string]interface{} `json:"formStatus,omitempty"`
 }
 
@@ -124,6 +124,41 @@ func (r *Registry) RecordEvent(ns, clientID string, event UIEvent) {
 	r.state.recordEvent(ns, clientID, event)
 }
 
+// RecordConversationEvent stores browser lifecycle events independently of the
+// transient live-window snapshot. This keeps recent report context available
+// while a client reconnects or refreshes its UI bridge registration.
+func (r *Registry) RecordConversationEvent(conversationID string, event UIEvent) UIEvent {
+	if r == nil || r.state == nil {
+		return event
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return event
+	}
+	event.ConversationID = conversationID
+	return r.state.recordEvent("conversation", conversationID, event)
+}
+
+func (r *Registry) ListConversationEvents(conversationID string) []UIEvent {
+	if r == nil || r.state == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	return r.state.listEvents("conversation", conversationID)
+}
+
+// FindAuthorizedConversationWindow resolves an exact window identity previously
+// established by a trusted UI command, snapshot, or accepted browser event.
+func (r *Registry) FindAuthorizedConversationWindow(conversationID, clientID, windowID, windowKey string) (UIEvent, bool) {
+	if r == nil || r.state == nil {
+		return UIEvent{}, false
+	}
+	return r.state.findAuthorizedWindow(conversationID, clientID, windowID, windowKey)
+}
+
 func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey string, limit int, sinceSeq int64) []UIEvent {
 	if r == nil || r.state == nil {
 		return nil
@@ -140,6 +175,21 @@ func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey stri
 		return nil
 	}
 	var out []UIEvent
+	for _, event := range r.ListConversationEvents(conversationID) {
+		if sinceSeq > 0 && event.Seq <= sinceSeq {
+			continue
+		}
+		if clientID != "" && strings.TrimSpace(event.ClientID) != clientID {
+			continue
+		}
+		if windowID != "" && strings.TrimSpace(event.WindowID) != windowID {
+			continue
+		}
+		if windowID == "" && windowKey != "" && strings.TrimSpace(event.WindowKey) != windowKey {
+			continue
+		}
+		out = append(out, event)
+	}
 	for _, item := range items {
 		if clientID != "" && strings.TrimSpace(item.ClientID) != clientID {
 			continue
@@ -249,6 +299,16 @@ func isReadableClient(item ClientSnapshot, now time.Time) bool {
 	return item.Snapshot != nil && !item.UpdatedAt.IsZero()
 }
 
+func isAttachedClient(item ClientSnapshot, now time.Time) bool {
+	if item.Snapshot == nil {
+		return false
+	}
+	// Snapshot publication is content-addressed: an unchanged visible UI does
+	// not continuously republish its snapshot. A current transport heartbeat is
+	// therefore equally strong evidence that the client remains attached.
+	return isFreshSnapshot(item, now) || isServiceableClient(item, now)
+}
+
 func isMainChatWindow(win WindowSnapshot) bool {
 	return strings.TrimSpace(win.WindowID) == "chat/new" || strings.TrimSpace(win.WindowKey) == "chat/new"
 }
@@ -326,6 +386,25 @@ func filterSnapshotForConversation(snapshot *Snapshot, conversationID string) *S
 
 func (r *Registry) ListByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
 	return r.listByConversation(ctx, conversationID, true)
+}
+
+// ListAttachedByConversation returns clients with either a fresh snapshot or
+// a current transport heartbeat. Commands can be queued after a fresh
+// snapshot between polls, while unchanged clients remain attached through
+// their heartbeat without having to republish identical state.
+func (r *Registry) ListAttachedByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
+	items, err := r.listByConversation(ctx, conversationID, false)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	result := make([]ClientSnapshot, 0, len(items))
+	for _, item := range items {
+		if isAttachedClient(item, now) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
 }
 
 func (r *Registry) ListReadableByConversation(ctx context.Context, conversationID string) ([]ClientSnapshot, error) {
