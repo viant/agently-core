@@ -27,6 +27,14 @@ type ReportPreset struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
+// ReportPresetResolution describes how a requested report starter was resolved
+// to the canonical ID sent to the view.
+type ReportPresetResolution struct {
+	Requested  string `json:"requested"`
+	ResolvedID string `json:"resolvedId"`
+	MatchedBy  string `json:"matchedBy"`
+}
+
 type Parameter struct {
 	Name     string `json:"name" yaml:"name"`
 	Type     string `json:"type,omitempty" yaml:"type,omitempty"`

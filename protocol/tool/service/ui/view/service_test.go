@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +108,187 @@ func TestAvailableViewIDs(t *testing.T) {
 	if got[0] != "approvals" || got[1] != "orderPerformance" {
 		t.Fatalf("unexpected ids: %#v", got)
 	}
+}
+
+func TestResolveReportStarterIDCanonicalization(t *testing.T) {
+	presets := []viewproto.ReportPreset{
+		{ID: "Alpha_ID", Label: "Alpha Report"},
+		{ID: "beta_id", Label: "Beta Report"},
+	}
+	tests := []struct {
+		name       string
+		parameters map[string]interface{}
+		wantValue  interface{}
+		wantExists bool
+		want       *viewproto.ReportPresetResolution
+	}{
+		{
+			name:       "exact canonical id",
+			parameters: map[string]interface{}{"reportStarterId": "  Alpha_ID  "},
+			wantValue:  "Alpha_ID",
+			wantExists: true,
+			want:       &viewproto.ReportPresetResolution{Requested: "Alpha_ID", ResolvedID: "Alpha_ID", MatchedBy: "id"},
+		},
+		{
+			name:       "case insensitive canonical id",
+			parameters: map[string]interface{}{"reportStarterId": "alpha_id"},
+			wantValue:  "Alpha_ID",
+			wantExists: true,
+			want:       &viewproto.ReportPresetResolution{Requested: "alpha_id", ResolvedID: "Alpha_ID", MatchedBy: "id"},
+		},
+		{
+			name:       "normalized label",
+			parameters: map[string]interface{}{"reportStarterId": "  aLPHa \t REPORT  "},
+			wantValue:  "Alpha_ID",
+			wantExists: true,
+			want:       &viewproto.ReportPresetResolution{Requested: "aLPHa \t REPORT", ResolvedID: "Alpha_ID", MatchedBy: "label"},
+		},
+		{
+			name:       "omitted",
+			parameters: map[string]interface{}{"executeOnOpen": true},
+		},
+		{
+			name:       "whitespace behaves as omitted",
+			parameters: map[string]interface{}{"reportStarterId": " \t\n "},
+		},
+		{
+			name:       "forge blank starter is reserved",
+			parameters: map[string]interface{}{"reportStarterId": "  __blank__  "},
+			wantValue:  "__blank__",
+			wantExists: true,
+			want:       &viewproto.ReportPresetResolution{Requested: "__blank__", ResolvedID: "__blank__", MatchedBy: "reserved"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolution, err := resolveReportStarterID(test.parameters, presets)
+			if err != nil {
+				t.Fatalf("resolve report starter: %v", err)
+			}
+			if !reflect.DeepEqual(resolution, test.want) {
+				t.Fatalf("unexpected resolution: got=%#v want=%#v", resolution, test.want)
+			}
+			value, exists := test.parameters["reportStarterId"]
+			if exists != test.wantExists || (exists && value != test.wantValue) {
+				t.Fatalf("unexpected canonical parameter: exists=%v value=%#v", exists, value)
+			}
+		})
+	}
+}
+
+func TestResolveReportStarterIDRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested interface{}
+		presets   []viewproto.ReportPreset
+		contains  []string
+	}{
+		{
+			name:      "unknown does not slugify or guess",
+			requested: "Alpha-Report",
+			presets: []viewproto.ReportPreset{
+				{ID: "zeta_id", Label: "Zeta"},
+				{ID: "alpha_id", Label: "Alpha Report"},
+			},
+			contains: []string{"unknown reportStarterId", `"alpha_id"`, `"zeta_id"`},
+		},
+		{
+			name:      "ambiguous normalized label",
+			requested: " shared  label ",
+			presets: []viewproto.ReportPreset{
+				{ID: "second_id", Label: "SHARED LABEL"},
+				{ID: "first_id", Label: "Shared   Label"},
+			},
+			contains: []string{"ambiguous", `"first_id"`, `"second_id"`},
+		},
+		{
+			name:      "non string",
+			requested: 42,
+			presets:   []viewproto.ReportPreset{{ID: "alpha_id", Label: "Alpha Report"}},
+			contains:  []string{"must be a string", `"alpha_id"`},
+		},
+		{
+			name:      "ambiguous case insensitive id",
+			requested: "CASEID",
+			presets: []viewproto.ReportPreset{
+				{ID: "CaseID", Label: "First"},
+				{ID: "caseid", Label: "Second"},
+			},
+			contains: []string{"matches multiple canonical IDs case-insensitively", `"CaseID"`, `"caseid"`},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parameters := map[string]interface{}{
+				"reportStarterId": test.requested,
+				"options":         map[string]interface{}{"theme": "dark"},
+			}
+			snapshot := cloneMap(parameters)
+			resolution, err := resolveReportStarterID(parameters, test.presets)
+			if err == nil {
+				t.Fatalf("expected report starter resolution error")
+			}
+			if resolution != nil {
+				t.Fatalf("unexpected resolution on error: %#v", resolution)
+			}
+			for _, expected := range test.contains {
+				if !strings.Contains(err.Error(), expected) {
+					t.Fatalf("expected error %q to contain %q", err, expected)
+				}
+			}
+			if !reflect.DeepEqual(parameters, snapshot) {
+				t.Fatalf("resolution failure mutated parameters: got=%#v want=%#v", parameters, snapshot)
+			}
+		})
+	}
+}
+
+func TestPrepareOpenItemCanonicalizesRawStarterBeforeBinding(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
+id: report
+title: Report
+windowKey: reportBuilder
+reportBuilderRef: performance
+parameters:
+  - name: reportStarterId
+    bindTo: prefill.reportStarterId
+reportPresets:
+  - id: Alpha_ID
+    label: Alpha Report
+`)
+		parameters := map[string]interface{}{
+			"reportStarterId": "  alpha   REPORT ",
+			"executeOnOpen":   true,
+		}
+		snapshot := cloneMap(parameters)
+		viewSvc := New(repo.New(afs.New()), nil)
+		prepared, err := viewSvc.prepareOpenItem(context.Background(), OpenItem{
+			ID:         "report",
+			Parameters: parameters,
+		})
+		if err != nil {
+			t.Fatalf("prepare open item: %v", err)
+		}
+		if prepared.reportPresetResolution == nil ||
+			prepared.reportPresetResolution.Requested != "alpha   REPORT" ||
+			prepared.reportPresetResolution.ResolvedID != "Alpha_ID" ||
+			prepared.reportPresetResolution.MatchedBy != "label" {
+			t.Fatalf("unexpected report preset resolution: %#v", prepared.reportPresetResolution)
+		}
+		if prepared.windowParameters["reportStarterId"] != "Alpha_ID" {
+			t.Fatalf("canonical starter did not reach top-level Forge parameters: %#v", prepared.windowParameters)
+		}
+		assertNestedValue(t, prepared.windowParameters, "Alpha_ID", "prefill", "reportStarterId")
+		if prepared.windowParameters["reportBuilderRef"] != "performance" {
+			t.Fatalf("report builder reference was not preserved: %#v", prepared.windowParameters)
+		}
+		if !reflect.DeepEqual(parameters, snapshot) {
+			t.Fatalf("preparation mutated caller parameters: got=%#v want=%#v", parameters, snapshot)
+		}
+	})
 }
 
 func TestLoadOneReturnsTypedNotFoundWithAvailableIDs(t *testing.T) {
@@ -384,6 +566,323 @@ workspaceMinHeight: 500
 	})
 }
 
+func TestOpenCanonicalizesReportStarterAcrossCommandOutputAndEvent(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
+id: report
+title: Report
+windowKey: reportBuilder
+presentation: hosted
+reportBuilderRef: performance
+parameters:
+  - name: reportStarterId
+    bindTo: prefill.reportStarterId
+reportPresets:
+  - id: Alpha_ID
+    label: Alpha Report
+`)
+		const conversationID = "conv-report-preset"
+		const clientID = "client-report-preset"
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId":       clientID,
+				"conversationId": conversationID,
+				"selected":       map[string]interface{}{"windowId": "chat/new"},
+				"windows": []interface{}{map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"conversationId": conversationID,
+				}},
+			},
+		})
+		waitForSnapshotEntry(t, bridge, clientID)
+
+		commandDone := make(chan error, 1)
+		go func() {
+			result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": clientID, "timeoutMs": 2_000})
+			request, ok := result["params"].(map[string]interface{})
+			if !ok || request["method"] != "ui.window.open" {
+				commandDone <- fmt.Errorf("unexpected bridge command: %#v", result)
+				return
+			}
+			params, _ := request["params"].(map[string]interface{})
+			windowParameters, _ := params["parameters"].(map[string]interface{})
+			if windowParameters["reportStarterId"] != "Alpha_ID" {
+				commandDone <- fmt.Errorf("missing canonical top-level starter: %#v", windowParameters)
+				return
+			}
+			prefill, _ := windowParameters["prefill"].(map[string]interface{})
+			if prefill["reportStarterId"] != "Alpha_ID" ||
+				windowParameters["reportBuilderRef"] != "performance" ||
+				windowParameters["executeOnOpen"] != true {
+				commandDone <- fmt.Errorf("unexpected canonical command parameters: %#v", windowParameters)
+				return
+			}
+			postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+				"id":     request["id"],
+				"ok":     true,
+				"result": map[string]interface{}{"windowId": params["windowId"]},
+			})
+			commandDone <- nil
+		}()
+
+		parameters := map[string]interface{}{
+			"reportStarterId": "  alpha   report ",
+			"executeOnOpen":   true,
+		}
+		snapshot := cloneMap(parameters)
+		ctx := runtimerequestctx.WithConversationID(context.Background(), conversationID)
+		viewSvc := New(repo.New(afs.New()), bridge)
+		output := &OpenOutput{}
+		if err := viewSvc.open(ctx, &OpenInput{
+			ID:         "report",
+			Parameters: parameters,
+			ClientID:   clientID,
+			TimeoutMs:  2_000,
+		}, output); err != nil {
+			t.Fatalf("open canonical report preset: %v", err)
+		}
+		if err := <-commandDone; err != nil {
+			t.Fatalf("bridge command handling failed: %v", err)
+		}
+		if !reflect.DeepEqual(parameters, snapshot) {
+			t.Fatalf("open mutated caller parameters: got=%#v want=%#v", parameters, snapshot)
+		}
+		if output.Parameters["reportStarterId"] != "Alpha_ID" ||
+			output.ReportPresetResolution == nil ||
+			output.ReportPresetResolution.Requested != "alpha   report" ||
+			output.ReportPresetResolution.ResolvedID != "Alpha_ID" ||
+			output.ReportPresetResolution.MatchedBy != "label" {
+			t.Fatalf("unexpected top-level output: %#v", output)
+		}
+		if len(output.Items) != 1 ||
+			output.Items[0].Parameters["reportStarterId"] != "Alpha_ID" ||
+			!reflect.DeepEqual(output.Items[0].ReportPresetResolution, output.ReportPresetResolution) {
+			t.Fatalf("unexpected per-item output metadata: %#v", output.Items)
+		}
+		encoded, err := json.Marshal(output)
+		if err != nil {
+			t.Fatalf("marshal output: %v", err)
+		}
+		if !strings.Contains(string(encoded), `"reportPresetResolution":{"requested":"alpha   report","resolvedId":"Alpha_ID","matchedBy":"label"}`) {
+			t.Fatalf("protocol output omitted report preset resolution: %s", encoded)
+		}
+
+		events := viewSvc.reg.ListEvents(conversationID, clientID, "", "reportBuilder", 10, 0)
+		if len(events) != 1 || events[0].Kind != "view.open" {
+			t.Fatalf("expected one view.open event, got %#v", events)
+		}
+		eventParameters, _ := events[0].Detail["parameters"].(map[string]interface{})
+		if eventParameters["reportStarterId"] != "Alpha_ID" {
+			t.Fatalf("event did not preserve canonical parameters: %#v", events[0].Detail)
+		}
+		eventResolution, ok := events[0].Detail["reportPresetResolution"].(*viewproto.ReportPresetResolution)
+		if !ok || !reflect.DeepEqual(eventResolution, output.ReportPresetResolution) {
+			t.Fatalf("event did not preserve resolution metadata: %#v", events[0].Detail)
+		}
+	})
+}
+
+func TestOpenReturnsBrowserWindowRejectionWithoutResultOrEvent(t *testing.T) {
+	tests := []struct {
+		name          string
+		responseError string
+		wantError     string
+	}{
+		{
+			name:          "browser error",
+			responseError: "window policy denied the request",
+			wantError:     `ui.window.open rejected for view "report": window policy denied the request`,
+		},
+		{
+			name:          "blank browser error",
+			responseError: " \t ",
+			wantError:     `ui.window.open rejected for view "report": ` + uiWindowOpenRejectionFallbackText,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			withWorkspaceRoot(t, func(root string) {
+				mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
+id: report
+title: Report
+windowKey: reportBuilder
+presentation: hosted
+capabilities:
+  datasource: true
+`)
+				conversationID := "conv-window-rejection-" + strings.ReplaceAll(test.name, " ", "-")
+				clientID := "client-window-rejection-" + strings.ReplaceAll(test.name, " ", "-")
+				bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+				postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+					"clientId": clientID,
+					"data": map[string]interface{}{
+						"clientId":       clientID,
+						"conversationId": conversationID,
+						"windows": []interface{}{map[string]interface{}{
+							"windowId":       "chat/new",
+							"windowKey":      "chat/new",
+							"conversationId": conversationID,
+						}},
+					},
+				})
+
+				commandDone := make(chan error, 1)
+				go func() {
+					result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": clientID, "timeoutMs": 2_000})
+					request, ok := result["params"].(map[string]interface{})
+					if !ok || request["method"] != "ui.window.open" {
+						commandDone <- fmt.Errorf("unexpected bridge command: %#v", result)
+						return
+					}
+					postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+						"id":    request["id"],
+						"ok":    false,
+						"error": test.responseError,
+					})
+					commandDone <- nil
+				}()
+
+				ctx := runtimerequestctx.WithConversationID(context.Background(), conversationID)
+				viewSvc := New(repo.New(afs.New()), bridge)
+				output := &OpenOutput{}
+				err := viewSvc.open(ctx, &OpenInput{
+					ID:        "report",
+					ClientID:  clientID,
+					TimeoutMs: 2_000,
+				}, output)
+				if commandErr := <-commandDone; commandErr != nil {
+					t.Fatalf("bridge command handling failed: %v", commandErr)
+				}
+				if err == nil || err.Error() != test.wantError {
+					t.Fatalf("unexpected open rejection: got=%v want=%q", err, test.wantError)
+				}
+				if output.OK || output.Error != test.wantError {
+					t.Fatalf("expected failed top-level output, got %#v", output)
+				}
+				if len(output.Items) != 0 {
+					t.Fatalf("rejected open must not append a result item: %#v", output.Items)
+				}
+				if events := viewSvc.reg.ListEvents(conversationID, clientID, "", "reportBuilder", 10, 0); len(events) != 0 {
+					t.Fatalf("rejected open must not record view.open event: %#v", events)
+				}
+				assertNoUICommand(t, bridge, clientID)
+			})
+		})
+	}
+}
+
+func TestOpenRejectsInvalidReportStarterBeforeBridgeCommand(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
+id: report
+title: Report
+windowKey: reportBuilder
+reportPresets:
+  - id: Alpha_ID
+    label: Alpha Report
+`)
+		const conversationID = "conv-invalid-preset"
+		const clientID = "client-invalid-preset"
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId":       clientID,
+				"conversationId": conversationID,
+				"windows": []interface{}{map[string]interface{}{
+					"windowId":  "chat/new",
+					"windowKey": "chat/new",
+				}},
+			},
+		})
+
+		parameters := map[string]interface{}{"reportStarterId": "Alpha-Report"}
+		snapshot := cloneMap(parameters)
+		ctx := runtimerequestctx.WithConversationID(context.Background(), conversationID)
+		viewSvc := New(repo.New(afs.New()), bridge)
+		err := viewSvc.open(ctx, &OpenInput{
+			ID:         "report",
+			Parameters: parameters,
+			ClientID:   clientID,
+			TimeoutMs:  50,
+		}, &OpenOutput{})
+		if err == nil || !strings.Contains(err.Error(), `unknown reportStarterId "Alpha-Report"`) ||
+			!strings.Contains(err.Error(), `"Alpha_ID"`) {
+			t.Fatalf("expected actionable report preset error, got %v", err)
+		}
+		if !reflect.DeepEqual(parameters, snapshot) {
+			t.Fatalf("rejected open mutated caller parameters: got=%#v want=%#v", parameters, snapshot)
+		}
+		assertNoUICommand(t, bridge, clientID)
+	})
+}
+
+func TestOpenBatchValidationIsAtomicWhenLaterStarterIsInvalid(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "reportA.yaml"), `
+id: reportA
+title: Report A
+windowKey: reportA
+reportPresets:
+  - id: alpha_id
+    label: Alpha Report
+`)
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "reportB.yaml"), `
+id: reportB
+title: Report B
+windowKey: reportB
+reportPresets:
+  - id: beta_id
+    label: Beta Report
+`)
+		const conversationID = "conv-atomic-preset"
+		const clientID = "client-atomic-preset"
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId":       clientID,
+				"conversationId": conversationID,
+				"windows": []interface{}{map[string]interface{}{
+					"windowId":  "chat/new",
+					"windowKey": "chat/new",
+				}},
+			},
+		})
+
+		firstParameters := map[string]interface{}{"reportStarterId": "Alpha Report"}
+		secondParameters := map[string]interface{}{"reportStarterId": "Missing Report"}
+		input := &OpenInput{
+			ClientID:  clientID,
+			TimeoutMs: 50,
+			Items: []OpenItem{
+				{ID: "reportA", Parameters: firstParameters},
+				{ID: "reportB", Parameters: secondParameters},
+			},
+		}
+		output := &OpenOutput{}
+		ctx := runtimerequestctx.WithConversationID(context.Background(), conversationID)
+		viewSvc := New(repo.New(afs.New()), bridge)
+		err := viewSvc.open(ctx, input, output)
+		if err == nil || !strings.Contains(err.Error(), `unknown reportStarterId "Missing Report"`) ||
+			!strings.Contains(err.Error(), `"beta_id"`) {
+			t.Fatalf("expected actionable later-item error, got %v", err)
+		}
+		if len(output.Items) != 0 {
+			t.Fatalf("batch must not contain partially opened results: %#v", output.Items)
+		}
+		if firstParameters["reportStarterId"] != "Alpha Report" ||
+			secondParameters["reportStarterId"] != "Missing Report" {
+			t.Fatalf("batch validation mutated caller parameters: %#v", input.Items)
+		}
+		assertNoUICommand(t, bridge, clientID)
+	})
+}
+
 func TestOpenReturnsWindowIdVisibleToWindowList(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "forecastingCubeBuilder.yaml"), `
@@ -621,6 +1120,17 @@ func waitForSnapshotEntry(t *testing.T, bridge *forgeuisvc.Service, clientID str
 			t.Fatalf("snapshot for client %q did not become visible", clientID)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func assertNoUICommand(t *testing.T, bridge *forgeuisvc.Service, clientID string) {
+	t.Helper()
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{
+		"clientId":  clientID,
+		"timeoutMs": 5,
+	})
+	if len(result) != 0 {
+		t.Fatalf("expected no queued UI command, got %#v", result)
 	}
 }
 

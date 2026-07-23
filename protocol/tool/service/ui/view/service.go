@@ -17,7 +17,10 @@ import (
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
-const Name = "ui/view"
+const (
+	Name                              = "ui/view"
+	uiWindowOpenRejectionFallbackText = "UI client rejected the window without providing an error message"
+)
 
 type ListInput struct{}
 
@@ -66,34 +69,43 @@ type OpenItem struct {
 }
 
 type OpenOutput struct {
-	ClientID           string                 `json:"clientId,omitempty"`
-	WindowID           string                 `json:"windowId,omitempty"`
-	SelectedWindowID   string                 `json:"selectedWindowId,omitempty"`
-	WindowKey          string                 `json:"windowKey,omitempty"`
-	WindowTitle        string                 `json:"windowTitle,omitempty"`
-	ConversationID     string                 `json:"conversationId,omitempty"`
-	Presentation       string                 `json:"presentation,omitempty"`
-	Region             string                 `json:"region,omitempty"`
-	ParentKey          string                 `json:"parentKey,omitempty"`
-	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
-	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
-	Parameters         map[string]interface{} `json:"parameters,omitempty"`
-	Items              []OpenResultItem       `json:"items,omitempty"`
-	OK                 bool                   `json:"ok,omitempty"`
-	Error              string                 `json:"error,omitempty"`
+	ClientID               string                            `json:"clientId,omitempty"`
+	WindowID               string                            `json:"windowId,omitempty"`
+	SelectedWindowID       string                            `json:"selectedWindowId,omitempty"`
+	WindowKey              string                            `json:"windowKey,omitempty"`
+	WindowTitle            string                            `json:"windowTitle,omitempty"`
+	ConversationID         string                            `json:"conversationId,omitempty"`
+	Presentation           string                            `json:"presentation,omitempty"`
+	Region                 string                            `json:"region,omitempty"`
+	ParentKey              string                            `json:"parentKey,omitempty"`
+	WorkspaceSharePct      int                               `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight     int                               `json:"workspaceMinHeight,omitempty"`
+	Parameters             map[string]interface{}            `json:"parameters,omitempty"`
+	ReportPresetResolution *viewproto.ReportPresetResolution `json:"reportPresetResolution,omitempty"`
+	Items                  []OpenResultItem                  `json:"items,omitempty"`
+	OK                     bool                              `json:"ok,omitempty"`
+	Error                  string                            `json:"error,omitempty"`
 }
 
 type OpenResultItem struct {
-	WindowID           string                 `json:"windowId,omitempty"`
-	WindowKey          string                 `json:"windowKey,omitempty"`
-	WindowTitle        string                 `json:"windowTitle,omitempty"`
-	ConversationID     string                 `json:"conversationId,omitempty"`
-	Presentation       string                 `json:"presentation,omitempty"`
-	Region             string                 `json:"region,omitempty"`
-	ParentKey          string                 `json:"parentKey,omitempty"`
-	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
-	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
-	Parameters         map[string]interface{} `json:"parameters,omitempty"`
+	WindowID               string                            `json:"windowId,omitempty"`
+	WindowKey              string                            `json:"windowKey,omitempty"`
+	WindowTitle            string                            `json:"windowTitle,omitempty"`
+	ConversationID         string                            `json:"conversationId,omitempty"`
+	Presentation           string                            `json:"presentation,omitempty"`
+	Region                 string                            `json:"region,omitempty"`
+	ParentKey              string                            `json:"parentKey,omitempty"`
+	WorkspaceSharePct      int                               `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight     int                               `json:"workspaceMinHeight,omitempty"`
+	Parameters             map[string]interface{}            `json:"parameters,omitempty"`
+	ReportPresetResolution *viewproto.ReportPresetResolution `json:"reportPresetResolution,omitempty"`
+}
+
+type preparedOpenItem struct {
+	item                   *ListItem
+	openMode               string
+	windowParameters       map[string]interface{}
+	reportPresetResolution *viewproto.ReportPresetResolution
 }
 
 type Service struct {
@@ -145,7 +157,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List workspace-defined dynamic UI views that can be opened for the user.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a workspace-defined dynamic UI view by id.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "open", Description: "Open one or more workspace-defined dynamic UI views for the active conversation and wait for the UI to acknowledge the request. For a single open, provide id plus parameters. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
+		{Name: "open", Description: "Open one or more workspace-defined dynamic UI views for the active conversation and wait for the UI to acknowledge the request. For a single open, provide id plus parameters. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique human label, or the reserved __blank__ value.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
 	}
 }
 
@@ -226,24 +238,39 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = true
 	output.Items = make([]OpenResultItem, 0, len(items))
+	preparedItems := make([]*preparedOpenItem, 0, len(items))
 	for _, item := range items {
-		resolved, openErr := s.openResolvedItem(ctx, clientID, namespace, conversationID, item, timeout)
+		prepared, prepareErr := s.prepareOpenItem(ctx, item)
+		if prepareErr != nil {
+			var notFound *viewNotFoundError
+			if errors.As(prepareErr, &notFound) {
+				s.recordInvalidWorkspaceIDEvent(namespace, clientID, conversationID, notFound)
+			}
+			output.OK = false
+			output.Error = prepareErr.Error()
+			return prepareErr
+		}
+		preparedItems = append(preparedItems, prepared)
+	}
+	for _, prepared := range preparedItems {
+		resolved, openErr := s.openPreparedItem(ctx, clientID, namespace, conversationID, prepared, timeout)
 		if openErr != nil {
 			output.OK = false
 			output.Error = openErr.Error()
 			return openErr
 		}
 		output.Items = append(output.Items, OpenResultItem{
-			WindowID:           resolved.WindowID,
-			WindowKey:          resolved.WindowKey,
-			WindowTitle:        resolved.WindowTitle,
-			ConversationID:     resolved.ConversationID,
-			Presentation:       resolved.Presentation,
-			Region:             resolved.Region,
-			ParentKey:          resolved.ParentKey,
-			WorkspaceSharePct:  resolved.WorkspaceSharePct,
-			WorkspaceMinHeight: resolved.WorkspaceMinHeight,
-			Parameters:         resolved.Parameters,
+			WindowID:               resolved.WindowID,
+			WindowKey:              resolved.WindowKey,
+			WindowTitle:            resolved.WindowTitle,
+			ConversationID:         resolved.ConversationID,
+			Presentation:           resolved.Presentation,
+			Region:                 resolved.Region,
+			ParentKey:              resolved.ParentKey,
+			WorkspaceSharePct:      resolved.WorkspaceSharePct,
+			WorkspaceMinHeight:     resolved.WorkspaceMinHeight,
+			Parameters:             resolved.Parameters,
+			ReportPresetResolution: resolved.ReportPresetResolution,
 		})
 	}
 	if len(output.Items) > 0 {
@@ -259,6 +286,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 		output.WorkspaceSharePct = selected.WorkspaceSharePct
 		output.WorkspaceMinHeight = selected.WorkspaceMinHeight
 		output.Parameters = selected.Parameters
+		output.ReportPresetResolution = selected.ReportPresetResolution
 	}
 	return nil
 }
@@ -322,7 +350,7 @@ func clientNamespaceFromSnapshots(clients []uireg.ClientSnapshot, clientID strin
 }
 
 func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, conversationID string, input OpenItem, timeout int) (*OpenOutput, error) {
-	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
+	prepared, err := s.prepareOpenItem(ctx, input)
 	if err != nil {
 		var notFound *viewNotFoundError
 		if errors.As(err, &notFound) {
@@ -330,15 +358,47 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 		}
 		return nil, err
 	}
-	windowParameters := expandOpenParameters(item.Parameters, input.Parameters)
+	return s.openPreparedItem(ctx, clientID, namespace, conversationID, prepared, timeout)
+}
+
+func (s *Service) prepareOpenItem(ctx context.Context, input OpenItem) (*preparedOpenItem, error) {
+	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
+	if err != nil {
+		return nil, err
+	}
+	rawParameters := cloneMap(input.Parameters)
+	reportPresetResolution, err := resolveReportStarterID(rawParameters, item.ReportPresets)
+	if err != nil {
+		return nil, fmt.Errorf("invalid parameters for view %q: %w", item.ID, err)
+	}
+	if missing := missingRequiredParameters(item.Parameters, rawParameters); len(missing) > 0 {
+		return nil, fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
+	}
+	windowParameters := expandOpenParameters(item.Parameters, rawParameters)
+	if reportPresetResolution != nil {
+		// Forge consumes reportStarterId as a top-level window parameter even
+		// when a workspace parameter declaration also binds it elsewhere.
+		windowParameters["reportStarterId"] = reportPresetResolution.ResolvedID
+	}
 	if builderRef := strings.TrimSpace(item.ReportBuilderRef); builderRef != "" {
 		if _, ok := windowParameters["reportBuilderRef"]; !ok {
 			windowParameters["reportBuilderRef"] = builderRef
 		}
 	}
-	if missing := missingRequiredParameters(item.Parameters, input.Parameters); len(missing) > 0 {
-		return nil, fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
+	return &preparedOpenItem{
+		item:                   item,
+		openMode:               input.OpenMode,
+		windowParameters:       windowParameters,
+		reportPresetResolution: reportPresetResolution,
+	}, nil
+}
+
+func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, conversationID string, prepared *preparedOpenItem, timeout int) (*OpenOutput, error) {
+	if prepared == nil || prepared.item == nil {
+		return nil, fmt.Errorf("prepared view item is required")
 	}
+	item := prepared.item
+	windowParameters := prepared.windowParameters
 	windowID := computeWindowID(item.WindowKey, windowParameters, conversationID, item)
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
@@ -349,26 +409,34 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
 			"parameters":  windowParameters,
-			"options":     buildOpenWindowOptions(item, conversationID, input.OpenMode),
+			"options":     buildOpenWindowOptions(item, conversationID, prepared.openMode),
 		},
 		TimeoutMs: timeout,
 	})
 	if err != nil {
 		return nil, err
 	}
+	if !resp.OK {
+		rejection := strings.TrimSpace(resp.Error)
+		if rejection == "" {
+			rejection = uiWindowOpenRejectionFallbackText
+		}
+		return nil, fmt.Errorf("ui.window.open rejected for view %q: %s", strings.TrimSpace(item.ID), rejection)
+	}
 	output := &OpenOutput{
-		ClientID:           clientID,
-		WindowKey:          item.WindowKey,
-		WindowTitle:        item.Title,
-		ConversationID:     conversationID,
-		Presentation:       strings.TrimSpace(item.Presentation),
-		Region:             strings.TrimSpace(item.Region),
-		ParentKey:          parentKeyForPresentation(item),
-		WorkspaceSharePct:  item.WorkspaceSharePct,
-		WorkspaceMinHeight: item.WorkspaceMinHeight,
-		Parameters:         windowParameters,
-		OK:                 resp.OK,
-		Error:              resp.Error,
+		ClientID:               clientID,
+		WindowKey:              item.WindowKey,
+		WindowTitle:            item.Title,
+		ConversationID:         conversationID,
+		Presentation:           strings.TrimSpace(item.Presentation),
+		Region:                 strings.TrimSpace(item.Region),
+		ParentKey:              parentKeyForPresentation(item),
+		WorkspaceSharePct:      item.WorkspaceSharePct,
+		WorkspaceMinHeight:     item.WorkspaceMinHeight,
+		Parameters:             windowParameters,
+		ReportPresetResolution: prepared.reportPresetResolution,
+		OK:                     resp.OK,
+		Error:                  resp.Error,
 	}
 	if len(resp.Result) > 0 {
 		var payload map[string]interface{}
@@ -392,6 +460,13 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 			return nil, refreshErr
 		}
 	}
+	eventDetail := map[string]interface{}{
+		"viewId":     strings.TrimSpace(item.ID),
+		"parameters": windowParameters,
+	}
+	if prepared.reportPresetResolution != nil {
+		eventDetail["reportPresetResolution"] = prepared.reportPresetResolution
+	}
 	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
 		ConversationID: conversationID,
 		ClientID:       clientID,
@@ -399,12 +474,102 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 		WindowKey:      strings.TrimSpace(item.WindowKey),
 		Kind:           "view.open",
 		Actor:          "agent",
-		Detail: map[string]interface{}{
-			"viewId":     strings.TrimSpace(item.ID),
-			"parameters": windowParameters,
-		},
+		Detail:         eventDetail,
 	})
 	return output, nil
+}
+
+func resolveReportStarterID(parameters map[string]interface{}, presets []viewproto.ReportPreset) (*viewproto.ReportPresetResolution, error) {
+	raw, ok := parameters["reportStarterId"]
+	if !ok {
+		return nil, nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("reportStarterId must be a string; available canonical IDs: %s", formatReportPresetIDs(reportPresetIDs(presets)))
+	}
+	requested := strings.TrimSpace(value)
+	if requested == "" {
+		delete(parameters, "reportStarterId")
+		return nil, nil
+	}
+	if requested == "__blank__" {
+		parameters["reportStarterId"] = requested
+		return &viewproto.ReportPresetResolution{Requested: requested, ResolvedID: requested, MatchedBy: "reserved"}, nil
+	}
+
+	idMatches := matchingReportPresetsByID(requested, presets)
+	if len(idMatches) == 1 {
+		resolvedID := idMatches[0].ID
+		parameters["reportStarterId"] = resolvedID
+		return &viewproto.ReportPresetResolution{Requested: requested, ResolvedID: resolvedID, MatchedBy: "id"}, nil
+	}
+	if len(idMatches) > 1 {
+		return nil, fmt.Errorf("reportStarterId %q matches multiple canonical IDs case-insensitively: %s; retry with an unambiguous canonical ID", requested, formatReportPresetIDs(reportPresetIDs(idMatches)))
+	}
+
+	labelMatches := matchingReportPresetsByLabel(requested, presets)
+	if len(labelMatches) == 1 {
+		resolvedID := labelMatches[0].ID
+		parameters["reportStarterId"] = resolvedID
+		return &viewproto.ReportPresetResolution{Requested: requested, ResolvedID: resolvedID, MatchedBy: "label"}, nil
+	}
+	if len(labelMatches) > 1 {
+		return nil, fmt.Errorf("reportStarterId label %q is ambiguous; matching canonical IDs: %s; retry with a canonical ID", requested, formatReportPresetIDs(reportPresetIDs(labelMatches)))
+	}
+	return nil, fmt.Errorf("unknown reportStarterId %q; available canonical IDs: %s; retry with a canonical ID", requested, formatReportPresetIDs(reportPresetIDs(presets)))
+}
+
+func matchingReportPresetsByID(requested string, presets []viewproto.ReportPreset) []viewproto.ReportPreset {
+	result := make([]viewproto.ReportPreset, 0, 1)
+	for _, preset := range presets {
+		if strings.TrimSpace(preset.ID) == "" || !strings.EqualFold(requested, strings.TrimSpace(preset.ID)) {
+			continue
+		}
+		result = append(result, preset)
+	}
+	return result
+}
+
+func matchingReportPresetsByLabel(requested string, presets []viewproto.ReportPreset) []viewproto.ReportPreset {
+	normalizedRequested := normalizeReportPresetLabel(requested)
+	result := make([]viewproto.ReportPreset, 0, 1)
+	for _, preset := range presets {
+		if strings.TrimSpace(preset.ID) == "" {
+			continue
+		}
+		normalizedLabel := normalizeReportPresetLabel(preset.Label)
+		if normalizedLabel != "" && strings.EqualFold(normalizedRequested, normalizedLabel) {
+			result = append(result, preset)
+		}
+	}
+	return result
+}
+
+func normalizeReportPresetLabel(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func reportPresetIDs(presets []viewproto.ReportPreset) []string {
+	result := make([]string, 0, len(presets))
+	for _, preset := range presets {
+		if strings.TrimSpace(preset.ID) != "" {
+			result = append(result, preset.ID)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func formatReportPresetIDs(ids []string) string {
+	if len(ids) == 0 {
+		return "(none)"
+	}
+	quoted := make([]string, 0, len(ids))
+	for _, id := range ids {
+		quoted = append(quoted, fmt.Sprintf("%q", id))
+	}
+	return strings.Join(quoted, ", ")
 }
 
 func (s *Service) recordInvalidWorkspaceIDEvent(namespace, clientID, conversationID string, notFound *viewNotFoundError) {
