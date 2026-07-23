@@ -23,10 +23,10 @@
       "diagnostics": []
     },
     {
-      "name": "rejected-sequence-is-consumed",
+      "name": "rejected-sequence-blocks-commit",
       "content": "```forge-report\n{\"version\":1,\"id\":\"brief\",\"sequence\":1,\"mode\":\"start\",\"blocks\":[]}\n```\n```forge-report\n{\"version\":1,\"id\":\"brief\",\"sequence\":2,\"mode\":\"append\",\"blocks\":[{\"kind\":\"dashboard.table\"}]}\n```\n```forge-report\n{\"version\":1,\"id\":\"brief\",\"sequence\":3,\"mode\":\"append\",\"blocks\":[{\"id\":\"table\",\"kind\":\"dashboard.table\"}]}\n```",
-      "reports": [{ "scope": "message", "id": "brief", "grammar": "dashboard-v1", "status": "committed", "sequence": 3, "blockCount": 1, "dataSourceCount": 0 }],
-      "diagnostics": ["REPORT_TRANSACTION_INVALID"]
+      "reports": [{ "scope": "message", "id": "brief", "grammar": "dashboard-v1", "status": "incomplete", "sequence": 3, "blockCount": 1, "dataSourceCount": 0 }],
+      "diagnostics": ["REPORT_TRANSACTION_INVALID", "REPORT_SEQUENCE_GAP"]
     }
   ]
 }

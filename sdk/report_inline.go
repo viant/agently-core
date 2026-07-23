@@ -125,10 +125,13 @@ func assembleRenderedReports(parts []*RenderedContentPart, complete bool) ([]*Re
 			}
 			state.fragments++
 			if state.fragments > maxInlineReportFragments {
+				delete(state.seen, data.Sequence)
+				state.fragments--
 				warnings = append(warnings, inlineWarning("REPORT_FRAGMENT_LIMIT_EXCEEDED", "An inline report may contain at most 64 transactions.", state.assembly.ID, data.Sequence, "forge-data", "sequence"))
 				continue
 			}
 			previousData := cloneInlineDataSources(state.assembly.DataSources)
+			accepted := false
 			if err := validateInlineEnvelopeFields(part.Payload, inlineDataEnvelopeFields, "forge-data"); err != nil {
 				state.assembly.DataSources = previousData
 				warnings = append(warnings, inlineWarning("REPORT_DATA_INVALID", err.Error(), state.assembly.ID, data.Sequence, "forge-data", "$", "", data.ID))
@@ -141,6 +144,12 @@ func assembleRenderedReports(parts []*RenderedContentPart, complete bool) ([]*Re
 			} else if err := validateInlineDataLimits(states); err != nil {
 				state.assembly.DataSources = previousData
 				warnings = append(warnings, inlineWarning("REPORT_DATA_LIMIT_EXCEEDED", err.Error(), state.assembly.ID, data.Sequence, "forge-data", "data", "", data.ID))
+			} else {
+				accepted = true
+			}
+			if !accepted {
+				delete(state.seen, data.Sequence)
+				state.fragments--
 			}
 			continue
 		}
@@ -164,6 +173,8 @@ func assembleRenderedReports(parts []*RenderedContentPart, complete bool) ([]*Re
 		}
 		state.fragments++
 		if state.fragments > maxInlineReportFragments {
+			delete(state.seen, tx.Sequence)
+			state.fragments--
 			warnings = append(warnings, inlineWarning("REPORT_FRAGMENT_LIMIT_EXCEEDED", "An inline report may contain at most 64 transactions.", state.assembly.ID, tx.Sequence, "forge-report", "sequence"))
 			continue
 		}
@@ -178,6 +189,8 @@ func assembleRenderedReports(parts []*RenderedContentPart, complete bool) ([]*Re
 			err = validateInlineReportState(state)
 		}
 		if err != nil {
+			delete(state.seen, tx.Sequence)
+			state.fragments--
 			if tx.Mode != "commit" {
 				state.source = previousSource
 				state.started = previousStarted
