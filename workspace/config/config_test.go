@@ -93,6 +93,23 @@ default:
 	}
 }
 
+func TestRootForgeReportingRoot(t *testing.T) {
+	root := &Root{}
+	if err := yaml.Unmarshal([]byte(`
+forge:
+  reporting:
+    root: custom/forge/reports
+`), root); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if got := root.ForgeReportingRoot(); got != "custom/forge/reports" {
+		t.Fatalf("ForgeReportingRoot() = %q", got)
+	}
+	if got := (*Root)(nil).ForgeReportingRoot(); got != "" {
+		t.Fatalf("nil ForgeReportingRoot() = %q", got)
+	}
+}
+
 func TestGoalsEnabled(t *testing.T) {
 	testCases := []struct {
 		name     string

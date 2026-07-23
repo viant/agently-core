@@ -9,7 +9,35 @@ import (
 
 	"github.com/viant/agently-core/workspace"
 	metaSvc "github.com/viant/forge/backend/service/meta"
+	forgeTypes "github.com/viant/forge/backend/types"
 )
+
+func TestLoadWorkspaceWindowAppliesRegisteredEnricher(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "reportBuilder.yaml"), `
+namespace: Reports
+view:
+  content:
+    id: reportBuilder
+    kind: dashboard.reportBuilder
+`)
+		calls := 0
+		cleanup := SetWorkspaceWindowEnricher(func(_ context.Context, window *forgeTypes.Window) error {
+			calls++
+			window.View.Content.Title = "Discovered report"
+			return nil
+		})
+		defer cleanup()
+
+		got, err := LoadWorkspaceWindow(context.Background(), "reportBuilder", nil)
+		if err != nil {
+			t.Fatalf("load workspace window: %v", err)
+		}
+		if calls != 1 || got == nil || got.View.Content == nil || got.View.Content.Title != "Discovered report" {
+			t.Fatalf("expected registered enricher to update window once, calls=%d window=%#v", calls, got)
+		}
+	})
+}
 
 func TestLoadWorkspaceWindowPreservesImportedTargetOverrides(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
@@ -299,6 +327,40 @@ $import('../shared/main.yaml')
 		}
 		if strings.TrimSpace(got.Actions.Code) == "" {
 			t.Fatalf("expected root sibling action code to load for browser-targeted folderized workspace window")
+		}
+	})
+}
+
+func TestLoadWorkspaceWindowMergesDeclaredActionRefs(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		base := filepath.Join(root, workspace.KindForgeWindow, "reportBuilder")
+		mustWriteLoaderFile(t, filepath.Join(base, "shared", "main.yaml"), `
+namespace: Reports
+presentation: hosted
+region: chat.top
+view:
+  content:
+    id: reportBuilder
+    kind: dashboard.reportBuilder
+    reportBuilder:
+      actionRefs: [performanceHooks, forecastingHooks]
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "performanceHooks.js"), `(() => ({ performance: { buildRequest() { return {}; } } }))()`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "forecastingHooks.js"), `(() => ({ forecasting: { buildRequest() { return {}; } } }))()`)
+
+		got, err := LoadWorkspaceWindow(context.Background(), "reportBuilder", &metaSvc.TargetContext{
+			Platform:   "web",
+			FormFactor: "desktop",
+			Surface:    "browser",
+		})
+		if err != nil {
+			t.Fatalf("load workspace window: %v", err)
+		}
+		if got == nil || got.Actions == nil {
+			t.Fatalf("expected merged action code, got %#v", got)
+		}
+		if !strings.Contains(got.Actions.Code, "performance") || !strings.Contains(got.Actions.Code, "forecasting") {
+			t.Fatalf("expected both action refs in merged code, got %q", got.Actions.Code)
 		}
 	})
 }

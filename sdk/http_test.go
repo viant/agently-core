@@ -1192,11 +1192,15 @@ type spyTranscriptClient struct {
 	gotOptions    []TranscriptOption
 	gotPayloadIDs []string
 	payloads      map[string]*conversation.Payload
+	transcript    *ConversationStateResponse
 }
 
 func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
 	s.gotInput = input
 	s.gotOptions = options
+	if s.transcript != nil {
+		return s.transcript, nil
+	}
 	return &ConversationStateResponse{SchemaVersion: "2", Conversation: &ConversationState{}}, nil
 }
 
@@ -1239,6 +1243,53 @@ func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {
 	}
 	if spy.gotInput.Since != "m1" || !spy.gotInput.IncludeModelCalls || !spy.gotInput.IncludeToolCalls {
 		t.Fatalf("unexpected transcript input: %#v", spy.gotInput)
+	}
+}
+
+func TestHandler_GetTranscript_HydratesPersistedInlineReports(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	content := "```forge-data\n" +
+		`{"version":2,"scope":"delivery","reportRef":"brief","id":"rows","sequence":1,"format":"json","mode":"replace","data":[{"spend":12}]}` +
+		"\n```\n```forge-report\n" +
+		`{"version":1,"scope":"delivery","id":"brief","sequence":2,"mode":"start","title":"Delivery","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"rows"}]}` +
+		"\n```\n```forge-report\n" +
+		`{"version":1,"scope":"delivery","id":"brief","sequence":3,"mode":"commit"}` +
+		"\n```"
+	spy := &spyTranscriptClient{
+		HTTPClient: base,
+		transcript: &ConversationStateResponse{
+			SchemaVersion: "2",
+			Conversation: &ConversationState{
+				ConversationID: "c1",
+				Turns: []*TurnState{{
+					Messages: []*TurnMessageState{{Role: "assistant", Content: content}},
+				}},
+			},
+		},
+	}
+	handler := NewHandler(spy)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/transcript", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var out ConversationStateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	message := out.Conversation.Turns[0].Messages[0]
+	if message.RenderedContent == nil || len(message.RenderedContent.Reports) != 1 {
+		t.Fatalf("expected one hydrated report, got %#v", message.RenderedContent)
+	}
+	report := message.RenderedContent.Reports[0]
+	if report.ID != "brief" || report.Status != "committed" {
+		t.Fatalf("unexpected report assembly: %#v", report)
 	}
 }
 

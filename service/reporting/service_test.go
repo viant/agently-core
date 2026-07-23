@@ -536,10 +536,8 @@ func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *t
 		Title:          "Inline delivery",
 		ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"inline-delivery"}`),
 		ReportSpec:     json.RawMessage(validTestReportSpecJSON()),
-		ReportFill:     json.RawMessage(validTestReportFillJSON()),
-		ReportPrint:    json.RawMessage(validTestReportPrintJSON()),
 		CompileState:   json.RawMessage(`{"status":"clean"}`),
-		Metadata:       json.RawMessage(`{"source":"inline","scope":"message"}`),
+		Metadata:       json.RawMessage(`{"source":"inline","scope":"message","reusableDataSources":true,"resolvedDataSourceRefs":["demo"]}`),
 	}
 
 	_, err := svc.SaveReport(context.Background(), request)
@@ -547,14 +545,30 @@ func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *t
 
 	ctx := authsvc.InjectUser(context.Background(), "owner-inline")
 	incomplete := *request
-	incomplete.ReportPrint = nil
+	incomplete.ReportDocument = nil
 	_, err = svc.SaveReport(ctx, &incomplete)
-	require.EqualError(t, err, "report store: committed inline report requires valid reportPrint")
+	require.EqualError(t, err, "report store: committed inline report requires valid reportDocument")
 
 	stale := *request
 	stale.CompileState = json.RawMessage(`{"status":"stale"}`)
 	_, err = svc.SaveReport(ctx, &stale)
 	require.EqualError(t, err, "report store: committed inline report requires clean compileState")
+
+	materialized := *request
+	materialized.ReportFill = json.RawMessage(validTestReportFillJSON())
+	_, err = svc.SaveReport(ctx, &materialized)
+	require.EqualError(t, err, "report store: inline promotion must not persist materialized runtime rows")
+
+	unresolved := *request
+	unresolved.Metadata = json.RawMessage(`{"source":"inline","reusableDataSources":true,"resolvedDataSourceRefs":[]}`)
+	_, err = svc.SaveReport(ctx, &unresolved)
+	require.EqualError(t, err, `report store: inline promotion data source "demo" was not resolved by the workspace`)
+
+	staticSource := *request
+	staticSource.ReportSpec = json.RawMessage(`{"kind":"reportSpec","datasets":[{"id":"rows","dataSourceRef":"static_json_rows","request":{"kind":"staticJson"}}]}`)
+	staticSource.Metadata = json.RawMessage(`{"source":"inline","reusableDataSources":true,"resolvedDataSourceRefs":["static_json_rows"]}`)
+	_, err = svc.SaveReport(ctx, &staticSource)
+	require.EqualError(t, err, `report store: inline promotion dataset "rows" is not backed by a reusable workspace data source`)
 
 	saved, err := svc.SaveReport(ctx, request)
 	require.NoError(t, err)
@@ -575,9 +589,8 @@ func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *t
 		Format: ExportFormatPDF,
 		Source: &ExportSource{Kind: "report", ArtifactID: saved.ArtifactID},
 	})
-	require.NoError(t, err)
-	require.Equal(t, ExportScopeSavedPayload, job.Scope)
-	require.JSONEq(t, string(request.ReportPrint), string(job.ReportPrint))
+	require.Nil(t, job)
+	require.EqualError(t, err, "reporting export: reportPrint is required for pdf export")
 }
 
 func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {

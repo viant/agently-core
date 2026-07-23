@@ -29,8 +29,10 @@ type ListItem struct {
 	Presentation       string                   `json:"presentation,omitempty"`
 	Region             string                   `json:"region,omitempty"`
 	OpenMode           string                   `json:"openMode,omitempty"`
+	IdentityScope      string                   `json:"identityScope,omitempty"`
 	WorkspaceSharePct  int                      `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int                      `json:"workspaceMinHeight,omitempty"`
+	ReportBuilderRef   string                   `json:"reportBuilderRef,omitempty"`
 	Parameters         []viewproto.Parameter    `json:"parameters,omitempty"`
 	ReportPresets      []viewproto.ReportPreset `json:"reportPresets,omitempty"`
 	Capabilities       viewproto.Capabilities   `json:"capabilities,omitempty"`
@@ -95,9 +97,20 @@ type OpenResultItem struct {
 }
 
 type Service struct {
-	repo   *repo.Repository
-	bridge *forgeuisvc.Service
-	reg    *uireg.Registry
+	repo         *repo.Repository
+	bridge       *forgeuisvc.Service
+	reg          *uireg.Registry
+	itemEnricher ListItemEnricher
+}
+
+type ListItemEnricher func(context.Context, *ListItem) error
+
+type Option func(*Service)
+
+func WithListItemEnricher(enricher ListItemEnricher) Option {
+	return func(service *Service) {
+		service.itemEnricher = enricher
+	}
 }
 
 type viewNotFoundError struct {
@@ -112,12 +125,18 @@ func (e *viewNotFoundError) Error() string {
 	return fmt.Sprintf("ui view %q not found; available views: %s", e.id, strings.Join(e.available, ", "))
 }
 
-func New(repository *repo.Repository, bridge *forgeuisvc.Service) *Service {
-	return &Service{
+func New(repository *repo.Repository, bridge *forgeuisvc.Service, options ...Option) *Service {
+	result := &Service{
 		repo:   repository,
 		bridge: bridge,
 		reg:    uireg.New(bridge),
 	}
+	for _, option := range options {
+		if option != nil {
+			option(result)
+		}
+	}
+	return result
 }
 
 func (s *Service) Name() string { return Name }
@@ -252,7 +271,7 @@ func (s *Service) resolveOpenClient(ctx context.Context, requestedClientID strin
 	if conversationID == "" {
 		return "", "", "", fmt.Errorf("conversation id is required")
 	}
-	clients, err := s.reg.ListByConversation(ctx, conversationID)
+	clients, err := s.reg.ListAttachedByConversation(ctx, conversationID)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -312,6 +331,11 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 		return nil, err
 	}
 	windowParameters := expandOpenParameters(item.Parameters, input.Parameters)
+	if builderRef := strings.TrimSpace(item.ReportBuilderRef); builderRef != "" {
+		if _, ok := windowParameters["reportBuilderRef"]; !ok {
+			windowParameters["reportBuilderRef"] = builderRef
+		}
+	}
 	if missing := missingRequiredParameters(item.Parameters, input.Parameters); len(missing) > 0 {
 		return nil, fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
 	}
@@ -460,7 +484,7 @@ func computeWindowID(windowKey string, parameters map[string]interface{}, conver
 	if base == "" {
 		return ""
 	}
-	if len(parameters) > 0 {
+	if len(parameters) > 0 && !strings.EqualFold(strings.TrimSpace(item.IdentityScope), "conversation") {
 		base = fmt.Sprintf("%s_%d", base, generateIntHash(parameters))
 	}
 	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
@@ -520,7 +544,7 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 		if spec == nil {
 			continue
 		}
-		items = append(items, ListItem{
+		item := ListItem{
 			ID:                 strings.TrimSpace(spec.ID),
 			Title:              strings.TrimSpace(spec.Title),
 			Description:        strings.TrimSpace(spec.Description),
@@ -528,12 +552,20 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			Presentation:       strings.TrimSpace(spec.Presentation),
 			Region:             strings.TrimSpace(spec.Region),
 			OpenMode:           strings.TrimSpace(spec.OpenMode),
+			IdentityScope:      strings.TrimSpace(spec.IdentityScope),
 			WorkspaceSharePct:  spec.WorkspaceSharePct,
 			WorkspaceMinHeight: spec.WorkspaceMinHeight,
+			ReportBuilderRef:   strings.TrimSpace(spec.ReportBuilderRef),
 			Parameters:         append([]viewproto.Parameter(nil), spec.Parameters...),
 			ReportPresets:      append([]viewproto.ReportPreset(nil), spec.ReportPresets...),
 			Capabilities:       spec.Capabilities,
-		})
+		}
+		if s.itemEnricher != nil {
+			if err := s.itemEnricher(ctx, &item); err != nil {
+				return nil, err
+			}
+		}
+		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Title != items[j].Title {

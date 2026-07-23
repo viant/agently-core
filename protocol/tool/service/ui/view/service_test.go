@@ -308,6 +308,49 @@ reportPresets:
 	})
 }
 
+func TestComputeWindowIDConversationIdentityIgnoresReportSourceParameters(t *testing.T) {
+	item := &ListItem{
+		WindowKey:     "reportBuilder",
+		Presentation:  "hosted",
+		IdentityScope: "conversation",
+	}
+	primary := computeWindowID("reportBuilder", map[string]interface{}{
+		"reportBuilderRef": "primary",
+		"orderIds":         []interface{}{2680567},
+	}, "conv-1", item)
+	secondary := computeWindowID("reportBuilder", map[string]interface{}{
+		"reportBuilderRef": "secondary",
+		"audienceIds":      []interface{}{7113447},
+	}, "conv-1", item)
+	if primary != "reportBuilder__conv-1" || secondary != primary {
+		t.Fatalf("expected one conversation-scoped report window, got primary=%q secondary=%q", primary, secondary)
+	}
+}
+
+func TestServiceLoadAll_EnrichesReportPresetsFromBuilderReference(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
+id: report
+title: Report
+windowKey: report
+reportBuilderRef: performance
+`)
+		svc := New(repo.New(afs.New()), nil, WithListItemEnricher(func(_ context.Context, item *ListItem) error {
+			if item.ReportBuilderRef == "performance" {
+				item.ReportPresets = []viewproto.ReportPreset{{ID: "command_center", Label: "Command Center"}}
+			}
+			return nil
+		}))
+		items, err := svc.loadAll(context.Background())
+		if err != nil {
+			t.Fatalf("loadAll failed: %v", err)
+		}
+		if len(items) != 1 || items[0].ReportBuilderRef != "performance" || len(items[0].ReportPresets) != 1 {
+			t.Fatalf("expected registry-enriched report view, got %#v", items)
+		}
+	})
+}
+
 func TestServiceLoadAll_LoadsImportOnlyForgeViewSpecs(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "order.yaml"), `
