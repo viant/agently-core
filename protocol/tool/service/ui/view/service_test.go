@@ -182,40 +182,79 @@ func TestResolveReportStarterIDRejectsInvalidValues(t *testing.T) {
 		name      string
 		requested interface{}
 		presets   []viewproto.ReportPreset
-		contains  []string
+		wantError string
 	}{
 		{
-			name:      "unknown does not slugify or guess",
+			name:      "unknown lists stable sorted nonblank labels",
 			requested: "Alpha-Report",
 			presets: []viewproto.ReportPreset{
-				{ID: "zeta_id", Label: "Zeta"},
-				{ID: "alpha_id", Label: "Alpha Report"},
+				{ID: "secret_zeta_id", Label: " Zeta "},
+				{ID: "secret_blank_id", Label: " \t "},
+				{ID: "secret_alpha_id", Label: "  Alpha   Report  "},
 			},
-			contains: []string{"unknown reportStarterId", `"alpha_id"`, `"zeta_id"`},
+			wantError: `unknown reportStarterId "Alpha-Report"; available preset labels: "Alpha Report", "Zeta"; retry with a listed label or inspect ui/view:get`,
 		},
 		{
 			name:      "ambiguous normalized label",
 			requested: " shared  label ",
 			presets: []viewproto.ReportPreset{
-				{ID: "second_id", Label: "SHARED LABEL"},
-				{ID: "first_id", Label: "Shared   Label"},
+				{ID: "secret_second_id", Label: "SHARED LABEL"},
+				{ID: "secret_first_id", Label: "Shared   Label"},
 			},
-			contains: []string{"ambiguous", `"first_id"`, `"second_id"`},
+			wantError: `reportStarterId label "shared  label" is ambiguous; inspect ui/view:get for the preset catalog and use an unambiguous canonical ID`,
 		},
 		{
 			name:      "non string",
 			requested: 42,
-			presets:   []viewproto.ReportPreset{{ID: "alpha_id", Label: "Alpha Report"}},
-			contains:  []string{"must be a string", `"alpha_id"`},
+			presets: []viewproto.ReportPreset{
+				{ID: "secret_beta_id", Label: "beta Report"},
+				{ID: "secret_alpha_id", Label: "Alpha Report"},
+			},
+			wantError: `reportStarterId must be a string; available preset labels: "Alpha Report", "beta Report"; retry with a listed label or inspect ui/view:get`,
 		},
 		{
-			name:      "ambiguous case insensitive id",
+			name:      "case insensitive id collision",
 			requested: "CASEID",
 			presets: []viewproto.ReportPreset{
 				{ID: "CaseID", Label: "First"},
 				{ID: "caseid", Label: "Second"},
 			},
-			contains: []string{"matches multiple canonical IDs case-insensitively", `"CaseID"`, `"caseid"`},
+			wantError: "report preset catalog is invalid/ambiguous: canonical IDs collide case-insensitively; inspect ui/view:get before retrying",
+		},
+		{
+			name:      "empty catalog",
+			requested: "Missing Report",
+			wantError: `unknown reportStarterId "Missing Report"; no usable report preset labels are available; inspect ui/view:get before retrying`,
+		},
+		{
+			name:      "catalog with only blank labels",
+			requested: "Missing Report",
+			presets: []viewproto.ReportPreset{
+				{ID: "secret_empty_id", Label: ""},
+				{ID: "secret_whitespace_id", Label: " \t\n "},
+			},
+			wantError: `unknown reportStarterId "Missing Report"; no usable report preset labels are available; inspect ui/view:get before retrying`,
+		},
+		{
+			name:      "ambiguous only catalog has no usable labels",
+			requested: "Missing Report",
+			presets: []viewproto.ReportPreset{
+				{ID: "secret_first_id", Label: " Shared   Label "},
+				{ID: "secret_second_id", Label: "shared label"},
+			},
+			wantError: `unknown reportStarterId "Missing Report"; no usable report preset labels are available; inspect ui/view:get before retrying`,
+		},
+		{
+			name:      "mixed catalog lists only unique labels in stable order",
+			requested: 42,
+			presets: []viewproto.ReportPreset{
+				{ID: "secret_zeta_id", Label: " zeta Report "},
+				{ID: "secret_beta_first_id", Label: "Beta Report"},
+				{ID: "secret_alpha_id", Label: "  Alpha   Report  "},
+				{ID: "secret_beta_second_id", Label: " beta   report "},
+				{ID: "", Label: "Before Alpha"},
+			},
+			wantError: `reportStarterId must be a string; available preset labels: "Alpha Report", "zeta Report"; retry with a listed label or inspect ui/view:get`,
 		},
 	}
 
@@ -233,9 +272,12 @@ func TestResolveReportStarterIDRejectsInvalidValues(t *testing.T) {
 			if resolution != nil {
 				t.Fatalf("unexpected resolution on error: %#v", resolution)
 			}
-			for _, expected := range test.contains {
-				if !strings.Contains(err.Error(), expected) {
-					t.Fatalf("expected error %q to contain %q", err, expected)
+			if err.Error() != test.wantError {
+				t.Fatalf("unexpected error: got=%q want=%q", err, test.wantError)
+			}
+			for _, preset := range test.presets {
+				if id := strings.TrimSpace(preset.ID); id != "" && strings.Contains(err.Error(), id) {
+					t.Fatalf("resolver error exposed canonical preset ID %q: %v", id, err)
 				}
 			}
 			if !reflect.DeepEqual(parameters, snapshot) {
@@ -811,11 +853,15 @@ reportPresets:
 			TimeoutMs:  50,
 		}, &OpenOutput{})
 		if err == nil || !strings.Contains(err.Error(), `unknown reportStarterId "Alpha-Report"`) ||
-			!strings.Contains(err.Error(), `"Alpha_ID"`) {
+			!strings.Contains(err.Error(), `"Alpha Report"`) ||
+			strings.Contains(err.Error(), "Alpha_ID") {
 			t.Fatalf("expected actionable report preset error, got %v", err)
 		}
 		if !reflect.DeepEqual(parameters, snapshot) {
 			t.Fatalf("rejected open mutated caller parameters: got=%#v want=%#v", parameters, snapshot)
+		}
+		if events := viewSvc.reg.ListEvents(conversationID, clientID, "", "", 10, 0); len(events) != 0 {
+			t.Fatalf("rejected open must not record an event: %#v", events)
 		}
 		assertNoUICommand(t, bridge, clientID)
 	})
@@ -869,7 +915,8 @@ reportPresets:
 		viewSvc := New(repo.New(afs.New()), bridge)
 		err := viewSvc.open(ctx, input, output)
 		if err == nil || !strings.Contains(err.Error(), `unknown reportStarterId "Missing Report"`) ||
-			!strings.Contains(err.Error(), `"beta_id"`) {
+			!strings.Contains(err.Error(), `"Beta Report"`) ||
+			strings.Contains(err.Error(), "beta_id") {
 			t.Fatalf("expected actionable later-item error, got %v", err)
 		}
 		if len(output.Items) != 0 {
@@ -878,6 +925,9 @@ reportPresets:
 		if firstParameters["reportStarterId"] != "Alpha Report" ||
 			secondParameters["reportStarterId"] != "Missing Report" {
 			t.Fatalf("batch validation mutated caller parameters: %#v", input.Items)
+		}
+		if events := viewSvc.reg.ListEvents(conversationID, clientID, "", "", 10, 0); len(events) != 0 {
+			t.Fatalf("rejected batch must not record an event: %#v", events)
 		}
 		assertNoUICommand(t, bridge, clientID)
 	})
