@@ -1008,6 +1008,37 @@ func TestDataService_ToolCallAndPayloadPredicates(t *testing.T) {
 	}
 }
 
+func TestDatlyService_GetToolMessageIDsByTurn(t *testing.T) {
+	svc := newSeededService(t, seedForToolMessageIDsByTurn)
+	lookup, ok := svc.(interface {
+		GetToolMessageIDsByTurn(context.Context, string, string) (map[string]string, error)
+	})
+	if !ok {
+		t.Fatal("concrete data service does not expose turn tool-message lookup capability")
+	}
+
+	got, err := lookup.GetToolMessageIDsByTurn(context.Background(), " c-target ", " t-target ")
+	if err != nil {
+		t.Fatalf("GetToolMessageIDsByTurn() error: %v", err)
+	}
+	want := map[string]string{
+		"op-alpha": "m-alpha-attempt-3-z",
+		"op-beta":  "m-beta",
+		"op-trim":  "m-trim",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetToolMessageIDsByTurn() = %#v, want %#v", got, want)
+	}
+
+	excluded, err := lookup.GetToolMessageIDsByTurn(context.Background(), "c-other", "t-target")
+	if err != nil {
+		t.Fatalf("GetToolMessageIDsByTurn(mismatched conversation) error: %v", err)
+	}
+	if len(excluded) != 0 {
+		t.Fatalf("expected mismatched conversation and turn to return no rows, got %#v", excluded)
+	}
+}
+
 func TestDataService_QuerySelectorPagination(t *testing.T) {
 	svc := newSeededService(t, seedForQuerySelectorPagination)
 	ctx := context.Background()
@@ -2869,6 +2900,37 @@ func seedForToolCallAndPayloadPredicates(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO call_payload (id, tenant_id, kind, mime_type, size_bytes, digest, storage, inline_body, compression, created_at, redacted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"p3", "tenant-2", "request", "text/plain", 12, "dig-3", "inline", "body-3", "none", "2026-01-01 09:30:00", 0}},
 		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, started_at, completed_at, response_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-tool-main", "t-run-main", "op-byop", 1, "sql/query", "mcp", "completed", "2026-01-01T09:10:20Z", "2026-01-01T09:10:22Z", "p2"}},
 		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-tool-other", "t-other-run", "op-byop", 1, "shell/exec", "mcp", "completed", "2026-01-01T09:04:20Z", "2026-01-01T09:04:22Z"}},
+	}
+	dbtest.ExecAll(t, db, items)
+}
+
+func seedForToolMessageIDsByTurn(t *testing.T, db *sql.DB) {
+	t.Helper()
+	items := []dbtest.ParameterizedSQL{
+		{SQL: `INSERT INTO conversation (id, created_at) VALUES (?, ?)`, Params: []interface{}{"c-target", "2026-01-01T09:00:00Z"}},
+		{SQL: `INSERT INTO conversation (id, created_at) VALUES (?, ?)`, Params: []interface{}{"c-other", "2026-01-01T09:00:00Z"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"t-target", "c-target", "2026-01-01T09:01:00Z", "running"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"t-later", "c-target", "2026-01-01T09:02:00Z", "running"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"t-other", "c-other", "2026-01-01T09:01:00Z", "running"}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-alpha-attempt-1", "c-target", "t-target", "2026-01-01T09:01:01Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-alpha-attempt-3", "c-target", "t-target", "2026-01-01T09:01:03Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-alpha-attempt-3-z", "c-target", "t-target", "2026-01-01T09:01:03Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-beta", "c-target", "t-target", "2026-01-01T09:01:04Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{" m-trim ", "c-target", "t-target", "2026-01-01T09:01:05Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-later", "c-target", "t-later", "2026-01-01T09:02:01Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-other", "c-other", "t-other", "2026-01-01T09:01:01Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-wrong-turn", "c-target", "t-later", "2026-01-01T09:02:02Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO message (id, conversation_id, turn_id, created_at, role, type, interim) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-wrong-conversation", "c-other", "t-target", "2026-01-01T09:01:06Z", "tool", "tool_result", 0}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-alpha-attempt-1", "t-target", "op-alpha", 1, "tool-a", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-alpha-attempt-3", "t-target", "op-alpha", 3, "tool-a", "mcp", "completed"}},
+		// Raw padding respects the schema's unique index while normalization makes this a same-op, same-attempt tie.
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-alpha-attempt-3-z", "t-target", " op-alpha ", 3, "tool-a", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-beta", "t-target", "op-beta", 1, "tool-b", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{" m-trim ", "t-target", " op-trim ", 1, "tool-trim", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-later", "t-later", "op-later", 1, "tool-later", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-other", "t-other", "op-other", 1, "tool-other", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-wrong-turn", "t-target", "op-wrong-turn", 1, "tool-wrong", "mcp", "completed"}},
+		{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"m-wrong-conversation", "t-target", "op-wrong-conversation", 1, "tool-wrong", "mcp", "completed"}},
 	}
 	dbtest.ExecAll(t, db, items)
 }
