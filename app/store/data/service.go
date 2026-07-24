@@ -27,6 +27,7 @@ import (
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agapprovalcount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/pendingCount"
 	agtoolcall "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
+	agtoolcallbyturn "github.com/viant/agently-core/pkg/agently/toolcall/byTurn"
 	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
@@ -523,6 +524,50 @@ func (s *datlyService) GetToolCallByOp(ctx context.Context, opID string, in *agt
 		return nil, err
 	}
 	return out.Data, nil
+}
+
+func (s *datlyService) GetToolMessageIDsByTurn(ctx context.Context, conversationID, turnID string) (map[string]string, error) {
+	input := &agtoolcallbyturn.ToolCallRowsInput{
+		ConversationId: strings.TrimSpace(conversationID),
+		TurnId:         strings.TrimSpace(turnID),
+		Has: &agtoolcallbyturn.ToolCallRowsInputHas{
+			ConversationId: true,
+			TurnId:         true,
+		},
+	}
+	out := &agtoolcallbyturn.ToolCallRowsOutput{}
+	if _, err := s.dao.Operate(ctx,
+		datly.WithURI(agtoolcallbyturn.ToolCallRowsPathURI),
+		datly.WithInput(input),
+		datly.WithOutput(out),
+	); err != nil {
+		return nil, err
+	}
+	type selectedMessage struct {
+		id      string
+		attempt int
+	}
+	selected := make(map[string]selectedMessage, len(out.Data))
+	for _, row := range out.Data {
+		if row == nil {
+			continue
+		}
+		opID := strings.TrimSpace(row.OpId)
+		messageID := strings.TrimSpace(row.MessageId)
+		if opID == "" || messageID == "" {
+			continue
+		}
+		current, ok := selected[opID]
+		if ok && (current.attempt > row.Attempt || current.attempt == row.Attempt && current.id >= messageID) {
+			continue
+		}
+		selected[opID] = selectedMessage{id: messageID, attempt: row.Attempt}
+	}
+	result := make(map[string]string, len(selected))
+	for opID, candidate := range selected {
+		result[opID] = candidate.id
+	}
+	return result, nil
 }
 
 func (s *datlyService) ListPayloadRows(ctx context.Context, in *agpayload.PayloadRowsInput, opts ...Option) ([]*agpayload.PayloadRowsView, error) {
