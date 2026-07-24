@@ -593,6 +593,36 @@ func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *t
 	require.EqualError(t, err, "reporting export: reportPrint is required for pdf export")
 }
 
+func TestServiceSaveReportNormalizesToolJSONAndGeneratesReopenIdentity(t *testing.T) {
+	idCount := 0
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		NewID: func() string {
+			idCount++
+			return "generated-" + strconv.Itoa(idCount)
+		},
+	})
+	ctx := authsvc.InjectUser(context.Background(), "owner-tool")
+	document := `{"title":"Generated delivery review","blocks":[]}`
+	spec := `{"kind":"reportSpec","datasets":[],"blocks":[]}`
+
+	saved, err := svc.SaveReport(ctx, &SaveReportRequest{
+		ReportDocument: json.RawMessage(strconv.Quote(document)),
+		ReportSpec:     json.RawMessage(strconv.Quote(spec)),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "generated-1", saved.ReportID)
+	require.Equal(t, "Generated delivery review", saved.Title)
+	require.JSONEq(t, document, string(saved.Document))
+	require.JSONEq(t, spec, string(saved.ReportSpec))
+
+	reopened, err := svc.GetReport(ctx, &GetReportInput{ReportID: saved.ReportID})
+	require.NoError(t, err)
+	require.Equal(t, saved.ArtifactID, reopened.ArtifactID)
+	require.JSONEq(t, document, string(reopened.Document))
+	require.JSONEq(t, spec, string(reopened.ReportSpec))
+}
+
 func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {
 	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
 	idCount := 0
