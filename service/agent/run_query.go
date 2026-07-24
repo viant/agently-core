@@ -1176,6 +1176,11 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if s.orchestrator != nil {
 			toolCalls := s.orchestrator.TurnToolResults(strings.TrimSpace(turn.TurnID))
 			if len(toolCalls) > 0 {
+				persistedToolMessageIDs, lookupErr := s.loadPersistedToolMessageIDs(ctx, turn.ConversationID, turn.TurnID)
+				if lookupErr != nil {
+					logx.WarnCtxf(ctx, "conversation", "agent.runPlan persisted tool-message lookup failed convo=%q turn_id=%q iter=%d err=%v",
+						strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, lookupErr)
+				}
 				turnTraceID := strings.TrimSpace(runtimerequestctx.TurnTrace(turn.TurnID))
 				nextHistory := make([]*bindpkg.Message, 0, len(toolCalls))
 				for _, call := range toolCalls {
@@ -1187,7 +1192,7 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 					if shouldSkipInjectedDocumentToolResultBody(call.Result) {
 						continue
 					}
-					msgID := s.findToolMessageIDByOpID(ctx, turn.ConversationID, turn.TurnID, id)
+					msgID := persistedToolMessageIDs[id]
 					if msgID != "" {
 						continue
 					}
@@ -1366,49 +1371,122 @@ func mergeActiveSkillNames(left, right []string) []string {
 	return out
 }
 
-func (s *Service) findToolMessageIDByOpID(ctx context.Context, conversationID, turnID, opID string) string {
-	if s == nil || s.conversation == nil {
-		return ""
-	}
+type turnToolMessageIDLookup interface {
+	GetToolMessageIDsByTurn(ctx context.Context, conversationID, turnID string) (map[string]string, error)
+}
+
+func (s *Service) loadPersistedToolMessageIDs(ctx context.Context, conversationID, turnID string) (map[string]string, error) {
 	conversationID = strings.TrimSpace(conversationID)
 	turnID = strings.TrimSpace(turnID)
-	opID = strings.TrimSpace(opID)
-	if conversationID == "" || turnID == "" || opID == "" {
-		return ""
+	empty := map[string]string{}
+	if conversationID == "" || turnID == "" {
+		return empty, nil
 	}
-	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
-	if err != nil || conv == nil {
-		return ""
+
+	var primaryErr error
+	if s != nil {
+		if lookup, ok := s.dataService.(turnToolMessageIDLookup); ok {
+			messageIDs, err := lookup.GetToolMessageIDsByTurn(ctx, conversationID, turnID)
+			if err == nil {
+				return normalizeToolMessageIDs(messageIDs), nil
+			}
+			primaryErr = err
+			if ctx.Err() != nil {
+				return empty, fmt.Errorf("primary persisted tool-message lookup: %w", err)
+			}
+		}
 	}
+
+	messageIDs, fallbackErr := s.loadToolMessageIDsFromConversation(ctx, conversationID, turnID)
+	if fallbackErr != nil {
+		if primaryErr != nil {
+			return empty, fmt.Errorf("primary persisted tool-message lookup: %v; conversation fallback: %w", primaryErr, fallbackErr)
+		}
+		return empty, fmt.Errorf("conversation tool-message fallback: %w", fallbackErr)
+	}
+	if primaryErr != nil {
+		return messageIDs, fmt.Errorf("primary persisted tool-message lookup: %w", primaryErr)
+	}
+	return messageIDs, nil
+}
+
+func normalizeToolMessageIDs(messageIDs map[string]string) map[string]string {
+	result := make(map[string]string, len(messageIDs))
+	for opID, messageID := range messageIDs {
+		opID = strings.TrimSpace(opID)
+		messageID = strings.TrimSpace(messageID)
+		if opID == "" || messageID == "" {
+			continue
+		}
+		if current := result[opID]; current >= messageID {
+			continue
+		}
+		result[opID] = messageID
+	}
+	return result
+}
+
+func (s *Service) loadToolMessageIDsFromConversation(ctx context.Context, conversationID, turnID string) (map[string]string, error) {
+	result := map[string]string{}
+	if s == nil || s.conversation == nil {
+		return result, errors.New("conversation client is unavailable")
+	}
+	conv, err := s.conversation.GetConversation(
+		ctx,
+		conversationID,
+		apiconv.WithSince(turnID),
+		apiconv.WithIncludeTranscript(true),
+		apiconv.WithIncludeToolCall(true),
+	)
+	if err != nil {
+		return result, err
+	}
+	if conv == nil || strings.TrimSpace(conv.Id) != conversationID {
+		return result, nil
+	}
+	type selectedMessage struct {
+		id      string
+		attempt int
+	}
+	selected := map[string]selectedMessage{}
 	for _, turn := range conv.GetTranscript() {
-		if turn == nil || strings.TrimSpace(turn.Id) != turnID {
+		if turn == nil ||
+			strings.TrimSpace(turn.Id) != turnID ||
+			strings.TrimSpace(turn.ConversationId) != conversationID {
 			continue
 		}
 		for _, msg := range turn.GetMessages() {
-			if msg == nil {
+			if msg == nil ||
+				strings.TrimSpace(msg.ConversationId) != conversationID ||
+				msg.TurnId == nil ||
+				strings.TrimSpace(*msg.TurnId) != turnID {
 				continue
 			}
 			for _, tm := range msg.ToolMessage {
 				if tm == nil || tm.ToolCall == nil {
 					continue
 				}
-				if strings.TrimSpace(tm.ToolCall.OpId) == opID {
-					return strings.TrimSpace(tm.Id)
+				if tm.ToolCall.TurnId != nil && strings.TrimSpace(*tm.ToolCall.TurnId) != turnID {
+					continue
 				}
-			}
-			if strings.EqualFold(strings.TrimSpace(msg.Type), "tool_op") {
-				for _, tm := range msg.ToolMessage {
-					if tm == nil || tm.ToolCall == nil {
-						continue
-					}
-					if strings.TrimSpace(tm.ToolCall.OpId) == opID {
-						return strings.TrimSpace(msg.Id)
-					}
+				opID := strings.TrimSpace(tm.ToolCall.OpId)
+				messageID := strings.TrimSpace(tm.Id)
+				if opID == "" || messageID == "" {
+					continue
 				}
+				candidate := selectedMessage{id: messageID, attempt: tm.ToolCall.Attempt}
+				current, ok := selected[opID]
+				if ok && (current.attempt > candidate.attempt || current.attempt == candidate.attempt && current.id >= candidate.id) {
+					continue
+				}
+				selected[opID] = candidate
 			}
 		}
 	}
-	return ""
+	for opID, candidate := range selected {
+		result[opID] = candidate.id
+	}
+	return result, nil
 }
 
 func deriveProviderFromModelRef(modelRef string) string {

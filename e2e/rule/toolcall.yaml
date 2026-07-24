@@ -6,3 +6,4 @@ pipeline:
     commands:
       - cd $repoPath
       - $repoPath/e2e/bin/datly gen -o=get -u=agently/toolcall/byOp      -s='dql/agently/toolcall/toolcall_by_op.dql' $datlyOptions
+      - $repoPath/e2e/bin/datly gen -o=get -u=agently/toolcall/byTurn    -s='dql/agently/toolcall/toolcall_by_turn.dql' $datlyOptions

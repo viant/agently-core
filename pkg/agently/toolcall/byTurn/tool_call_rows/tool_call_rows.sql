@@ -1,0 +1,13 @@
+( SELECT
+    tc.message_id,
+    tc.turn_id,
+    tc.op_id,
+    tc.attempt
+  FROM tool_call tc
+  JOIN turn tr ON tr.id = tc.turn_id
+  JOIN message m ON m.id = tc.message_id
+    AND m.turn_id = tr.id
+    AND m.conversation_id = tr.conversation_id
+  WHERE tr.conversation_id = $criteria.AppendBinding($Unsafe.ConversationId)
+    AND tr.id = $criteria.AppendBinding($Unsafe.TurnId)
+  ORDER BY tc.op_id, tc.attempt DESC, tc.message_id DESC )
