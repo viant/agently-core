@@ -1354,16 +1354,35 @@ func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*
 	if ownerID == "" {
 		return nil, fmt.Errorf("report store: effective user id is required")
 	}
-	reportID := strings.TrimSpace(request.ReportID)
-	title := strings.TrimSpace(request.Title)
-	if reportID == "" && title == "" && len(bytes.TrimSpace(request.ReportDocument)) == 0 && len(bytes.TrimSpace(request.ReportSpec)) == 0 {
+	normalized := *request
+	normalized.ReportDocument = normalizeToolJSONPayload(request.ReportDocument)
+	normalized.ReportSpec = normalizeToolJSONPayload(request.ReportSpec)
+	normalized.CompileState = normalizeToolJSONPayload(request.CompileState)
+	normalized.ReportFill = normalizeToolJSONPayload(request.ReportFill)
+	normalized.ReportPrint = normalizeToolJSONPayload(request.ReportPrint)
+	normalized.Metadata = normalizeToolJSONPayload(request.Metadata)
+
+	reportID := strings.TrimSpace(normalized.ReportID)
+	if reportID == "" {
+		reportID = jsonObjectText(normalized.ReportDocument, "id")
+	}
+	if reportID == "" {
+		reportID = s.newID()
+	}
+	title := strings.TrimSpace(normalized.Title)
+	if title == "" {
+		title = jsonObjectText(normalized.ReportDocument, "title")
+	}
+	if reportID == "" && title == "" && len(bytes.TrimSpace(normalized.ReportDocument)) == 0 && len(bytes.TrimSpace(normalized.ReportSpec)) == 0 {
 		return nil, fmt.Errorf("report store: report identity or payload is required")
 	}
-	if err := validateInlineSaveReport(request); err != nil {
+	normalized.ReportID = reportID
+	normalized.Title = title
+	if err := validateInlineSaveReport(&normalized); err != nil {
 		return nil, err
 	}
-	sourceArtifactID := normalizeSharedArtifactSourceID("report", "", reportID, s.newID())
-	artifactRef := strings.TrimSpace(request.ArtifactRef)
+	sourceArtifactID := normalizeSharedArtifactSourceID("report", "", reportID, "")
+	artifactRef := strings.TrimSpace(normalized.ArtifactRef)
 	if artifactRef == "" {
 		artifactRef = buildSharedArtifactRef(savedReportArtifactKind, sourceArtifactID)
 	}
@@ -1377,23 +1396,54 @@ func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*
 		OwnerRef:         buildOwnerRef(ownerID),
 		Kind:             savedReportArtifactKind,
 		Lifecycle:        "draft",
-		Version:          resolveSharedArtifactVersion(request.Version, 0),
+		Version:          resolveSharedArtifactVersion(normalized.Version, 0),
 		ReportID:         reportID,
 		Title:            title,
 		SourceArtifactID: sourceArtifactID,
-		DocumentVersion:  request.DocumentVersion,
-		Document:         cloneJSON(request.ReportDocument),
-		ReportSpec:       cloneJSON(request.ReportSpec),
-		CompileState:     cloneJSON(request.CompileState),
-		ReportFill:       cloneJSON(request.ReportFill),
-		ReportPrint:      cloneJSON(request.ReportPrint),
-		Metadata:         cloneJSON(request.Metadata),
+		DocumentVersion:  normalized.DocumentVersion,
+		Document:         cloneJSON(normalized.ReportDocument),
+		ReportSpec:       cloneJSON(normalized.ReportSpec),
+		CompileState:     cloneJSON(normalized.CompileState),
+		ReportFill:       cloneJSON(normalized.ReportFill),
+		ReportPrint:      cloneJSON(normalized.ReportPrint),
+		Metadata:         cloneJSON(normalized.Metadata),
 		CreatedAt:        s.now().UTC(),
 	}
 	if err := s.store.CreateSharedArtifact(ctx, artifact); err != nil {
 		return nil, err
 	}
 	return cloneSharedArtifact(artifact), nil
+}
+
+// normalizeToolJSONPayload accepts both canonical JSON values and the
+// JSON-encoded strings some generic tool clients use for RawMessage fields.
+func normalizeToolJSONPayload(raw json.RawMessage) json.RawMessage {
+	value := bytes.TrimSpace(raw)
+	if len(value) == 0 || value[0] != '"' {
+		return cloneJSON(value)
+	}
+	var encoded string
+	if json.Unmarshal(value, &encoded) != nil {
+		return cloneJSON(value)
+	}
+	decoded := bytes.TrimSpace([]byte(encoded))
+	if !json.Valid(decoded) {
+		return cloneJSON(value)
+	}
+	return cloneJSON(decoded)
+}
+
+func jsonObjectText(raw json.RawMessage, key string) string {
+	value := bytes.TrimSpace(raw)
+	if len(value) == 0 || !json.Valid(value) {
+		return ""
+	}
+	var object map[string]interface{}
+	if json.Unmarshal(value, &object) != nil {
+		return ""
+	}
+	text, _ := object[key].(string)
+	return strings.TrimSpace(text)
 }
 
 func validateInlineSaveReport(request *SaveReportRequest) error {
