@@ -15,5 +15,5 @@ pipeline:
         fi
       - |
         (nohup env TEST=1 AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
-      - sleep 4
+      - sleep 10
       - lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep LISTEN

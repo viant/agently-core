@@ -486,7 +486,7 @@ func resolveReportStarterID(parameters map[string]interface{}, presets []viewpro
 	}
 	value, ok := raw.(string)
 	if !ok {
-		return nil, fmt.Errorf("reportStarterId must be a string; available canonical IDs: %s", formatReportPresetIDs(reportPresetIDs(presets)))
+		return nil, fmt.Errorf("reportStarterId must be a string; %s", reportPresetAvailability(presets))
 	}
 	requested := strings.TrimSpace(value)
 	if requested == "" {
@@ -505,7 +505,7 @@ func resolveReportStarterID(parameters map[string]interface{}, presets []viewpro
 		return &viewproto.ReportPresetResolution{Requested: requested, ResolvedID: resolvedID, MatchedBy: "id"}, nil
 	}
 	if len(idMatches) > 1 {
-		return nil, fmt.Errorf("reportStarterId %q matches multiple canonical IDs case-insensitively: %s; retry with an unambiguous canonical ID", requested, formatReportPresetIDs(reportPresetIDs(idMatches)))
+		return nil, fmt.Errorf("report preset catalog is invalid/ambiguous: canonical IDs collide case-insensitively; inspect ui/view:get before retrying")
 	}
 
 	labelMatches := matchingReportPresetsByLabel(requested, presets)
@@ -515,9 +515,9 @@ func resolveReportStarterID(parameters map[string]interface{}, presets []viewpro
 		return &viewproto.ReportPresetResolution{Requested: requested, ResolvedID: resolvedID, MatchedBy: "label"}, nil
 	}
 	if len(labelMatches) > 1 {
-		return nil, fmt.Errorf("reportStarterId label %q is ambiguous; matching canonical IDs: %s; retry with a canonical ID", requested, formatReportPresetIDs(reportPresetIDs(labelMatches)))
+		return nil, fmt.Errorf("reportStarterId label %q is ambiguous; inspect ui/view:get for the preset catalog and use an unambiguous canonical ID", requested)
 	}
-	return nil, fmt.Errorf("unknown reportStarterId %q; available canonical IDs: %s; retry with a canonical ID", requested, formatReportPresetIDs(reportPresetIDs(presets)))
+	return nil, fmt.Errorf("unknown reportStarterId %q; %s", requested, reportPresetAvailability(presets))
 }
 
 func matchingReportPresetsByID(requested string, presets []viewproto.ReportPreset) []viewproto.ReportPreset {
@@ -550,26 +550,39 @@ func normalizeReportPresetLabel(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func reportPresetIDs(presets []viewproto.ReportPreset) []string {
-	result := make([]string, 0, len(presets))
-	for _, preset := range presets {
-		if strings.TrimSpace(preset.ID) != "" {
-			result = append(result, preset.ID)
-		}
+func reportPresetAvailability(presets []viewproto.ReportPreset) string {
+	labels := reportPresetLabels(presets)
+	if len(labels) == 0 {
+		return "no usable report preset labels are available; inspect ui/view:get before retrying"
 	}
-	sort.Strings(result)
-	return result
+	quoted := make([]string, 0, len(labels))
+	for _, label := range labels {
+		quoted = append(quoted, fmt.Sprintf("%q", label))
+	}
+	return fmt.Sprintf("available preset labels: %s; retry with a listed label or inspect ui/view:get", strings.Join(quoted, ", "))
 }
 
-func formatReportPresetIDs(ids []string) string {
-	if len(ids) == 0 {
-		return "(none)"
+func reportPresetLabels(presets []viewproto.ReportPreset) []string {
+	result := make([]string, 0, len(presets))
+	for _, preset := range presets {
+		if strings.TrimSpace(preset.ID) == "" {
+			continue
+		}
+		if label := normalizeReportPresetLabel(preset.Label); label != "" {
+			if len(matchingReportPresetsByLabel(label, presets)) == 1 {
+				result = append(result, label)
+			}
+		}
 	}
-	quoted := make([]string, 0, len(ids))
-	for _, id := range ids {
-		quoted = append(quoted, fmt.Sprintf("%q", id))
-	}
-	return strings.Join(quoted, ", ")
+	sort.SliceStable(result, func(i, j int) bool {
+		left := strings.ToLower(result[i])
+		right := strings.ToLower(result[j])
+		if left == right {
+			return result[i] < result[j]
+		}
+		return left < right
+	})
+	return result
 }
 
 func (s *Service) recordInvalidWorkspaceIDEvent(namespace, clientID, conversationID string, notFound *viewNotFoundError) {

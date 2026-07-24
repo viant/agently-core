@@ -31,6 +31,7 @@ import (
 	runwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	approvalcount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/pendingCount"
 	toolcallbyop "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
+	toolcallbyturn "github.com/viant/agently-core/pkg/agently/toolcall/byTurn"
 	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turn "github.com/viant/agently-core/pkg/agently/turn/active"
 	turnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
@@ -297,6 +298,9 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 		return err
 	}
 	if err := toolcallbyop.DefineToolCallRowsComponent(ctx, svc); err != nil {
+		return err
+	}
+	if err := toolcallbyturn.DefineToolCallRowsComponent(ctx, svc); err != nil {
 		return err
 	}
 	if err := payload.DefinePayloadRowsComponent(ctx, svc); err != nil {

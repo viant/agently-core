@@ -198,6 +198,7 @@ CREATE TABLE `message`
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
+CREATE INDEX idx_message_parent_seq_created ON `message` (parent_message_id, sequence, created_at);
 
 CREATE TABLE generated_file
 (
@@ -353,6 +354,7 @@ CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id, attempt);
 CREATE INDEX idx_tool_call_status ON tool_call (status);
 CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
 CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id);
+CREATE INDEX idx_tool_call_trace ON tool_call (trace_id(191));
 
 
 	CREATE TABLE IF NOT EXISTS schedule (
@@ -2347,5 +2349,36 @@ END $$
 
 CALL schema_upgrade_29() $$
 DROP PROCEDURE schema_upgrade_29 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_30 $$
+CREATE PROCEDURE schema_upgrade_30()
+BEGIN
+    IF get_schema_version() = 30 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND INDEX_NAME = 'idx_message_parent_seq_created'
+        ) THEN
+            ALTER TABLE `message`
+                ADD INDEX idx_message_parent_seq_created (parent_message_id, sequence, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_call'
+              AND INDEX_NAME = 'idx_tool_call_trace'
+        ) THEN
+            ALTER TABLE tool_call
+                ADD INDEX idx_tool_call_trace (trace_id(191));
+        END IF;
+
+        CALL set_schema_version(31);
+    END IF;
+END $$
+
+CALL schema_upgrade_30() $$
+DROP PROCEDURE schema_upgrade_30 $$
 
 DELIMITER ;

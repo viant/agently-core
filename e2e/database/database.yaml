@@ -40,4 +40,4 @@ pipeline:
       - docker exec -i mysql_agently_core mysql -h127.0.0.1 --protocol=tcp -uroot -p${mydb.password} -e "DROP DATABASE IF EXISTS agently"
       - docker exec -i mysql_agently_core mysql -h127.0.0.1 --protocol=tcp -uroot -p${mydb.password} < ${repoPath}/e2e/database/agently/script/init.ddl
       - docker exec -i mysql_agently_core mysql -h127.0.0.1 --protocol=tcp -uroot -p${mydb.password} < ${repoPath}/e2e/database/agently/script/schema.ddl
-      - docker exec -i mysql_agently_core mysql -h127.0.0.1 --protocol=tcp -uroot -p${mydb.password} < /Users/ppoudyal/go/src/github.com/viant/agently-core/script/mysql/schema_versioned_steward.ddl
+      - docker exec -i mysql_agently_core mysql -h127.0.0.1 --protocol=tcp -uroot -p${mydb.password} < ${repoPath}/script/mysql/schema_versioned_steward.ddl
