@@ -218,6 +218,29 @@ func oauthScopesForTarget(client *OAuthClient, target oauthScopeTarget, explicit
 	return []string{"openid", "profile", "email"}
 }
 
+// OAuthScopesForHeadless returns the grant a non-interactive user-owned
+// runtime should request. A dedicated CLI scope wins; otherwise legacy
+// browser-created schedules inherit the web scope, with mobile as the final
+// compatibility fallback.
+func OAuthScopesForHeadless(client *OAuthClient) []string {
+	if client == nil {
+		return []string{"openid"}
+	}
+	baseScopes := normalizeScopes(client.Scopes)
+	surfaceScopes := normalizeScopes(client.CLIScopes)
+	if len(surfaceScopes) == 0 {
+		surfaceScopes = normalizeScopes(client.WebUIScopes)
+	}
+	if len(surfaceScopes) == 0 {
+		surfaceScopes = normalizeScopes(client.MobileUIScopes)
+	}
+	scopes := normalizeScopes(append(append([]string(nil), baseScopes...), surfaceScopes...))
+	if len(scopes) == 0 {
+		return []string{"openid"}
+	}
+	return scopes
+}
+
 func normalizeScopes(scopes []string) []string {
 	if len(scopes) == 0 {
 		return nil
@@ -436,6 +459,14 @@ func oauthRefreshScopes(sess *Session, token *OAuthToken) []string {
 		}
 	}
 	return nil
+}
+
+func oauthRefreshScopesForClient(sess *Session, token *OAuthToken, client *OAuthClient) []string {
+	scopes := oauthRefreshScopes(sess, token)
+	if len(discriminatorScopes(scopes)) > 0 {
+		return scopes
+	}
+	return normalizeScopes(append(scopes, OAuthScopesForHeadless(client)...))
 }
 
 func oauthRefreshResource(sess *Session, token *OAuthToken, clientID string) string {

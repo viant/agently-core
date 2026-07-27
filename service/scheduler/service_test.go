@@ -596,6 +596,46 @@ func TestService_applyUserCred_PublicUserCredAuthConfigUsesOOB(t *testing.T) {
 	}
 }
 
+func TestService_applyUserCred_IncludesConfiguredHeadlessScope(t *testing.T) {
+	ctx := context.Background()
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: &oauth2.Token{
+			AccessToken:  "scoped-access",
+			RefreshToken: "scoped-refresh",
+			Expiry:       time.Now().Add(30 * time.Minute),
+		},
+	}
+	svc := New(nil, &agentsvc.Service{},
+		WithAuthConfig(&svcauth.Config{
+			OAuth: &svcauth.OAuth{
+				Mode: "bff",
+				Client: &svcauth.OAuthClient{
+					ConfigURL:   "file:///tmp/oauth.client.json",
+					Scopes:      []string{"openid", "profile", "email"},
+					WebUIScopes: []string{"ROLE_STEWARD_WEB"},
+				},
+			},
+		}),
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile", "email"},
+		}),
+	)
+	svc.oauthAuthz = fakeAuthz
+
+	if _, err := svc.applyUserCred(ctx, "scheduler-user-credential"); err != nil {
+		t.Fatalf("applyUserCred() error = %v", err)
+	}
+	if fakeAuthz.lastCmd == nil {
+		t.Fatal("expected authorize command")
+	}
+	got := strings.Join(fakeAuthz.lastCmd.Scopes, " ")
+	if got != "openid profile email ROLE_STEWARD_WEB" {
+		t.Fatalf("scheduler OAuth scopes = %q, want scoped headless grant", got)
+	}
+}
+
 func seedRunningConversation(t *testing.T, client convcli.Client, conversationID, turnID string, startedAt time.Time) {
 	t.Helper()
 

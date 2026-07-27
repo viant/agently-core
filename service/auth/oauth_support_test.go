@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 func fakeJWTWithExp(t *testing.T, exp time.Time) string {
@@ -68,6 +70,20 @@ func TestValidateConfiguredOAuthScopes_AcceptsDiscriminatorFromAccessToken(t *te
 
 	if err := validateConfiguredOAuthScopes(client, []string{"openid", "profile", "email", "ROLE_STEWARD_WEB"}, idToken, accessToken, ""); err != nil {
 		t.Fatalf("validateConfiguredOAuthScopes() unexpected error = %v", err)
+	}
+}
+
+func TestRefreshedOAuthIDToken_DropsExpiredPreviousToken(t *testing.T) {
+	expired := fakeJWTWithClaims(t, map[string]any{
+		"exp": time.Now().Add(-time.Minute).Unix(),
+	})
+	refreshed := &oauth2.Token{
+		AccessToken: "fresh-access",
+		Expiry:      time.Now().Add(30 * time.Minute),
+	}
+
+	if got := refreshedOAuthIDToken(refreshed, expired); got != "" {
+		t.Fatalf("refreshedOAuthIDToken() = %q, want empty expired ID token", got)
 	}
 }
 

@@ -100,7 +100,10 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("oauth client configURL is required"))
 			return
 		}
-		scopes := oauthScopesForTarget(a.cfg.OAuth.Client, oauthScopeTargetDefault, in.Scopes...)
+		scopes := normalizeScopes(in.Scopes)
+		if len(scopes) == 0 {
+			scopes = OAuthScopesForHeadless(a.cfg.OAuth.Client)
+		}
 		oauthCfg, err := loadOAuthClientConfig(r.Context(), configURL)
 		if err != nil {
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("unable to load oauth config: %w", err))

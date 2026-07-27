@@ -151,7 +151,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	if err != nil || oauthCfg == nil {
 		return nil
 	}
-	scopes := oauthRefreshScopes(sess, nil)
+	scopes := oauthRefreshScopesForClient(sess, nil, r.ext.cfg.OAuth.Client)
 	resource := oauthRefreshResource(sess, nil, oauthCfg.ClientID)
 	refreshed, err := refreshOAuthToken(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), &sess.Tokens.Token, scopes, resource)
 	if err != nil {
@@ -185,7 +185,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 	}
 	sess.Tokens = result
 	if len(sess.Scopes) == 0 {
-		sess.Scopes = oauthRefreshScopes(sess, nil)
+		sess.Scopes = append([]string(nil), scopes...)
 	}
 	r.clearRefreshRetryAt(sess)
 	sess.Provider = provider
@@ -214,14 +214,34 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) *scyauth.T
 
 func refreshedOAuthIDToken(refreshed *oauth2.Token, current string) string {
 	if refreshed == nil {
-		return strings.TrimSpace(current)
+		current = strings.TrimSpace(current)
+		if oauthJWTExpired(current, time.Now()) {
+			return ""
+		}
+		return current
 	}
 	if raw := refreshed.Extra("id_token"); raw != nil {
 		if token, ok := raw.(string); ok && strings.TrimSpace(token) != "" {
-			return strings.TrimSpace(token)
+			token = strings.TrimSpace(token)
+			if !oauthJWTExpired(token, time.Now()) {
+				return token
+			}
+			return ""
 		}
 	}
-	return strings.TrimSpace(current)
+	current = strings.TrimSpace(current)
+	if oauthJWTExpired(current, time.Now()) {
+		return ""
+	}
+	return current
+}
+
+func oauthJWTExpired(token string, now time.Time) bool {
+	if strings.TrimSpace(token) == "" {
+		return false
+	}
+	expiresAt, ok := claimUnixTime(parseJWTClaims(token), "exp")
+	return ok && !expiresAt.After(now.Add(30*time.Second))
 }
 
 func tokenFingerprint(token string) string {
