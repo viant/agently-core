@@ -186,3 +186,44 @@ func TestOAuthRefreshBroker_Refresh_SendsStoredScopes(t *testing.T) {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 }
+
+func TestOAuthRefreshBroker_Refresh_DropsExpiredStoredIDToken(t *testing.T) {
+	expiredIDToken := fakeJWTWithClaims(t, map[string]any{
+		"exp":   time.Now().Add(-time.Minute).Unix(),
+		"scope": "ROLE_STEWARD_WEB openid",
+	})
+	ctx := tokenEndpointContext(t, func(values url.Values) {
+		if got := strings.TrimSpace(values.Get("scope")); got != "ROLE_STEWARD_WEB openid" {
+			t.Fatalf("scope = %q, want persisted Steward scope", got)
+		}
+	})
+	broker := &oauthRefreshBroker{
+		configURL: writeBrokerOAuthConfig(t),
+		client: &OAuthClient{
+			Scopes:      []string{"openid", "profile", "email"},
+			WebUIScopes: []string{"ROLE_STEWARD_WEB"},
+		},
+		store: &brokerStoreStub{token: &OAuthToken{
+			Username:     "user-1",
+			Provider:     "oauth",
+			AccessToken:  expiredIDToken,
+			IDToken:      expiredIDToken,
+			RefreshToken: "refresh-1",
+			ExpiresAt:    time.Now().Add(-time.Minute),
+		}},
+	}
+
+	got, err := broker.Refresh(ctx, token.Key{Subject: "user-1", Provider: "oauth"}, "refresh-1")
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Refresh() returned nil token")
+	}
+	if got.AccessToken != "new-access" {
+		t.Fatalf("AccessToken = %q, want refreshed access token", got.AccessToken)
+	}
+	if got.IDToken != "" {
+		t.Fatalf("IDToken = %q, want expired ID token removed", got.IDToken)
+	}
+}

@@ -2,7 +2,10 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
+	"time"
 
 	scyauth "github.com/viant/scy/auth"
 )
@@ -42,7 +45,8 @@ func TokensFromContext(ctx context.Context) *scyauth.Token {
 }
 
 // MCPAuthToken selects a single token string suitable for outbound MCP calls.
-// When useIDToken is true, it prefers IDToken and falls back to legacy IDToken/Bearer keys.
+// When useIDToken is true, it prefers a live IDToken and falls back to the
+// access token or legacy bearer when the ID token has expired.
 // When false, it prefers AccessToken and falls back to the legacy bearer key.
 func MCPAuthToken(ctx context.Context, useIDToken bool) string {
 	if ctx == nil {
@@ -50,11 +54,16 @@ func MCPAuthToken(ctx context.Context, useIDToken bool) string {
 	}
 	tb := TokensFromContext(ctx)
 	if useIDToken {
-		if tb != nil && strings.TrimSpace(tb.IDToken) != "" {
-			return strings.TrimSpace(tb.IDToken)
+		if tb != nil {
+			if token := strings.TrimSpace(tb.IDToken); token != "" && !jwtTokenExpired(token, time.Now()) {
+				return token
+			}
 		}
-		if v := strings.TrimSpace(IDToken(ctx)); v != "" {
+		if v := strings.TrimSpace(IDToken(ctx)); v != "" && !jwtTokenExpired(v, time.Now()) {
 			return v
+		}
+		if tb != nil && strings.TrimSpace(tb.AccessToken) != "" {
+			return strings.TrimSpace(tb.AccessToken)
 		}
 		return strings.TrimSpace(Bearer(ctx))
 	}
@@ -65,6 +74,27 @@ func MCPAuthToken(ctx context.Context, useIDToken bool) string {
 		return v
 	}
 	return ""
+}
+
+// jwtTokenExpired reports expiry only for JWTs carrying a numeric exp claim.
+// Opaque tokens and JWTs without exp remain usable because their lifetime
+// cannot be determined locally.
+func jwtTokenExpired(token string, now time.Time) bool {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims struct {
+		ExpiresAt float64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.ExpiresAt <= 0 {
+		return false
+	}
+	return !time.Unix(int64(claims.ExpiresAt), 0).After(now.Add(30 * time.Second))
 }
 
 // WithBearer stores a raw bearer token in context.

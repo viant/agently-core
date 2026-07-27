@@ -27,6 +27,7 @@ func NewCreatedByUserTokenProvider(cfg *Config, dao *datly.Service) token.Provid
 	broker := &oauthRefreshBroker{
 		configURL: configURL,
 		store:     canonicalStore,
+		client:    cfg.OAuth.Client,
 	}
 	return token.NewManager(
 		token.WithBroker(broker),
@@ -37,6 +38,7 @@ func NewCreatedByUserTokenProvider(cfg *Config, dao *datly.Service) token.Provid
 type oauthRefreshBroker struct {
 	configURL string
 	store     TokenStore
+	client    *OAuthClient
 }
 
 func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refreshToken string) (*scyauth.Token, error) {
@@ -49,7 +51,7 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 	if b.store != nil {
 		stored, _ = b.store.Get(ctx, strings.TrimSpace(key.Subject), strings.TrimSpace(key.Provider))
 	}
-	scopes := oauthRefreshScopes(nil, stored)
+	scopes := oauthRefreshScopesForClient(nil, stored, b.client)
 	resource := oauthRefreshResource(nil, stored, oauthCfg.ClientID)
 	refreshed, err := refreshOAuthToken(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), base, scopes, resource)
 	if err != nil {
@@ -61,15 +63,11 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 	if strings.TrimSpace(refreshed.RefreshToken) == "" {
 		refreshed.RefreshToken = strings.TrimSpace(refreshToken)
 	}
-	idToken := ""
-	if raw := refreshed.Extra("id_token"); raw != nil {
-		if s, ok := raw.(string); ok {
-			idToken = strings.TrimSpace(s)
-		}
+	previousIDToken := ""
+	if stored != nil {
+		previousIDToken = strings.TrimSpace(stored.IDToken)
 	}
-	if idToken == "" && stored != nil {
-		idToken = strings.TrimSpace(stored.IDToken)
-	}
+	idToken := refreshedOAuthIDToken(refreshed, previousIDToken)
 	return &scyauth.Token{
 		Token:   *refreshed,
 		IDToken: idToken,

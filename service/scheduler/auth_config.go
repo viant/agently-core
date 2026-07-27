@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"strings"
+
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 // UserCredAuthConfig contains the subset of auth settings required for legacy
@@ -35,7 +37,11 @@ func (s *Service) resolveUserCredAuthConfig() *UserCredAuthConfig {
 		return nil
 	}
 	if s.userCredAuthCfg != nil {
-		return cloneUserCredAuthConfig(s.userCredAuthCfg)
+		result := cloneUserCredAuthConfig(s.userCredAuthCfg)
+		if s.authCfg != nil && s.authCfg.OAuth != nil && s.authCfg.OAuth.Client != nil {
+			result.Scopes = mergeSchedulerScopes(result.Scopes, svcauth.OAuthScopesForHeadless(s.authCfg.OAuth.Client))
+		}
+		return result
 	}
 	if s.authCfg == nil || s.authCfg.OAuth == nil || s.authCfg.OAuth.Client == nil {
 		return nil
@@ -43,6 +49,22 @@ func (s *Service) resolveUserCredAuthConfig() *UserCredAuthConfig {
 	return &UserCredAuthConfig{
 		Mode:            strings.TrimSpace(s.authCfg.OAuth.Mode),
 		ClientConfigURL: strings.TrimSpace(s.authCfg.OAuth.Client.ConfigURL),
-		Scopes:          append([]string(nil), s.authCfg.OAuth.Client.Scopes...),
+		Scopes:          svcauth.OAuthScopesForHeadless(s.authCfg.OAuth.Client),
 	}
+}
+
+func mergeSchedulerScopes(groups ...[]string) []string {
+	var result []string
+	seen := map[string]bool{}
+	for _, group := range groups {
+		for _, scope := range group {
+			scope = strings.TrimSpace(scope)
+			if scope == "" || seen[scope] {
+				continue
+			}
+			seen[scope] = true
+			result = append(result, scope)
+		}
+	}
+	return result
 }
