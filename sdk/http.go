@@ -11,6 +11,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"sync"
@@ -28,9 +29,12 @@ import (
 func newDefaultHTTPClient() *http.Client {
 	base := http.DefaultClient
 	if base == nil {
-		return &http.Client{}
+		base = &http.Client{}
 	}
 	copy := *base
+	if copy.Jar == nil {
+		copy.Jar, _ = cookiejar.New(nil)
+	}
 	return &copy
 }
 
