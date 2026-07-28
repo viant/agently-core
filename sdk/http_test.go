@@ -25,6 +25,16 @@ import (
 	"github.com/viant/agently-core/service/scheduler"
 )
 
+func TestNewHTTP_DefaultClientRetainsSessionCookies(t *testing.T) {
+	client, err := NewHTTP("https://sdk.example.test")
+	if err != nil {
+		t.Fatalf("NewHTTP() error = %v", err)
+	}
+	if client.HTTPClient().Jar == nil {
+		t.Fatal("expected the default HTTP client to retain session cookies")
+	}
+}
+
 func TestHTTPClient_Query(t *testing.T) {
 	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/agent/query" {
