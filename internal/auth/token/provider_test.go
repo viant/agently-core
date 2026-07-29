@@ -1,8 +1,11 @@
 package token
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,6 +31,7 @@ type mockTokenStore struct {
 	releaseCalls int
 	casCalls     int
 	putCalls     int
+	deleteCalls  int
 }
 
 func (m *mockTokenStore) Get(ctx context.Context, username, provider string) (*OAuthToken, error) {
@@ -46,6 +50,9 @@ func (m *mockTokenStore) Put(ctx context.Context, token *OAuthToken) error {
 	return nil
 }
 func (m *mockTokenStore) Delete(ctx context.Context, username, provider string) error {
+	m.mu.Lock()
+	m.deleteCalls++
+	m.mu.Unlock()
 	if m.deleteFunc != nil {
 		return m.deleteFunc(ctx, username, provider)
 	}
@@ -118,6 +125,195 @@ func freshToken(access, refresh string, expiry time.Time) *scyauth.Token {
 }
 
 var testKey = Key{Subject: "user1", Provider: "google"}
+
+func captureTokenManagerLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var result bytes.Buffer
+	originalOutput := log.Writer()
+	originalFlags := log.Flags()
+	log.SetOutput(&result)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		log.SetFlags(originalFlags)
+	})
+	return &result
+}
+
+func staleStoredToken() *OAuthToken {
+	return &OAuthToken{
+		Username:     testKey.Subject,
+		Provider:     testKey.Provider,
+		AccessToken:  "stale-access",
+		RefreshToken: "stale-refresh",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+	}
+}
+
+func TestEnsureTokens_InvalidGrantClearsExactlyOnce(t *testing.T) {
+	store := &mockTokenStore{
+		getFunc: func(context.Context, string, string) (*OAuthToken, error) {
+			return staleStoredToken(), nil
+		},
+	}
+	broker := &mockBroker{refreshFunc: func(context.Context, Key, string) (*scyauth.Token, error) {
+		return nil, NewRefreshInvalidGrantError(errors.New("parsed oauth grant rejection"))
+	}}
+	manager := NewManager(
+		WithTokenStore(store),
+		WithBroker(broker),
+		WithInstanceID(""),
+	)
+
+	for i := 0; i < 2; i++ {
+		next, err := manager.EnsureTokens(context.Background(), testKey)
+		if err != nil {
+			t.Fatalf("EnsureTokens() error = %v", err)
+		}
+		if iauth.TokensFromContext(next) != nil || iauth.Bearer(next) != "" {
+			t.Fatal("invalid_grant injected stale credentials")
+		}
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("Delete calls = %d, want 1", store.deleteCalls)
+	}
+	if broker.refreshCalls != 1 {
+		t.Fatalf("Refresh calls = %d, want 1", broker.refreshCalls)
+	}
+}
+
+func TestEnsureTokens_NonInvalidGrantPreservesCredentials(t *testing.T) {
+	for _, name := range []string{"invalid_client", "other_error"} {
+		t.Run(name, func(t *testing.T) {
+			store := &mockTokenStore{
+				getFunc: func(context.Context, string, string) (*OAuthToken, error) {
+					return staleStoredToken(), nil
+				},
+			}
+			broker := &mockBroker{refreshFunc: func(context.Context, Key, string) (*scyauth.Token, error) {
+				return nil, errors.New(name)
+			}}
+			manager := NewManager(
+				WithTokenStore(store),
+				WithBroker(broker),
+				WithInstanceID(""),
+			)
+
+			next, err := manager.EnsureTokens(context.Background(), testKey)
+			if err != nil {
+				t.Fatalf("EnsureTokens() error = %v", err)
+			}
+			if iauth.TokensFromContext(next) != nil || iauth.Bearer(next) != "" {
+				t.Fatal("retryable refresh failure injected stale credentials")
+			}
+			if store.deleteCalls != 0 {
+				t.Fatalf("Delete calls = %d, want 0", store.deleteCalls)
+			}
+		})
+	}
+}
+
+func TestEnsureTokens_InvalidGrantDeleteFailureDoesNotInjectOrLeak(t *testing.T) {
+	const canary = "Bearer delete-failure-canary"
+	logs := captureTokenManagerLogs(t)
+	store := &mockTokenStore{
+		getFunc: func(context.Context, string, string) (*OAuthToken, error) {
+			return staleStoredToken(), nil
+		},
+		deleteFunc: func(context.Context, string, string) error {
+			return errors.New(canary)
+		},
+	}
+	broker := &mockBroker{refreshFunc: func(context.Context, Key, string) (*scyauth.Token, error) {
+		return nil, NewRefreshInvalidGrantError(errors.New("invalid_grant"))
+	}}
+	manager := NewManager(
+		WithTokenStore(store),
+		WithBroker(broker),
+		WithInstanceID(""),
+	)
+
+	next, err := manager.EnsureTokens(context.Background(), testKey)
+	if err != nil {
+		t.Fatalf("EnsureTokens() error = %v", err)
+	}
+	if iauth.TokensFromContext(next) != nil || iauth.Bearer(next) != "" {
+		t.Fatal("delete failure injected stale credentials")
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("Delete calls = %d, want 1", store.deleteCalls)
+	}
+	output := logs.String()
+	if !strings.Contains(output, `[auth-token]`) ||
+		!strings.Contains(output, `action="clear_cache_delete_failed_cooldown_no_inject"`) {
+		t.Fatalf("missing safe delete failure action log: %s", output)
+	}
+	if strings.Contains(output, "delete-failure-canary") {
+		t.Fatalf("delete failure secret leaked in log: %s", output)
+	}
+}
+
+func TestEnsureTokens_ResolutionFailuresAlwaysLogWithoutDebug(t *testing.T) {
+	t.Setenv("AGENTLY_DEBUG", "")
+	tests := []struct {
+		name           string
+		store          *mockTokenStore
+		classification string
+	}{
+		{
+			name: "stale",
+			store: &mockTokenStore{getFunc: func(context.Context, string, string) (*OAuthToken, error) {
+				return staleStoredToken(), nil
+			}},
+			classification: `classification="stale_token"`,
+		},
+		{
+			name: "unavailable",
+			store: &mockTokenStore{getFunc: func(context.Context, string, string) (*OAuthToken, error) {
+				return nil, nil
+			}},
+			classification: `classification="token_unavailable"`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logs := captureTokenManagerLogs(t)
+			manager := NewManager(
+				WithTokenStore(test.store),
+				WithInstanceID(""),
+			)
+			for i := 0; i < 2; i++ {
+				if _, err := manager.EnsureTokens(context.Background(), testKey); err != nil {
+					t.Fatalf("EnsureTokens() error = %v", err)
+				}
+			}
+			output := logs.String()
+			if count := strings.Count(output, test.classification); count != 1 {
+				t.Fatalf("%s log count = %d, want 1: %s", test.classification, count, output)
+			}
+		})
+	}
+}
+
+func TestEnsureTokens_SuccessRemainsDebugOnly(t *testing.T) {
+	t.Setenv("AGENTLY_DEBUG", "")
+	logs := captureTokenManagerLogs(t)
+	store := &mockTokenStore{getFunc: func(context.Context, string, string) (*OAuthToken, error) {
+		fresh := staleStoredToken()
+		fresh.ExpiresAt = time.Now().Add(time.Hour)
+		return fresh, nil
+	}}
+	manager := NewManager(
+		WithTokenStore(store),
+		WithInstanceID(""),
+	)
+	if _, err := manager.EnsureTokens(context.Background(), testKey); err != nil {
+		t.Fatalf("EnsureTokens() error = %v", err)
+	}
+	if output := logs.String(); strings.Contains(output, "[auth-token]") {
+		t.Fatalf("successful token resolution emitted always-on log: %s", output)
+	}
+}
 
 // TestDistributedRefresh_LeaseAcquired verifies the happy path:
 // lease acquired → broker refresh → CASPut succeeds → token cached.
@@ -285,7 +481,7 @@ func TestEnsureTokens_StoreClearsMissCache(t *testing.T) {
 	}
 }
 
-func TestEnsureTokens_TransientRefreshFailureUsesCooldownAndReturnsStaleToken(t *testing.T) {
+func TestEnsureTokens_TransientRefreshFailureUsesCooldownWithoutInjectingStaleToken(t *testing.T) {
 	staleExpiry := time.Now().Add(-1 * time.Minute)
 	store := &mockTokenStore{
 		getFunc: func(_ context.Context, _, _ string) (*OAuthToken, error) {
@@ -315,8 +511,8 @@ func TestEnsureTokens_TransientRefreshFailureUsesCooldownAndReturnsStaleToken(t 
 		t.Fatalf("EnsureTokens() unexpected error: %v", err)
 	}
 	tok := iauth.TokensFromContext(next)
-	if tok == nil || tok.AccessToken != "stale-access" {
-		t.Fatalf("expected stale token to remain usable after transient refresh failure, got %#v", tok)
+	if tok != nil || iauth.Bearer(next) != "" {
+		t.Fatalf("stale token reached downstream context after refresh failure: %#v", tok)
 	}
 	if broker.refreshCalls != 1 {
 		t.Fatalf("broker refresh calls = %d, want 1", broker.refreshCalls)
@@ -327,8 +523,8 @@ func TestEnsureTokens_TransientRefreshFailureUsesCooldownAndReturnsStaleToken(t 
 		t.Fatalf("EnsureTokens() during cooldown unexpected error: %v", err)
 	}
 	tok = iauth.TokensFromContext(next)
-	if tok == nil || tok.AccessToken != "stale-access" {
-		t.Fatalf("expected stale token during cooldown, got %#v", tok)
+	if tok != nil || iauth.Bearer(next) != "" {
+		t.Fatalf("stale token reached downstream context during cooldown: %#v", tok)
 	}
 	if broker.refreshCalls != 1 {
 		t.Fatalf("broker refresh calls after cooldown reuse = %d, want still 1", broker.refreshCalls)

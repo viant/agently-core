@@ -7,6 +7,7 @@ import (
 	"time"
 
 	token "github.com/viant/agently-core/internal/auth/token"
+	"github.com/viant/agently-core/internal/authlog"
 )
 
 type canonicalTokenStore struct {
@@ -83,12 +84,20 @@ func (s *canonicalTokenStore) CASPut(ctx context.Context, token *OAuthToken, exp
 // tokenStoreAdapter bridges service/auth.TokenStore to token.TokenStore.
 // This is needed because the two packages define mirrored types to avoid import cycles.
 type tokenStoreAdapter struct {
-	inner TokenStore
+	inner  TokenStore
+	client *OAuthClient
 }
 
 // NewTokenStoreAdapter wraps a service/auth.TokenStore to satisfy token.TokenStore.
 func NewTokenStoreAdapter(store TokenStore, users UserService) token.TokenStore {
-	return &tokenStoreAdapter{inner: &canonicalTokenStore{inner: store, users: users, ids: map[string]string{}}}
+	return newTokenStoreAdapter(store, users, nil)
+}
+
+func newTokenStoreAdapter(store TokenStore, users UserService, client *OAuthClient) token.TokenStore {
+	return &tokenStoreAdapter{
+		inner:  &canonicalTokenStore{inner: store, users: users, ids: map[string]string{}},
+		client: client,
+	}
 }
 
 func (a *tokenStoreAdapter) Get(ctx context.Context, username, provider string) (*token.OAuthToken, error) {
@@ -96,13 +105,25 @@ func (a *tokenStoreAdapter) Get(ctx context.Context, username, provider string) 
 	if err != nil || t == nil {
 		return nil, err
 	}
+	expiresAt := t.ExpiresAt
+	if err := validateConfiguredOAuthScopes(a.client, nil, t.IDToken, t.AccessToken, t.RefreshToken); err != nil {
+		authlog.Log(ctx, authlog.Event{
+			Op:             "scope_validate_stored",
+			UserID:         strings.TrimSpace(t.Username),
+			Provider:       strings.TrimSpace(t.Provider),
+			Classification: "scope_validation",
+			Action:         "preserve_refresh_no_inject",
+			Err:            err,
+		})
+		expiresAt = time.Time{}
+	}
 	return &token.OAuthToken{
 		Username:     t.Username,
 		Provider:     t.Provider,
 		AccessToken:  t.AccessToken,
 		IDToken:      t.IDToken,
 		RefreshToken: t.RefreshToken,
-		ExpiresAt:    t.ExpiresAt,
+		ExpiresAt:    expiresAt,
 	}, nil
 }
 

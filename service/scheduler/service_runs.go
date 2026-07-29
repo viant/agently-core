@@ -34,16 +34,19 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		ScheduleID:    strings.TrimSpace(row.Id),
 		ScheduleRunID: strings.TrimSpace(runID),
 	})
+	var authErr error
 	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
 		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred detected ref_kind=%q", userCredRefKind(cred))
-		var err error
-		runCtx, err = s.applyUserCred(runCtx, cred)
-		if err != nil {
-			logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred apply failed err=%v", err)
+		runCtx, authErr = s.applyUserCred(runCtx, cred)
+		if authErr != nil {
+			logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred apply failed err=%v", authErr)
 		}
 	} else {
 		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "no user_cred_url; using created_by_user_id auth path")
-		runCtx = s.preloadCreatedByUserTokens(runCtx, row, runID)
+		runCtx, authErr = s.preloadCreatedByUserTokens(runCtx, row, runID)
+		if authErr != nil {
+			logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "created_by auth failed err=%v", authErr)
+		}
 	}
 
 	userID := scheduleUserID(runCtx, row)

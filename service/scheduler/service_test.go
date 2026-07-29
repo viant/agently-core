@@ -1,9 +1,11 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ import (
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/scy"
+	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/cred"
 	_ "github.com/viant/scy/kms/blowfish"
@@ -636,6 +639,353 @@ func TestService_applyUserCred_IncludesConfiguredHeadlessScope(t *testing.T) {
 	}
 }
 
+func TestService_applyUserCred_ValidatesFreshOOBScopesBeforeStore(t *testing.T) {
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: (&oauth2.Token{
+			AccessToken:  "valid-scoped-access",
+			RefreshToken: "valid-scoped-refresh",
+			Expiry:       time.Now().Add(30 * time.Minute),
+		}).WithExtra(map[string]interface{}{"scope": "openid profile"}),
+	}
+	tokens := &fakeSchedulerTokenProvider{}
+	svc := New(nil, &agentsvc.Service{},
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile"},
+		}),
+		WithTokenProvider(tokens),
+	)
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(context.Background(), "scheduler-user-credential")
+	if err != nil {
+		t.Fatalf("applyUserCred() error = %v", err)
+	}
+	if tokens.storeCalls != 1 || tokens.ensureCalls != 1 {
+		t.Fatalf("token provider calls Store=%d Ensure=%d, want 1 each", tokens.storeCalls, tokens.ensureCalls)
+	}
+	if tokens.stored == nil || tokens.stored.AccessToken != "valid-scoped-access" {
+		t.Fatalf("stored OOB token = %#v", tokens.stored)
+	}
+	if got := iauth.TokensFromContext(gotCtx); got == nil || got.AccessToken != "translated-access" {
+		t.Fatalf("ensured token = %#v, want translated access token", got)
+	}
+}
+
+func TestService_applyUserCred_UnderScopedFreshOOBIsNotStoredOrInjected(t *testing.T) {
+	const canary = "under-scoped-access-canary"
+	var logs bytes.Buffer
+	originalOutput := log.Writer()
+	originalFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		log.SetFlags(originalFlags)
+	})
+	t.Setenv("AGENTLY_DEBUG", "")
+
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: (&oauth2.Token{
+			AccessToken:  canary,
+			RefreshToken: "under-scoped-refresh-canary",
+			Expiry:       time.Now().Add(30 * time.Minute),
+		}).WithExtra(map[string]interface{}{"scope": "openid"}),
+	}
+	tokens := &fakeSchedulerTokenProvider{}
+	svc := New(nil, &agentsvc.Service{},
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile"},
+		}),
+		WithTokenProvider(tokens),
+	)
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(context.Background(), "scheduler-user-credential")
+	if err == nil {
+		t.Fatal("applyUserCred() error = nil, want scope validation failure")
+	}
+	if tokens.storeCalls != 0 || tokens.ensureCalls != 0 {
+		t.Fatalf("under-scoped token reached provider: Store=%d Ensure=%d", tokens.storeCalls, tokens.ensureCalls)
+	}
+	if iauth.TokensFromContext(gotCtx) != nil || iauth.Bearer(gotCtx) != "" {
+		t.Fatal("under-scoped OOB token reached downstream context")
+	}
+	output := logs.String()
+	if !strings.Contains(output, "[auth-token]") ||
+		!strings.Contains(output, `op="scheduler_oob_scope_validate"`) ||
+		!strings.Contains(output, `classification="scope_validation"`) {
+		t.Fatalf("missing always-on scope failure log: %s", output)
+	}
+	if strings.Contains(output, canary) || strings.Contains(output, "under-scoped-refresh-canary") {
+		t.Fatalf("OOB token leaked in log: %s", output)
+	}
+}
+
+func TestService_AuthDirectFallbackRejectsExpiredOOBTokenWithoutProvider(t *testing.T) {
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: (&oauth2.Token{
+			AccessToken:  "expired-direct-access",
+			RefreshToken: "expired-direct-refresh",
+			Expiry:       time.Now().Add(-time.Minute),
+		}).WithExtra(map[string]interface{}{"scope": "openid profile"}),
+	}
+	svc := New(nil, &agentsvc.Service{}, WithUserCredAuthConfig(&UserCredAuthConfig{
+		Mode:            "bff",
+		ClientConfigURL: "file:///tmp/oauth.client.json",
+		Scopes:          []string{"openid", "profile"},
+	}))
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(context.Background(), "scheduler-user-credential")
+	if err == nil {
+		t.Fatal("applyUserCred() error = nil, want expired token rejection")
+	}
+	if iauth.TokensFromContext(gotCtx) != nil || iauth.Bearer(gotCtx) != "" {
+		t.Fatal("expired direct-fallback token was injected")
+	}
+}
+
+func TestService_AuthDirectFallbackRejectsExpiredOOBTokenWithoutRefreshToken(t *testing.T) {
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: (&oauth2.Token{
+			AccessToken: "expired-no-refresh-access",
+			Expiry:      time.Now().Add(-time.Minute),
+		}).WithExtra(map[string]interface{}{"scope": "openid profile"}),
+	}
+	tokens := &fakeSchedulerTokenProvider{}
+	svc := New(nil, &agentsvc.Service{},
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile"},
+		}),
+		WithTokenProvider(tokens),
+	)
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(context.Background(), "scheduler-user-credential")
+	if err == nil {
+		t.Fatal("applyUserCred() error = nil, want expired token rejection")
+	}
+	if tokens.storeCalls != 0 || tokens.ensureCalls != 0 {
+		t.Fatalf("expired no-refresh token reached provider: Store=%d Ensure=%d", tokens.storeCalls, tokens.ensureCalls)
+	}
+	if iauth.TokensFromContext(gotCtx) != nil || iauth.Bearer(gotCtx) != "" {
+		t.Fatal("expired no-refresh token was injected")
+	}
+}
+
+func TestService_AuthDirectFallbackAllowsLiveOOBTokenWithoutRefreshToken(t *testing.T) {
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: (&oauth2.Token{
+			AccessToken: "live-no-refresh-access",
+			Expiry:      time.Now().Add(30 * time.Minute),
+		}).WithExtra(map[string]interface{}{"scope": "openid profile"}),
+	}
+	tokens := &fakeSchedulerTokenProvider{}
+	svc := New(nil, &agentsvc.Service{},
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile"},
+		}),
+		WithTokenProvider(tokens),
+	)
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(context.Background(), "scheduler-user-credential")
+	if err != nil {
+		t.Fatalf("applyUserCred() error = %v", err)
+	}
+	if tokens.storeCalls != 0 || tokens.ensureCalls != 0 {
+		t.Fatalf("live no-refresh token unexpectedly reached provider: Store=%d Ensure=%d", tokens.storeCalls, tokens.ensureCalls)
+	}
+	if got := iauth.TokensFromContext(gotCtx); got == nil || got.AccessToken != "live-no-refresh-access" {
+		t.Fatalf("live no-refresh token was not injected: %#v", got)
+	}
+	if got := iauth.Bearer(gotCtx); got != "live-no-refresh-access" {
+		t.Fatalf("Bearer() = %q, want live no-refresh access token", got)
+	}
+}
+
+func TestService_applyUserCred_PropagatesTokenStoreFailure(t *testing.T) {
+	fakeAuthz := &fakeOAuthAuthorizer{
+		tok: (&oauth2.Token{
+			AccessToken:  "valid-scoped-access",
+			RefreshToken: "valid-scoped-refresh",
+			Expiry:       time.Now().Add(30 * time.Minute),
+		}).WithExtra(map[string]interface{}{"scope": "openid profile"}),
+	}
+	tokens := &fakeSchedulerTokenProvider{storeErr: errors.New("store failure")}
+	svc := New(nil, &agentsvc.Service{},
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile"},
+		}),
+		WithTokenProvider(tokens),
+	)
+	svc.oauthAuthz = fakeAuthz
+
+	gotCtx, err := svc.applyUserCred(context.Background(), "scheduler-user-credential")
+	if err == nil {
+		t.Fatal("applyUserCred() error = nil, want Store failure")
+	}
+	if tokens.storeCalls != 1 || tokens.ensureCalls != 0 {
+		t.Fatalf("token provider calls Store=%d Ensure=%d, want 1 and 0", tokens.storeCalls, tokens.ensureCalls)
+	}
+	if iauth.TokensFromContext(gotCtx) != nil || iauth.Bearer(gotCtx) != "" {
+		t.Fatal("Store failure injected OAuth credentials")
+	}
+}
+
+func TestService_applyUserCred_RejectsUnusableEnsuredAuth(t *testing.T) {
+	tests := []struct {
+		name         string
+		configure    func(*fakeSchedulerTokenProvider)
+		incomingAuth bool
+	}{
+		{
+			name: "empty context",
+			configure: func(provider *fakeSchedulerTokenProvider) {
+				provider.ensureEmpty = true
+			},
+			incomingAuth: true,
+		},
+		{
+			name: "ensure failure",
+			configure: func(provider *fakeSchedulerTokenProvider) {
+				provider.ensureErr = errors.New("ensure failure")
+			},
+		},
+		{
+			name: "expired token",
+			configure: func(provider *fakeSchedulerTokenProvider) {
+				provider.ensureToken = &scyauth.Token{Token: oauth2.Token{
+					AccessToken: "expired-ensured-access",
+					Expiry:      time.Now().Add(-time.Minute),
+				}}
+			},
+		},
+		{
+			name: "under-scoped token",
+			configure: func(provider *fakeSchedulerTokenProvider) {
+				underScoped := (&oauth2.Token{
+					AccessToken: "under-scoped-ensured-access",
+					Expiry:      time.Now().Add(time.Hour),
+				}).WithExtra(map[string]interface{}{"scope": "openid"})
+				provider.ensureToken = &scyauth.Token{Token: *underScoped}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fakeAuthz := &fakeOAuthAuthorizer{
+				tok: (&oauth2.Token{
+					AccessToken:  "valid-scoped-access",
+					RefreshToken: "valid-scoped-refresh",
+					Expiry:       time.Now().Add(30 * time.Minute),
+				}).WithExtra(map[string]interface{}{"scope": "openid profile"}),
+			}
+			tokens := &fakeSchedulerTokenProvider{}
+			test.configure(tokens)
+			svc := New(nil, &agentsvc.Service{},
+				WithUserCredAuthConfig(&UserCredAuthConfig{
+					Mode:            "bff",
+					ClientConfigURL: "file:///tmp/oauth.client.json",
+					Scopes:          []string{"openid", "profile"},
+				}),
+				WithTokenProvider(tokens),
+			)
+			svc.oauthAuthz = fakeAuthz
+			ctx := context.Background()
+			if test.incomingAuth {
+				ctx = iauth.WithTokens(ctx, &scyauth.Token{Token: oauth2.Token{
+					AccessToken: "stale-incoming-access",
+					Expiry:      time.Now().Add(-time.Minute),
+				}})
+				ctx = iauth.WithBearer(ctx, "stale-incoming-access")
+			}
+
+			gotCtx, err := svc.applyUserCred(ctx, "scheduler-user-credential")
+			if err == nil {
+				t.Fatal("applyUserCred() error = nil, want unusable ensured auth rejection")
+			}
+			if tokens.storeCalls != 1 || tokens.ensureCalls != 1 {
+				t.Fatalf("token provider calls Store=%d Ensure=%d, want 1 each", tokens.storeCalls, tokens.ensureCalls)
+			}
+			if iauth.TokensFromContext(gotCtx) != nil || iauth.Bearer(gotCtx) != "" {
+				t.Fatal("unusable ensured auth or stale incoming auth reached downstream context")
+			}
+		})
+	}
+}
+
+func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+	const scheduleID = "sched-user-cred-auth-failure"
+	const subject = "scheduler-user"
+	insertScheduleRow(t, db, scheduleID, "User credential auth failure")
+	queryCalled := false
+	svc := New(store, &agentsvc.Service{},
+		WithUserCredAuthConfig(&UserCredAuthConfig{
+			Mode:            "bff",
+			ClientConfigURL: "file:///tmp/oauth.client.json",
+			Scopes:          []string{"openid", "profile"},
+		}),
+	)
+	svc.queryRunner = func(ctx context.Context, input *agentsvc.QueryInput, _ *agentsvc.QueryOutput) error {
+		queryCalled = true
+		if iauth.TokensFromContext(ctx) != nil || iauth.Bearer(ctx) != "" || iauth.IDToken(ctx) != "" {
+			t.Fatal("query received credentials after user_cred auth failure")
+		}
+		if got := strings.TrimSpace(iauth.EffectiveUserID(ctx)); got != subject {
+			t.Fatalf("query effective user = %q, want %q", got, subject)
+		}
+		if input == nil || input.UserId != subject {
+			t.Fatalf("query input user = %#v, want %q", input, subject)
+		}
+		return nil
+	}
+	fakeAuthz := &fakeOAuthAuthorizer{err: errors.New("authorization failed")}
+	svc.oauthAuthz = fakeAuthz
+	credRef := "scheduler-user-credential"
+	row := &schedulepkg.ScheduleView{
+		Id:           scheduleID,
+		Name:         "User credential auth failure",
+		UserCredURL:  &credRef,
+		AgentRef:     "steward",
+		ScheduleType: "adhoc",
+		Timezone:     "UTC",
+		Enabled:      true,
+	}
+
+	ctx := iauth.WithUserInfo(context.Background(), &iauth.UserInfo{Subject: subject})
+	ctx = iauth.WithTokens(ctx, &scyauth.Token{
+		Token: oauth2.Token{
+			AccessToken: "stale-access",
+			Expiry:      time.Now().Add(-time.Minute),
+		},
+		IDToken: "stale-id",
+	})
+	ctx = iauth.WithBearer(ctx, "stale-access")
+	ctx = iauth.WithIDToken(ctx, "stale-id")
+	svc.executeRun(ctx, row, "run-user-cred-auth-failure", time.Now().UTC())
+
+	if !queryCalled {
+		t.Fatal("query was not called after user credential auth failure")
+	}
+	if fakeAuthz.callCount != 1 {
+		t.Fatalf("Authorize() calls = %d, want 1", fakeAuthz.callCount)
+	}
+	assertScheduleLastResult(t, db, scheduleID, "succeeded")
+}
+
 func seedRunningConversation(t *testing.T, client convcli.Client, conversationID, turnID string, startedAt time.Time) {
 	t.Helper()
 
@@ -727,6 +1077,25 @@ func ensureRunWriteComponent(t *testing.T, store Store) {
 	}
 	if _, err := agrunwrite.DefineComponent(context.Background(), datlyStore.dao); err != nil {
 		t.Fatalf("DefineComponent(run write) error: %v", err)
+	}
+}
+
+func assertScheduleLastResult(t *testing.T, db *sql.DB, scheduleID, wantStatus string) {
+	t.Helper()
+	var status sql.NullString
+	var errorMessage sql.NullString
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT last_status, last_error
+		FROM schedule
+		WHERE id = ?
+	`, scheduleID).Scan(&status, &errorMessage); err != nil {
+		t.Fatalf("query schedule result: %v", err)
+	}
+	if !status.Valid || status.String != wantStatus {
+		t.Fatalf("schedule last_status = %q, want %q", status.String, wantStatus)
+	}
+	if errorMessage.Valid && strings.TrimSpace(errorMessage.String) != "" {
+		t.Fatalf("schedule last_error = %q, want empty", errorMessage.String)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	"golang.org/x/oauth2"
 )
@@ -20,6 +21,8 @@ type brokerStoreStub struct {
 	token       *OAuthToken
 	getUsername string
 	getProvider string
+	putCalls    int
+	deleteCalls int
 }
 
 func (s *brokerStoreStub) Get(ctx context.Context, username, provider string) (*OAuthToken, error) {
@@ -27,8 +30,13 @@ func (s *brokerStoreStub) Get(ctx context.Context, username, provider string) (*
 	s.getProvider = provider
 	return s.token, nil
 }
-func (s *brokerStoreStub) Put(ctx context.Context, token *OAuthToken) error { return nil }
+func (s *brokerStoreStub) Put(ctx context.Context, token *OAuthToken) error {
+	s.putCalls++
+	return nil
+}
 func (s *brokerStoreStub) Delete(ctx context.Context, username, provider string) error {
+	s.deleteCalls++
+	s.token = nil
 	return nil
 }
 func (s *brokerStoreStub) TryAcquireRefreshLease(ctx context.Context, username, provider, owner string, ttl time.Duration) (int64, bool, error) {
@@ -225,5 +233,159 @@ func TestOAuthRefreshBroker_Refresh_DropsExpiredStoredIDToken(t *testing.T) {
 	}
 	if got.IDToken != "" {
 		t.Fatalf("IDToken = %q, want expired ID token removed", got.IDToken)
+	}
+}
+
+func TestOAuthRefreshBroker_Refresh_RejectsUnderScopedCandidate(t *testing.T) {
+	underScoped := fakeJWTWithClaims(t, map[string]any{"scope": "openid"})
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ := json.Marshal(map[string]any{
+			"access_token":  underScoped,
+			"refresh_token": "candidate-refresh",
+			"expires_in":    3600,
+			"scope":         "openid",
+		})
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+			Request:    req,
+		}, nil
+	})})
+	store := &brokerStoreStub{token: &OAuthToken{
+		Username:     "user-1",
+		Provider:     "oauth",
+		AccessToken:  "old-access",
+		RefreshToken: "refresh-1",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+	}}
+	broker := &oauthRefreshBroker{
+		configURL: writeBrokerOAuthConfig(t),
+		client: &OAuthClient{
+			Scopes: []string{"openid", "ROLE_STEWARD_WEB"},
+		},
+		store: store,
+	}
+
+	got, err := broker.Refresh(ctx, token.Key{Subject: "user-1", Provider: "oauth"}, "refresh-1")
+	if err == nil {
+		t.Fatalf("Refresh() error = nil, token=%#v", got)
+	}
+	if got != nil {
+		t.Fatalf("scope-failed candidate returned: %#v", got)
+	}
+	if store.putCalls != 0 || store.deleteCalls != 0 {
+		t.Fatalf("scope-failed broker mutated store: put=%d delete=%d", store.putCalls, store.deleteCalls)
+	}
+}
+
+func TestOAuthRefreshBroker_InvalidGrantClearsSchedulerStoreAndDoesNotInject(t *testing.T) {
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Status:     "400 Bad Request",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":"invalid_grant"}`)),
+			Request:    req,
+		}, nil
+	})})
+	store := &brokerStoreStub{token: &OAuthToken{
+		Username:     "user-1",
+		Provider:     "oauth",
+		AccessToken:  "expired-access",
+		RefreshToken: "refresh-1",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+	}}
+	broker := &oauthRefreshBroker{
+		configURL: writeBrokerOAuthConfig(t),
+		store:     store,
+	}
+	manager := token.NewManager(
+		token.WithBroker(broker),
+		token.WithTokenStore(NewTokenStoreAdapter(store, nil)),
+		token.WithInstanceID(""),
+	)
+
+	next, err := manager.EnsureTokens(ctx, token.Key{Subject: "user-1", Provider: "oauth"})
+	if err != nil {
+		t.Fatalf("EnsureTokens() error = %v", err)
+	}
+	if got := iauth.TokensFromContext(next); got != nil {
+		t.Fatalf("expired scheduler token was injected: %#v", got)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("scheduler invalid_grant Delete calls = %d, want 1", store.deleteCalls)
+	}
+	if store.token != nil {
+		t.Fatalf("scheduler stored credential was not cleared: %#v", store.token)
+	}
+	if _, err := manager.EnsureTokens(ctx, token.Key{Subject: "user-1", Provider: "oauth"}); err != nil {
+		t.Fatalf("second EnsureTokens() error = %v", err)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("scheduler invalid_grant Delete calls after cached miss = %d, want 1", store.deleteCalls)
+	}
+}
+
+func TestOAuthRefreshBroker_NonInvalidGrantPreservesSchedulerStore(t *testing.T) {
+	tests := []struct {
+		name  string
+		code  string
+		calls int
+	}{
+		{name: "invalid_client", code: "invalid_client", calls: 2},
+		{name: "invalid_request", code: "invalid_request", calls: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			oauthRefreshAuthStyles.Delete(oauthAuthStyleCacheKey{
+				tokenURL: "https://token.example.test/oauth/token",
+				clientID: "client-1",
+			})
+			requests := 0
+			ctx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests++
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Status:     "400 Bad Request",
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"error":"` + test.code + `"}`)),
+					Request:    req,
+				}, nil
+			})})
+			stored := &OAuthToken{
+				Username:     "user-1",
+				Provider:     "oauth",
+				AccessToken:  "expired-access",
+				RefreshToken: "refresh-1",
+				ExpiresAt:    time.Now().Add(-time.Minute),
+			}
+			store := &brokerStoreStub{token: stored}
+			manager := token.NewManager(
+				token.WithBroker(&oauthRefreshBroker{
+					configURL: writeBrokerOAuthConfig(t),
+					store:     store,
+				}),
+				token.WithTokenStore(NewTokenStoreAdapter(store, nil)),
+				token.WithInstanceID(""),
+			)
+
+			next, err := manager.EnsureTokens(ctx, token.Key{Subject: "user-1", Provider: "oauth"})
+			if err != nil {
+				t.Fatalf("EnsureTokens() error = %v", err)
+			}
+			if got := iauth.TokensFromContext(next); got != nil || iauth.Bearer(next) != "" {
+				t.Fatalf("failed refresh injected stale scheduler credentials: %#v", got)
+			}
+			if store.deleteCalls != 0 {
+				t.Fatalf("Delete calls = %d, want 0", store.deleteCalls)
+			}
+			if store.token != stored {
+				t.Fatalf("stored credential changed: %#v", store.token)
+			}
+			if requests != test.calls {
+				t.Fatalf("token endpoint calls = %d, want %d", requests, test.calls)
+			}
+		})
 	}
 }

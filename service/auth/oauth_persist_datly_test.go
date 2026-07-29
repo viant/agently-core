@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,6 +84,78 @@ func TestAuthExtensionPersistOAuthToken_StoresUnderCanonicalUserID_WithDatly(t *
 		t.Fatalf("store.Get(subject) error = %v", err)
 	} else if token != nil {
 		t.Fatalf("store.Get(subject) = %+v, want nil because tokens must be keyed by canonical users.id", token)
+	}
+}
+
+func TestTokenStoreDAODelete_ClearsCredentialAndResetsAuditLeaseState(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	users := NewDatlyUserService(dao)
+	userID, err := users.UpsertWithProvider(ctx, "delete-user", "delete-user", "delete@example.test", "oauth", "delete-subject")
+	if err != nil {
+		t.Fatalf("UpsertWithProvider() error = %v", err)
+	}
+	store := NewTokenStoreDAO(dao, "oauth-delete-audit-test")
+	if err := store.Put(ctx, &OAuthToken{
+		Username:     userID,
+		Provider:     "oauth",
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	db, err := store.db()
+	if err != nil {
+		t.Fatalf("store.db() error = %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE user_oauth_token
+SET lease_owner = 'worker', lease_until = DATETIME('now', '+1 hour'),
+    refresh_status = 'refreshing', updated_at = DATETIME('2000-01-01')
+WHERE user_id = ? AND provider = ?`, userID, "oauth"); err != nil {
+		t.Fatalf("prepare audit state: %v", err)
+	}
+	var versionBefore int64
+	if err := db.QueryRowContext(ctx,
+		`SELECT version FROM user_oauth_token WHERE user_id = ? AND provider = ?`,
+		userID, "oauth",
+	).Scan(&versionBefore); err != nil {
+		t.Fatalf("read version before delete: %v", err)
+	}
+
+	if err := store.Delete(ctx, userID, "oauth"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	var (
+		encToken      string
+		versionAfter  int64
+		leaseOwner    string
+		leaseUntil    string
+		refreshStatus string
+		updatedAt     string
+	)
+	if err := db.QueryRowContext(ctx, `SELECT enc_token, version,
+       COALESCE(lease_owner, ''), COALESCE(CAST(lease_until AS TEXT), ''),
+       refresh_status, CAST(updated_at AS TEXT)
+FROM user_oauth_token WHERE user_id = ? AND provider = ?`, userID, "oauth").
+		Scan(&encToken, &versionAfter, &leaseOwner, &leaseUntil, &refreshStatus, &updatedAt); err != nil {
+		t.Fatalf("read row after delete: %v", err)
+	}
+	if encToken != "" {
+		t.Fatalf("enc_token = %q, want empty", encToken)
+	}
+	if versionAfter != versionBefore+1 {
+		t.Fatalf("version = %d, want %d", versionAfter, versionBefore+1)
+	}
+	if leaseOwner != "" || leaseUntil != "" || refreshStatus != "idle" {
+		t.Fatalf("lease state = owner %q until %q status %q", leaseOwner, leaseUntil, refreshStatus)
+	}
+	if strings.HasPrefix(updatedAt, "2000-01-01") {
+		t.Fatalf("updated_at was not advanced: %q", updatedAt)
 	}
 }
 
