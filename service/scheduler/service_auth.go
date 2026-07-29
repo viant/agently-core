@@ -3,12 +3,14 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
+	"github.com/viant/agently-core/internal/authlog"
+	"github.com/viant/agently-core/internal/logx"
+	svcauth "github.com/viant/agently-core/service/auth"
 	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
 )
@@ -23,17 +25,18 @@ func (s *Service) applyUserCred(ctx context.Context, credRef string) (context.Co
 }
 
 func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (context.Context, error) {
+	safeCtx := iauth.WithoutTokens(ctx)
 	cfg := s.resolveUserCredAuthConfig()
 	if cfg == nil {
-		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth configuration")
+		return safeCtx, fmt.Errorf("schedule user_cred_url requires auth.oauth configuration")
 	}
 	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
 	if mode != "bff" {
-		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.mode=bff")
+		return safeCtx, fmt.Errorf("schedule user_cred_url requires auth.oauth.mode=bff")
 	}
 	cfgURL := strings.TrimSpace(cfg.ClientConfigURL)
 	if cfgURL == "" {
-		return ctx, fmt.Errorf("schedule user_cred_url requires auth.oauth.client.configURL")
+		return safeCtx, fmt.Errorf("schedule user_cred_url requires auth.oauth.client.configURL")
 	}
 
 	cmd := &authorizer.Command{
@@ -50,7 +53,7 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 		cmd.Scopes = []string{"openid"}
 	}
 	meta, userID := schedulerAuthMeta(ctx)
-	logAuthf("schedule=%q run=%q user=%q user_cred authorize start ref_kind=%q scopes=%d",
+	logx.DebugCtxf(ctx, "auth-token", "schedule_id=%q run_id=%q user_id=%q user_cred authorize start ref_kind=%q scopes=%d",
 		strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef), len(cmd.Scopes))
 
 	authCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 1*time.Minute)
@@ -61,32 +64,111 @@ func (s *Service) applyUserCredLegacyOOB(ctx context.Context, credRef string) (c
 	}
 	oauthTok, err := oa.Authorize(authCtx, cmd)
 	if err != nil {
-		logAuthf("schedule=%q run=%q user=%q user_cred authorize failed ref_kind=%q err=%v",
-			strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef), err)
-		return ctx, fmt.Errorf("schedule user_cred authorize failed: %w", err)
+		authlog.Log(ctx, authlog.Event{
+			Op:             "scheduler_oob_authorize",
+			Provider:       effectiveSchedulerTokenProvider(cfg),
+			ScheduleID:     meta.ScheduleID,
+			RunID:          meta.ScheduleRunID,
+			Classification: "refresh_error",
+			Action:         "preserve_no_inject",
+		})
+		return safeCtx, fmt.Errorf("schedule user_cred authorize failed")
 	}
 	if oauthTok == nil {
-		return ctx, fmt.Errorf("schedule user_cred authorize returned empty token")
+		return safeCtx, fmt.Errorf("schedule user_cred authorize returned empty token")
 	}
 
 	st := &scyauth.Token{Token: *oauthTok}
 	st.PopulateIDToken()
+	if err := validateSchedulerOAuthToken(st, cmd.Scopes, ""); err != nil {
+		authlog.Log(ctx, authlog.Event{
+			Op:             "scheduler_oob_scope_validate",
+			Provider:       effectiveSchedulerTokenProvider(cfg),
+			ScheduleID:     meta.ScheduleID,
+			RunID:          meta.ScheduleRunID,
+			Classification: "scope_validation",
+			Action:         "preserve_no_inject",
+			Err:            err,
+		})
+		return safeCtx, fmt.Errorf("schedule user_cred token is unusable")
+	}
 	if s.tokenProvider != nil && strings.TrimSpace(st.RefreshToken) != "" {
 		key := token.Key{Subject: credRef, Provider: effectiveSchedulerTokenProvider(cfg)}
-		_ = s.tokenProvider.Store(ctx, key, st)
-		next, ensureErr := s.tokenProvider.EnsureTokens(ctx, key)
-		if ensureErr == nil {
-			logAuthf("schedule=%q run=%q user=%q user_cred authorize ok ref_kind=%q has_access=%t has_refresh=%t has_id=%t",
-				strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef),
-				strings.TrimSpace(st.AccessToken) != "", strings.TrimSpace(st.RefreshToken) != "", strings.TrimSpace(st.IDToken) != "")
-			return next, nil
+		if err := s.tokenProvider.Store(ctx, key, st); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_oob_store",
+				Provider:       effectiveSchedulerTokenProvider(cfg),
+				ScheduleID:     meta.ScheduleID,
+				RunID:          meta.ScheduleRunID,
+				Classification: "persistence",
+				Action:         "preserve_no_inject",
+			})
+			return safeCtx, fmt.Errorf("schedule user_cred token persistence failed")
 		}
-		log.Printf("scheduler: ensure tokens after oob auth failed, using oauth token directly: %v", ensureErr)
+		next, err := s.tokenProvider.EnsureTokens(safeCtx, key)
+		if err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_oob_ensure",
+				Provider:       effectiveSchedulerTokenProvider(cfg),
+				ScheduleID:     meta.ScheduleID,
+				RunID:          meta.ScheduleRunID,
+				Classification: "refresh_error",
+				Action:         "preserve_no_inject",
+			})
+			return safeCtx, fmt.Errorf("schedule user_cred token resolution failed")
+		}
+		if err := validateSchedulerAuthContext(next, cmd.Scopes, st); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_oob_ensure",
+				Provider:       effectiveSchedulerTokenProvider(cfg),
+				ScheduleID:     meta.ScheduleID,
+				RunID:          meta.ScheduleRunID,
+				Classification: "token_unavailable",
+				Action:         "preserve_no_inject",
+				Err:            err,
+			})
+			return safeCtx, fmt.Errorf("schedule user_cred returned no usable token")
+		}
+		logx.DebugCtxf(ctx, "auth-token", "schedule_id=%q run_id=%q user_id=%q user_cred authorize ok ref_kind=%q",
+			strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef))
+		return next, nil
 	}
-	logAuthf("schedule=%q run=%q user=%q user_cred authorize ok ref_kind=%q has_access=%t has_refresh=%t has_id=%t",
-		strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef),
-		strings.TrimSpace(st.AccessToken) != "", strings.TrimSpace(st.RefreshToken) != "", strings.TrimSpace(st.IDToken) != "")
-	return s.withAuthTokens(ctx, st), nil
+	logx.DebugCtxf(ctx, "auth-token", "schedule_id=%q run_id=%q user_id=%q user_cred authorize ok ref_kind=%q",
+		strings.TrimSpace(meta.ScheduleID), strings.TrimSpace(meta.ScheduleRunID), userID, userCredRefKind(credRef))
+	return s.withAuthTokens(safeCtx, st), nil
+}
+
+func validateSchedulerAuthContext(ctx context.Context, expectedScopes []string, candidate *scyauth.Token) error {
+	tokens := iauth.TokensFromContext(ctx)
+	if tokens != nil {
+		return validateSchedulerOAuthToken(tokens, expectedScopes, iauth.Bearer(ctx))
+	}
+	bearer := strings.TrimSpace(iauth.Bearer(ctx))
+	if bearer == "" || candidate == nil {
+		return fmt.Errorf("oauth token was not injected")
+	}
+	if bearer != strings.TrimSpace(candidate.AccessToken) && bearer != strings.TrimSpace(candidate.IDToken) {
+		return fmt.Errorf("oauth bearer cannot be matched to validated token")
+	}
+	return validateSchedulerOAuthToken(candidate, expectedScopes, bearer)
+}
+
+func validateSchedulerOAuthToken(token *scyauth.Token, expectedScopes []string, bearer string) error {
+	if token == nil {
+		return fmt.Errorf("oauth token is missing")
+	}
+	if !token.Expiry.IsZero() && !token.Expiry.After(time.Now()) {
+		return fmt.Errorf("oauth token is expired")
+	}
+	if err := svcauth.ValidateOAuthTokenScopes(expectedScopes, token); err != nil {
+		return err
+	}
+	if strings.TrimSpace(token.AccessToken) == "" &&
+		strings.TrimSpace(token.IDToken) == "" &&
+		strings.TrimSpace(bearer) == "" {
+		return fmt.Errorf("oauth token has no usable bearer credential")
+	}
+	return nil
 }
 
 func effectiveSchedulerTokenProvider(cfg *UserCredAuthConfig) string {

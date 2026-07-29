@@ -2,11 +2,11 @@ package auth
 
 import (
 	"context"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/viant/agently-core/internal/authlog"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -159,13 +159,29 @@ func (m *Manager) Get(ctx context.Context, id string) *Session {
 	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionStoreLoadTimeout)
 	defer cancel()
 	rec, err := m.store.Get(loadCtx, id)
-	if err != nil || rec == nil {
+	if err != nil {
+		authlog.Log(ctx, authlog.Event{
+			Op:             "session_get",
+			Classification: "persistence",
+			Action:         "preserve_no_inject",
+		})
+		return nil
+	}
+	if rec == nil {
 		return nil
 	}
 	sess := recordToSession(rec)
 	if sess.IsExpired() {
 		storeCtx, cancel := authStoreContext(ctx)
-		_ = m.store.Delete(storeCtx, id)
+		if err := m.store.Delete(storeCtx, id); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "session_delete",
+				UserID:         strings.TrimSpace(rec.UserID),
+				Provider:       strings.TrimSpace(rec.Provider),
+				Classification: "persistence",
+				Action:         "preserve",
+			})
+		}
 		cancel()
 		return nil
 	}
@@ -209,7 +225,15 @@ func (m *Manager) Put(ctx context.Context, s *Session) {
 	m.mu.Unlock()
 	if m.store != nil {
 		storeCtx, cancel := authStoreContext(ctx)
-		_ = m.store.Upsert(storeCtx, sessionToRecord(s))
+		if err := m.store.Upsert(storeCtx, sessionToRecord(s)); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "session_put",
+				UserID:         strings.TrimSpace(s.UserID),
+				Provider:       strings.TrimSpace(s.Provider),
+				Classification: "persistence",
+				Action:         "preserve",
+			})
+		}
 		cancel()
 	}
 }
@@ -237,7 +261,13 @@ func (m *Manager) PutAsync(ctx context.Context, s *Session) {
 		persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := m.store.Upsert(persistCtx, rec); err != nil {
-			log.Printf("[auth-session] async persist failed session=%q err=%v", strings.TrimSpace(rec.ID), err)
+			authlog.Log(ctx, authlog.Event{
+				Op:             "session_persist",
+				UserID:         strings.TrimSpace(rec.UserID),
+				Provider:       strings.TrimSpace(rec.Provider),
+				Classification: "persistence",
+				Action:         "preserve",
+			})
 		}
 	}()
 }
@@ -263,7 +293,13 @@ func (m *Manager) Delete(ctx context.Context, id string) {
 	m.mu.Unlock()
 	if m.store != nil {
 		storeCtx, cancel := authStoreContext(ctx)
-		_ = m.store.Delete(storeCtx, id)
+		if err := m.store.Delete(storeCtx, id); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "session_delete",
+				Classification: "persistence",
+				Action:         "preserve",
+			})
+		}
 		cancel()
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently-core/internal/authlog"
+	"github.com/viant/agently-core/internal/logx"
 	sessionread "github.com/viant/agently-core/pkg/agently/user/session"
 	sessiondelete "github.com/viant/agently-core/pkg/agently/user/session/delete"
 	sessionwrite "github.com/viant/agently-core/pkg/agently/user/session/write"
@@ -31,6 +32,12 @@ var defaultOAuthMetadataHTTPClient = &http.Client{Timeout: oauthMetadataTimeout}
 func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (*Runtime, error) {
 	cfg, err := LoadConfig(workspaceRoot)
 	if err != nil {
+		authlog.Log(ctx, authlog.Event{
+			Op:             "runtime_config_load",
+			Classification: "config",
+			Action:         "failed",
+			Err:            err,
+		})
 		return nil, err
 	}
 	if cfg == nil || !cfg.Enabled {
@@ -74,7 +81,7 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 		if configURL := strings.TrimSpace(cfg.OAuth.Client.ConfigURL); configURL != "" {
 			tokenStore = NewTokenStoreDAO(dao, configURL)
 			opts = append(opts, WithTokenStore(tokenStore))
-			log.Printf("[auth-oauth] runtime token store enabled provider=%q config_url_set=%t dao=%t", firstNonEmpty(strings.TrimSpace(cfg.OAuth.Name), "oauth"), true, dao != nil)
+			logx.Debugf("auth-token", "runtime token store enabled provider=%q", firstNonEmpty(strings.TrimSpace(cfg.OAuth.Name), "oauth"))
 		}
 	}
 	var users UserService
@@ -106,14 +113,26 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 			return nil, fmt.Errorf("unable to initialize jwt service: %w", err)
 		}
 	} else if verifyCfg, err := oauthVerifierConfig(ctx, cfg); err != nil {
-		log.Printf("[auth-oauth] warning: unable to derive oauth jwt verifier: %v", err)
+		authlog.Log(ctx, authlog.Event{
+			Op:             "oauth_verifier_config",
+			Provider:       configuredOAuthProvider(cfg),
+			Classification: "config",
+			Action:         "preserve",
+			Err:            err,
+		})
 	} else if verifyCfg != nil {
 		v := vcfg.New(verifyCfg)
 		if err := v.Init(ctx); err != nil {
-			log.Printf("[auth-oauth] warning: oauth jwt verifier init failed: %v", err)
+			authlog.Log(ctx, authlog.Event{
+				Op:             "oauth_verifier_init",
+				Provider:       configuredOAuthProvider(cfg),
+				Classification: "config",
+				Action:         "preserve",
+				Err:            err,
+			})
 		} else {
 			jwtVerifier = v
-			log.Printf("[auth-oauth] jwt verifier enabled from oauth metadata cert_url=%q", strings.TrimSpace(verifyCfg.CertURL))
+			logx.Debugf("auth-token", "oauth jwt verifier enabled")
 		}
 	}
 
@@ -128,6 +147,13 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 	}
 	runtime.stopRefresh = runtime.startTokenRefreshWatcher(ctx)
 	return runtime, nil
+}
+
+func configuredOAuthProvider(cfg *Config) string {
+	if cfg == nil || cfg.OAuth == nil {
+		return "oauth"
+	}
+	return firstNonEmpty(strings.TrimSpace(cfg.OAuth.Name), "oauth")
 }
 
 // LoadConfig reads `<workspaceRoot>/config.yaml` and decodes the

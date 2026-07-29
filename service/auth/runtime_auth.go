@@ -3,12 +3,13 @@ package auth
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/authlog"
+	"github.com/viant/agently-core/internal/logx"
 	scyauth "github.com/viant/scy/auth"
 )
 
@@ -23,14 +24,17 @@ func (r *Runtime) protect(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		user := r.authenticate(req)
-		if user == nil {
+		user, confirmedMissing := r.authenticate(req)
+		if user == nil && !confirmedMissing {
 			writeRuntimeAuthDebugHeaders(w, req, r)
 		}
-		if user == nil {
+		if user == nil && !confirmedMissing {
 			user = r.ensureDefaultUser(w, req)
 		}
 		ctx := req.Context()
+		if confirmedMissing {
+			ctx = context.WithValue(ctx, runtimeConfirmedMissingContextKey{}, true)
+		}
 		if user != nil {
 			ctx = withRuntimeAuthUser(ctx, user)
 		}
@@ -55,14 +59,17 @@ func (r *Runtime) protectAll(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		user := r.authenticate(req)
-		if user == nil {
+		user, confirmedMissing := r.authenticate(req)
+		if user == nil && !confirmedMissing {
 			writeRuntimeAuthDebugHeaders(w, req, r)
 		}
-		if user == nil {
+		if user == nil && !confirmedMissing {
 			user = r.ensureDefaultUser(w, req)
 		}
 		ctx := req.Context()
+		if confirmedMissing {
+			ctx = context.WithValue(ctx, runtimeConfirmedMissingContextKey{}, true)
+		}
 		if user != nil {
 			ctx = withRuntimeAuthUser(ctx, user)
 		}
@@ -74,9 +81,19 @@ func (r *Runtime) protectAll(next http.Handler) http.Handler {
 	})
 }
 
-func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
+type runtimeConfirmedMissingContextKey struct{}
+
+func runtimeConfirmedMissing(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	confirmed, _ := ctx.Value(runtimeConfirmedMissingContextKey{}).(bool)
+	return confirmed
+}
+
+func (r *Runtime) authenticate(req *http.Request) (*runtimeAuthUser, bool) {
 	if r == nil || req == nil {
-		return nil
+		return nil, false
 	}
 	authz := strings.TrimSpace(req.Header.Get("Authorization"))
 	if strings.HasPrefix(strings.ToLower(authz), "bearer ") && r.jwtVerifier != nil {
@@ -84,7 +101,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 		if token != "" {
 			if claims, err := r.jwtVerifier.VerifyClaims(req.Context(), token); err == nil && claims != nil {
 				if err := validateConfiguredOAuthScopes(runtimeOAuthClient(r), nil, token); err != nil {
-					return nil
+					return nil, false
 				}
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
@@ -95,7 +112,7 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 					Email:           strings.TrimSpace(claims.Email),
 					Provider:        "jwt",
 					Tokens:          tok,
-				}
+				}, false
 			}
 		}
 	}
@@ -103,64 +120,76 @@ func (r *Runtime) authenticate(req *http.Request) *runtimeAuthUser {
 		if c, err := req.Cookie(r.cfg.CookieName); err == nil && strings.TrimSpace(c.Value) != "" {
 			if sess := r.sessions.Get(req.Context(), strings.TrimSpace(c.Value)); sess != nil {
 				r.ensureSessionCanonicalUserID(req.Context(), sess)
-				if r.requiresOAuthTokens() && !r.ensureSessionOAuthTokens(req.Context(), sess) {
-					log.Printf("[auth] session missing usable oauth tokens, invalidating session user=%q", sess.Subject)
+				if !r.requiresOAuthTokensForSession(sess) {
+					return runtimeAuthUserFromSession(sess, sess.Tokens), false
+				}
+
+				availability := r.ensureSessionOAuthTokens(req.Context(), sess)
+				switch availability.state {
+				case tokenAvailable:
+					return runtimeAuthUserFromSession(sess, availability.token), false
+				case tokenConfirmedMissing:
 					r.clearRefreshRetryAt(sess)
 					r.deleteSessionDurable(req.Context(), strings.TrimSpace(c.Value))
-					return nil
+					return nil, true
+				case tokenPreserveWithoutInjection:
+					authlog.Log(req.Context(), authlog.Event{
+						Op:             "session_token_resolve",
+						UserID:         strings.TrimSpace(sess.UserID),
+						Provider:       strings.TrimSpace(sess.Provider),
+						Classification: "token_unavailable",
+						Action:         "preserve_no_inject",
+					})
 				}
-				if err := validateConfiguredOAuthScopes(runtimeOAuthClient(r), sess.Scopes, scopeValidationTokens(sess)...); err != nil {
-					log.Printf("[auth] session token missing required scopes, invalidating session user=%q err=%v", sess.Subject, err)
+
+				if retryAt := r.loadRefreshRetryAt(sess); !retryAt.IsZero() && time.Now().Before(retryAt) {
+					if r.shouldLogRefreshRetry(sess, retryAt) {
+						logx.Debugf("token-refresh", "cooldown active user_id=%q provider=%q retry_at=%q",
+							strings.TrimSpace(sess.UserID), strings.TrimSpace(sess.Provider), retryAt.UTC().Format(time.RFC3339))
+					}
+					return runtimeAuthUserFromSession(sess, nil), false
+				}
+
+				if sess.Tokens == nil || strings.TrimSpace(sess.Tokens.RefreshToken) == "" {
+					return runtimeAuthUserFromSession(sess, nil), false
+				}
+
+				refreshCtx := req.Context()
+				var refreshCancel context.CancelFunc
+				if _, hasDeadline := refreshCtx.Deadline(); hasDeadline {
+					refreshCtx, refreshCancel = context.WithCancel(refreshCtx)
+				} else {
+					refreshCtx, refreshCancel = context.WithTimeout(refreshCtx, authRefreshRequestTimeout)
+				}
+				refreshed := func() tokenAvailabilityResult {
+					defer refreshCancel()
+					return r.tryRefreshToken(refreshCtx, sess)
+				}()
+				switch refreshed.state {
+				case tokenAvailable:
+					r.clearRefreshRetryAt(sess)
+					return runtimeAuthUserFromSession(sess, refreshed.token), false
+				case tokenConfirmedMissing:
 					r.clearRefreshRetryAt(sess)
 					r.deleteSessionDurable(req.Context(), strings.TrimSpace(c.Value))
-					return nil
-				}
-				if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !sess.Tokens.Valid() {
+					return nil, true
+				default:
 					retryAt := r.loadRefreshRetryAt(sess)
-					if !retryAt.IsZero() && time.Now().Before(retryAt) {
-						if r.shouldLogRefreshRetry(sess, retryAt) {
-							log.Printf("[auth] token refresh cooldown active, preserving authenticated session user=%q retry_at=%q", sess.Subject, retryAt.UTC().Format(time.RFC3339))
-						}
-						return runtimeAuthUserFromSession(sess, nil)
+					if retryAt.IsZero() {
+						retryAt = time.Now().Add(transientRefreshRetryWindow)
+						r.storeRefreshRetryAt(sess, retryAt)
+						r.putSessionDurable(req.Context(), sess)
 					}
-					refreshCtx := req.Context()
-					var refreshCancel context.CancelFunc
-					if _, hasDeadline := refreshCtx.Deadline(); hasDeadline {
-						refreshCtx, refreshCancel = context.WithCancel(refreshCtx)
-					} else {
-						refreshCtx, refreshCancel = context.WithTimeout(refreshCtx, authRefreshRequestTimeout)
+					if r.shouldLogRefreshRetry(sess, retryAt) {
+						logx.Debugf("token-refresh", "refresh failed; preserving without injection user_id=%q provider=%q retry_at=%q",
+							strings.TrimSpace(sess.UserID), strings.TrimSpace(sess.Provider), retryAt.UTC().Format(time.RFC3339))
 					}
-					if refreshed := func() *scyauth.Token {
-						defer refreshCancel()
-						return r.tryRefreshToken(refreshCtx, sess)
-					}(); refreshed != nil {
-						sess.Tokens = refreshed
-						r.clearRefreshRetryAt(sess)
-					} else {
-						if sess.Tokens == nil {
-							log.Printf("[auth] token expired and refresh failed permanently, invalidating session user=%q", sess.Subject)
-							r.clearRefreshRetryAt(sess)
-							r.deleteSessionDurable(req.Context(), c.Value)
-						} else {
-							retryAt := r.loadRefreshRetryAt(sess)
-							if retryAt.IsZero() {
-								retryAt = time.Now().Add(transientRefreshRetryWindow)
-								r.storeRefreshRetryAt(sess, retryAt)
-								r.putSessionDurable(req.Context(), sess)
-							}
-							if r.shouldLogRefreshRetry(sess, retryAt) {
-								log.Printf("[auth] token expired and refresh failed transiently, preserving authenticated session user=%q retry_at=%q", sess.Subject, retryAt.UTC().Format(time.RFC3339))
-							}
-							return runtimeAuthUserFromSession(sess, nil)
-						}
-						return nil
-					}
+					return runtimeAuthUserFromSession(sess, nil), false
 				}
-				return runtimeAuthUserFromSession(sess, sess.Tokens)
 			}
 		}
 	}
-	return nil
+	return nil, false
 }
 
 func runtimeOAuthClient(r *Runtime) *OAuthClient {
@@ -291,6 +320,17 @@ func (r *Runtime) requiresOAuthTokens() bool {
 	}
 	mode := strings.ToLower(strings.TrimSpace(r.cfg.OAuth.Mode))
 	return mode == "bff" || mode == "mixed"
+}
+
+func (r *Runtime) requiresOAuthTokensForSession(sess *Session) bool {
+	if r == nil {
+		return false
+	}
+	provider := "oauth"
+	if r.ext != nil {
+		provider = r.ext.oauthProviderName()
+	}
+	return requiresOAuthTokensForSession(r.cfg, provider, sess)
 }
 
 func (r *Runtime) ensureDefaultUser(w http.ResponseWriter, req *http.Request) *runtimeAuthUser {

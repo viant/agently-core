@@ -98,10 +98,10 @@ func TestRuntime_EnsureDefaultUser_DoesNotBlockOnSessionPersistence(t *testing.T
 	}
 
 	deadline := time.Now().Add(1 * time.Second)
-	for store.upserts == 0 && time.Now().Before(deadline) {
+	for store.upserts.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if store.upserts == 0 {
+	if store.upserts.Load() == 0 {
 		t.Fatalf("expected async session persistence to start")
 	}
 
@@ -287,7 +287,9 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 		Tokens:   tokens,
 	})
 
+	var downstreamTokens *scyauth.Token
 	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downstreamTokens = iauth.TokensFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -310,6 +312,65 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 	}
 	if got := store.upsertCount(); got < 2 {
 		t.Fatalf("expected initial session put and retry persistence, got %d upserts", got)
+	}
+	if downstreamTokens != nil {
+		t.Fatalf("expired token reached downstream context: %#v", downstreamTokens)
+	}
+}
+
+func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButNotInjected(t *testing.T) {
+	underScoped := fakeJWTWithClaims(t, map[string]any{"scope": "openid"})
+	cfg := &Config{
+		Enabled:    true,
+		CookieName: "agently_session",
+		IpHashKey:  "dev-hmac-salt",
+		OAuth: &OAuth{
+			Name: "oauth",
+			Mode: "bff",
+			Client: &OAuthClient{
+				Scopes: []string{"openid", "ROLE_STEWARD_WEB"},
+			},
+		},
+	}
+	sessions := NewManager(time.Hour, nil)
+	rt := &Runtime{
+		cfg:      cfg,
+		sessions: sessions,
+		ext:      &authExtension{cfg: cfg, sessions: sessions},
+	}
+	sessions.Put(context.Background(), &Session{
+		ID:       "sess-under-scoped",
+		UserID:   "user-42",
+		Subject:  "provider-subject",
+		Provider: "oauth",
+		Scopes:   []string{"openid", "ROLE_STEWARD_WEB"},
+		Tokens: &scyauth.Token{
+			Token: oauth2.Token{
+				AccessToken:  underScoped,
+				RefreshToken: "refresh-token",
+				Expiry:       time.Now().Add(time.Hour),
+			},
+		},
+	})
+
+	var downstreamTokens *scyauth.Token
+	handler := rt.protectAll(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		downstreamTokens = iauth.TokensFromContext(req.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.CookieName, Value: "sess-under-scoped"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if downstreamTokens != nil {
+		t.Fatalf("under-scoped token reached downstream context: %#v", downstreamTokens)
+	}
+	if got := sessions.Get(context.Background(), "sess-under-scoped"); got == nil || got.Tokens == nil {
+		t.Fatalf("under-scoped session credentials were not preserved: %#v", got)
 	}
 }
 

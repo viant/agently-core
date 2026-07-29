@@ -318,3 +318,37 @@ func TestCASPutSQL(t *testing.T) {
 		t.Fatalf("expected unsupported dialect error")
 	}
 }
+
+func TestDeleteTokenSQLClearsCredentialAndUpdatesAuditState(t *testing.T) {
+	tests := []struct {
+		dialect   string
+		timestamp string
+	}{
+		{dialect: "mysql", timestamp: "updated_at = UTC_TIMESTAMP()"},
+		{dialect: "sqlite", timestamp: "updated_at = DATETIME('now')"},
+	}
+	for _, test := range tests {
+		t.Run(test.dialect, func(t *testing.T) {
+			query, err := deleteTokenSQL(test.dialect)
+			if err != nil {
+				t.Fatalf("deleteTokenSQL() error = %v", err)
+			}
+			for _, fragment := range []string{
+				"enc_token = ''",
+				test.timestamp,
+				"version = version + 1",
+				"lease_owner = NULL",
+				"lease_until = NULL",
+				"refresh_status = 'idle'",
+				"WHERE user_id = ? AND provider = ?",
+			} {
+				if !strings.Contains(query, fragment) {
+					t.Fatalf("delete SQL missing %q: %q", fragment, query)
+				}
+			}
+		})
+	}
+	if _, err := deleteTokenSQL("postgres"); err == nil {
+		t.Fatal("deleteTokenSQL(postgres) error = nil")
+	}
+}
