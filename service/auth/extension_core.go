@@ -3,14 +3,14 @@ package auth
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	scyauth "github.com/viant/scy/auth"
-	"golang.org/x/oauth2"
+	"github.com/viant/agently-core/internal/authlog"
+	"github.com/viant/agently-core/internal/logx"
 )
 
 type authExtension struct {
@@ -19,6 +19,7 @@ type authExtension struct {
 	jwtSignKey string
 	tokenStore TokenStore
 	users      UserService
+	oauthOOB   oobOAuthAuthorizer
 }
 
 var authPersistMu sync.Mutex
@@ -84,9 +85,9 @@ func (a *authExtension) oauthProviderName() string {
 	return "oauth"
 }
 
-func (a *authExtension) persistOAuthToken(ctx context.Context, source, username, email, subject, provider, accessToken, idToken, refreshToken string, expiresAt time.Time) {
+func (a *authExtension) persistOAuthToken(ctx context.Context, source, username, email, subject, provider, accessToken, idToken, refreshToken string, expiresAt time.Time) error {
 	if a == nil {
-		return
+		return nil
 	}
 	authPersistMu.Lock()
 	defer authPersistMu.Unlock()
@@ -97,54 +98,40 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 		provider = a.oauthProviderName()
 	}
 	if a.users != nil {
-		log.Printf("[auth-oauth] source=%s ensure user start subject=%q username=%q email=%q provider=%q",
-			source,
-			strings.TrimSpace(subject),
-			strings.TrimSpace(username),
-			strings.TrimSpace(email),
-			strings.TrimSpace(provider),
-		)
+		logx.Debugf("auth-token", "callback owner resolution start source=%q provider=%q", strings.TrimSpace(source), strings.TrimSpace(provider))
+		started := time.Now()
 		userID, err := a.users.UpsertWithProvider(persistCtx, strings.TrimSpace(username), strings.TrimSpace(username), strings.TrimSpace(email), strings.TrimSpace(provider), strings.TrimSpace(subject))
 		if err != nil {
-			log.Printf("[auth-oauth] source=%s ensure user failed subject=%q username=%q provider=%q err=%v",
-				source,
-				strings.TrimSpace(subject),
-				strings.TrimSpace(username),
-				strings.TrimSpace(provider),
-				err,
-			)
-			return
+			authlog.Log(ctx, authlog.Event{
+				Op:             "callback_owner_persist",
+				Provider:       provider,
+				Classification: "owner_resolution",
+				Action:         "preserve",
+				Elapsed:        time.Since(started),
+			})
+			return fmt.Errorf("oauth token owner persistence failed")
 		}
-		if strings.TrimSpace(userID) != "" {
-			storeUser = strings.TrimSpace(userID)
+		if strings.TrimSpace(userID) == "" {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "callback_owner_persist",
+				Provider:       provider,
+				Classification: "owner_resolution",
+				Action:         "preserve",
+				Elapsed:        time.Since(started),
+			})
+			return fmt.Errorf("oauth token owner persistence returned no user")
 		}
-		log.Printf("[auth-oauth] source=%s ensure user ok subject=%q username=%q user_id=%q provider=%q",
-			source,
-			strings.TrimSpace(subject),
-			strings.TrimSpace(username),
-			storeUser,
-			strings.TrimSpace(provider),
-		)
+		storeUser = strings.TrimSpace(userID)
+		logx.Debugf("auth-token", "callback owner resolution ok source=%q user_id=%q provider=%q",
+			strings.TrimSpace(source), storeUser, strings.TrimSpace(provider))
 	}
-	log.Printf("[auth-oauth] source=%s persist token start subject=%q username=%q store_user=%q provider=%q has_access=%t has_refresh=%t has_id=%t",
-		source,
-		strings.TrimSpace(subject),
-		strings.TrimSpace(username),
-		storeUser,
-		strings.TrimSpace(provider),
-		strings.TrimSpace(accessToken) != "",
-		strings.TrimSpace(refreshToken) != "",
-		strings.TrimSpace(idToken) != "",
-	)
+	logx.Debugf("auth-token", "callback persist start source=%q user_id=%q provider=%q",
+		strings.TrimSpace(source), storeUser, strings.TrimSpace(provider))
 	if a.tokenStore == nil {
-		log.Printf("[auth-oauth] source=%s persist token skipped store_user=%q provider=%q reason=%q",
-			source,
-			storeUser,
-			strings.TrimSpace(provider),
-			"token store unavailable",
-		)
-		return
+		logx.Debugf("auth-token", "callback persist skipped user_id=%q provider=%q", storeUser, strings.TrimSpace(provider))
+		return nil
 	}
+	started := time.Now()
 	if err := a.tokenStore.Put(persistCtx, &OAuthToken{
 		Username:     storeUser,
 		Provider:     provider,
@@ -153,19 +140,19 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 		RefreshToken: strings.TrimSpace(refreshToken),
 		ExpiresAt:    expiresAt,
 	}); err != nil {
-		log.Printf("[auth-oauth] source=%s persist token failed store_user=%q provider=%q err=%v",
-			source,
-			storeUser,
-			strings.TrimSpace(provider),
-			err,
-		)
-		return
+		authlog.Log(ctx, authlog.Event{
+			Op:             "callback_persist",
+			UserID:         storeUser,
+			Provider:       provider,
+			Classification: "persistence",
+			Action:         "preserve",
+			Elapsed:        time.Since(started),
+		})
+		return fmt.Errorf("oauth token persistence failed")
 	}
-	log.Printf("[auth-oauth] source=%s persist token ok store_user=%q provider=%q",
-		source,
-		storeUser,
-		strings.TrimSpace(provider),
-	)
+	logx.Debugf("auth-token", "callback persist ok source=%q user_id=%q provider=%q",
+		strings.TrimSpace(source), storeUser, strings.TrimSpace(provider))
+	return nil
 }
 
 func (a *authExtension) scheduleOAuthTokenPersist(ctx context.Context, source, username, email, subject, provider, accessToken, idToken, refreshToken string, expiresAt time.Time) {
@@ -253,39 +240,59 @@ func (a *authExtension) requiresOAuthTokens() bool {
 	return mode == "bff" || mode == "mixed"
 }
 
-func (a *authExtension) ensureSessionOAuthTokens(ctx context.Context, sess *Session) bool {
-	if sess == nil {
+func requiresOAuthTokensForSession(cfg *Config, oauthProvider string, sess *Session) bool {
+	if cfg == nil || cfg.OAuth == nil {
 		return false
 	}
-	if sess.Tokens != nil && (strings.TrimSpace(sess.Tokens.AccessToken) != "" || strings.TrimSpace(sess.Tokens.IDToken) != "") {
+	mode := strings.ToLower(strings.TrimSpace(cfg.OAuth.Mode))
+	if mode != "bff" && mode != "mixed" {
+		return false
+	}
+	if cfg.Local == nil || !cfg.Local.Enabled {
 		return true
 	}
-	if a == nil || a.tokenStore == nil {
+	provider := ""
+	if sess != nil {
+		provider = strings.TrimSpace(sess.Provider)
+	}
+	if provider == "" || strings.EqualFold(provider, "local") {
 		return false
 	}
-	provider := a.oauthProviderName()
-	lookupID := resolveOAuthTokenOwnerID(ctx, a.users, provider, sess)
-	if lookupID == "" {
+	return strings.EqualFold(provider, strings.TrimSpace(firstNonEmpty(oauthProvider, "oauth")))
+}
+
+func (a *authExtension) requiresOAuthTokensForSession(sess *Session) bool {
+	if a == nil {
 		return false
 	}
-	dbTok, err := a.tokenStore.Get(ctx, lookupID, provider)
-	if err != nil || dbTok == nil {
-		return false
+	return requiresOAuthTokensForSession(a.cfg, a.oauthProviderName(), sess)
+}
+
+func (a *authExtension) sessionOAuthTokenAvailability(ctx context.Context, sess *Session) tokenAvailabilityResult {
+	if a == nil || sess == nil {
+		return preserveOAuthSession()
 	}
-	if dbTok.ExpiresAt.IsZero() || !dbTok.ExpiresAt.After(time.Now()) {
-		return false
+	var client *OAuthClient
+	if a.cfg != nil && a.cfg.OAuth != nil {
+		client = a.cfg.OAuth.Client
 	}
-	sess.Tokens = &scyauth.Token{
-		Token: oauth2.Token{
-			AccessToken:  dbTok.AccessToken,
-			RefreshToken: dbTok.RefreshToken,
-			Expiry:       dbTok.ExpiresAt,
-		},
-		IDToken: dbTok.IDToken,
+	provider := strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))
+	result := resolveSessionOAuthToken(ctx, a.users, a.tokenStore, provider, client, sess)
+	if result.state != tokenAvailable || result.token == nil || result.token == sess.Tokens {
+		return result
 	}
+	sess.Tokens = result.token
 	sess.Provider = provider
-	a.sessions.Put(ctx, sess)
-	return true
+	if a.sessions != nil {
+		a.sessions.Put(ctx, sess)
+	}
+	return result
+}
+
+// ensureSessionOAuthTokens is retained as a compatibility shim for existing
+// package callers. Request handling uses the tri-state result above.
+func (a *authExtension) ensureSessionOAuthTokens(ctx context.Context, sess *Session) bool {
+	return a.sessionOAuthTokenAvailability(ctx, sess).state == tokenAvailable
 }
 
 func runtimeJSON(w http.ResponseWriter, status int, payload any) {

@@ -33,7 +33,7 @@ func (s *SessionStoreDAO) Get(ctx context.Context, id string) (*SessionRecord, e
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("session", "get", strings.TrimSpace(id), started, opErr)
+		logDatlyStoreOp(ctx, "session", "get", strings.TrimSpace(id), started, opErr)
 	}()
 	db, err := s.dbHandle()
 	if err != nil {
@@ -115,7 +115,7 @@ func (s *SessionStoreDAO) Upsert(ctx context.Context, rec *SessionRecord) error 
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("session", "upsert", strings.TrimSpace(rec.ID), started, opErr)
+		logDatlyStoreOp(ctx, "session", "upsert", strings.TrimSpace(rec.ID), started, opErr)
 	}()
 	// user_id stores the canonical agently users.id when available.
 	userID := strings.TrimSpace(firstNonEmpty(rec.UserID, rec.Subject, rec.Email))
@@ -153,7 +153,7 @@ func (s *SessionStoreDAO) Delete(ctx context.Context, id string) error {
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("session", "delete", strings.TrimSpace(id), started, opErr)
+		logDatlyStoreOp(ctx, "session", "delete", strings.TrimSpace(id), started, opErr)
 	}()
 	db, err := s.dbHandle()
 	if err != nil {
