@@ -497,12 +497,6 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}()
 	logx.Infof("conversation", "agent.Query startTurn ok convo=%q turn_id=%q parent_message_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(turn.ParentMessageID))
 
-	//???
-	// Intake sidecar: runs after the turn is active so turn_started is the
-	// first execution lifecycle event, but after the visible user rows exist so
-	// live/history views do not temporarily replace optimistic rows with blanks.
-	s.maybeRunIntakeSidecar(ctx, input)
-	//???
 	if input.SkipInitialUserMessage {
 		logx.Infof("conversation", "agent.Query skip addUserMessage convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	} else {
@@ -512,6 +506,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
+
+	// Intake can take several seconds and may read the authoritative
+	// transcript. Run it only after the visible user row is durable so a
+	// transcript refresh cannot replace the optimistic user bubble with an
+	// active turn that has no starter message.
+	s.maybeRunIntakeSidecar(ctx, input)
 
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err

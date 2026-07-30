@@ -148,6 +148,31 @@ func TestConversationStreamTracker_ApplyTranscriptPreservesSameActiveTurnFromSSE
 	require.Equal(t, "Historical response", state.Turns[0].Assistant.Final.Content)
 }
 
+func TestConversationStreamTracker_ApplyTranscriptPreservesUserFromIncompleteActiveTurnSnapshot(t *testing.T) {
+	tracker := NewConversationStreamTracker("conv-1")
+
+	tracker.ApplyEvent(&streaming.Event{
+		Type:           streaming.EventTypeTurnStarted,
+		ConversationID: "conv-1",
+		TurnID:         "turn-live",
+		UserMessageID:  "user-live",
+		CreatedAt:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+
+	state := tracker.ApplyTranscript(&ConversationState{
+		ConversationID: "conv-1",
+		Turns: []*TurnState{{
+			TurnID: "turn-live",
+			Status: TurnStatusRunning,
+		}},
+	})
+
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].User)
+	require.Equal(t, "user-live", state.Turns[0].User.MessageID)
+}
+
 func TestConversationStreamTracker_TrackSubscription(t *testing.T) {
 	bus := streaming.NewMemoryBus(4)
 	sub, err := bus.Subscribe(context.Background(), nil)
