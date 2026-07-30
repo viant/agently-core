@@ -54,6 +54,23 @@ func TestNormalizeRenderedContent_DoesNotCommitAfterRejectedReportFragment(t *te
 	require.Contains(t, warningCodes(got.Diagnostics), "REPORT_SEQUENCE_GAP")
 }
 
+func TestNormalizeRenderedContent_AcceptsDeclaredCompactDatasource(t *testing.T) {
+	content := "```forge-report\n" +
+		`{"version":1,"scope":"order_2682902","id":"delivery_diagnostic","sequence":1,"mode":"start","grammar":"report-document-v1","datasets":[{"id":"diagnostic_evidence"}],"blocks":[{"id":"posture","kind":"badgesBlock","datasetRef":"diagnostic_evidence","items":[{"id":"status","label":"Status","valueField":"status"}]},{"id":"signals","kind":"tableBlock","datasetRef":"diagnostic_evidence","columns":[{"key":"signal","label":"Signal"}]}]}` +
+		"\n```\n```forge-data\n" +
+		`{"version":2,"scope":"order_2682902","reportRef":"delivery_diagnostic","id":"diagnostic_evidence","sequence":2,"format":"json","mode":"replace","data":[{"status":"Behind","signal":"Deal 150975"}]}` +
+		"\n```\n```forge-report\n" +
+		`{"version":1,"scope":"order_2682902","id":"delivery_diagnostic","sequence":3,"mode":"commit"}` +
+		"\n```"
+
+	got := NormalizeRenderedContent(content)
+	require.NotNil(t, got)
+	require.Len(t, got.Reports, 1)
+	require.Equal(t, "committed", got.Reports[0].Status)
+	require.Contains(t, got.Reports[0].DataSources, "diagnostic_evidence")
+	require.Empty(t, got.Diagnostics)
+}
+
 func TestNormalizeRenderedContent_KeepsLegacyForgeNamespacesSeparate(t *testing.T) {
 	content := "```forge-data\n" +
 		`{"id":"rows","data":[{"legacy":true}]}` +

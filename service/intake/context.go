@@ -14,6 +14,8 @@ type PromptingContext struct {
 	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
 	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
 	TemplateID         string   `json:"templateId,omitempty"`
+	ModelID            string   `json:"modelId,omitempty"`
+	SynthesisModelID   string   `json:"synthesisModelId,omitempty"`
 }
 
 type DirectActionContext struct {

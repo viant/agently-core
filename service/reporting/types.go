@@ -51,6 +51,29 @@ const (
 	SourceKindReportSpec = "reportSpec"
 )
 
+type CompileFencedReportRequest struct {
+	Content  string              `json:"content,omitempty"`
+	Fences   []FencedReportFence `json:"fences,omitempty"`
+	ReportID string              `json:"reportId,omitempty"`
+	Format   ExportFormat        `json:"format,omitempty"`
+}
+
+type FencedReportFence struct {
+	Kind    string          `json:"kind"`
+	Index   int             `json:"index,omitempty"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type CompileFencedReportResult struct {
+	ReportID            string               `json:"reportId,omitempty"`
+	ReportDocument      json.RawMessage      `json:"reportDocument,omitempty"`
+	ReportSpec          json.RawMessage      `json:"reportSpec,omitempty"`
+	ReportFill          json.RawMessage      `json:"reportFill,omitempty"`
+	ReportPrint         json.RawMessage      `json:"reportPrint,omitempty"`
+	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
+	Diagnostics         []Diagnostic         `json:"diagnostics,omitempty"`
+}
+
 // CompileRequest carries an authored artifact into the backend compile seam.
 type CompileRequest struct {
 	ArtifactRef string          `json:"artifactRef,omitempty"`

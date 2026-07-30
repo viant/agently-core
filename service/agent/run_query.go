@@ -911,6 +911,13 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		if modelSource == "" && input.Agent != nil && strings.TrimSpace(modelSelection.Model) != "" {
 			modelSource = "agent.model"
 		}
+		if iter > 1 {
+			if synthesisModelID, ok := input.Context["intake.synthesisModelId"].(string); ok && strings.TrimSpace(synthesisModelID) != "" {
+				modelSelection.Model = strings.TrimSpace(synthesisModelID)
+				modelSelection.Preferences = nil
+				modelSource = "intake.activationRule.synthesis"
+			}
+		}
 		if modelSelection.Options == nil {
 			modelSelection.Options = &llm.Options{}
 		}

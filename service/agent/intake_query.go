@@ -207,7 +207,14 @@ func (s *Service) maybeInjectWorkspaceUIOverride(ctx context.Context, input *Que
 		applyTurnContext(input, override, cfg)
 		s.maybeSetConversationTitle(ctx, input.ConversationID, override.Classification.Title)
 	}
-	logx.Infof("conversation", "intake.workspace_override convo=%q query=%q profile=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.Query), strings.TrimSpace(override.Prompting.SuggestedProfileID), strings.TrimSpace(override.DirectAction.ToolName))
+	logx.Infof("conversation", "intake.workspace_override convo=%q query=%q profile=%q template=%q model=%q tool=%q",
+		strings.TrimSpace(input.ConversationID),
+		strings.TrimSpace(input.Query),
+		strings.TrimSpace(override.Prompting.SuggestedProfileID),
+		strings.TrimSpace(override.Prompting.TemplateID),
+		strings.TrimSpace(override.Prompting.ModelID),
+		strings.TrimSpace(override.DirectAction.ToolName),
+	)
 	return true
 }
 
@@ -295,6 +302,8 @@ func evaluateActivationRule(query string, rule agentmdl.ActivationRule) *intakes
 				SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
 				AppendToolBundles:  append([]string(nil), rule.Prompting.AppendToolBundles...),
 				TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
+				ModelID:            strings.TrimSpace(rule.Prompting.ModelID),
+				SynthesisModelID:   strings.TrimSpace(rule.Prompting.SynthesisModelID),
 			},
 			Scope: intakesvc.ScopeContext{
 				Values: renderActivationScope(rule.Scope.Values, vars),
@@ -748,6 +757,8 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 			SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
 			AppendToolBundles:  append([]string(nil), rule.Prompting.AppendToolBundles...),
 			TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
+			ModelID:            strings.TrimSpace(rule.Prompting.ModelID),
+			SynthesisModelID:   strings.TrimSpace(rule.Prompting.SynthesisModelID),
 		},
 		Scope: intakesvc.ScopeContext{
 			Values: scopeValues,
@@ -1572,6 +1583,18 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 				input.TemplateId = id
 			}
 		}
+	}
+
+	// A workspace activation rule is trusted configuration and may select a
+	// route-specific model without changing the agent's global default. An
+	// explicit caller model override always wins.
+	if strings.TrimSpace(tc.Prompting.ModelID) != "" {
+		input.ModelOverride = strings.TrimSpace(tc.Prompting.ModelID)
+		setRuntimeModelSource(input, "intake.activationRule")
+		input.Context["intake.modelId"] = input.ModelOverride
+	}
+	if synthesisModelID := strings.TrimSpace(tc.Prompting.SynthesisModelID); synthesisModelID != "" {
+		input.Context["intake.synthesisModelId"] = synthesisModelID
 	}
 
 	// Class B: store profile suggestion when confidence meets the threshold.
