@@ -2,13 +2,14 @@ package token
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
+	"github.com/viant/agently-core/internal/authlog"
+	"github.com/viant/agently-core/internal/logx"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -159,10 +160,13 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 	// Keep store/refresh/error logs below for troubleshooting when auth resolution
 	// actually does meaningful work or fails.
 	// 1. Check context — if tokens exist and not near expiry, return as-is.
+	safeCtx := ctx
+	resolutionFailureLogged := false
 	if tok := iauth.TokensFromContext(ctx); tok != nil {
 		if !tok.Expiry.IsZero() && time.Until(tok.Expiry) > m.minTTL {
 			return ctx, nil
 		}
+		safeCtx = iauth.WithoutTokens(ctx)
 	}
 
 	// 2. Check in-memory cache — if fresh, inject into context and return.
@@ -179,11 +183,11 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 			if m.shouldLogRefreshRetry(key, retryUntil) {
 				logSchedulerEnsure(ctx, key, "oauth token refresh cooldown active retry_at=%q", retryUntil.UTC().Format(time.RFC3339))
 			}
-			return injectTokens(ctx, e.tok), nil
+			return safeCtx, nil
 		}
 	}
 	if missed && time.Now().Before(missUntil) {
-		return ctx, nil
+		return safeCtx, nil
 	}
 
 	// 3. Check persistent TokenStore (if configured).
@@ -205,10 +209,17 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 				if m.shouldLogRefreshRetry(key, retryUntil) {
 					logSchedulerEnsure(ctx, key, "oauth token refresh cooldown active retry_at=%q", retryUntil.UTC().Format(time.RFC3339))
 				}
-				return injectTokens(ctx, tok), nil
+				return safeCtx, nil
 			}
 		} else if err != nil {
-			logSchedulerEnsure(ctx, key, "oauth token store error err=%v", err)
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_get",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve_no_inject",
+			})
+			resolutionFailureLogged = true
 		} else {
 			logSchedulerEnsure(ctx, key, "oauth token store miss")
 		}
@@ -218,12 +229,29 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 	if m.broker != nil && e != nil && e.tok != nil && e.tok.RefreshToken != "" {
 		refreshed, err := m.serializedRefresh(ctx, key, e.tok.RefreshToken)
 		if err != nil {
+			if IsRefreshInvalidGrant(err) {
+				action := m.clearInvalidGrantCredentials(ctx, key)
+				authlog.Log(ctx, authlog.Event{
+					Op:             "scheduler_refresh_action",
+					UserID:         strings.TrimSpace(key.Subject),
+					Provider:       strings.TrimSpace(key.Provider),
+					Classification: "invalid_grant",
+					Action:         action,
+				})
+				return safeCtx, nil
+			}
 			retryAt := time.Now().Add(30 * time.Second)
 			m.storeRefreshRetryAt(key, retryAt)
 			if m.shouldLogRefreshRetry(key, retryAt) {
-				logSchedulerEnsure(ctx, key, "oauth token refresh failed transiently retry_at=%q err=%v", retryAt.UTC().Format(time.RFC3339), err)
+				authlog.Log(ctx, authlog.Event{
+					Op:             "scheduler_refresh_action",
+					UserID:         strings.TrimSpace(key.Subject),
+					Provider:       strings.TrimSpace(key.Provider),
+					Classification: "refresh_error",
+					Action:         "preserve_cooldown_no_inject",
+				})
 			}
-			return injectTokens(ctx, e.tok), nil
+			return safeCtx, nil
 		}
 		if refreshed != nil {
 			m.clearMissCache(key)
@@ -233,16 +261,53 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 		}
 	}
 
-	// 5. If we have a cached (possibly stale) token, still inject it.
+	// 5. Preserve stale credentials in cache/storage, but never inject them.
 	if e != nil && e.tok != nil {
 		m.clearMissCache(key)
-		logSchedulerEnsure(ctx, key, "oauth token using stale token")
-		return injectTokens(ctx, e.tok), nil
+		retryAt := time.Now().Add(30 * time.Second)
+		m.storeRefreshRetryAt(key, retryAt)
+		if m.shouldLogRefreshRetry(key, retryAt) {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_token_resolve",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "stale_token",
+				Action:         "preserve_cooldown_no_inject",
+			})
+		}
+		return safeCtx, nil
 	}
 
 	m.cacheMiss(key)
-	logSchedulerEnsure(ctx, key, "oauth token no token available")
-	return ctx, nil
+	if !resolutionFailureLogged {
+		authlog.Log(ctx, authlog.Event{
+			Op:             "scheduler_token_resolve",
+			UserID:         strings.TrimSpace(key.Subject),
+			Provider:       strings.TrimSpace(key.Provider),
+			Classification: "token_unavailable",
+			Action:         "no_inject",
+		})
+	}
+	return safeCtx, nil
+}
+
+func (m *Manager) clearInvalidGrantCredentials(ctx context.Context, key Key) string {
+	m.mu.Lock()
+	delete(m.cache, key)
+	delete(m.missCache, key)
+	delete(m.retryCache, key)
+	delete(m.loggedRetryCache, key)
+	m.mu.Unlock()
+	if m.store == nil {
+		return "clear_cache"
+	}
+	if err := m.store.Delete(ctx, key.Subject, key.Provider); err != nil {
+		retryAt := time.Now().Add(30 * time.Second)
+		m.storeRefreshRetryAt(key, retryAt)
+		return "clear_cache_delete_failed_cooldown_no_inject"
+	}
+	m.cacheMiss(key)
+	return "clear"
 }
 
 // Store persists tokens for later retrieval.
@@ -254,12 +319,20 @@ func (m *Manager) Store(ctx context.Context, key Key, tok *scyauth.Token) error 
 	if expiry.IsZero() {
 		expiry = time.Now().Add(1 * time.Hour)
 	}
+	if m.store != nil {
+		if err := m.store.Put(ctx, scyToOAuthToken(key, tok)); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_put",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve",
+			})
+			return err
+		}
+	}
 	m.cacheToken(key, tok, expiry)
 	m.clearMissCache(key)
-
-	if m.store != nil {
-		return m.store.Put(ctx, scyToOAuthToken(key, tok))
-	}
 	return nil
 }
 
@@ -271,7 +344,16 @@ func (m *Manager) Invalidate(ctx context.Context, key Key) error {
 	m.mu.Unlock()
 
 	if m.store != nil {
-		return m.store.Delete(ctx, key.Subject, key.Provider)
+		if err := m.store.Delete(ctx, key.Subject, key.Provider); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_delete",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve",
+			})
+			return err
+		}
 	}
 	return nil
 }
@@ -382,17 +464,29 @@ func (m *Manager) serializedRefresh(ctx context.Context, key Key, refreshToken s
 	if err != nil {
 		return nil, err
 	}
+	if tok == nil {
+		return nil, nil
+	}
 
 	expiry := tok.Expiry
 	if expiry.IsZero() {
 		expiry = time.Now().Add(1 * time.Hour)
 	}
-	m.cacheToken(key, tok, expiry)
 
 	// Update persistent store.
 	if m.store != nil {
-		_ = m.store.Put(ctx, scyToOAuthToken(key, tok))
+		if err := m.store.Put(ctx, scyToOAuthToken(key, tok)); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_put_candidate",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve_cooldown_no_inject",
+			})
+			return nil, err
+		}
 	}
+	m.cacheToken(key, tok, expiry)
 
 	return tok, nil
 }
@@ -405,8 +499,14 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 	// Try to acquire the distributed lease.
 	version, acquired, err := m.store.TryAcquireRefreshLease(ctx, key.Subject, key.Provider, owner, m.leaseTTL)
 	if err != nil {
-		// DB error — fall back to local-only refresh.
-		return m.localRefresh(ctx, key, refreshToken)
+		authlog.Log(ctx, authlog.Event{
+			Op:             "scheduler_lease_acquire",
+			UserID:         strings.TrimSpace(key.Subject),
+			Provider:       strings.TrimSpace(key.Provider),
+			Classification: "lease",
+			Action:         "preserve_cooldown_no_inject",
+		})
+		return nil, err
 	}
 
 	if !acquired {
@@ -418,7 +518,16 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 			m.cacheToken(key, tok, stored.ExpiresAt)
 			return tok, nil
 		}
-		// Still stale — return nil so caller uses cached token.
+		if err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_get_after_lease",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve_no_inject",
+			})
+		}
+		// Still stale — return nil so the caller preserves without injection.
 		return nil, nil
 	}
 
@@ -427,8 +536,28 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 	tok, err := m.broker.Refresh(ctx, key, refreshToken)
 	if err != nil {
 		// Release the lease so another pod can try.
-		_ = m.store.ReleaseRefreshLease(ctx, key.Subject, key.Provider, owner)
+		if releaseErr := m.store.ReleaseRefreshLease(ctx, key.Subject, key.Provider, owner); releaseErr != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_lease_release",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "lease",
+				Action:         "preserve",
+			})
+		}
 		return nil, err
+	}
+	if tok == nil {
+		if releaseErr := m.store.ReleaseRefreshLease(ctx, key.Subject, key.Provider, owner); releaseErr != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_lease_release",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "lease",
+				Action:         "preserve",
+			})
+		}
+		return nil, nil
 	}
 
 	expiry := tok.Expiry
@@ -440,15 +569,42 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 	oauthTok := scyToOAuthToken(key, tok)
 	swapped, err := m.store.CASPut(ctx, oauthTok, version, owner)
 	if err != nil {
-		_ = m.store.ReleaseRefreshLease(ctx, key.Subject, key.Provider, owner)
+		if releaseErr := m.store.ReleaseRefreshLease(ctx, key.Subject, key.Provider, owner); releaseErr != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_lease_release",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "lease",
+				Action:         "preserve",
+			})
+		}
+		authlog.Log(ctx, authlog.Event{
+			Op:             "scheduler_cas_put",
+			UserID:         strings.TrimSpace(key.Subject),
+			Provider:       strings.TrimSpace(key.Provider),
+			Classification: "persistence",
+			Action:         "preserve_cooldown_no_inject",
+		})
 		return nil, err
 	}
 	if !swapped {
 		// Another pod won the race — discard our result, re-read store.
 		stored, err := m.store.Get(ctx, key.Subject, key.Provider)
-		if err == nil && stored != nil {
+		if err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_get_after_cas",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve_no_inject",
+			})
+			return nil, err
+		}
+		if stored != nil && time.Until(stored.ExpiresAt) > m.minTTL {
 			tok = oauthTokenToScy(stored)
 			expiry = stored.ExpiresAt
+		} else {
+			return nil, nil
 		}
 	}
 
@@ -462,19 +618,34 @@ func (m *Manager) localRefresh(ctx context.Context, key Key, refreshToken string
 	if err != nil {
 		return nil, err
 	}
+	if tok == nil {
+		return nil, nil
+	}
 	expiry := tok.Expiry
 	if expiry.IsZero() {
 		expiry = time.Now().Add(1 * time.Hour)
 	}
-	m.cacheToken(key, tok, expiry)
 	if m.store != nil {
-		_ = m.store.Put(ctx, scyToOAuthToken(key, tok))
+		if err := m.store.Put(ctx, scyToOAuthToken(key, tok)); err != nil {
+			authlog.Log(ctx, authlog.Event{
+				Op:             "scheduler_store_put_candidate",
+				UserID:         strings.TrimSpace(key.Subject),
+				Provider:       strings.TrimSpace(key.Provider),
+				Classification: "persistence",
+				Action:         "preserve_cooldown_no_inject",
+			})
+			return nil, err
+		}
 	}
+	m.cacheToken(key, tok, expiry)
 	return tok, nil
 }
 
 // injectTokens enriches a context with token data via iauth helpers.
 func injectTokens(ctx context.Context, tok *scyauth.Token) context.Context {
+	if tok == nil || (!tok.Expiry.IsZero() && !tok.Expiry.After(time.Now())) {
+		return iauth.WithoutTokens(ctx)
+	}
 	ctx = iauth.WithTokens(ctx, tok)
 	if strings.TrimSpace(tok.AccessToken) != "" {
 		ctx = iauth.WithBearer(ctx, tok.AccessToken)
@@ -510,21 +681,7 @@ func scyToOAuthToken(key Key, tok *scyauth.Token) *OAuthToken {
 }
 
 func logSchedulerEnsure(ctx context.Context, key Key, format string, args ...interface{}) {
-	mode, _ := runtimediscovery.ModeFromContext(ctx)
-	scheduleID := ""
-	scheduleRunID := ""
-	caller := "interactive"
-	if mode.Scheduler {
-		scheduleID = strings.TrimSpace(mode.ScheduleID)
-		scheduleRunID = strings.TrimSpace(mode.ScheduleRunID)
-		caller = "scheduler"
-	}
-	args = append([]interface{}{
-		caller,
-		scheduleID,
-		scheduleRunID,
-		strings.TrimSpace(key.Subject),
-		strings.TrimSpace(key.Provider),
-	}, args...)
-	log.Printf("[runtime-auth] caller=%q schedule=%q run=%q user=%q provider=%q "+format, args...)
+	message := authlog.Sanitize(fmt.Sprintf(format, args...))
+	logx.DebugCtxf(ctx, "auth-token", "user_id=%q provider=%q %s",
+		authlog.SafeUserID(key.Subject), authlog.Sanitize(key.Provider), message)
 }

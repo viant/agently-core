@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,10 @@ import (
 	"github.com/viant/scy/auth/flow"
 	"golang.org/x/oauth2"
 )
+
+type oobOAuthAuthorizer interface {
+	Authorize(context.Context, *authorizer.Command) (*oauth2.Token, error)
+}
 
 func (a *authExtension) handleIDPDelegate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +123,11 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 				Config: cloneOAuthConfigWithScopes(oauthCfg, scopes),
 			},
 		}
-		token, err := authorizer.New().Authorize(r.Context(), cmd)
+		oobAuthorizer := a.oauthOOB
+		if oobAuthorizer == nil {
+			oobAuthorizer = authorizer.New()
+		}
+		token, err := oobAuthorizer.Authorize(r.Context(), cmd)
 		if err != nil {
 			runtimeError(w, http.StatusUnauthorized, err)
 			return
@@ -128,7 +137,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			return
 		}
 		username, subject, email, idToken := identityFromOAuthToken(token)
-		if err := validateConfiguredOAuthScopes(a.cfg.OAuth.Client, scopes, idToken, token.AccessToken, token.RefreshToken); err != nil {
+		if err := validateRefreshedOAuthScopes(a.cfg.OAuth.Client, scopes, token, idToken); err != nil {
 			runtimeError(w, http.StatusUnauthorized, err)
 			return
 		}
@@ -153,10 +162,18 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 				IDToken: idToken,
 			},
 		}
+		if a.tokenStore != nil {
+			if err := a.persistOAuthToken(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry); err != nil {
+				runtimeError(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
-		a.scheduleOAuthTokenPersist(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
+		if a.tokenStore == nil {
+			a.scheduleOAuthTokenPersist(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
+		}
 		runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": sess.ID, "username": username, "provider": provider})
 	}
 }
@@ -337,7 +354,7 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 			return
 		}
 		username, subject, email, idToken := identityFromOAuthToken(token)
-		if err := validateConfiguredOAuthScopes(a.cfg.OAuth.Client, statePayload.Scopes, idToken, token.AccessToken, token.RefreshToken); err != nil {
+		if err := validateRefreshedOAuthScopes(a.cfg.OAuth.Client, statePayload.Scopes, token, idToken); err != nil {
 			runtimeError(w, http.StatusUnauthorized, err)
 			return
 		}
@@ -365,10 +382,18 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 		if len(sess.Scopes) == 0 {
 			sess.Scopes = tokenScopesFromStrings(idToken, token.AccessToken, token.RefreshToken)
 		}
+		if a.tokenStore != nil {
+			if err := a.persistOAuthToken(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry); err != nil {
+				runtimeError(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
-		a.scheduleOAuthTokenPersist(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
+		if a.tokenStore == nil {
+			a.scheduleOAuthTokenPersist(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
+		}
 		if wantsJSON(r) || r.Method == http.MethodPost {
 			runtimeJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": sess.ID, "username": username, "provider": provider})
 			return

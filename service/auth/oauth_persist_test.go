@@ -215,9 +215,9 @@ func TestRuntimeEnsureSessionOAuthTokens_UsesSubjectProviderMapping(t *testing.T
 		CreatedAt: time.Now(),
 	}
 
-	ok := rt.ensureSessionOAuthTokens(context.Background(), sess)
-	if !ok {
-		t.Fatalf("ensureSessionOAuthTokens() = false, want true")
+	result := rt.ensureSessionOAuthTokens(context.Background(), sess)
+	if result.state != tokenAvailable {
+		t.Fatalf("ensureSessionOAuthTokens() state = %v, want available", result.state)
 	}
 	if store.getUser != "user-42" {
 		t.Fatalf("token lookup user = %q, want canonical user ID %q", store.getUser, "user-42")

@@ -98,7 +98,7 @@ func (s *TokenStoreDAO) Get(ctx context.Context, username, provider string) (*OA
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("token", "get", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+		logDatlyStoreOp(ctx, "token", "get", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
 	}()
 	db, err := s.db()
 	if err != nil {
@@ -129,7 +129,7 @@ ORDER BY provider`,
 	for rows.Next() {
 		var userID, rowProvider, rowEnc string
 		if err := rows.Scan(&userID, &rowProvider, &rowEnc); err != nil {
-			opErr = err
+			logDatlyStoreOp(ctx, "token", "get_row", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), time.Now(), err)
 			return nil, err
 		}
 		if strings.TrimSpace(rowEnc) == "" {
@@ -161,7 +161,7 @@ ORDER BY provider`,
 	}
 	tok, err := s.decrypt(ctx, encToken)
 	if err != nil {
-		opErr = err
+		logDatlyStoreOp(ctx, "token", "decrypt", strings.TrimSpace(selectedUser)+"|"+strings.TrimSpace(selectedProv), time.Now(), err)
 		return nil, err
 	}
 	tok.Username = strings.TrimSpace(firstNonEmpty(selectedUser, username))
@@ -177,7 +177,7 @@ func (s *TokenStoreDAO) Put(ctx context.Context, token *OAuthToken) error {
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("token", "put", strings.TrimSpace(token.Username)+"|"+strings.TrimSpace(token.Provider), started, opErr)
+		logDatlyStoreOp(ctx, "token", "put", strings.TrimSpace(token.Username)+"|"+strings.TrimSpace(token.Provider), started, opErr)
 	}()
 	enc, err := s.encrypt(ctx, token)
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *TokenStoreDAO) Put(ctx context.Context, token *OAuthToken) error {
 	return err
 }
 
-// Delete removes a token by upserting an empty enc_token.
+// Delete atomically clears a token while retaining its audit row.
 func (s *TokenStoreDAO) Delete(ctx context.Context, username, provider string) error {
 	if s == nil || s.dao == nil {
 		return nil
@@ -202,17 +202,24 @@ func (s *TokenStoreDAO) Delete(ctx context.Context, username, provider string) e
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("token", "delete", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+		logDatlyStoreOp(ctx, "token", "delete", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
 	}()
 	db, err := s.db()
 	if err != nil {
 		opErr = err
 		return err
 	}
-	_, err = db.ExecContext(ctx,
-		`UPDATE user_oauth_token
-SET enc_token = ''
-WHERE user_id = ? AND provider = ?`,
+	dialect, err := s.dbDialect()
+	if err != nil {
+		opErr = err
+		return err
+	}
+	query, err := deleteTokenSQL(dialect)
+	if err != nil {
+		opErr = err
+		return err
+	}
+	_, err = db.ExecContext(ctx, query,
 		strings.TrimSpace(username), strings.TrimSpace(provider),
 	)
 	opErr = err
@@ -226,8 +233,14 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 	if s == nil || s.dao == nil {
 		return nil, nil
 	}
+	started := time.Now()
+	var opErr error
+	defer func() {
+		logDatlyStoreOp(ctx, "token", "scan", "|", started, opErr)
+	}()
 	db, err := s.db()
 	if err != nil {
+		opErr = err
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
@@ -235,6 +248,7 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 		 WHERE enc_token != ''
 		 ORDER BY user_id`)
 	if err != nil {
+		opErr = err
 		return nil, err
 	}
 	defer rows.Close()
@@ -242,10 +256,15 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 	for rows.Next() {
 		var userID, provider, encTok string
 		if err := rows.Scan(&userID, &provider, &encTok); err != nil {
+			logDatlyStoreOp(ctx, "token", "scan_row", "|", time.Now(), err)
 			continue
 		}
 		tok, err := s.decrypt(ctx, encTok)
-		if err != nil || tok == nil {
+		if err != nil {
+			logDatlyStoreOp(ctx, "token", "decrypt", strings.TrimSpace(userID)+"|"+strings.TrimSpace(provider), time.Now(), err)
+			continue
+		}
+		if tok == nil {
 			continue
 		}
 		// Only include tokens that have a refresh token and are near expiry.
@@ -259,7 +278,8 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 		tok.Provider = provider
 		result = append(result, tok)
 	}
-	return result, rows.Err()
+	opErr = rows.Err()
+	return result, opErr
 }
 
 // db returns a raw *sql.DB from the datly connector.
@@ -368,6 +388,23 @@ func casPutSQL(dialect string) (string, error) {
 	}
 }
 
+func deleteTokenSQL(dialect string) (string, error) {
+	switch dialect {
+	case "mysql":
+		return `UPDATE user_oauth_token
+		 SET enc_token = '', updated_at = UTC_TIMESTAMP(), version = version + 1,
+		     lease_owner = NULL, lease_until = NULL, refresh_status = 'idle'
+		 WHERE user_id = ? AND provider = ?`, nil
+	case "sqlite":
+		return `UPDATE user_oauth_token
+		 SET enc_token = '', updated_at = DATETIME('now'), version = version + 1,
+		     lease_owner = NULL, lease_until = NULL, refresh_status = 'idle'
+		 WHERE user_id = ? AND provider = ?`, nil
+	default:
+		return "", fmt.Errorf("tokenstore: unsupported dialect %q", dialect)
+	}
+}
+
 // TryAcquireRefreshLease atomically attempts to acquire a distributed lease for
 // refreshing the token identified by (username, provider). The lease is granted
 // only when the row is idle or has an expired lease. All timestamp comparisons
@@ -379,7 +416,7 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("token", "lease", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+		logDatlyStoreOp(ctx, "token", "lease", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
 	}()
 	db, err := s.db()
 	if err != nil {
@@ -400,6 +437,7 @@ func (s *TokenStoreDAO) TryAcquireRefreshLease(ctx context.Context, username, pr
 	// Atomically acquire the lease: only succeeds if idle or lease expired.
 	query, err := refreshLeaseSQL(dialect)
 	if err != nil {
+		opErr = err
 		return 0, false, err
 	}
 	res, err := db.ExecContext(ctx, query, owner, ttlSeconds, username, provider)
@@ -438,7 +476,7 @@ func (s *TokenStoreDAO) ReleaseRefreshLease(ctx context.Context, username, provi
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("token", "release", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
+		logDatlyStoreOp(ctx, "token", "release", strings.TrimSpace(username)+"|"+strings.TrimSpace(provider), started, opErr)
 	}()
 	db, err := s.db()
 	if err != nil {
@@ -465,7 +503,7 @@ func (s *TokenStoreDAO) CASPut(ctx context.Context, token *OAuthToken, expectedV
 	started := time.Now()
 	var opErr error
 	defer func() {
-		logDatlyStoreOp("token", "cas_put", strings.TrimSpace(token.Username)+"|"+strings.TrimSpace(token.Provider), started, opErr)
+		logDatlyStoreOp(ctx, "token", "cas_put", strings.TrimSpace(token.Username)+"|"+strings.TrimSpace(token.Provider), started, opErr)
 	}()
 	enc, err := s.encrypt(ctx, token)
 	if err != nil {
@@ -485,6 +523,7 @@ func (s *TokenStoreDAO) CASPut(ctx context.Context, token *OAuthToken, expectedV
 
 	query, err := casPutSQL(dialect)
 	if err != nil {
+		opErr = err
 		return false, err
 	}
 	res, err := db.ExecContext(ctx, query, enc, token.Username, token.Provider, expectedVersion, owner)

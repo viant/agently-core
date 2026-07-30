@@ -17,6 +17,7 @@ type (
 	idTokenKey  struct{}
 	tokensKey   struct{}
 	providerKey struct{}
+	tokenMask   struct{}
 )
 
 // UserInfo carries minimal identity extracted from a bearer token.
@@ -42,6 +43,18 @@ func TokensFromContext(ctx context.Context) *scyauth.Token {
 		return &v
 	}
 	return nil
+}
+
+// WithoutTokens returns a child context that masks token and downstream auth
+// values inherited from its parent. It is used when stale credentials must be
+// preserved in storage but must not be sent to downstream services.
+func WithoutTokens(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = context.WithValue(ctx, tokensKey{}, tokenMask{})
+	ctx = context.WithValue(ctx, bearerKey{}, tokenMask{})
+	return context.WithValue(ctx, idTokenKey{}, tokenMask{})
 }
 
 // MCPAuthToken selects a single token string suitable for outbound MCP calls.

@@ -17,6 +17,13 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := a.currentSession(r)
 		if sess == nil {
+			if runtimeConfirmedMissing(r.Context()) {
+				if cookieName := strings.TrimSpace(a.cfg.CookieName); cookieName != "" {
+					http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
+				}
+				runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
+				return
+			}
 			if user := RuntimeUserFromContext(r.Context()); user != nil {
 				displayName := strings.TrimSpace(user.Subject)
 				if resolved := a.lookupDisplayUserBySubject(r.Context(), strings.TrimSpace(user.Subject), a.oauthProviderName()); resolved != nil {
@@ -38,15 +45,22 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("not authenticated"))
 			return
 		}
-		if a.requiresOAuthTokens() && !a.ensureSessionOAuthTokens(r.Context(), sess) {
-			if cookieName := strings.TrimSpace(a.cfg.CookieName); cookieName != "" {
-				if c, err := r.Cookie(cookieName); err == nil && strings.TrimSpace(c.Value) != "" {
-					a.sessions.Delete(r.Context(), strings.TrimSpace(c.Value))
+		if a.requiresOAuthTokensForSession(sess) {
+			availability := a.sessionOAuthTokenAvailability(r.Context(), sess)
+			switch availability.state {
+			case tokenConfirmedMissing:
+				if cookieName := strings.TrimSpace(a.cfg.CookieName); cookieName != "" {
+					if c, err := r.Cookie(cookieName); err == nil && strings.TrimSpace(c.Value) != "" {
+						a.sessions.Delete(r.Context(), strings.TrimSpace(c.Value))
+					}
+					http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 				}
-				http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
+				runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
+				return
+			case tokenPreserveWithoutInjection:
+				// Identity remains usable while token ownership or persistence is
+				// temporarily unavailable. No credentials are exposed by /auth/me.
 			}
-			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
-			return
 		}
 		displayName := strings.TrimSpace(sess.Username)
 		if resolved := a.lookupDisplayUserBySubject(r.Context(), strings.TrimSpace(sess.Subject), strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))); resolved != nil {
@@ -264,10 +278,13 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 				IDToken: strings.TrimSpace(in.IDToken),
 			}
 		}
-		a.sessions.PutAsync(r.Context(), sess)
-		if sess.Tokens != nil && !bearerBootstrap {
-			a.scheduleOAuthTokenPersist(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry)
+		if sess.Tokens != nil && !bearerBootstrap && a.tokenStore != nil {
+			if err := a.persistOAuthToken(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry); err != nil {
+				runtimeError(w, http.StatusServiceUnavailable, err)
+				return
+			}
 		}
+		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username})
 	}
@@ -296,9 +313,17 @@ func (a *authExtension) handleAttachSession() http.HandlerFunc {
 			runtimeError(w, http.StatusNotFound, fmt.Errorf("session not found"))
 			return
 		}
-		if a.requiresOAuthTokens() && !a.ensureSessionOAuthTokens(r.Context(), sess) {
-			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
-			return
+		if a.requiresOAuthTokensForSession(sess) {
+			availability := a.sessionOAuthTokenAvailability(r.Context(), sess)
+			switch availability.state {
+			case tokenConfirmedMissing:
+				a.sessions.Delete(r.Context(), sessionID)
+				runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
+				return
+			case tokenPreserveWithoutInjection:
+				runtimeError(w, http.StatusServiceUnavailable, fmt.Errorf("oauth token state is temporarily unavailable"))
+				return
+			}
 		}
 		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{
