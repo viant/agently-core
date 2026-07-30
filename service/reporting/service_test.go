@@ -570,13 +570,21 @@ func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *t
 	_, err = svc.SaveReport(ctx, &staticSource)
 	require.EqualError(t, err, `report store: inline promotion dataset "rows" is not backed by a reusable workspace data source`)
 
+	snapshot := *request
+	snapshot.ReportDocument = json.RawMessage(`{"kind":"reportDocument","id":"inline-delivery","datasets":[{"id":"rows","rows":[{"spend":404}]}]}`)
+	snapshot.ReportSpec = json.RawMessage(`{"kind":"reportSpec","datasets":[{"id":"rows","dataSourceRef":"static_json_rows","request":{"kind":"staticJson"}}]}`)
+	snapshot.Metadata = json.RawMessage(`{"source":"inline_snapshot","reusableDataSources":false,"materializedDatasetIds":["rows"]}`)
+	snapshotSaved, err := svc.SaveReport(ctx, &snapshot)
+	require.NoError(t, err)
+	require.JSONEq(t, string(snapshot.ReportDocument), string(snapshotSaved.Document))
+
 	saved, err := svc.SaveReport(ctx, request)
 	require.NoError(t, err)
 	require.Equal(t, "owner-inline", saved.OwnerID)
 
 	listed, err := svc.ListReports(ctx, &ListReportsInput{Limit: 10})
 	require.NoError(t, err)
-	require.Len(t, listed.Reports, 1)
+	require.Len(t, listed.Reports, 2)
 
 	reopened, err := svc.GetReport(ctx, &GetReportInput{ArtifactID: saved.ArtifactID})
 	require.NoError(t, err)

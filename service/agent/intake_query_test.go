@@ -612,6 +612,89 @@ func TestApplyTurnContext_TemplateIdDoesNotOverrideCaller(t *testing.T) {
 	require.Equal(t, "sidecar_suggestion", input.Context["intake.templateId"], "context still records the sidecar's suggestion for observability")
 }
 
+func TestApplyTurnContext_ActivationModelOverride(t *testing.T) {
+	cfg := &agentmdl.Intake{Enabled: true}
+	input := &QueryInput{}
+	tc := &intakesvc.Context{
+		Prompting: intakesvc.PromptingContext{ModelID: "openai_gpt-5_6_luna"},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	require.Equal(t, "openai_gpt-5_6_luna", input.ModelOverride)
+	require.Equal(t, "openai_gpt-5_6_luna", input.Context["intake.modelId"])
+}
+
+func TestApplyTurnContext_ActivationSynthesisModel(t *testing.T) {
+	cfg := &agentmdl.Intake{Enabled: true}
+	input := &QueryInput{}
+	tc := &intakesvc.Context{
+		Prompting: intakesvc.PromptingContext{
+			ModelID:          "openai_gpt-5_6_luna",
+			SynthesisModelID: "openai_gpt-5_6_sol",
+		},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	require.Equal(t, "openai_gpt-5_6_luna", input.ModelOverride)
+	require.Equal(t, "openai_gpt-5_6_sol", input.Context["intake.synthesisModelId"])
+}
+
+func TestApplyTurnContext_ActivationModelOverridesTurnModel(t *testing.T) {
+	cfg := &agentmdl.Intake{Enabled: true}
+	input := &QueryInput{ModelOverride: "openai_gpt-5_6_sol"}
+	tc := &intakesvc.Context{
+		Prompting: intakesvc.PromptingContext{ModelID: "openai_gpt-5_6_luna"},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	require.Equal(t, "openai_gpt-5_6_luna", input.ModelOverride)
+}
+
+func TestApplyTurnContext_ActivationModelOverridesConversationDefault(t *testing.T) {
+	cfg := &agentmdl.Intake{Enabled: true}
+	input := &QueryInput{ModelOverride: "openai_gpt-5_6_sol"}
+	setRuntimeModelSource(input, "conversation.defaultModel")
+	tc := &intakesvc.Context{
+		Prompting: intakesvc.PromptingContext{ModelID: "openai_gpt-5_6_luna"},
+	}
+
+	applyTurnContext(input, tc, cfg)
+
+	require.Equal(t, "openai_gpt-5_6_luna", input.ModelOverride)
+	require.Equal(t, "intake.activationRule", runtimeModelSource(input))
+}
+
+func TestResolveActivationRuleOverride_NumberBeforeOrderUsesRouteModel(t *testing.T) {
+	rules := []agentmdl.ActivationRule{{
+		Match: agentmdl.ActivationMatch{Patterns: []string{
+			`(?i)^troubleshoot\s+(\d+)\s+(?:ad\s+)?order\b.*$`,
+		}},
+		Classification: agentmdl.ActivationClassification{Intent: "troubleshoot_ad_order"},
+		Prompting: agentmdl.ActivationPrompting{
+			TemplateID:       "analytics_dashboard",
+			ModelID:          "openai_gpt-5_6_luna",
+			SynthesisModelID: "openai_gpt-5_6_sol",
+		},
+		Scope: agentmdl.ActivationScope{Values: map[string]string{
+			"adOrderIds": "$1",
+		}},
+	}}
+
+	tc := resolveActivationRuleOverride(
+		"Troubleshoot 2682902 order for delivery issues and identify the primary causal blocker.",
+		rules,
+	)
+
+	require.NotNil(t, tc)
+	require.Equal(t, "openai_gpt-5_6_luna", tc.Prompting.ModelID)
+	require.Equal(t, "openai_gpt-5_6_sol", tc.Prompting.SynthesisModelID)
+	require.Equal(t, "analytics_dashboard", tc.Prompting.TemplateID)
+	require.Equal(t, "2682902", tc.Scope.Values["adOrderIds"])
+}
+
 // TestApplyTurnContext_ProfileSuggestionGated verifies that profile
 // suggestions below the confidence threshold do NOT leak into context and
 // that high-confidence ones do.

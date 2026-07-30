@@ -817,6 +817,8 @@ type contextPromptingWire struct {
 	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
 	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
 	TemplateID         string   `json:"templateId,omitempty"`
+	ModelID            string   `json:"modelId,omitempty"`
+	SynthesisModelID   string   `json:"synthesisModelId,omitempty"`
 }
 
 type contextDirectActionWire struct {
@@ -841,11 +843,13 @@ func canonicalIntakeContent(tc *Context) (string, error) {
 	if len(tc.Scope.Values) > 0 {
 		out["scope"] = contextScopeWire{Values: tc.Scope.Values}
 	}
-	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" {
+	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" || tc.Prompting.ModelID != "" || tc.Prompting.SynthesisModelID != "" {
 		out["prompting"] = contextPromptingWire{
 			SuggestedProfileID: tc.Prompting.SuggestedProfileID,
 			AppendToolBundles:  tc.Prompting.AppendToolBundles,
 			TemplateID:         tc.Prompting.TemplateID,
+			ModelID:            tc.Prompting.ModelID,
+			SynthesisModelID:   tc.Prompting.SynthesisModelID,
 		}
 	}
 	if tc.Routing.SelectedAgentID != "" || tc.Routing.Mode != "" {
@@ -953,6 +957,8 @@ func unmarshalContext(data []byte, tc *Context) error {
 		tc.Prompting.SuggestedProfileID = wire.Prompting.SuggestedProfileID
 		tc.Prompting.AppendToolBundles = wire.Prompting.AppendToolBundles
 		tc.Prompting.TemplateID = wire.Prompting.TemplateID
+		tc.Prompting.ModelID = wire.Prompting.ModelID
+		tc.Prompting.SynthesisModelID = wire.Prompting.SynthesisModelID
 	}
 	if tc.Prompting.SuggestedProfileID == "" {
 		tc.Prompting.SuggestedProfileID = wire.SuggestedProfileId

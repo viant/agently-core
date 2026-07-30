@@ -101,6 +101,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&CompileResult{}),
 		},
 		{
+			Name:        "compile_fenced_report",
+			Description: "Compile committed forge-report and forge-data fences on the backend into canonical ReportSpec, ReportFill, and ReportPrint. The returned reportExportRequest is immediately exportable: pass it unchanged as reporting:submit_export.reportExportRequest.",
+			Input:       reflect.TypeOf(&CompileFencedReportRequest{}),
+			Output:      reflect.TypeOf(&CompileFencedReportResult{}),
+		},
+		{
 			Name:        "record_audit_event",
 			Description: "Record a structured reporting audit event through the configured reporting audit sink.",
 			Input:       reflect.TypeOf(&RecordAuditEventInput{}),
@@ -232,6 +238,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "compile":
 		return s.compileTool, nil
+	case "compile_fenced_report":
+		return s.compileFencedReportTool, nil
 	case "record_audit_event":
 		return s.recordAuditEventTool, nil
 	case "share_artifact":
@@ -1447,7 +1455,12 @@ func jsonObjectText(raw json.RawMessage, key string) string {
 }
 
 func validateInlineSaveReport(request *SaveReportRequest) error {
-	if request == nil || !jsonObjectString(request.Metadata, "source", "inline") {
+	if request == nil {
+		return nil
+	}
+	isReusable := jsonObjectString(request.Metadata, "source", "inline")
+	isSnapshot := jsonObjectString(request.Metadata, "source", "inline_snapshot")
+	if !isReusable && !isSnapshot {
 		return nil
 	}
 	required := []struct {
@@ -1465,6 +1478,9 @@ func validateInlineSaveReport(request *SaveReportRequest) error {
 	}
 	if !jsonObjectString(request.CompileState, "status", "clean") {
 		return fmt.Errorf("report store: committed inline report requires clean compileState")
+	}
+	if isSnapshot {
+		return nil
 	}
 	if !jsonObjectBool(request.Metadata, "reusableDataSources", true) {
 		return fmt.Errorf("report store: inline promotion requires resolved reusable workspace data sources")
