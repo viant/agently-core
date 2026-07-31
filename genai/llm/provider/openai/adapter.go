@@ -34,7 +34,8 @@ const defaultToolResultPreviewLimit = 8 * 1024
 
 func supportsExplicitTemperature(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
-	case "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "gpt-5.6-luna":
+	case "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5",
+		"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol":
 		return false
 	}
 	return true
