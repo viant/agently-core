@@ -1,7 +1,9 @@
 package reporting
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -16,8 +18,12 @@ func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedR
 	}
 	fences := make([]forgefenced.Fence, 0, len(request.Fences))
 	for _, fence := range request.Fences {
+		payload, err := normalizeFencedPayload(fence.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("reporting fenced compile: fence %d payload: %w", fence.Index, err)
+		}
 		fences = append(fences, forgefenced.Fence{
-			Kind: strings.TrimSpace(fence.Kind), Index: fence.Index, Payload: cloneJSON(fence.Payload),
+			Kind: strings.TrimSpace(fence.Kind), Index: fence.Index, Payload: payload,
 		})
 	}
 	compiled, err := forgefenced.Compile(&forgefenced.CompileRequest{
@@ -73,6 +79,27 @@ func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedR
 	}, nil
 }
 
+// normalizeFencedPayload accepts both a raw JSON object and a JSON string
+// containing that object. Tool callers commonly use the latter because
+// FencedReportFence.Payload is exposed as json.RawMessage in the Go schema.
+func normalizeFencedPayload(payload json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("is required")
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return nil, fmt.Errorf("decode JSON string: %w", err)
+		}
+		trimmed = bytes.TrimSpace([]byte(text))
+	}
+	if !json.Valid(trimmed) {
+		return nil, fmt.Errorf("must be valid JSON")
+	}
+	return cloneJSON(trimmed), nil
+}
+
 func (s *Service) compileFencedReportTool(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*CompileFencedReportRequest)
 	if !ok {
@@ -83,6 +110,73 @@ func (s *Service) compileFencedReportTool(ctx context.Context, in, out interface
 		return fmt.Errorf("invalid reporting fenced compile output %T", out)
 	}
 	result, err := s.CompileFencedReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *result
+	return nil
+}
+
+// CompileAndExportFencedReport compiles progressive Forge fences, submits the
+// canonical envelope directly, runs the configured exporter, and returns a
+// compact artifact projection.
+func (s *Service) CompileAndExportFencedReport(ctx context.Context, request *CompileAndExportFencedReportRequest) (*CompileAndExportFencedReportResult, error) {
+	if request == nil {
+		return nil, fmt.Errorf("reporting fenced export: request is required")
+	}
+	compiled, err := s.CompileFencedReport(ctx, &CompileFencedReportRequest{
+		Content:  request.Content,
+		Fences:   request.Fences,
+		ReportID: request.ReportID,
+		Format:   request.Format,
+	})
+	if err != nil {
+		return nil, err
+	}
+	envelope := compiled.ReportExportRequest
+	if envelope == nil {
+		return nil, fmt.Errorf("reporting fenced export: compiler returned no export request")
+	}
+	envelope.Metadata = buildExportContextMetadata(request.ConversationID, request.WorkspaceID, envelope.Metadata, nil)
+	job, err := s.SubmitExport(ctx, &SubmitExportRequest{ReportExportRequest: envelope})
+	if err != nil {
+		return nil, fmt.Errorf("reporting fenced export submit: %w", err)
+	}
+	job, err = s.RunExport(ctx, job.JobID)
+	if err != nil {
+		return nil, fmt.Errorf("reporting fenced export run: %w", err)
+	}
+	artifact, err := s.GetArtifact(ctx, job.ArtifactID)
+	if err != nil {
+		return nil, fmt.Errorf("reporting fenced export artifact: %w", err)
+	}
+	artifact.Data = nil
+	return &CompileAndExportFencedReportResult{
+		ReportID: compiled.ReportID,
+		Job: &ExportJob{
+			JobID: job.JobID, ArtifactRef: job.ArtifactRef,
+			ConversationID: job.ConversationID, WorkspaceID: job.WorkspaceID,
+			Format: job.Format, Scope: job.Scope, Status: job.Status,
+			ArtifactID: job.ArtifactID, Error: job.Error,
+			Diagnostics: job.Diagnostics, SubmittedAt: job.SubmittedAt,
+			StartedAt: job.StartedAt, CompletedAt: job.CompletedAt,
+			RetentionTTL: job.RetentionTTL,
+		},
+		Artifact:    artifact,
+		Diagnostics: compiled.Diagnostics,
+	}, nil
+}
+
+func (s *Service) compileAndExportFencedReportTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*CompileAndExportFencedReportRequest)
+	if !ok {
+		return fmt.Errorf("invalid reporting fenced export input %T", in)
+	}
+	output, ok := out.(*CompileAndExportFencedReportResult)
+	if !ok {
+		return fmt.Errorf("invalid reporting fenced export output %T", out)
+	}
+	result, err := s.CompileAndExportFencedReport(ctx, input)
 	if err != nil {
 		return err
 	}

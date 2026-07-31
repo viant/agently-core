@@ -74,6 +74,28 @@ type CompileFencedReportResult struct {
 	Diagnostics         []Diagnostic         `json:"diagnostics,omitempty"`
 }
 
+// CompileAndExportFencedReportRequest carries progressive Forge fences through
+// backend compilation and synchronous export without requiring a caller to
+// copy the potentially large canonical export envelope between tool calls.
+type CompileAndExportFencedReportRequest struct {
+	Content        string              `json:"content,omitempty"`
+	Fences         []FencedReportFence `json:"fences,omitempty"`
+	ReportID       string              `json:"reportId,omitempty"`
+	Format         ExportFormat        `json:"format,omitempty"`
+	ConversationID string              `json:"conversationId,omitempty"`
+	WorkspaceID    string              `json:"workspaceId,omitempty"`
+}
+
+// CompileAndExportFencedReportResult is deliberately compact so MCP callers do
+// not receive the compiled ReportSpec, ReportFill, ReportPrint, or artifact
+// bytes in the tool result.
+type CompileAndExportFencedReportResult struct {
+	ReportID    string       `json:"reportId,omitempty"`
+	Job         *ExportJob   `json:"job,omitempty"`
+	Artifact    *Artifact    `json:"artifact,omitempty"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+}
+
 // CompileRequest carries an authored artifact into the backend compile seam.
 type CompileRequest struct {
 	ArtifactRef string          `json:"artifactRef,omitempty"`

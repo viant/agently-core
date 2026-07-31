@@ -937,6 +937,10 @@ func TestServiceListExportArtifactsScopesAndFiltersByOwner(t *testing.T) {
 	require.Len(t, filtered.Artifacts, 1)
 	require.Equal(t, firstJob.JobID, filtered.Artifacts[0].JobID)
 	require.Equal(t, ExportFormatPDF, filtered.Artifacts[0].Format)
+	require.Empty(t, filtered.Artifacts[0].Data)
+	fullArtifact, err := svc.GetArtifact(ownerOneCtx, filtered.Artifacts[0].ArtifactID)
+	require.NoError(t, err)
+	require.NotEmpty(t, fullArtifact.Data)
 
 	limited, err := svc.ListExportArtifacts(ownerOneCtx, &ListExportArtifactsInput{Limit: 1})
 	require.NoError(t, err)

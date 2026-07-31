@@ -107,6 +107,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&CompileFencedReportResult{}),
 		},
 		{
+			Name:        "compile_and_export_fenced_report",
+			Description: "Compile committed forge-report and forge-data fences and synchronously export the result. Prefer this compact one-call path when no interactive report-builder UI is attached; it returns job and downloadable artifact metadata without report payloads or artifact bytes.",
+			Input:       reflect.TypeOf(&CompileAndExportFencedReportRequest{}),
+			Output:      reflect.TypeOf(&CompileAndExportFencedReportResult{}),
+		},
+		{
 			Name:        "record_audit_event",
 			Description: "Record a structured reporting audit event through the configured reporting audit sink.",
 			Input:       reflect.TypeOf(&RecordAuditEventInput{}),
@@ -240,6 +246,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.compileTool, nil
 	case "compile_fenced_report":
 		return s.compileFencedReportTool, nil
+	case "compile_and_export_fenced_report":
+		return s.compileAndExportFencedReportTool, nil
 	case "record_audit_event":
 		return s.recordAuditEventTool, nil
 	case "share_artifact":
@@ -1177,6 +1185,10 @@ func (s *Service) ListExportArtifacts(ctx context.Context, input *ListExportArti
 		if err != nil {
 			return nil, err
 		}
+		// Artifact listings are a metadata/discovery surface. Returning the
+		// binary payload here can overflow MCP tool responses for PDFs and
+		// duplicates the explicit get_artifact/download path.
+		expanded.Data = nil
 		filtered = append(filtered, expanded)
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {

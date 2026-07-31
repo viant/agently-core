@@ -377,33 +377,41 @@ func TestToRequest_ModelArtifactGenerationDoesNotOverrideFunctionTools(t *testin
 }
 
 func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
-	in := llm.GenerateRequest{
-		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
-		Options: &llm.Options{
-			Model:       "gpt-5.6-luna",
-			Temperature: 0.2,
-		},
-	}
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"} {
+		t.Run(model, func(t *testing.T) {
+			in := llm.GenerateRequest{
+				Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
+				Options: &llm.Options{
+					Model:       model,
+					Temperature: 0.2,
+				},
+			}
 
-	got := ToRequest(&in)
-	assert.Equal(t, "gpt-5.6-luna", got.Model)
-	assert.Nil(t, got.Temperature)
+			got := ToRequest(&in)
+			assert.Equal(t, model, got.Model)
+			assert.Nil(t, got.Temperature)
+		})
+	}
 }
 
 func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Models(t *testing.T) {
-	temperature := 0.2
-	client := &Client{Config: basecfg.Config{Model: "gpt-5.6-luna"}, Temperature: &temperature}
-	in := &llm.GenerateRequest{
-		Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
-		Options: &llm.Options{
-			Temperature: 0.2,
-		},
-	}
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"} {
+		t.Run(model, func(t *testing.T) {
+			temperature := 0.2
+			client := &Client{Config: basecfg.Config{Model: model}, Temperature: &temperature}
+			in := &llm.GenerateRequest{
+				Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
+				Options: &llm.Options{
+					Temperature: 0.2,
+				},
+			}
 
-	got, err := client.prepareChatRequest(in)
-	assert.NoError(t, err)
-	assert.Equal(t, "gpt-5.6-luna", got.Model)
-	assert.Nil(t, got.Temperature)
+			got, err := client.prepareChatRequest(in)
+			assert.NoError(t, err)
+			assert.Equal(t, model, got.Model)
+			assert.Nil(t, got.Temperature)
+		})
+	}
 }
 
 func TestClientToRequest_BinaryInlineAndUploadValidation(t *testing.T) {
