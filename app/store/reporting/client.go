@@ -27,4 +27,5 @@ type Client interface {
 	GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifact.Record, error)
 	ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact.Record, error)
 	UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error
+	DeleteSharedArtifact(ctx context.Context, artifactID string) error
 }

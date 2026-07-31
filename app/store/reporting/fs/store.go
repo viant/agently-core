@@ -231,6 +231,18 @@ func (s *Store) UpdateSharedArtifact(ctx context.Context, artifact *reportsharea
 	return writeJSONAtomic(path, artifact)
 }
 
+// DeleteSharedArtifact removes a persisted shared reporting artifact.
+func (s *Store) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
+	path, err := s.recordPath(ctx, "shared_artifacts", artifactID)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) recordPath(ctx context.Context, category, id string) (string, error) {
 	normalizedID := strings.TrimSpace(id)
 	if normalizedID == "" || normalizedID != filepath.Base(normalizedID) || strings.Contains(normalizedID, "..") {

@@ -179,6 +179,20 @@ func (s *MemoryStore) UpdateSharedArtifact(_ context.Context, artifact *SharedAr
 	return nil
 }
 
+// DeleteSharedArtifact removes a persisted shared reporting artifact.
+func (s *MemoryStore) DeleteSharedArtifact(_ context.Context, artifactID string) error {
+	if s == nil {
+		return ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sharedArtifacts[artifactID]; !ok {
+		return ErrNotFound
+	}
+	delete(s.sharedArtifacts, artifactID)
+	return nil
+}
+
 func cloneMemorySharedArtifact(input *SharedArtifact) *SharedArtifact {
 	if input == nil {
 		return nil
