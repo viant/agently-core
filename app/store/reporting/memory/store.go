@@ -186,6 +186,20 @@ func (s *Store) UpdateSharedArtifact(_ context.Context, artifact *reportshareart
 	return nil
 }
 
+// DeleteSharedArtifact removes a persisted shared reporting artifact.
+func (s *Store) DeleteSharedArtifact(_ context.Context, artifactID string) error {
+	if s == nil {
+		return errNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sharedArtifacts[artifactID]; !ok {
+		return errNotFound
+	}
+	delete(s.sharedArtifacts, artifactID)
+	return nil
+}
+
 func cloneJob(input *reportjob.Record) *reportjob.Record {
 	if input == nil {
 		return nil

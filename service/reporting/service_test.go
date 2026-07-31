@@ -233,6 +233,10 @@ func (s *claimRaceStore) UpdateSharedArtifact(ctx context.Context, artifact *Sha
 	return s.base.UpdateSharedArtifact(ctx, artifact)
 }
 
+func (s *claimRaceStore) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
+	return s.base.DeleteSharedArtifact(ctx, artifactID)
+}
+
 type failingCompleteStore struct {
 	base      Store
 	failJobID string
@@ -283,6 +287,10 @@ func (s *failingCompleteStore) ListSharedArtifacts(ctx context.Context) ([]*Shar
 
 func (s *failingCompleteStore) UpdateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error {
 	return s.base.UpdateSharedArtifact(ctx, artifact)
+}
+
+func (s *failingCompleteStore) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
+	return s.base.DeleteSharedArtifact(ctx, artifactID)
 }
 
 func TestServiceCompileDelegatesAndAudits(t *testing.T) {
@@ -629,6 +637,65 @@ func TestServiceSaveReportNormalizesToolJSONAndGeneratesReopenIdentity(t *testin
 	require.Equal(t, saved.ArtifactID, reopened.ArtifactID)
 	require.JSONEq(t, document, string(reopened.Document))
 	require.JSONEq(t, spec, string(reopened.ReportSpec))
+}
+
+func TestServiceSavedReportCatalogLifecycle(t *testing.T) {
+	now := time.Date(2026, 7, 31, 8, 0, 0, 0, time.UTC)
+	idCount := 0
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()),
+		Now:   func() time.Time { return now },
+		NewID: func() string {
+			idCount++
+			return "catalog-" + strconv.Itoa(idCount)
+		},
+	})
+	ownerCtx := authsvc.InjectUser(context.Background(), "catalog-owner")
+	saved, err := svc.SaveReport(ownerCtx, &SaveReportRequest{
+		ReportID:       "delivery-review",
+		Title:          "Delivery review",
+		ReportDocument: json.RawMessage(`{"id":"delivery-review","scopeParams":{"orderIds":[2672373],"dateRange":{"from":"2026-07-20","to":"2026-07-26"}}}`),
+		ReportSpec:     json.RawMessage(`{"kind":"reportSpec","blocks":[]}`),
+		Metadata:       json.RawMessage(`{"builderRef":"metricsCubeBuilder"}`),
+	})
+	require.NoError(t, err)
+
+	listed, err := svc.ListReports(ownerCtx, &ListReportsInput{OrderID: "2672373", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, listed.Reports, 1)
+	require.Equal(t, []string{"2672373"}, listed.Reports[0].OrderIDs)
+	require.Equal(t, "2026-07-20", listed.Reports[0].DefaultFrom)
+	require.Equal(t, "2026-07-26", listed.Reports[0].DefaultTo)
+	require.Equal(t, "catalog-owner", listed.Reports[0].OwnerID)
+	require.Equal(t, "Performance report", listed.Reports[0].ReportType)
+
+	ranAt := now.Add(time.Hour)
+	recorded, err := svc.RecordReportRun(ownerCtx, &RecordReportRunRequest{
+		ArtifactID: saved.ArtifactID,
+		RanAt:      ranAt,
+	})
+	require.NoError(t, err)
+	require.Contains(t, string(recorded.Metadata), ranAt.Format(time.RFC3339Nano))
+
+	duplicated, err := svc.DuplicateReport(ownerCtx, &DuplicateReportRequest{
+		ArtifactID: saved.ArtifactID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Copy of Delivery review", duplicated.Title)
+	require.NotEqual(t, saved.ArtifactID, duplicated.ArtifactID)
+	require.NotEqual(t, saved.ReportID, duplicated.ReportID)
+
+	_, err = svc.DeleteReport(authsvc.InjectUser(context.Background(), "other-owner"), &DeleteReportRequest{
+		ArtifactID: saved.ArtifactID,
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	deleted, err := svc.DeleteReport(ownerCtx, &DeleteReportRequest{ArtifactID: saved.ArtifactID})
+	require.NoError(t, err)
+	require.True(t, deleted.Deleted)
+	require.Equal(t, saved.ArtifactID, deleted.ArtifactID)
+	_, err = svc.GetReport(ownerCtx, &GetReportInput{ArtifactID: saved.ArtifactID})
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {

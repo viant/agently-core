@@ -142,6 +142,10 @@ func (s *storeAdapter) UpdateSharedArtifact(ctx context.Context, artifact *Share
 	return translateStoreError(s.client.UpdateSharedArtifact(ctx, encodeSharedArtifact(artifact)))
 }
 
+func (s *storeAdapter) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
+	return translateStoreError(s.client.DeleteSharedArtifact(ctx, strings.TrimSpace(artifactID)))
+}
+
 func encodeJob(input *ExportJob) *reportjob.Record {
 	if input == nil {
 		return nil

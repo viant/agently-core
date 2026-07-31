@@ -315,6 +315,7 @@ type GetReportInput struct {
 type ListReportsInput struct {
 	ArtifactRef string `json:"artifactRef,omitempty"`
 	ReportID    string `json:"reportId,omitempty"`
+	OrderID     string `json:"orderId,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 }
 
@@ -325,6 +326,13 @@ type ReportSummary struct {
 	ArtifactRef      string     `json:"artifactRef,omitempty"`
 	ReportID         string     `json:"reportId,omitempty"`
 	Title            string     `json:"title,omitempty"`
+	OwnerID          string     `json:"ownerId,omitempty"`
+	ReportType       string     `json:"reportType,omitempty"`
+	BuilderRef       string     `json:"builderRef,omitempty"`
+	OrderIDs         []string   `json:"orderIds,omitempty"`
+	DefaultFrom      string     `json:"defaultFrom,omitempty"`
+	DefaultTo        string     `json:"defaultTo,omitempty"`
+	LastRunAt        *time.Time `json:"lastRunAt,omitempty"`
 	Lifecycle        string     `json:"lifecycle,omitempty"`
 	Version          int        `json:"version,omitempty"`
 	DocumentVersion  int        `json:"documentVersion,omitempty"`
@@ -366,6 +374,32 @@ type UpdateReportRequest struct {
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
 }
 
+type DuplicateReportRequest struct {
+	ArtifactID  string `json:"artifactId,omitempty"`
+	ArtifactRef string `json:"artifactRef,omitempty"`
+	ReportID    string `json:"reportId,omitempty"`
+	Title       string `json:"title,omitempty"`
+}
+
+type DeleteReportRequest struct {
+	ArtifactID  string `json:"artifactId,omitempty"`
+	ArtifactRef string `json:"artifactRef,omitempty"`
+	ReportID    string `json:"reportId,omitempty"`
+}
+
+type DeleteReportResult struct {
+	ArtifactID string `json:"artifactId,omitempty"`
+	ReportID   string `json:"reportId,omitempty"`
+	Deleted    bool   `json:"deleted"`
+}
+
+type RecordReportRunRequest struct {
+	ArtifactID  string    `json:"artifactId,omitempty"`
+	ArtifactRef string    `json:"artifactRef,omitempty"`
+	ReportID    string    `json:"reportId,omitempty"`
+	RanAt       time.Time `json:"ranAt,omitempty"`
+}
+
 // Compiler lowers authored artifacts into canonical ReportSpec payloads.
 type Compiler interface {
 	Compile(ctx context.Context, request *CompileRequest) (*CompileResult, error)
@@ -390,6 +424,7 @@ type Store interface {
 	GetSharedArtifact(ctx context.Context, artifactID string) (*SharedArtifact, error)
 	ListSharedArtifacts(ctx context.Context) ([]*SharedArtifact, error)
 	UpdateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error
+	DeleteSharedArtifact(ctx context.Context, artifactID string) error
 }
 
 // AuditEvent is the generic reporting audit payload emitted by the service.

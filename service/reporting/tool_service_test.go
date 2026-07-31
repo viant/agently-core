@@ -21,7 +21,7 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	})
 
 	signatures := service.Methods()
-	require.Len(t, signatures, 23)
+	require.Len(t, signatures, 26)
 	require.Equal(t, Name, service.Name())
 	require.Equal(t, "compile", signatures[0].Name)
 	require.Equal(t, "compile_fenced_report", signatures[1].Name)
@@ -41,11 +41,14 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	require.Equal(t, "get_report", signatures[15].Name)
 	require.Equal(t, "list_reports", signatures[16].Name)
 	require.Equal(t, "update_report", signatures[17].Name)
-	require.True(t, signatures[18].Internal)
-	require.True(t, signatures[19].Internal)
-	require.True(t, signatures[20].Internal)
+	require.Equal(t, "duplicate_report", signatures[18].Name)
+	require.Equal(t, "delete_report", signatures[19].Name)
+	require.Equal(t, "record_report_run", signatures[20].Name)
 	require.True(t, signatures[21].Internal)
 	require.True(t, signatures[22].Internal)
+	require.True(t, signatures[23].Internal)
+	require.True(t, signatures[24].Internal)
+	require.True(t, signatures[25].Internal)
 }
 
 func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
@@ -467,6 +470,10 @@ func (s *failingStartStore) ListSharedArtifacts(ctx context.Context) ([]*SharedA
 
 func (s *failingStartStore) UpdateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error {
 	return s.base.UpdateSharedArtifact(ctx, artifact)
+}
+
+func (s *failingStartStore) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
+	return s.base.DeleteSharedArtifact(ctx, artifactID)
 }
 
 func TestServiceToolMethodRunQueuedExportsPreservesPartialResultOnError(t *testing.T) {

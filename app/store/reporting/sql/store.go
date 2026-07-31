@@ -464,6 +464,40 @@ func (s *Store) UpdateSharedArtifact(ctx context.Context, artifact *reportsharea
 	return s.upsertSharedArtifact(ctx, artifact)
 }
 
+// DeleteSharedArtifact removes an owned shared reporting artifact.
+func (s *Store) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
+	ownerID := effectiveOwnerID(ctx)
+	id := strings.TrimSpace(artifactID)
+	if ownerID == "" || id == "" {
+		return errNotFound
+	}
+	current, err := s.GetSharedArtifact(ctx, id)
+	if err != nil {
+		return err
+	}
+	if current == nil || strings.TrimSpace(current.OwnerID) != ownerID {
+		return errNotFound
+	}
+	db, err := s.dbHandle()
+	if err != nil {
+		return err
+	}
+	result, err := db.ExecContext(ctx, `
+DELETE FROM report_shared_artifact
+WHERE artifact_id = ? AND owner_id = ?`, id, ownerID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
 func (s *Store) upsertSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error {
 	in := &forgereportwrite.Input{Artifact: toForgeSharedArtifact(artifact)}
 	out := &forgereportwrite.Output{}

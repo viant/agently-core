@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,6 +204,24 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
+			Name:        "duplicate_report",
+			Description: "Duplicate a user-owned persisted report under a new report identity.",
+			Input:       reflect.TypeOf(&DuplicateReportRequest{}),
+			Output:      reflect.TypeOf(&SharedArtifact{}),
+		},
+		{
+			Name:        "delete_report",
+			Description: "Permanently delete a user-owned persisted report. Built-in presets are not reports and cannot be deleted.",
+			Input:       reflect.TypeOf(&DeleteReportRequest{}),
+			Output:      reflect.TypeOf(&DeleteReportResult{}),
+		},
+		{
+			Name:        "record_report_run",
+			Description: "Record the most recent successful execution time for a user-owned persisted report.",
+			Input:       reflect.TypeOf(&RecordReportRunRequest{}),
+			Output:      reflect.TypeOf(&SharedArtifact{}),
+		},
+		{
 			Name:        "run_export",
 			Description: "Execute a queued export job through the configured exporter boundary. Intended for internal worker orchestration.",
 			Internal:    true,
@@ -278,6 +297,12 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.listReportsTool, nil
 	case "update_report":
 		return s.updateReportTool, nil
+	case "duplicate_report":
+		return s.duplicateReportTool, nil
+	case "delete_report":
+		return s.deleteReportTool, nil
+	case "record_report_run":
+		return s.recordReportRunTool, nil
 	case "run_export":
 		return s.runExportTool, nil
 	case "run_queued_exports":
@@ -1670,24 +1695,35 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 	if input != nil {
 		normalized = *input
 	}
+	sharedLimit := normalized.Limit
+	if strings.TrimSpace(normalized.OrderID) != "" {
+		sharedLimit = 0
+	}
 	result, err := s.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{
 		ArtifactRef: strings.TrimSpace(normalized.ArtifactRef),
 		ReportID:    strings.TrimSpace(normalized.ReportID),
 		Kind:        savedReportArtifactKind,
-		Limit:       normalized.Limit,
+		Limit:       sharedLimit,
 	})
 	if err != nil {
 		return nil, err
 	}
 	reports := make([]*ReportSummary, 0, len(result.Artifacts))
 	for _, artifact := range result.Artifacts {
-		if summary := reportSummary(artifact); summary != nil {
+		if summary := reportSummary(artifact); summary != nil && reportSummaryMatchesOrder(summary, normalized.OrderID) {
 			reports = append(reports, summary)
 		}
 	}
+	totalCount := result.TotalCount
+	if strings.TrimSpace(normalized.OrderID) != "" {
+		totalCount = len(reports)
+	}
+	if normalized.Limit > 0 && len(reports) > normalized.Limit {
+		reports = reports[:normalized.Limit]
+	}
 	return &ListReportsResult{
 		Reports:    reports,
-		TotalCount: result.TotalCount,
+		TotalCount: totalCount,
 	}, nil
 }
 
@@ -1766,6 +1802,147 @@ func (s *Service) updateReportTool(ctx context.Context, in, out interface{}) err
 		return svc.NewInvalidOutputError(out)
 	}
 	report, err := s.UpdateReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *cloneSharedArtifact(report)
+	return nil
+}
+
+func (s *Service) DuplicateReport(ctx context.Context, request *DuplicateReportRequest) (*SharedArtifact, error) {
+	if request == nil {
+		return nil, fmt.Errorf("report store: duplicate request is required")
+	}
+	current, err := s.GetReport(ctx, &GetReportInput{
+		ArtifactID:  request.ArtifactID,
+		ArtifactRef: request.ArtifactRef,
+		ReportID:    request.ReportID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(current.Kind) != savedReportArtifactKind {
+		return nil, fmt.Errorf("report store: only user-defined saved reports can be duplicated")
+	}
+	title := strings.TrimSpace(request.Title)
+	if title == "" {
+		title = "Copy of " + strings.TrimSpace(current.Title)
+	}
+	metadata := mergeJSONObject(current.Metadata, map[string]interface{}{
+		"duplicatedFromReportId": current.ReportID,
+		"duplicatedAt":           s.now().UTC().Format(time.RFC3339Nano),
+	})
+	return s.SaveReport(ctx, &SaveReportRequest{
+		ReportID:        s.newID(),
+		Title:           title,
+		Version:         1,
+		DocumentVersion: current.DocumentVersion,
+		ReportDocument:  current.Document,
+		ReportSpec:      current.ReportSpec,
+		CompileState:    current.CompileState,
+		ReportFill:      current.ReportFill,
+		ReportPrint:     current.ReportPrint,
+		Metadata:        metadata,
+	})
+}
+
+func (s *Service) duplicateReportTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*DuplicateReportRequest)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*SharedArtifact)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	report, err := s.DuplicateReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *cloneSharedArtifact(report)
+	return nil
+}
+
+func (s *Service) DeleteReport(ctx context.Context, request *DeleteReportRequest) (*DeleteReportResult, error) {
+	if request == nil {
+		return nil, fmt.Errorf("report store: delete request is required")
+	}
+	current, err := s.GetReport(ctx, &GetReportInput{
+		ArtifactID:  request.ArtifactID,
+		ArtifactRef: request.ArtifactRef,
+		ReportID:    request.ReportID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(current.Kind) != savedReportArtifactKind {
+		return nil, fmt.Errorf("report store: only user-defined saved reports can be deleted")
+	}
+	if err := s.store.DeleteSharedArtifact(ctx, current.ArtifactID); err != nil {
+		return nil, err
+	}
+	return &DeleteReportResult{
+		ArtifactID: current.ArtifactID,
+		ReportID:   current.ReportID,
+		Deleted:    true,
+	}, nil
+}
+
+func (s *Service) deleteReportTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*DeleteReportRequest)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*DeleteReportResult)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	result, err := s.DeleteReport(ctx, input)
+	if err != nil {
+		return err
+	}
+	*output = *result
+	return nil
+}
+
+func (s *Service) RecordReportRun(ctx context.Context, request *RecordReportRunRequest) (*SharedArtifact, error) {
+	if request == nil {
+		return nil, fmt.Errorf("report store: record run request is required")
+	}
+	current, err := s.GetReport(ctx, &GetReportInput{
+		ArtifactID:  request.ArtifactID,
+		ArtifactRef: request.ArtifactRef,
+		ReportID:    request.ReportID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ranAt := request.RanAt
+	if ranAt.IsZero() {
+		ranAt = s.now().UTC()
+	}
+	updated := cloneSharedArtifact(current)
+	updated.Metadata = mergeJSONObject(updated.Metadata, map[string]interface{}{
+		"lastRunAt": ranAt.UTC().Format(time.RFC3339Nano),
+	})
+	now := s.now().UTC()
+	updated.UpdatedAt = &now
+	if err := s.store.UpdateSharedArtifact(ctx, updated); err != nil {
+		return nil, err
+	}
+	return cloneSharedArtifact(updated), nil
+}
+
+func (s *Service) recordReportRunTool(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*RecordReportRunRequest)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*SharedArtifact)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	report, err := s.RecordReportRun(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -2318,11 +2495,19 @@ func reportSummary(input *SharedArtifact) *ReportSummary {
 	if input == nil {
 		return nil
 	}
+	catalog := deriveReportCatalogMetadata(input)
 	return &ReportSummary{
 		ArtifactID:       strings.TrimSpace(input.ArtifactID),
 		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
 		ReportID:         strings.TrimSpace(input.ReportID),
 		Title:            strings.TrimSpace(input.Title),
+		OwnerID:          strings.TrimSpace(input.OwnerID),
+		ReportType:       catalog.ReportType,
+		BuilderRef:       catalog.BuilderRef,
+		OrderIDs:         catalog.OrderIDs,
+		DefaultFrom:      catalog.DefaultFrom,
+		DefaultTo:        catalog.DefaultTo,
+		LastRunAt:        catalog.LastRunAt,
 		Lifecycle:        strings.TrimSpace(input.Lifecycle),
 		Version:          input.Version,
 		DocumentVersion:  input.DocumentVersion,
@@ -2337,8 +2522,142 @@ func cloneReportSummary(input *ReportSummary) *ReportSummary {
 		return nil
 	}
 	result := *input
+	result.OrderIDs = append([]string{}, input.OrderIDs...)
+	result.LastRunAt = cloneTime(input.LastRunAt)
 	result.UpdatedAt = cloneTime(input.UpdatedAt)
 	return &result
+}
+
+type reportCatalogMetadata struct {
+	ReportType  string
+	BuilderRef  string
+	OrderIDs    []string
+	DefaultFrom string
+	DefaultTo   string
+	LastRunAt   *time.Time
+}
+
+func deriveReportCatalogMetadata(input *SharedArtifact) reportCatalogMetadata {
+	result := reportCatalogMetadata{ReportType: "Saved report"}
+	values := make([]interface{}, 0, 3)
+	for _, raw := range []json.RawMessage{input.Metadata, input.Document, input.ReportSpec} {
+		var value interface{}
+		if len(bytes.TrimSpace(raw)) > 0 && json.Unmarshal(raw, &value) == nil {
+			values = append(values, value)
+		}
+	}
+	orderIDs := map[string]struct{}{}
+	for _, value := range values {
+		collectReportCatalogValues(value, &result, orderIDs)
+	}
+	for value := range orderIDs {
+		result.OrderIDs = append(result.OrderIDs, value)
+	}
+	sort.Strings(result.OrderIDs)
+	if result.BuilderRef != "" {
+		result.ReportType = "Performance report"
+	}
+	return result
+}
+
+func collectReportCatalogValues(value interface{}, result *reportCatalogMetadata, orderIDs map[string]struct{}) {
+	switch actual := value.(type) {
+	case map[string]interface{}:
+		for key, child := range actual {
+			normalizedKey := strings.ToLower(strings.TrimSpace(key))
+			switch normalizedKey {
+			case "builderref", "reportbuilderref", "workspaceid":
+				if result.BuilderRef == "" {
+					result.BuilderRef = strings.TrimSpace(fmt.Sprint(child))
+				}
+			case "reporttype":
+				if text := strings.TrimSpace(fmt.Sprint(child)); text != "" {
+					result.ReportType = text
+				}
+			case "orderid", "adorderid", "orderids", "adorderids":
+				collectCatalogIDs(child, orderIDs)
+			case "lastrunat":
+				if result.LastRunAt == nil {
+					if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(fmt.Sprint(child))); err == nil {
+						parsed = parsed.UTC()
+						result.LastRunAt = &parsed
+					}
+				}
+			case "from":
+				if result.DefaultFrom == "" && looksLikeISODate(child) {
+					result.DefaultFrom = strings.TrimSpace(fmt.Sprint(child))
+				}
+			case "to":
+				if result.DefaultTo == "" && looksLikeISODate(child) {
+					result.DefaultTo = strings.TrimSpace(fmt.Sprint(child))
+				}
+			}
+			collectReportCatalogValues(child, result, orderIDs)
+		}
+	case []interface{}:
+		for _, child := range actual {
+			collectReportCatalogValues(child, result, orderIDs)
+		}
+	}
+}
+
+func collectCatalogIDs(value interface{}, target map[string]struct{}) {
+	switch actual := value.(type) {
+	case []interface{}:
+		for _, child := range actual {
+			collectCatalogIDs(child, target)
+		}
+	case float64:
+		if actual == float64(int64(actual)) {
+			target[strconv.FormatInt(int64(actual), 10)] = struct{}{}
+		}
+	case json.Number:
+		if text := strings.TrimSpace(actual.String()); text != "" {
+			target[text] = struct{}{}
+		}
+	default:
+		text := strings.TrimSpace(fmt.Sprint(actual))
+		if text != "" && text != "<nil>" {
+			target[text] = struct{}{}
+		}
+	}
+}
+
+func looksLikeISODate(value interface{}) bool {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if len(text) < len("2006-01-02") {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", text[:10])
+	return err == nil
+}
+
+func reportSummaryMatchesOrder(summary *ReportSummary, orderID string) bool {
+	normalized := strings.TrimSpace(orderID)
+	if normalized == "" {
+		return true
+	}
+	for _, candidate := range summary.OrderIDs {
+		if strings.TrimSpace(candidate) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeJSONObject(raw json.RawMessage, additions map[string]interface{}) json.RawMessage {
+	result := map[string]interface{}{}
+	if len(bytes.TrimSpace(raw)) > 0 {
+		_ = json.Unmarshal(raw, &result)
+	}
+	for key, value := range additions {
+		result[key] = value
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return cloneJSON(raw)
+	}
+	return encoded
 }
 
 func cloneArtifact(input *Artifact) *Artifact {
