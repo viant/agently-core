@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	authsvc "github.com/viant/agently-core/service/auth"
 )
@@ -52,6 +53,34 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	require.True(t, signatures[23].Internal)
 	require.True(t, signatures[24].Internal)
 	require.True(t, signatures[25].Internal)
+}
+
+func TestServiceAsyncConfigWaitsForExactExportJob(t *testing.T) {
+	service := New(Options{Store: NewStoreAdapter(reportmemory.New())})
+	config := service.AsyncConfig("reporting:submit_export")
+	require.NotNil(t, config)
+	require.Equal(t, "reporting:submit_export", config.Run.Tool)
+	require.Equal(t, "jobId", config.Run.OperationIDPath)
+	require.Equal(t, "reporting:get_export_status", config.Status.Tool)
+	require.Equal(t, "jobId", config.Status.OperationIDArg)
+	require.Equal(t, "status", config.Status.Selector.StatusPath)
+	require.Equal(t, ".", config.Status.Selector.DataPath)
+	require.ElementsMatch(t, []string{"succeeded", "failed"}, config.Status.Selector.TerminalStatuses)
+	require.Equal(t, 500, config.PollIntervalMs)
+	require.Equal(t, 300000, config.TimeoutMs)
+	require.Equal(t, "wait", config.DefaultExecutionMode)
+	require.True(t, config.TerminalCarrierBeforeModel)
+	require.Equal(t, "none", config.Narration)
+	require.Equal(t, config, service.AsyncConfig("reporting:get_export_status"))
+	require.Nil(t, service.AsyncConfig("reporting:get_artifact"))
+
+	payload, err := asynccfg.ExtractPayload(
+		`{"jobId":"job-1","status":"succeeded","artifactId":"artifact-1"}`,
+		config.Status.Selector,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "succeeded", payload.Status)
+	require.JSONEq(t, `{"jobId":"job-1","status":"succeeded","artifactId":"artifact-1"}`, string(payload.KeyData))
 }
 
 func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
@@ -118,8 +147,15 @@ func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
 
 	statusJSON, err := json.Marshal(statusOut)
 	require.NoError(t, err)
+	statusPayload, err := asynccfg.ExtractPayload(
+		string(statusJSON),
+		service.AsyncConfig("reporting:get_export_status").Status.Selector,
+	)
+	require.NoError(t, err)
+	require.Equal(t, string(JobStatusSucceeded), statusPayload.Status)
+	require.JSONEq(t, string(statusJSON), string(statusPayload.KeyData))
 	var statusFields map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(statusJSON, &statusFields))
+	require.NoError(t, json.Unmarshal(statusPayload.KeyData, &statusFields))
 	for _, field := range []string{
 		"reportSpec",
 		"reportFill",

@@ -38,6 +38,20 @@ type HasToolTimeout interface {
 	ToolTimeout() time.Duration
 }
 
+// HasMethodToolTimeout can be implemented by services whose methods need
+// different execution timeouts. A non-positive duration preserves the
+// registry's normal timeout behavior for that method.
+type HasMethodToolTimeout interface {
+	MethodToolTimeout(method string) time.Duration
+}
+
+// HasMethodRetryPolicy can be implemented by services that need to override
+// the default retry behavior for individual methods. The second return value
+// reports whether the method has an explicit policy.
+type HasMethodRetryPolicy interface {
+	MethodRetryable(method string) (retryable bool, configured bool)
+}
+
 type AsyncConfigurer interface {
 	AsyncConfig(toolName string) *asynccfg.Config
 	AsyncConfigs() []*asynccfg.Config

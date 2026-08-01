@@ -74,6 +74,13 @@ type TimeoutResolver interface {
 	ToolTimeout(name string) (time.Duration, bool)
 }
 
+// RetryResolver may be implemented by registries that expose an explicit
+// retry policy for a tool. The second return value reports whether a policy is
+// configured; tools without one retain the executor's default retry behavior.
+type RetryResolver interface {
+	ToolRetryable(name string) (retryable bool, configured bool)
+}
+
 type AsyncResolver interface {
 	AsyncConfig(name string) (*asynccfg.Config, bool)
 }

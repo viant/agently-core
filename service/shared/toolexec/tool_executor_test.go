@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -118,7 +119,9 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 	}
 	cases := []struct {
 		name              string
+		toolName          string
 		script            []scriptedResult
+		retryPolicy       map[string]bool
 		expectedAttempts  int
 		expectError       bool
 		thresholdOverride time.Duration
@@ -132,6 +135,30 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 			},
 			expectedAttempts: 2,
 			expectError:      false,
+		},
+		{
+			name:     "non-retriable-ui-report-run-context-canceled",
+			toolName: "ui/report:run",
+			script: []scriptedResult{
+				{result: "", err: context.Canceled},
+				{result: `{"status":"ok"}`, err: nil},
+			},
+			retryPolicy:      map[string]bool{"ui/report:run": false},
+			expectedAttempts: 1,
+			expectError:      true,
+			expectedResult:   "tool execution was cancelled",
+		},
+		{
+			name:     "non-retriable-ui-report-run-deadline-exceeded",
+			toolName: "ui/report:run",
+			script: []scriptedResult{
+				{result: "", err: context.DeadlineExceeded},
+				{result: `{"status":"ok"}`, err: nil},
+			},
+			retryPolicy:      map[string]bool{"ui/report:run": false},
+			expectedAttempts: 1,
+			expectError:      true,
+			expectedResult:   "tool execution was cancelled",
 		},
 		{
 			name: "no-retry-on-non-context-error",
@@ -159,14 +186,24 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 			turn := memory.TurnMeta{ConversationID: "c-retry", TurnID: "t-retry", ParentMessageID: "p-retry"}
 			ctx := memory.WithTurnMeta(context.Background(), turn)
 			conv := &stubConv{}
-			reg := &scriptedRegistry{script: tc.script}
+			reg := &scriptedRegistry{script: tc.script, retryPolicy: tc.retryPolicy}
+			currentStep := step
+			if tc.toolName != "" {
+				currentStep.Name = tc.toolName
+			}
 			if tc.thresholdOverride > 0 {
 				original := maxRetryDuration
 				maxRetryDuration = tc.thresholdOverride
 				t.Cleanup(func() { maxRetryDuration = original })
 			}
-			call, _, err := ExecuteToolStep(ctx, reg, step, conv)
+			call, _, err := ExecuteToolStep(ctx, reg, currentStep, conv)
 			assert.EqualValues(t, tc.expectedAttempts, reg.calls)
+			require.Len(t, reg.requestIDs, tc.expectedAttempts)
+			for _, requestID := range reg.requestIDs {
+				assert.Equal(t, currentStep.ID, requestID)
+			}
+			_, leakedRequestID := reg.lastArgs["exportRequestId"]
+			assert.False(t, leakedRequestID)
 			if tc.expectError {
 				assert.Error(t, err)
 			} else {
@@ -655,11 +692,13 @@ type scriptedResult struct {
 }
 
 type scriptedRegistry struct {
-	mu       sync.Mutex
-	script   []scriptedResult
-	calls    int
-	lastArgs map[string]interface{}
-	lastName string
+	mu          sync.Mutex
+	script      []scriptedResult
+	retryPolicy map[string]bool
+	calls       int
+	lastArgs    map[string]interface{}
+	lastName    string
+	requestIDs  []string
 }
 
 func newStubRegistry(documents map[string]string) *stubRegistry {
@@ -696,10 +735,11 @@ func (s *stubRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { retur
 func (s *stubRegistry) SetDebugLogger(io.Writer)                         {}
 func (s *stubRegistry) Initialize(context.Context)                       {}
 
-func (s *scriptedRegistry) Execute(_ context.Context, name string, args map[string]interface{}) (string, error) {
+func (s *scriptedRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastName = name
+	s.requestIDs = append(s.requestIDs, exportrequest.ID(ctx))
 	if args != nil {
 		cloned := make(map[string]interface{}, len(args))
 		for k, v := range args {
@@ -730,6 +770,11 @@ func (s *scriptedRegistry) GetDefinition(string) (*llm.ToolDefinition, bool) { r
 func (s *scriptedRegistry) MustHaveTools([]string) ([]llm.Tool, error)       { return nil, nil }
 func (s *scriptedRegistry) SetDebugLogger(io.Writer)                         {}
 func (s *scriptedRegistry) Initialize(context.Context)                       {}
+
+func (s *scriptedRegistry) ToolRetryable(name string) (bool, bool) {
+	retryable, ok := s.retryPolicy[name]
+	return retryable, ok
+}
 
 func gzipStringValue(t *testing.T, value string) string {
 	t.Helper()

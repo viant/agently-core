@@ -30,40 +30,42 @@ const (
 )
 
 type OperationRecord struct {
-	ID                   string
-	ParentConvID         string
-	ParentTurnID         string
-	ToolCallID           string
-	ToolMessageID        string
-	ToolName             string
-	StatusToolName       string
-	StatusOperationIDArg string
-	SameToolRecall       bool
-	StatusArgs           map[string]interface{}
-	CancelToolName       string
-	RequestArgsDigest    string
-	RequestArgs          map[string]interface{}
-	OperationIntent      string
-	OperationSummary     string
-	ExecutionMode        string
-	State                State
-	Status               string
-	Message              string
-	MessageKind          string
-	Percent              *int
-	LastSignaledPercent  *int
-	KeyData              json.RawMessage
-	Error                string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	LastPayloadChangeAt  time.Time
-	TimeoutAt            *time.Time
-	TimeoutMs            int
-	IdleTimeoutMs        int
-	PollIntervalMs       int
-	PollFailures         int
-	changeDigest         string
-	pendingChange        bool
+	ID                         string
+	ParentConvID               string
+	ParentTurnID               string
+	ToolCallID                 string
+	ToolMessageID              string
+	ToolName                   string
+	StatusToolName             string
+	StatusOperationIDArg       string
+	SameToolRecall             bool
+	StatusArgs                 map[string]interface{}
+	CancelToolName             string
+	RequestArgsDigest          string
+	RequestArgs                map[string]interface{}
+	OperationIntent            string
+	OperationSummary           string
+	ExecutionMode              string
+	TerminalCarrierBeforeModel bool
+	State                      State
+	Status                     string
+	Message                    string
+	MessageKind                string
+	Percent                    *int
+	LastSignaledPercent        *int
+	KeyData                    json.RawMessage
+	Error                      string
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+	LastPayloadChangeAt        time.Time
+	TimeoutAt                  *time.Time
+	TimeoutMs                  int
+	IdleTimeoutMs              int
+	PollIntervalMs             int
+	PollFailures               int
+	changeDigest               string
+	pendingChange              bool
+	terminalPayload            *Extracted
 }
 
 func (r *OperationRecord) Terminal() bool {
@@ -78,32 +80,44 @@ func (r *OperationRecord) Terminal() bool {
 	}
 }
 
+// TerminalPayload returns the payload that caused this record to enter its
+// terminal state. Unlike the record's general KeyData field, this does not
+// retain a pre-terminal payload when a synthetic failure, such as a timeout,
+// has no data body of its own.
+func (r *OperationRecord) TerminalPayload() *Extracted {
+	if r == nil || !r.Terminal() {
+		return nil
+	}
+	return cloneExtracted(r.terminalPayload)
+}
+
 type RegisterInput struct {
-	ID                   string
-	ParentConvID         string
-	ParentTurnID         string
-	ToolCallID           string
-	ToolMessageID        string
-	ToolName             string
-	StatusToolName       string
-	StatusOperationIDArg string
-	SameToolRecall       bool
-	StatusArgs           map[string]interface{}
-	CancelToolName       string
-	RequestArgsDigest    string
-	RequestArgs          map[string]interface{}
-	OperationIntent      string
-	OperationSummary     string
-	ExecutionMode        string
-	Status               string
-	Message              string
-	MessageKind          string
-	Percent              *int
-	KeyData              json.RawMessage
-	Error                string
-	TimeoutMs            int
-	IdleTimeoutMs        int
-	PollIntervalMs       int
+	ID                         string
+	ParentConvID               string
+	ParentTurnID               string
+	ToolCallID                 string
+	ToolMessageID              string
+	ToolName                   string
+	StatusToolName             string
+	StatusOperationIDArg       string
+	SameToolRecall             bool
+	StatusArgs                 map[string]interface{}
+	CancelToolName             string
+	RequestArgsDigest          string
+	RequestArgs                map[string]interface{}
+	OperationIntent            string
+	OperationSummary           string
+	ExecutionMode              string
+	TerminalCarrierBeforeModel bool
+	Status                     string
+	Message                    string
+	MessageKind                string
+	Percent                    *int
+	KeyData                    json.RawMessage
+	Error                      string
+	TimeoutMs                  int
+	IdleTimeoutMs              int
+	PollIntervalMs             int
 }
 
 type ChangeEvent struct {
@@ -536,36 +550,37 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) (*OperationRe
 	m.registerCount.Add(1)
 	now := time.Now()
 	rec := &OperationRecord{
-		ID:                   id,
-		ParentConvID:         strings.TrimSpace(input.ParentConvID),
-		ParentTurnID:         strings.TrimSpace(input.ParentTurnID),
-		ToolCallID:           strings.TrimSpace(input.ToolCallID),
-		ToolMessageID:        strings.TrimSpace(input.ToolMessageID),
-		ToolName:             strings.TrimSpace(input.ToolName),
-		StatusToolName:       strings.TrimSpace(input.StatusToolName),
-		StatusOperationIDArg: strings.TrimSpace(input.StatusOperationIDArg),
-		SameToolRecall:       input.SameToolRecall,
-		StatusArgs:           deepCloneMap(input.StatusArgs),
-		CancelToolName:       strings.TrimSpace(input.CancelToolName),
-		RequestArgsDigest:    strings.TrimSpace(input.RequestArgsDigest),
-		RequestArgs:          deepCloneMap(input.RequestArgs),
-		OperationIntent:      strings.TrimSpace(input.OperationIntent),
-		OperationSummary:     strings.TrimSpace(input.OperationSummary),
-		ExecutionMode:        NormalizeExecutionMode(input.ExecutionMode, string(ExecutionModeWait)),
-		Status:               strings.TrimSpace(input.Status),
-		Message:              strings.TrimSpace(input.Message),
-		MessageKind:          strings.TrimSpace(input.MessageKind),
-		Percent:              cloneIntPtr(input.Percent),
-		LastSignaledPercent:  cloneIntPtr(input.Percent),
-		KeyData:              cloneJSON(input.KeyData),
-		Error:                strings.TrimSpace(input.Error),
-		CreatedAt:            now,
-		UpdatedAt:            now,
-		LastPayloadChangeAt:  now,
-		TimeoutMs:            input.TimeoutMs,
-		IdleTimeoutMs:        input.IdleTimeoutMs,
-		PollIntervalMs:       input.PollIntervalMs,
-		pendingChange:        true,
+		ID:                         id,
+		ParentConvID:               strings.TrimSpace(input.ParentConvID),
+		ParentTurnID:               strings.TrimSpace(input.ParentTurnID),
+		ToolCallID:                 strings.TrimSpace(input.ToolCallID),
+		ToolMessageID:              strings.TrimSpace(input.ToolMessageID),
+		ToolName:                   strings.TrimSpace(input.ToolName),
+		StatusToolName:             strings.TrimSpace(input.StatusToolName),
+		StatusOperationIDArg:       strings.TrimSpace(input.StatusOperationIDArg),
+		SameToolRecall:             input.SameToolRecall,
+		StatusArgs:                 deepCloneMap(input.StatusArgs),
+		CancelToolName:             strings.TrimSpace(input.CancelToolName),
+		RequestArgsDigest:          strings.TrimSpace(input.RequestArgsDigest),
+		RequestArgs:                deepCloneMap(input.RequestArgs),
+		OperationIntent:            strings.TrimSpace(input.OperationIntent),
+		OperationSummary:           strings.TrimSpace(input.OperationSummary),
+		ExecutionMode:              NormalizeExecutionMode(input.ExecutionMode, string(ExecutionModeWait)),
+		TerminalCarrierBeforeModel: input.TerminalCarrierBeforeModel,
+		Status:                     strings.TrimSpace(input.Status),
+		Message:                    strings.TrimSpace(input.Message),
+		MessageKind:                strings.TrimSpace(input.MessageKind),
+		Percent:                    cloneIntPtr(input.Percent),
+		LastSignaledPercent:        cloneIntPtr(input.Percent),
+		KeyData:                    cloneJSON(input.KeyData),
+		Error:                      strings.TrimSpace(input.Error),
+		CreatedAt:                  now,
+		UpdatedAt:                  now,
+		LastPayloadChangeAt:        now,
+		TimeoutMs:                  input.TimeoutMs,
+		IdleTimeoutMs:              input.IdleTimeoutMs,
+		PollIntervalMs:             input.PollIntervalMs,
+		pendingChange:              true,
 	}
 	// TimeoutAt is a wall-clock ceiling used by both the wait-mode poller
 	// loop (`PollAsyncOperation.handleTimeoutIfExpired`) AND the activated
@@ -583,6 +598,9 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) (*OperationRe
 		rec.IdleTimeoutMs = DefaultIdleTimeoutMs
 	}
 	rec.State = DeriveState(rec.Status, input.Error, "")
+	if rec.Terminal() {
+		rec.terminalPayload = newTerminalPayload(rec.State, rec.Status, rec.Message, rec.MessageKind, rec.Percent, input.KeyData, rec.Error)
+	}
 	rec.changeDigest = changeDigest(rec.Status, rec.Message, rec.State, rec.KeyData)
 	m.ops[rec.ID] = rec
 	m.signalLocked(turnKey(rec.ParentConvID, rec.ParentTurnID))
@@ -607,6 +625,7 @@ func (m *Manager) Update(_ context.Context, input UpdateInput) (*OperationRecord
 		return nil, false
 	}
 	m.updateCount.Add(1)
+	wasTerminal := rec.Terminal()
 	changed := false
 	if status := strings.TrimSpace(input.Status); status != "" && status != rec.Status {
 		rec.Status = status
@@ -641,6 +660,13 @@ func (m *Manager) Update(_ context.Context, input UpdateInput) (*OperationRecord
 	if rec.State != newState {
 		rec.State = newState
 		changed = true
+	}
+	if rec.Terminal() && (!wasTerminal || changed || rec.terminalPayload == nil) {
+		terminalKeyData := input.KeyData
+		if wasTerminal && len(terminalKeyData) == 0 && rec.terminalPayload != nil {
+			terminalKeyData = rec.terminalPayload.KeyData
+		}
+		rec.terminalPayload = newTerminalPayload(rec.State, rec.Status, rec.Message, rec.MessageKind, rec.Percent, terminalKeyData, rec.Error)
 	}
 	// UpdatedAt is refreshed on every call — both meaningful state
 	// changes and no-op ticks. GC anchors on UpdatedAt so any activity
@@ -692,10 +718,11 @@ func (m *Manager) ActiveOps(_ context.Context, convID, turnID string) []*Operati
 func (m *Manager) OperationsForTurn(_ context.Context, convID, turnID string) []*OperationRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := turnKey(convID, turnID)
+	convID = strings.TrimSpace(convID)
+	turnID = strings.TrimSpace(turnID)
 	var result []*OperationRecord
 	for _, rec := range m.ops {
-		if turnKey(rec.ParentConvID, rec.ParentTurnID) != key {
+		if rec == nil || strings.TrimSpace(rec.ParentConvID) != convID || strings.TrimSpace(rec.ParentTurnID) != turnID {
 			continue
 		}
 		result = append(result, cloneRecord(rec))
@@ -1302,6 +1329,7 @@ func cloneRecord(rec *OperationRecord) *OperationRecord {
 	copyRec.Percent = cloneIntPtr(rec.Percent)
 	copyRec.LastSignaledPercent = cloneIntPtr(rec.LastSignaledPercent)
 	copyRec.KeyData = cloneJSON(rec.KeyData)
+	copyRec.terminalPayload = cloneExtracted(rec.terminalPayload)
 	// Deep-clone arg maps. cloneMap was shallow — nested maps/slices
 	// were shared with the canonical record, so a consumer that mutated
 	// a returned StatusArgs["opts"].x would mutate Manager state.
@@ -1474,6 +1502,7 @@ func (m *Manager) RecordPollFailure(_ context.Context, id, errMsg string, transi
 	}
 	rec.State = StateFailed
 	rec.Status = "failed"
+	rec.terminalPayload = newTerminalPayload(rec.State, rec.Status, "", "", nil, nil, rec.Error)
 	rec.pendingChange = true
 	rec.changeDigest = changeDigest(rec.Status, rec.Message, rec.State, rec.KeyData)
 	m.signalLocked(turnKey(rec.ParentConvID, rec.ParentTurnID))
@@ -1569,6 +1598,31 @@ func cloneJSON(v json.RawMessage) json.RawMessage {
 	dup := make([]byte, len(v))
 	copy(dup, v)
 	return dup
+}
+
+func cloneExtracted(input *Extracted) *Extracted {
+	if input == nil {
+		return nil
+	}
+	copyInput := *input
+	copyInput.Percent = cloneIntPtr(input.Percent)
+	copyInput.KeyData = cloneJSON(input.KeyData)
+	return &copyInput
+}
+
+func newTerminalPayload(state State, status, message, messageKind string, percent *int, keyData json.RawMessage, errMsg string) *Extracted {
+	status = strings.TrimSpace(status)
+	if status == "" || DeriveState(status, errMsg, "") != state {
+		status = strings.TrimSpace(string(state))
+	}
+	return &Extracted{
+		Status:      status,
+		Message:     strings.TrimSpace(message),
+		MessageKind: strings.TrimSpace(messageKind),
+		Percent:     cloneIntPtr(percent),
+		KeyData:     cloneJSON(keyData),
+		Error:       strings.TrimSpace(errMsg),
+	}
 }
 
 func equalIntPtr(a, b *int) bool {

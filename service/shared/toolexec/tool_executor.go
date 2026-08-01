@@ -17,6 +17,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
+	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
@@ -119,6 +120,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if strings.TrimSpace(step.ID) == "" {
 		step.ID = "tool-" + uuid.NewString()
 	}
+	// The tool-call operation ID is runtime transport state, not a
+	// model-visible reporting argument. Retries of this step retain it.
+	ctx = exportrequest.WithID(ctx, step.ID)
 	ctx = WithAsyncConversation(ctx, conv)
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)

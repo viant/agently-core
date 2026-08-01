@@ -12,6 +12,7 @@ import (
 
 type captureRegistry struct {
 	lastConversationID string
+	retryPolicies      map[string]bool
 }
 
 func (c *captureRegistry) Definitions() []llm.ToolDefinition { return nil }
@@ -27,6 +28,10 @@ func (c *captureRegistry) Execute(ctx context.Context, _ string, _ map[string]in
 func (c *captureRegistry) SetDebugLogger(io.Writer) {}
 func (c *captureRegistry) Initialize(context.Context) {
 }
+func (c *captureRegistry) ToolRetryable(name string) (bool, bool) {
+	retryable, ok := c.retryPolicies[name]
+	return retryable, ok
+}
 
 func TestScopedRegistry_InjectsConversationID_WhenModelMessageIDPresent(t *testing.T) {
 	inner := &captureRegistry{}
@@ -36,4 +41,15 @@ func TestScopedRegistry_InjectsConversationID_WhenModelMessageIDPresent(t *testi
 	_, err := reg.Execute(ctx, "noop", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "conv-123", inner.lastConversationID)
+}
+
+func TestScopedRegistry_DelegatesRetryPolicy(t *testing.T) {
+	inner := &captureRegistry{retryPolicies: map[string]bool{"ui/report:run": false}}
+	reg := WithConversation(inner, "conv-123")
+
+	resolver, ok := reg.(RetryResolver)
+	assert.True(t, ok)
+	retryable, configured := resolver.ToolRetryable("ui/report:run")
+	assert.True(t, configured)
+	assert.False(t, retryable)
 }

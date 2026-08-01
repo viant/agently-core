@@ -33,13 +33,14 @@ const (
 )
 
 type Config struct {
-	Run                  RunConfig     `json:"run" yaml:"run"`
-	Status               StatusConfig  `json:"status" yaml:"status"`
-	Cancel               *CancelConfig `json:"cancel,omitempty" yaml:"cancel,omitempty"`
-	DefaultExecutionMode string        `json:"defaultExecutionMode,omitempty" yaml:"defaultExecutionMode,omitempty"`
-	TimeoutMs            int           `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty"`
-	PollIntervalMs       int           `json:"pollIntervalMs,omitempty" yaml:"pollIntervalMs,omitempty"`
-	IdleTimeoutMs        int           `json:"idleTimeoutMs,omitempty" yaml:"idleTimeoutMs,omitempty"`
+	Run                        RunConfig     `json:"run" yaml:"run"`
+	Status                     StatusConfig  `json:"status" yaml:"status"`
+	Cancel                     *CancelConfig `json:"cancel,omitempty" yaml:"cancel,omitempty"`
+	DefaultExecutionMode       string        `json:"defaultExecutionMode,omitempty" yaml:"defaultExecutionMode,omitempty"`
+	TerminalCarrierBeforeModel bool          `json:"terminalCarrierBeforeModel,omitempty" yaml:"terminalCarrierBeforeModel,omitempty"`
+	TimeoutMs                  int           `json:"timeoutMs,omitempty" yaml:"timeoutMs,omitempty"`
+	PollIntervalMs             int           `json:"pollIntervalMs,omitempty" yaml:"pollIntervalMs,omitempty"`
+	IdleTimeoutMs              int           `json:"idleTimeoutMs,omitempty" yaml:"idleTimeoutMs,omitempty"`
 	// Narration controls how wait-mode async progress is surfaced to the parent
 	// turn. Supported values:
 	//   - "none": silent
