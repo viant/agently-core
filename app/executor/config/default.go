@@ -72,6 +72,10 @@ type Defaults struct {
 	// special timeout is applied (waits until the turn/request is canceled).
 	ElicitationTimeoutSec int `yaml:"elicitationTimeoutSec,omitempty" json:"elicitationTimeoutSec,omitempty"`
 
+	// ToolExecutionProtection is a default-disabled exact-tool at-most-once guard.
+	ToolExecutionProtection    ToolExecutionProtectionDefaults `yaml:"toolExecutionProtection,omitempty" json:"toolExecutionProtection,omitempty"`
+	toolExecutionProtectionSet bool
+
 	// ---- Match defaults (optional) -------------------------------
 	Match MatchDefaults `yaml:"match" json:"match"`
 
@@ -134,6 +138,8 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		ToolCallTimeoutSec    int `yaml:"toolCallTimeoutSec,omitempty"`
 		ElicitationTimeoutSec int `yaml:"elicitationTimeoutSec,omitempty"`
 
+		ToolExecutionProtection ToolExecutionProtectionDefaults `yaml:"toolExecutionProtection,omitempty"`
+
 		Match     MatchDefaults     `yaml:"match,omitempty"`
 		Resources ResourcesDefaults `yaml:"resources,omitempty"`
 
@@ -165,10 +171,11 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		PreviewSettings: tmp.PreviewSettings,
 		Projection:      tmp.Projection,
 
-		ToolCallMaxResults:    tmp.ToolCallMaxResults,
-		ToolCallTimeoutSec:    tmp.ToolCallTimeoutSec,
-		ElicitationTimeoutSec: tmp.ElicitationTimeoutSec,
-		ToolApproval:          tmp.ToolApproval,
+		ToolCallMaxResults:      tmp.ToolCallMaxResults,
+		ToolCallTimeoutSec:      tmp.ToolCallTimeoutSec,
+		ElicitationTimeoutSec:   tmp.ElicitationTimeoutSec,
+		ToolApproval:            tmp.ToolApproval,
+		ToolExecutionProtection: tmp.ToolExecutionProtection,
 
 		Match:     tmp.Match,
 		Resources: tmp.Resources,
@@ -190,8 +197,15 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 	if !hasKey("projection") && hasKey("compaction") {
 		d.Projection = tmp.Compaction
 	}
+	d.toolExecutionProtectionSet = hasKey("toolExecutionProtection")
 
 	return nil
+}
+
+// HasToolExecutionProtection reports whether workspace YAML explicitly
+// supplied the section, including enabled: false.
+func (d *Defaults) HasToolExecutionProtection() bool {
+	return d != nil && d.toolExecutionProtectionSet
 }
 
 type SkillsDefaults struct {

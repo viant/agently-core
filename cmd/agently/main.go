@@ -746,11 +746,14 @@ func resolveWorkspace(workspaceRoot string) (string, *execconfig.Defaults, error
 	if err != nil {
 		return "", nil, err
 	}
-	defaults := cfg.DefaultsWithFallback(&execconfig.Defaults{
+	defaults, err := cfg.ResolveDefaultsWithFallback(&execconfig.Defaults{
 		Model:    "openai_gpt-5.2",
 		Embedder: "openai_text",
 		Agent:    "chatter",
 	})
+	if err != nil {
+		return "", nil, err
+	}
 	return root, defaults, nil
 }
 

@@ -613,3 +613,20 @@ CREATE TABLE IF NOT EXISTS conversation_report_context (
 
 CREATE INDEX IF NOT EXISTS idx_conversation_report_context_active_run
     ON conversation_report_context(owner_id, active_report_run_id);
+
+CREATE TABLE IF NOT EXISTS tool_execution_claim (
+    claim_key TEXT NOT NULL PRIMARY KEY,
+    rule_id TEXT NOT NULL,
+    canonical_tool_name TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    semantic_request_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('claimed', 'completed', 'failed', 'unknown')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_execution_claim_turn_hash
+    ON tool_execution_claim(turn_id, semantic_request_hash);
+CREATE INDEX IF NOT EXISTS idx_tool_execution_claim_rule_tool_state_updated
+    ON tool_execution_claim(rule_id, canonical_tool_name, state, updated_at);

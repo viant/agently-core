@@ -4,6 +4,7 @@ SET NAMES utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS tool_execution_claim;
 DROP TABLE IF EXISTS conversation_report_context;
 DROP TABLE IF EXISTS report_export_artifact;
 DROP TABLE IF EXISTS report_audit_event;
@@ -739,4 +740,22 @@ CREATE TABLE IF NOT EXISTS conversation_report_context (
     CONSTRAINT fk_conversation_report_context_run
         FOREIGN KEY (owner_id, active_report_run_id)
         REFERENCES report_run(owner_id, report_run_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS tool_execution_claim (
+    claim_key CHAR(64) NOT NULL,
+    rule_id VARCHAR(255) NOT NULL,
+    canonical_tool_name VARCHAR(255) NOT NULL,
+    turn_id VARCHAR(255) NOT NULL,
+    semantic_request_hash CHAR(64) NOT NULL,
+    state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME NULL DEFAULT NULL,
+    PRIMARY KEY (claim_key),
+    CONSTRAINT chk_tool_execution_claim_state
+        CHECK (state IN ('claimed', 'completed', 'failed', 'unknown')),
+    KEY idx_tool_execution_claim_turn_hash (turn_id, semantic_request_hash),
+    KEY idx_tool_execution_claim_rule_tool_state_updated
+        (rule_id, canonical_tool_name, state, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

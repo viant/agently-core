@@ -6,11 +6,23 @@ import (
 	internal "github.com/viant/agently-core/internal/tool/registry"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	toolprotection "github.com/viant/agently-core/protocol/tool/protection"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 )
 
 // NewDefaultRegistry constructs the default MCP-backed tool registry with built-ins.
 func NewDefaultRegistry(mgr *manager.Manager) (Registry, error) { return internal.NewWithManager(mgr) }
+
+// SetExecutionProtection installs a guard when reg is the standard concrete registry.
+func SetExecutionProtection(reg Registry, guard toolprotection.Guard) bool {
+	type setter interface{ SetExecutionProtection(toolprotection.Guard) }
+	target, ok := reg.(setter)
+	if !ok {
+		return false
+	}
+	target.SetExecutionProtection(guard)
+	return true
+}
 
 // InjectVirtualAgentTools exposes agents as virtual tools when supported by the registry implementation.
 func InjectVirtualAgentTools(reg Registry, agents []*agent.Agent, domain string) {

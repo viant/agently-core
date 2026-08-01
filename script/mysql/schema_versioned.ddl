@@ -2608,4 +2608,54 @@ END $$
 CALL schema_upgrade_32() $$
 DROP PROCEDURE schema_upgrade_32 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_33 $$
+CREATE PROCEDURE schema_upgrade_33()
+BEGIN
+    IF get_schema_version() = 33 THEN
+        CREATE TABLE IF NOT EXISTS tool_execution_claim (
+            claim_key CHAR(64) NOT NULL,
+            rule_id VARCHAR(255) NOT NULL,
+            canonical_tool_name VARCHAR(255) NOT NULL,
+            turn_id VARCHAR(255) NOT NULL,
+            semantic_request_hash CHAR(64) NOT NULL,
+            state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME NULL DEFAULT NULL,
+            PRIMARY KEY (claim_key),
+            CONSTRAINT chk_tool_execution_claim_state
+                CHECK (state IN ('claimed', 'completed', 'failed', 'unknown')),
+            KEY idx_tool_execution_claim_turn_hash (turn_id, semantic_request_hash),
+            KEY idx_tool_execution_claim_rule_tool_state_updated
+                (rule_id, canonical_tool_name, state, updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_execution_claim'
+              AND INDEX_NAME = 'idx_tool_execution_claim_turn_hash'
+        ) THEN
+            ALTER TABLE tool_execution_claim
+                ADD KEY idx_tool_execution_claim_turn_hash (turn_id, semantic_request_hash);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'tool_execution_claim'
+              AND INDEX_NAME = 'idx_tool_execution_claim_rule_tool_state_updated'
+        ) THEN
+            ALTER TABLE tool_execution_claim
+                ADD KEY idx_tool_execution_claim_rule_tool_state_updated
+                    (rule_id, canonical_tool_name, state, updated_at);
+        END IF;
+
+        CALL set_schema_version(34);
+    END IF;
+END $$
+
+CALL schema_upgrade_33() $$
+DROP PROCEDURE schema_upgrade_33 $$
+
 DELIMITER ;
