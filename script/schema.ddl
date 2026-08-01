@@ -438,3 +438,57 @@ CREATE TABLE IF NOT EXISTS session (
 
 CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id);
 CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at);
+
+CREATE TABLE IF NOT EXISTS report_run (
+    report_run_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    conversation_id TEXT,
+    materializer TEXT NOT NULL,
+    origin TEXT,
+    builder_ref TEXT,
+    preset_id TEXT,
+    source_kind TEXT,
+    source_id TEXT,
+    requested_params_json BLOB,
+    effective_params_json BLOB,
+    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+    failure_code TEXT,
+    failure_text TEXT,
+    started_at DATETIME NOT NULL,
+    completed_at DATETIME,
+    revision INTEGER NOT NULL,
+    ui_run_request_id TEXT NOT NULL,
+    report_spec_json BLOB,
+    report_fill_json BLOB,
+    report_print_json BLOB,
+    activation_source TEXT,
+    adoption_source TEXT,
+    actor_id TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (owner_id, ui_run_request_id),
+    UNIQUE (owner_id, report_run_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_run_owner_conversation_updated
+    ON report_run(owner_id, conversation_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_report_run_owner_status_updated
+    ON report_run(owner_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS conversation_report_context (
+    owner_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    active_report_run_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    activation_source TEXT NOT NULL DEFAULT '',
+    actor_id TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (owner_id, conversation_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_id, active_report_run_id)
+        REFERENCES report_run(owner_id, report_run_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_report_context_active_run
+    ON conversation_report_context(owner_id, active_report_run_id);

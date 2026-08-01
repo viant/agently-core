@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
+	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
 	agrun "github.com/viant/agently-core/pkg/agently/run"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -1406,6 +1407,65 @@ func (s *spyExecuteClient) ExecuteTool(ctx context.Context, name string, args ma
 		return "", err
 	}
 	return "ok", nil
+}
+
+type exportRequestCaptureClient struct {
+	*HTTPClient
+	requestIDs []string
+	args       []map[string]interface{}
+}
+
+func (c *exportRequestCaptureClient) ExecuteTool(ctx context.Context, _ string, args map[string]interface{}) (string, error) {
+	c.requestIDs = append(c.requestIDs, exportrequest.ID(ctx))
+	c.args = append(c.args, args)
+	return `{"jobId":"job-1","status":"queued"}`, nil
+}
+
+func TestHandler_ExecuteToolKeepsTrustedExportRequestIdentityOutsideArgs(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &exportRequestCaptureClient{HTTPClient: base}
+	handler := NewHandler(spy)
+	execute := func(header string) {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/tools/reporting:submit_export/execute?conversationId=conversation-1",
+			strings.NewReader(`{"reportRunId":"run-1","format":"pdf"}`),
+		)
+		if header != "" {
+			request.Header.Set(exportrequest.Header, header)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("execute status = %d body=%s", response.Code, response.Body.String())
+		}
+	}
+
+	execute("host-operation-1")
+	execute("host-operation-1")
+	execute("")
+	execute("")
+
+	if len(spy.requestIDs) != 4 {
+		t.Fatalf("request IDs = %#v", spy.requestIDs)
+	}
+	if spy.requestIDs[0] != "host-operation-1" || spy.requestIDs[1] != "host-operation-1" {
+		t.Fatalf("explicit retry identity was not stable: %#v", spy.requestIDs)
+	}
+	if spy.requestIDs[2] == "" || spy.requestIDs[3] == "" || spy.requestIDs[2] == spy.requestIDs[3] {
+		t.Fatalf("server-generated direct identities = %#v, want distinct non-empty values", spy.requestIDs[2:])
+	}
+	for _, args := range spy.args {
+		if _, ok := args["exportRequestId"]; ok {
+			t.Fatalf("trusted identity leaked into model/tool args: %#v", args)
+		}
+		if _, ok := args["reportRunRevision"]; ok {
+			t.Fatalf("run revision leaked into model/tool args: %#v", args)
+		}
+	}
 }
 
 type templateRouteClient struct {

@@ -491,6 +491,9 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     format TEXT NOT NULL,
     scope TEXT NOT NULL,
     status TEXT NOT NULL,
+    report_run_id TEXT,
+    report_run_revision INTEGER,
+    export_request_id TEXT,
     report_spec_json BLOB,
     report_fill_json BLOB,
     report_print_json BLOB,
@@ -501,7 +504,22 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME,
     completed_at DATETIME,
-    retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+    retention_ttl_sec INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(owner_id, conversation_id, export_request_id),
+    CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+    CHECK (
+      (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
+      OR
+      (
+        report_run_id IS NOT NULL
+        AND report_run_revision IS NOT NULL
+        AND report_run_revision > 0
+        AND export_request_id IS NOT NULL
+        AND conversation_id IS NOT NULL
+      )
+    ),
+    CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft')),
+    FOREIGN KEY(report_run_id) REFERENCES report_run(report_run_id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_submitted_at ON report_export_job(owner_id, submitted_at);
@@ -517,7 +535,9 @@ CREATE TABLE IF NOT EXISTS report_export_artifact (
     content_type TEXT NOT NULL,
     inline_data BLOB,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+    retention_ttl_sec INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(job_id),
+    FOREIGN KEY(job_id) REFERENCES report_export_job(job_id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_created_at ON report_export_artifact(owner_id, created_at);
@@ -539,3 +559,57 @@ CREATE TABLE IF NOT EXISTS report_audit_event (
 
 CREATE INDEX IF NOT EXISTS idx_report_audit_event_actor_occurred_at ON report_audit_event(actor_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact_ref ON report_audit_event(artifact_ref);
+
+CREATE TABLE IF NOT EXISTS report_run (
+    report_run_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    conversation_id TEXT,
+    materializer TEXT NOT NULL,
+    origin TEXT,
+    builder_ref TEXT,
+    preset_id TEXT,
+    source_kind TEXT,
+    source_id TEXT,
+    requested_params_json BLOB,
+    effective_params_json BLOB,
+    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+    failure_code TEXT,
+    failure_text TEXT,
+    started_at DATETIME NOT NULL,
+    completed_at DATETIME,
+    revision INTEGER NOT NULL,
+    ui_run_request_id TEXT NOT NULL,
+    report_spec_json BLOB,
+    report_fill_json BLOB,
+    report_print_json BLOB,
+    activation_source TEXT,
+    adoption_source TEXT,
+    actor_id TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (owner_id, ui_run_request_id),
+    UNIQUE (owner_id, report_run_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_run_owner_conversation_updated
+    ON report_run(owner_id, conversation_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_report_run_owner_status_updated
+    ON report_run(owner_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS conversation_report_context (
+    owner_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    active_report_run_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    activation_source TEXT NOT NULL DEFAULT '',
+    actor_id TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (owner_id, conversation_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_id, active_report_run_id)
+        REFERENCES report_run(owner_id, report_run_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_report_context_active_run
+    ON conversation_report_context(owner_id, active_report_run_id);

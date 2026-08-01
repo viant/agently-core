@@ -43,18 +43,20 @@ type exportRecorder struct {
 func (r *exportRecorder) Export(_ context.Context, request *RenderRequest) (*RenderResult, error) {
 	if request != nil {
 		r.request = &RenderRequest{
-			JobID:          request.JobID,
-			ArtifactRef:    request.ArtifactRef,
-			OwnerID:        request.OwnerID,
-			ConversationID: request.ConversationID,
-			WorkspaceID:    request.WorkspaceID,
-			AuthContextRef: request.AuthContextRef,
-			Format:         request.Format,
-			Scope:          request.Scope,
-			ReportSpec:     cloneJSON(request.ReportSpec),
-			ReportFill:     cloneJSON(request.ReportFill),
-			ReportPrint:    cloneJSON(request.ReportPrint),
-			Metadata:       cloneJSON(request.Metadata),
+			JobID:             request.JobID,
+			ArtifactRef:       request.ArtifactRef,
+			OwnerID:           request.OwnerID,
+			ConversationID:    request.ConversationID,
+			WorkspaceID:       request.WorkspaceID,
+			AuthContextRef:    request.AuthContextRef,
+			Format:            request.Format,
+			Scope:             request.Scope,
+			ReportRunID:       request.ReportRunID,
+			ReportRunRevision: request.ReportRunRevision,
+			ReportSpec:        cloneJSON(request.ReportSpec),
+			ReportFill:        cloneJSON(request.ReportFill),
+			ReportPrint:       cloneJSON(request.ReportPrint),
+			Metadata:          cloneJSON(request.Metadata),
 		}
 	}
 	if r.err != nil {
@@ -403,6 +405,109 @@ func TestServiceExportLifecycleScopesArtifactsToOwner(t *testing.T) {
 	require.Equal(t, "report.export.complete", audit.events[1].EventType)
 }
 
+func TestExportJobStatusIsCompactAndDefensive(t *testing.T) {
+	submittedAt := time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC)
+	startedAt := submittedAt.Add(time.Minute)
+	completedAt := startedAt.Add(2 * time.Minute)
+	job := &ExportJob{
+		JobID:             "job-1",
+		ArtifactRef:       "report://saved/performance",
+		OwnerID:           "owner-1",
+		ConversationID:    "conversation-1",
+		WorkspaceID:       "workspace-1",
+		AuthContextRef:    "auth-context-1",
+		Format:            ExportFormatPDF,
+		Scope:             ExportScopeSavedPayload,
+		Status:            JobStatusFailed,
+		ReportRunID:       "run-1",
+		ReportRunRevision: 7,
+		ExportRequestID:   "request-1",
+		ReportSpec:        json.RawMessage(`{"kind":"reportSpec"}`),
+		ReportFill:        json.RawMessage(`{"kind":"reportFill"}`),
+		ReportPrint:       json.RawMessage(`{"kind":"reportPrint"}`),
+		Metadata:          json.RawMessage(`{"reportRunId":"metadata-run"}`),
+		ArtifactID:        "artifact-1",
+		Error:             "render failed",
+		Diagnostics: []Diagnostic{{
+			Code:     "render_failed",
+			Severity: "error",
+			Message:  "render failed",
+		}},
+		SubmittedAt:  submittedAt,
+		StartedAt:    &startedAt,
+		CompletedAt:  &completedAt,
+		RetentionTTL: 24 * time.Hour,
+	}
+
+	status := exportJobStatus(job)
+	require.Equal(t, "job-1", status.JobID)
+	require.Equal(t, "report://saved/performance", status.ArtifactRef)
+	require.Equal(t, "owner-1", status.OwnerID)
+	require.Equal(t, "conversation-1", status.ConversationID)
+	require.Equal(t, "workspace-1", status.WorkspaceID)
+	require.Equal(t, "run-1", status.ReportRunID)
+	require.Equal(t, ExportFormatPDF, status.Format)
+	require.Equal(t, ExportScopeSavedPayload, status.Scope)
+	require.Equal(t, JobStatusFailed, status.Status)
+	require.Equal(t, "artifact-1", status.ArtifactID)
+	require.Equal(t, "render failed", status.Error)
+	require.Equal(t, job.Diagnostics, status.Diagnostics)
+	require.Equal(t, submittedAt, status.SubmittedAt)
+	require.Equal(t, startedAt, *status.StartedAt)
+	require.Equal(t, completedAt, *status.CompletedAt)
+	require.Equal(t, 24*time.Hour, status.RetentionTTL)
+	require.NotSame(t, &job.Diagnostics[0], &status.Diagnostics[0])
+	require.NotSame(t, job.StartedAt, status.StartedAt)
+	require.NotSame(t, job.CompletedAt, status.CompletedAt)
+	require.Nil(t, exportJobStatus(nil))
+
+	wantStartedAt := startedAt
+	wantCompletedAt := completedAt
+	job.Diagnostics[0].Message = "source changed"
+	startedAt = startedAt.Add(time.Hour)
+	completedAt = completedAt.Add(time.Hour)
+	require.Equal(t, "render failed", status.Diagnostics[0].Message)
+	require.Equal(t, wantStartedAt, *status.StartedAt)
+	require.Equal(t, wantCompletedAt, *status.CompletedAt)
+
+	payload, err := json.Marshal(status)
+	require.NoError(t, err)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(payload, &fields))
+	require.Len(t, fields, 16)
+	for _, field := range []string{
+		"jobId",
+		"artifactRef",
+		"ownerId",
+		"conversationId",
+		"workspaceId",
+		"reportRunId",
+		"format",
+		"scope",
+		"status",
+		"artifactId",
+		"error",
+		"diagnostics",
+		"submittedAt",
+		"startedAt",
+		"completedAt",
+		"retentionTtl",
+	} {
+		require.Contains(t, fields, field)
+	}
+	for _, field := range []string{
+		"reportSpec",
+		"reportFill",
+		"reportPrint",
+		"metadata",
+		"authContextRef",
+		"exportRequestId",
+		"reportRunRevision",
+	} {
+		require.NotContains(t, fields, field)
+	}
+}
+
 func TestServiceCompleteExportPublishesScratchpadArtifact(t *testing.T) {
 	now := time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC)
 	fs := afs.New()
@@ -455,6 +560,24 @@ func TestServiceCompleteExportPublishesScratchpadArtifact(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "scratchpad://artifact/artifact-1", artifact.SourceURL)
 	require.Equal(t, []byte("%PDF-1.7 scratchpad"), artifact.Data)
+
+	metadataOnly := &Artifact{}
+	require.NoError(t, svc.getArtifactTool(ownerCtx, &GetArtifactInput{
+		ArtifactID: completed.ArtifactID,
+	}, metadataOnly))
+	require.Equal(t, completed.ArtifactID, metadataOnly.ArtifactID)
+	require.Equal(t, completed.JobID, metadataOnly.JobID)
+	require.Equal(t, ExportFormatPDF, metadataOnly.Format)
+	require.Equal(t, "application/pdf", metadataOnly.ContentType)
+	require.Equal(t, "scratchpad://artifact/artifact-1", metadataOnly.SourceURL)
+	require.Empty(t, metadataOnly.Data)
+
+	withData := &Artifact{}
+	require.NoError(t, svc.getArtifactTool(ownerCtx, &GetArtifactInput{
+		ArtifactID:  completed.ArtifactID,
+		IncludeData: true,
+	}, withData))
+	require.Equal(t, []byte("%PDF-1.7 scratchpad"), withData.Data)
 
 	data, err := fs.DownloadWithURL(afsscratchpad.ContextWithUserID(context.Background(), "owner-1"), artifact.SourceURL)
 	require.NoError(t, err)
@@ -1708,8 +1831,9 @@ func TestServiceRunExportReturnsFailedJobOnArtifactIDCollision(t *testing.T) {
 func TestServiceRejectsFinalizingJobsThatAreNotRunning(t *testing.T) {
 	now := time.Date(2026, 6, 13, 15, 45, 0, 0, time.UTC)
 	idCounter := 0
+	client := reportmemory.New()
 	svc := New(Options{
-		Store: NewStoreAdapter(reportmemory.New()),
+		Store: NewStoreAdapter(client),
 		Now:   func() time.Time { return now },
 		NewID: func() string {
 			idCounter++
@@ -1762,12 +1886,16 @@ func TestServiceRejectsFinalizingJobsThatAreNotRunning(t *testing.T) {
 	})
 	require.EqualError(t, err, "reporting export failure: job job-1 is not running")
 
-	_, err = svc.CompleteExport(context.Background(), &CompleteExportRequest{
+	duplicate, err := svc.CompleteExport(context.Background(), &CompleteExportRequest{
 		JobID:       job.JobID,
 		ContentType: "application/pdf",
 		Data:        []byte("%PDF-duplicate"),
 	})
-	require.EqualError(t, err, "reporting export completion: job job-1 is not running")
+	require.NoError(t, err)
+	require.Equal(t, completed.ArtifactID, duplicate.ArtifactID)
+	artifacts, err := client.ListArtifacts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, artifacts, 1)
 }
 
 func TestServiceRunQueuedExportsProcessesQueuedJobsInSubmittedOrder(t *testing.T) {

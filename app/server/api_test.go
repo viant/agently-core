@@ -123,6 +123,87 @@ func (apiTestModel) Generate(context.Context, *llm.GenerateRequest) (*llm.Genera
 
 func (apiTestModel) Implements(string) bool { return false }
 
+func TestNewAPIHandler_ReportRunRouteFollowsWorkspaceTransitionalGate(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		reporting  string
+		wantStatus int
+		wantRuns   bool
+	}{
+		{
+			name: "default closed with reporting enabled",
+			reporting: `
+    enabled: true
+`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "explicit durable T1 gate",
+			reporting: `
+    enabled: true
+    transitionalWithUI:
+      admission: open
+      persistence: enabled
+      exportFromRun: disabled
+      orchestration: disabled
+      conversationAdoption: enabled
+`,
+			wantStatus: http.StatusOK,
+			wantRuns:   true,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			withWorkspaceRoot(t, func(root string) {
+				mustWriteFile(t, filepath.Join(root, "config.yaml"), "default:\n  reporting:\n"+testCase.reporting)
+				cfg, err := wsconfig.Load(root)
+				if err != nil {
+					t.Fatalf("Load() error = %v", err)
+				}
+				defaults := cfg.DefaultsWithFallback(&execconfig.Defaults{
+					Model:    "test-model",
+					Embedder: "test-embedder",
+					Agent:    "coder",
+				})
+				rt, err := executor.NewBuilder().
+					WithAgentFinder(apiTestAgentFinder{}).
+					WithModelFinder(apiTestModelFinder{}).
+					WithDefaults(defaults).
+					Build(context.Background())
+				if err != nil {
+					t.Fatalf("Build() error = %v", err)
+				}
+				if (rt.ReportRuns != nil) != testCase.wantRuns {
+					t.Fatalf("ReportRuns configured = %v, want %v", rt.ReportRuns != nil, testCase.wantRuns)
+				}
+				client, closeClient, err := sdk.NewLocalHTTPFromRuntime(context.Background(), rt)
+				if err != nil {
+					t.Fatalf("NewLocalHTTPFromRuntime() error = %v", err)
+				}
+				t.Cleanup(closeClient)
+				handler, err := NewAPIHandler(context.Background(), APIOptions{
+					Version:     "test-version",
+					Runtime:     rt,
+					Client:      client,
+					AgentFinder: apiTestAgentFinder{},
+				})
+				if err != nil {
+					t.Fatalf("NewAPIHandler() error = %v", err)
+				}
+				request := httptest.NewRequest(http.MethodPost, "/v1/api/report-runs/begin", bytes.NewBufferString(`{
+					"uiRunRequestId":"workspace-route-request",
+					"origin":"manual"
+				}`))
+				request = request.WithContext(svcauth.InjectUser(request.Context(), "route-owner"))
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				if response.Code != testCase.wantStatus {
+					t.Fatalf("route status = %d, want %d; body=%s", response.Code, testCase.wantStatus, response.Body.String())
+				}
+			})
+		})
+	}
+}
+
 func TestNewAPIHandler_MetadataReportingCapabilityFollowsRuntimeRegistration(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "config.yaml"), `
@@ -351,6 +432,23 @@ default:
 		}
 		if status.Status != "queued" {
 			t.Fatalf("expected queued status, got %q", status.Status)
+		}
+		var statusFields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(statusEnvelope.Result), &statusFields); err != nil {
+			t.Fatalf("decode status fields: %v", err)
+		}
+		for _, field := range []string{
+			"reportSpec",
+			"reportFill",
+			"reportPrint",
+			"metadata",
+			"authContextRef",
+			"exportRequestId",
+			"reportRunRevision",
+		} {
+			if _, ok := statusFields[field]; ok {
+				t.Fatalf("status result unexpectedly contains %q: %s", field, statusEnvelope.Result)
+			}
 		}
 	})
 }
@@ -646,8 +744,8 @@ default:
 		if artifact.ContentType != "application/pdf" {
 			t.Fatalf("expected application/pdf, got %q", artifact.ContentType)
 		}
-		if string(artifact.Data) != "%PDF" {
-			t.Fatalf("expected artifact data, got %q", string(artifact.Data))
+		if len(artifact.Data) != 0 {
+			t.Fatalf("expected metadata-only artifact by default, got %q", string(artifact.Data))
 		}
 
 		deniedReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(artifactBody))

@@ -8,20 +8,23 @@ import (
 )
 
 const (
-	DefaultWorkerBatchLimit = 1
+	DefaultWorkerBatchLimit  = 1
+	DefaultStaleRunningAfter = 15 * time.Minute
 )
 
 type WorkerOptions struct {
-	Interval   time.Duration
-	BatchLimit int
-	Logger     func(format string, args ...interface{})
+	Interval          time.Duration
+	BatchLimit        int
+	Logger            func(format string, args ...interface{})
+	StaleRunningAfter time.Duration
 }
 
 type Worker struct {
-	service    *Service
-	interval   time.Duration
-	batchLimit int
-	logger     func(format string, args ...interface{})
+	service           *Service
+	interval          time.Duration
+	batchLimit        int
+	logger            func(format string, args ...interface{})
+	staleRunningAfter time.Duration
 }
 
 func NewWorker(service *Service, options WorkerOptions) *Worker {
@@ -33,11 +36,16 @@ func NewWorker(service *Service, options WorkerOptions) *Worker {
 	if loggerFn == nil {
 		loggerFn = log.Printf
 	}
+	staleRunningAfter := options.StaleRunningAfter
+	if staleRunningAfter <= 0 {
+		staleRunningAfter = DefaultStaleRunningAfter
+	}
 	return &Worker{
-		service:    service,
-		interval:   options.Interval,
-		batchLimit: batchLimit,
-		logger:     loggerFn,
+		service:           service,
+		interval:          options.Interval,
+		batchLimit:        batchLimit,
+		logger:            loggerFn,
+		staleRunningAfter: staleRunningAfter,
 	}
 }
 
@@ -47,6 +55,9 @@ func (w *Worker) RunOnce(ctx context.Context) (*RunQueuedExportsResult, error) {
 	}
 	if w.batchLimit < 1 {
 		return nil, fmt.Errorf("reporting worker: batch limit must be >= 1")
+	}
+	if _, err := w.service.ReconcileStaleRunningExports(ctx, w.staleRunningAfter); err != nil {
+		return nil, err
 	}
 	return w.service.RunQueuedExports(ctx, w.batchLimit)
 }

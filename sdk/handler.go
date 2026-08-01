@@ -31,6 +31,7 @@ type handlerConfig struct {
 	a2aHandler       *svca2a.Handler
 	callbackHandler  *callbackhttp.Handler
 	uiBridgeHandler  http.Handler
+	reportRunHandler http.Handler
 
 	mcpUIResourceReader MCPUIResourceReader
 	mcpUIToolCaller     MCPUIToolCaller
@@ -89,6 +90,12 @@ func WithCallbackDispatchHandler(h *callbackhttp.Handler) HandlerOption {
 // WithUIBridgeHandler mounts the Forge UI bridge RPC endpoint at /v1/ui/rpc.
 func WithUIBridgeHandler(h http.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.uiBridgeHandler = h }
+}
+
+// WithReportRunHandler mounts the authenticated host-only reporting run API.
+// The route is not part of the tool registry or model-visible definitions.
+func WithReportRunHandler(h http.Handler) HandlerOption {
+	return func(c *handlerConfig) { c.reportRunHandler = h }
 }
 
 func NewHandler(client Backend, opts ...HandlerOption) http.Handler {
@@ -227,6 +234,10 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 }
 
 func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
+	if cfg.reportRunHandler != nil {
+		mux.Handle("/v1/api/report-runs", cfg.reportRunHandler)
+		mux.Handle("/v1/api/report-runs/", cfg.reportRunHandler)
+	}
 	if cfg.authCfg != nil && cfg.authSessions != nil {
 		ah := svcauth.NewHandler(cfg.authCfg, cfg.authSessions, cfg.authOpts...)
 		ah.Register(mux)

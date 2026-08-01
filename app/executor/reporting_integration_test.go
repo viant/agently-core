@@ -30,6 +30,7 @@ func TestBuilderBuild_RegistersReportingService(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, rt.Reporting)
+	require.Nil(t, rt.ReportRuns, "durable browser report runs must remain default closed")
 	require.Same(t, reportingSvc, rt.Reporting)
 
 	defs := rt.Registry.MatchDefinition("reporting:*")
@@ -80,6 +81,7 @@ func TestBuilderBuild_RegistersReportingServiceFromDefaults(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, rt.Reporting)
+	require.Nil(t, rt.ReportRuns, "reporting.enabled alone must not open durable browser report runs")
 
 	defs := rt.Registry.MatchDefinition("reporting:*")
 	names := make([]string, 0, len(defs))
@@ -248,6 +250,12 @@ func TestBuilderBuild_RegistersReportingServiceFromWorkspaceDefaults(t *testing.
 default:
   reporting:
     enabled: true
+    transitionalWithUI:
+      admission: open
+      persistence: enabled
+      exportFromRun: disabled
+      orchestration: disabled
+      conversationAdoption: enabled
 `), 0o644))
 
 	cfg, err := wsconfig.Load(root)
@@ -259,6 +267,10 @@ default:
 		Agent:    "coder",
 	})
 	require.True(t, defaults.Reporting.Enabled)
+	require.True(t, defaults.Reporting.BrowserRunPersistenceEnabled())
+	require.True(t, defaults.Reporting.ConversationAdoptionEnabled())
+	require.Equal(t, "disabled", defaults.Reporting.TransitionalWithUI.ExportFromRun)
+	require.Equal(t, "disabled", defaults.Reporting.TransitionalWithUI.Orchestration)
 
 	rt, err := executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
@@ -267,6 +279,7 @@ default:
 		Build(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, rt.Reporting)
+	require.NotNil(t, rt.ReportRuns)
 
 	defs := rt.Registry.MatchDefinition("reporting:*")
 	names := make([]string, 0, len(defs))
@@ -298,6 +311,7 @@ func TestBuilderBuild_ReportingServiceFromDefaultsPersistsAcrossRuntimeRebuild(t
 default:
   reporting:
     enabled: true
+    queueIntervalMs: 3600000
 `), 0o644))
 
 	cfg, err := wsconfig.Load(root)
@@ -310,11 +324,14 @@ default:
 	})
 	require.True(t, defaults.Reporting.Enabled)
 
+	buildCtx, cancelBuild := context.WithCancel(context.Background())
+	defer cancelBuild()
+
 	first, err := executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(defaults).
-		Build(context.Background())
+		Build(buildCtx)
 	require.NoError(t, err)
 	require.NotNil(t, first.Reporting)
 
@@ -334,7 +351,7 @@ default:
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(defaults).
-		Build(context.Background())
+		Build(buildCtx)
 	require.NoError(t, err)
 	require.NotNil(t, second.Reporting)
 
@@ -342,7 +359,7 @@ default:
 		"jobId": queued.JobID,
 	})
 	require.NoError(t, err)
-	var status reportingsvc.ExportJob
+	var status reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(statusRaw), &status))
 	require.Equal(t, queued.JobID, status.JobID)
 	require.Equal(t, "persist-user", status.OwnerID)
@@ -380,10 +397,14 @@ func TestBuilderBuild_ReportingRegistryRoundTrip(t *testing.T) {
 		"jobId": job.JobID,
 	})
 	require.NoError(t, err)
-	var status reportingsvc.ExportJob
+	var status reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(statusRaw), &status))
 	require.Equal(t, job.JobID, status.JobID)
 	require.Equal(t, reportingsvc.JobStatusQueued, status.Status)
+
+	internalStatus, err := rt.Reporting.GetExportStatus(ctx, job.JobID)
+	require.NoError(t, err)
+	require.NotEmpty(t, internalStatus.ReportPrint)
 
 	_, err = rt.Reporting.StartExport(context.Background(), job.JobID)
 	require.NoError(t, err)
@@ -397,7 +418,8 @@ func TestBuilderBuild_ReportingRegistryRoundTrip(t *testing.T) {
 	require.NotEmpty(t, completed.ArtifactID)
 
 	artifactRaw, err := rt.Registry.Execute(ctx, "reporting:get_artifact", map[string]interface{}{
-		"artifactId": completed.ArtifactID,
+		"artifactId":  completed.ArtifactID,
+		"includeData": true,
 	})
 	require.NoError(t, err)
 	var artifact reportingsvc.Artifact
@@ -546,7 +568,18 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgeXLSXExport(t *testing.T) {
 	require.True(t, len(artifact.Data) > 100)
 }
 
+func isolateDefaultReportingWorkspace(t *testing.T) {
+	t.Helper()
+	prevRoot := workspace.Root()
+	workspace.SetRoot(t.TempDir())
+	t.Cleanup(func() {
+		workspace.SetRoot(prevRoot)
+	})
+}
+
 func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -585,6 +618,8 @@ func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *tes
 }
 
 func TestBuilderBuild_DefaultReportingServiceWorkerUsesFallbackIntervalWhenEnabled(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -621,6 +656,8 @@ func TestBuilderBuild_DefaultReportingServiceWorkerUsesFallbackIntervalWhenEnabl
 }
 
 func TestBuilderBuild_DefaultReportingServiceWorkerPreservesOwnerVisibility(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

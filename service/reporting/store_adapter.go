@@ -66,6 +66,77 @@ func (s *storeAdapter) UpdateJob(ctx context.Context, job *ExportJob) error {
 	return translateStoreError(s.client.UpdateJob(ctx, encodeJob(job)))
 }
 
+func (s *storeAdapter) SubmitJobFromRun(ctx context.Context, candidate *ExportJob) (*ExportJob, bool, error) {
+	client, ok := s.client.(reportstore.RunExportClient)
+	if !ok {
+		return nil, false, reportstore.ErrSchemaRequired
+	}
+	job, replay, err := client.SubmitJobFromRun(ctx, encodeJob(candidate))
+	if err != nil {
+		return nil, false, translateStoreError(err)
+	}
+	decoded, err := decodeJob(job)
+	return decoded, replay, err
+}
+
+func (s *storeAdapter) ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*ExportJob, error) {
+	client, ok := s.client.(reportstore.RunExportClient)
+	if !ok {
+		return nil, reportstore.ErrInvalidTransition
+	}
+	job, err := client.ClaimJob(ctx, strings.TrimSpace(jobID), startedAt)
+	if err != nil {
+		return nil, translateStoreError(err)
+	}
+	return decodeJob(job)
+}
+
+func (s *storeAdapter) CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *Artifact, diagnostics []Diagnostic, completedAt time.Time, retentionTTL time.Duration) (*ExportJob, error) {
+	client, ok := s.client.(reportstore.RunExportClient)
+	if !ok {
+		return nil, reportstore.ErrInvalidTransition
+	}
+	encodedDiagnostics, _ := json.Marshal(diagnostics)
+	job, err := client.CompleteJobWithArtifact(ctx, strings.TrimSpace(jobID), encodeArtifact(artifact), encodedDiagnostics, completedAt, retentionTTL)
+	if err != nil {
+		return nil, translateStoreError(err)
+	}
+	return decodeJob(job)
+}
+
+func (s *storeAdapter) FailJob(ctx context.Context, jobID, errorText string, diagnostics []Diagnostic, completedAt time.Time) (*ExportJob, error) {
+	client, ok := s.client.(reportstore.RunExportClient)
+	if !ok {
+		return nil, reportstore.ErrInvalidTransition
+	}
+	encodedDiagnostics, _ := json.Marshal(diagnostics)
+	job, err := client.FailJob(ctx, strings.TrimSpace(jobID), strings.TrimSpace(errorText), encodedDiagnostics, completedAt)
+	if err != nil {
+		return nil, translateStoreError(err)
+	}
+	return decodeJob(job)
+}
+
+func (s *storeAdapter) ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*ExportJob, error) {
+	client, ok := s.client.(reportstore.RunExportClient)
+	if !ok {
+		return nil, reportstore.ErrInvalidTransition
+	}
+	jobs, err := client.ReconcileRunningJobs(ctx, staleBefore, reconciledAt, strings.TrimSpace(errorText))
+	if err != nil {
+		return nil, translateStoreError(err)
+	}
+	result := make([]*ExportJob, 0, len(jobs))
+	for _, job := range jobs {
+		decoded, decodeErr := decodeJob(job)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		result = append(result, decoded)
+	}
+	return result, nil
+}
+
 func (s *storeAdapter) PutArtifact(ctx context.Context, artifact *Artifact) error {
 	return translateStoreError(s.client.PutArtifact(ctx, encodeArtifact(artifact)))
 }
@@ -150,28 +221,34 @@ func encodeJob(input *ExportJob) *reportjob.Record {
 	if input == nil {
 		return nil
 	}
-	diagnostics, _ := json.Marshal(input.Diagnostics)
+	var diagnostics []byte
+	if len(input.Diagnostics) > 0 {
+		diagnostics, _ = json.Marshal(input.Diagnostics)
+	}
 	return &reportjob.Record{
-		JobID:          strings.TrimSpace(input.JobID),
-		ArtifactRef:    strings.TrimSpace(input.ArtifactRef),
-		OwnerID:        strings.TrimSpace(input.OwnerID),
-		ConversationID: strings.TrimSpace(input.ConversationID),
-		WorkspaceID:    strings.TrimSpace(input.WorkspaceID),
-		AuthContextRef: strings.TrimSpace(input.AuthContextRef),
-		Format:         strings.TrimSpace(string(input.Format)),
-		Scope:          strings.TrimSpace(string(input.Scope)),
-		Status:         strings.TrimSpace(string(input.Status)),
-		ReportSpec:     cloneJSON(input.ReportSpec),
-		ReportFill:     cloneJSON(input.ReportFill),
-		ReportPrint:    cloneJSON(input.ReportPrint),
-		Metadata:       cloneJSON(input.Metadata),
-		ArtifactID:     strings.TrimSpace(input.ArtifactID),
-		Error:          strings.TrimSpace(input.Error),
-		Diagnostics:    diagnostics,
-		SubmittedAt:    input.SubmittedAt,
-		StartedAt:      cloneTime(input.StartedAt),
-		CompletedAt:    cloneTime(input.CompletedAt),
-		RetentionTTL:   input.RetentionTTL,
+		JobID:             strings.TrimSpace(input.JobID),
+		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
+		OwnerID:           strings.TrimSpace(input.OwnerID),
+		ConversationID:    strings.TrimSpace(input.ConversationID),
+		WorkspaceID:       strings.TrimSpace(input.WorkspaceID),
+		AuthContextRef:    strings.TrimSpace(input.AuthContextRef),
+		Format:            strings.TrimSpace(string(input.Format)),
+		Scope:             strings.TrimSpace(string(input.Scope)),
+		Status:            strings.TrimSpace(string(input.Status)),
+		ReportRunID:       strings.TrimSpace(input.ReportRunID),
+		ReportRunRevision: input.ReportRunRevision,
+		ExportRequestID:   strings.TrimSpace(input.ExportRequestID),
+		ReportSpec:        cloneJSON(input.ReportSpec),
+		ReportFill:        cloneJSON(input.ReportFill),
+		ReportPrint:       cloneJSON(input.ReportPrint),
+		Metadata:          cloneJSON(input.Metadata),
+		ArtifactID:        strings.TrimSpace(input.ArtifactID),
+		Error:             strings.TrimSpace(input.Error),
+		Diagnostics:       diagnostics,
+		SubmittedAt:       input.SubmittedAt,
+		StartedAt:         cloneTime(input.StartedAt),
+		CompletedAt:       cloneTime(input.CompletedAt),
+		RetentionTTL:      input.RetentionTTL,
 	}
 }
 
@@ -186,26 +263,29 @@ func decodeJob(input *reportjob.Record) (*ExportJob, error) {
 		}
 	}
 	return &ExportJob{
-		JobID:          strings.TrimSpace(input.JobID),
-		ArtifactRef:    strings.TrimSpace(input.ArtifactRef),
-		OwnerID:        strings.TrimSpace(input.OwnerID),
-		ConversationID: strings.TrimSpace(input.ConversationID),
-		WorkspaceID:    strings.TrimSpace(input.WorkspaceID),
-		AuthContextRef: strings.TrimSpace(input.AuthContextRef),
-		Format:         ExportFormat(strings.TrimSpace(input.Format)),
-		Scope:          ExportScope(strings.TrimSpace(input.Scope)),
-		Status:         JobStatus(strings.TrimSpace(input.Status)),
-		ReportSpec:     cloneJSON(input.ReportSpec),
-		ReportFill:     cloneJSON(input.ReportFill),
-		ReportPrint:    cloneJSON(input.ReportPrint),
-		Metadata:       cloneJSON(input.Metadata),
-		ArtifactID:     strings.TrimSpace(input.ArtifactID),
-		Error:          strings.TrimSpace(input.Error),
-		Diagnostics:    cloneDiagnostics(diagnostics),
-		SubmittedAt:    input.SubmittedAt,
-		StartedAt:      cloneTime(input.StartedAt),
-		CompletedAt:    cloneTime(input.CompletedAt),
-		RetentionTTL:   input.RetentionTTL,
+		JobID:             strings.TrimSpace(input.JobID),
+		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
+		OwnerID:           strings.TrimSpace(input.OwnerID),
+		ConversationID:    strings.TrimSpace(input.ConversationID),
+		WorkspaceID:       strings.TrimSpace(input.WorkspaceID),
+		AuthContextRef:    strings.TrimSpace(input.AuthContextRef),
+		Format:            ExportFormat(strings.TrimSpace(input.Format)),
+		Scope:             ExportScope(strings.TrimSpace(input.Scope)),
+		Status:            JobStatus(strings.TrimSpace(input.Status)),
+		ReportRunID:       strings.TrimSpace(input.ReportRunID),
+		ReportRunRevision: input.ReportRunRevision,
+		ExportRequestID:   strings.TrimSpace(input.ExportRequestID),
+		ReportSpec:        cloneJSON(input.ReportSpec),
+		ReportFill:        cloneJSON(input.ReportFill),
+		ReportPrint:       cloneJSON(input.ReportPrint),
+		Metadata:          cloneJSON(input.Metadata),
+		ArtifactID:        strings.TrimSpace(input.ArtifactID),
+		Error:             strings.TrimSpace(input.Error),
+		Diagnostics:       cloneDiagnostics(diagnostics),
+		SubmittedAt:       input.SubmittedAt,
+		StartedAt:         cloneTime(input.StartedAt),
+		CompletedAt:       cloneTime(input.CompletedAt),
+		RetentionTTL:      input.RetentionTTL,
 	}, nil
 }
 
@@ -322,6 +402,12 @@ func translateStoreError(err error) error {
 	}
 	if errors.Is(err, reportstore.ErrAlreadyExists) {
 		return ErrAlreadyExists
+	}
+	if errors.Is(err, reportstore.ErrConflict) {
+		return ErrConflict
+	}
+	if errors.Is(err, reportstore.ErrNotFound) {
+		return ErrNotFound
 	}
 	return err
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,4 +95,91 @@ reporting:
 	require.Equal(t, 3, got.Reporting.QueueBatchLimit)
 	require.Equal(t, "sql", got.Reporting.Store.Backend)
 	require.Equal(t, "agently", got.Reporting.Store.ConnectorRef)
+}
+
+func TestReportingBrowserRunPersistence_DefaultClosedAndExplicitlyEnabled(t *testing.T) {
+	var defaults Defaults
+	require.False(t, defaults.Reporting.BrowserRunPersistenceEnabled())
+	require.False(t, defaults.Reporting.ConversationAdoptionEnabled())
+	require.False(t, defaults.Reporting.ExportFromRunEnabled())
+	require.False(t, defaults.Reporting.OrchestrationEnabled())
+	require.NoError(t, defaults.Reporting.ValidateOrchestrationPrerequisites())
+
+	input := `
+reporting:
+  enabled: true
+  transitionalWithUI:
+    admission: open
+    persistence: enabled
+    exportFromRun: disabled
+    orchestration: disabled
+    conversationAdoption: enabled
+`
+	require.NoError(t, yaml.Unmarshal([]byte(input), &defaults))
+	require.True(t, defaults.Reporting.BrowserRunPersistenceEnabled())
+	require.True(t, defaults.Reporting.ConversationAdoptionEnabled())
+	require.False(t, defaults.Reporting.ExportFromRunEnabled())
+	require.False(t, defaults.Reporting.OrchestrationEnabled())
+	require.NoError(t, defaults.Reporting.ValidateOrchestrationPrerequisites())
+	require.Equal(t, "disabled", defaults.Reporting.TransitionalWithUI.ExportFromRun)
+	require.Equal(t, "disabled", defaults.Reporting.TransitionalWithUI.Orchestration)
+
+	defaults.Reporting.TransitionalWithUI.ExportFromRun = "enabled"
+	require.True(t, defaults.Reporting.ExportFromRunEnabled())
+	defaults.Reporting.TransitionalWithUI.Admission = "closed"
+	require.False(t, defaults.Reporting.BrowserRunPersistenceEnabled())
+	require.False(t, defaults.Reporting.ConversationAdoptionEnabled())
+	require.False(t, defaults.Reporting.ExportFromRunEnabled())
+	require.False(t, defaults.Reporting.OrchestrationEnabled())
+}
+
+func TestReportingOrchestration_FailClosedPrerequisites(t *testing.T) {
+	enabled := ReportingDefaults{
+		Enabled: true,
+		TransitionalWithUI: ReportingTransitionalWithUIDefaults{
+			Admission:            "open",
+			Persistence:          "enabled",
+			ExportFromRun:        "enabled",
+			Orchestration:        "enabled",
+			ConversationAdoption: "disabled",
+		},
+	}
+	require.True(t, enabled.OrchestrationEnabled())
+	require.NoError(t, enabled.ValidateOrchestrationPrerequisites())
+
+	for name, mutate := range map[string]func(*ReportingDefaults){
+		"reporting disabled": func(value *ReportingDefaults) {
+			value.Enabled = false
+		},
+		"admission closed": func(value *ReportingDefaults) {
+			value.TransitionalWithUI.Admission = "closed"
+		},
+		"persistence disabled": func(value *ReportingDefaults) {
+			value.TransitionalWithUI.Persistence = "disabled"
+		},
+		"run export disabled": func(value *ReportingDefaults) {
+			value.TransitionalWithUI.ExportFromRun = "disabled"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			actual := enabled
+			mutate(&actual)
+			require.False(t, actual.OrchestrationEnabled())
+			err := actual.ValidateOrchestrationPrerequisites()
+			require.Error(t, err)
+			require.Contains(t, strings.ToLower(err.Error()), "requires")
+		})
+	}
+}
+
+func TestReportingOrchestration_DisabledAndUnknownPreserveT2Behavior(t *testing.T) {
+	for _, flag := range []string{"", "disabled", "typo"} {
+		actual := ReportingDefaults{
+			TransitionalWithUI: ReportingTransitionalWithUIDefaults{
+				Orchestration: flag,
+			},
+		}
+		require.False(t, actual.OrchestrationEnabled(), flag)
+		require.NoError(t, actual.ValidateOrchestrationPrerequisites(), flag)
+	}
 }

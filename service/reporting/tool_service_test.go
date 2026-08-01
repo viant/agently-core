@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -32,6 +33,8 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	require.Equal(t, "export_report", signatures[6].Name)
 	require.Equal(t, "submit_export", signatures[7].Name)
 	require.Equal(t, "get_export_status", signatures[8].Name)
+	require.Contains(t, signatures[8].Description, "compact")
+	require.Equal(t, reflect.TypeOf(&ExportJobStatus{}), signatures[8].Output)
 	require.Equal(t, "list_export_jobs", signatures[9].Name)
 	require.Equal(t, "list_export_artifacts", signatures[10].Name)
 	require.Equal(t, "get_artifact", signatures[11].Name)
@@ -109,9 +112,25 @@ func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
 
 	statusMethod, err := service.Method("get_export_status")
 	require.NoError(t, err)
-	statusOut := &ExportJob{}
+	statusOut := &ExportJobStatus{}
 	require.NoError(t, statusMethod(ctx, &GetExportStatusInput{JobID: jobOut.JobID}, statusOut))
 	require.Equal(t, JobStatusSucceeded, statusOut.Status)
+
+	statusJSON, err := json.Marshal(statusOut)
+	require.NoError(t, err)
+	var statusFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(statusJSON, &statusFields))
+	for _, field := range []string{
+		"reportSpec",
+		"reportFill",
+		"reportPrint",
+		"metadata",
+		"authContextRef",
+		"exportRequestId",
+		"reportRunRevision",
+	} {
+		require.NotContains(t, statusFields, field)
+	}
 
 	listMethod, err := service.Method("list_export_jobs")
 	require.NoError(t, err)
@@ -133,7 +152,14 @@ func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	artifactOut := &Artifact{}
 	require.NoError(t, artifactMethod(ctx, &GetArtifactInput{ArtifactID: jobOut.ArtifactID}, artifactOut))
-	require.Equal(t, []byte("%PDF-run"), artifactOut.Data)
+	require.Empty(t, artifactOut.Data)
+
+	artifactWithData := &Artifact{}
+	require.NoError(t, artifactMethod(ctx, &GetArtifactInput{
+		ArtifactID:  jobOut.ArtifactID,
+		IncludeData: true,
+	}, artifactWithData))
+	require.Equal(t, []byte("%PDF-run"), artifactWithData.Data)
 }
 
 func TestServiceToolMethodRecordsAuditEvents(t *testing.T) {

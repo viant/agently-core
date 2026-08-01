@@ -13,6 +13,7 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
+	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -99,6 +100,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 			_ = json.NewDecoder(r.Body).Decode(&args)
 		}
 		ctx := r.Context()
+		ctx = withTrustedExportRequest(ctx, r)
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
@@ -132,6 +134,7 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
+		ctx = withTrustedExportRequest(ctx, r)
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
@@ -146,6 +149,17 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
 		debugMCPExecf("http execute-by-name wrote response name=%s elapsed=%s", name, time.Since(start).Round(time.Millisecond))
 	}
+}
+
+func withTrustedExportRequest(ctx context.Context, r *http.Request) context.Context {
+	requestID := ""
+	if r != nil {
+		requestID = strings.TrimSpace(r.Header.Get(exportrequest.Header))
+	}
+	if requestID == "" {
+		requestID = exportrequest.NewID()
+	}
+	return exportrequest.WithID(ctx, requestID)
 }
 
 func debugMCPExecf(format string, args ...interface{}) {

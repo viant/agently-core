@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
+	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
 	reportsql "github.com/viant/agently-core/app/store/reporting/sql"
 	"github.com/viant/agently-core/genai/embedder"
@@ -40,6 +41,7 @@ import (
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
+	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/hotswap"
@@ -74,6 +76,7 @@ type Runtime struct {
 	SkillWatcher      *skillsvc.Watcher
 	CallbackDispatch  *callbacksvc.Service
 	Reporting         *reportingsvc.Service
+	ReportRuns        *reportingrunsvc.Service
 	ReportingWorker   *reportingsvc.Worker
 	Store             workspace.Store
 	KnowledgeStore    workspace.KnowledgeStore
@@ -458,7 +461,8 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			afsscratchpad.WithAFS(scratchpadFS),
 			afsscratchpad.WithRootURI(scratchpadTemplate),
 		)
-		reportStore := reportingsvc.NewStoreAdapter(reportfs.New(b.stateStore))
+		reportClient := reportfs.New(b.stateStore)
+		reportStore := reportingsvc.NewStoreAdapter(reportClient)
 		reportAudit := reportfs.NewAuditSink(b.stateStore)
 		reportStoreDefaults := resolveReportingStoreDefaults(out.Defaults)
 		if strings.EqualFold(strings.TrimSpace(reportStoreDefaults.Backend), "sql") {
@@ -469,20 +473,29 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			if err != nil {
 				return nil, err
 			}
+			reportClient = sqlClient
 			reportStore = reportingsvc.NewStoreAdapter(sqlClient)
 			if sqlStore, ok := sqlClient.(*reportsql.Store); ok {
 				reportAudit = reportsql.NewAuditSink(sqlStore)
 			}
 		}
 		out.Reporting = reportingsvc.New(reportingsvc.Options{
-			Compiler:      reportingsvc.NewReportSpecCompiler(nil),
-			Exporter:      reportingsvc.NewForgeExporter(nil),
-			Store:         reportStore,
-			Audit:         reportAudit,
-			Scratchpad:    reportScratchpad,
-			ScratchpadFS:  scratchpadFS,
-			TokenProvider: b.tokenProvider,
+			Compiler:             reportingsvc.NewReportSpecCompiler(nil),
+			Exporter:             reportingsvc.NewForgeExporter(nil),
+			Store:                reportStore,
+			Audit:                reportAudit,
+			Scratchpad:           reportScratchpad,
+			ScratchpadFS:         scratchpadFS,
+			TokenProvider:        b.tokenProvider,
+			ExportFromRunEnabled: out.Defaults.Reporting.ExportFromRunEnabled(),
 		})
+		if out.Defaults.Reporting.BrowserRunPersistenceEnabled() {
+			runClient, ok := reportClient.(reportstore.RunClient)
+			if !ok {
+				return nil, fmt.Errorf("reporting store does not implement browser report run persistence")
+			}
+			out.ReportRuns = reportingrunsvc.New(reportingrunsvc.Options{Store: runClient})
+		}
 	}
 	if out.Registry != nil && out.Reporting != nil {
 		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
