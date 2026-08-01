@@ -641,9 +641,6 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     format VARCHAR(64) NOT NULL,
     scope VARCHAR(64) NOT NULL,
     status VARCHAR(64) NOT NULL,
-    report_run_id VARCHAR(255) NULL,
-    report_run_revision BIGINT NULL,
-    export_request_id VARCHAR(128) NULL,
     report_spec_json MEDIUMBLOB NULL,
     report_fill_json MEDIUMBLOB NULL,
     report_print_json MEDIUMBLOB NULL,
@@ -655,6 +652,9 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     started_at DATETIME NULL,
     completed_at DATETIME NULL,
     retention_ttl_sec BIGINT NOT NULL DEFAULT 0,
+    report_run_id VARCHAR(255) NULL,
+    report_run_revision BIGINT NULL,
+    export_request_id VARCHAR(128) NULL,
     CONSTRAINT ux_report_export_job_owner_conversation_request
         UNIQUE (owner_id, conversation_id, export_request_id),
     CONSTRAINT chk_report_export_job_status
@@ -704,8 +704,6 @@ CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_created_at
     ON report_export_artifact(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_artifact_ref
     ON report_export_artifact(owner_id, artifact_ref(191));
-CREATE INDEX IF NOT EXISTS idx_report_export_artifact_job_id
-    ON report_export_artifact(job_id);
 
 CREATE TABLE IF NOT EXISTS report_audit_event (
     event_id VARCHAR(255) PRIMARY KEY,
@@ -748,7 +746,7 @@ CREATE TABLE IF NOT EXISTS tool_execution_claim (
     canonical_tool_name VARCHAR(255) NOT NULL,
     turn_id VARCHAR(255) NOT NULL,
     semantic_request_hash CHAR(64) NOT NULL,
-    state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    state VARCHAR(16) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at DATETIME NULL DEFAULT NULL,
