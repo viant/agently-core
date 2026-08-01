@@ -491,9 +491,6 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     format TEXT NOT NULL,
     scope TEXT NOT NULL,
     status TEXT NOT NULL,
-    report_run_id TEXT,
-    report_run_revision INTEGER,
-    export_request_id TEXT,
     report_spec_json BLOB,
     report_fill_json BLOB,
     report_print_json BLOB,
@@ -505,6 +502,9 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     started_at DATETIME,
     completed_at DATETIME,
     retention_ttl_sec INTEGER NOT NULL DEFAULT 0,
+    report_run_id TEXT,
+    report_run_revision INTEGER,
+    export_request_id TEXT,
     UNIQUE(owner_id, conversation_id, export_request_id),
     CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
     CHECK (
@@ -542,7 +542,6 @@ CREATE TABLE IF NOT EXISTS report_export_artifact (
 
 CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_created_at ON report_export_artifact(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_artifact_ref ON report_export_artifact(owner_id, artifact_ref);
-CREATE INDEX IF NOT EXISTS idx_report_export_artifact_job_id ON report_export_artifact(job_id);
 
 CREATE TABLE IF NOT EXISTS report_audit_event (
     event_id TEXT PRIMARY KEY,
